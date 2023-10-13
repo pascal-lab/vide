@@ -266,3 +266,32 @@ fn normalize(path: &Path) -> PathBuf {
     }
     ret
 }
+
+pub fn patch_path_prefix(path: PathBuf) -> PathBuf {
+    use std::path::{Component, Prefix};
+    if cfg!(windows) {
+        // VSCode might report paths with the file drive in lowercase, but this can mess
+        // So we just uppercase the drive letter here unconditionally.
+        let mut comps = path.components();
+        match comps.next() {
+            Some(Component::Prefix(prefix)) => {
+                let prefix = match prefix.kind() {
+                    Prefix::Disk(d) => {
+                        format!("{}:", d.to_ascii_uppercase() as char)
+                    }
+                    Prefix::VerbatimDisk(d) => {
+                        format!(r"\\?\{}:", d.to_ascii_uppercase() as char)
+                    }
+                    _ => return path,
+                };
+                let mut path = PathBuf::new();
+                path.push(prefix);
+                path.extend(comps);
+                path
+            }
+            _ => path,
+        }
+    } else {
+        path
+    }
+}

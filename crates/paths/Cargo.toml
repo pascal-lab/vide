@@ -1,8 +1,0 @@
-[package]
-name = "paths"
-version = "0.0.0"
-description = "Encapsulating path-related structs and interfaces, avoiding direct access to Path."
-
-edition.workspace = true
-
-[dependencies]

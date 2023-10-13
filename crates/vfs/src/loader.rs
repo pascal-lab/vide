@@ -1,7 +1,7 @@
 // Object safe interface for file watching and reading.
 use std::fmt;
 
-use paths::{AbsPath, AbsPathBuf};
+use utils::paths::{AbsPath, AbsPathBuf};
 
 #[derive(Debug, Clone)]
 pub enum Entry {

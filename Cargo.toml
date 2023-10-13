@@ -20,16 +20,19 @@ edition = "2021"
 anyhow = "1.0.75"
 clap = { version = "4.4.6", features = ["derive"] }
 const_format = "0.2.31"
-lsp-server = "0.7.4"
+nohash-hasher = "0.2.0"
+lsp-server = { version = "0.7.4" }
 lsp-types = "0.94.1"
 tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", default-features = false, features = [
-    "registry",
-    "fmt",
-    "tracing-log",
-] }
+tracing-subscriber = { version = "0.3.17", default-features = false, features = ["registry", "fmt", "tracing-log",] }
+utils.workspace = true
+serde_json = "1.0.107"
+serde = "1.0.189"
 
 [workspace.dependencies]
-paths = { path = "./crates/paths", version = "0.0.0" }
-
-nohash-hasher = "0.2.0"
+vfs = { path = "./crates/vfs", version = "0.0.0" }
+utils = { path = "./crates/utils", version = "0.0.0" }
+anyhow = { package = "anyhow" }
+nohash-hasher = { package = "nohash-hasher" }
+serde = { package = "serde" }
+serde_json = { package = "serde_json" }

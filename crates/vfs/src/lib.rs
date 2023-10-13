@@ -9,7 +9,7 @@ pub use crate::{
     vfs_path::VfsPath,
 };
 use indexmap::IndexSet;
-pub use paths::{AbsPath, AbsPathBuf};
+pub use utils::paths::{AbsPath, AbsPathBuf};
 use rustc_hash::FxHasher;
 
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]

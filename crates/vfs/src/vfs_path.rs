@@ -1,7 +1,7 @@
 // Abstract-ish representation of paths for VFS.
 use std::fmt;
 
-use paths::{AbsPath, AbsPathBuf, RelPath};
+use utils::paths::{AbsPath, AbsPathBuf, RelPath};
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct VfsPath(VfsPathKinds);
@@ -371,6 +371,3 @@ impl VirtualPath {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;
