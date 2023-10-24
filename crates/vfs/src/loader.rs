@@ -19,8 +19,8 @@ pub struct Directories {
 #[derive(Debug)]
 pub struct Config {
     pub version: u32,
-    pub load: Vec<Entry>,
-    pub watch: Vec<usize>,
+    pub to_load: Vec<Entry>,
+    pub to_watch: Vec<usize>,
 }
 
 pub enum Message {
@@ -32,8 +32,7 @@ pub type Sender = Box<dyn Fn(Message) + Send>;
 
 pub trait Handle: fmt::Debug {
     fn spawn(sender: Sender) -> Self
-    where
-        Self: Sized;
+    where Self: Sized;
 
     fn set_config(&mut self, config: Config);
 

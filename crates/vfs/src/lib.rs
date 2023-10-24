@@ -1,5 +1,5 @@
-mod anchored_path;
 pub mod loader;
+mod anchored_path;
 mod vfs_path;
 
 use std::{fmt, mem, hash::BuildHasherDefault};
