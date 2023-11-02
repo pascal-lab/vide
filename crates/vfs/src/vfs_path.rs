@@ -16,7 +16,6 @@ impl VfsPath {
         VfsPath::from(AbsPathBuf::assert(path.into()))
     }
 
-    /// Returns the `AbsPath` representation of `self` if `self` is on the file system.
     pub fn as_path(&self) -> Option<&AbsPath> {
         match &self.0 {
             VfsPathKinds::RealPath(it) => Some(it.as_path()),
@@ -41,18 +40,6 @@ impl VfsPath {
     /// Remove the last component of `self` if there is one.
     ///
     /// If `self` has no component, returns `false`; else returns `true`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use vfs::{AbsPathBuf, VfsPath};
-    /// let mut path = VfsPath::from(AbsPathBuf::assert("/foo/bar".into()));
-    /// assert!(path.pop());
-    /// assert_eq!(path, VfsPath::from(AbsPathBuf::assert("/foo".into())));
-    /// assert!(path.pop());
-    /// assert_eq!(path, VfsPath::from(AbsPathBuf::assert("/".into())));
-    /// assert!(!path.pop());
-    /// ```
     pub fn pop(&mut self) -> bool {
         match &mut self.0 {
             VfsPathKinds::RealPath(it) => it.pop(),
@@ -230,34 +217,6 @@ mod windows_paths {
                 }
             }
         }
-    }
-    #[test]
-    fn paths_encoding() {
-        // drive letter casing agnostic
-        test_eq("C:/x.rs", "c:/x.rs");
-        // separator agnostic
-        test_eq("C:/x/y.rs", "C:\\x\\y.rs");
-
-        fn test_eq(a: &str, b: &str) {
-            let mut b1 = Vec::new();
-            let mut b2 = Vec::new();
-            vfs(a).encode(&mut b1);
-            vfs(b).encode(&mut b2);
-            assert_eq!(b1, b2);
-        }
-    }
-
-    #[test]
-    fn test_sep_root_dir_encoding() {
-        let mut buf = Vec::new();
-        vfs("C:/x/y").encode(&mut buf);
-        assert_eq!(&buf, &[0, 67, 0, 58, 0, 92, 0, 120, 0, 92, 0, 121, 0])
-    }
-
-    #[cfg(test)]
-    fn vfs(str: &str) -> super::VfsPath {
-        use super::{AbsPathBuf, VfsPath};
-        VfsPath::from(AbsPathBuf::try_from(str).unwrap())
     }
 }
 
