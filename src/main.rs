@@ -30,11 +30,8 @@ mod mem_docs;
 
 const DEFAULT_PROCESS_NAME: &str = "vizsla";
 const DEBUG: bool = cfg!(debug_assertions);
-const VERSION: &str = formatcp!(
-    "{}_{}",
-    env!("CARGO_PKG_VERSION"),
-    if DEBUG { "DEBUG" } else { "RELEASE" }
-);
+const VERSION: &str =
+    formatcp!("{}_{}", env!("CARGO_PKG_VERSION"), if DEBUG { "DEBUG" } else { "RELEASE" });
 
 #[derive(Clone, Debug, Parser)]
 #[clap(name = "vizsla", version = VERSION)]
@@ -50,10 +47,8 @@ pub struct Opt {
 }
 
 fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
-    let target: Targets = opt
-        .log
-        .parse()
-        .with_context(|| format!("invalid log filter: `{}`", opt.log))?;
+    let target: Targets =
+        opt.log.parse().with_context(|| format!("invalid log filter: `{}`", opt.log))?;
 
     let writer = match &opt.log_filename {
         Some(path) => {
@@ -84,10 +79,7 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
 
     // Initialize server
     let (initialize_id, initialize_params) = connection.initialize_start()?;
-    tracing::info!(
-        "Server initialized. InitializeParams: {}",
-        &initialize_params
-    );
+    tracing::info!("Server initialized. InitializeParams: {}", &initialize_params);
     let lsp_types::InitializeParams {
         root_uri,
         capabilities: client_caps,
@@ -138,10 +130,7 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
                         message: format!("{}", errors_formatter),
                     },
                 );
-                connection
-                    .sender
-                    .send(lsp_server::Message::Notification(noti))
-                    .unwrap();
+                connection.sender.send(lsp_server::Message::Notification(noti)).unwrap();
             }
             (user_config, detached_files, snippets)
         })

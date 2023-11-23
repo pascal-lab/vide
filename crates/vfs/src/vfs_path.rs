@@ -313,11 +313,7 @@ impl VirtualPath {
     /// The extension will not contains `.`. This means `"/foo/bar.baz.rs"` will
     /// return `Some(("bar.baz", Some("rs"))`.
     fn name_and_extension(&self) -> Option<(&str, Option<&str>)> {
-        let file_path = if self.0.ends_with('/') {
-            &self.0[..&self.0.len() - 1]
-        } else {
-            &self.0
-        };
+        let file_path = if self.0.ends_with('/') { &self.0[..&self.0.len() - 1] } else { &self.0 };
         let file_name = match file_path.rfind('/') {
             Some(position) => &file_path[position + 1..],
             None => file_path,

@@ -99,12 +99,7 @@ fn get_field<T: DeserializeOwned>(
 
 pub fn parse_initialization_options(
     mut options: serde_json::Value,
-) -> (
-    UserConfig,
-    Vec<AbsPathBuf>,
-    Vec<Snippet>,
-    Vec<(String, Error)>,
-) {
+) -> (UserConfig, Vec<AbsPathBuf>, Vec<Snippet>, Vec<(String, Error)>) {
     tracing::info!("Server initialized with options: {:#}", options);
     if options.is_null() || options.as_object().map_or(false, |obj| obj.is_empty()) {
         return Default::default();

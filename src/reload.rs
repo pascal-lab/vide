@@ -24,37 +24,31 @@ impl GlobalState {
     pub(crate) fn fetch_workspaces(&mut self, cause: String) {
         tracing::info!(%cause, "will fetch workspaces");
 
-        self.task_pool
-            .handle
-            .spawn_and_send_cps(ThreadIntent::Worker, {
-                let projects = self.config.discovered_workspaces.clone();
-                let detached_files = self.config.detached_files.clone();
+        self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, {
+            let projects = self.config.discovered_workspaces.clone();
+            let detached_files = self.config.detached_files.clone();
 
-                move |sender| {
-                    sender.send(FetchWorkspaceProgress::Begin.into()).unwrap();
+            move |sender| {
+                sender.send(FetchWorkspaceProgress::Begin.into()).unwrap();
 
-                    let workspaces = projects.iter().map(Workspace::load);
+                let workspaces = projects.iter().map(Workspace::load);
 
-                    let (workspaces, errors): (Vec<_>, Vec<_>) = if detached_files.is_empty() {
-                        workspaces.partition_result()
-                    } else {
-                        let detached_workspace = Workspace::load_detached_files(&detached_files);
-                        workspaces
-                            .chain(iter::once(detached_workspace))
-                            .partition_result()
-                    };
+                let (workspaces, errors): (Vec<_>, Vec<_>) = if detached_files.is_empty() {
+                    workspaces.partition_result()
+                } else {
+                    let detached_workspace = Workspace::load_detached_files(&detached_files);
+                    workspaces.chain(iter::once(detached_workspace)).partition_result()
+                };
 
-                    tracing::info!("did fetch workspaces {:?}", workspaces);
+                tracing::info!("did fetch workspaces {:?}", workspaces);
 
-                    if !errors.is_empty() {
-                        tracing::error!("failed to fetch workspaces {:?}", errors);
-                    }
-
-                    sender
-                        .send(FetchWorkspaceProgress::End(workspaces, errors).into())
-                        .unwrap();
+                if !errors.is_empty() {
+                    tracing::error!("failed to fetch workspaces {:?}", errors);
                 }
-            })
+
+                sender.send(FetchWorkspaceProgress::End(workspaces, errors).into()).unwrap();
+            }
+        })
     }
 
     pub(crate) fn fetch_workspace_error_stringify(&self) -> Result<(), String> {

@@ -10,15 +10,11 @@ pub struct AnalysisHost {
 
 impl AnalysisHost {
     pub fn new(lru_capacity: Option<usize>) -> AnalysisHost {
-        AnalysisHost {
-            db: RootDb::new(lru_capacity),
-        }
+        AnalysisHost { db: RootDb::new(lru_capacity) }
     }
 
     pub fn make_analysis(&self) -> Analysis {
-        Analysis {
-            db: self.db.snapshot(),
-        }
+        Analysis { db: self.db.snapshot() }
     }
 
     pub fn apply_change(&mut self, change: Change) {

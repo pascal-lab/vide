@@ -87,10 +87,7 @@ impl Vfs {
         }
 
         *self.get_file_contents_mut(file_id) = contents;
-        self.changes.push(ChangedFile {
-            file_id,
-            change_kind,
-        });
+        self.changes.push(ChangedFile { file_id, change_kind });
         true
     }
 
@@ -126,8 +123,6 @@ impl Vfs {
 
 impl fmt::Debug for Vfs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Vfs")
-            .field("n_files", &self.data.len())
-            .finish()
+        f.debug_struct("Vfs").field("n_files", &self.data.len()).finish()
     }
 }

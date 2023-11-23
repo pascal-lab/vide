@@ -60,12 +60,8 @@ impl Config {
     }
 
     pub fn cli_did_save_dyn_reg_support(&self) -> bool {
-        let caps = try_or_default!(self
-            .client_caps
-            .text_document
-            .as_ref()?
-            .synchronization
-            .clone()?);
+        let caps =
+            try_or_default!(self.client_caps.text_document.as_ref()?.synchronization.clone()?);
         caps.did_save == Some(true) && caps.dynamic_registration == Some(true)
     }
 
@@ -98,17 +94,13 @@ impl Config {
                     label_details_support: self.cli_completion_label_details_support().into(),
                 }
                 .into(),
-                work_done_progress_options: WorkDoneProgressOptions {
-                    work_done_progress: None,
-                },
+                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
             }
             .into(),
             signature_help_provider: SignatureHelpOptions {
                 trigger_characters: Some(["(", ",", "`"].map(String::from).into()),
                 retrigger_characters: None,
-                work_done_progress_options: WorkDoneProgressOptions {
-                    work_done_progress: None,
-                },
+                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
             }
             .into(),
             declaration_provider: Some(DeclarationCapability::Simple(true)),
@@ -145,10 +137,7 @@ impl Config {
                     .into()
                 })
             }),
-            code_lens_provider: CodeLensOptions {
-                resolve_provider: true.into(),
-            }
-            .into(),
+            code_lens_provider: CodeLensOptions { resolve_provider: true.into() }.into(),
             document_formatting_provider: OneOf::Left(true).into(),
             document_range_formatting_provider: OneOf::Left(true).into(),
             document_on_type_formatting_provider: DocumentOnTypeFormattingOptions {
@@ -158,9 +147,7 @@ impl Config {
             .into(),
             rename_provider: OneOf::Right(RenameOptions {
                 prepare_provider: true.into(),
-                work_done_progress_options: WorkDoneProgressOptions {
-                    work_done_progress: None,
-                },
+                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
             })
             .into(),
             document_link_provider: None,

@@ -68,10 +68,7 @@ impl GlobalState {
                 _ => self.handle_event(event)?,
             }
         }
-        anyhow::bail!(
-            "{} exited without proper shutdown sequence",
-            &self.config.opt.process_name
-        );
+        anyhow::bail!("{} exited without proper shutdown sequence", &self.config.opt.process_name);
     }
 
     fn register_did_save_cap(&mut self) {
@@ -102,9 +99,7 @@ impl GlobalState {
             register_options: Some(serde_json::to_value(save_registration_options).unwrap()),
         };
         self.send_request::<lsp_types::request::RegisterCapability>(
-            lsp_types::RegistrationParams {
-                registrations: vec![registration],
-            },
+            lsp_types::RegistrationParams { registrations: vec![registration] },
             |_, _| (),
         );
     }
@@ -121,11 +116,7 @@ impl GlobalState {
         let loop_start = Instant::now();
 
         let event_dbg_msg = format!("{event:?}");
-        tracing::debug!(
-            "{} [handle_event]: {}",
-            format!("{loop_start:?}"),
-            event_dbg_msg
-        );
+        tracing::debug!("{} [handle_event]: {}", format!("{loop_start:?}"), event_dbg_msg);
 
         // check if is quiescent when loading workspace
         match event {
@@ -154,10 +145,7 @@ impl GlobalState {
     }
 
     fn dispatch_request(&mut self, req: Request) {
-        let mut dispatcher = ReqDispatcher {
-            req: Some(req),
-            global_state: self,
-        };
+        let mut dispatcher = ReqDispatcher { req: Some(req), global_state: self };
 
         // Handle shutdown req first
         dispatcher.on_sync_mut::<lsp_types::request::Shutdown>(|this, ()| {
@@ -166,10 +154,7 @@ impl GlobalState {
         });
 
         match &mut dispatcher {
-            ReqDispatcher {
-                req: Some(req),
-                global_state: this,
-            } if this.shutdown_requested => {
+            ReqDispatcher { req: Some(req), global_state: this } if this.shutdown_requested => {
                 this.respond(lsp_server::Response::new_err(
                     req.id.clone(),
                     lsp_server::ErrorCode::InvalidRequest as i32,
@@ -185,11 +170,7 @@ impl GlobalState {
     }
 
     fn handle_lsp_notification(&mut self, notif: Notification) -> anyhow::Result<()> {
-        NotifDispatcher {
-            notif: Some(notif),
-            global_state: self,
-        }
-        .finish();
+        NotifDispatcher { notif: Some(notif), global_state: self }.finish();
 
         Ok(())
     }
@@ -226,8 +207,7 @@ impl GlobalState {
                 let state = match process {
                     FetchWorkspaceProgress::Begin => Progress::Begin,
                     FetchWorkspaceProgress::End(workspaces, errors) => {
-                        self.fetch_workspace_task
-                            .complete(Some((workspaces, errors)));
+                        self.fetch_workspace_task.complete(Some((workspaces, errors)));
 
                         if let Err(e) = self.fetch_workspace_error_stringify() {
                             tracing::error!("Fetch workspace error: \n{e}");
@@ -255,11 +235,7 @@ impl GlobalState {
 
     fn process_vfs_msg(&mut self, msg: vfs::loader::Message) {
         match msg {
-            vfs::loader::Message::Progress {
-                n_total,
-                n_done,
-                config_version,
-            } => {
+            vfs::loader::Message::Progress { n_total, n_done, config_version } => {
                 always!(config_version <= self.vfs_config_version);
 
                 self.vfs_progress_config_version = config_version;

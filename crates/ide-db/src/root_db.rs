@@ -56,9 +56,7 @@ pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
 
 impl RootDb {
     pub fn new(lru_capacity: Option<usize>) -> RootDb {
-        let mut db = RootDb {
-            storage: ManuallyDrop::new(salsa::Storage::default()),
-        };
+        let mut db = RootDb { storage: ManuallyDrop::new(salsa::Storage::default()) };
         db.set_package_graph_with_durability(Default::default(), Durability::HIGH);
         db.update_parse_query_lru_capacity(lru_capacity);
         db
@@ -72,8 +70,6 @@ impl RootDb {
 
 impl salsa::ParallelDatabase for RootDb {
     fn snapshot(&self) -> salsa::Snapshot<RootDb> {
-        salsa::Snapshot::new(RootDb {
-            storage: ManuallyDrop::new(self.storage.snapshot()),
-        })
+        salsa::Snapshot::new(RootDb { storage: ManuallyDrop::new(self.storage.snapshot()) })
     }
 }

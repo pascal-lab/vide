@@ -11,17 +11,11 @@ pub struct SourceRoot {
 
 impl SourceRoot {
     pub fn new_local(file_set: FileSet) -> SourceRoot {
-        SourceRoot {
-            is_library: false,
-            file_set,
-        }
+        SourceRoot { is_library: false, file_set }
     }
 
     pub fn new_library(file_set: FileSet) -> SourceRoot {
-        SourceRoot {
-            is_library: true,
-            file_set,
-        }
+        SourceRoot { is_library: true, file_set }
     }
 
     pub fn path_for_file(&self, file: &FileId) -> Option<&VfsPath> {

@@ -29,10 +29,7 @@ pub(crate) struct TaskPool<T> {
 
 impl<T> TaskPool<T> {
     pub(crate) fn new_with_threads_num(sender: Sender<T>, threads_num: usize) -> TaskPool<T> {
-        TaskPool {
-            sender,
-            pool: Pool::new(threads_num),
-        }
+        TaskPool { sender, pool: Pool::new(threads_num) }
     }
 
     pub(crate) fn spawn_and_send<F>(&mut self, intent: ThreadIntent, task: F)
@@ -151,9 +148,7 @@ impl GlobalState {
     }
 
     pub(crate) fn register_request(&mut self, req_received: Instant, req: &Request) {
-        self.req_queue
-            .incoming
-            .register(req.id.clone(), (req.method.clone(), req_received));
+        self.req_queue.incoming.register(req.id.clone(), (req.method.clone(), req_received));
     }
 
     pub(crate) fn is_completed(&self, req: &Request) -> bool {
@@ -249,19 +244,13 @@ impl GlobalState {
                         (Delete, _, Modify) | (Modify, _, Create) => unreachable!(),
                     }
                 })
-                .or_insert((
-                    changed_file.change_kind,
-                    matches!(changed_file.change_kind, Create),
-                ));
+                .or_insert((changed_file.change_kind, matches!(changed_file.change_kind, Create)));
         }
 
         let changed_file = file_changes
             .into_iter()
             .filter(|(_, (kind, just_created))| !(*kind == Delete && *just_created))
-            .map(|(file_id, (change_kind, _))| vfs::ChangedFile {
-                file_id,
-                change_kind,
-            })
+            .map(|(file_id, (change_kind, _))| vfs::ChangedFile { file_id, change_kind })
             .collect::<Vec<_>>();
 
         Some(changed_file)
@@ -298,10 +287,7 @@ impl GlobalState {
         params: R::Params,
         handler: ReqHandler,
     ) {
-        let request = self
-            .req_queue
-            .outgoing
-            .register(R::METHOD.to_string(), params, handler);
+        let request = self.req_queue.outgoing.register(R::METHOD.to_string(), params, handler);
         self.send(request.into());
     }
 
@@ -347,9 +333,7 @@ impl GlobalState {
         let work_done_progress = match state {
             Progress::Begin => {
                 self.send_request::<request::WorkDoneProgressCreate>(
-                    lsp_types::WorkDoneProgressCreateParams {
-                        token: token.clone(),
-                    },
+                    lsp_types::WorkDoneProgressCreateParams { token: token.clone() },
                     |_, _| (),
                 );
 

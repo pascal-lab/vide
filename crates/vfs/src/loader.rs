@@ -24,14 +24,8 @@ pub struct Config {
 }
 
 pub enum Message {
-    Progress {
-        n_total: usize,
-        n_done: usize,
-        config_version: u32,
-    },
-    Loaded {
-        files: Vec<(AbsPathBuf, Option<Vec<u8>>)>,
-    },
+    Progress { n_total: usize, n_done: usize, config_version: u32 },
+    Loaded { files: Vec<(AbsPathBuf, Option<Vec<u8>>)> },
 }
 
 pub type Sender = Box<dyn Fn(Message) + Send>;
@@ -97,25 +91,17 @@ impl Directories {
             None => return false,
         };
 
-        !self
-            .exclude
-            .iter()
-            .any(|excl| path.starts_with(excl) && excl.starts_with(longest_incl))
+        !self.exclude.iter().any(|excl| path.starts_with(excl) && excl.starts_with(longest_incl))
     }
 }
 
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Message::Loaded { files } => f
-                .debug_struct("Loaded")
-                .field("n_files", &files.len())
-                .finish(),
-            Message::Progress {
-                n_total,
-                n_done,
-                config_version,
-            } => f
+            Message::Loaded { files } => {
+                f.debug_struct("Loaded").field("n_files", &files.len()).finish()
+            }
+            Message::Progress { n_total, n_done, config_version } => f
                 .debug_struct("Progress")
                 .field("n_total", n_total)
                 .field("n_done", n_done)

@@ -140,19 +140,16 @@ impl ReqDispatcher<'_> {
 
         let world = self.global_state.make_snapshot();
 
-        self.global_state
-            .task_pool
-            .handle
-            .spawn_and_send(intent, move || {
-                let result = panic::catch_unwind(move || {
-                    let _pctx = utils::panic_context::enter(panic_context);
-                    f(world, params)
-                });
-                match thread_result_to_response::<R>(req.id.clone(), result) {
-                    Ok(response) => Task::Response(response),
-                    Err(_) => err_handler(req),
-                }
+        self.global_state.task_pool.handle.spawn_and_send(intent, move || {
+            let result = panic::catch_unwind(move || {
+                let _pctx = utils::panic_context::enter(panic_context);
+                f(world, params)
             });
+            match thread_result_to_response::<R>(req.id.clone(), result) {
+                Ok(response) => Task::Response(response),
+                Err(_) => err_handler(req),
+            }
+        });
 
         self
     }
@@ -211,11 +208,9 @@ where
 
     match e.err().unwrap().downcast::<Cancelled>() {
         Ok(cancelled) => Err(cancelled),
-        Err(e) => Ok(Response::new_err(
-            id,
-            lsp_server::ErrorCode::InternalError as i32,
-            e.to_string(),
-        )),
+        Err(e) => {
+            Ok(Response::new_err(id, lsp_server::ErrorCode::InternalError as i32, e.to_string()))
+        }
     }
 }
 
@@ -243,11 +238,7 @@ where
                 message.push_str(panic_message)
             };
 
-            Ok(Response::new_err(
-                id,
-                lsp_server::ErrorCode::InternalError as i32,
-                message,
-            ))
+            Ok(Response::new_err(id, lsp_server::ErrorCode::InternalError as i32, message))
         }
     }
 }

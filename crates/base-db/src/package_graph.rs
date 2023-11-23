@@ -24,10 +24,7 @@ impl PackageGraph {
     ) -> Result<(), CyclicDependenciesError> {
         if let Some(path) = self.find_path(from, dep.package_id) {
             // &&* is used to make self immutable to make borrow checker happy
-            return Err(CyclicDependenciesError {
-                graph: &&*self,
-                path,
-            });
+            return Err(CyclicDependenciesError { graph: &&*self, path });
         }
 
         self.arena[from].add_dep(dep);
@@ -83,11 +80,7 @@ impl PackageGraph {
 impl fmt::Debug for PackageGraph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map()
-            .entries(
-                self.arena
-                    .iter()
-                    .map(|(id, data)| (u32::from(id.into_raw()), data)),
-            )
+            .entries(self.arena.iter().map(|(id, data)| (u32::from(id.into_raw()), data)))
             .finish()
     }
 }
