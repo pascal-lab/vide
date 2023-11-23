@@ -9,23 +9,12 @@ use lsp_types::{
     WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
+use utils::{try_, try_or_default};
 
 use crate::{
     config::Config,
     line_idx::{PositionEncoding, WideEncoding},
 };
-
-macro_rules! try_ {
-    ($expr:expr) => {
-        || -> _ { Some($expr) }()
-    };
-}
-
-macro_rules! try_or_default {
-    ($expr:expr) => {
-        try_!($expr).unwrap_or_default()
-    };
-}
 
 impl Config {
     pub fn cli_completion_label_details_support(&self) -> bool {
