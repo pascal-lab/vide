@@ -11,4 +11,9 @@ anyhow.workspace = true
 const_format.workspace = true
 rustc-hash.workspace = true
 itertools.workspace = true
-smol_str.workspace = true
+smol_str = { workspace = true, features = ["serde"] }
+toml.workspace = true
+serde = { workspace = true, features = ["derive"] }
+regex.workspace = true
+once_cell.workspace = true
+utils.workspace = true

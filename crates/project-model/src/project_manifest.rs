@@ -27,12 +27,12 @@ impl ProjectManifest {
 
     fn from_toml(path: AbsPathBuf) -> Result<Self, String> {
         Self::validate_toml(&path)?;
-        Ok(Self::Toml(path))
+        Ok(ProjectManifest::Toml(path))
     }
 
     fn from_toml_ref(path: &AbsPathBuf) -> Result<Self, String> {
         Self::validate_toml(path)?;
-        Ok(Self::Toml(path.clone()))
+        Ok(ProjectManifest::Toml(path.clone()))
     }
 
     pub fn discover(path: &AbsPathBuf) -> anyhow::Result<Vec<ProjectManifest>> {

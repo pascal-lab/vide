@@ -7,7 +7,7 @@ pub enum MacroAtom {
     KeyValue { key: SmolStr, value: SmolStr },
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct MacroDef {
-    macros: FxHashSet<MacroAtom>,
+    pub macros: FxHashSet<MacroAtom>,
 }
