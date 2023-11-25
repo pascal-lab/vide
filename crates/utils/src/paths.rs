@@ -293,3 +293,38 @@ pub fn patch_path_prefix(path: PathBuf) -> PathBuf {
         path
     }
 }
+
+pub fn sort_and_remove_subfolders(paths: &mut Vec<AbsPathBuf>) {
+    paths.sort();
+    paths.dedup_by(|a, b| a.starts_with(b));
+}
+
+// test for sort_and_remove_subfolders
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_and_remove_subfolders() {
+        let mut paths: Vec<AbsPathBuf> = vec![
+            "/home/username/Documents/b",
+            "/home/username/Downloads/a/b",
+            "/home/username/Documents/a",
+            "/home/username/Downloads/a",
+            "/home/username/Downloads",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .map(AbsPathBuf::assert)
+        .collect::<Vec<_>>();
+        sort_and_remove_subfolders(&mut paths);
+        assert_eq!(
+            paths,
+            vec![
+                AbsPathBuf::assert(PathBuf::from("/home/username/Documents/a")),
+                AbsPathBuf::assert(PathBuf::from("/home/username/Documents/b")),
+                AbsPathBuf::assert(PathBuf::from("/home/username/Downloads")),
+            ]
+        );
+    }
+}

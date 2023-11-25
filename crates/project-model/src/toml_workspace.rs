@@ -8,7 +8,7 @@ use regex::Regex;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use smol_str::SmolStr;
-use utils::paths::AbsPathBuf;
+use utils::paths::{sort_and_remove_subfolders, AbsPathBuf};
 
 use crate::macro_def::{MacroAtom, MacroDef};
 
@@ -75,11 +75,12 @@ impl TomlWorkspace {
 
         let workspace_root = toml.parent().unwrap().to_path_buf();
 
-        let excluded_files = toml_schema
+        let mut excluded_files = toml_schema
             .excluded_files
             .into_iter()
             .map(|path| workspace_root.absolutize(path))
             .collect_vec();
+        sort_and_remove_subfolders(&mut excluded_files);
 
         let mut included_files = Vec::new();
         let mut package_files = Vec::new();
@@ -93,6 +94,7 @@ impl TomlWorkspace {
                 }
             }
         }
+        sort_and_remove_subfolders(&mut included_files);
 
         if included_files.is_empty() {
             included_files.push(workspace_root.clone());
