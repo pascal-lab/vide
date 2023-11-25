@@ -1,8 +1,10 @@
-use std::iter;
+use std::{collections::VecDeque, iter};
 
 use itertools::Itertools;
-use project_model::workspace::Workspace;
+use project_model::{project_manifest::ProjectManifest, workspace::Workspace};
+use rustc_hash::FxHashSet;
 use utils::thread::ThreadIntent;
+use vfs::AbsPathBuf;
 
 use crate::{global_state::GlobalState, main_loop::Task};
 
@@ -24,28 +26,66 @@ impl GlobalState {
         tracing::info!(%cause, "will fetch workspaces");
 
         self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, {
-            let manifests = self.config.discovered_manifests.clone();
+            let mut manifests = self.config.discovered_manifests.clone();
             let detached_files = self.config.detached_files.clone();
 
             move |sender| {
                 sender.send(FetchWorkspaceProgress::Begin.into()).unwrap();
 
-                let workspaces = manifests.iter().map(Workspace::load);
+                let mut loaded_manifests = FxHashSet::default();
+                let mut all_workspaces = Vec::new();
+                let mut error_sink = Vec::new();
+                let mut is_lib = false;
 
-                let (workspaces, errors): (Vec<_>, Vec<_>) = if detached_files.is_empty() {
-                    workspaces.partition_result()
-                } else {
-                    let detached_workspace = Workspace::load_detached_files(detached_files);
-                    workspaces.chain(iter::once(detached_workspace)).partition_result()
-                };
+                while !manifests.is_empty() {
+                    // Load workspaces
+                    let (workspaces, errors): (Vec<_>, Vec<_>) = manifests
+                        .iter()
+                        .map(|mani| Workspace::load(mani, is_lib))
+                        .partition_result();
 
-                tracing::info!("did fetch workspaces {:?}", workspaces);
+                    error_sink.extend(errors);
+                    loaded_manifests.extend(manifests);
 
-                if !errors.is_empty() {
-                    tracing::error!("failed to fetch workspaces {:?}", errors);
+                    // Get libraries from loaded workspaces
+                    let (lib_manifests, errors): (Vec<_>, Vec<_>) = workspaces
+                        .iter()
+                        .filter_map(|it| match it {
+                            Workspace::Project(it) => Some(&it.package_files),
+                            Workspace::DetachedFiles(_) => None,
+                        })
+                        .flatten()
+                        .map(ProjectManifest::discover)
+                        .partition_result();
+
+                    all_workspaces.extend(workspaces);
+                    error_sink.extend(errors);
+
+                    manifests = lib_manifests
+                        .into_iter()
+                        .flatten()
+                        .filter(|mani| loaded_manifests.contains(mani))
+                        .collect_vec();
+
+                    is_lib = true;
                 }
 
-                sender.send(FetchWorkspaceProgress::End(workspaces, errors).into()).unwrap();
+                if !detached_files.is_empty() {
+                    match Workspace::load_detached_files(detached_files) {
+                        Ok(ws) => all_workspaces.push(ws),
+                        Err(err) => error_sink.push(err),
+                    }
+                }
+
+                tracing::info!("did fetch workspaces {:?}", all_workspaces);
+
+                if !error_sink.is_empty() {
+                    tracing::error!("failed to fetch workspaces {:?}", error_sink);
+                }
+
+                sender
+                    .send(FetchWorkspaceProgress::End(all_workspaces, error_sink).into())
+                    .unwrap();
             }
         })
     }
@@ -74,8 +114,7 @@ impl GlobalState {
 
         self.workspaces = workspaces.clone();
 
-        // file_watcher
-        todo!();
+        todo!("switch workspaces");
         tracing::info!("did switch workspaces");
     }
 }

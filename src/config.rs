@@ -30,7 +30,7 @@ pub struct Config {
     pub(crate) root_path: AbsPathBuf,
     pub(crate) user_config: UserConfig,
     pub(crate) detached_files: Arc<Vec<AbsPathBuf>>,
-    pub(crate) discovered_manifests: Arc<Vec<ProjectManifest>>,
+    pub(crate) discovered_manifests: Vec<ProjectManifest>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ impl Config {
         detached_files: Arc<Vec<AbsPathBuf>>,
         snippets: Vec<Snippet>,
     ) -> Self {
-        let discovered_manifests = Arc::new(Self::discover_manifest(&workspace_roots));
+        let discovered_manifests = Self::discover_manifest(&workspace_roots);
         Config {
             opt,
             workspace_roots,

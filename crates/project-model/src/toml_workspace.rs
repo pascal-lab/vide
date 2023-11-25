@@ -61,10 +61,12 @@ pub struct TomlWorkspace {
     pub macro_defs: MacroDef,
     pub included_files: Vec<AbsPathBuf>,
     pub excluded_files: Vec<AbsPathBuf>,
+    pub package_files: Vec<AbsPathBuf>,
+    pub is_lib: bool,
 }
 
 impl TomlWorkspace {
-    pub fn load_from_file(toml: &AbsPathBuf) -> anyhow::Result<Self> {
+    pub fn load_from_file(toml: &AbsPathBuf, is_lib: bool) -> anyhow::Result<Self> {
         let toml_file =
             std::fs::read_to_string(toml).with_context(|| format!("failed to read {:?}", toml))?;
 
@@ -79,24 +81,30 @@ impl TomlWorkspace {
             .map(|path| workspace_root.absolutize(path))
             .collect_vec();
 
-        let included_files = toml_schema.included_files.map_or_else(
-            || vec![workspace_root.clone()],
-            |included_files| {
-                included_files
-                    .into_iter()
-                    .map(|path| workspace_root.absolutize(path))
-                    .filter(|path| {
-                        excluded_files.iter().all(|excluded| !path.starts_with(excluded))
-                    })
-                    .collect_vec()
-            },
-        );
+        let mut included_files = Vec::new();
+        let mut package_files = Vec::new();
+        for path in toml_schema.included_files.unwrap_or_default().into_iter() {
+            let path = workspace_root.absolutize(path);
+            if excluded_files.iter().all(|excluded| !path.starts_with(excluded)) {
+                if path.starts_with(&workspace_root) {
+                    included_files.push(path);
+                } else {
+                    package_files.push(path);
+                }
+            }
+        }
+
+        if included_files.is_empty() {
+            included_files.push(workspace_root.clone());
+        }
 
         Ok(TomlWorkspace {
             workspace_root,
             macro_defs: toml_schema.macros,
             included_files,
             excluded_files,
+            package_files,
+            is_lib,
         })
     }
 
@@ -106,6 +114,8 @@ impl TomlWorkspace {
             macro_defs: MacroDef::default(),
             included_files: vec![path.clone()],
             excluded_files: vec![],
+            package_files: vec![],
+            is_lib: false,
         }
     }
 }
