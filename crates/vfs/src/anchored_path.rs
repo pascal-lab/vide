@@ -1,4 +1,4 @@
-use crate::FileId;
+use crate::vfs::FileId;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AnchoredPathBuf {

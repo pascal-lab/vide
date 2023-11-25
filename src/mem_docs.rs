@@ -1,7 +1,7 @@
 use std::mem;
 
 use rustc_hash::FxHashMap;
-use vfs::VfsPath;
+use vfs::vfs::VfsPath;
 
 #[derive(Default, Clone)]
 pub(crate) struct MemDocs {

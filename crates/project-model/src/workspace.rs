@@ -1,6 +1,6 @@
 use anyhow::Context;
 use triomphe::Arc;
-use vfs::AbsPathBuf;
+use utils::paths::AbsPathBuf;
 
 use crate::{project_manifest::ProjectManifest, toml_workspace::TomlWorkspace};
 

@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fs};
 
 use const_format::formatcp;
 use itertools::Itertools;
-use vfs::AbsPathBuf;
+use utils::paths::AbsPathBuf;
 
 pub const MANIFEST_FILE_NAME: &str = formatcp!("vizsla_config.toml");
 

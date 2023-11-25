@@ -1,7 +1,6 @@
 use salsa::Durability;
 use triomphe::Arc;
-
-use vfs::FileId;
+use vfs::vfs::FileId;
 
 use crate::{package_graph::PackageGraph, source_database::SourceRootDb, source_root::SourceRoot};
 

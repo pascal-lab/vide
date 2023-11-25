@@ -8,7 +8,7 @@ use base_db::{
 };
 use rustc_hash::FxHashSet;
 use triomphe::Arc;
-use vfs::{AnchoredPath, FileId};
+use vfs::vfs::{AnchoredPath, FileId};
 
 #[salsa::database(
     base_db::source_database::SourceDbStorage,

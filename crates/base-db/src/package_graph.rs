@@ -6,7 +6,7 @@ use std::{
     fmt,
     ops::{self, Index},
 };
-use vfs::FileId;
+use vfs::vfs::FileId;
 
 #[derive(Default)]
 pub struct PackageGraph {

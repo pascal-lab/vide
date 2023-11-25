@@ -8,7 +8,7 @@ use regex::Regex;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use smol_str::SmolStr;
-use vfs::AbsPathBuf;
+use utils::paths::AbsPathBuf;
 
 use crate::macro_def::{MacroAtom, MacroDef};
 

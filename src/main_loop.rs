@@ -7,7 +7,7 @@ use lsp_server::{Connection, Notification, Request, Response};
 use lsp_types::notification::Notification as _;
 use project_model::project_manifest;
 use triomphe::Arc;
-use vfs::VfsPath;
+use vfs::vfs::VfsPath;
 
 use crate::{
     dispatcher::{NotifDispatcher, ReqDispatcher},

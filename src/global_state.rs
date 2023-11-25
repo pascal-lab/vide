@@ -18,7 +18,10 @@ use ide::{
     self,
     analysis_host::{Analysis, AnalysisHost},
 };
-use vfs::{self, ChangedFile, FileId};
+use vfs::{
+    self,
+    vfs::{ChangedFile, FileId},
+};
 
 pub(crate) type ReqHandler = fn(&mut GlobalState, lsp_server::Response);
 
@@ -74,7 +77,7 @@ pub(crate) struct GlobalState {
     pub(crate) shutdown_requested: bool,
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
-    pub(crate) vfs: Arc<RwLock<(vfs::Vfs, IntMap<FileId, LineEndings>)>>,
+    pub(crate) vfs: Arc<RwLock<(vfs::vfs::Vfs, IntMap<FileId, LineEndings>)>>,
     pub(crate) vfs_config_version: u32,
     pub(crate) vfs_progress_config_version: u32,
     pub(crate) vfs_progress_n_total: usize,
@@ -93,7 +96,7 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) analysis: Analysis,
     // pub(crate) check_fixes: CheckFixes,
     mem_docs: MemDocs,
-    vfs: Arc<RwLock<(vfs::Vfs, IntMap<FileId, LineEndings>)>>,
+    vfs: Arc<RwLock<(vfs::vfs::Vfs, IntMap<FileId, LineEndings>)>>,
     // pub(crate) workspaces: Arc<Vec<ProjectWorkspace>>,
 }
 
@@ -127,7 +130,7 @@ impl GlobalState {
             shutdown_requested: false,
 
             vfs_loader: vfs_loader,
-            vfs: Arc::new(RwLock::new((vfs::Vfs::default(), IntMap::default()))),
+            vfs: Arc::new(RwLock::new((vfs::vfs::Vfs::default(), IntMap::default()))),
             vfs_config_version: 0,
             vfs_progress_config_version: 0,
             vfs_progress_n_total: 0,
@@ -227,7 +230,7 @@ impl GlobalState {
         }
 
         // collapse modifications
-        use vfs::ChangeKind::*;
+        use vfs::vfs::ChangeKind::*;
 
         let mut file_changes = FxHashMap::default();
         for changed_file in vfs_changes {
@@ -251,7 +254,7 @@ impl GlobalState {
         let changed_file = file_changes
             .into_iter()
             .filter(|(_, (kind, just_created))| !(*kind == Delete && *just_created))
-            .map(|(file_id, (change_kind, _))| vfs::ChangedFile { file_id, change_kind })
+            .map(|(file_id, (change_kind, _))| ChangedFile { file_id, change_kind })
             .collect_vec();
 
         Some(changed_file)

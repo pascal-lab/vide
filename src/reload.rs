@@ -4,7 +4,6 @@ use itertools::Itertools;
 use project_model::{project_manifest::ProjectManifest, workspace::Workspace};
 use rustc_hash::FxHashSet;
 use utils::thread::ThreadIntent;
-use vfs::AbsPathBuf;
 
 use crate::{global_state::GlobalState, main_loop::Task};
 

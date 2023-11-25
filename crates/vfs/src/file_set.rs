@@ -1,7 +1,10 @@
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 
-use crate::{AnchoredPath, FileId, VfsPath};
+use crate::{
+    vfs::{AnchoredPath, FileId},
+    vfs_path::VfsPath,
+};
 
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct FileSet {
