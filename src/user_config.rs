@@ -91,6 +91,8 @@ config_data! {
         files_excludeDirs: Vec<PathBuf> = "[]",
         /// Controls file watching.
         files_watcher: FilesWatcherDef = "\"client\"",
+        /// Automatically refresh project info on toml changes
+        workspace_auto_reload: bool = "true",
     }
 }
 
