@@ -1,6 +1,6 @@
 use vfs::{
     file_set::{FileSet, FileSetConfig},
-    vfs::{AnchoredPath, FileId, VfsPath},
+    vfs::{AnchoredPath, FileId, Vfs, VfsPath},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -45,7 +45,7 @@ pub struct SourceRootConfig {
 }
 
 impl SourceRootConfig {
-    pub fn partition(&self, vfs: &vfs::vfs::Vfs) -> Vec<SourceRoot> {
+    pub fn partition(&self, vfs: &Vfs) -> Vec<SourceRoot> {
         self.fileset_config
             .partition(vfs)
             .into_iter()
