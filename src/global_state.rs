@@ -131,7 +131,7 @@ impl GlobalState {
             shutdown_requested: false,
             source_root_config: SourceRootConfig::default(),
 
-            vfs_loader: vfs_loader,
+            vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
             vfs_config_version: 0,
             vfs_progress_config_version: 0,
@@ -196,10 +196,10 @@ impl GlobalState {
             let text = if changed_file.exists() {
                 let contents = vfs.file_contents(changed_file.file_id).unwrap().to_vec();
 
-                String::from_utf8(contents).ok().and_then(|text| {
+                String::from_utf8(contents).ok().map(|text| {
                     // TODO: Consider doing normalization in the `vfs` instead to get rid of some locking?
                     let (text, line_endings) = LineEndings::normalize(text);
-                    Some((Arc::<str>::from(text), line_endings))
+                    (Arc::<str>::from(text), line_endings)
                 })
             } else {
                 None

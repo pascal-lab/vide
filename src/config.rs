@@ -88,7 +88,7 @@ impl Config {
         if manifests.is_empty() {
             tracing::info!("no manifests discovered in {:?}", &roots);
         }
-        return manifests;
+        manifests
     }
 
     pub fn main_loop_threads_num(&self) -> usize {

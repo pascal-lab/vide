@@ -157,7 +157,7 @@ impl ReqDispatcher<'_> {
         R::Params: DeserializeOwned + UnwindSafe + Send + fmt::Debug,
         R::Result: Serialize,
     {
-        self.on_with_intent_and_err_handler::<R>(ThreadIntent::Worker, f, |req| Task::Retry(req))
+        self.on_with_intent_and_err_handler::<R>(ThreadIntent::Worker, f, Task::Retry)
     }
 
     pub(crate) fn on_latency_sensitive<R>(&mut self, f: FnReqSynSnap<R>) -> &mut Self
