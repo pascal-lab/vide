@@ -24,8 +24,8 @@ impl PackageGraph {
         dep: PackageDependency,
     ) -> Result<(), CyclicDependenciesError> {
         if let Some(path) = self.find_path(from, dep.package_id) {
-            // &&* is used to make self immutable to make borrow checker happy
-            return Err(CyclicDependenciesError { graph: &&*self, path });
+            // &* is used to make self immutable to make borrow checker happy
+            return Err(CyclicDependenciesError { graph: &*self, path });
         }
 
         self.arena[from].add_dep(dep);
@@ -59,7 +59,7 @@ impl PackageGraph {
             None
         }
 
-        if let Some(mut path) = dfs(&self, &mut FxHashSet::default(), from, to) {
+        if let Some(mut path) = dfs(self, &mut FxHashSet::default(), from, to) {
             path.reverse();
             assert!(path.first().is_some_and(|first| *first == from));
             assert!(path.last().is_some_and(|last| *last == to));

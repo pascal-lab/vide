@@ -13,10 +13,6 @@ pub trait FileLoader {
     fn relevant_packages(&self, file_id: FileId) -> Arc<FxHashSet<PackageId>>;
 }
 
-pub trait DbUpcast<T: ?Sized> {
-    fn upcast(&self) -> &T;
-}
-
 // Source code and project model.
 // Everything else is derived from these queries.
 #[salsa::query_group(SourceDbStorage)]

@@ -22,7 +22,7 @@ pub struct WorkspaceRoot {
 
 impl Workspace {
     pub fn load(manifest: &ProjectManifest, is_lib: bool) -> anyhow::Result<Workspace> {
-        Self::load_helper(&manifest, is_lib)
+        Self::load_helper(manifest, is_lib)
             .with_context(|| format!("failed to load workspace {:?}", &manifest))
     }
 
@@ -51,8 +51,8 @@ impl Workspace {
             Workspace::Project(TomlWorkspace { include, exclude, is_lib, .. }) => {
                 vec![WorkspaceRoot {
                     is_lib: *is_lib,
-                    include: include.iter().cloned().collect(),
-                    exclude: exclude.iter().cloned().collect(),
+                    include: include.to_vec(),
+                    exclude: exclude.to_vec(),
                 }]
             }
             Workspace::DetachedFiles(files) => files

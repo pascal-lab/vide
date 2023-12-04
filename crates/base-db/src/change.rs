@@ -4,7 +4,7 @@ use vfs::vfs::FileId;
 
 use crate::{
     package_graph::PackageGraph,
-    source_database::SourceRootDb,
+    source_db::SourceRootDb,
     source_root::{SourceRoot, SourceRootId},
 };
 

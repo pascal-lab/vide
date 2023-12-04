@@ -4,7 +4,7 @@ use base_db::{
     self,
     package_graph::PackageId,
     salsa::{self, Durability},
-    source_database::{FileLoader, SourceDb, SourceRootDb},
+    source_db::{FileLoader, SourceDb, SourceRootDb},
 };
 use rustc_hash::FxHashSet;
 use triomphe::Arc;

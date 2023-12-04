@@ -14,7 +14,7 @@ pub enum ProjectManifest {
 
 impl ProjectManifest {
     fn validate_toml(path: &AbsPathBuf) -> Result<(), String> {
-        if path.parent() == None {
+        if path.parent().is_none() {
             return Err(String::from("Bad manifest path: {path}"));
         }
 

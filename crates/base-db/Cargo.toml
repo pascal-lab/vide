@@ -6,7 +6,7 @@ description = "Indexing database"
 edition.workspace = true
 
 [dependencies]
-salsa = "0.17.0-pre.2"
+salsa.workspace = true
 vfs.workspace = true
 triomphe.workspace = true
 la-arena.workspace = true

@@ -42,8 +42,8 @@ where
             } else if let Some(caps) = KV_RE.captures(&macr) {
                 let mut key: SmolStr = caps.get(1).unwrap().as_str().into();
                 let value = caps.get(2).unwrap().as_str().into();
-                if key.starts_with("\\") {
-                    assert!(key.ends_with(" "));
+                if key.starts_with('\\') {
+                    assert!(key.ends_with(' '));
                     key = key[1..key.len() - 1].into();
                 }
                 Ok(MacroAtom::KeyValue { key, value })
