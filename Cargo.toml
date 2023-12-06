@@ -49,6 +49,7 @@ toml = "0.8.8"
 regex = "1.10.2"
 once_cell = "1.18.0"
 salsa = "0.17.0-pre.2"
+line-index = "0.1.0"
 
 
 [workspace.dependencies]
@@ -80,6 +81,7 @@ toml = { package = "toml" }
 regex = { package = "regex" }
 once_cell = { package = "once_cell" }
 salsa = { package = "salsa" }
+line-index = { package = "line-index" }
 
 [toolchain]
 channel = "nightly"

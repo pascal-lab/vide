@@ -12,3 +12,5 @@ serde_json.workspace = true
 crossbeam-channel.workspace = true
 jod-thread = "0.1.2"
 tracing.workspace = true
+line-index.workspace = true
+triomphe.workspace = true
