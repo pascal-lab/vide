@@ -1,0 +1,21 @@
+[package]
+name = "syntax"
+version = "0.0.0"
+description = "AST- and parser-related components"
+
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+tree-sitter = "0.20"
+tree-sitter-verilog.workspace = true
+
+[build-dependencies]
+quote = "1.0.20"
+Inflector = "0.11.4"
+serde_json.workspace = true
+sourcegen.workspace = true
+
+[features]
