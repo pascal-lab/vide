@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod test {
-    use crate::{
-        ast::{self, AstNode},
-        SyntaxAncestors,
-    };
+    use crate::*;
+    use ast::{self, AstNode};
     use tree_sitter::Parser;
     use tree_sitter_verilog;
 

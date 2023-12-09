@@ -12,10 +12,7 @@ pub struct SyntaxChildren<'a> {
 
 impl<'a> SyntaxChildren<'a> {
     pub fn new(parent: &'a SyntaxNode) -> Self {
-        let mut cursor = parent.walk();
-        cursor.reset(*parent);
-        let cursor = cursor.goto_first_child().then_some(cursor);
-        SyntaxChildren { cursor, ph: PhantomData }
+        Self::new_from_node(parent.clone())
     }
 
     pub fn new_from_node(parent: SyntaxNode<'a>) -> Self {
@@ -58,6 +55,46 @@ impl<'a> Iterator for SyntaxAncestors<'a> {
         let node = self.node.take()?;
         self.node = node.parent();
         Some(node)
+    }
+}
+
+pub struct SyntaxPreorder<'a> {
+    root: SyntaxNode<'a>,
+    cursor: tree_sitter::TreeCursor<'a>,
+    finished: bool,
+}
+
+impl<'a> SyntaxPreorder<'a> {
+    pub fn new(root: &'a SyntaxNode) -> Self {
+        Self::new_from_node(root.clone())
+    }
+
+    pub fn new_from_node(root: SyntaxNode<'a>) -> Self {
+        let mut cursor = root.walk();
+        cursor.reset(root);
+        SyntaxPreorder { root, cursor, finished: false }
+    }
+}
+
+impl<'a> Iterator for SyntaxPreorder<'a> {
+    type Item = SyntaxNode<'a>;
+
+    fn next(&mut self) -> Option<SyntaxNode<'a>> {
+        if self.finished {
+            return None;
+        }
+        let cursor = &mut self.cursor;
+        let cur_node = cursor.node();
+        if cursor.goto_first_child() {
+            return Some(cur_node);
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() || cursor.node() == self.root {
+                self.finished = true;
+                break;
+            }
+        }
+        Some(cur_node)
     }
 }
 
