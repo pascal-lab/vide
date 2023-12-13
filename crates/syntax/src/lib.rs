@@ -1,13 +1,10 @@
 pub mod ast;
 pub mod syntax_kind;
 
-use std::marker::PhantomData;
-
 pub type SyntaxNode<'a> = tree_sitter::Node<'a>;
 
 pub struct SyntaxChildren<'a> {
     cursor: Option<tree_sitter::TreeCursor<'a>>,
-    ph: PhantomData<SyntaxNode<'a>>,
 }
 
 impl<'a> SyntaxChildren<'a> {
@@ -19,7 +16,7 @@ impl<'a> SyntaxChildren<'a> {
         let mut cursor = parent.walk();
         cursor.reset(parent);
         let cursor = cursor.goto_first_child().then_some(cursor);
-        SyntaxChildren { cursor, ph: PhantomData }
+        SyntaxChildren { cursor }
     }
 }
 
@@ -83,13 +80,17 @@ impl<'a> Iterator for SyntaxPreorder<'a> {
         if self.finished {
             return None;
         }
+
+        let cur_node = self.cursor.node();
+
         let cursor = &mut self.cursor;
-        let cur_node = cursor.node();
         if cursor.goto_first_child() {
             return Some(cur_node);
         }
+
         while !cursor.goto_next_sibling() {
-            if !cursor.goto_parent() || cursor.node() == self.root {
+            let has_parent = cursor.goto_parent();
+            if !has_parent || cursor.node() == self.root {
                 self.finished = true;
                 break;
             }
