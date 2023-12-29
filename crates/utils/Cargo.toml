@@ -14,4 +14,5 @@ line-index.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+tree-sitter.workspace = true
 triomphe.workspace = true

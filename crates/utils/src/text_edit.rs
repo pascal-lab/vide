@@ -1,7 +1,8 @@
 use std::cmp::max;
 
 use itertools::Itertools;
-use line_index::{TextRange, TextSize};
+pub use line_index::{TextRange, TextSize};
+pub use tree_sitter::{InputEdit as SourceEdit, Point as SourcePoint};
 
 // A single atomic change to text: a insertion, a deletion or a replacement.
 // Must not overlap with other `InDel`s
