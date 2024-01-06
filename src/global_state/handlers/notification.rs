@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{ops::Range, mem};
 
 use line_index::LineIndex;
 use lsp_types::{
@@ -58,29 +58,19 @@ fn apply_document_changes(
     get_vfs_file_contents: impl FnOnce() -> String,
     mut content_changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
 ) -> (String, Option<Vec<SourceEdit>>) {
-    // Skip to the last full document change
-    let mut start = content_changes
-        .iter()
-        .rev()
-        .position(|change| change.range.is_none())
-        .map(|idx| content_changes.len() - idx - 1)
-        .unwrap_or(0);
-
-    // TODO: more tricks to optimize ranges?
-    let mut text: String = match content_changes.get_mut(start) {
-        // peek at the first content change as an optimization
-        Some(lsp_types::TextDocumentContentChangeEvent { range: None, text, .. }) => {
-            let text = std::mem::take(text);
-            start += 1;
-            if start == content_changes.len() {
-                return (text, None);
-            }
-            text
+    // Skip to the last full document change and peek at the first content change
+    let (mut text, content_changes) = {
+        let last_full_change = content_changes.iter().rposition(|change| change.range.is_none());
+        if let Some(idx) = last_full_change {
+            (mem::take(&mut content_changes[idx].text), &content_changes[idx + 1..])
+        } else {
+            (get_vfs_file_contents(), &content_changes[..])
         }
-        Some(_) => get_vfs_file_contents(),
-        // we received no content changes
-        None => return (get_vfs_file_contents(), None),
     };
+
+    if content_changes.is_empty() {
+        return (text, None);
+    }
 
     // The changes can cross lines so we have to keep our line index updated.
     // Here's an optimization: we only rebuild the index if we have to, iff
