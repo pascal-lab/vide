@@ -30,8 +30,8 @@ impl From<FetchWorkspaceProgress> for Task {
 impl GlobalState {
     pub(crate) fn is_quiescent(&self) -> bool {
         !(self.fetch_workspaces_task.in_process()
-            || self.vfs_progress_config_version < self.vfs_config_version
-            || self.vfs_progress_n_done < self.vfs_progress_n_total)
+            || self.vfs_progress.config_version < self.vfs_config_version
+            || self.vfs_progress.in_progress())
     }
 
     pub(crate) fn fetch_workspaces(&mut self, cause: String) {

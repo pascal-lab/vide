@@ -10,7 +10,7 @@ use triomphe::Arc;
 use utils::text_edit::SourceEditKind;
 use vfs::vfs_path::VfsPath;
 
-use crate::config::Config;
+use crate::{config::Config, global_state::VfsProgress};
 
 use super::{
     dispatcher::{NotifDispatcher, ReqDispatcher},
@@ -265,9 +265,7 @@ impl GlobalState {
             vfs::loader::Message::Progress { n_total, n_done, config_version } => {
                 always!(config_version <= self.vfs_config_version);
 
-                self.vfs_progress_config_version = config_version;
-                self.vfs_progress_n_total = n_total;
-                self.vfs_progress_n_done = n_done;
+                self.vfs_progress = VfsProgress { config_version, n_done, n_total };
 
                 let state = if n_done == 0 {
                     Progress::Begin

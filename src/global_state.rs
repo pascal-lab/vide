@@ -1,10 +1,10 @@
 pub mod dispatcher;
 mod handlers;
 pub mod main_loop;
+mod mem_docs;
 mod process_changes;
 pub mod reload;
 pub mod respond;
-mod mem_docs;
 
 use base_db::source_root::SourceRootConfig;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -20,9 +20,7 @@ use utils::{
     thread::{Pool, ThreadIntent},
 };
 
-use crate::{
-    config::{Config, ConfigError},
-};
+use crate::config::{Config, ConfigError};
 use ide::{
     self,
     analysis_host::{Analysis, AnalysisHost},
@@ -74,6 +72,24 @@ pub(crate) struct Handle<H, C> {
     pub(crate) receiver: C,
 }
 
+pub(crate) struct VfsProgress {
+    pub(crate) config_version: u32,
+    pub(crate) n_done: usize,
+    pub(crate) n_total: usize,
+}
+
+impl Default for VfsProgress {
+    fn default() -> Self {
+        VfsProgress { config_version: 0, n_total: 0, n_done: 0 }
+    }
+}
+
+impl VfsProgress {
+    fn in_progress(&self) -> bool {
+        self.n_done < self.n_total
+    }
+}
+
 pub(crate) struct GlobalState {
     pub(crate) sender: Sender<Message>,
     pub(crate) req_queue: ReqQueue<(String, Instant), ReqHandler>,
@@ -92,9 +108,7 @@ pub(crate) struct GlobalState {
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEndings>)>>,
     pub(crate) vfs_config_version: u32,
-    pub(crate) vfs_progress_config_version: u32,
-    pub(crate) vfs_progress_n_total: usize,
-    pub(crate) vfs_progress_n_done: usize,
+    pub(crate) vfs_progress: VfsProgress,
 
     // workspaces
     pub(crate) workspaces: Arc<Vec<Workspace>>,
@@ -146,9 +160,7 @@ impl GlobalState {
             vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
             vfs_config_version: 0,
-            vfs_progress_config_version: 0,
-            vfs_progress_n_total: 0,
-            vfs_progress_n_done: 0,
+            vfs_progress: VfsProgress::default(),
 
             workspaces: Arc::from(vec![]),
             fetch_workspaces_task: ExclTask::default(),
