@@ -72,6 +72,7 @@ pub(crate) fn handle_did_change_text_document(
             mem::take(data),
             params.content_changes,
         );
+        // TODO: we can calculate the line ending from the edits to speed up
         let (text, line_ending) = LineEndings::normalize(text);
 
         *data = text.clone();
