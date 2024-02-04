@@ -10,14 +10,14 @@ use triomphe::Arc;
 use utils::text_edit::SourceEditKind;
 use vfs::vfs_path::VfsPath;
 
-use crate::{config::Config, global_state::VfsProgress};
+use crate::config::Config;
 
 use super::{
     dispatcher::{NotifDispatcher, ReqDispatcher},
-    handlers,
+    lsp_handlers,
     reload::FetchWorkspaceProgress,
     respond::Progress,
-    GlobalState,
+    GlobalState, VfsProgress,
 };
 
 #[derive(Debug)]
@@ -125,7 +125,10 @@ impl GlobalState {
 
         match event {
             Event::Lsp(msg) => match msg {
-                Message::Request(req) => self.handle_request(loop_start, req),
+                Message::Request(req) => {
+                    self.register_request(loop_start, &req);
+                    self.handle_request(req);
+                }
                 Message::Notification(notif) => self.handle_notification(notif)?,
                 Message::Response(res) => self.handle_response(res),
             },
@@ -151,12 +154,7 @@ impl GlobalState {
         Ok(())
     }
 
-    fn handle_request(&mut self, req_received: Instant, req: Request) {
-        self.register_request(req_received, &req);
-        self.dispatch_request(req);
-    }
-
-    fn dispatch_request(&mut self, req: Request) {
+    fn handle_request(&mut self, req: Request) {
         let mut dispatcher = ReqDispatcher { req: Some(req), global_state: self };
 
         // Handle shutdown req first
@@ -177,14 +175,14 @@ impl GlobalState {
             _ => (),
         }
 
-        use handlers::request::*;
+        use lsp_handlers::request::*;
         use lsp_types::request::*;
-        dispatcher.finish();
+        dispatcher.on::<GotoDefinition>(handle_goto_definition).finish();
     }
 
     fn handle_notification(&mut self, notif: Notification) -> anyhow::Result<()> {
         use crate::lsp_ext::ext::*;
-        use handlers::notification::*;
+        use lsp_handlers::notification::*;
         use lsp_types::notification::*;
 
         NotifDispatcher { notif: Some(notif), global_state: self }
@@ -227,7 +225,7 @@ impl GlobalState {
             Task::Response(res) => self.respond(res),
             Task::Retry(req) => {
                 if !self.is_completed(&req) {
-                    self.dispatch_request(req);
+                    self.handle_request(req);
                 }
             }
             Task::FetchWorkspace(process) => {

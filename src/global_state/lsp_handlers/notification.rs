@@ -8,7 +8,7 @@ use lsp_types::{
 };
 use triomphe::Arc;
 use utils::{
-    lines::{LineEndings, LineIndexEnding, PositionEncoding},
+    lines::{LineEnding, LineInfo, PositionEncoding},
     text_edit::{SourceEdit, SourceEditKind, SourcePoint},
 };
 
@@ -43,7 +43,7 @@ pub(crate) fn handle_did_open_text_document(
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
 
-        let (text, line_ending) = LineEndings::normalize(params.text_document.text);
+        let (text, line_ending) = LineEnding::normalize(params.text_document.text);
         state.vfs.write().0.set_file_contents(&path, Ok((text, line_ending)), SourceEditKind::Full);
     }
     Ok(())
@@ -73,7 +73,7 @@ pub(crate) fn handle_did_change_text_document(
             params.content_changes,
         );
         // TODO: we can calculate the line ending from the edits to speed up
-        let (text, line_ending) = LineEndings::normalize(text);
+        let (text, line_ending) = LineEnding::normalize(text);
 
         *data = text.clone();
 
@@ -219,10 +219,10 @@ fn apply_document_changes(
     // the change's start line is greater than the last valid line.
     // The VFS will normalize the end of lines to `\n`.
     // TODO: make line_index incremental?
-    let mut line_index = LineIndexEnding {
+    let mut line_index = LineInfo {
         index: Arc::new(LineIndex::new(&text)),
         // We don't care about line endings here.
-        endings: LineEndings::Unix,
+        ending: LineEnding::Unix,
         encoding,
     };
 
