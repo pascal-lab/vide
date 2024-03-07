@@ -19,6 +19,7 @@ use syntax::{
     SyntaxNodePtr,
 };
 use triomphe::Arc;
+use utils::try_;
 
 use crate::InFile;
 
@@ -108,7 +109,7 @@ pub(crate) fn hir_file_with_source_map_query(
 
         for description in root.descriptions() {
             if let Some(module) = description.module_declaration() {
-                (|| {
+                try_!({
                     let ptr = module.to_ptr();
                     let module_id = hir_file.data.modules.alloc(ModuleInFile {
                         ident: module.identifier()?.to_text(&file_text)?.into(),
@@ -119,9 +120,7 @@ pub(crate) fn hir_file_with_source_map_query(
 
                     source_map.module_map.insert(module_source.clone(), module_id);
                     source_map.module_map_back.insert(module_id, module_source);
-
-                    Some(())
-                })();
+                });
             }
         }
         Some(())
