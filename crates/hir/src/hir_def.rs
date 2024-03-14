@@ -43,7 +43,7 @@ macro_rules! try_match {
         }
     };
 
-    (_ => $body:expr) => { $body };
+    (_ => $body:expr $(,)?) => { $body };
 
     ($child:expr, $target:pat => $body:expr, $($rest:tt)*) => {
         if let Some($target) = $child {
