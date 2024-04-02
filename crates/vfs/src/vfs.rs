@@ -73,7 +73,6 @@ impl ChangedFile {
 #[derive(Clone, Debug)]
 pub enum ChangeKind {
     Create(VfsLoadResult),
-    // None means modifications is unknown, so we need to update the whole text anyway
     Modify(VfsLoadResult, SourceEditKind),
     Delete,
 }

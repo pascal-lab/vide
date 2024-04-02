@@ -8,15 +8,11 @@ use vfs::{
     vfs::{ChangedFile, FileId},
 };
 
-use crate::{
-    package_graph::{PackageGraph, PackageId},
-    source_root::{SourceRoot, SourceRootId},
-};
+use crate::source_root::{SourceRoot, SourceRootId};
 
 pub trait FileLoader {
     fn file_text(&self, file_id: FileId) -> Arc<str>;
     fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId>;
-    fn relevant_packages(&self, file_id: FileId) -> Arc<FxHashSet<PackageId>>;
 }
 
 // Source code, syntax tree and project model.
@@ -27,7 +23,7 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn syntax_tree(&self, file_id: FileId) -> Option<SyntaxTree>;
 
     #[salsa::input]
-    fn package_graph(&self) -> Arc<PackageGraph>;
+    fn files(&self) -> FxHashSet<FileId>;
 }
 
 // `edits` = None => old syntax tree should be removed
@@ -79,18 +75,4 @@ pub trait SourceRootDb: SourceDb {
 
     #[salsa::input]
     fn source_root(&self, id: SourceRootId) -> Arc<SourceRoot>;
-
-    fn package_id(&self, id: SourceRootId) -> Arc<FxHashSet<PackageId>>;
-}
-
-fn package_id(db: &dyn SourceRootDb, id: SourceRootId) -> Arc<FxHashSet<PackageId>> {
-    let graph = db.package_graph();
-    let res = graph
-        .iter()
-        .filter(|&pack_id| {
-            let root_file = graph[pack_id].root_file_id;
-            db.source_root_id(root_file) == id
-        })
-        .collect();
-    Arc::new(res)
 }

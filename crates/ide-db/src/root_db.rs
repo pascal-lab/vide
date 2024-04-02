@@ -2,7 +2,6 @@ use std::{fmt, mem::ManuallyDrop};
 
 use base_db::{
     self,
-    package_graph::PackageId,
     salsa::{self, Durability},
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
@@ -47,11 +46,6 @@ impl FileLoader for RootDb {
         let source_root = SourceRootDb::source_root(self, source_root_id);
         source_root.resolve_path(path)
     }
-
-    fn relevant_packages(&self, file_id: FileId) -> Arc<FxHashSet<PackageId>> {
-        let source_root_id = SourceRootDb::source_root_id(self, file_id);
-        SourceRootDb::package_id(self, source_root_id)
-    }
 }
 
 pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
@@ -59,7 +53,7 @@ pub const DEFAULT_PARSE_LRU_CAP: usize = 128;
 impl RootDb {
     pub fn new(lru_capacity: Option<usize>) -> RootDb {
         let mut db = RootDb { storage: ManuallyDrop::new(salsa::Storage::default()) };
-        db.set_package_graph_with_durability(Default::default(), Durability::HIGH);
+        db.set_files_with_durability(Default::default(), Durability::HIGH);
         db.update_parse_query_lru_capacity(lru_capacity);
         db
     }

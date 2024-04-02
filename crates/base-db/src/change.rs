@@ -3,7 +3,6 @@ use triomphe::Arc;
 use vfs::vfs::ChangedFile;
 
 use crate::{
-    package_graph::PackageGraph,
     source_db::{edit_syntax_tree, parse_source, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -12,7 +11,6 @@ use crate::{
 pub struct Change {
     pub roots: Option<Vec<SourceRoot>>,
     pub changed_files: Vec<ChangedFile>,
-    pub package_graph: Option<PackageGraph>,
 }
 
 impl Change {
@@ -40,6 +38,23 @@ impl Change {
             }
         }
 
+        if self.changed_files.iter().any(|it| it.is_created_or_deleted()) {
+            let mut files = db.files();
+            self.changed_files.iter().for_each(|it| {
+                use vfs::vfs::ChangeKind;
+                match it.change_kind {
+                    ChangeKind::Create(_) => {
+                        files.insert(it.file_id);
+                    }
+                    ChangeKind::Delete => {
+                        files.remove(&it.file_id);
+                    }
+                    ChangeKind::Modify(_, _) => {}
+                }
+            });
+            db.set_files(files);
+        }
+
         for changed_file in self.changed_files {
             let file_id = changed_file.file_id;
             let source_root = db.source_root(db.source_root_id(file_id));
@@ -50,10 +65,6 @@ impl Change {
             if file_exists {
                 parse_source(db, file_id);
             }
-        }
-
-        if let Some(package_graph) = self.package_graph {
-            db.set_package_graph_with_durability(Arc::new(package_graph), Durability::HIGH);
         }
     }
 }

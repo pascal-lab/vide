@@ -17,7 +17,7 @@ use super::main_loop::Task;
 #[derive(Debug)]
 pub(crate) enum FetchWorkspaceProgress {
     Begin,
-    // workspaces, force_package_graph_reload
+    // workspaces
     End(Vec<Workspace>, Vec<anyhow::Error>),
 }
 
