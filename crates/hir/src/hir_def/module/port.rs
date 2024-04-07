@@ -4,7 +4,6 @@ use crate::hir_def::{
     try_match, Ident, InFile, SourceMap,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
-use smallvec::SmallVec;
 use syntax::ast::{self, ptr};
 use utils::try_;
 
@@ -45,7 +44,7 @@ pub struct NonAnsiPort {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct PortReference {
     pub ident: Ident,
-    pub selects: Option<SmallVec<[Select; 1]>>,
+    pub select: Option<Select>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -104,13 +103,8 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
                     let mut arena = Arena::default();
                     for port_ref in port_node.port_expression()?.port_references() {
                         let ident = self.lower_ident(&port_ref.identifier()?)?;
-                        let selects = self.lower_const_select(&port_ref.constant_select()?)?;
-                        let selects = if !selects.is_empty() {
-                            Some(selects)
-                        } else {
-                            None
-                        };
-                        arena.alloc(PortReference { ident, selects });
+                        let select = self.lower_const_select(&port_ref.constant_select()?)?.traverse();
+                        arena.alloc(PortReference { ident, select });
                     }
                     arena.shrink_to_fit();
                     arena

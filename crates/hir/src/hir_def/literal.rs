@@ -1,5 +1,6 @@
-use std::{any::Any, fmt, io::Result, iter};
+use std::{fmt, iter};
 
+use smallvec::SmallVec;
 use syntax::ast::{self, AstNode};
 
 use super::{
@@ -89,24 +90,22 @@ impl fmt::Display for FloatTypeWrapper {
 
 pub(crate) trait LowerLiteral: Lower {
     fn lower_literal(&self, literal: &ast::PrimaryLiteral) -> Option<Literal> {
-        try_match!(literal.number(), num => {
-            unimplemented!()
-        });
+        try_match! {
+            literal.number(), num => self.lower_number(&num),
+            literal.time_literal(), time => self.lower_time_literal(&time).map(Literal::Time),
+            literal.unbased_unsized_literal(), uu => try_match! {
+                uu.token_single_quote_0(), _ => Some(Literal::UnbasedUnsized(Bit::L)),
+                uu.token_single_quote_1(), _ => Some(Literal::UnbasedUnsized(Bit::H)),
+                _ => None
+            },
+            _ => None,
+        }
+    }
 
-        try_match!(literal.time_literal(), time => {
-            return self.lower_time_literal(&time).map(Literal::Time).into();
-        });
-
-        try_match!(literal.unbased_unsized_literal(), uu => {
-            try_match!(uu.token_single_quote_0(), _ => {
-                return Literal::UnbasedUnsized(Bit::L).into();
-            });
-            try_match!(uu.token_single_quote_1(), _ => {
-                return Literal::UnbasedUnsized(Bit::H).into();
-            });
-        });
-
-        None
+    fn lower_unsigned_number(&self, un: &ast::UnsignedNumber) -> Option<Literal> {
+        let text = self.file_text();
+        let v = un.to_text(text).and_then(|v| v.parse::<i64>().ok())?;
+        Some(Literal::Int(v))
     }
 
     fn lower_number(&self, number: &ast::Number) -> Option<Literal> {
@@ -114,8 +113,8 @@ pub(crate) trait LowerLiteral: Lower {
             text: &'a str,
             wid: u8,
             base: Base,
-            B1: char,
-            B2: char,
+            b1: char,
+            b2: char,
         ) -> Option<Literal> {
             let mut len = 0;
             let mut bits = vec![];
@@ -124,7 +123,7 @@ pub(crate) trait LowerLiteral: Lower {
             for c in text.chars() {
                 match c {
                     's' | 'S' => signed = true,
-                    c if c == B1 || c == B2 => {
+                    c if c == b1 || c == b2 => {
                         has_met_base = true;
                         bits.reserve(len);
                     }
@@ -150,47 +149,55 @@ pub(crate) trait LowerLiteral: Lower {
             Some(Literal::Vector { bits, signed, base })
         }
 
-        try_match!(number.integral_number(), i => {
-            let text = number.to_text(self.file_text())?;
-            try_match!(i.binary_number(), _ => return lower_int_num(text, 1, Base::Bin, 'b', 'B'));
-            try_match!(i.octal_number(), _ => return lower_int_num(text, 3, Base::Oct, 'o', 'O'));
-            try_match!(i.hex_number(), _ => return lower_int_num(text, 4, Base::Hex, 'h', 'H'));
-            try_match!(i.decimal_number(), b => {
-                try_match!(b.unsigned_number(), un => {
-                    let v = un.to_text(text).and_then(|v| v.parse::<i64>().ok())?;
-                    return Some(Literal::Int(v));
-                });
+        try_match!(
+            number.integral_number(), i => {
+                let text = number.to_text(self.file_text())?;
+                try_match! {
+                    i.binary_number(), _ => lower_int_num(text, 1, Base::Bin, 'b', 'B'),
+                    i.octal_number(), _ => lower_int_num(text, 3, Base::Oct, 'o', 'O'),
+                    i.hex_number(), _ => lower_int_num(text, 4, Base::Hex, 'h', 'H'),
+                    i.decimal_number(), b => try_match!(
+                        b.unsigned_number(), un => self.lower_unsigned_number(&un),
+                        _ => {
+                            let (len, res) = text.split_once('\'').unwrap();
+                            let len = len.parse::<usize>().ok().unwrap();
+                            let signed = res.starts_with('s') || res.starts_with('S');
+                            assert!(res.chars().nth( if signed { 1 } else {0} ) == Some('b') ||
+                                    res.chars().nth( if signed { 1 } else {0} ) == Some('B'));
+                            let bits = {
+                                let start = if signed { 2 } else { 1 };
+                                let sym = res.chars().nth(start);
+                                match sym {
+                                    Some('x' | 'X') => iter::repeat(Bit::X).take(len).collect(),
+                                    Some('z' | 'Z' | '?') => iter::repeat(Bit::Z).take(len).collect(),
+                                    Some('0'..='9') => {
+                                        let digits = res
+                                            .chars()
+                                            .skip(start)
+                                            .collect::<String>()
+                                            .parse::<u64>()
+                                            .unwrap();
+                                        let mut bits: SmallVec<[Bit; 16]> = (0..len)
+                                            .map(|i| ((digits >> i) & 1 != 0).into())
+                                            .collect();
+                                        if bits.len() < len {
+                                            bits.extend(iter::repeat(Bit::L).take(len - bits.len()));
+                                        }
+                                        bits
+                                    }
+                                    _ => unreachable!()
+                                }
+                            };
 
-                let (len, res) = text.split_once('\'').unwrap();
-                let len = len.parse::<usize>().ok().unwrap();
-                let signed = res.starts_with('s') || res.starts_with('S');
-                assert!(res.chars().nth( if signed { 1 } else {0} ) == Some('b') || res.chars().nth( if signed { 1 } else {0} ) == Some('B'));
-                let bits = {
-                    let sym = res.chars().nth( if signed { 2 } else { 1 } );
-                    match sym {
-                        Some('x' | 'X') => iter::repeat(Bit::X).take(len).collect(),
-                        Some('z' | 'Z' | '?') => iter::repeat(Bit::Z).take(len).collect(),
-                        Some('0'..='9') => {
-                            let start = if signed { 2 } else { 1 };
-                            let digits = res.chars().skip(start).collect::<String>().parse::<u64>().unwrap();
-                            let mut bits = vec![];
-                            for i in 0..len {
-                                bits.push((((digits >> i) & 1) != 0).into());
-                            }
-                            if bits.len() < len {
-                                bits.extend(iter::repeat(Bit::L).take(len - bits.len()));
-                            }
-                            bits
+                            let bits = BoxBasedBitVector { bits: bits.into_boxed_slice() };
+                            Some(Literal::Vector { bits, signed, base: Base::Dec })
                         }
-                        _ => unreachable!()
-                    }
-                };
-
-                let bits = BoxBasedBitVector { bits: bits.into_boxed_slice() };
-                return Some(Literal::Vector { bits, signed, base: Base::Dec })
-            });
-        });
-        unreachable!()
+                    ),
+                    _ => unreachable!()
+                }
+            },
+            _ => unimplemented!()
+        )
     }
 
     fn lower_time_literal(&self, time: &ast::TimeLiteral) -> Option<TimeLiteral> {
@@ -221,5 +228,16 @@ pub(crate) trait LowerLiteral: Lower {
         });
 
         None
+    }
+
+    fn lower_delay_value(&mut self, delay_value: &ast::DelayValue) -> Option<Literal> {
+        try_match! {
+            delay_value.unsigned_number(), un => self.lower_unsigned_number(&un),
+            delay_value.time_literal(), time => Some(Literal::Time(self.lower_time_literal(&time)?)),
+            _ => {
+                return None;
+                todo!("Unsupported");
+            }
+        }
     }
 }

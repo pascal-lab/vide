@@ -351,7 +351,7 @@ impl<'a> ModuleLowerCtx<'a> {
             list.list_of_ordered_port_connections(), ordered => {
                 let mut connects: SmallVec<[Option<ExprId>; 1]> = SmallVec::new();
                 for connect in ordered.ordered_port_connections() {
-                    connects.push(connect.expression().and_then(|expr| self.lower_expr(&expr)));
+                    connects.push(connect.expression().map(|expr| self.lower_expr(&expr)));
                 }
                 Some(PortConnects::Ordered(connects))
             },
@@ -359,7 +359,7 @@ impl<'a> ModuleLowerCtx<'a> {
                 let mut connects: SmallVec<[(Ident, Option<ExprId>); 1]> = SmallVec::new();
                 for connect in named.named_port_connections() {
                     let ident = self.lower_ident(&connect.identifier()?)?;
-                    let expr = connect.expression().and_then(|expr| self.lower_expr(&expr));
+                    let expr = connect.expression().map(|expr| self.lower_expr(&expr));
                     connects.push((ident, expr));
                 }
                 Some(PortConnects::Named(connects))
@@ -377,7 +377,7 @@ impl<'a> ModuleLowerCtx<'a> {
                 let mut assigns: SmallVec<[Assign; 1]> = SmallVec::new();
                 for assign in net_assigns.net_assignments() {
                     let lhs = self.lower_net_lvalue(&assign.net_lvalue()?)?;
-                    let rhs = self.lower_expr(&assign.expression()?)?;
+                    let rhs = self.lower_expr(&assign.expression()?);
                     let op = AssignOp::Assign;
                     assigns.push(Assign{lhs, rhs, op});
                 }
@@ -392,7 +392,7 @@ impl<'a> ModuleLowerCtx<'a> {
                 let mut assigns: SmallVec<[Assign; 1]> = SmallVec::new();
                 for assign in var_assigns.variable_assignments() {
                     let lhs = self.lower_var_lvalue(&assign.variable_lvalue()?)?;
-                    let rhs = self.lower_expr(&assign.expression()?)?;
+                    let rhs = self.lower_expr(&assign.expression()?);
                     let op = AssignOp::Assign;
                     assigns.push(Assign{lhs, rhs, op});
                 }

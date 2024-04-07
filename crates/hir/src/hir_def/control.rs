@@ -5,23 +5,25 @@ use crate::hir_def::{
 use la_arena::{Arena, Idx};
 use syntax::ast::{self, ptr};
 
+use super::literal::Literal;
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct DelayControl {
-    pub expr: MinTypMaxExpr,
+pub enum DelayControl {
+    Val(Literal),
+    MinTypMax(MinTypMaxExpr),
 }
 
 pub(crate) trait LowerDelayControl: LowerExpr {
     fn lower_delay_control(&mut self, delay_control: &ast::DelayControl) -> Option<DelayControl> {
-        let expr = try_match! {
+        try_match! {
             delay_control.delay_value(), delay_value => {
-                self.lower_delay_value(&delay_value)?
+                Some(DelayControl::Val(self.lower_delay_value(&delay_value)?))
             },
             delay_control.mintypmax_expression(), mintypmax_expression => {
-                self.lower_min_typ_max_expr(&mintypmax_expression)?
+                Some(DelayControl::MinTypMax(self.lower_min_typ_max_expr(&mintypmax_expression)))
             },
-            _ => { return None; }
-        };
-        Some(DelayControl { expr })
+            _ => None,
+        }
     }
 }
 
@@ -64,7 +66,7 @@ pub(crate) trait LowerEventExpr: LowerExpr {
             // FIXME: support for "iff expression" and "(event_identifier)" is needed
             event_expr.expression(), expr => {
                 let sensitivity = event_expr.edge_identifier().and_then(|edge_identifier| lower_sensitivity(&edge_identifier));
-                let expr = self.lower_expr(&expr)?;
+                let expr = self.lower_expr(&expr);
                 let src = self.in_file(event_expr.to_ptr());
                 let idx = self.arena_event_exprs().alloc(EventExpr::Expr{sensitivity, expr});
                 self.src_map_event_expr().insert(src, idx);
@@ -80,7 +82,7 @@ pub(crate) trait LowerEventExpr: LowerExpr {
             },
             event_expr.token_comma(), _ => {
                 let sensitivity = lower_sensitivity(&event_expr.edge_identifier()?);
-                let expr = self.lower_expr(&event_expr.expression()?)?;
+                let expr = self.lower_expr(&event_expr.expression()?);
                 let src = self.in_file(event_expr.to_ptr());
                 let idx = self.arena_event_exprs().alloc(EventExpr::Expr{sensitivity, expr});
                 self.src_map_event_expr().insert(src, idx);
@@ -127,7 +129,7 @@ pub(crate) trait LowerTimingControl: LowerDelayControl + LowerEventExpr {
                 Some(DelayOrEventControl::EventControl(event_control))
             },
             control.token_repeat(), _ => {
-                let expr = self.lower_expr(&control.expression()?)?;
+                let expr = self.lower_expr(&control.expression()?);
                 let event_control = self.lower_event_control(&control.event_control()?)?;
                 Some(DelayOrEventControl::RepeatControl{expr, event_control})
             },

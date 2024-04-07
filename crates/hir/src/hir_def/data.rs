@@ -8,6 +8,8 @@ use smallvec::SmallVec;
 use syntax::ast::{self, ptr};
 use utils::try_;
 
+use super::literal::Literal;
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum DataType {
     Implicit { dimensions: Option<SmallVec<[Dimension; 1]>>, sign: bool },
@@ -129,8 +131,8 @@ pub(crate) trait LowerDimension: LowerExpr {
                 let left_expr_node = range.constant_expressions().next()?;
                 let right_expr_node = range.constant_expressions().next()?;
                 Some(Dimension::Range(
-                    self.lower_const_expr(&left_expr_node)?,
-                    self.lower_const_expr(&right_expr_node)?,
+                    self.lower_const_expr(&left_expr_node),
+                    self.lower_const_expr(&right_expr_node),
                 ))
             },
             // TODO: Unsized
@@ -147,12 +149,12 @@ pub(crate) trait LowerDimension: LowerExpr {
                 let left_expr_node = range.constant_expressions().next()?;
                 let right_expr_node = range.constant_expressions().next()?;
                 Some(Dimension::Range(
-                    self.lower_const_expr(&left_expr_node)?,
-                    self.lower_const_expr(&right_expr_node)?,
+                    self.lower_const_expr(&left_expr_node),
+                    self.lower_const_expr(&right_expr_node),
                 ))
             },
             unpacked_dimension.constant_expression(), expr => {
-                Some(Dimension::Expr(self.lower_const_expr(&expr)?))
+                Some(Dimension::Expr(self.lower_const_expr(&expr)))
             },
             _ => None
         }
@@ -262,7 +264,7 @@ pub(crate) trait LowerDataSubDecl: LowerDimension + LowerExpr {
         full_decl: Idx<DataDecl>,
     ) -> Option<Idx<DataSubDecl>> {
         let ident = self.lower_ident(&net_assign.identifier()?)?;
-        let expr = net_assign.expression().and_then(|expr| self.lower_expr(&expr));
+        let expr = net_assign.expression().map(|expr| self.lower_expr(&expr));
         let mut dimensions = SmallVec::<[Dimension; 1]>::new();
         for unpacked_dimension in net_assign.unpacked_dimensions() {
             dimensions.push(self.lower_unpacked_dimension(&unpacked_dimension)?);
@@ -295,7 +297,7 @@ pub(crate) trait LowerDataSubDecl: LowerDimension + LowerExpr {
         full_decl: Idx<DataDecl>,
     ) -> Option<Idx<DataSubDecl>> {
         let ident = self.lower_ident(&var_assign.identifier()?)?;
-        let expr = var_assign.expression().and_then(|expr| self.lower_expr(&expr));
+        let expr = var_assign.expression().map(|expr| self.lower_expr(&expr));
         let mut dimensions = SmallVec::<[Dimension; 1]>::new();
         for var_dimension in var_assign.variable_dimensions() {
             dimensions.push(self.lower_var_dimension(&var_dimension)?);
@@ -365,7 +367,7 @@ pub(crate) trait LowerDataSubDecl: LowerDimension + LowerExpr {
         let ident = self.lower_ident(&ansi_port_decl.identifier()?)?;
         let expr = ansi_port_decl
             .constant_expression()
-            .and_then(|const_expr| self.lower_const_expr(&const_expr));
+            .map(|const_expr| self.lower_const_expr(&const_expr));
         let mut dimensions = SmallVec::<[Dimension; 1]>::new();
         for unpacked_dimension in ansi_port_decl.unpacked_dimensions() {
             dimensions.push(self.lower_unpacked_dimension(&unpacked_dimension)?);
@@ -462,7 +464,7 @@ pub(crate) trait LowerDataSubDecl: LowerDimension + LowerExpr {
         let ident = self.lower_ident(&var_port_ident_decl.identifier()?)?;
         let expr = var_port_ident_decl
             .constant_expression()
-            .and_then(|const_expr| self.lower_const_expr(&const_expr));
+            .map(|const_expr| self.lower_const_expr(&const_expr));
         let mut dimensions: SmallVec<[Dimension; 1]> = SmallVec::new();
         for packed_dimension in var_port_ident_decl.variable_dimensions() {
             dimensions.push(self.lower_var_dimension(&packed_dimension)?);
@@ -550,39 +552,30 @@ pub(crate) fn lower_drive_strength(drive_strength: &ast::DriveStrength) -> Optio
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Delay {
-    exprs: SmallVec<[MinTypMaxExpr; 1]>,
+pub enum Delay {
+    Val(Literal),
+    MinTyMax(SmallVec<[MinTypMaxExpr; 3]>),
 }
 
 pub(crate) trait LowerDelay: LowerExpr {
     fn lower_delay3(&mut self, delay3: &ast::Delay3) -> Option<Delay> {
-        let mut exprs = SmallVec::new();
         try_match! {
-            delay3.delay_value(), delay_value => {
-                exprs.push(self.lower_delay_value(&delay_value)?);
-            },
+            delay3.delay_value(), delay_value => Some(Delay::Val(self.lower_delay_value(&delay_value)?)),
             _ => {
-                for expr in delay3.mintypmax_expressions() {
-                    exprs.push(self.lower_min_typ_max_expr(&expr)?);
-                }
+                let min_ty_max = delay3.mintypmax_expressions().map(|expr| self.lower_min_typ_max_expr(&expr)).collect::<SmallVec<_>>();
+                Some(Delay::MinTyMax(min_ty_max))
             }
         }
-        Some(Delay { exprs })
     }
 
     fn lower_delay2(&mut self, delay2: &ast::Delay2) -> Option<Delay> {
-        let mut exprs = SmallVec::new();
         try_match! {
-            delay2.delay_value(), delay_value => {
-                exprs.push(self.lower_delay_value(&delay_value)?);
-            },
+            delay2.delay_value(), delay_value => Some(Delay::Val(self.lower_delay_value(&delay_value)?)),
             _ => {
-                for expr in delay2.mintypmax_expressions() {
-                    exprs.push(self.lower_min_typ_max_expr(&expr)?);
-                }
+                let min_ty_max = delay2.mintypmax_expressions().map(|expr| self.lower_min_typ_max_expr(&expr)).collect::<SmallVec<_>>();
+                Some(Delay::MinTyMax(min_ty_max))
             }
         }
-        Some(Delay { exprs })
     }
 }
 

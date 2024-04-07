@@ -8,11 +8,11 @@ use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::ast::{self, ptr};
 
-use super::data::LowerDataDecl;
+use super::{data::LowerDataDecl, expr::LValue};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Assign {
-    pub lhs: ExprId,
+    pub lhs: LValue,
     pub rhs: ExprId,
     pub op: AssignOp,
 }
@@ -20,9 +20,9 @@ pub struct Assign {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum ProceduralContinuousAssign {
     Assign(Assign),
-    Deassign(ExprId),
+    Deassign(LValue),
     Force(Assign),
-    Release(ExprId),
+    Release(LValue),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,7 +198,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
                 let assign = try_match!{
                     assign.variable_lvalue(), var_lvalue => {
                         let lhs = self.lower_var_lvalue(&var_lvalue)?;
-                        let rhs = self.lower_expr(&assign.expression()?)?;
+                        let rhs = self.lower_expr(&assign.expression()?);
                         let op = AssignOp::Assign;
                         Assign { lhs, rhs, op }
                     },
@@ -217,7 +217,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
                 let control = assign.delay_or_event_control().and_then(|control| self.lower_delay_or_event_control(&control));
                 let assign = Assign {
                     lhs: self.lower_var_lvalue(&assign.variable_lvalue()?)?,
-                    rhs: self.lower_expr(&assign.expression()?)?,
+                    rhs: self.lower_expr(&assign.expression()?),
                     op: AssignOp::Assign,
                 };
                 Some(StmtItem::NonblockingAssign{ control, assign })
@@ -265,7 +265,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
             stmt.case_statement(), case => {
                 let unique_priority = case.unique_priority().and_then(|priority| lower_unique_priority(&priority));
                 let case_keyword = lower_case_keyword(&case.case_keyword()?)?;
-                let case_expr = self.lower_expr(&case.case_expression()?.expression()?)?;
+                let case_expr = self.lower_expr(&case.case_expression()?.expression()?);
                 let case_items = try_match! {
                     case.token_matches(), _ => {
                         unimplemented!("case_statement with matches")
@@ -283,7 +283,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
                                 _ => {
                                     let mut exprs: SmallVec<[ExprId; 1]> = SmallVec::new();
                                     for expr in case_item.case_item_expressions() {
-                                        exprs.push(self.lower_expr(&expr.expression()?)?);
+                                        exprs.push(self.lower_expr(&expr.expression()?));
                                     }
                                     let stmt = self.lower_stmt_or_null(&case_item.statement_or_null()?);
                                     CaseItem::Case{ exprs, stmt }
@@ -308,7 +308,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
                 for cond_or_cond_pat in cond_predicte.expression_or_cond_patterns() {
                     let expr_or_cond_pat = try_match! {
                         cond_or_cond_pat.expression(), expr => {
-                            ExprOrCondPat::Expr(self.lower_expr(&expr)?)
+                            ExprOrCondPat::Expr(self.lower_expr(&expr))
                         },
                         _ => { return None; }
                     };
@@ -370,21 +370,21 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
 
     fn lower_net_assign(&mut self, net_assign: &ast::NetAssignment) -> Option<Assign> {
         let lhs = self.lower_net_lvalue(&net_assign.net_lvalue()?)?;
-        let rhs = self.lower_expr(&net_assign.expression()?)?;
+        let rhs = self.lower_expr(&net_assign.expression()?);
         let op = AssignOp::Assign;
         Some(Assign { lhs, rhs, op })
     }
 
     fn lower_var_assign(&mut self, var_assign: &ast::VariableAssignment) -> Option<Assign> {
         let lhs = self.lower_var_lvalue(&var_assign.variable_lvalue()?)?;
-        let rhs = self.lower_expr(&var_assign.expression()?)?;
+        let rhs = self.lower_expr(&var_assign.expression()?);
         let op = AssignOp::Assign;
         Some(Assign { lhs, rhs, op })
     }
 
     fn lower_op_assign(&mut self, op_assign: &ast::OperatorAssignment) -> Option<Assign> {
         let lhs = self.lower_var_lvalue(&op_assign.variable_lvalue()?)?;
-        let rhs = self.lower_expr(&op_assign.expression()?)?;
+        let rhs = self.lower_expr(&op_assign.expression()?);
         let op = try_match! {
             op_assign.assignment_operator(), op => {
                 expr::lower_assign_op(&op)?

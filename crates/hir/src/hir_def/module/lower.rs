@@ -4,6 +4,7 @@ use crate::hir_def::{
         LowerDataSubDecl, LowerDataType, LowerDimension, ParamDecl,
     },
     expr::{Expr, ExprSrc, LowerExpr},
+    literal::LowerLiteral,
     lower::Lower,
     module::{
         port::{AnsiPortDecl, LowerPortDecl, NonAnsiPort, PortDecl},
@@ -103,6 +104,8 @@ impl Lower for ModuleLowerCtx<'_> {
         self.file_text
     }
 }
+
+impl LowerLiteral for ModuleLowerCtx<'_> {}
 
 impl LowerExpr for ModuleLowerCtx<'_> {
     fn arena_expr(&mut self) -> &mut Arena<Expr> {
