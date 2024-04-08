@@ -1,11 +1,10 @@
-use super::literal::{Literal, LowerLiteral};
+use super::{literal::{Literal, LowerLiteral}, lower::Lower};
 use crate::{
     hir_def::{data::DataType, Ident, InFile, SourceMap},
     try_match,
 };
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
-use smol_str::SmolStr;
 use syntax::ast::{self, ptr, AstNode};
 use utils::{try_, try_or_default};
 
@@ -251,7 +250,7 @@ pub enum PartSelectExpr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Path(Box<[SmolStr]>);
+pub struct Path(Box<[Ident]>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LValue {
@@ -270,7 +269,7 @@ macro_rules! map_or_missing {
     };
 }
 
-pub(crate) trait LowerExpr: LowerLiteral {
+pub(crate) trait LowerExpr: LowerLiteral + Lower {
     fn arena_expr(&mut self) -> &mut Arena<Expr>;
 
     fn src_map_expr(&mut self) -> &mut SourceMap<ExprSrc, Expr>;
@@ -280,13 +279,7 @@ pub(crate) trait LowerExpr: LowerLiteral {
         self.arena_expr().alloc(expr)
     }
 
-    fn lower_identifier(&self, ident: &ast::Identifier) -> Option<SmolStr> {
-        // TODO: should we process simple ident and escaped ident in different approaches?
-        // TODO: will to_text be too slow?
-        ident.to_text(self.file_text()).map(|s| s.into())
-    }
-
-    fn lower_systf_identifier(&self, ident: &ast::SystemTfIdentifier) -> Option<SmolStr> {
+    fn lower_systf_identifier(&self, ident: &ast::SystemTfIdentifier) -> Option<Ident> {
         // TODO: will to_text be too slow?
         ident.to_text(self.file_text()).map(|s| s.into())
     }
@@ -294,7 +287,7 @@ pub(crate) trait LowerExpr: LowerLiteral {
     fn lower_net_lvalue(&mut self, netlv: &ast::NetLvalue) -> Option<LValue> {
         let path = netlv
             .identifiers()
-            .map(|ident| self.lower_identifier(&ident))
+            .map(|ident| self.lower_ident(&ident))
             .collect::<Option<Box<[_]>>>()?;
 
         let select = if let Some(select) = netlv.constant_select() {
@@ -309,7 +302,7 @@ pub(crate) trait LowerExpr: LowerLiteral {
     fn lower_var_lvalue(&mut self, varlv: &ast::VariableLvalue) -> Option<LValue> {
         let path = varlv
             .identifiers()
-            .map(|ident| self.lower_identifier(&ident))
+            .map(|ident| self.lower_ident(&ident))
             .collect::<Option<Box<[_]>>>()?;
 
         let select = if let Some(select) = varlv.select() {
@@ -517,7 +510,7 @@ pub(crate) trait LowerExpr: LowerLiteral {
         loop {
             if cursor.node().kind_id() == syntax::syntax_kind::IDENTIFIER {
                 let ident = ast::Identifier::cast(cursor.node()).unwrap();
-                let name = self.lower_identifier(&ident).unwrap();
+                let name = self.lower_ident(&ident).unwrap();
                 cursor.goto_next_sibling();
                 if cursor.node().kind_id() == syntax::syntax_kind::EXPRESSION {
                     let expr =
@@ -627,7 +620,7 @@ pub(crate) trait LowerExpr: LowerLiteral {
                         call.tf_call(), tf_call => {
                             let path = tf_call
                                 .identifiers()
-                                .map(|ident| self.lower_identifier(&ident))
+                                .map(|ident| self.lower_ident(&ident))
                                 .collect::<Option<Box<[_]>>>()?;
                             let args = tf_call
                                 .list_of_arguments_parent()
@@ -666,7 +659,7 @@ pub(crate) trait LowerExpr: LowerLiteral {
                 if primary.identifiers().count() != 0 {
                     try_or_default! {
                         let path = primary.identifiers()
-                            .map(|ident| self.lower_identifier(&ident))
+                            .map(|ident| self.lower_ident(&ident))
                             .collect::<Option<Box<[_]>>>()
                             .map(Path)?;
 

@@ -116,18 +116,17 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
         }
     }
 
+    // The outer Option is for the error
+    // The inner Option is for no port type found
     fn lower_net_port_type(&mut self, net_port_type: &ast::NetPortType) -> Option<PortKind> {
-        Some(PortKind::Net(try_match! {
+        let net_kind = try_match! {
             net_port_type.data_type_or_implicit(), data_type_or_implicit => {
-                NetKind::Default {
-                    net_type: try_match!{
-                        net_port_type.net_type(), net_type => {
-                            data::lower_net_type(&net_type)?
-                        },
-                        _ => data::DEFAULT_NET_TYPE,
-                    },
-                    data_type: self.lower_data_type_or_implicit(&data_type_or_implicit)?
-                }
+                let net_type = try_match! {
+                    net_port_type.net_type(), net_type => data::lower_net_type(&net_type)?,
+                    _ => data::DEFAULT_NET_TYPE,
+                };
+                let data_type = self.lower_data_type_or_implicit(&data_type_or_implicit)?;
+                NetKind::Default { net_type, data_type }
             },
             net_port_type.identifier(), _ident => {
                 unimplemented!("net_port_type ::= net_type_identifier");
@@ -135,13 +134,14 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
             net_port_type.token_interconnect(), _ => {
                 unimplemented!("net_port_type ::= interconnect implicit_data_type");
             },
-            _ => {return None;}
-        }))
+            _ => return None,
+        };
+        Some(PortKind::Net(net_kind))
     }
 
     fn lower_var_port_type(&mut self, var_port_type: &ast::VariablePortType) -> Option<PortKind> {
         let var_data_type = var_port_type.var_data_type()?;
-        Some(PortKind::Var(try_match! {
+        let data_type = try_match! {
             var_data_type.data_type(), data_type => {
                 self.lower_data_type(&data_type)?
             },
@@ -149,7 +149,8 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
                 self.lower_data_type_or_implicit(&data_type_or_implicit)?
             },
             _ => {return None;}
-        }))
+        };
+        Some(PortKind::Var(data_type))
     }
 
     fn lower_port_decl(&mut self, port_decl_node: &ast::PortDeclaration) -> Option<Idx<PortDecl>> {
@@ -237,15 +238,13 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
         });
 
         for port_decl in port_decl_list.ansi_port_declarations() {
+            let src = self.in_file(port_decl.to_ptr());
+            let idx = self.next_anis_port_decl_idx();
             try_! {
                 try_match!{
                     port_decl.net_port_header(), net_port_header => {
-                        let src = self.in_file(port_decl.to_ptr());
-                        let idx = self.next_anis_port_decl_idx();
-                        try_match!{
-                            net_port_header.port_direction(), direction_node => {
-                                direction = lower_port_direction(&direction_node)?;
-                            }
+                        if let Some(dir) = net_port_header.port_direction() {
+                            direction = lower_port_direction(&dir)?;
                         };
                         port_kind = self.lower_net_port_type(&net_port_header.net_port_type()?)?;
                         let sub_decl = self.lower_ansi_port_decl(&port_decl, idx)?;
@@ -257,8 +256,6 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
                         self.src_map_ansi_port_decl().insert(src, idx);
                     },
                     port_decl.variable_port_header(), var_port_header => {
-                        let src = self.in_file(port_decl.to_ptr());
-                        let idx = self.next_anis_port_decl_idx();
                         try_match!{
                             var_port_header.port_direction(), direction_node => {
                                 direction = lower_port_direction(&direction_node)?;
@@ -281,8 +278,6 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
                         unimplemented!("ansi_port_declaration ::= [port_direction].port_identifier([expression])")
                     },
                     _ => {
-                        let src = self.in_file(port_decl.to_ptr());
-                        let idx = self.next_anis_port_decl_idx();
                         let sub_decl = self.lower_ansi_port_decl(&port_decl, idx)?;
                         self.arena_ansi_port_decl().alloc(
                             AnsiPortDecl::IODecl(AnsiIODecl {
