@@ -1,6 +1,6 @@
 use crate::hir_def::{
+    block::{self, Block, BlockItemDecl, BlockKind, BlockSrc, LocalBlockId, LocalBlockSrc},
     control::{DelayOrEventControl, LowerTimingControl, ProceduralTimingControlControl},
-    data::DataDecl,
     expr::{self, AssignOp, ExprId, LowerExpr},
     try_match, Ident, InFile, SourceMap,
 };
@@ -85,52 +85,6 @@ pub enum CaseItems {
     // TODO: Inside()
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Block {
-    kind: BlockKind,
-    ident: Option<Ident>,
-    item_decls: SmallVec<[BlockItemDecl; 1]>,
-    stmts: SmallVec<[StmtId; 1]>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum LocalBlockSrc {
-    SeqBlock(ptr::SeqBlockPtr),
-    ParBlock(ptr::ParBlockPtr),
-}
-
-pub type BlockSrc = InFile<LocalBlockSrc>;
-
-pub type LocalBlockId = Idx<Block>;
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum BlockKind {
-    Sequential,
-    Parallel(JoinKeyword),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum JoinKeyword {
-    Join,
-    JoinAny,
-    JoinNone,
-}
-
-pub(crate) fn lower_join_keyword(keyword: &ast::JoinKeyword) -> Option<JoinKeyword> {
-    try_match! {
-        keyword.token_join(), _ => Some(JoinKeyword::Join),
-        keyword.token_join_any(), _ => Some(JoinKeyword::JoinAny),
-        keyword.token_join_none(), _ => Some(JoinKeyword::JoinNone),
-        _ => None,
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum BlockItemDecl {
-    DataDecl(Idx<DataDecl>),
-    // TODO: LetDecl(),
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StmtItem {
     BlockingAssign {
@@ -194,7 +148,12 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
     fn lower_stmt_item(&mut self, stmt: &ast::StatementItem) -> Option<StmtItem> {
         try_match! {
             stmt.blocking_assignment(), assign => {
-                let control = self.lower_delay_or_event_control(&assign.delay_or_event_control()?);
+                let control = try_match!{
+                    assign.delay_or_event_control(), control => {
+                        self.lower_delay_or_event_control(&control)
+                    },
+                    _ => None
+                };
                 let assign = try_match!{
                     assign.variable_lvalue(), var_lvalue => {
                         let lhs = self.lower_var_lvalue(&var_lvalue)?;
@@ -426,7 +385,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
     }
 
     fn lower_par_block(&mut self, block: &ast::ParBlock) -> Option<LocalBlockId> {
-        let join_keyword = lower_join_keyword(&block.join_keyword()?);
+        let join_keyword = block::lower_join_keyword(&block.join_keyword()?);
         let kind = BlockKind::Parallel(join_keyword?);
         let ident = block.identifiers().next().and_then(|ident| self.lower_ident(&ident));
         let mut item_decls: SmallVec<[BlockItemDecl; 1]> = SmallVec::new();

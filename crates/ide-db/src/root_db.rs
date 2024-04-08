@@ -15,7 +15,7 @@ use crate::line_index_db::LineIndexDbStorage;
     base_db::source_db::SourceDbStorage,
     base_db::source_db::SourceRootDbStorage,
     hir::db::HirDbStorage,
-    LineIndexDbStorage,
+    LineIndexDbStorage
 )]
 pub struct RootDb {
     // `ManuallyDrop` is used to avoid duplicating drop glue like `Weak::drop'

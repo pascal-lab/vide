@@ -1,4 +1,5 @@
 pub mod bit;
+pub mod block;
 pub mod control;
 pub mod data;
 pub mod expr;
@@ -11,7 +12,7 @@ pub mod pack_or_gen_item;
 pub mod stmt;
 pub mod tf;
 
-use la_arena::{Arena, ArenaMap, Idx};
+use la_arena::{Arena, ArenaMap, Idx, IdxRange};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
@@ -30,6 +31,13 @@ macro_rules! impl_index {
                 type Output = $tpy;
                 fn index(&self, index: Idx<$tpy>) -> &Self::Output {
                     &self.$fld[index]
+                }
+            }
+
+            impl Index<IdxRange<$tpy>> for $datas {
+                type Output = [$tpy];
+                fn index(& self, range: IdxRange<$tpy>) -> &Self::Output {
+                    &self.$fld[range]
                 }
             }
         )+
@@ -119,12 +127,12 @@ where
         self.hir2src.insert(idx, src);
     }
 
-    pub fn get_idx(&self, src: &Src) -> Option<&Idx<Hir>> {
-        self.src2hir.get(src)
+    pub fn get_idx(&self, src: &Src) -> &Idx<Hir> {
+        &self.src2hir[src]
     }
 
-    pub fn get_src(&self, idx: Idx<Hir>) -> Option<&Src> {
-        self.hir2src.get(idx)
+    pub fn get_src(&self, idx: Idx<Hir>) -> &Src {
+        &self.hir2src[idx]
     }
 }
 

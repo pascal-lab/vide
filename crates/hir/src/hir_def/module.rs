@@ -3,6 +3,7 @@ pub mod module_item;
 pub mod port;
 
 use crate::hir_def::{
+    block::{Block, BlockSrc},
     control::EventExpr,
     data::{DataDecl, DataDeclSrc, DataSubDecl, DataSubDeclSrc},
     expr::{Expr, ExprSrc},
@@ -12,7 +13,7 @@ use crate::hir_def::{
         module_item::{HierarchicalInst, ModuleInst, ModuleItem, ModuleItemSrc},
         port::{AnsiPortDecl, NonAnsiPort, PortDecl},
     },
-    stmt::{Block, BlockSrc, Stmt, StmtSrc},
+    stmt::{Stmt, StmtSrc},
     Ident,
     InFile,
     SourceMap,
@@ -38,9 +39,14 @@ impl_index!(ModuleDecl for
     NonAnsiPort, non_ansi_ports,
     ModuleItem, module_items,
     Expr, data,
+    EventExpr, data,
     DataSubDecl, data,
     DataDecl, data,
+    PortDecl, data,
+    Stmt, data,
+    Block, data,
     HierarchicalInst, data,
+    ModuleInst, data,
 );
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
@@ -52,20 +58,27 @@ pub struct ModuleData {
     pub port_decls: Arena<PortDecl>,
     pub stmts: Arena<Stmt>,
     pub blocks: Arena<Block>,
-    pub hierarchical_instances: Arena<HierarchicalInst>,
+    pub hierarchical_insts: Arena<HierarchicalInst>,
     pub module_insts: Arena<ModuleInst>,
 }
 
 impl_index!(ModuleData for
     Expr, exprs,
+    EventExpr, event_exprs,
     DataSubDecl, data_sub_decls,
     DataDecl, data_decls,
     PortDecl, port_decls,
-    HierarchicalInst, hierarchical_instances,
+    Stmt, stmts,
+    Block, blocks,
+    HierarchicalInst, hierarchical_insts,
+    ModuleInst, module_insts,
 );
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct ModuleSourceMap {
+    pub non_ansi_port: SourceMap<InFile<ptr::PortPtr>, NonAnsiPort>,
+    pub ansi_port_decl: SourceMap<InFile<ptr::AnsiPortDeclarationPtr>, AnsiPortDecl>,
+    pub module_item: SourceMap<ModuleItemSrc, ModuleItem>,
     pub expr: SourceMap<ExprSrc, Expr>,
     pub event_expr: SourceMap<InFile<ptr::EventExpressionPtr>, EventExpr>,
     pub data_sub_decl: SourceMap<DataSubDeclSrc, DataSubDecl>,
@@ -73,10 +86,8 @@ pub struct ModuleSourceMap {
     pub port_decl: SourceMap<InFile<ptr::PortDeclarationPtr>, PortDecl>,
     pub stmt: SourceMap<StmtSrc, Stmt>,
     pub block: SourceMap<BlockSrc, Block>,
-    pub port: SourceMap<InFile<ptr::PortPtr>, NonAnsiPort>,
-    pub ansi_port_decl: SourceMap<InFile<ptr::AnsiPortDeclarationPtr>, AnsiPortDecl>,
-    pub hierarchical_instance: SourceMap<InFile<ptr::HierarchicalInstancePtr>, HierarchicalInst>,
-    pub module_item: SourceMap<ModuleItemSrc, ModuleItem>,
+    pub hierarchical_inst: SourceMap<InFile<ptr::HierarchicalInstancePtr>, HierarchicalInst>,
+    pub module_inst: SourceMap<InFile<ptr::ModuleInstantiationPtr>, ModuleInst>,
 }
 
 pub(crate) fn module_with_source_map_query(
@@ -95,7 +106,7 @@ pub(crate) fn module_with_source_map_query(
     };
     let mut module_src_map = ModuleSourceMap::default();
 
-    let module_ptr = &file_source_map.module.hir2src[module_id.value];
+    let module_ptr = file_source_map.module.get_src(module_id.value);
 
     try_! {
         let tree = db.hir_syntax_tree(module_id.file_id)?;

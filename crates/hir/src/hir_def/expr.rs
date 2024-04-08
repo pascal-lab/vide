@@ -1,4 +1,7 @@
-use super::{literal::{Literal, LowerLiteral}, lower::Lower};
+use super::{
+    literal::{Literal, LowerLiteral},
+    lower::Lower,
+};
 use crate::{
     hir_def::{data::DataType, Ident, InFile, SourceMap},
     try_match,
@@ -353,7 +356,7 @@ pub(crate) trait LowerExpr: LowerLiteral + Lower {
     fn lower_const_part_select_range(
         &mut self,
         part_select: &ast::ConstantPartSelectRange,
-    )-> Option<PartSelectExpr> {
+    ) -> Option<PartSelectExpr> {
         try_match! {
             part_select.constant_range(), const_range => {
                 let mut exprs = const_range.constant_expressions();
@@ -406,10 +409,7 @@ pub(crate) trait LowerExpr: LowerLiteral + Lower {
         let bit_selects = select
             .bit_selects()
             .flat_map(|sel| {
-                sel.expressions()
-                    .map(|expr| self.lower_expr(&expr))
-                    .collect::<Vec<_>>()
-                    .into_iter()
+                sel.expressions().map(|expr| self.lower_expr(&expr)).collect::<Vec<_>>().into_iter()
             })
             .collect::<Box<[_]>>();
 

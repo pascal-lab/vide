@@ -26,6 +26,8 @@ pub trait HirDb: SourceDb {
         &self,
         module_id: ModuleId,
     ) -> (Arc<ModuleDecl>, Arc<ModuleSourceMap>);
+
+    fn module(&self, module_id: ModuleId) -> Arc<ModuleDecl>;
 }
 
 pub fn hir_syntax_tree(db: &dyn HirDb, file_id: HirFileId) -> Option<SyntaxTree> {
@@ -36,6 +38,10 @@ pub fn hir_file_text(db: &dyn HirDb, file_id: HirFileId) -> Arc<str> {
     db.file_text(file_id.0)
 }
 
-pub fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {
+fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {
     db.hir_file_with_source_map(file_id).0
+}
+
+fn module(db: &dyn HirDb, module_id: ModuleId) -> Arc<ModuleDecl> {
+    db.module_with_source_map(module_id).0
 }

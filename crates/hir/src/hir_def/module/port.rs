@@ -245,8 +245,21 @@ pub(crate) trait LowerPortDecl: LowerDataType + LowerDataSubDecl + LowerExpr {
                     port_decl.net_port_header(), net_port_header => {
                         if let Some(dir) = net_port_header.port_direction() {
                             direction = lower_port_direction(&dir)?;
+                            try_match!{
+                                net_port_header.net_port_type(), net_port_type => {
+                                    port_kind = self.lower_net_port_type(&net_port_type)?;
+                                },
+                                _ => {
+                                    port_kind = PortKind::Net(NetKind::Default {
+                                        net_type: data::DEFAULT_NET_TYPE,
+                                        data_type: data::DataType::Implicit{
+                                            dimensions: None,
+                                            sign: false,
+                                        },
+                                    });
+                                }
+                            }
                         };
-                        port_kind = self.lower_net_port_type(&net_port_header.net_port_type()?)?;
                         let sub_decl = self.lower_ansi_port_decl(&port_decl, idx)?;
                         self.arena_ansi_port_decl().alloc(
                             AnsiPortDecl::IODecl(AnsiIODecl {

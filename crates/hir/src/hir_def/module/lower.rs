@@ -35,8 +35,8 @@ impl<'a> ModuleLowerCtx<'a> {
                 if let Some(port_decl_list) = ansi_header.list_of_port_declarations() {
                     self.lower_ansi_port_decl_list(&port_decl_list);
                 }
-                for module_item in module_node.module_items() {
-                    self.lower_module_item(&module_item);
+                for non_port_module_item in module_node.non_port_module_items() {
+                    self.lower_non_port_module_item(&non_port_module_item);
                 }
             },
             module_node.module_nonansi_header(), non_ansi_header => {
@@ -44,8 +44,8 @@ impl<'a> ModuleLowerCtx<'a> {
                     self.lower_param_port_list(&param_port_list);
                 }
                 try_!(self.lower_port_list(&non_ansi_header.list_of_ports()?));
-                for non_port_module_item in module_node.non_port_module_items() {
-                    self.lower_non_port_module_item(&non_port_module_item);
+                for module_item in module_node.module_items() {
+                    self.lower_module_item(&module_item);
                 }
             },
             _ => {}
@@ -159,7 +159,7 @@ impl LowerPortDecl for ModuleLowerCtx<'_> {
     }
 
     fn src_map_non_ansi_port(&mut self) -> &mut SourceMap<InFile<ptr::PortPtr>, NonAnsiPort> {
-        &mut self.module_src_map.port
+        &mut self.module_src_map.non_ansi_port
     }
 
     fn src_map_ansi_port_decl(

@@ -1,4 +1,5 @@
 use crate::hir_def::{
+    block::{Block, BlockSrc},
     control::{DelayControl, EventExpr, LowerDelayControl, LowerEventExpr, LowerTimingControl},
     data::{self, Delay, Dimension, DriveStrength, LowerDelay, LowerDimension},
     expr::{AssignOp, ExprId, LowerExpr},
@@ -8,7 +9,7 @@ use crate::hir_def::{
         port::{LowerPortDecl, PortDecl},
     },
     pack_or_gen_item::{LowerPackOrGenItemDecl, PackOrGenItemDecl},
-    stmt::{Assign, Block, BlockSrc, LowerStmt, Stmt, StmtId, StmtSrc},
+    stmt::{Assign, LowerStmt, Stmt, StmtId, StmtSrc},
     try_match, Ident, InFile, SourceMap,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
@@ -20,7 +21,7 @@ use utils::try_;
 pub enum ModuleItem {
     PortDecl(Idx<PortDecl>),
     PackOrGenItemDecl(PackOrGenItemDecl),
-    ModuleInstantiation(ModuleInst),
+    ModuleInst(Idx<ModuleInst>),
     ContinuousAssignment(ContinuousAssignment),
     ProcessConstruct(ProcessConstruct),
     // TODO: Add more module items
@@ -61,6 +62,7 @@ pub struct HierarchicalInst {
     pub ident: Ident,
     pub dimensions: Option<SmallVec<[Dimension; 1]>>,
     pub port_connects: Option<PortConnects>,
+    pub full_decl: Idx<ModuleInst>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -133,48 +135,46 @@ impl<'a> ModuleLowerCtx<'a> {
                     self.module_src_map.module_item.insert(src, idx);
                 },
                 item.non_port_module_item(), non_port_item => {
-                    let module_item = self.lower_non_port_module_item(&non_port_item)?;
-                    let src = self.in_file(LocalModuleItemSrc::NonePortItem(non_port_item.to_ptr()));
-                    let idx = self.module_decl.module_items.alloc(module_item);
-                    self.module_src_map.module_item.insert(src, idx);
+                    self.lower_non_port_module_item(&non_port_item);
                 },
                 _ => { return None; }
             };
         };
     }
 
-    pub(crate) fn lower_non_port_module_item(
-        &mut self,
-        item: &ast::NonPortModuleItem,
-    ) -> Option<ModuleItem> {
-        let module_item = try_match! {
-            item.module_or_generate_item(), module_or_generate_item => {
-                self.lower_module_or_gen_item(&module_or_generate_item)?
-            },
-            item.generate_region(), _generate_region => {
-                unimplemented!("generate_region")
-            },
-            item.specify_block(), _ => {
-                unimplemented!("specify_block")
-            },
-            item.specparam_declaration(), _ => {
-                unimplemented!("specparam_declaration")
-            },
-            item.program_declaration(), _ => {
-                unimplemented!("program_declaration")
-            },
-            item.module_declaration(), _ => {
-                unimplemented!("module_declaration")
-            },
-            item.interface_declaration(), _ => {
-                unimplemented!("interface_declaration")
-            },
-            item.timeunits_declaration(), _ => {
-                unimplemented!("timeunits_declaration")
-            },
-            _ => { return None; }
+    pub(crate) fn lower_non_port_module_item(&mut self, item: &ast::NonPortModuleItem) {
+        try_! {
+            let module_item = try_match! {
+                item.module_or_generate_item(), module_or_generate_item => {
+                    self.lower_module_or_gen_item(&module_or_generate_item)?
+                },
+                item.generate_region(), _generate_region => {
+                    unimplemented!("generate_region")
+                },
+                item.specify_block(), _ => {
+                    unimplemented!("specify_block")
+                },
+                item.specparam_declaration(), _ => {
+                    unimplemented!("specparam_declaration")
+                },
+                item.program_declaration(), _ => {
+                    unimplemented!("program_declaration")
+                },
+                item.module_declaration(), _ => {
+                    unimplemented!("module_declaration")
+                },
+                item.interface_declaration(), _ => {
+                    unimplemented!("interface_declaration")
+                },
+                item.timeunits_declaration(), _ => {
+                    unimplemented!("timeunits_declaration")
+                },
+                _ => { return None; }
+            };
+            let src = self.in_file(LocalModuleItemSrc::NonePortItem(item.to_ptr()));
+            let idx = self.module_decl.module_items.alloc(module_item);
+            self.module_src_map.module_item.insert(src, idx);
         };
-        Some(module_item)
     }
 
     pub(crate) fn lower_module_or_gen_item(
@@ -314,29 +314,38 @@ impl<'a> ModuleLowerCtx<'a> {
             },
             _ => { return None; }
         };
-        let begin_idx = self.module_decl.data.hierarchical_instances.len();
+        let module_inst_src = self.in_file(module_inst.to_ptr());
+        let module_inst_idx =
+            Idx::from_raw(RawIdx::from(self.module_decl.data.module_insts.len() as u32));
+
+        let begin_idx = self.module_decl.data.hierarchical_insts.len();
         let begin_idx = Idx::from_raw(RawIdx::from(begin_idx as u32));
         for instance_node in module_inst.hierarchical_instances() {
             try_! {
-                let instance = self.lower_hierarchy_instance(&instance_node)?;
+                let instance = self.lower_hierarchy_instance(&instance_node, module_inst_idx)?;
                 let src = self.in_file(instance_node.to_ptr());
-                let idx = self.module_decl.data.hierarchical_instances.alloc(instance);
-                self.module_src_map.hierarchical_instance.insert(src, idx);
+                let idx = self.module_decl.data.hierarchical_insts.alloc(instance);
+                self.module_src_map.hierarchical_inst.insert(src, idx);
             };
         }
-        let end_idx = self.module_decl.data.hierarchical_instances.len();
+        let end_idx = self.module_decl.data.hierarchical_insts.len();
         let end_idx = Idx::from_raw(RawIdx::from(end_idx as u32));
-        let hierarchical_instances = IdxRange::new(begin_idx..end_idx);
-        Some(ModuleItem::ModuleInstantiation(ModuleInst {
+        let hierarchical_insts = IdxRange::new(begin_idx..end_idx);
+
+        self.module_decl.data.module_insts.alloc(ModuleInst {
             ident,
             param_assigns,
-            hierarchical_insts: hierarchical_instances,
-        }))
+            hierarchical_insts,
+        });
+        self.module_src_map.module_inst.insert(module_inst_src, module_inst_idx);
+
+        Some(ModuleItem::ModuleInst(module_inst_idx))
     }
 
     fn lower_hierarchy_instance(
         &mut self,
         instance: &ast::HierarchicalInstance,
+        full_decl: Idx<ModuleInst>,
     ) -> Option<HierarchicalInst> {
         let name = instance.name_of_instance()?;
         let ident = self.lower_ident(&name.identifier()?)?;
@@ -366,7 +375,7 @@ impl<'a> ModuleLowerCtx<'a> {
             },
             _ => None,
         };
-        Some(HierarchicalInst { ident, dimensions, port_connects })
+        Some(HierarchicalInst { ident, dimensions, port_connects, full_decl })
     }
 
     fn lower_continuous_assign(&mut self, assign: &ast::ContinuousAssign) -> Option<ModuleItem> {
