@@ -19,15 +19,6 @@ impl AnalysisHost {
 
     pub fn apply_change(&mut self, change: Change) {
         self.db.apply_change(change);
-        let file_id = self.db.files().iter().next().unwrap().clone().into();
-        dbg!(self.db.syntax_tree(file_id));
-        dbg!(self.db.hir_file(file_id.into()));
-        let x: FileItem = self.db.hir_file(file_id.into()).items.clone().first().unwrap().clone();
-        let x = match x {
-            FileItem::Module(x) => x,
-            _ => panic!(),
-        };
-        dbg!(self.db.module_with_source_map(InFile::new(file_id.into(), x)));
     }
 
     pub fn raw_db(&self) -> &RootDb {
