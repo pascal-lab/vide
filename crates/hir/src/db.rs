@@ -1,11 +1,11 @@
 use crate::{
+    file::HirFileId,
     hir_def::{
         self,
         module::{self, ModuleDecl, ModuleSourceMap},
         FileSourceMap, HirFile, ModuleId,
     },
-    HirFileId,
-    scope::{UnitScope, ModuleScope},
+    scope::{ModuleScope, UnitScope},
 };
 use base_db::source_db::SourceDb;
 use syntax::parse::SyntaxTree;

@@ -1,4 +1,4 @@
-use crate::hir_def::{
+use crate::{file::InFile, hir_def::{
     block::{Block, BlockSrc},
     control::{DelayControl, EventExpr, LowerDelayControl, LowerEventExpr, LowerTimingControl},
     data::{self, Delay, Dimension, DriveStrength, LowerDelay, LowerDimension},
@@ -10,8 +10,8 @@ use crate::hir_def::{
     },
     pack_or_gen_item::{LowerPackOrGenItemDecl, PackOrGenItemDecl},
     stmt::{Assign, LowerStmt, Stmt, StmtId, StmtSrc},
-    try_match, Ident, InFile, SourceMap,
-};
+    try_match, Ident, SourceMap,
+}};
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use smallvec::SmallVec;
 use syntax::ast::{self, ptr};

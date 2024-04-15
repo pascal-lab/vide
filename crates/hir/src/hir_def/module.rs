@@ -2,7 +2,7 @@ pub(crate) mod lower;
 pub mod module_item;
 pub mod port;
 
-use crate::hir_def::{
+use crate::{file::InFile, hir_def::{
     block::{Block, BlockSrc},
     control::EventExpr,
     data::{DataDecl, DataDeclSrc, DataSubDecl, DataSubDeclSrc},
@@ -15,9 +15,8 @@ use crate::hir_def::{
     },
     stmt::{Stmt, StmtSrc},
     Ident,
-    InFile,
     SourceMap,
-};
+}};
 use la_arena::{Arena, Idx, IdxRange};
 use std::ops::Index;
 use syntax::ast::ptr;

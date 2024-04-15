@@ -1,4 +1,4 @@
-use crate::hir_def::{
+use crate::{file::{HirFileId, InFile}, hir_def::{
     data::{
         DataDecl, DataDeclSrc, DataSubDecl, DataSubDeclSrc, LocalDataDeclSrc, LowerDataDecl,
         LowerDataSubDecl, LowerDataType, LowerDimension, ParamDecl,
@@ -10,8 +10,8 @@ use crate::hir_def::{
         port::{AnsiPortDecl, LowerPortDecl, NonAnsiPort, PortDecl},
         ModuleDecl, ModuleSourceMap,
     },
-    try_match, HirFileId, InFile, SourceMap,
-};
+    try_match, SourceMap,
+}};
 use la_arena::{Arena, IdxRange};
 use syntax::ast::{self, ptr};
 use utils::try_;

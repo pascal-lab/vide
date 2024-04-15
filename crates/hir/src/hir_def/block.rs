@@ -1,4 +1,4 @@
-use crate::hir_def::{data::DataDecl, stmt::StmtId, try_match, Ident, InFile};
+use crate::{file::InFile, hir_def::{data::DataDecl, stmt::StmtId, try_match, Ident}};
 use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::ast::{self, ptr};

@@ -1,9 +1,9 @@
-use crate::hir_def::{
+use crate::{file::InFile, hir_def::{
     block::{self, Block, BlockItemDecl, BlockKind, BlockSrc, LocalBlockId, LocalBlockSrc},
     control::{DelayOrEventControl, LowerTimingControl, ProceduralTimingControlControl},
     expr::{self, AssignOp, ExprId, LowerExpr},
-    try_match, Ident, InFile, SourceMap,
-};
+    try_match, Ident, SourceMap,
+}};
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::ast::{self, ptr};

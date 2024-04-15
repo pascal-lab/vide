@@ -21,8 +21,6 @@ use syntax::ast::{self, ptr, AstNode};
 use triomphe::Arc;
 use utils::try_;
 
-pub(crate) use crate::{HirFileId, InFile};
-
 #[macro_export]
 macro_rules! impl_index {
     ($datas:ident for $($tpy:ident, $fld:ident),+ $(,)? ) => {
@@ -66,6 +64,8 @@ macro_rules! try_match {
 }
 
 pub(crate) use try_match;
+
+use crate::{db::HirDb, file::{HirFileId, InFile}};
 
 pub type Ident = SmolStr;
 
@@ -151,8 +151,8 @@ pub struct FileSourceMap {
 }
 
 pub(crate) fn hir_file_with_source_map_query(
-    db: &dyn crate::db::HirDb,
-    file_id: crate::HirFileId,
+    db: &dyn HirDb,
+    file_id: HirFileId,
 ) -> (Arc<HirFile>, Arc<FileSourceMap>) {
     let mut hir_file = HirFile::default();
     let mut source_map = FileSourceMap::default();

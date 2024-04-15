@@ -3,8 +3,7 @@ use super::{
     lower::Lower,
 };
 use crate::{
-    hir_def::{data::DataType, Ident, InFile, SourceMap},
-    try_match,
+    file::InFile, hir_def::{data::DataType, Ident, SourceMap}, try_match
 };
 use la_arena::{Arena, Idx};
 use smallvec::SmallVec;

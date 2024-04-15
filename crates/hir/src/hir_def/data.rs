@@ -1,8 +1,8 @@
-use crate::hir_def::{
+use crate::{file::InFile, hir_def::{
     expr::{ExprId, LowerExpr, MinTypMaxExpr},
     module::port::{AnsiPortDecl, PortDecl},
-    try_match, Ident, InFile, SourceMap,
-};
+    try_match, Ident, SourceMap,
+}};
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use smallvec::SmallVec;
 use syntax::ast::{self, ptr};

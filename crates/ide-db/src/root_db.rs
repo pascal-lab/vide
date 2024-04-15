@@ -5,7 +5,6 @@ use base_db::{
     salsa::{self, Durability},
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
-use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use vfs::{anchored_path::AnchoredPath, vfs::FileId};
 

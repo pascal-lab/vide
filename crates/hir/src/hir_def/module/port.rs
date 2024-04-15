@@ -1,8 +1,8 @@
-use crate::hir_def::{
+use crate::{file::InFile, hir_def::{
     data::{self, DataSubDecl, DataType, LowerDataSubDecl, LowerDataType, NetKind},
     expr::{LowerExpr, Select},
-    try_match, Ident, InFile, SourceMap,
-};
+    try_match, Ident, SourceMap,
+}};
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use syntax::ast::{self, ptr};
 use utils::try_;

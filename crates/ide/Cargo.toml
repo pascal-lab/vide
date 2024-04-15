@@ -11,5 +11,6 @@ hir.workspace = true
 ide-db.workspace = true
 line-index.workspace = true
 rustc-hash.workspace = true
+smol_str.workspace = true
 triomphe.workspace = true
 vfs.workspace = true

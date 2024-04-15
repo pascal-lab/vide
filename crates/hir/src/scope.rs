@@ -1,5 +1,5 @@
 use crate::{
-    hir_def::{
+    db::HirDb, file::{HirFileId, InFile}, hir_def::{
         block::{Block, BlockItemDecl},
         data::{DataDecl, DataSubDecl},
         module::{
@@ -9,9 +9,8 @@ use crate::{
         },
         pack_or_gen_item::PackOrGenItemDecl,
         stmt::StmtItem,
-        FileItem, HirFileId, Ident, ModuleId,
-    },
-    InFile,
+        FileItem, Ident, ModuleId,
+    }
 };
 use la_arena::{Arena, ArenaMap, Idx};
 use rustc_hash::FxHashMap;
@@ -57,7 +56,7 @@ pub enum UnitScopeEntry {
 }
 
 impl UnitScope {
-    pub fn unit_scope_query(db: &dyn crate::db::HirDb) -> Arc<UnitScope> {
+    pub fn unit_scope_query(db: &dyn HirDb) -> Arc<UnitScope> {
         let mut scope = UnitScope { entries: Arena::default(), entry_map: FxHashMap::default() };
 
         db.files().iter().map(|file_id| HirFileId(*file_id)).for_each(|file_id| {
@@ -79,7 +78,7 @@ impl UnitScope {
         };
     }
 
-    fn collect_hir_file(&mut self, db: &dyn crate::db::HirDb, file_id: &HirFileId) {
+    fn collect_hir_file(&mut self, db: &dyn HirDb, file_id: &HirFileId) {
         let hir_file = db.hir_file(*file_id);
         let hir_file = hir_file.as_ref();
 
@@ -157,7 +156,7 @@ pub enum ModuleScopeEntry {
 }
 
 impl ModuleScope {
-    pub fn module_scope_query(db: &dyn crate::db::HirDb, module_id: ModuleId) -> Arc<ModuleScope> {
+    pub fn module_scope_query(db: &dyn HirDb, module_id: ModuleId) -> Arc<ModuleScope> {
         let module = db.module(module_id);
         let module = module.as_ref();
         let mut scope = ModuleScope {

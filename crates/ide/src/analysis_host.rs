@@ -1,6 +1,6 @@
 use base_db::{change::Change, salsa::ParallelDatabase, source_db::SourceDb};
 use ide_db::root_db::RootDb;
-use hir::{db::HirDb, hir_def::FileItem, HirFileId, InFile};
+use hir::{db::HirDb, hir_def::{FileItem, ModuleId}};
 
 use crate::analysis::Analysis;
 
