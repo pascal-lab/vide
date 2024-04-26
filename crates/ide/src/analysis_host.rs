@@ -1,4 +1,4 @@
-use base_db::{change::Change, salsa::ParallelDatabase, source_db::SourceDb};
+use base_db::{change::Change, salsa::ParallelDatabase};
 use ide_db::root_db::RootDb;
 
 use crate::analysis::Analysis;

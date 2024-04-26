@@ -196,31 +196,57 @@ impl MinTypMaxExpr {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Expr {
     // TODO: Add more expressions
     // TODO: only used in params
+    #[default]
     Missing,
-    Unary { op: UnaryOp, expr: ExprId },
-    Binary { op: BinaryOp, lhs: ExprId, rhs: ExprId },
-    Cond { cond: ExprId, true_expr: ExprId, false_expr: ExprId },
-    IncDec { op: IncDecOp, lv: ExprId, is_post: bool },
+    Unary {
+        op: UnaryOp,
+        expr: ExprId,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: ExprId,
+        rhs: ExprId,
+    },
+    Cond {
+        cond: ExprId,
+        true_expr: ExprId,
+        false_expr: ExprId,
+    },
+    IncDec {
+        op: IncDecOp,
+        lv: ExprId,
+        is_post: bool,
+    },
 
     // Primary
     Literal(Literal),
-    Concat { concat: Box<[ExprId]>, range: Option<Select> },
-    MultiConcat { rep: ExprId, concat: Box<[ExprId]>, range: Option<Select> },
-    Cast { data_type: DataType, expr: ExprId },
+    Concat {
+        concat: Box<[ExprId]>,
+        range: Option<Select>,
+    },
+    MultiConcat {
+        rep: ExprId,
+        concat: Box<[ExprId]>,
+        range: Option<Select>,
+    },
+    Cast {
+        data_type: DataType,
+        expr: ExprId,
+    },
     MinTypMax(MinTypMaxExpr),
-    Call { callee: Path, args: Box<[Arg]> },
-    LValue { path: Path, select: Option<Select> },
+    Call {
+        callee: Path,
+        args: Box<[Arg]>,
+    },
+    LValue {
+        path: Path,
+        select: Option<Select>,
+    },
     // TODO: add more primary expressions
-}
-
-impl Default for Expr {
-    fn default() -> Self {
-        Expr::Missing
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -551,7 +577,7 @@ pub(crate) trait LowerExpr: LowerLiteral + Lower {
     fn lower_const_primary_expr(&mut self, primary: &ast::ConstantPrimary) -> ExprId {
         let expr = try_match! {
             primary.primary_literal(), literal => {
-                self.lower_literal(&literal).map(|lit| Expr::Literal(lit)).unwrap_or_default()
+                self.lower_literal(&literal).map(Expr::Literal).unwrap_or_default()
             },
             primary.constant_concatenation(), concat => {
                 let concat = concat
@@ -592,7 +618,7 @@ pub(crate) trait LowerExpr: LowerLiteral + Lower {
         let expr = try_match! {
             primary.primary_literal(), literal => {
                 self.lower_literal(&literal)
-                    .map(|lit| Expr::Literal(lit))
+                    .map(Expr::Literal)
                     .unwrap_or_default()
             },
             primary.concatenation(), concat => {
@@ -774,33 +800,33 @@ pub(crate) trait LowerExpr: LowerLiteral + Lower {
                 self.src_map_expr().insert(src, expr_id);
                 expr_id
             },
-            expr.token_plus(), _ => self.lower_const_binary(&expr, BinaryOp::Add),
-            expr.token_minus(), _ => self.lower_const_binary(&expr, BinaryOp::Sub),
-            expr.token_star(), _ => self.lower_const_binary(&expr, BinaryOp::Mul),
-            expr.token_slash(), _ => self.lower_const_binary(&expr, BinaryOp::Div),
-            expr.token_percent(), _ => self.lower_const_binary(&expr, BinaryOp::Mod),
-            expr.token_star_star(), _ => self.lower_const_binary(&expr, BinaryOp::Pow),
-            expr.token_eq_eq(), _ => self.lower_const_binary(&expr, BinaryOp::Eq),
-            expr.token_not_eq(), _ => self.lower_const_binary(&expr, BinaryOp::Neq),
-            expr.token_eq_eq_eq(), _ => self.lower_const_binary(&expr, BinaryOp::CaseEq),
-            expr.token_not_eq_eq(), _ => self.lower_const_binary(&expr, BinaryOp::CaseNeq),
-            expr.token_eq_eq_question(), _ => self.lower_const_binary(&expr, BinaryOp::WildEq),
-            expr.token_not_eq_question(), _ => self.lower_const_binary(&expr, BinaryOp::WildNeq),
-            expr.token_greater(), _ => self.lower_const_binary(&expr, BinaryOp::Gt),
-            expr.token_greater_eq(), _ => self.lower_const_binary(&expr, BinaryOp::Ge),
-            expr.token_less(), _ => self.lower_const_binary(&expr, BinaryOp::Lt),
-            expr.token_less_eq(), _ => self.lower_const_binary(&expr, BinaryOp::Le),
-            expr.token_and_and(), _ => self.lower_const_binary(&expr, BinaryOp::LogAnd),
-            expr.token_or_or(), _ => self.lower_const_binary(&expr, BinaryOp::LogOr),
-            expr.token_rshift(), _ => self.lower_const_binary(&expr, BinaryOp::ShiftRight),
-            expr.token_lshift(), _ => self.lower_const_binary(&expr, BinaryOp::ShiftLeft),
-            expr.token_arith_rshift(), _ => self.lower_const_binary(&expr, BinaryOp::ArithShiftRight),
-            expr.token_arith_lshift(), _ => self.lower_const_binary(&expr, BinaryOp::ArithShiftLeft),
-            expr.token_and(), _ => self.lower_const_binary(&expr, BinaryOp::BitAnd),
-            expr.token_or(), _ => self.lower_const_binary(&expr, BinaryOp::BitOr),
-            expr.token_xor(), _ => self.lower_const_binary(&expr, BinaryOp::BitXor),
-            expr.token_tilde_xor(), _ => self.lower_const_binary(&expr, BinaryOp::BitXnor),
-            expr.token_xor_tilde(), _ => self.lower_const_binary(&expr, BinaryOp::BitXnor),
+            expr.token_plus(), _ => self.lower_const_binary(expr, BinaryOp::Add),
+            expr.token_minus(), _ => self.lower_const_binary(expr, BinaryOp::Sub),
+            expr.token_star(), _ => self.lower_const_binary(expr, BinaryOp::Mul),
+            expr.token_slash(), _ => self.lower_const_binary(expr, BinaryOp::Div),
+            expr.token_percent(), _ => self.lower_const_binary(expr, BinaryOp::Mod),
+            expr.token_star_star(), _ => self.lower_const_binary(expr, BinaryOp::Pow),
+            expr.token_eq_eq(), _ => self.lower_const_binary(expr, BinaryOp::Eq),
+            expr.token_not_eq(), _ => self.lower_const_binary(expr, BinaryOp::Neq),
+            expr.token_eq_eq_eq(), _ => self.lower_const_binary(expr, BinaryOp::CaseEq),
+            expr.token_not_eq_eq(), _ => self.lower_const_binary(expr, BinaryOp::CaseNeq),
+            expr.token_eq_eq_question(), _ => self.lower_const_binary(expr, BinaryOp::WildEq),
+            expr.token_not_eq_question(), _ => self.lower_const_binary(expr, BinaryOp::WildNeq),
+            expr.token_greater(), _ => self.lower_const_binary(expr, BinaryOp::Gt),
+            expr.token_greater_eq(), _ => self.lower_const_binary(expr, BinaryOp::Ge),
+            expr.token_less(), _ => self.lower_const_binary(expr, BinaryOp::Lt),
+            expr.token_less_eq(), _ => self.lower_const_binary(expr, BinaryOp::Le),
+            expr.token_and_and(), _ => self.lower_const_binary(expr, BinaryOp::LogAnd),
+            expr.token_or_or(), _ => self.lower_const_binary(expr, BinaryOp::LogOr),
+            expr.token_rshift(), _ => self.lower_const_binary(expr, BinaryOp::ShiftRight),
+            expr.token_lshift(), _ => self.lower_const_binary(expr, BinaryOp::ShiftLeft),
+            expr.token_arith_rshift(), _ => self.lower_const_binary(expr, BinaryOp::ArithShiftRight),
+            expr.token_arith_lshift(), _ => self.lower_const_binary(expr, BinaryOp::ArithShiftLeft),
+            expr.token_and(), _ => self.lower_const_binary(expr, BinaryOp::BitAnd),
+            expr.token_or(), _ => self.lower_const_binary(expr, BinaryOp::BitOr),
+            expr.token_xor(), _ => self.lower_const_binary(expr, BinaryOp::BitXor),
+            expr.token_tilde_xor(), _ => self.lower_const_binary(expr, BinaryOp::BitXnor),
+            expr.token_xor_tilde(), _ => self.lower_const_binary(expr, BinaryOp::BitXnor),
             expr.constant_primary(), primary => self.lower_const_primary_expr(&primary),
             _ => self.alloc_missing(),
         }
@@ -866,33 +892,33 @@ pub(crate) trait LowerExpr: LowerLiteral + Lower {
                 }
                 map_or_missing!(self, expr.expressions().next(), lower_expr)
             },
-            expr.token_plus(), _ => self.lower_binary(&expr, BinaryOp::Add),
-            expr.token_minus(), _ => self.lower_binary(&expr, BinaryOp::Sub),
-            expr.token_star(), _ => self.lower_binary(&expr, BinaryOp::Mul),
-            expr.token_slash(), _ => self.lower_binary(&expr, BinaryOp::Div),
-            expr.token_percent(), _ => self.lower_binary(&expr, BinaryOp::Mod),
-            expr.token_star_star(), _ => self.lower_binary(&expr, BinaryOp::Pow),
-            expr.token_eq_eq(), _ => self.lower_binary(&expr, BinaryOp::Eq),
-            expr.token_not_eq(), _ => self.lower_binary(&expr, BinaryOp::Neq),
-            expr.token_eq_eq_eq(), _ => self.lower_binary(&expr, BinaryOp::CaseEq),
-            expr.token_not_eq_eq(), _ => self.lower_binary(&expr, BinaryOp::CaseNeq),
-            expr.token_eq_eq_question(), _ => self.lower_binary(&expr, BinaryOp::WildEq),
-            expr.token_not_eq_question(), _ => self.lower_binary(&expr, BinaryOp::WildNeq),
-            expr.token_greater(), _ => self.lower_binary(&expr, BinaryOp::Gt),
-            expr.token_greater_eq(), _ => self.lower_binary(&expr, BinaryOp::Ge),
-            expr.token_less(), _ => self.lower_binary(&expr, BinaryOp::Lt),
-            expr.token_less_eq(), _ => self.lower_binary(&expr, BinaryOp::Le),
-            expr.token_and_and(), _ => self.lower_binary(&expr, BinaryOp::LogAnd),
-            expr.token_or_or(), _ => self.lower_binary(&expr, BinaryOp::LogOr),
-            expr.token_rshift(), _ => self.lower_binary(&expr, BinaryOp::ShiftRight),
-            expr.token_lshift(), _ => self.lower_binary(&expr, BinaryOp::ShiftLeft),
-            expr.token_arith_rshift(), _ => self.lower_binary(&expr, BinaryOp::ArithShiftRight),
-            expr.token_arith_lshift(), _ => self.lower_binary(&expr, BinaryOp::ArithShiftLeft),
-            expr.token_and(), _ => self.lower_binary(&expr, BinaryOp::BitAnd),
-            expr.token_or(), _ => self.lower_binary(&expr, BinaryOp::BitOr),
-            expr.token_xor(), _ => self.lower_binary(&expr, BinaryOp::BitXor),
-            expr.token_tilde_xor(), _ => self.lower_binary(&expr, BinaryOp::BitXnor),
-            expr.token_xor_tilde(), _ => self.lower_binary(&expr, BinaryOp::BitXnor),
+            expr.token_plus(), _ => self.lower_binary(expr, BinaryOp::Add),
+            expr.token_minus(), _ => self.lower_binary(expr, BinaryOp::Sub),
+            expr.token_star(), _ => self.lower_binary(expr, BinaryOp::Mul),
+            expr.token_slash(), _ => self.lower_binary(expr, BinaryOp::Div),
+            expr.token_percent(), _ => self.lower_binary(expr, BinaryOp::Mod),
+            expr.token_star_star(), _ => self.lower_binary(expr, BinaryOp::Pow),
+            expr.token_eq_eq(), _ => self.lower_binary(expr, BinaryOp::Eq),
+            expr.token_not_eq(), _ => self.lower_binary(expr, BinaryOp::Neq),
+            expr.token_eq_eq_eq(), _ => self.lower_binary(expr, BinaryOp::CaseEq),
+            expr.token_not_eq_eq(), _ => self.lower_binary(expr, BinaryOp::CaseNeq),
+            expr.token_eq_eq_question(), _ => self.lower_binary(expr, BinaryOp::WildEq),
+            expr.token_not_eq_question(), _ => self.lower_binary(expr, BinaryOp::WildNeq),
+            expr.token_greater(), _ => self.lower_binary(expr, BinaryOp::Gt),
+            expr.token_greater_eq(), _ => self.lower_binary(expr, BinaryOp::Ge),
+            expr.token_less(), _ => self.lower_binary(expr, BinaryOp::Lt),
+            expr.token_less_eq(), _ => self.lower_binary(expr, BinaryOp::Le),
+            expr.token_and_and(), _ => self.lower_binary(expr, BinaryOp::LogAnd),
+            expr.token_or_or(), _ => self.lower_binary(expr, BinaryOp::LogOr),
+            expr.token_rshift(), _ => self.lower_binary(expr, BinaryOp::ShiftRight),
+            expr.token_lshift(), _ => self.lower_binary(expr, BinaryOp::ShiftLeft),
+            expr.token_arith_rshift(), _ => self.lower_binary(expr, BinaryOp::ArithShiftRight),
+            expr.token_arith_lshift(), _ => self.lower_binary(expr, BinaryOp::ArithShiftLeft),
+            expr.token_and(), _ => self.lower_binary(expr, BinaryOp::BitAnd),
+            expr.token_or(), _ => self.lower_binary(expr, BinaryOp::BitOr),
+            expr.token_xor(), _ => self.lower_binary(expr, BinaryOp::BitXor),
+            expr.token_tilde_xor(), _ => self.lower_binary(expr, BinaryOp::BitXnor),
+            expr.token_xor_tilde(), _ => self.lower_binary(expr, BinaryOp::BitXnor),
             expr.conditional_expression(), cond_expr => {
                 let cond = map_or_missing!(self, cond_expr.cond_predicate(), lower_cond_predicate);
 

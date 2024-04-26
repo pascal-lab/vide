@@ -70,15 +70,15 @@ impl From<f32> for FloatTypeWrapper {
     }
 }
 
-impl Into<f64> for FloatTypeWrapper {
-    fn into(self) -> f64 {
-        f64::from_bits(self.0)
+impl From<FloatTypeWrapper> for f64 {
+    fn from(val: FloatTypeWrapper) -> Self {
+        f64::from_bits(val.0)
     }
 }
 
-impl Into<f32> for FloatTypeWrapper {
-    fn into(self) -> f32 {
-        f64::from_bits(self.0) as f32
+impl From<FloatTypeWrapper> for f32 {
+    fn from(val: FloatTypeWrapper) -> Self {
+        f64::from_bits(val.0) as f32
     }
 }
 

@@ -1,6 +1,6 @@
 use syntax::{
     ast::{self, ptr::AstNodePtr, AstNode},
-    syntax_kind, SyntaxAncestors, SyntaxNode, SyntaxNodePtr,
+    syntax_kind, SyntaxAncestors, SyntaxNode,
 };
 
 use crate::{
@@ -29,7 +29,7 @@ impl Source2DefCtx<'_> {
         let (_, file_source_map) = self.db.hir_file_with_source_map(file_id);
         file_source_map
             .modules
-            .get_idx(&module_src)
+            .get_idx(module_src)
             .map(|module_id| ModuleId::new(file_id, *module_id))
     }
 
@@ -52,9 +52,9 @@ impl Source2DefCtx<'_> {
         }
     }
 
-    fn container_to_def<'a>(
+    fn container_to_def(
         &mut self,
-        InFile { file_id, value: node }: InFile<SyntaxNode<'a>>,
+        InFile { file_id, value: node }: InFile<SyntaxNode>,
     ) -> Option<ContainerId> {
         let container_id = match node.kind_id() {
             syntax_kind::MODULE_DECLARATION => {
@@ -72,7 +72,7 @@ impl Source2DefCtx<'_> {
         Some(container_id)
     }
 
-    fn find_container<'a>(&mut self, src: InFile<SyntaxNode<'a>>) -> Option<ContainerId> {
+    fn find_container(&mut self, src: InFile<SyntaxNode>) -> Option<ContainerId> {
         for container in SyntaxAncestors::new(&src.value) {
             if let Some(def) = self.container_to_def(InFile::new(src.file_id, container)) {
                 return Some(def);

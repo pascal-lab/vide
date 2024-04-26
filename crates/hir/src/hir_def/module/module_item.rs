@@ -385,8 +385,8 @@ impl<'a> ModuleLowerCtx<'a> {
                     assigns.push(Assign{lhs, rhs, op});
                 }
                 ContinuousAssignment::Net {
-                    drive_strength: drive_strength,
-                    delay: delay,
+                    drive_strength,
+                    delay,
                     assigns,
                 }
             },

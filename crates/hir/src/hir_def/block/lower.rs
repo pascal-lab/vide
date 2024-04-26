@@ -16,10 +16,13 @@ use crate::{
         lower::Lower,
         stmt::{LowerStmt, Stmt, StmtSrc},
         SourceMap,
-    }, try_match,
+    },
+    try_match,
 };
 
-use super::{block_src::BlockSrc, Block, BlockId, BlockInfo, BlockKind, BlockSourceMap, JoinKeyword};
+use super::{
+    block_src::BlockSrc, Block, BlockId, BlockInfo, BlockKind, BlockSourceMap, JoinKeyword,
+};
 
 pub fn lower_join_keyword(keyword: &ast::JoinKeyword) -> Option<JoinKeyword> {
     try_match! {

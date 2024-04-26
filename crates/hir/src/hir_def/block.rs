@@ -126,7 +126,7 @@ pub(crate) fn block_with_source_map_query(
             db,
             block: &mut block,
             block_src_map: &mut block_src_map,
-            file_id: file_id,
+            file_id,
             file_text: file_text.as_ref(),
         };
 
