@@ -14,4 +14,10 @@ pub struct FileRange {
     pub range: TextRange,
 }
 
+#[derive(Debug)]
+pub struct RangeInfo<T> {
+    pub range: TextRange,
+    pub info: T,
+}
+
 pub type ErasedFileAstId = Idx<syntax::SyntaxNodePtr>;

@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod parse;
 pub mod syntax_kind;
+pub mod treesit_ext;
 
 pub type SyntaxNode<'a> = tree_sitter::Node<'a>;
 

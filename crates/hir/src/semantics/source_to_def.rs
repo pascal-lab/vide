@@ -16,8 +16,8 @@ use crate::{
     },
 };
 
-struct Source2DefCtx<'a> {
-    db: &'a dyn HirDb,
+pub(super) struct Source2DefCtx<'a> {
+    pub(super) db: &'a dyn HirDb,
 }
 
 impl Source2DefCtx<'_> {

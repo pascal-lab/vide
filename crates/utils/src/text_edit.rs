@@ -2,7 +2,7 @@ use std::cmp::max;
 
 use itertools::Itertools;
 pub use line_index::{TextRange, TextSize};
-pub use tree_sitter::{InputEdit as SourceEdit, Point as SourcePoint};
+pub use tree_sitter::{InputEdit as SourceEdit, Point as SourcePoint, Range as SourceRange};
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum SourceEditKind {
@@ -221,4 +221,10 @@ fn coalsece_changes(changes: Vec<TextEditItem>) -> Vec<TextEditItem> {
             }
         })
         .collect_vec()
+}
+
+pub fn to_text_range(range: SourceRange) -> TextRange {
+    let start = range.start_byte as u32;
+    let end = range.end_byte as u32;
+    TextRange::new(start.into(), end.into())
 }
