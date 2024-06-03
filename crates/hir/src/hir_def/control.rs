@@ -1,5 +1,5 @@
 use crate::{
-    file::InFile,
+    container::InFile,
     hir_def::{
         expr::{ExprId, LowerExpr, MinTypMaxExpr},
         try_match, SourceMap,

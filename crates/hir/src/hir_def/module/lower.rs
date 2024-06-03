@@ -1,21 +1,23 @@
 use crate::{
+    container::InFile,
     db::InternDb,
-    file::{HirFileId, InFile},
+    file::HirFileId,
     hir_def::{
         data::{
-            DataDecl, DataDeclSrc, DataSubDecl, DataSubDeclSrc, LocalDataDeclSrc, LowerDataDecl,
-            LowerDataSubDecl, LowerDataType, LowerDimension, ParamDecl,
+            DataDecl, DataDeclSrc, LocalDataDeclSrc, LowerDataDecl, LowerDataType, LowerDimension,
+            LowerSubDecl, ParamDecl, SubDecl, SubDeclSrc,
         },
         expr::{Expr, ExprSrc, LowerExpr},
         literal::LowerLiteral,
         lower::Lower,
         module::{
-            port::{AnsiPortDecl, LowerPortDecl, NonAnsiPort, PortDecl},
+            port::{LowerPortDecl, Port, PortDecl},
             Module, ModuleSourceMap,
         },
         try_match, ModuleId, SourceMap,
     },
 };
+use itertools::Either;
 use la_arena::{Arena, IdxRange};
 use syntax::ast::{self, ptr};
 use utils::try_;
@@ -136,13 +138,13 @@ impl LowerDataType for ModuleLowerCtx<'_> {}
 
 impl LowerDimension for ModuleLowerCtx<'_> {}
 
-impl LowerDataSubDecl for ModuleLowerCtx<'_> {
-    fn arena_data_sub_decl(&mut self) -> &mut Arena<DataSubDecl> {
-        &mut self.module_decl.data.data_sub_decls
+impl LowerSubDecl for ModuleLowerCtx<'_> {
+    fn arena_sub_decl(&mut self) -> &mut Arena<SubDecl> {
+        &mut self.module_decl.data.sub_decls
     }
 
-    fn src_map_data_sub_decl(&mut self) -> &mut SourceMap<DataSubDeclSrc, DataSubDecl> {
-        &mut self.module_src_map.data_sub_decl
+    fn src_map_sub_decl(&mut self) -> &mut SourceMap<SubDeclSrc, SubDecl> {
+        &mut self.module_src_map.sub_decl
     }
 }
 
@@ -157,29 +159,27 @@ impl LowerDataDecl for ModuleLowerCtx<'_> {
 }
 
 impl LowerPortDecl for ModuleLowerCtx<'_> {
-    fn arena_port_decl(&mut self) -> &mut Arena<PortDecl> {
+    fn arena_port_def(&mut self) -> &mut Arena<PortDecl> {
         &mut self.module_decl.data.port_decls
     }
 
-    fn arena_non_ansi_port(&mut self) -> &mut Arena<NonAnsiPort> {
-        &mut self.module_decl.non_ansi_ports
+    fn arena_port_decl(&mut self) -> &mut Arena<Port> {
+        &mut self.module_decl.ports
     }
 
-    fn arena_ansi_port_decl(&mut self) -> &mut Arena<AnsiPortDecl> {
-        &mut self.module_decl.ansi_port_decls
-    }
-
-    fn src_map_port_decl(&mut self) -> &mut SourceMap<InFile<ptr::PortDeclarationPtr>, PortDecl> {
-        &mut self.module_src_map.port_decl
-    }
-
-    fn src_map_non_ansi_port(&mut self) -> &mut SourceMap<InFile<ptr::PortPtr>, NonAnsiPort> {
-        &mut self.module_src_map.non_ansi_port
-    }
-
-    fn src_map_ansi_port_decl(
+    fn src_map_port_def(
         &mut self,
-    ) -> &mut SourceMap<InFile<ptr::AnsiPortDeclarationPtr>, AnsiPortDecl> {
-        &mut self.module_src_map.ansi_port_decl
+    ) -> &mut SourceMap<
+        Either<InFile<ptr::PortDeclarationPtr>, InFile<ptr::AnsiPortDeclarationPtr>>,
+        PortDecl,
+    > {
+        &mut self.module_src_map.port_def
+    }
+
+    fn src_map_port_decl(
+        &mut self,
+    ) -> &mut SourceMap<Either<InFile<ptr::PortPtr>, InFile<ptr::AnsiPortDeclarationPtr>>, Port>
+    {
+        &mut self.module_src_map.port_decl
     }
 }

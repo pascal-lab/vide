@@ -1,5 +1,5 @@
 use crate::{
-    file::InFile,
+    container::InFile,
     hir_def::{
         block::BlockInfo,
         control::{DelayOrEventControl, LowerTimingControl, ProceduralTimingControlControl},
@@ -377,7 +377,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
     fn lower_seq_block(&mut self, block: &ast::SeqBlock) -> Option<Idx<BlockInfo>> {
         let ident = block.identifiers().next().and_then(|ident| self.lower_ident(&ident));
         let block_id = self.db().intern_block(BlockLoc {
-            container: self.container_id().into(),
+            container_id: self.container_id().into(),
             block_src: self.in_file(LocalBlockSrc::SeqBlock(block.to_ptr())),
         });
         let idx = self.arena_blocks().alloc(BlockInfo { ident, block_id });
@@ -389,7 +389,7 @@ pub(crate) trait LowerStmt: LowerTimingControl + LowerExpr + LowerDataDecl {
     fn lower_par_block(&mut self, block: &ast::ParBlock) -> Option<Idx<BlockInfo>> {
         let ident = block.identifiers().next().and_then(|ident| self.lower_ident(&ident));
         let block_id = self.db().intern_block(BlockLoc {
-            container: self.container_id().into(),
+            container_id: self.container_id().into(),
             block_src: self.in_file(LocalBlockSrc::ParBlock(block.to_ptr())),
         });
         let idx = self.arena_blocks().alloc(BlockInfo { ident, block_id });

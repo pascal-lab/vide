@@ -65,10 +65,7 @@ macro_rules! try_match {
 
 pub(crate) use try_match;
 
-use crate::{
-    db::HirDb,
-    file::{HirFileId, InFile},
-};
+use crate::{container::InFile, db::HirDb, file::HirFileId};
 
 pub type Ident = SmolStr;
 
@@ -110,6 +107,7 @@ pub struct ModuleInfo {
 
 pub type LocalModuleSrc = ptr::ModuleDeclarationPtr;
 pub type ModuleSrc = InFile<LocalModuleSrc>;
+
 pub type LocalModuleId = Idx<ModuleInfo>;
 pub type ModuleId = InFile<LocalModuleId>;
 

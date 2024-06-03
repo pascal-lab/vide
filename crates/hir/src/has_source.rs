@@ -2,8 +2,8 @@ use base_db::intern::Lookup;
 use syntax::ast::ptr;
 
 use crate::{
+    container::InFile,
     db::HirDb,
-    file::InFile,
     hir_def::{
         block::{
             block_src::{BlockSrc, LocalBlockSrc},

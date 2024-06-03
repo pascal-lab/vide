@@ -5,8 +5,8 @@ use syntax::{
 
 use crate::{
     container::ContainerId,
+    container::InFile,
     db::HirDb,
-    file::InFile,
     hir_def::{
         block::{
             block_src::{BlockSrc, LocalBlockSrc},
@@ -36,9 +36,10 @@ impl Source2DefCtx<'_> {
     pub(super) fn block_to_def(&mut self, block_src: &InFile<LocalBlockSrc>) -> Option<BlockId> {
         let tree = self.db.syntax_tree(block_src.file_id.0)?;
         let node = block_src.value.syntax().to_node(tree.tree())?;
-        let container = self.find_container(block_src.with_value(node))?;
+        let container = self.find_container(block_src.clone().with_value(node))?;
 
         match container {
+            ContainerId::HirFileId(_) => unreachable!(),
             ContainerId::ModuleId(module_id) => {
                 let (module, module_src_map) = self.db.module_with_source_map(module_id);
                 let block_info_id = module_src_map.block.src2hir.get(block_src)?;
@@ -56,7 +57,7 @@ impl Source2DefCtx<'_> {
         &mut self,
         InFile { file_id, value: node }: InFile<SyntaxNode>,
     ) -> Option<ContainerId> {
-        let container_id = match node.kind_id() {
+        let cont_id = match node.kind_id() {
             syntax_kind::MODULE_DECLARATION => {
                 let value = ast::ModuleDeclaration::cast(node).unwrap().to_ptr();
                 let module_src = ModuleSrc { file_id, value };
@@ -69,12 +70,12 @@ impl Source2DefCtx<'_> {
             }
             _ => return None,
         };
-        Some(container_id)
+        Some(cont_id)
     }
 
-    fn find_container(&mut self, src: InFile<SyntaxNode>) -> Option<ContainerId> {
+    pub(crate) fn find_container(&mut self, src: InFile<SyntaxNode>) -> Option<ContainerId> {
         for container in SyntaxAncestors::new(&src.value) {
-            if let Some(def) = self.container_to_def(InFile::new(src.file_id, container)) {
+            if let Some(def) = self.container_to_def(src.with_value(container)) {
                 return Some(def);
             }
         }

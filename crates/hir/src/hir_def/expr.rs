@@ -3,7 +3,7 @@ use super::{
     lower::Lower,
 };
 use crate::{
-    file::InFile,
+    container::InFile,
     hir_def::{data::DataType, Ident, SourceMap},
     try_match,
 };

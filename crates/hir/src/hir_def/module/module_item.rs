@@ -1,15 +1,12 @@
 use crate::{
-    file::InFile,
+    container::InFile,
     hir_def::{
         block::{block_src::LocalBlockSrc, BlockInfo},
         control::{DelayControl, EventExpr, LowerDelayControl, LowerEventExpr, LowerTimingControl},
         data::{self, Delay, Dimension, DriveStrength, LowerDelay, LowerDimension},
         expr::{AssignOp, ExprId, LowerExpr},
         lower::Lower,
-        module::{
-            lower::ModuleLowerCtx,
-            port::{LowerPortDecl, PortDecl},
-        },
+        module::{lower::ModuleLowerCtx, port::LowerPortDecl},
         pack_or_gen_item::{LowerPackOrGenItemDecl, PackOrGenItemDecl},
         stmt::{Assign, LowerStmt, Stmt, StmtId, StmtSrc},
         try_match, Ident, SourceMap,
@@ -22,9 +19,9 @@ use utils::try_;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ModuleItem {
-    PortDecl(Idx<PortDecl>),
+    // PortDecl(Idx<PortDecl>),
     PackOrGenItemDecl(PackOrGenItemDecl),
-    ModuleInst(Idx<Inst>),
+    ModuleInst(Idx<ModuleInst>),
     ContinuousAssignment(ContinuousAssignment),
     ProcessConstruct(ProcessConstruct),
     // TODO: Add more module items
@@ -32,13 +29,7 @@ pub enum ModuleItem {
     // InterfaceInstantiation(Idx<InterfaceInstantiation>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum LocalModuleItemSrc {
-    NonePortItem(ptr::NonPortModuleItemPtr),
-    PortDecl(ptr::PortDeclarationPtr),
-}
-
-pub type ModuleItemSrc = InFile<LocalModuleItemSrc>;
+pub type ModuleItemSrc = InFile<ptr::NonPortModuleItemPtr>;
 
 // #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 // pub struct ParamOverride {
@@ -48,8 +39,8 @@ pub type ModuleItemSrc = InFile<LocalModuleItemSrc>;
 // }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Inst {
-    pub ident: Ident,
+pub struct ModuleInst {
+    pub module_ident: Ident,
     pub param_assigns: Option<ParamAssigns>,
     pub hierarchical_insts: IdxRange<HierarchicalInst>,
 }
@@ -65,7 +56,7 @@ pub struct HierarchicalInst {
     pub ident: Ident,
     pub dimensions: Option<SmallVec<[Dimension; 1]>>,
     pub port_connects: Option<PortConnects>,
-    pub full_decl: Idx<Inst>,
+    pub full_decl: Idx<ModuleInst>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -129,19 +120,13 @@ pub struct ProcessConstruct {
 
 impl<'a> ModuleLowerCtx<'a> {
     pub(crate) fn lower_module_item(&mut self, item: &ast::ModuleItem) {
-        try_! {
-            try_match! {
-                item.port_declaration(), port_decl => {
-                    let module_item = ModuleItem::PortDecl(self.lower_port_decl(&port_decl)?);
-                    let src = self.in_file(LocalModuleItemSrc::PortDecl(port_decl.to_ptr()));
-                    let idx = self.module_decl.module_items.alloc(module_item);
-                    self.module_src_map.module_item.insert(src, idx);
-                },
-                item.non_port_module_item(), non_port_item => {
-                    self.lower_non_port_module_item(&non_port_item);
-                },
-                _ => { return None; }
-            };
+        try_match! {
+            item.port_declaration(), port_decl => {
+                self.lower_port_decl(&port_decl);
+            },
+            item.non_port_module_item(), non_port_item => {
+                self.lower_non_port_module_item(&non_port_item);
+            }
         };
     }
 
@@ -174,7 +159,7 @@ impl<'a> ModuleLowerCtx<'a> {
                 },
                 _ => { return None; }
             };
-            let src = self.in_file(LocalModuleItemSrc::NonePortItem(item.to_ptr()));
+            let src = self.in_file(item.to_ptr());
             let idx = self.module_decl.module_items.alloc(module_item);
             self.module_src_map.module_item.insert(src, idx);
         };
@@ -289,7 +274,7 @@ impl<'a> ModuleLowerCtx<'a> {
     }
 
     fn lower_instantiation(&mut self, module_inst: &ast::Instantiation) -> Option<ModuleItem> {
-        let ident = self.lower_ident(&module_inst.identifier()?)?;
+        let module_ident = self.lower_ident(&module_inst.identifier()?)?;
         let param_assigns = try_! {
             let param_value_assigns = module_inst.parameter_value_assignment()?;
             let param_assigns_node = param_value_assigns.list_of_parameter_assignments()?;
@@ -323,14 +308,18 @@ impl<'a> ModuleLowerCtx<'a> {
                 let instance = self.lower_hierarchy_instance(&instance_node, module_inst_idx)?;
                 let src = self.in_file(instance_node.to_ptr());
                 let idx = self.module_decl.data.hierarchical_insts.alloc(instance);
-                self.module_src_map.hierarchical_inst.insert(src, idx);
+                self.module_src_map.hierarchy_inst.insert(src, idx);
             };
         }
         let end_idx = self.module_decl.data.hierarchical_insts.len();
         let end_idx = Idx::from_raw(RawIdx::from(end_idx as u32));
         let hierarchical_insts = IdxRange::new(begin_idx..end_idx);
 
-        self.module_decl.data.insts.alloc(Inst { ident, param_assigns, hierarchical_insts });
+        self.module_decl.data.insts.alloc(ModuleInst {
+            module_ident,
+            param_assigns,
+            hierarchical_insts,
+        });
         self.module_src_map.inst.insert(module_inst_src, module_inst_idx);
 
         Some(ModuleItem::ModuleInst(module_inst_idx))
@@ -339,7 +328,7 @@ impl<'a> ModuleLowerCtx<'a> {
     fn lower_hierarchy_instance(
         &mut self,
         instance: &ast::HierarchicalInstance,
-        full_decl: Idx<Inst>,
+        full_decl: Idx<ModuleInst>,
     ) -> Option<HierarchicalInst> {
         let name = instance.name_of_instance()?;
         let ident = self.lower_ident(&name.identifier()?)?;

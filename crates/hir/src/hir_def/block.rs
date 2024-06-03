@@ -3,8 +3,8 @@ pub mod lower;
 
 use crate::{
     container::ContainerId,
+    container::InFile,
     db::HirDb,
-    file::InFile,
     hir_def::{block::block_src::LocalBlockSrc, data::DataDecl, Ident},
     impl_index,
 };
@@ -21,7 +21,7 @@ use self::block_src::BlockSrc;
 
 use super::{
     control::EventExpr,
-    data::{DataDeclSrc, DataSubDecl, DataSubDeclSrc},
+    data::{DataDeclSrc, SubDecl, SubDeclSrc},
     expr::{Expr, ExprSrc},
     stmt::{Stmt, StmtSrc},
     SourceMap,
@@ -36,7 +36,9 @@ pub struct Block {
 
 impl_index! (Block for
     Expr, data,
-    DataSubDecl, data,
+    EventExpr, data,
+    Stmt, data,
+    SubDecl, data,
     DataDecl, data,
     BlockInfo, data,
 );
@@ -47,7 +49,7 @@ pub struct BlockData {
     pub event_exprs: Arena<EventExpr>,
     pub stmts: Arena<Stmt>,
     pub data_decls: Arena<DataDecl>,
-    pub data_sub_decls: Arena<DataSubDecl>,
+    pub sub_decls: Arena<SubDecl>,
     pub block_infos: Arena<BlockInfo>,
     pub block_item_decls: SmallVec<[BlockItemDecl; 1]>,
 }
@@ -56,7 +58,7 @@ impl_index! (BlockData for
     Expr, exprs,
     EventExpr, event_exprs,
     Stmt, stmts,
-    DataSubDecl, data_sub_decls,
+    SubDecl, sub_decls,
     DataDecl, data_decls,
     BlockInfo, block_infos,
 );
@@ -65,7 +67,7 @@ impl_index! (BlockData for
 pub struct BlockId(pub salsa::InternId);
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct BlockLoc {
-    pub container: ContainerId,
+    pub container_id: ContainerId,
     pub block_src: BlockSrc,
 }
 
@@ -98,7 +100,7 @@ pub enum BlockItemDecl {
 pub struct BlockSourceMap {
     pub expr: SourceMap<ExprSrc, Expr>,
     pub event_exprs: SourceMap<InFile<ptr::EventExpressionPtr>, EventExpr>,
-    pub data_sub_decl: SourceMap<DataSubDeclSrc, DataSubDecl>,
+    pub sub_decl: SourceMap<SubDeclSrc, SubDecl>,
     pub data_decl: SourceMap<DataDeclSrc, DataDecl>,
     pub stmt: SourceMap<StmtSrc, Stmt>,
     pub block: SourceMap<BlockSrc, BlockInfo>,

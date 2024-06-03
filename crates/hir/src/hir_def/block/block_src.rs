@@ -4,7 +4,7 @@ use syntax::{
 };
 use utils::impl_from;
 
-use crate::file::InFile;
+use crate::container::InFile;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum LocalBlockSrc {

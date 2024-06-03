@@ -3,13 +3,14 @@ use syntax::ast::{self, ptr::EventExpressionPtr};
 use utils::try_;
 
 use crate::{
+    container::InFile,
     db::InternDb,
-    file::{HirFileId, InFile},
+    file::HirFileId,
     hir_def::{
         control::{EventExpr, LowerDelayControl, LowerEventExpr, LowerTimingControl},
         data::{
-            DataDecl, DataDeclSrc, DataSubDecl, DataSubDeclSrc, LowerDataDecl, LowerDataSubDecl,
-            LowerDataType, LowerDelay, LowerDimension,
+            DataDecl, DataDeclSrc, LowerDataDecl, LowerDataType, LowerDelay, LowerDimension,
+            LowerSubDecl, SubDecl, SubDeclSrc,
         },
         expr::{Expr, ExprSrc, LowerExpr},
         literal::LowerLiteral,
@@ -121,13 +122,13 @@ impl LowerDataDecl for BlockLowerCtx<'_> {
 
 impl LowerDelay for BlockLowerCtx<'_> {}
 
-impl LowerDataSubDecl for BlockLowerCtx<'_> {
-    fn arena_data_sub_decl(&mut self) -> &mut Arena<DataSubDecl> {
-        &mut self.block.data.data_sub_decls
+impl LowerSubDecl for BlockLowerCtx<'_> {
+    fn arena_sub_decl(&mut self) -> &mut Arena<SubDecl> {
+        &mut self.block.data.sub_decls
     }
 
-    fn src_map_data_sub_decl(&mut self) -> &mut SourceMap<DataSubDeclSrc, DataSubDecl> {
-        &mut self.block_src_map.data_sub_decl
+    fn src_map_sub_decl(&mut self) -> &mut SourceMap<SubDeclSrc, SubDecl> {
+        &mut self.block_src_map.sub_decl
     }
 }
 
