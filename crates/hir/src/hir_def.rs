@@ -15,7 +15,6 @@ pub mod tf;
 use std::{fmt::Debug, hash::Hash, ops::Index};
 
 use la_arena::{Arena, Idx, IdxRange};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use smol_str::SmolStr;
 use syntax::ast::{self, ptr, AstNode};
@@ -66,7 +65,9 @@ macro_rules! try_match {
 
 pub(crate) use try_match;
 
-use crate::{container::InFile, db::HirDb, file::HirFileId, source_map::SourceMap};
+use crate::{
+    container::InFile, db::HirDb, file::HirFileId, impl_source_map_idx, source_map::SourceMap,
+};
 
 pub type Ident = SmolStr;
 
@@ -115,6 +116,10 @@ pub type ModuleId = InFile<LocalModuleId>;
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct FileSourceMap {
     pub modules: SourceMap<ModuleSrc, ModuleInfo>,
+}
+
+impl_source_map_idx! { FileSourceMap for
+    modules[ModuleSrc, ModuleInfo]
 }
 
 pub(crate) fn hir_file_with_source_map_query(

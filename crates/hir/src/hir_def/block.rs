@@ -22,7 +22,7 @@ use crate::{
     container::{ContainerId, InFile},
     db::HirDb,
     hir_def::{block::block_src::LocalBlockSrc, data::DataDecl, Ident},
-    impl_arena_idx,
+    impl_arena_idx, impl_source_map_idx,
     source_map::SourceMap,
 };
 
@@ -103,6 +103,15 @@ pub struct BlockSourceMap {
     pub data_decl: SourceMap<DataDeclSrc, DataDecl>,
     pub stmt: SourceMap<StmtSrc, Stmt>,
     pub block: SourceMap<BlockSrc, BlockInfo>,
+}
+
+impl_source_map_idx! { BlockSourceMap for
+    expr[ExprSrc, Expr],
+    event_exprs[InFile<ptr::EventExpressionPtr>, EventExpr],
+    sub_decl[SubDeclSrc, SubDecl],
+    data_decl[DataDeclSrc, DataDecl],
+    stmt[StmtSrc, Stmt],
+    block[BlockSrc, BlockInfo],
 }
 
 pub(crate) fn block_with_source_map_query(

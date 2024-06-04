@@ -67,13 +67,7 @@ impl ToNav for ModuleId {
         let (node_range, name_node_range) = {
             let (_, file_src_map) = db.hir_file_with_source_map(file_id);
             let tree = db.hir_syntax_tree(file_id).unwrap();
-            let module_decl = file_src_map
-                .modules
-                .get_src(module_info_id)
-                .unwrap()
-                .value
-                .to_node(tree.tree())
-                .unwrap();
+            let module_decl = file_src_map[module_info_id].value.to_node(tree.tree()).unwrap();
 
             let ident_range = try_match! {
                 module_decl.module_ansi_header(), header => {
@@ -142,13 +136,7 @@ impl ToNav for InModule<Idx<HierarchicalInst>> {
         let (node_range, name_node_range) = {
             let (_, module_src_map) = db.module_with_source_map(module_id);
             let tree = db.hir_syntax_tree(file_id).unwrap();
-            let inst = module_src_map
-                .hierarchy_inst
-                .get_src(inst_id)
-                .unwrap()
-                .value
-                .to_node(tree.tree())
-                .unwrap();
+            let inst = module_src_map[inst_id].value.to_node(tree.tree()).unwrap();
             let ident_range = inst
                 .name_of_instance()
                 .and_then(|it| it.identifier().map(|it| it.syntax().range()));
@@ -183,12 +171,12 @@ impl ToNav for InContainer<Idx<SubDecl>> {
                 ContainerId::HirFileId(_) => unreachable!(),
                 ContainerId::ModuleId(module_id) => {
                     let (module, module_src_map) = db.module_with_source_map(module_id);
-                    let src = module_src_map.sub_decl.get_src(sub_decl_id).unwrap().value.clone();
+                    let src = module_src_map[sub_decl_id].value.clone();
                     (module[sub_decl_id].ident.clone(), src)
                 }
                 ContainerId::BlockId(block_id) => {
                     let (block, block_src_map) = db.block_with_source_map(block_id);
-                    let src = block_src_map.sub_decl.get_src(sub_decl_id).unwrap().value.clone();
+                    let src = block_src_map[sub_decl_id].value.clone();
                     (block[sub_decl_id].ident.clone(), src)
                 }
             };
@@ -252,12 +240,12 @@ impl ToNav for InContainer<Idx<Stmt>> {
                 ContainerId::HirFileId(_) => unreachable!(),
                 ContainerId::ModuleId(module_id) => {
                     let (module, module_src_map) = db.module_with_source_map(module_id);
-                    let ptr = module_src_map.stmt.get_src(stmt_id).unwrap().value.clone();
+                    let ptr = module_src_map[stmt_id].value.clone();
                     (module[stmt_id].ident.clone(), ptr)
                 }
                 ContainerId::BlockId(block_id) => {
                     let (block, block_src_map) = db.block_with_source_map(block_id);
-                    let ptr = block_src_map.stmt.get_src(stmt_id).unwrap().value.clone();
+                    let ptr = block_src_map[stmt_id].value.clone();
                     (block[stmt_id].ident.clone(), ptr)
                 }
             };

@@ -30,6 +30,7 @@ use crate::{
         stmt::{Stmt, StmtSrc},
         Ident,
     },
+    impl_source_map_idx,
     source_map::SourceMap,
 };
 
@@ -98,6 +99,20 @@ pub struct ModuleSourceMap {
     pub block: SourceMap<BlockSrc, BlockInfo>,
     pub hierarchy_inst: SourceMap<InFile<ptr::HierarchicalInstancePtr>, HierarchicalInst>,
     pub inst: SourceMap<InFile<ptr::InstantiationPtr>, ModuleInst>,
+}
+
+impl_source_map_idx! { ModuleSourceMap for
+    port_decl[Either<InFile<ptr::PortPtr>, InFile<ptr::AnsiPortDeclarationPtr>>, Port],
+    module_item[ModuleItemSrc, ModuleItem],
+    expr[ExprSrc, Expr],
+    event_expr[InFile<ptr::EventExpressionPtr>, EventExpr],
+    sub_decl[SubDeclSrc, SubDecl],
+    data_decl[DataDeclSrc, DataDecl],
+    port_def[Either<InFile<ptr::PortDeclarationPtr>, InFile<ptr::AnsiPortDeclarationPtr>>, PortDecl],
+    stmt[StmtSrc, Stmt],
+    block[BlockSrc, BlockInfo],
+    hierarchy_inst[InFile<ptr::HierarchicalInstancePtr>, HierarchicalInst],
+    inst[InFile<ptr::InstantiationPtr>, ModuleInst],
 }
 
 pub(crate) fn module_with_source_map_query(
