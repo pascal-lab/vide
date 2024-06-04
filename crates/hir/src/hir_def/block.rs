@@ -23,7 +23,7 @@ use crate::{
     container::{ContainerId, InFile},
     db::HirDb,
     hir_def::{block::block_src::LocalBlockSrc, data::DataDecl, Ident},
-    impl_index,
+    impl_arena_idx,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -33,7 +33,7 @@ pub struct Block {
     pub data: BlockData,
 }
 
-impl_index! (Block for
+impl_arena_idx! (Block for
     Expr, data,
     EventExpr, data,
     Stmt, data,
@@ -53,7 +53,7 @@ pub struct BlockData {
     pub block_item_decls: SmallVec<[BlockItemDecl; 1]>,
 }
 
-impl_index! (BlockData for
+impl_arena_idx! (BlockData for
     Expr, exprs,
     EventExpr, event_exprs,
     Stmt, stmts,

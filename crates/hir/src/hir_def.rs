@@ -12,7 +12,7 @@ pub mod pack_or_gen_item;
 pub mod stmt;
 pub mod tf;
 
-use std::{hash::Hash, ops::Index};
+use std::{fmt::Debug, hash::Hash, ops::Index};
 
 use la_arena::{Arena, ArenaMap, Idx, IdxRange};
 use rustc_hash::FxHashMap;
@@ -23,7 +23,7 @@ use triomphe::Arc;
 use utils::try_;
 
 #[macro_export]
-macro_rules! impl_index {
+macro_rules! impl_arena_idx {
     ($datas:ident for $($tpy:ident, $fld:ident),+ $(,)? ) => {
         $(
             impl Index<Idx<$tpy>> for $datas {
@@ -43,7 +43,7 @@ macro_rules! impl_index {
     };
 }
 
-pub(crate) use impl_index;
+pub(crate) use impl_arena_idx;
 
 #[macro_export]
 macro_rules! try_match {
@@ -99,7 +99,7 @@ impl FileData {
     }
 }
 
-impl_index! {FileData for ModuleInfo, modules}
+impl_arena_idx! {FileData for ModuleInfo, modules}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ModuleInfo {

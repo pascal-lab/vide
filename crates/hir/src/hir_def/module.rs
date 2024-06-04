@@ -22,7 +22,7 @@ use crate::{
         data::{DataDecl, DataDeclSrc, SubDecl, SubDeclSrc},
         expr::{Expr, ExprSrc},
         //tf::TFDecl,
-        impl_index,
+        impl_arena_idx,
         module::{
             module_item::{HierarchicalInst, ModuleInst, ModuleItem, ModuleItemSrc},
             port::{Port, PortDecl},
@@ -42,7 +42,7 @@ pub struct Module {
     pub data: ModuleData,
 }
 
-impl_index!(Module for
+impl_arena_idx!(Module for
     Port, ports,
     ModuleItem, module_items,
     Expr, data,
@@ -69,7 +69,7 @@ pub struct ModuleData {
     pub insts: Arena<ModuleInst>,
 }
 
-impl_index!(ModuleData for
+impl_arena_idx!(ModuleData for
     Expr, exprs,
     EventExpr, event_exprs,
     SubDecl, sub_decls,
