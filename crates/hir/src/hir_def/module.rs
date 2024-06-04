@@ -43,17 +43,17 @@ pub struct Module {
 }
 
 impl_arena_idx!(Module for
-    Port, ports,
-    ModuleItem, module_items,
-    Expr, data,
-    EventExpr, data,
-    SubDecl, data,
-    DataDecl, data,
-    PortDecl, data,
-    Stmt, data,
-    BlockInfo, data,
-    HierarchicalInst, data,
-    ModuleInst, data,
+    ports[Port],
+    module_items[ModuleItem],
+    data[Expr],
+    data[EventExpr],
+    data[SubDecl],
+    data[DataDecl],
+    data[PortDecl],
+    data[Stmt],
+    data[BlockInfo],
+    data[HierarchicalInst],
+    data[ModuleInst],
 );
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
@@ -70,15 +70,15 @@ pub struct ModuleData {
 }
 
 impl_arena_idx!(ModuleData for
-    Expr, exprs,
-    EventExpr, event_exprs,
-    SubDecl, sub_decls,
-    DataDecl, data_decls,
-    PortDecl, port_decls,
-    Stmt, stmts,
-    BlockInfo, block_infos,
-    HierarchicalInst, hierarchical_insts,
-    ModuleInst, insts,
+    exprs[Expr],
+    event_exprs[EventExpr],
+    sub_decls[SubDecl],
+    data_decls[DataDecl],
+    port_decls[PortDecl],
+    stmts[Stmt],
+    block_infos[BlockInfo],
+    hierarchical_insts[HierarchicalInst],
+    insts[ModuleInst],
 );
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]

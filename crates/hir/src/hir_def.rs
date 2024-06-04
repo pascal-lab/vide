@@ -24,18 +24,18 @@ use utils::try_;
 
 #[macro_export]
 macro_rules! impl_arena_idx {
-    ($datas:ident for $($tpy:ident, $fld:ident),+ $(,)? ) => {
+    ($datas:ident for $($fld:ident[$ty:ident]),+ $(,)? ) => {
         $(
-            impl Index<Idx<$tpy>> for $datas {
-                type Output = $tpy;
-                fn index(&self, index: Idx<$tpy>) -> &Self::Output {
+            impl Index<Idx<$ty>> for $datas {
+                type Output = $ty;
+                fn index(&self, index: Idx<$ty>) -> &Self::Output {
                     &self.$fld[index]
                 }
             }
 
-            impl Index<IdxRange<$tpy>> for $datas {
-                type Output = [$tpy];
-                fn index(& self, range: IdxRange<$tpy>) -> &Self::Output {
+            impl Index<IdxRange<$ty>> for $datas {
+                type Output = [$ty];
+                fn index(&self, range: IdxRange<$ty>) -> &Self::Output {
                     &self.$fld[range]
                 }
             }
@@ -43,7 +43,7 @@ macro_rules! impl_arena_idx {
     };
 }
 
-pub(crate) use impl_arena_idx;
+use impl_arena_idx;
 
 #[macro_export]
 macro_rules! try_match {
@@ -99,7 +99,7 @@ impl FileData {
     }
 }
 
-impl_arena_idx! {FileData for ModuleInfo, modules}
+impl_arena_idx! {FileData for modules[ModuleInfo]}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ModuleInfo {

@@ -34,12 +34,12 @@ pub struct Block {
 }
 
 impl_arena_idx! (Block for
-    Expr, data,
-    EventExpr, data,
-    Stmt, data,
-    SubDecl, data,
-    DataDecl, data,
-    BlockInfo, data,
+    data[Expr],
+    data[EventExpr],
+    data[Stmt],
+    data[SubDecl],
+    data[DataDecl],
+    data[BlockInfo],
 );
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
@@ -54,12 +54,12 @@ pub struct BlockData {
 }
 
 impl_arena_idx! (BlockData for
-    Expr, exprs,
-    EventExpr, event_exprs,
-    Stmt, stmts,
-    SubDecl, sub_decls,
-    DataDecl, data_decls,
-    BlockInfo, block_infos,
+    exprs[Expr],
+    event_exprs[EventExpr],
+    stmts[Stmt],
+    sub_decls[SubDecl],
+    data_decls[DataDecl],
+    block_infos[BlockInfo],
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
