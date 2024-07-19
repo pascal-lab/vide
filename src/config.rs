@@ -126,7 +126,7 @@ impl Config {
         (user_config, detached_files, snippets, ConfigError { errors })
     }
 
-    fn discover_manifest(roots: &Vec<AbsPathBuf>) -> Vec<ProjectManifest> {
+    fn discover_manifest(roots: &[AbsPathBuf]) -> Vec<ProjectManifest> {
         let manifests = ProjectManifest::discover_all(roots);
         tracing::info!("discovered manifests: {manifests:?}");
         if manifests.is_empty() {
