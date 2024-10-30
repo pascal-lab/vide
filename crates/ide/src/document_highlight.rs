@@ -4,11 +4,10 @@ use itertools::Either;
 use line_index::TextRange;
 use span::FilePosition;
 use syntax::{
-    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
-    ast::{self, AstNode},
+    SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent, TokenKind,
+    ast::AstNode,
     has_text_range::HasTextRange,
-    match_ast, support,
-    token::pair_token,
+    token::{is_pair_token, pair_token},
 };
 
 use crate::references::ReferenceCategory;
@@ -39,40 +38,21 @@ pub(crate) fn document_highlight(
 
 fn token_precedence(kind: TokenKind) -> usize {
     match kind {
-        _ if pair_token(kind).is_some() => 4,
+        _ if is_pair_token(kind) => 4,
         _ => 1,
     }
 }
 
 fn handle_ctrl_flow_kw(
     sema: &Semantics<'_, RootDb>,
-    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    tok_with_parent @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Vec<DocumentHighlight>> {
-    let kind = tok.kind();
     let file_id = sema.find_file(parent);
     let mut res = vec![DocumentHighlight::new(tok.text_range().unwrap())];
 
-    let paired_kw = match pair_token(kind)? {
-        Either::Left(kind) => {
-            match_ast! { parent in
-                ast::ModuleDeclaration as it => it.header().module_keyword(),
-                _ => support::child_token(parent, kind),
-            }
-        }
-        Either::Right(kind) => {
-            match_ast! { parent in
-                ast::ModuleHeader as it => {
-                    let parent = it.syntax().parent().unwrap();
-                    let decl = ast::ModuleDeclaration::cast(parent).unwrap();
-                    decl.endmodule()
-                },
-                _ => support::child_token(parent, kind),
-            }
-        }
-    };
-
-    if let Some(paired_kw) = paired_kw {
-        res.push(DocumentHighlight::new(paired_kw.text_range().unwrap()));
+    if let Some(pair) = pair_token(tok_with_parent) {
+        let pair: SyntaxToken = pair.either_into();
+        res.push(DocumentHighlight::new(pair.text_range().unwrap()));
     }
 
     Some(res)

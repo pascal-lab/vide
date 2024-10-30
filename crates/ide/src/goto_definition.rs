@@ -8,7 +8,7 @@ use syntax::{
     has_name::HasName,
     has_text_range::HasTextRange,
     match_ast, support,
-    token::pair_token,
+    token::{is_pair_token, pair_token},
 };
 
 use crate::{
@@ -39,27 +39,21 @@ pub(crate) fn goto_definition(
 
 fn handle_ctrl_flow_kw(
     sema: &Semantics<RootDb>,
-    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    tok_with_parent @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     let kind = tok.kind();
     let file_id = sema.find_file(parent);
 
-    if let Some(pair_kind) = pair_token(kind) {
-        let tok = match pair_kind {
-            Either::Left(kind) => {
-                match_ast! { parent in
-                    ast::ModuleDeclaration as it => it.header().module_keyword(),
-                    _ => support::child_token(parent, kind),
-                }
-            }
-            Either::Right(_) => Some(tok),
+    if let Some(pair) = pair_token(tok_with_parent) {
+        let tok = match pair {
+            Either::Left(pair) => pair,
+            Either::Right(_) => tok,
         };
-
         // TODO: name and container_name
         let nav = NavTarget {
             file_id: file_id.file_id(),
             full_range: parent.text_range().unwrap(),
-            focus_range: tok.and_then(|tok| tok.text_range()),
+            focus_range: tok.text_range(),
             name: None,
             kind: Some(SymbolKind::from_node(parent)),
             container_name: None,
@@ -75,7 +69,7 @@ fn handle_ctrl_flow_kw(
 fn token_precedence(kind: TokenKind) -> usize {
     match kind {
         TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => 4,
-        _ if pair_token(kind).is_some() => 4,
+        _ if is_pair_token(kind) => 4,
         _ => 1,
     }
 }

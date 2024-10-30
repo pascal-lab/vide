@@ -1,28 +1,69 @@
 use either::Either;
-use slang::{T, TokenKind};
+use slang::{
+    ast::{self, AstNode}, SyntaxToken, SyntaxTokenWithParent, TokenKind, T
+};
+
+use crate::support;
+
+pub fn is_pair_token(kind: TokenKind) -> bool {
+    macro_rules! P {
+        ($($tok:ident),* $(,)?) => {
+            $(kind == T![$tok] ||)* false
+        };
+    }
+    P! {
+        begin, end,
+        module, endmodule,
+        case, endcase,
+        function, endfunction,
+        generate, endgenerate,
+        interface, endinterface,
+        task, endtask,
+    }
+}
 
 /// [`Either::Left`] represents the beg-token, and [`Either::Right`] represents
 /// the end-token.
-pub fn pair_token(kind: TokenKind) -> Option<Either<TokenKind, TokenKind>> {
+pub fn pair_token(
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<Either<SyntaxToken, SyntaxToken>> {
+    let kind = tok.kind();
+
     macro_rules! P {
         ($beg:ident, $end:ident; $($rest:tt)*) => {
             if kind == T![$beg] {
-                Some(Either::Right(T![$end]))
+                Either::Right(support::child_token(parent, T![$end])?)
             } else if kind == T![$end] {
-                Some(Either::Left(T![$beg]))
+                Either::Left(support::child_token(parent, T![$beg])?)
             } else {
                 P! { $($rest)* }
             }
         };
-        () => { None };
+        () => { return None; };
     }
-    P! {
-        begin, end;
-        case, endcase;
-        function, endfunction;
-        generate, endgenerate;
-        interface, endinterface;
-        module, endmodule;
-        task, endtask;
-    }
+
+    let res = match kind {
+        T![module] => {
+            // move from header to declaration
+            let parent = ast::ModuleDeclaration::cast(parent.parent().unwrap()).unwrap();
+            Either::Right(parent.endmodule()?)
+        }
+        T![endmodule] => {
+            // move from declaration to header
+            let parent = ast::ModuleDeclaration::cast(parent).unwrap();
+            Either::Left(parent.header().module_keyword()?)
+        }
+        _ => {
+            P! {
+                begin, end;
+                case, endcase;
+                function, endfunction;
+                generate, endgenerate;
+                interface, endinterface;
+                task, endtask;
+            }
+        }
+    };
+
+    Some(res)
 }
