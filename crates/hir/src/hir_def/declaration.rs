@@ -9,17 +9,16 @@ use crate::{
     hir_def::{
         arena_nxt_idx,
         expr::{
-            Expr, ExprSrc, LowerExpr, LowerExprCtx,
+            Expr, ExprSrc, LowerExpr,
             data_ty::DataTy,
-            declarator::{Declarator, DeclaratorSrc, LowerDecl, LowerDeclCtx},
-            timing_control::{
-                DelayControl, EventExpr, EventExprSrc, LowerEventExpr, LowerEventExprCtx,
-            },
+            declarator::{Declarator, DeclaratorSrc, LowerDecl},
+            timing_control::{DelayControl, EventExpr, EventExprSrc, LowerEventExpr},
         },
         ty::{
             DriveStrength, NetKind, Strength, lower_drive_strength, lower_net_kind, lower_strength,
         },
     },
+    impl_lower_decl, impl_lower_event_expr, impl_lower_expr,
     source_map::SourceMap,
 };
 
@@ -94,35 +93,30 @@ pub(crate) trait LowerDeclaration: LowerDecl + LowerEventExpr {
     fn declaration_ctx(&mut self) -> LowerDeclarationCtx<'_>;
 }
 
-impl LowerDecl for LowerDeclarationCtx<'_> {
-    fn decl_ctx(&mut self) -> LowerDeclCtx {
-        LowerDeclCtx {
-            db: self.db,
-            decls: self.decls,
-            decl_srcs: self.decl_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
+#[macro_export]
+macro_rules! impl_lower_declaration {
+    ($ctx:ty, $data:ident, $src_map:ident) => {
+        impl $crate::hir_def::declaration::LowerDeclaration for $ctx {
+            fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx {
+                $crate::hir_def::declaration::LowerDeclarationCtx {
+                    db: self.db,
+                    declarations: &mut self.$data.declarations,
+                    declaration_srcs: &mut self.$src_map.declaration_srcs,
+                    decls: &mut self.$data.decls,
+                    decl_srcs: &mut self.$src_map.decl_srcs,
+                    event_exprs: &mut self.$data.event_exprs,
+                    event_expr_srcs: &mut self.$src_map.event_expr_srcs,
+                    exprs: &mut self.$data.exprs,
+                    expr_srcs: &mut self.$src_map.expr_srcs,
+                }
+            }
         }
-    }
+    };
 }
 
-impl LowerExpr for LowerDeclarationCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx { db: self.db, exprs: self.exprs, expr_srcs: self.expr_srcs }
-    }
-}
-
-impl LowerEventExpr for LowerDeclarationCtx<'_> {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx {
-        LowerEventExprCtx {
-            db: self.db,
-            event_exprs: self.event_exprs,
-            event_expr_srcs: self.event_expr_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
-        }
-    }
-}
+impl_lower_expr!(LowerDeclarationCtx<'_>);
+impl_lower_decl!(LowerDeclarationCtx<'_>);
+impl_lower_event_expr!(LowerDeclarationCtx<'_>);
 
 impl LowerDeclarationCtx<'_> {
     pub(crate) fn lower_data_decl(&mut self, data_decl: ast::DataDeclaration) -> DeclarationId {

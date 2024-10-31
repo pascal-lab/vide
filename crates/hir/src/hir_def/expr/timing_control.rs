@@ -2,8 +2,8 @@ use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 
-use super::{Expr, ExprId, ExprSrc, LowerExpr, LowerExprCtx};
-use crate::{alloc_idx_and_src, db::InternDb, define_src, source_map::SourceMap};
+use super::{Expr, ExprId, ExprSrc, LowerExpr};
+use crate::{alloc_idx_and_src, db::InternDb, define_src, impl_lower_expr, source_map::SourceMap};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum TimingControl {
@@ -61,11 +61,24 @@ pub(crate) trait LowerEventExpr: LowerExpr {
     fn event_expr_ctx(&mut self) -> LowerEventExprCtx;
 }
 
-impl LowerExpr for LowerEventExprCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx { db: self.db, exprs: self.exprs, expr_srcs: self.expr_srcs }
-    }
+#[macro_export]
+macro_rules! impl_lower_event_expr {
+    ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
+        impl $crate::hir_def::expr::timing_control::LowerEventExpr for $ctx {
+            fn event_expr_ctx(&mut self) -> $crate::hir_def::expr::timing_control::LowerEventExprCtx {
+                $crate::hir_def::expr::timing_control::LowerEventExprCtx {
+                    db: self.db,
+                    event_exprs: &mut self.$($data.)?event_exprs,
+                    event_expr_srcs: &mut self.$($src_map.)?event_expr_srcs,
+                    exprs: &mut self.$($data.)?exprs,
+                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
+                }
+            }
+        }
+    };
 }
+
+impl_lower_expr!(LowerEventExprCtx<'_>);
 
 impl LowerEventExprCtx<'_> {
     pub(crate) fn lower_event_expr(&mut self, event_expr: ast::EventExpression) -> EventExprId {

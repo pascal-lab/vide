@@ -10,12 +10,10 @@ use super::{
     Ident, arena_nxt_idx,
     block::{BlockInfo, BlockLoc},
     expr::{
-        Expr, ExprId, ExprSrc, LowerExpr, LowerExprCtx,
+        Expr, ExprId, ExprSrc, LowerExpr,
         data_ty::DataTy,
-        declarator::{DeclId, Declarator, DeclaratorSrc, LowerDecl, LowerDeclCtx},
-        timing_control::{
-            EventExpr, EventExprSrc, LowerEventExpr, LowerEventExprCtx, TimingControl,
-        },
+        declarator::{DeclId, Declarator, DeclaratorSrc, LowerDecl},
+        timing_control::{EventExpr, EventExprSrc, LowerEventExpr, TimingControl},
     },
     lower_ident_opt,
 };
@@ -26,6 +24,7 @@ use crate::{
     define_src,
     file::HirFileId,
     hir_def::lower_named_label_opt,
+    impl_lower_decl, impl_lower_event_expr, impl_lower_expr,
     source_map::SourceMap,
 };
 
@@ -144,6 +143,29 @@ pub(crate) trait LowerStmt: LowerExpr + LowerEventExpr + LowerDecl {
     fn stmt_ctx(&mut self) -> LowerStmtCtx;
 }
 
+#[macro_export]
+macro_rules! impl_lower_stmt {
+    ($ctx:ty, $cont_id:ident $(,$data:ident, $src_map:ident)?) => {
+        impl $crate::hir_def::stmt::LowerStmt for $ctx {
+            fn stmt_ctx(&mut self) -> $crate::hir_def::stmt::LowerStmtCtx {
+                $crate::hir_def::stmt::LowerStmtCtx {
+                    db: self.db,
+                    file_id: self.file_id,
+                    cont_id: self.$cont_id.into(),
+                    stmts: &mut self.$($data.)?stmts,
+                    stmt_srcs: &mut self.$($src_map.)?stmt_srcs,
+                    event_exprs: &mut self.$($data.)?event_exprs,
+                    event_expr_srcs: &mut self.$($src_map.)?event_expr_srcs,
+                    exprs: &mut self.$($data.)?exprs,
+                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
+                    decls: &mut self.$($data.)?decls,
+                    decl_srcs: &mut self.$($src_map.)?decl_srcs,
+                }
+            }
+        }
+    };
+}
+
 pub(crate) struct LowerStmtCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
@@ -161,35 +183,9 @@ pub(crate) struct LowerStmtCtx<'a> {
     pub(crate) decl_srcs: &'a mut SourceMap<DeclaratorSrc, Declarator>,
 }
 
-impl LowerExpr for LowerStmtCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx { db: self.db, exprs: self.exprs, expr_srcs: self.expr_srcs }
-    }
-}
-
-impl LowerEventExpr for LowerStmtCtx<'_> {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx {
-        LowerEventExprCtx {
-            db: self.db,
-            event_exprs: self.event_exprs,
-            event_expr_srcs: self.event_expr_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
-        }
-    }
-}
-
-impl LowerDecl for LowerStmtCtx<'_> {
-    fn decl_ctx(&mut self) -> LowerDeclCtx {
-        LowerDeclCtx {
-            db: self.db,
-            decls: self.decls,
-            decl_srcs: self.decl_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
-        }
-    }
-}
+impl_lower_expr!(LowerStmtCtx<'_>);
+impl_lower_decl!(LowerStmtCtx<'_>);
+impl_lower_event_expr!(LowerStmtCtx<'_>);
 
 impl LowerStmtCtx<'_> {
     pub(crate) fn lower_stmt_opt(&mut self, stmt: Option<ast::Statement>) -> StmtId {

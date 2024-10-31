@@ -9,12 +9,13 @@ use crate::{
     file::HirFileId,
     hir_def::{
         expr::{
-            Expr, ExprSrc, LowerExpr, LowerExprCtx,
-            declarator::{Declarator, DeclaratorSrc, LowerDecl, LowerDeclCtx},
-            timing_control::{EventExpr, EventExprSrc, LowerEventExpr, LowerEventExprCtx},
+            Expr, ExprSrc,
+            declarator::{Declarator, DeclaratorSrc},
+            timing_control::{EventExpr, EventExprSrc},
         },
-        stmt::{LowerStmt, LowerStmtCtx, Stmt, StmtId, StmtSrc},
+        stmt::{LowerStmt, Stmt, StmtId, StmtSrc},
     },
+    impl_lower_decl, impl_lower_event_expr, impl_lower_expr, impl_lower_stmt,
     source_map::SourceMap,
 };
 
@@ -69,53 +70,10 @@ pub(crate) struct LowerProcCtx<'a> {
     pub(crate) decl_srcs: &'a mut SourceMap<DeclaratorSrc, Declarator>,
 }
 
-impl LowerDecl for LowerProcCtx<'_> {
-    fn decl_ctx(&mut self) -> LowerDeclCtx {
-        LowerDeclCtx {
-            db: self.db,
-            decls: self.decls,
-            decl_srcs: self.decl_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
-        }
-    }
-}
-
-impl LowerStmt for LowerProcCtx<'_> {
-    fn stmt_ctx(&mut self) -> LowerStmtCtx {
-        LowerStmtCtx {
-            db: self.db,
-            file_id: self.file_id,
-            cont_id: self.cont_id,
-            stmts: self.stmts,
-            stmt_srcs: self.stmt_srcs,
-            event_exprs: self.event_exprs,
-            event_expr_srcs: self.event_expr_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
-            decls: self.decls,
-            decl_srcs: self.decl_srcs,
-        }
-    }
-}
-
-impl LowerEventExpr for LowerProcCtx<'_> {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx {
-        LowerEventExprCtx {
-            db: self.db,
-            event_exprs: self.event_exprs,
-            event_expr_srcs: self.event_expr_srcs,
-            exprs: self.exprs,
-            expr_srcs: self.expr_srcs,
-        }
-    }
-}
-
-impl LowerExpr for LowerProcCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx { db: self.db, exprs: self.exprs, expr_srcs: self.expr_srcs }
-    }
-}
+impl_lower_expr!(LowerProcCtx<'_>);
+impl_lower_decl!(LowerProcCtx<'_>);
+impl_lower_event_expr!(LowerProcCtx<'_>);
+impl_lower_stmt!(LowerProcCtx<'_>, cont_id);
 
 impl LowerProcCtx<'_> {
     pub(crate) fn lower_proc(&mut self, proc: ast::ProceduralBlock) -> ProcId {

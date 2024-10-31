@@ -6,24 +6,23 @@ use utils::define_enum_deriving_from;
 
 use super::{
     block::{BlockInfo, BlockSrc, LocalBlockId},
-    declaration::{
-        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, LowerDeclarationCtx,
-    },
+    declaration::{Declaration, DeclarationId, DeclarationSrc, LowerDeclaration},
     expr::{
-        Expr, ExprId, ExprSrc, LowerExpr, LowerExprCtx,
-        declarator::{DeclId, Declarator, DeclaratorSrc, LowerDecl, LowerDeclCtx},
-        timing_control::{EventExpr, EventExprId, EventExprSrc, LowerEventExpr, LowerEventExprCtx},
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
     lower_ident,
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
-    stmt::{LowerStmt, LowerStmtCtx, Stmt, StmtId, StmtSrc},
+    stmt::{Stmt, StmtId, StmtSrc},
 };
 use crate::{
     alloc_idx_and_src,
     db::{HirDb, InternDb},
     file::HirFileId,
-    impl_arena_idx, impl_source_map_idx,
+    impl_arena_idx, impl_lower_decl, impl_lower_declaration, impl_lower_event_expr,
+    impl_lower_expr, impl_lower_stmt, impl_source_map_idx,
     source_map::SourceMap,
 };
 
@@ -80,37 +79,37 @@ define_enum_deriving_from! {
 // Definition for HirFileSourceMap
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FileSourceMap {
-    pub modules: SourceMap<ModuleSrc, ModuleInfo>,
-    pub procs: SourceMap<ProcSrc, Proc>,
-    pub declarations: SourceMap<DeclarationSrc, Declaration>,
+    pub module_srcs: SourceMap<ModuleSrc, ModuleInfo>,
+    pub proc_srcs: SourceMap<ProcSrc, Proc>,
+    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
 
-    pub exprs: SourceMap<ExprSrc, Expr>,
-    pub event_exprs: SourceMap<EventExprSrc, EventExpr>,
-    pub decls: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmts: SourceMap<StmtSrc, Stmt>,
+    pub expr_srcs: SourceMap<ExprSrc, Expr>,
+    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
+    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
+    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
 }
 
 impl_source_map_idx! { FileSourceMap =>
-    modules[ModuleSrc, LocalModuleId],
-    procs[ProcSrc, ProcId],
-    declarations[DeclarationSrc, DeclarationId],
-    exprs[ExprSrc, ExprId],
-    event_exprs[EventExprSrc, EventExprId],
-    decls[DeclaratorSrc, DeclId],
-    stmts[StmtSrc, StmtId],
-    stmts[BlockSrc, LocalBlockId],
+    module_srcs[ModuleSrc, LocalModuleId],
+    proc_srcs[ProcSrc, ProcId],
+    declaration_srcs[DeclarationSrc, DeclarationId],
+    expr_srcs[ExprSrc, ExprId],
+    event_expr_srcs[EventExprSrc, EventExprId],
+    decl_srcs[DeclaratorSrc, DeclId],
+    stmt_srcs[StmtSrc, StmtId],
+    stmt_srcs[BlockSrc, LocalBlockId],
 }
 
 impl FileSourceMap {
     pub fn shrink_to_fit(&mut self) {
-        self.modules.shrink_to_fit();
-        self.procs.shrink_to_fit();
-        self.declarations.shrink_to_fit();
+        self.module_srcs.shrink_to_fit();
+        self.proc_srcs.shrink_to_fit();
+        self.declaration_srcs.shrink_to_fit();
 
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
+        self.expr_srcs.shrink_to_fit();
+        self.event_expr_srcs.shrink_to_fit();
+        self.decl_srcs.shrink_to_fit();
+        self.stmt_srcs.shrink_to_fit();
     }
 }
 
@@ -122,81 +121,11 @@ pub(crate) struct LowerFileCtx<'a> {
     pub(crate) file_source_map: &'a mut FileSourceMap,
 }
 
-impl LowerExpr for LowerFileCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx {
-            db: self.db,
-            exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.exprs,
-        }
-    }
-}
-
-impl LowerDecl for LowerFileCtx<'_> {
-    fn decl_ctx(&mut self) -> LowerDeclCtx {
-        LowerDeclCtx {
-            db: self.db,
-            decls: &mut self.file.decls,
-            decl_srcs: &mut self.file_source_map.decls,
-
-            exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.exprs,
-        }
-    }
-}
-
-impl LowerEventExpr for LowerFileCtx<'_> {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx {
-        LowerEventExprCtx {
-            db: self.db,
-            event_exprs: &mut self.file.event_exprs,
-            event_expr_srcs: &mut self.file_source_map.event_exprs,
-
-            exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.exprs,
-        }
-    }
-}
-
-impl LowerDeclaration for LowerFileCtx<'_> {
-    fn declaration_ctx(&mut self) -> LowerDeclarationCtx<'_> {
-        LowerDeclarationCtx {
-            db: self.db,
-            declarations: &mut self.file.declarations,
-            declaration_srcs: &mut self.file_source_map.declarations,
-
-            decls: &mut self.file.decls,
-            decl_srcs: &mut self.file_source_map.decls,
-
-            event_exprs: &mut self.file.event_exprs,
-            event_expr_srcs: &mut self.file_source_map.event_exprs,
-
-            exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.exprs,
-        }
-    }
-}
-
-impl LowerStmt for LowerFileCtx<'_> {
-    fn stmt_ctx(&mut self) -> LowerStmtCtx<'_> {
-        LowerStmtCtx {
-            db: self.db,
-            file_id: self.file_id,
-            cont_id: self.file_id.into(),
-            stmts: &mut self.file.stmts,
-            stmt_srcs: &mut self.file_source_map.stmts,
-
-            exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.exprs,
-
-            event_exprs: &mut self.file.event_exprs,
-            event_expr_srcs: &mut self.file_source_map.event_exprs,
-
-            decls: &mut self.file.decls,
-            decl_srcs: &mut self.file_source_map.decls,
-        }
-    }
-}
+impl_lower_expr!(LowerFileCtx<'_>, file, file_source_map);
+impl_lower_decl!(LowerFileCtx<'_>, file, file_source_map);
+impl_lower_event_expr!(LowerFileCtx<'_>, file, file_source_map);
+impl_lower_stmt!(LowerFileCtx<'_>, file_id, file, file_source_map);
+impl_lower_declaration!(LowerFileCtx<'_>, file, file_source_map);
 
 impl LowerProc for LowerFileCtx<'_> {
     fn proc_ctx(&mut self) -> LowerProcCtx<'_> {
@@ -205,19 +134,19 @@ impl LowerProc for LowerFileCtx<'_> {
             file_id: self.file_id,
             cont_id: self.file_id.into(),
             procs: &mut self.file.procs,
-            proc_srcs: &mut self.file_source_map.procs,
+            proc_srcs: &mut self.file_source_map.proc_srcs,
 
             stmts: &mut self.file.stmts,
-            stmt_srcs: &mut self.file_source_map.stmts,
+            stmt_srcs: &mut self.file_source_map.stmt_srcs,
 
             exprs: &mut self.file.exprs,
-            expr_srcs: &mut self.file_source_map.exprs,
+            expr_srcs: &mut self.file_source_map.expr_srcs,
 
             event_exprs: &mut self.file.event_exprs,
-            event_expr_srcs: &mut self.file_source_map.event_exprs,
+            event_expr_srcs: &mut self.file_source_map.event_expr_srcs,
 
             decls: &mut self.file.decls,
-            decl_srcs: &mut self.file_source_map.decls,
+            decl_srcs: &mut self.file_source_map.decl_srcs,
         }
     }
 }
@@ -232,7 +161,7 @@ impl LowerFileCtx<'_> {
 
                     alloc_idx_and_src! {
                         ModuleInfo { name } => self.file.modules,
-                        decl => self.file_source_map.modules,
+                        decl => self.file_source_map.module_srcs,
                     }
                     .into()
                 }

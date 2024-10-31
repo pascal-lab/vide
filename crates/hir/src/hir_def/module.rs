@@ -20,16 +20,14 @@ use utils::{
 use super::{
     Ident,
     block::{BlockInfo, BlockSrc, LocalBlockId},
-    declaration::{
-        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, LowerDeclarationCtx,
-    },
+    declaration::{Declaration, DeclarationId, DeclarationSrc, LowerDeclaration},
     expr::{
-        Expr, ExprId, ExprSrc, LowerExpr, LowerExprCtx,
-        declarator::{DeclId, Declarator, DeclaratorSrc, LowerDecl, LowerDeclCtx},
-        timing_control::{EventExpr, EventExprId, EventExprSrc, LowerEventExpr, LowerEventExprCtx},
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
-    stmt::{LowerStmt, LowerStmtCtx, Stmt, StmtId, StmtSrc},
+    stmt::{Stmt, StmtId, StmtSrc},
     ty::NetKind,
 };
 use crate::{
@@ -37,7 +35,8 @@ use crate::{
     db::{HirDb, InternDb},
     define_src,
     file::HirFileId,
-    impl_arena_idx, impl_source_map_idx,
+    impl_arena_idx, impl_lower_decl, impl_lower_declaration, impl_lower_event_expr,
+    impl_lower_expr, impl_lower_stmt, impl_source_map_idx,
     source_map::{SourceMap, ToAstNode},
 };
 
@@ -140,70 +139,70 @@ pub type ModuleId = InFile<LocalModuleId>;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ModuleSourceMap {
-    pub params: SourceMap<ParamPortSrc, ParamPort>,
-    pub ports: PortSrcs,
-    pub port_decls: SourceMap<PortDeclSrc, PortDecl>,
+    pub param_srcs: SourceMap<ParamPortSrc, ParamPort>,
+    pub port_srcs: PortSrcs,
+    pub prot_decl_srcs: SourceMap<PortDeclSrc, PortDecl>,
 
-    pub cont_assigns: SourceMap<ContinuousAssignSrc, ContinuousAssign>,
-    pub declarations: SourceMap<DeclarationSrc, Declaration>,
+    pub assign_srcs: SourceMap<ContinuousAssignSrc, ContinuousAssign>,
+    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
 
-    pub instantiations: SourceMap<InstantiationSrc, Instantiation>,
-    pub inst_param_assigns: SourceMap<ParamAssignSrc, ParamAssign>,
-    pub inst_port_conns: SourceMap<PortConnectionSrc, PortConnection>,
-    pub instances: SourceMap<InstanceSrc, Instance>,
+    pub instantiation_srcs: SourceMap<InstantiationSrc, Instantiation>,
+    pub inst_param_assign_srcs: SourceMap<ParamAssignSrc, ParamAssign>,
+    pub inst_port_conn_srcs: SourceMap<PortConnectionSrc, PortConnection>,
+    pub instance_srcs: SourceMap<InstanceSrc, Instance>,
 
-    pub procs: SourceMap<ProcSrc, Proc>,
+    pub proc_srcs: SourceMap<ProcSrc, Proc>,
 
-    pub exprs: SourceMap<ExprSrc, Expr>,
-    pub event_exprs: SourceMap<EventExprSrc, EventExpr>,
-    pub decls: SourceMap<DeclaratorSrc, Declarator>,
-    pub stmts: SourceMap<StmtSrc, Stmt>,
+    pub expr_srcs: SourceMap<ExprSrc, Expr>,
+    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
+    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
+    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
 }
 
 impl_source_map_idx! { ModuleSourceMap =>
-    params[ParamPortSrc, ParamPortId],
-    port_decls[PortDeclSrc, PortDeclId],
-    ports[NonAnsiPortSrc, NonAnsiPortId],
-    ports[AnsiPortSrc, AnsiPortId],
-    ports[PortRefSrc, PortRefId],
+    param_srcs[ParamPortSrc, ParamPortId],
+    prot_decl_srcs[PortDeclSrc, PortDeclId],
+    port_srcs[NonAnsiPortSrc, NonAnsiPortId],
+    port_srcs[AnsiPortSrc, AnsiPortId],
+    port_srcs[PortRefSrc, PortRefId],
 
-    cont_assigns[ContinuousAssignSrc, ContinuousAssignId],
-    declarations[DeclarationSrc, DeclarationId],
+    assign_srcs[ContinuousAssignSrc, ContinuousAssignId],
+    declaration_srcs[DeclarationSrc, DeclarationId],
 
-    instantiations[InstantiationSrc, InstantiationId],
-    inst_param_assigns[ParamAssignSrc, ParamAssignId],
-    inst_port_conns[PortConnectionSrc, PortConnectionId],
-    instances[InstanceSrc, InstanceId],
+    instantiation_srcs[InstantiationSrc, InstantiationId],
+    inst_param_assign_srcs[ParamAssignSrc, ParamAssignId],
+    inst_port_conn_srcs[PortConnectionSrc, PortConnectionId],
+    instance_srcs[InstanceSrc, InstanceId],
 
-    procs[ProcSrc, ProcId],
+    proc_srcs[ProcSrc, ProcId],
 
-    exprs[ExprSrc, ExprId],
-    event_exprs[EventExprSrc, EventExprId],
-    decls[DeclaratorSrc, DeclId],
-    stmts[StmtSrc, StmtId],
-    stmts[BlockSrc, LocalBlockId],
+    expr_srcs[ExprSrc, ExprId],
+    event_expr_srcs[EventExprSrc, EventExprId],
+    decl_srcs[DeclaratorSrc, DeclId],
+    stmt_srcs[StmtSrc, StmtId],
+    stmt_srcs[BlockSrc, LocalBlockId],
 }
 
 impl ModuleSourceMap {
     pub fn shrink_to_fit(&mut self) {
-        self.params.shrink_to_fit();
-        self.ports.shrink_to_fit();
-        self.port_decls.shrink_to_fit();
+        self.param_srcs.shrink_to_fit();
+        self.port_srcs.shrink_to_fit();
+        self.prot_decl_srcs.shrink_to_fit();
 
-        self.cont_assigns.shrink_to_fit();
-        self.declarations.shrink_to_fit();
+        self.assign_srcs.shrink_to_fit();
+        self.declaration_srcs.shrink_to_fit();
 
-        self.instantiations.shrink_to_fit();
-        self.inst_param_assigns.shrink_to_fit();
-        self.instances.shrink_to_fit();
-        self.inst_port_conns.shrink_to_fit();
+        self.instantiation_srcs.shrink_to_fit();
+        self.inst_param_assign_srcs.shrink_to_fit();
+        self.instance_srcs.shrink_to_fit();
+        self.inst_port_conn_srcs.shrink_to_fit();
 
-        self.procs.shrink_to_fit();
+        self.proc_srcs.shrink_to_fit();
 
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
-        self.stmts.shrink_to_fit();
+        self.expr_srcs.shrink_to_fit();
+        self.event_expr_srcs.shrink_to_fit();
+        self.decl_srcs.shrink_to_fit();
+        self.stmt_srcs.shrink_to_fit();
     }
 }
 
@@ -217,81 +216,11 @@ pub(crate) struct LowerModuleCtx<'a> {
     pub(crate) module_source_map: &'a mut ModuleSourceMap,
 }
 
-impl LowerExpr for LowerModuleCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx {
-            db: self.db,
-            exprs: &mut self.module.exprs,
-            expr_srcs: &mut self.module_source_map.exprs,
-        }
-    }
-}
-
-impl LowerDecl for LowerModuleCtx<'_> {
-    fn decl_ctx(&mut self) -> LowerDeclCtx {
-        LowerDeclCtx {
-            db: self.db,
-            decls: &mut self.module.decls,
-            decl_srcs: &mut self.module_source_map.decls,
-
-            exprs: &mut self.module.exprs,
-            expr_srcs: &mut self.module_source_map.exprs,
-        }
-    }
-}
-
-impl LowerEventExpr for LowerModuleCtx<'_> {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx {
-        LowerEventExprCtx {
-            db: self.db,
-            event_exprs: &mut self.module.event_exprs,
-            event_expr_srcs: &mut self.module_source_map.event_exprs,
-
-            exprs: &mut self.module.exprs,
-            expr_srcs: &mut self.module_source_map.exprs,
-        }
-    }
-}
-
-impl LowerDeclaration for LowerModuleCtx<'_> {
-    fn declaration_ctx(&mut self) -> LowerDeclarationCtx<'_> {
-        LowerDeclarationCtx {
-            db: self.db,
-            declarations: &mut self.module.declarations,
-            declaration_srcs: &mut self.module_source_map.declarations,
-
-            decls: &mut self.module.decls,
-            decl_srcs: &mut self.module_source_map.decls,
-
-            event_exprs: &mut self.module.event_exprs,
-            event_expr_srcs: &mut self.module_source_map.event_exprs,
-
-            exprs: &mut self.module.exprs,
-            expr_srcs: &mut self.module_source_map.exprs,
-        }
-    }
-}
-
-impl LowerStmt for LowerModuleCtx<'_> {
-    fn stmt_ctx(&mut self) -> LowerStmtCtx<'_> {
-        LowerStmtCtx {
-            db: self.db,
-            file_id: self.file_id,
-            cont_id: self.module_id.into(),
-            stmts: &mut self.module.stmts,
-            stmt_srcs: &mut self.module_source_map.stmts,
-
-            exprs: &mut self.module.exprs,
-            expr_srcs: &mut self.module_source_map.exprs,
-
-            event_exprs: &mut self.module.event_exprs,
-            event_expr_srcs: &mut self.module_source_map.event_exprs,
-
-            decls: &mut self.module.decls,
-            decl_srcs: &mut self.module_source_map.decls,
-        }
-    }
-}
+impl_lower_expr!(LowerModuleCtx<'_>, module, module_source_map);
+impl_lower_decl!(LowerModuleCtx<'_>, module, module_source_map);
+impl_lower_event_expr!(LowerModuleCtx<'_>, module, module_source_map);
+impl_lower_stmt!(LowerModuleCtx<'_>, module_id, module, module_source_map);
+impl_lower_declaration!(LowerModuleCtx<'_>, module, module_source_map);
 
 impl LowerProc for LowerModuleCtx<'_> {
     fn proc_ctx(&mut self) -> LowerProcCtx<'_> {
@@ -300,19 +229,19 @@ impl LowerProc for LowerModuleCtx<'_> {
             file_id: self.file_id,
             cont_id: self.module_id.into(),
             procs: &mut self.module.procs,
-            proc_srcs: &mut self.module_source_map.procs,
+            proc_srcs: &mut self.module_source_map.proc_srcs,
 
             stmts: &mut self.module.stmts,
-            stmt_srcs: &mut self.module_source_map.stmts,
+            stmt_srcs: &mut self.module_source_map.stmt_srcs,
 
             exprs: &mut self.module.exprs,
-            expr_srcs: &mut self.module_source_map.exprs,
+            expr_srcs: &mut self.module_source_map.expr_srcs,
 
             event_exprs: &mut self.module.event_exprs,
-            event_expr_srcs: &mut self.module_source_map.event_exprs,
+            event_expr_srcs: &mut self.module_source_map.event_expr_srcs,
 
             decls: &mut self.module.decls,
-            decl_srcs: &mut self.module_source_map.decls,
+            decl_srcs: &mut self.module_source_map.decl_srcs,
         }
     }
 }

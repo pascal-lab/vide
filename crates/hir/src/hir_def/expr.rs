@@ -267,6 +267,21 @@ pub(crate) trait LowerExpr {
     fn expr_ctx(&mut self) -> LowerExprCtx;
 }
 
+#[macro_export]
+macro_rules! impl_lower_expr {
+    ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
+        impl $crate::hir_def::expr::LowerExpr for $ctx {
+            fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx {
+                $crate::hir_def::expr::LowerExprCtx {
+                    db: self.db,
+                    exprs: &mut self.$($data.)?exprs,
+                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
+                }
+            }
+        }
+    };
+}
+
 pub(crate) struct LowerExprCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) exprs: &'a mut Arena<Expr>,

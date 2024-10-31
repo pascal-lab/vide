@@ -279,7 +279,7 @@ impl LowerModuleCtx<'_> {
 
                     alloc_idx_and_src! {
                         ParamPort { ty, decl: IdxRange::new(start..end) } => self.module.params,
-                        param => self.module_source_map.params,
+                        param => self.module_source_map.param_srcs,
                     };
                 }
                 TypeParameterDeclaration(_) => unimplemented!(),
@@ -308,7 +308,7 @@ impl LowerModuleCtx<'_> {
                             header: header.unwrap(),
                             decls: IdxRange::new(decl_id..end)
                         } => self.module.port_decls,
-                        port => self.module_source_map.port_decls,
+                        port => self.module_source_map.prot_decl_srcs,
                     };
 
                     alloc_idx_and_src! {
@@ -322,7 +322,7 @@ impl LowerModuleCtx<'_> {
         }
 
         self.module.ports = Ports::Ansi(ports);
-        self.module_source_map.ports = PortSrcs::Ansi(srcs);
+        self.module_source_map.port_srcs = PortSrcs::Ansi(srcs);
     }
 
     pub(crate) fn lower_nonansi_port(&mut self, port_list: ast::NonAnsiPortList) {
@@ -378,7 +378,7 @@ impl LowerModuleCtx<'_> {
         }
 
         self.module.ports = Ports::NonAnsi { ports, refs };
-        self.module_source_map.ports = PortSrcs::NonAnsi { ports: port_srcs, refs: ref_srcs };
+        self.module_source_map.port_srcs = PortSrcs::NonAnsi { ports: port_srcs, refs: ref_srcs };
     }
 
     pub(crate) fn lower_port_decl(&mut self, decl: ast::PortDeclaration) {
@@ -393,7 +393,7 @@ impl LowerModuleCtx<'_> {
 
         alloc_idx_and_src! {
             PortDecl { header, decls: IdxRange::new(start..end) } => self.module.port_decls,
-            decl => self.module_source_map.port_decls,
+            decl => self.module_source_map.prot_decl_srcs,
         };
     }
 

@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use syntax::ast;
 use utils::define_enum_deriving_from;
 
-use super::{Expr, ExprId, ExprSrc, LowerExpr, LowerExprCtx, data_ty::Dimension};
+use super::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension};
 use crate::{
     alloc_idx_and_src,
     db::InternDb,
@@ -15,6 +15,7 @@ use crate::{
         module::port::{AnsiPortId, ParamPortId, PortDeclId},
         stmt::StmtId,
     },
+    impl_lower_expr,
     source_map::SourceMap,
 };
 
@@ -55,11 +56,24 @@ pub(crate) trait LowerDecl: LowerExpr {
     fn decl_ctx(&mut self) -> LowerDeclCtx;
 }
 
-impl LowerExpr for LowerDeclCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx { db: self.db, exprs: self.exprs, expr_srcs: self.expr_srcs }
-    }
+#[macro_export]
+macro_rules! impl_lower_decl {
+    ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
+        impl $crate::hir_def::expr::declarator::LowerDecl for $ctx {
+            fn decl_ctx(&mut self) -> $crate::hir_def::expr::declarator::LowerDeclCtx {
+                $crate::hir_def::expr::declarator::LowerDeclCtx {
+                    db: self.db,
+                    decls: &mut self.$($data.)?decls,
+                    decl_srcs: &mut self.$($src_map.)?decl_srcs,
+                    exprs: &mut self.$($data.)?exprs,
+                    expr_srcs: &mut self.$($src_map.)?expr_srcs,
+                }
+            }
+        }
+    };
 }
+
+impl_lower_expr!(LowerDeclCtx<'_>);
 
 impl LowerDeclCtx<'_> {
     pub(crate) fn lower_declarator(

@@ -67,7 +67,7 @@ impl LowerModuleCtx<'_> {
             instance.instances().children().map(|inst| self.lower_instance(inst)).collect();
         alloc_idx_and_src! {
             Instantiation { ty, param_assigns, instances } => self.module.instantiations,
-            instance => self.module_source_map.instantiations,
+            instance => self.module_source_map.instantiation_srcs,
         }
     }
 
@@ -96,7 +96,7 @@ impl LowerModuleCtx<'_> {
 
                 alloc_idx_and_src! {
                     hir_assign => self.module.inst_param_assigns,
-                    assign => self.module_source_map.inst_param_assigns,
+                    assign => self.module_source_map.inst_param_assign_srcs,
                 }
             })
             .collect()
@@ -124,7 +124,7 @@ impl LowerModuleCtx<'_> {
                 };
                 alloc_idx_and_src! {
                     hir_conn => self.module.inst_port_conns,
-                    conn => self.module_source_map.inst_port_conns,
+                    conn => self.module_source_map.inst_port_conn_srcs,
                 }
             })
             .collect();
@@ -144,7 +144,7 @@ impl LowerModuleCtx<'_> {
 
         alloc_idx_and_src! {
             Instance { name, dimensions, connections } => self.module.instances,
-            instance => self.module_source_map.instances,
+            instance => self.module_source_map.instance_srcs,
         }
     }
 }

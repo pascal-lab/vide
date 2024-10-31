@@ -14,15 +14,13 @@ use utils::{
 
 use super::{
     Ident,
-    declaration::{
-        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, LowerDeclarationCtx,
-    },
+    declaration::{Declaration, DeclarationId, DeclarationSrc, LowerDeclaration},
     expr::{
-        Expr, ExprId, ExprSrc, LowerExpr, LowerExprCtx,
-        declarator::{DeclId, Declarator, DeclaratorSrc, LowerDecl, LowerDeclCtx},
-        timing_control::{EventExpr, EventExprId, EventExprSrc, LowerEventExpr, LowerEventExprCtx},
+        Expr, ExprId, ExprSrc,
+        declarator::{DeclId, Declarator, DeclaratorSrc},
+        timing_control::{EventExpr, EventExprId, EventExprSrc},
     },
-    stmt::{LowerStmt, LowerStmtCtx, Stmt, StmtId, StmtKind, StmtSrc},
+    stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc},
 };
 use crate::{
     container::{ContainerId, InFile},
@@ -30,7 +28,8 @@ use crate::{
     define_src,
     file::HirFileId,
     hir_def::lower_ident_opt,
-    impl_arena_idx, impl_source_map_idx,
+    impl_arena_idx, impl_lower_decl, impl_lower_declaration, impl_lower_event_expr,
+    impl_lower_expr, impl_lower_stmt, impl_source_map_idx,
     source_map::{SourceMap, ToAstNode},
 };
 
@@ -145,29 +144,29 @@ pub struct BlockLoc {
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct BlockSourceMap {
-    pub declarations: SourceMap<DeclarationSrc, Declaration>,
-    pub stmts: SourceMap<StmtSrc, Stmt>,
-    pub exprs: SourceMap<ExprSrc, Expr>,
-    pub event_exprs: SourceMap<EventExprSrc, EventExpr>,
-    pub decls: SourceMap<DeclaratorSrc, Declarator>,
+    pub declaration_srcs: SourceMap<DeclarationSrc, Declaration>,
+    pub stmt_srcs: SourceMap<StmtSrc, Stmt>,
+    pub expr_srcs: SourceMap<ExprSrc, Expr>,
+    pub event_expr_srcs: SourceMap<EventExprSrc, EventExpr>,
+    pub decl_srcs: SourceMap<DeclaratorSrc, Declarator>,
 }
 
 impl_source_map_idx! { BlockSourceMap =>
-    declarations[DeclarationSrc, DeclarationId],
-    stmts[StmtSrc, StmtId],
-    stmts[BlockSrc, LocalBlockId],
-    exprs[ExprSrc, ExprId],
-    event_exprs[EventExprSrc, EventExprId],
-    decls[DeclaratorSrc, DeclId],
+    declaration_srcs[DeclarationSrc, DeclarationId],
+    stmt_srcs[StmtSrc, StmtId],
+    stmt_srcs[BlockSrc, LocalBlockId],
+    expr_srcs[ExprSrc, ExprId],
+    event_expr_srcs[EventExprSrc, EventExprId],
+    decl_srcs[DeclaratorSrc, DeclId],
 }
 
 impl BlockSourceMap {
     pub fn shrink_to_fit(&mut self) {
-        self.declarations.shrink_to_fit();
-        self.stmts.shrink_to_fit();
-        self.exprs.shrink_to_fit();
-        self.event_exprs.shrink_to_fit();
-        self.decls.shrink_to_fit();
+        self.declaration_srcs.shrink_to_fit();
+        self.stmt_srcs.shrink_to_fit();
+        self.expr_srcs.shrink_to_fit();
+        self.event_expr_srcs.shrink_to_fit();
+        self.decl_srcs.shrink_to_fit();
     }
 }
 
@@ -180,81 +179,11 @@ pub(crate) struct LowerBlockCtx<'a> {
     pub(crate) block_source_map: &'a mut BlockSourceMap,
 }
 
-impl LowerExpr for LowerBlockCtx<'_> {
-    fn expr_ctx(&mut self) -> LowerExprCtx {
-        LowerExprCtx {
-            db: self.db,
-            exprs: &mut self.block.exprs,
-            expr_srcs: &mut self.block_source_map.exprs,
-        }
-    }
-}
-
-impl LowerDecl for LowerBlockCtx<'_> {
-    fn decl_ctx(&mut self) -> LowerDeclCtx {
-        LowerDeclCtx {
-            db: self.db,
-            decls: &mut self.block.decls,
-            decl_srcs: &mut self.block_source_map.decls,
-
-            exprs: &mut self.block.exprs,
-            expr_srcs: &mut self.block_source_map.exprs,
-        }
-    }
-}
-
-impl LowerEventExpr for LowerBlockCtx<'_> {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx {
-        LowerEventExprCtx {
-            db: self.db,
-            event_exprs: &mut self.block.event_exprs,
-            event_expr_srcs: &mut self.block_source_map.event_exprs,
-
-            exprs: &mut self.block.exprs,
-            expr_srcs: &mut self.block_source_map.exprs,
-        }
-    }
-}
-
-impl LowerStmt for LowerBlockCtx<'_> {
-    fn stmt_ctx(&mut self) -> LowerStmtCtx<'_> {
-        LowerStmtCtx {
-            db: self.db,
-            file_id: self.file_id,
-            cont_id: self.block_id.into(),
-            stmts: &mut self.block.stmts,
-            stmt_srcs: &mut self.block_source_map.stmts,
-
-            exprs: &mut self.block.exprs,
-            expr_srcs: &mut self.block_source_map.exprs,
-
-            event_exprs: &mut self.block.event_exprs,
-            event_expr_srcs: &mut self.block_source_map.event_exprs,
-
-            decls: &mut self.block.decls,
-            decl_srcs: &mut self.block_source_map.decls,
-        }
-    }
-}
-
-impl LowerDeclaration for LowerBlockCtx<'_> {
-    fn declaration_ctx(&mut self) -> LowerDeclarationCtx<'_> {
-        LowerDeclarationCtx {
-            db: self.db,
-            declarations: &mut self.block.declarations,
-            declaration_srcs: &mut self.block_source_map.declarations,
-
-            decls: &mut self.block.decls,
-            decl_srcs: &mut self.block_source_map.decls,
-
-            event_exprs: &mut self.block.event_exprs,
-            event_expr_srcs: &mut self.block_source_map.event_exprs,
-
-            exprs: &mut self.block.exprs,
-            expr_srcs: &mut self.block_source_map.exprs,
-        }
-    }
-}
+impl_lower_expr!(LowerBlockCtx<'_>, block, block_source_map);
+impl_lower_decl!(LowerBlockCtx<'_>, block, block_source_map);
+impl_lower_event_expr!(LowerBlockCtx<'_>, block, block_source_map);
+impl_lower_stmt!(LowerBlockCtx<'_>, block_id, block, block_source_map);
+impl_lower_declaration!(LowerBlockCtx<'_>, block, block_source_map);
 
 impl LowerBlockCtx<'_> {
     pub(crate) fn lower_block(&mut self, block: ast::BlockStatement) {

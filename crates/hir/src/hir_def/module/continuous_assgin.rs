@@ -46,7 +46,7 @@ impl LowerModuleCtx<'_> {
         let continuous_assign = ContinuousAssign { strength, delay, assigns };
         alloc_idx_and_src! {
             continuous_assign => self.module.cont_assigns,
-            assign => self.module_source_map.cont_assigns,
+            assign => self.module_source_map.assign_srcs,
         }
     }
 }
