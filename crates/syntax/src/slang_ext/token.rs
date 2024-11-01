@@ -8,18 +8,18 @@ use crate::support;
 
 pub fn is_pair_token(kind: TokenKind) -> bool {
     macro_rules! P {
-        ($($tok:ident),* $(,)?) => {
+        ($($tok:ident)|* $(|)?) => {
             $(kind == T![$tok] ||)* false
         };
     }
     P! {
-        begin, end,
-        module, endmodule,
-        case, endcase,
-        function, endfunction,
-        generate, endgenerate,
-        interface, endinterface,
-        task, endtask,
+        begin | end
+        | module | endmodule
+        | case | endcase
+        | function | endfunction
+        | generate | endgenerate
+        | interface | endinterface
+        | task | endtask
     }
 }
 
@@ -31,7 +31,7 @@ pub fn pair_token(
     let kind = tok.kind();
 
     macro_rules! P {
-        ($beg:ident, $end:ident; $($rest:tt)*) => {
+        ($beg:ident | $end:ident, $($rest:tt)*) => {
             if kind == T![$beg] {
                 Either::Right(support::child_token(parent, T![$end])?)
             } else if kind == T![$end] {
@@ -56,12 +56,12 @@ pub fn pair_token(
         }
         _ => {
             P! {
-                begin, end;
-                case, endcase;
-                function, endfunction;
-                generate, endgenerate;
-                interface, endinterface;
-                task, endtask;
+                begin | end,
+                case | endcase,
+                function | endfunction,
+                generate | endgenerate,
+                interface | endinterface,
+                task | endtask,
             }
         }
     };
