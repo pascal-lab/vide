@@ -7,7 +7,7 @@ use syntax::{
     SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent, TokenKind,
     ast::AstNode,
     has_text_range::HasTextRange,
-    token::{is_pair_token, pair_token},
+    token::{TokenKindExt, pair_token},
 };
 use vfs::FileId;
 
@@ -36,14 +36,7 @@ pub(crate) fn references(
 
     let token = file.syntax().token_at_offset(offset).pick_bext_token(token_precedence)?;
 
-    handle_ctrl_flow_kw(&sema, token)
-}
-
-fn token_precedence(kind: TokenKind) -> usize {
-    match kind {
-        _ if is_pair_token(kind) => 4,
-        _ => 1,
-    }
+    handle_ctrl_flow_kw(&sema, token).or_else(|| None)
 }
 
 pub(crate) fn handle_ctrl_flow_kw(
@@ -51,12 +44,25 @@ pub(crate) fn handle_ctrl_flow_kw(
     tok_with_parent @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Vec<References>> {
     let file_id = sema.find_file(parent);
-    let mut refs = vec![(tok.text_range().unwrap(), ReferenceCategory::empty())];
+    let kind = tok.kind();
+    let mut refs = vec![];
 
-    if let Some(pair) = pair_token(tok_with_parent) {
-        let pair: SyntaxToken = pair.either_into();
-        refs.push((pair.text_range().unwrap(), ReferenceCategory::empty()));
+    match kind {
+        _ if let Some(pair) = pair_token(tok_with_parent) => {
+            let pair: SyntaxToken = pair.either_into();
+            refs.push((tok.text_range().unwrap(), ReferenceCategory::empty()));
+            refs.push((pair.text_range().unwrap(), ReferenceCategory::empty()));
+        }
+        _ => return None,
     }
 
     Some(vec![References { def: None, refs: IntMap::from_iter([(file_id.file_id(), refs)]) }])
+}
+
+fn token_precedence(kind: TokenKind) -> usize {
+    match kind {
+        TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => 4,
+        _ if kind.is_pair_token() => 4,
+        _ => 1,
+    }
 }

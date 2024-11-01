@@ -2,7 +2,7 @@ use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use line_index::TextRange;
 use span::FilePosition;
-use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, ast::AstNode, token::is_pair_token};
+use syntax::{ast::AstNode, token::TokenKindExt, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind};
 
 use crate::references::{self, ReferenceCategory};
 
@@ -32,7 +32,7 @@ pub(crate) fn document_highlight(
 
 fn token_precedence(kind: TokenKind) -> usize {
     match kind {
-        _ if is_pair_token(kind) => 4,
+        _ if kind.is_pair_token() => 4,
         _ => 1,
     }
 }

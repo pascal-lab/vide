@@ -1,5 +1,6 @@
 #![feature(try_blocks)]
 #![feature(let_chains)]
+#![feature(if_let_guard)]
 
 pub use base_db::Cancelled;
 use syntax::{SyntaxNode, ast, match_ast};

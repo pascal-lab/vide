@@ -6,20 +6,26 @@ use slang::{
 
 use crate::support;
 
-pub fn is_pair_token(kind: TokenKind) -> bool {
-    macro_rules! P {
+pub trait TokenKindExt {
+    fn is_pair_token(self) -> bool;
+}
+
+impl TokenKindExt for TokenKind {
+    fn is_pair_token(self) -> bool {
+        macro_rules! P {
         ($($tok:ident)|* $(|)?) => {
-            $(kind == T![$tok] ||)* false
+            $(self == T![$tok] ||)* false
         };
     }
-    P! {
-        begin | end
-        | module | endmodule
-        | case | endcase
-        | function | endfunction
-        | generate | endgenerate
-        | interface | endinterface
-        | task | endtask
+        P! {
+            begin | end
+            | module | endmodule
+            | case | endcase
+            | function | endfunction
+            | generate | endgenerate
+            | interface | endinterface
+            | task | endtask
+        }
     }
 }
 

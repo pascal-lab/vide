@@ -1,12 +1,9 @@
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use span::{FilePosition, RangeInfo};
 use syntax::{
-    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
-    ast::AstNode,
-    has_text_range::HasTextRange,
-    token::{is_pair_token, pair_token},
+    ast::AstNode, has_text_range::HasTextRange, token::{pair_token, TokenKindExt}, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind
 };
 
 use crate::{
@@ -40,33 +37,33 @@ fn handle_ctrl_flow_kw(
     tok_with_parent @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     let file_id = sema.find_file(parent);
+    let kind = tok.kind();
 
-    if let Some(pair) = pair_token(tok_with_parent) {
-        let tok = match pair {
-            Either::Left(pair) => pair,
-            Either::Right(_) => tok,
-        };
-        // TODO: name and container_name
-        let nav = NavTarget {
-            file_id: file_id.file_id(),
-            full_range: parent.text_range().unwrap(),
-            focus_range: tok.text_range(),
-            name: None,
-            kind: Some(SymbolKind::from_node(parent)),
-            container_name: None,
-            description: None,
-        };
+    match kind {
+        _ if let Some(pair) = pair_token(tok_with_parent) => {
+            let pair = pair.either(|pair| pair, |_| tok);
 
-        return Some(vec![nav]);
+            // TODO: name and container_name
+            let nav = NavTarget {
+                file_id: file_id.file_id(),
+                full_range: parent.text_range().unwrap(),
+                focus_range: pair.text_range(),
+                name: None,
+                kind: Some(SymbolKind::from_node(parent)),
+                container_name: None,
+                description: None,
+            };
+
+            Some(vec![nav])
+        }
+        _ => None,
     }
-
-    None
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
     match kind {
         TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => 4,
-        _ if is_pair_token(kind) => 4,
+        _ if kind.is_pair_token() => 4,
         _ => 1,
     }
 }
