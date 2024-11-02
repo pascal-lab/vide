@@ -45,13 +45,17 @@ pub(crate) fn handle_ctrl_flow_kw(
 ) -> Option<Vec<References>> {
     let file_id = sema.find_file(parent);
     let kind = tok.kind();
+
     let mut refs = vec![];
+    let mut add_ref = |tok: SyntaxToken| {
+        refs.push((tok.text_range().unwrap(), ReferenceCategory::empty()));
+    };
 
     match kind {
         _ if let Some(pair) = pair_token(tp) => {
             let pair: SyntaxToken = pair.either_into();
-            refs.push((tok.text_range().unwrap(), ReferenceCategory::empty()));
-            refs.push((pair.text_range().unwrap(), ReferenceCategory::empty()));
+            add_ref(tok);
+            add_ref(pair);
         }
         _ => return None,
     }
