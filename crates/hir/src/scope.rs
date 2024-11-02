@@ -33,7 +33,7 @@ define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
     pub enum ModuleEntry {
         DeclId,
-        NonAnsiPortEntry,
+        NonAnsiPortEntry, // AnsiPorts are handled in DeclId
         InstanceId,
         StmtId,
         BlockId,

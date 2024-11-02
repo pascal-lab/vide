@@ -48,7 +48,19 @@ pub(crate) fn resolution(
     let res = match_ast! { parent in
         ast::MemberAccessExpression => unimplemented!(),
         ast::ScopedName => unimplemented!(),
-        _ => sema.resolve_ident(tp),
+        ast::NamedPortConnection[it] if it.name() == Some(tok) => {
+            let mut res = SmallVec::new();
+            if let Some(port_conn_res) = sema.resolve_port_conn_name(it) {
+                res.extend(Definition::from_pathres(port_conn_res).into_iter());
+            }
+
+            if it.open_paren().is_none() && it.close_paren().is_none()
+            && let Some(in_cont_res) = sema.resolve_ident_in_cont(tp) {
+                res.extend(Definition::from_pathres(in_cont_res).into_iter());
+            };
+            return Some(res);
+        },
+        _ => sema.resolve_ident_in_cont(tp),
     }?;
 
     Some(Definition::from_pathres(res))

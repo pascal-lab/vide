@@ -1,11 +1,15 @@
-use syntax::SyntaxTokenWithParent;
+use syntax::{
+    SyntaxTokenWithParent,
+    ast::{self, AstNode},
+};
+use utils::get::GetRef;
 
 use super::SemanticsImpl;
 use crate::{
     container::{ContainerId, ContainerParent, InBlock, InContainer, InFile, InModule},
     hir_def::{
         block::BlockId,
-        expr::declarator::DeclId,
+        expr::declarator::{DeclId, DeclaratorParent},
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
@@ -14,15 +18,15 @@ use crate::{
 };
 
 impl SemanticsImpl<'_> {
-    pub fn resolve_ident(
+    pub fn resolve_ident_in_cont(
         &self,
         SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
     ) -> Option<PathResolution> {
+        let db = self.db;
+        let file_id = self.find_file(parent);
+        let ident = lower_ident_opt(Some(tok))?;
         self.with_ctx(|ctx| {
-            let db = self.db;
-            let file_id = self.find_file(parent);
             let container = ctx.find_container(InFile::new(file_id, parent))?;
-            let ident = lower_ident_opt(Some(tok))?;
 
             ContainerParent::start_from(db, container).find_map(|id| match id {
                 ContainerId::HirFileId(_) => {
@@ -42,6 +46,31 @@ impl SemanticsImpl<'_> {
                 }
             })
         })
+    }
+
+    pub fn resolve_port_conn_name(&self, conn: ast::NamedPortConnection) -> Option<PathResolution> {
+        let db = self.db;
+        let conn_name = lower_ident_opt(conn.name())?;
+
+        let instantiatiion = ast::HierarchyInstantiation::cast(conn.syntax().parent()?.parent()?)?;
+        let module_name = lower_ident_opt(instantiatiion.type_())?;
+        let UnitEntry::ModuleId(module_id) = db.unit_scope().get(&module_name)? else {
+            return None;
+        };
+
+        let module_scope = db.module_scope(module_id);
+        let entry = module_scope.get(&conn_name)?;
+        let module = db.module(module_id);
+
+        match entry {
+            ModuleEntry::DeclId(decl_id)
+                if matches!(module.get(decl_id).parent, DeclaratorParent::AnsiPortId(_)) =>
+            {
+                Some(InModule::new(module_id, entry).into())
+            }
+            ModuleEntry::NonAnsiPortEntry(_) => Some(InModule::new(module_id, entry).into()),
+            _ => None,
+        }
     }
 }
 

@@ -29,7 +29,7 @@ define_enum_deriving_from! {
     pub enum DeclaratorParent {
         ParamPortId,
         AnsiPortId,
-        PortDeclId,
+        PortDeclId, // Does not include AnsiPortId
         DeclarationId,
         StmtId,
     }

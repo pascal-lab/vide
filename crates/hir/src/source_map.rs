@@ -90,7 +90,7 @@ pub trait ToAstNode<'a, Output: AstNode<'a>> {
 pub(crate) macro define_src {
     ($name:ident(ast::$ty:ident)) => {
         #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-        pub struct $name(syntax::ptr::SyntaxNodePtr);
+        pub struct $name(pub syntax::ptr::SyntaxNodePtr);
 
         impl $crate::source_map::IsSrc for $name {}
 
