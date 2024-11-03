@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
-use syntax::{ast, ast::AstNode};
+use syntax::ast::AstNode;
 use triomphe::Arc;
 pub(crate) use utils::get::Get;
 use utils::get::GetRef;

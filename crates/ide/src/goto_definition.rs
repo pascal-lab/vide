@@ -1,19 +1,17 @@
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
-use smallvec::SmallVec;
 use span::{FilePosition, RangeInfo};
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
-    ast::{self, AstNode},
+    ast::AstNode,
     has_text_range::HasTextRange,
-    match_ast,
     token::{TokenKindExt, pair_token},
 };
 
 use crate::{
     SymbolKind,
-    definitions::Definition,
+    definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
 };
 
@@ -26,44 +24,16 @@ pub(crate) fn goto_definition(
     let token = file.syntax().token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     let navs = handle_ctrl_flow_kw(&sema, token).or_else(|| {
-        resolution(&sema, token)?
+        DefinitionClass::resolve(&sema, token)?
+            .sources()
             .into_iter()
-            .map(|def| def.to_nav(db))
             .unique()
+            .map(|def| def.to_nav(db))
             .collect_vec()
             .into()
     })?;
 
     Some(RangeInfo::new(token.text_range()?, navs))
-}
-
-pub(crate) fn resolution(
-    sema: &Semantics<'_, RootDb>,
-    tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-) -> Option<SmallVec<[Definition; 3]>> {
-    if !matches!(tok.kind(), TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER) {
-        return None;
-    }
-
-    let res = match_ast! { parent in
-        ast::MemberAccessExpression => unimplemented!(),
-        ast::ScopedName => unimplemented!(),
-        ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-            let mut res = SmallVec::new();
-            if let Some(port_conn_res) = sema.resolve_port_conn_name(it) {
-                res.extend(Definition::from_pathres(port_conn_res).into_iter());
-            }
-
-            if it.open_paren().is_none() && it.close_paren().is_none()
-            && let Some(in_cont_res) = sema.resolve_ident_in_cont(tp) {
-                res.extend(Definition::from_pathres(in_cont_res).into_iter());
-            };
-            return Some(res);
-        },
-        _ => sema.resolve_ident_in_cont(tp),
-    }?;
-
-    Some(Definition::from_pathres(res))
 }
 
 fn handle_ctrl_flow_kw(

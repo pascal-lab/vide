@@ -2,14 +2,13 @@ use syntax::{
     SyntaxTokenWithParent,
     ast::{self, AstNode},
 };
-use utils::get::GetRef;
 
 use super::SemanticsImpl;
 use crate::{
     container::{ContainerId, ContainerParent, InBlock, InContainer, InFile, InModule},
     hir_def::{
         block::BlockId,
-        expr::declarator::{DeclId, DeclaratorParent},
+        expr::declarator::DeclId,
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
@@ -60,7 +59,6 @@ impl SemanticsImpl<'_> {
 
         let module_scope = db.module_scope(module_id);
         let entry = module_scope.get(&conn_name)?;
-        let module = db.module(module_id);
 
         if matches!(entry, ModuleEntry::AnsiPortEntry(_) | ModuleEntry::NonAnsiPortEntry(_)) {
             Some(InModule::new(module_id, entry).into())
