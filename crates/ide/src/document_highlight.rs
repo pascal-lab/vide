@@ -1,4 +1,4 @@
-use hir::semantics::Semantics;
+use hir::{container::InFile, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use line_index::TextRange;
 use span::FilePosition;
@@ -72,13 +72,22 @@ fn highlight_refs<'a>(
     def: Definition,
     DocumentHighlightConfig { scope_visibility }: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
-    let config = ReferencesConfig::new(scope_visibility, Some(SearchScope::single_file(file_id)));
-    let refs = ReferencesCtx::new(sema, &def, config)
+    let defs = def.origins().into_iter().filter_map(|def| {
+        let InFile { value: (_, range), file_id: def_file_id } = def.name(sema.db);
+        if file_id == def_file_id.file_id() {
+            Some(DocumentHighlight { range, category: ReferenceCategory::empty() })
+        } else {
+            None
+        }
+    });
+
+    let ref_config =
+        ReferencesConfig::new(scope_visibility, Some(SearchScope::single_file(file_id)));
+    let refs = ReferencesCtx::new(sema, &def, ref_config)
         .search()
         .remove(&file_id)?
         .into_iter()
-        .map(|tok| DocumentHighlight { range: tok.range(), category: tok.category() })
-        .collect();
+        .map(|tok| DocumentHighlight { range: tok.range(), category: tok.category() });
 
-    Some(refs)
+    Some(defs.chain(refs).collect())
 }
