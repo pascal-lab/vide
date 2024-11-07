@@ -36,7 +36,7 @@ pub struct Opt {
     #[clap(long, default_value = DEFAULT_PROCESS_NAME)]
     pub process_name: String,
 
-    #[clap(short, long, default_value = "info")]
+    #[clap(short, long, default_value = formatcp!("{}", if DEBUG { "info" } else { "error" }))]
     pub log: String,
 
     #[clap(long = "log_file", default_value = None)]
