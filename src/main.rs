@@ -168,11 +168,12 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    if env::var("RUST_BACKTRACE").is_err() {
+        env::set_var("RUST_BACKTRACE", "short");
+    }
+
     let opt = Opt::parse();
-
     setup_logging(&opt)?;
-
     run_server(opt)?;
-
     Ok(())
 }
