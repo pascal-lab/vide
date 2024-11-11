@@ -79,23 +79,19 @@ pub(crate) fn handle_references(
     let locations = refs
         .into_iter()
         .flat_map(|References { def, refs }| {
-            let decl = def.into_iter().flatten().map(|nav| {
-                to_proto::location(&snap, FileRange {
-                    file_id: nav.file_id,
-                    range: nav.focus_or_full_range(),
-                })
-            });
+            let decl = def
+                .into_iter()
+                .flatten()
+                .map(|nav| FileRange { file_id: nav.file_id, range: nav.focus_or_full_range() });
 
             let refs = refs.into_iter().flat_map(|(file_id, refs)| {
-                refs.into_iter()
-                    .map(|(range, _)| to_proto::location(&snap, FileRange { file_id, range }))
-                    .collect_vec()
-                    .into_iter()
+                refs.into_iter().map(move |(range, _)| FileRange { file_id, range })
             });
 
             decl.chain(refs)
         })
         .unique()
+        .filter_map(|frange| to_proto::location(&snap, frange).ok())
         .collect_vec();
 
     Ok(Some(locations))
