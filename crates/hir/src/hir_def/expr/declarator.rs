@@ -11,7 +11,7 @@ use crate::{
         HirData, Ident, alloc_idx_and_src,
         declaration::DeclarationId,
         lower_ident_opt,
-        module::port::{AnsiPortId, ParamPortId, PortDeclId},
+        module::port::{AnsiPortId, PortDeclId},
         stmt::StmtId,
     },
     source_map::SourceMap,
@@ -28,7 +28,6 @@ pub struct Declarator {
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
     pub enum DeclaratorParent {
-        ParamPortId,
         AnsiPortId,
         PortDeclId, // Does not include AnsiPortId
         DeclarationId,

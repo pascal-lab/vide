@@ -173,12 +173,12 @@ impl LowerDeclarationCtx<'_> {
         }
     }
 
-    pub(crate) fn lower_param_decl_stmt(
+    pub(crate) fn lower_param_decl_base(
         &mut self,
-        param_decl: ast::ParameterDeclarationStatement,
+        param_decl: ast::ParameterDeclarationBase,
     ) -> DeclarationId {
         use ast::ParameterDeclarationBase::*;
-        match param_decl.parameter() {
+        match param_decl {
             ParameterDeclaration(param_decl) => self.lower_param_decl(param_decl),
             TypeParameterDeclaration(_) => unimplemented!(),
         }

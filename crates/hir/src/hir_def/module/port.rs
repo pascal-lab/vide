@@ -22,10 +22,18 @@ use crate::{
     source_map::SourceMap,
 };
 
-// module IDENT (port_list);
-// port_decl;
-// declaration?;
-// endmodule
+// structure:
+//
+// param ports:
+// module name #(param_decls) (port_list {ansi, nonansi, wildcard})
+//
+// non-ansi ports:
+// module name(non_ansi_port_list)
+//   port_decl
+//   data_decl
+//
+// ansi ports:
+// module name(ansi_ports)
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PortDecl {
@@ -245,37 +253,7 @@ impl PortSrcs {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ParamPort {
-    pub ty: DataTy,
-    pub decls: DeclsRange,
-}
-
-pub type ParamPortId = Idx<ParamPort>;
-
-define_src!(ParamPortSrc(ast::ParameterDeclaration));
-
 impl LowerModuleCtx<'_> {
-    pub(crate) fn lower_param_ports(&mut self, param_ports: ast::ParameterPortList) {
-        for decls in param_ports.declarations().children() {
-            use ast::ParameterDeclarationBase::*;
-            match decls {
-                ParameterDeclaration(param) => {
-                    let ty = self.expr_ctx().lower_data_ty(param.type_());
-
-                    let parent = self.module.params.nxt_idx().into();
-                    let decls = self.decl_ctx().lower_declarators(param.declarators(), parent);
-
-                    alloc_idx_and_src! {
-                        ParamPort { ty, decls } => self.module.params,
-                        param => self.module_source_map.param_srcs,
-                    };
-                }
-                TypeParameterDeclaration(_) => unimplemented!(),
-            }
-        }
-    }
-
     pub(crate) fn lower_ansi_ports(&mut self, port_list: ast::AnsiPortList) {
         let mut ports = Arena::default();
         let mut srcs = SourceMap::default();

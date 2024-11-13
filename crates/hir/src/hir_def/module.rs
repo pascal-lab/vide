@@ -3,11 +3,10 @@ use instantiation::{
     Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
     ParamAssign, ParamAssignId, ParamAssignSrc, PortConn, PortConnId, PortConnSrc,
 };
-use la_arena::{Arena, Idx};
+use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use port::{
-    AnsiPort, AnsiPortId, AnsiPortSrc, NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, ParamPort,
-    ParamPortId, ParamPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef, PortRefId, PortRefSrc,
-    PortSrcs, Ports,
+    AnsiPort, AnsiPortId, AnsiPortSrc, NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl,
+    PortDeclId, PortDeclSrc, PortRef, PortRefId, PortRefSrc, PortSrcs, Ports,
 };
 use proc_macro_utils::define_container;
 use syntax::ast::{self, AstNode, PortList};
@@ -18,7 +17,7 @@ use utils::{
 };
 
 use super::{
-    Ident,
+    HirData, Ident,
     block::{BlockInfo, BlockSrc, LocalBlockId},
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
@@ -51,7 +50,7 @@ define_container! {
         name: Option<Ident>,
         items: Arena<ModuleItem>,
 
-        params | param_srcs: ParamPort[ParamPortId | ParamPortSrc],
+        param_ports: Option<IdxRange<Declaration>>,
         ports | port_srcs: Ports[_ | PortSrcs] => {
             NonAnsiPort[NonAnsiPortId | NonAnsiPortSrc],
             AnsiPort[AnsiPortId | AnsiPortSrc],
@@ -143,7 +142,15 @@ impl LowerModuleCtx<'_> {
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
         if let Some(param_ports) = header.parameters() {
-            self.lower_param_ports(param_ports);
+            for decls in param_ports.declarations().children() {
+                self.declaration_ctx().lower_param_decl_base(decls);
+            }
+
+            let beg = Idx::from_raw(RawIdx::from(0));
+            let end = self.module.declarations.nxt_idx();
+            if beg != end {
+                self.module.param_ports = Some(IdxRange::new(beg..end));
+            }
         }
 
         match header.ports() {
@@ -162,7 +169,7 @@ impl LowerModuleCtx<'_> {
                 }
                 NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
                 ParameterDeclarationStatement(param_decl) => {
-                    self.declaration_ctx().lower_param_decl_stmt(param_decl).into()
+                    self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into()
                 }
                 HierarchyInstantiation(instantiation) => {
                     self.lower_instantiation(instantiation).into()
