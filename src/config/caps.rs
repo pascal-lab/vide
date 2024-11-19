@@ -182,8 +182,8 @@ impl Config {
             document_formatting_provider: OneOf::Left(true).into(),
             document_range_formatting_provider: OneOf::Left(true).into(),
             document_on_type_formatting_provider: DocumentOnTypeFormattingOptions {
-                first_trigger_character: "=".to_string(),
-                more_trigger_character: Some([".", ">", "{", "(", "<"].map(String::from).into()),
+                first_trigger_character: "\n".to_owned(),
+                more_trigger_character: None,
             }
             .into(),
             rename_provider: OneOf::Right(RenameOptions {

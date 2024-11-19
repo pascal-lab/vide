@@ -132,10 +132,8 @@ pub(crate) fn handle_formatting(
     let line_info = snap.line_info(file_id)?;
 
     let config = snap.config.fmt_config();
-    let edit = snap
-        .analysis
-        .format(file_id, None, line_info.ending, config)?
-        .map_err(to_proto::format_error)?;
+    let edit =
+        snap.analysis.format(file_id, None, &line_info, config)?.map_err(to_proto::format_error)?;
 
     let text_edits = edit.map(|edit| to_proto::text_edits(&line_info, edit));
     Ok(text_edits)
@@ -152,7 +150,24 @@ pub(crate) fn handle_range_formatting(
     let config = snap.config.fmt_config();
     let edit = snap
         .analysis
-        .format(file_id, line_ranges, line_info.ending, config)?
+        .format(file_id, line_ranges, &line_info, config)?
+        .map_err(to_proto::format_error)?;
+
+    let text_edits = edit.map(|edit| to_proto::text_edits(&line_info, edit));
+    Ok(text_edits)
+}
+
+pub(crate) fn handle_on_type_formatting(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::DocumentOnTypeFormattingParams,
+) -> anyhow::Result<Option<Vec<lsp_types::TextEdit>>> {
+    let position = from_proto::file_position(&snap, params.text_document_position)?;
+    let line_info = snap.line_info(position.file_id)?;
+
+    let config = snap.config.fmt_config();
+    let edit = snap
+        .analysis
+        .format_on_type(position, params.ch, &line_info, config)?
         .map_err(to_proto::format_error)?;
 
     let text_edits = edit.map(|edit| to_proto::text_edits(&line_info, edit));

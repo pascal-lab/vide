@@ -7,6 +7,7 @@ use slang::{
 use crate::{has_text_range::HasTextRange, ptr::SyntaxNodePtr};
 
 pub mod token;
+pub mod trivia;
 
 #[derive(Clone, Debug)]
 pub enum TokenAtOffset<'a> {
@@ -98,13 +99,13 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         }
 
         let mut cursor = self.walk();
-        cursor.goto_last_token_before_pos(offset);
+        cursor.goto_last_tok_before(offset);
         let left = cursor.to_tok_with_parent();
         let left_range = left.and_then(|left| left.text_range());
         let left_ok = left_range.map(|range| range.contains_inclusive(offset)).unwrap_or(false);
 
-        cursor.reset(*self);
-        cursor.goto_first_token_after_pos(offset);
+        cursor.reset_to_root();
+        cursor.goto_first_tok_after(offset);
         let right = cursor.to_tok_with_parent();
         let right_range = right.and_then(|right| right.text_range());
         let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
@@ -143,12 +144,15 @@ pub mod support {
 }
 
 pub trait SyntaxCursorExt {
-    fn goto_first_token_after_pos(&mut self, offset: TextSize) -> bool;
-    fn goto_last_token_before_pos(&mut self, offset: TextSize) -> bool;
+    fn goto_first_tok_after(&mut self, offset: TextSize) -> bool;
+
+    fn goto_first_tok_after_or_last(&mut self, offset: TextSize) -> bool;
+
+    fn goto_last_tok_before(&mut self, offset: TextSize) -> bool;
 }
 
 impl SyntaxCursorExt for SyntaxCursor<'_> {
-    fn goto_first_token_after_pos(&mut self, offset: TextSize) -> bool {
+    fn goto_first_tok_after(&mut self, offset: TextSize) -> bool {
         let offset: usize = offset.into();
         let Some(end) = self.to_elem().range().map(|range| range.end()) else {
             return false;
@@ -156,6 +160,7 @@ impl SyntaxCursorExt for SyntaxCursor<'_> {
         if end <= offset {
             return false;
         }
+
         while self.to_node().is_some() {
             let success = self.goto_first_child_after_pos(offset);
             debug_assert!(success);
@@ -164,7 +169,21 @@ impl SyntaxCursorExt for SyntaxCursor<'_> {
         true
     }
 
-    fn goto_last_token_before_pos(&mut self, offset: TextSize) -> bool {
+    fn goto_first_tok_after_or_last(&mut self, offset: TextSize) -> bool {
+        if !self.goto_first_tok_after(offset) {
+            if self.to_elem().range().is_some_and(|range| range.end() == offset.into()) {
+                while self.to_node().is_some() {
+                    let success = self.goto_last_child();
+                    debug_assert!(success);
+                }
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn goto_last_tok_before(&mut self, offset: TextSize) -> bool {
         let offset: usize = offset.into();
         let Some(start) = self.to_elem().range().map(|range| range.start()) else {
             return false;

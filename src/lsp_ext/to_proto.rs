@@ -220,7 +220,7 @@ pub(crate) fn rename_error(err: RenameError) -> LspError {
 }
 
 pub(crate) fn format_error(err: Error) -> LspError {
-    LspError::new(lsp_server::ErrorCode::InternalError as i32, err.to_string())
+    LspError::new(lsp_server::ErrorCode::RequestFailed as i32, err.to_string())
 }
 
 pub(crate) fn workspace_edit(

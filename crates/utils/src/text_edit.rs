@@ -150,6 +150,15 @@ impl<'a> IntoIterator for &'a TextEdit {
     }
 }
 
+impl std::iter::FromIterator<TextEditItem> for TextEdit {
+    fn from_iter<I: IntoIterator<Item = TextEditItem>>(iter: I) -> Self {
+        let mut changes = iter.into_iter().collect_vec();
+        assert!(sort_and_check_disjoint(&mut changes));
+        changes = coalsece_changes(changes);
+        TextEdit { changes }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct TextEditBuilder {
     changes: Vec<TextEditItem>,

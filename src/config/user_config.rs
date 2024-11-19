@@ -82,7 +82,13 @@ config_data! {
         scope_visibility: ScopeVisibility = ScopeVisibility::Private,
 
         formatter_path: Option<Utf8PathBuf> = None,
-        formatter_args: Vec<String> = vec!["--indentation_spaces=4"].into_iter().map(String::from).collect(),
+        formatting_on_enter: bool = true,
+        formatting_in_comments: bool = true,
+        formatting_indent_width: usize = 4,
+        formatter_args: Vec<String> = vec![
+            "--indentation_spaces=4",
+            "--failsafe_success=false",
+        ].into_iter().map(String::from).collect(),
     }
 }
 
@@ -103,9 +109,13 @@ impl Config {
     }
 
     pub(crate) fn fmt_config(&self) -> FmtConfig {
+        let mut args = self.user_config.formatter_args.clone();
+        args.push(format!("--indentation_spaces={}", self.user_config.formatting_indent_width));
         FmtConfig {
             executable: self.user_config.formatter_path.clone(),
-            args: self.user_config.formatter_args.clone(),
+            args,
+            on_enter: self.user_config.formatting_on_enter,
+            in_comments: self.user_config.formatting_in_comments,
         }
     }
 }

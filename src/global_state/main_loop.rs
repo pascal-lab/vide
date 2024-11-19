@@ -186,6 +186,7 @@ impl GlobalState {
             .on::<Rename>(handle_rename)
             .on::<Formatting>(handle_formatting)
             .on::<RangeFormatting>(handle_range_formatting)
+            .on::<OnTypeFormatting>(handle_on_type_formatting)
             .finish();
     }
 
