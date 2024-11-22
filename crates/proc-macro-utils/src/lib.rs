@@ -7,110 +7,221 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
     Attribute, Ident, Token, Type, Visibility, braced, bracketed, parse::Parse, parse_macro_input,
-    punctuated::Punctuated,
+    punctuated::Punctuated, token::Bracket,
 };
 
 struct HirContainer {
     attrs: Vec<Attribute>,
     vis: Visibility,
     container_name: Ident,
-    src_map_name: Ident,
-    fields: Punctuated<Either<HirPropField, HirDataField>, Token![,]>,
+    fields: Punctuated<HirField, Token![,]>,
 }
 
 impl Parse for HirContainer {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
         let vis = input.parse()?;
+
         input.parse::<Token![struct]>()?;
         let container_name = input.parse()?;
-        input.parse::<Token![|]>()?;
-        let src_map_name = input.parse()?;
 
         let content;
         braced!(content in input);
-        let fields = content.parse_terminated(
-            |input| {
-                if input.peek2(Token![:]) {
-                    input.parse::<HirPropField>().map(Either::Left)
-                } else {
-                    input.parse::<HirDataField>().map(Either::Right)
-                }
-            },
-            Token![,],
-        )?;
-        Ok(Self { attrs, vis, container_name, src_map_name, fields })
+        let fields = content.parse_terminated(|input| input.parse::<HirField>(), Token![,])?;
+
+        Ok(Self { attrs, vis, container_name, fields })
     }
 }
 
-struct HirPropField {
+struct HirField {
     name: Ident,
-    ty: Type,
+    ty: HirFieldType,
+    access: Option<Punctuated<(Type, Type), Token![,]>>,
 }
 
-impl Parse for HirPropField {
+impl Parse for HirField {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let name = input.parse()?;
         input.parse::<Token![:]>()?;
+
         let ty = input.parse()?;
-        Ok(Self { name, ty })
-    }
-}
-
-struct HirDataField {
-    data_name: Ident,
-    src_name: Ident,
-    data_ty: Type,
-    data_id_ty: Option<Type>,
-    src_ty: Type,
-    access: Option<Punctuated<HirDataFieldAccess, Token![,]>>,
-}
-
-impl Parse for HirDataField {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let data_name = input.parse()?;
-        input.parse::<Token![|]>()?;
-        let src_name = input.parse()?;
-
-        input.parse::<Token![:]>()?;
-
-        let data_ty = input.parse::<Type>()?;
-
-        let buffer;
-        bracketed!(buffer in input);
-        let data_id_ty = if buffer.peek(Token![_]) {
-            buffer.parse::<Token![_]>()?;
-            None
-        } else {
-            Some(buffer.parse()?)
-        };
-        buffer.parse::<Token![|]>()?;
-        let src_ty = buffer.parse()?;
-        if !buffer.is_empty() {
-            return Err(buffer.error("unexpected token"));
-        }
 
         let access = if input.peek(Token![=>]) {
             input.parse::<Token![=>]>()?;
-            let buffer;
-            braced!(buffer in input);
-            let idx_access = buffer.parse_terminated(HirDataFieldAccess::parse, Token![,])?;
-            Some(idx_access)
+
+            let content;
+            braced!(content in input);
+
+            let access = content.parse_terminated(
+                |input| {
+                    let content;
+                    bracketed!(content in input);
+
+                    let id = content.parse::<Type>()?;
+                    content.parse::<Token![|]>()?;
+                    let src = content.parse::<Type>()?;
+                    Ok((id, src))
+                },
+                Token![,],
+            )?;
+            Some(access)
         } else {
             None
         };
 
-        Ok(Self { data_name, src_name, data_ty, data_id_ty, src_ty, access })
+        Ok(Self { name, ty, access })
     }
 }
 
-struct HirDataFieldAccess {
+enum HirFieldType {
+    Type(Type),
+    Arena(Type),
+    SourceMap { hir: Type, src: Type },
+}
+
+impl Parse for HirFieldType {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let ty = if input.peek(Bracket) {
+            let content;
+            bracketed!(content in input);
+            let ty = content.parse()?;
+
+            if content.peek(Token![|]) {
+                content.parse::<Token![|]>()?;
+                let src = content.parse()?;
+                HirFieldType::SourceMap { hir: ty, src }
+            } else {
+                HirFieldType::Arena(ty)
+            }
+        } else {
+            let ty = input.parse()?;
+            HirFieldType::Type(ty)
+        };
+
+        Ok(ty)
+    }
+}
+
+#[proc_macro]
+pub fn define_container(input: TokenStream) -> TokenStream {
+    let HirContainer { attrs, vis, container_name, fields, .. } =
+        &parse_macro_input!(input as HirContainer);
+
+    let is_arena = fields.iter().any(|HirField { ty, .. }| matches!(ty, HirFieldType::Arena(_)));
+
+    // Generate the fields for the data struct
+    let container_fields = fields.iter().map(|HirField { name, ty, .. }| match ty {
+        HirFieldType::Type(ty) => {
+            quote! { #vis #name: #ty }
+        }
+        HirFieldType::Arena(ty) => quote! { #vis #name: Arena<#ty> },
+        HirFieldType::SourceMap { hir, src } => {
+            quote! { #vis #name: SourceMap<#src, #hir> }
+        }
+    });
+
+    let field_names = fields.iter().flat_map(|HirField { name, ty, access }| match (ty, access) {
+        (HirFieldType::Type(_), None) => Either::Left(iter::empty()),
+        _ => Either::Right(iter::once(name.clone())),
+    });
+
+    let impl_get = fields.iter().flat_map(|HirField { name, ty, access }| {
+        match (ty, access) {
+            (HirFieldType::Type(_), _) | (_, Some(_)) => Either::Left(iter::empty()),
+            (HirFieldType::SourceMap { hir, src }, None) => {
+                Either::Right(Either::Left(iter::once(quote! {
+                    impl utils::get::Get<#src> for #container_name {
+                        type Output = la_arena::Idx<#hir>;
+
+                        fn get(&self, src: #src) -> Self::Output {
+                            self.#name.get(src)
+                        }
+                    }
+
+                    impl utils::get::Get<la_arena::Idx<#hir>> for #container_name {
+                        type Output = #src;
+
+                        fn get(&self, idx: la_arena::Idx<#hir>) -> Self::Output {
+                            self.#name.get(idx)
+                        }
+                    }
+                })))
+            }
+            (HirFieldType::Arena(ty), None) => Either::Right(Either::Right(iter::once(quote! {
+                impl utils::get::GetRef<la_arena::Idx<#ty>> for #container_name {
+                    type Output = #ty;
+
+                    fn get(&self, idx: la_arena::Idx<#ty>) -> &Self::Output {
+                        self.#name.get(idx)
+                    }
+                }
+            }))),
+        }
+        .chain(access.iter().flatten().map(move |(id, src)| {
+            if is_arena {
+                quote! {
+                    impl utils::get::GetRef<#id> for #container_name {
+                        type Output = #src;
+
+                        fn get(&self, idx: #id) -> &Self::Output {
+                            self.#name.get(idx)
+                        }
+                    }
+                }
+            } else {
+                quote! {
+                    impl utils::get::Get<#src> for #container_name {
+                        type Output = #id;
+
+                        fn get(&self, src: #src) -> Self::Output {
+                            self.#name.get(src)
+                        }
+                    }
+
+                    impl utils::get::Get<#id> for #container_name {
+                        type Output = #src;
+
+                        fn get(&self, idx: #id) -> Self::Output {
+                            self.#name.get(idx)
+                        }
+                    }
+                }
+            }
+        }))
+    });
+
+    let def = quote! {
+        #(#attrs)*
+        #vis struct #container_name {
+            #(#container_fields,)*
+        }
+
+        impl #container_name {
+            pub fn shrink_to_fit(&mut self) {
+                #(self.#field_names.shrink_to_fit();)*
+            }
+        }
+
+        #(#impl_get)*
+    };
+
+    TokenStream::from(def)
+}
+
+struct HirContainerImpl {
+    attrs: Vec<Attribute>,
+    vis: Visibility,
+    containers: Punctuated<(Type, Type), Token![,]>,
+    access: Punctuated<HirFieldAccess, Token![,]>,
+}
+
+struct HirFieldAccess {
     data_ty: Type,
     data_id_ty: Type,
     src_ty: Type,
 }
 
-impl Parse for HirDataFieldAccess {
+impl Parse for HirFieldAccess {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let data_ty = input.parse()?;
 
@@ -122,157 +233,8 @@ impl Parse for HirDataFieldAccess {
         if !buffer.is_empty() {
             return Err(buffer.error("unexpected token"));
         }
-
         Ok(Self { data_ty, data_id_ty, src_ty })
     }
-}
-
-#[proc_macro]
-pub fn define_container(input: TokenStream) -> TokenStream {
-    let HirContainer { attrs, vis, container_name, src_map_name, fields, .. } =
-        &parse_macro_input!(input as HirContainer);
-
-    // Generate the fields for the data struct
-    let data_fields = fields.iter().map(|field| match field {
-        Either::Left(HirPropField { name, ty }) => {
-            quote! { #vis #name: #ty }
-        }
-        Either::Right(HirDataField { data_name, data_ty, data_id_ty, .. }) => {
-            if data_id_ty.is_some() {
-                quote! { #vis #data_name: Arena<#data_ty> }
-            } else {
-                quote! { #vis #data_name: #data_ty }
-            }
-        }
-    });
-
-    if !fields
-        .iter()
-        .any(|field| field.as_ref().left().map(|field| field.name == "items").unwrap_or(false))
-    {
-        panic!("missing 'items' field");
-    }
-
-    let cont_data_names = fields
-        .iter()
-        .filter_map(|field| field.as_ref().right())
-        .map(|field| field.data_name.clone());
-
-    let impl_arena = fields.iter().filter_map(|field| field.as_ref().right()).flat_map(
-        |HirDataField { data_name, data_ty, access: idx_access, data_id_ty, .. }| {
-            let build = move |data_ty, data_id_ty| {
-                quote! {
-                    impl utils::get::GetRef<#data_id_ty> for #container_name {
-                        type Output = #data_ty;
-
-                        fn get(&self, idx: #data_id_ty) -> &Self::Output {
-                            self.#data_name.get(idx)
-                        }
-                    }
-                }
-            };
-            match idx_access {
-                Some(access) => Either::Left(access.iter().map(
-                    move |HirDataFieldAccess { data_ty, data_id_ty, .. }| {
-                        build(data_ty, data_id_ty)
-                    },
-                )),
-                None => Either::Right(iter::once(build(data_ty, data_id_ty.as_ref().unwrap()))),
-            }
-        },
-    );
-
-    let data_def = quote! {
-        #(#attrs)*
-        #vis struct #container_name {
-            #(#data_fields,)*
-        }
-
-        impl #container_name {
-            pub fn shrink_to_fit(&mut self) {
-                self.items.shrink_to_fit();
-                #(self.#cont_data_names.shrink_to_fit();)*
-            }
-        }
-
-        #(#impl_arena)*
-    };
-
-    let src_fields = fields.iter().filter_map(|field| field.as_ref().right()).map(
-        |HirDataField { src_name, data_id_ty, data_ty, src_ty, .. }| {
-            if data_id_ty.is_some() {
-                quote! { #vis #src_name: SourceMap<#src_ty, #data_ty> }
-            } else {
-                quote! { #vis #src_name: #src_ty }
-            }
-        },
-    );
-
-    let cont_src_names = fields
-        .iter()
-        .filter_map(|field| field.as_ref().right())
-        .map(|field| field.src_name.clone());
-
-    let impl_source_map = fields.iter().filter_map(|field| field.as_ref().right()).flat_map(
-        |HirDataField { src_name, src_ty, access: idx_access, data_id_ty, .. }| {
-            let build = move |src_ty, data_id_ty| {
-                quote! {
-                    impl utils::get::Get<#src_ty> for #src_map_name {
-                        type Output = #data_id_ty;
-
-                        fn get(&self, src: #src_ty) -> Self::Output {
-                            self.#src_name.get(src)
-                        }
-                    }
-
-                    impl utils::get::Get<#data_id_ty> for #src_map_name {
-                        type Output = #src_ty;
-                        fn get(&self, idx: #data_id_ty) -> Self::Output {
-                            self.#src_name.get(idx)
-                        }
-                    }
-                }
-            };
-            match idx_access {
-                Some(access) => access
-                    .iter()
-                    .map(move |HirDataFieldAccess { data_id_ty, src_ty, .. }| {
-                        build(src_ty, data_id_ty)
-                    })
-                    .collect(),
-                None => vec![build(src_ty, data_id_ty.as_ref().unwrap())],
-            }
-        },
-    );
-
-    let src_map_def = quote! {
-        #(#attrs)*
-        #vis struct #src_map_name {
-            #(#src_fields,)*
-        }
-
-        impl #src_map_name {
-            pub fn shrink_to_fit(&mut self) {
-                #(self.#cont_src_names.shrink_to_fit();)*
-            }
-        }
-
-        #(#impl_source_map)*
-    };
-
-    let output = quote! {
-        #data_def
-        #src_map_def
-    };
-
-    TokenStream::from(output)
-}
-
-struct HirContainerImpl {
-    attrs: Vec<Attribute>,
-    vis: Visibility,
-    containers: Punctuated<(Type, Type), Token![,]>,
-    access: Punctuated<HirDataFieldAccess, Token![,]>,
 }
 
 impl Parse for HirContainerImpl {
@@ -294,7 +256,7 @@ impl Parse for HirContainerImpl {
         input.parse::<Token![=>]>()?;
         let buffer;
         braced!(buffer in input);
-        let access = buffer.parse_terminated(HirDataFieldAccess::parse, Token![,])?;
+        let access = buffer.parse_terminated(HirFieldAccess::parse, Token![,])?;
         Ok(Self { attrs, vis, containers, access })
     }
 }
@@ -307,17 +269,17 @@ pub fn impl_container(input: TokenStream) -> TokenStream {
     let container_def = containers.iter().map(|(name, _)| quote! { #name(Arc<#name>), });
     let container_srcmap_def = containers.iter().map(|(_, name)| quote! { #name(Arc<#name>), });
 
-    let impls = access.iter().flat_map(|HirDataFieldAccess { data_ty, data_id_ty, src_ty }| {
+    let impls = access.iter().flat_map(|HirFieldAccess { data_ty, data_id_ty, src_ty }| {
         let data_arms = containers.iter().map(|(name, _)| {
-            quote! { Self::#name(#name) => #name.get(idx), }
+            quote! { Self::#name(it) => it.get(idx), }
         });
 
         let src_arms = containers.iter().map(|(_, name)| {
-            quote! { Self::#name(#name) => #name.get(src), }
+            quote! { Self::#name(it) => it.get(src), }
         });
 
         let src_arms_2 = containers.iter().map(|(_, name)| {
-            quote! { Self::#name(#name) => #name.get(idx), }
+            quote! { Self::#name(it) => it.get(idx), }
         });
 
         quote! {

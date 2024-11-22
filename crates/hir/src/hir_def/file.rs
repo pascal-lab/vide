@@ -7,15 +7,15 @@ use utils::define_enum_deriving_from;
 
 use super::{
     alloc_idx_and_src,
-    block::{BlockInfo, BlockSrc, LocalBlockId},
+    block::{BlockSrc, LocalBlockId, BlockInfo},
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
     },
     expr::{
-        Expr, ExprId, ExprSrc,
-        declarator::{DeclId, Declarator, DeclaratorSrc, impl_lower_decl},
+        Expr, ExprSrc,
+        declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
         impl_lower_expr,
-        timing_control::{EventExpr, EventExprId, EventExprSrc, impl_lower_event_expr},
+        timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
@@ -30,20 +30,37 @@ use crate::{
 
 define_container! {
     #[derive(Default, Debug, PartialEq, Eq, Clone)]
-    pub struct HirFile | FileSourceMap {
+    pub struct HirFile {
         items: SmallVec<[FileItem; 3]>,
 
-        modules | module_srcs: ModuleInfo[LocalModuleId | ModuleSrc],
-        procs | proc_srcs: Proc[ProcId | ProcSrc],
+        modules: [ModuleInfo],
+        procs: [Proc],
 
-        declarations | declaration_srcs: Declaration[DeclarationId | DeclarationSrc],
-        exprs | expr_srcs: Expr[ExprId | ExprSrc],
-        event_exprs | event_expr_srcs: EventExpr[EventExprId | EventExprSrc],
-        decls | decl_srcs: Declarator[DeclId | DeclaratorSrc],
-        stmts | stmt_srcs: Stmt[StmtId | StmtSrc] => {
-            Stmt[StmtId | StmtSrc],
-            BlockInfo[LocalBlockId | BlockSrc],
+        declarations: [Declaration],
+        exprs: [Expr],
+        event_exprs: [EventExpr],
+        decls: [Declarator],
+        stmts: [Stmt] => {
+            [StmtId | Stmt],
+            [LocalBlockId | BlockInfo],
         },
+    }
+}
+
+define_container! {
+    #[derive(Default, Debug, PartialEq, Eq, Clone)]
+    pub struct FileSourceMap {
+        module_srcs: [ModuleInfo | ModuleSrc],
+        proc_srcs: [Proc | ProcSrc],
+
+        declaration_srcs: [Declaration | DeclarationSrc],
+        expr_srcs: [Expr | ExprSrc],
+        event_expr_srcs: [EventExpr | EventExprSrc],
+        decl_srcs: [Declarator | DeclaratorSrc],
+        stmt_srcs: [Stmt | StmtSrc] => {
+            [StmtId | StmtSrc],
+            [LocalBlockId | BlockSrc],
+        }
     }
 }
 

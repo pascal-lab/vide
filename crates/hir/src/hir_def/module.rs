@@ -1,12 +1,11 @@
 use continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc};
 use instantiation::{
-    Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
-    ParamAssign, ParamAssignId, ParamAssignSrc, PortConn, PortConnId, PortConnSrc,
+    Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc, ParamAssign,
+    ParamAssignSrc, PortConn, PortConnSrc,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use port::{
-    NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef,
-    PortRefId, PortRefSrc, PortSrcs, Ports,
+    NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef, PortRefId, PortRefSrc, PortSrcs, Ports
 };
 use proc_macro_utils::define_container;
 use syntax::ast::{self, AstNode, PortList};
@@ -18,15 +17,15 @@ use utils::{
 
 use super::{
     HirData, Ident,
-    block::{BlockInfo, BlockSrc, LocalBlockId},
+    block::{BlockSrc, LocalBlockId, BlockInfo},
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
     },
     expr::{
-        Expr, ExprId, ExprSrc,
-        declarator::{DeclId, Declarator, DeclaratorSrc, impl_lower_decl},
+        Expr, ExprSrc,
+        declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
         impl_lower_expr,
-        timing_control::{EventExpr, EventExprId, EventExprSrc, impl_lower_event_expr},
+        timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
@@ -46,34 +45,63 @@ pub mod port;
 
 define_container! {
     #[derive(Default, Debug, PartialEq, Eq, Clone)]
-    pub struct Module | ModuleSourceMap {
+    pub struct Module {
         name: Option<Ident>,
         items: Vec<ModuleItem>,
 
         param_ports: Option<IdxRange<Declaration>>,
-        ports | port_srcs: Ports[_ | PortSrcs] => {
-            NonAnsiPort[NonAnsiPortId | NonAnsiPortSrc],
-            PortRef[PortRefId | PortRefSrc],
-            PortDecl[PortDeclId | PortDeclSrc],
+        ports: Ports => {
+            [NonAnsiPortId | NonAnsiPort],
+            [PortRefId | PortRef],
+            [PortDeclId | PortDecl],
         },
 
-        cont_assigns | assign_srcs: ContAssign[ContAssignId | ContAssignSrc],
-        declarations | declaration_srcs: Declaration[DeclarationId | DeclarationSrc],
+        cont_assigns: [ContAssign],
+        declarations: [Declaration],
 
-        instantiations | instantiation_srcs: Instantiation[InstantiationId | InstantiationSrc],
-        inst_param_assigns | inst_param_assign_srcs: ParamAssign[ParamAssignId | ParamAssignSrc],
-        instances | instance_srcs: Instance[InstanceId | InstanceSrc],
-        inst_port_conns | inst_port_conn_srcs: PortConn[PortConnId | PortConnSrc],
+        instantiations: [Instantiation],
+        inst_param_assigns: [ParamAssign],
+        instances: [Instance],
+        inst_port_conns: [PortConn],
 
-        procs | proc_srcs: Proc[ProcId | ProcSrc],
+        procs: [Proc],
 
-        exprs | expr_srcs: Expr[ExprId | ExprSrc],
-        event_exprs | event_expr_srcs: EventExpr[EventExprId | EventExprSrc],
-        decls | decl_srcs: Declarator[DeclId | DeclaratorSrc],
-        stmts | stmt_srcs: Stmt[StmtId | StmtSrc] => {
-            Stmt[StmtId | StmtSrc],
-            BlockInfo[LocalBlockId | BlockSrc],
-        }
+        exprs: [Expr],
+        event_exprs: [EventExpr],
+        decls: [Declarator],
+        stmts: [Stmt] => {
+            [StmtId | Stmt],
+            [LocalBlockId | BlockInfo],
+        },
+    }
+}
+
+define_container! {
+    #[derive(Default, Debug, PartialEq, Eq, Clone)]
+    pub struct ModuleSourceMap {
+        port_srcs: PortSrcs => {
+            [NonAnsiPortId | NonAnsiPortSrc],
+            [PortRefId | PortRefSrc],
+            [PortDeclId | PortDeclSrc],
+        },
+
+        assign_srcs: [ContAssign | ContAssignSrc],
+        declaration_srcs: [Declaration | DeclarationSrc],
+
+        instantiation_srcs: [Instantiation | InstantiationSrc],
+        inst_param_assign_srcs: [ParamAssign | ParamAssignSrc],
+        instance_srcs: [Instance | InstanceSrc],
+        inst_port_conn_srcs: [PortConn | PortConnSrc],
+
+        proc_srcs: [Proc | ProcSrc],
+
+        expr_srcs: [Expr | ExprSrc],
+        event_expr_srcs: [EventExpr | EventExprSrc],
+        decl_srcs: [Declarator | DeclaratorSrc],
+        stmt_srcs: [Stmt | StmtSrc] => {
+            [StmtId | StmtSrc],
+            [LocalBlockId | BlockSrc],
+        },
     }
 }
 
