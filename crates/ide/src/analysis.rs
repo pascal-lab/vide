@@ -88,7 +88,7 @@ impl Analysis {
     pub fn format(
         &self,
         file_id: FileId,
-        line_range: Option<(usize, usize)>,
+        line_range: Option<Range<usize>>,
         line_info: &LineInfo,
         config: FmtConfig,
     ) -> Cancellable<anyhow::Result<Option<TextEdit>>> {

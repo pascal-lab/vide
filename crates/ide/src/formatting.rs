@@ -9,7 +9,7 @@ use std::{
 use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
 use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
+use ide_db::{line_index_db::LineIndexExt, root_db::RootDb};
 use itertools::Itertools;
 use line_index::{TextRange, TextSize};
 use span::FilePosition;
@@ -35,7 +35,7 @@ pub struct FmtConfig {
 pub(crate) fn format(
     db: &RootDb,
     file_id: FileId,
-    line_range: Option<(usize, usize)>,
+    line_range: Option<Range<usize>>,
     LineInfo { ending, .. }: &LineInfo,
     config: FmtConfig,
 ) -> anyhow::Result<Option<TextEdit>> {
@@ -45,7 +45,7 @@ pub(crate) fn format(
 
 fn format_inner(
     text: &str,
-    line_range: Option<(usize, usize)>,
+    line_range: Option<Range<usize>>,
     ending: &LineEnding,
     config: FmtConfig,
 ) -> Result<Option<TextEdit>, anyhow::Error> {
@@ -56,8 +56,8 @@ fn format_inner(
     let mut cmd = Command::new(verible_fmt_path);
 
     cmd.args(&config.args);
-    if let Some((start_line, end_line)) = line_range {
-        cmd.arg("--lines").arg(format!("{}-{}", start_line + 1, end_line + 1));
+    if let Some(lines) = line_range {
+        cmd.arg("--lines").arg(format!("{}-{}", lines.start + 1, lines.end));
     }
 
     let mut fmt =
@@ -292,11 +292,7 @@ fn format_previous<'a>(
         }
     };
 
-    let line_range = {
-        let line_start = index.line_col(list_range.start()).line as usize;
-        let line_end = index.line_col(list_range.end()).line as usize;
-        Some((line_start, line_end))
-    };
+    let line_range = Some(index.line_ranges(list_range));
 
     let mut text = db.file_text(file_id).to_string();
     text.insert_str(offset.into(), PLACEHOLDER);

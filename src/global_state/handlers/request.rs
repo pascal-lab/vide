@@ -158,7 +158,8 @@ pub(crate) fn handle_range_formatting(
 ) -> anyhow::Result<Option<Vec<lsp_types::TextEdit>>> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
     let line_info = snap.line_info(file_id)?;
-    let line_ranges = Some((params.range.start.line as usize, params.range.end.line as usize));
+    let line_ranges =
+        Some((params.range.start.line as usize)..((params.range.end.line as usize) + 1));
 
     let config = snap.config.fmt_config();
     let edit = snap
