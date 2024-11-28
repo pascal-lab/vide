@@ -138,6 +138,7 @@ fn collect_module(
             .as_ref()
             .and_then(|port_list| {
                 let line = line_index.line_col(port_list.range.end()).line + 1;
+                // TODO: line maybe out of range
                 line_index.line(line)
             })
             .unwrap_or(module_src.range());

@@ -62,7 +62,11 @@ impl DocTreeBuilder {
     }
 
     fn finish_region(&mut self, end: usize) {
-        let node = &mut self.tree.nodes[*self.stack.last().unwrap()];
+        let Some(last) = self.stack.last() else {
+            // TODO: diagnostics for empty stack
+            return;
+        };
+        let node = &mut self.tree.nodes[*last];
         let start = node.range.start();
         let end = TextSize::new(end as u32);
         node.range = TextRange::new(start, end);

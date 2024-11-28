@@ -24,7 +24,7 @@ impl LineIndexExt for LineIndex {
     fn line_ranges(&self, range: TextRange) -> Range<usize> {
         // TODO: calculate only lines
         let start = self.line_col(range.start());
-        let end = self.line_col(range.end());
+        let end = self.line_col(range.end().checked_sub(1.into()).unwrap());
         (start.line as usize)..(end.line as usize + 1)
     }
 }
