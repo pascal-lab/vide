@@ -92,7 +92,7 @@ impl Config {
         options: serde_json::Value,
     ) -> (UserConfig, Vec<Snippet>, ConfigError) {
         tracing::info!("Config updating from JSON: {:#}", options);
-        if options.is_null() || options.as_object().map_or(false, |obj| obj.is_empty()) {
+        if options.is_null() || options.as_object().is_some_and(|obj| obj.is_empty()) {
             return Default::default();
         }
 

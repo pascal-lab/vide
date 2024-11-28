@@ -255,7 +255,7 @@ mod imp {
         /// Contract:
         ///
         /// * **You absolutely need this work to complete immediately or your
-        /// app will appear to freeze.**
+        ///   app will appear to freeze.**
         /// * **Your work will always complete virtually instantaneously.**
         ///
         /// Use this QoS class for any work which, if delayed,
