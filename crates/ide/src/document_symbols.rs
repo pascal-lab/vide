@@ -107,7 +107,9 @@ impl SymbolCollecter {
     pub fn pop(&mut self) {
         let mut sym = self.stack.pop().unwrap();
 
-        if (sym.kind == SymbolKind::Block || sym.kind == SymbolKind::Stmt)
+        if (sym.kind == SymbolKind::Block
+            || sym.kind == SymbolKind::Stmt
+            || sym.kind == SymbolKind::Region)
             && sym.name == DEFAULT_NAME
             && sym.children.is_empty()
         {

@@ -170,15 +170,29 @@ pub enum PortSrcs {
         ports: SourceMap<NonAnsiPortSrc, NonAnsiPort>,
         refs: SourceMap<PortRefSrc, PortRef>,
         decls: SourceMap<PortDeclSrc, PortDecl>,
+        port_list_src: Option<PortListSrc>,
     },
-    Ansi(SourceMap<PortDeclSrc, PortDecl>),
+    Ansi {
+        decls: SourceMap<PortDeclSrc, PortDecl>,
+        port_list_src: Option<PortListSrc>,
+    },
 }
 
-define_src!(PortListSrc(ast::PortList));
+impl PortSrcs {
+    pub fn port_list_src(&self) -> Option<&PortListSrc> {
+        match self {
+            PortSrcs::NonAnsi { port_list_src, .. } | PortSrcs::Ansi { port_list_src, .. } => {
+                port_list_src.as_ref()
+            }
+        }
+    }
+}
+
+define_src!(PortListSrc(ast::NonAnsiPortList, ast::AnsiPortList));
 
 impl Default for PortSrcs {
     fn default() -> Self {
-        PortSrcs::Ansi(SourceMap::default())
+        PortSrcs::Ansi { decls: SourceMap::default(), port_list_src: None }
     }
 }
 
@@ -188,7 +202,7 @@ impl Get<NonAnsiPortId> for PortSrcs {
     fn get(&self, port_id: NonAnsiPortId) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { ports, .. } => ports.get(port_id),
-            PortSrcs::Ansi(_) => unreachable!(),
+            PortSrcs::Ansi { .. } => unreachable!(),
         }
     }
 }
@@ -199,7 +213,7 @@ impl Get<NonAnsiPortSrc> for PortSrcs {
     fn get(&self, src: NonAnsiPortSrc) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { ports, .. } => ports.get(src),
-            PortSrcs::Ansi(_) => unreachable!(),
+            PortSrcs::Ansi { .. } => unreachable!(),
         }
     }
 }
@@ -210,7 +224,7 @@ impl Get<PortRefId> for PortSrcs {
     fn get(&self, port_ref_id: PortRefId) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { refs, .. } => refs.get(port_ref_id),
-            PortSrcs::Ansi(_) => unreachable!(),
+            PortSrcs::Ansi { .. } => unreachable!(),
         }
     }
 }
@@ -221,7 +235,7 @@ impl Get<PortRefSrc> for PortSrcs {
     fn get(&self, src: PortRefSrc) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { refs, .. } => refs.get(src),
-            PortSrcs::Ansi(_) => unreachable!(),
+            PortSrcs::Ansi { .. } => unreachable!(),
         }
     }
 }
@@ -232,7 +246,7 @@ impl Get<PortDeclId> for PortSrcs {
     fn get(&self, port_id: PortDeclId) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { decls, .. } => decls.get(port_id),
-            PortSrcs::Ansi(decls) => decls.get(port_id),
+            PortSrcs::Ansi { decls, .. } => decls.get(port_id),
         }
     }
 }
@@ -243,7 +257,7 @@ impl Get<PortDeclSrc> for PortSrcs {
     fn get(&self, src: PortDeclSrc) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { decls, .. } => decls.get(src),
-            PortSrcs::Ansi(decls) => decls.get(src),
+            PortSrcs::Ansi { decls, .. } => decls.get(src),
         }
     }
 }
@@ -251,12 +265,12 @@ impl Get<PortDeclSrc> for PortSrcs {
 impl PortSrcs {
     pub fn shrink_to_fit(&mut self) {
         match self {
-            PortSrcs::NonAnsi { ports, refs, decls } => {
+            PortSrcs::NonAnsi { ports, refs, decls, .. } => {
                 ports.shrink_to_fit();
                 refs.shrink_to_fit();
                 decls.shrink_to_fit();
             }
-            PortSrcs::Ansi(ports) => ports.shrink_to_fit(),
+            PortSrcs::Ansi { decls, .. } => decls.shrink_to_fit(),
         }
     }
 }
@@ -264,7 +278,7 @@ impl PortSrcs {
 impl LowerModuleCtx<'_> {
     pub(crate) fn lower_ansi_ports(&mut self, port_list: ast::AnsiPortList) {
         let mut ports = Arena::default();
-        let mut srcs = SourceMap::default();
+        let mut decls = SourceMap::default();
 
         let mut header = None;
         for port in port_list.ports().children() {
@@ -279,7 +293,7 @@ impl LowerModuleCtx<'_> {
 
                     alloc_idx_and_src! {
                         PortDecl { header: header.unwrap(), decls: IdxRange::new(decl_id..end) } => ports,
-                        port => srcs,
+                        port => decls,
                     };
                 }
                 ExplicitAnsiPort(_port) => unimplemented!(),
@@ -291,7 +305,8 @@ impl LowerModuleCtx<'_> {
         self.doc_tree.stage(port_list.close_paren());
 
         self.module.ports = Ports::Ansi(ports);
-        self.module_source_map.port_srcs = PortSrcs::Ansi(srcs);
+        self.module_source_map.port_srcs =
+            PortSrcs::Ansi { decls, port_list_src: Some(PortListSrc::from(port_list)) };
     }
 
     pub(crate) fn lower_nonansi_port(&mut self, port_list: ast::NonAnsiPortList) {
@@ -354,8 +369,12 @@ impl LowerModuleCtx<'_> {
         self.doc_tree.stage(port_list.close_paren());
 
         self.module.ports = Ports::NonAnsi { ports, refs, decls: Arena::default() };
-        self.module_source_map.port_srcs =
-            PortSrcs::NonAnsi { ports: port_srcs, refs: ref_srcs, decls: SourceMap::default() };
+        self.module_source_map.port_srcs = PortSrcs::NonAnsi {
+            ports: port_srcs,
+            refs: ref_srcs,
+            decls: SourceMap::default(),
+            port_list_src: Some(PortListSrc::from(port_list)),
+        };
     }
 
     pub(crate) fn lower_port_decl(&mut self, decl: ast::PortDeclaration) -> PortDeclId {

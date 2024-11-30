@@ -255,7 +255,7 @@ fn collect_module(
 
     folds.collect_docs(&src_map.doc_tree, line_index);
 
-    if let Some(port_list_src) = src_map.port_list_src {
+    if let Some(port_list_src) = src_map.port_srcs.port_list_src() {
         let port_list_fold = Fold::try_build(port_list_src.range(), FoldKind::PortList, line_index);
         let module_body_start = port_list_fold
             .as_ref()

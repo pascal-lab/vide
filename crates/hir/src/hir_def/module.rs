@@ -5,8 +5,8 @@ use instantiation::{
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use port::{
-    NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortListSrc,
-    PortRef, PortRefId, PortRefSrc, PortSrcs, Ports,
+    NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef,
+    PortRefId, PortRefSrc, PortSrcs, Ports,
 };
 use proc_macro_utils::define_container;
 use syntax::{
@@ -86,7 +86,6 @@ define_container! {
         items: Vec<ModuleItem>,
         doc_tree: RegionTree,
 
-        port_list_src: Option<PortListSrc>,
         port_srcs: PortSrcs => {
             [NonAnsiPortId | NonAnsiPortSrc],
             [PortRefId | PortRefSrc],
@@ -206,7 +205,6 @@ impl LowerModuleCtx<'_> {
             self.doc_tree.stage(param_ports.close_paren());
         }
 
-        self.module_source_map.port_list_src = header.ports().map(|list| list.into());
         match header.ports() {
             Some(PortList::AnsiPortList(port_list)) => self.lower_ansi_ports(port_list),
             Some(PortList::NonAnsiPortList(port_list)) => self.lower_nonansi_port(port_list),
