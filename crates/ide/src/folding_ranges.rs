@@ -155,12 +155,12 @@ fn collect_line_comments(
     folds: &mut Vec<Fold>,
 ) -> FxHashSet<usize> {
     let finder = Finder::new("//");
-    let mut it = finder.find_iter(text.as_bytes());
+    let it = finder.find_iter(text.as_bytes());
     let mut last_pos = 0;
 
     let mut visited_ranges = FxHashSet::default();
 
-    while let Some(start) = it.next() {
+    for start in it {
         if start < last_pos {
             continue;
         }
@@ -209,7 +209,7 @@ fn collect_line_comments(
     visited_ranges
 }
 
-fn collect_block_comments<'a>(
+fn collect_block_comments(
     text: &str,
     cursor: &mut SyntaxCursor<'_>,
     line_index: &LineIndex,
@@ -217,10 +217,10 @@ fn collect_block_comments<'a>(
     folds: &mut Vec<Fold>,
 ) {
     let finder = Finder::new("/*");
-    let mut it = finder.find_iter(text.as_bytes());
+    let it = finder.find_iter(text.as_bytes());
     let mut last_pos = 0;
 
-    while let Some(start) = it.next() {
+    for start in it {
         if start < last_pos || visited_ranges.contains(&start) {
             continue;
         }

@@ -130,7 +130,7 @@ impl SymbolCollecter {
 }
 
 trait AddRegionSymbol {
-    fn add_region_symbol<'a>(&mut self, node_range: TextRange, collector: &mut SymbolCollecter);
+    fn add_region_symbol(&mut self, node_range: TextRange, collector: &mut SymbolCollecter);
     fn finish_all(&mut self, collector: &mut SymbolCollecter);
 }
 
@@ -153,7 +153,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 
     #[inline]
     fn finish_all(&mut self, collector: &mut SymbolCollecter) {
-        while let Some(event) = self.next() {
+        for event in self {
             match event {
                 WalkEvent::Enter(region) => collector.push_region(region),
                 WalkEvent::Leave(_) => collector.pop(),
@@ -239,7 +239,7 @@ fn collect_module_items(
     }
 
     for item in src_map.items.iter() {
-        regions.add_region_symbol(src_map.item_to_ptr(&item).range(), collector);
+        regions.add_region_symbol(src_map.item_to_ptr(item).range(), collector);
         match *item {
             ModuleItem::DeclarationId(declaration_id) => {
                 build_declaration(collector, declaration_id, module, src_map)
@@ -285,7 +285,7 @@ fn collect_block_items(
     );
 
     for item in src_map.items.iter() {
-        regions.add_region_symbol(src_map.item_to_ptr(&item).range(), collector);
+        regions.add_region_symbol(src_map.item_to_ptr(item).range(), collector);
         match *item {
             BlockItem::DeclarationId(declaration_id) => {
                 build_declaration(collector, declaration_id, block, src_map)
