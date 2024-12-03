@@ -28,7 +28,15 @@ impl Markup {
         Self::default()
     }
 
-    pub fn push(&mut self, contents: &str) {
+    pub fn merge(&mut self, other: Markup) {
+        self.text.push_str(&other.text);
+    }
+
+    pub fn print(&mut self, contents: &str) {
+        self.text.push_str(contents);
+    }
+
+    pub fn println(&mut self, contents: &str) {
         self.text.push_str(contents);
     }
 
@@ -36,18 +44,39 @@ impl Markup {
         self.text.as_str()
     }
 
-    pub fn line_break(&mut self) {
-        if !self.text.is_empty() {
-            self.text.push_str("\n------------------\n");
-        }
+    pub fn newline(&mut self) {
+        self.text.push('\n');
+    }
+
+    pub fn horizontal_line(&mut self) {
+        self.text.push_str("\n---------\n");
+    }
+
+    pub fn new_section(&mut self, title: &str) {
+        self.text.push_str("\n## ");
+        self.text.push_str(title);
+        self.text.push('\n');
+    }
+
+    pub fn new_subsection(&mut self, title: &str) {
+        self.text.push_str("\n### ");
+        self.text.push_str(title);
+        self.text.push('\n');
     }
 
     pub fn push_with_plain_fence(&mut self, contents: &str) {
-        if !self.text.is_empty() {
-            self.line_break();
-        }
         self.text.push_str("```\n");
         self.text.push_str(contents);
         self.text.push_str("\n```\n");
+    }
+
+    pub fn push_with_code_fence(&mut self, contents: &str) {
+        self.text.push_str("```systemverilog\n"); // hmmm, the highlighting for systemverilog is poor...
+        self.text.push_str(contents);
+        self.text.push_str("\n```\n");
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
     }
 }

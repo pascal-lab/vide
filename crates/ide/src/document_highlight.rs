@@ -38,7 +38,7 @@ pub(crate) fn document_highlight(
     handle_ctrl_flow_kw(&sema, token).or_else(|| {
         let def = match DefinitionClass::resolve(&sema, token)? {
             DefinitionClass::Definition(def) => def,
-            DefinitionClass::PortConnShorthand { data, .. } => data,
+            DefinitionClass::PortConnShorthand { local, .. } => local,
         };
         highlight_refs(&sema, file_id, def, config)
     })

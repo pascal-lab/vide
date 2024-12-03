@@ -24,6 +24,7 @@ pub struct RegionNode {
     pub range: TextRange,
     pub kind: RegionKind,
     pub children: Vec<Idx<RegionNode>>,
+    pub parent: Option<Idx<RegionNode>>,
 }
 
 impl RegionTree {
@@ -33,7 +34,7 @@ impl RegionTree {
         kind: RegionKind,
         parent: Option<Idx<RegionNode>>,
     ) -> Idx<RegionNode> {
-        let idx = self.nodes.alloc(RegionNode { range, kind, children: Vec::new() });
+        let idx = self.nodes.alloc(RegionNode { range, kind, children: Vec::new(), parent });
         if let Some(parent) = parent {
             self.nodes[parent].children.push(idx);
         } else {
@@ -44,6 +45,42 @@ impl RegionTree {
 
     pub fn walk(&self) -> RegionTreeIterator<'_> {
         RegionTreeIterator::new(self)
+    }
+
+    pub fn find(&self, offset: TextSize) -> Option<Idx<RegionNode>> {
+        let mut idx = Self::find_in_node(&self.nodes, &self.roots, offset)?;
+
+        loop {
+            let node = &self.nodes[idx];
+            if node.children.is_empty() {
+                return Some(idx);
+            }
+            if let Some(new_idx) = Self::find_in_node(&self.nodes, &node.children, offset) {
+                idx = new_idx;
+            } else {
+                return Some(idx);
+            }
+        }
+    }
+
+    fn find_in_node(
+        nodes: &Arena<RegionNode>,
+        children: &[Idx<RegionNode>],
+        offset: TextSize,
+    ) -> Option<Idx<RegionNode>> {
+        let idx = children
+            .binary_search_by(|&idx| {
+                let node = &nodes[idx];
+                if node.range.contains(offset) {
+                    std::cmp::Ordering::Equal
+                } else if node.range.start() > offset {
+                    std::cmp::Ordering::Greater
+                } else {
+                    std::cmp::Ordering::Less
+                }
+            })
+            .ok()?;
+        Some(children[idx])
     }
 }
 
@@ -165,5 +202,27 @@ impl<'a> Iterator for RegionTreeIterator<'a> {
             self.stack.pop();
             Some(WalkEvent::Leave(&self.tree.nodes[node_idx]))
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct RegionParent<'a> {
+    tree: &'a RegionTree,
+    node: Option<Idx<RegionNode>>,
+}
+
+impl<'a> RegionParent<'a> {
+    pub fn start_from(tree: &'a RegionTree, node: Idx<RegionNode>) -> Self {
+        Self { tree, node: Some(node) }
+    }
+}
+
+impl<'a> Iterator for RegionParent<'a> {
+    type Item = &'a RegionNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = &self.tree.nodes[self.node?];
+        self.node = node.parent;
+        Some(node)
     }
 }

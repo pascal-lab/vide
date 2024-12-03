@@ -69,7 +69,7 @@ pub(crate) fn references(
     handle_ctrl_flow_kw(&sema, token).or_else(|| {
         let def = match DefinitionClass::resolve(&sema, token)? {
             DefinitionClass::Definition(def) => def,
-            DefinitionClass::PortConnShorthand { data, .. } => data,
+            DefinitionClass::PortConnShorthand { local, .. } => local,
         };
         Some(vec![search_refs(&sema, def, config)])
     })

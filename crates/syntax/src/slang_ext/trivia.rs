@@ -36,6 +36,7 @@ impl TriviaKindExt for TriviaKind {
 pub trait TriviaExt {
     fn is_region_begin(&self) -> Option<Option<SmolStr>>;
     fn is_region_end(&self) -> bool;
+    fn as_comment(&self) -> Option<&str>;
 }
 
 const REGION_BEGIN: &str = "region";
@@ -76,5 +77,19 @@ impl TriviaExt for SyntaxTrivia<'_> {
 
         let text = unsafe { str::from_utf8_unchecked(bytes) };
         text.strip_prefix("//").unwrap().trim_start().starts_with(REGION_END)
+    }
+
+    #[inline]
+    fn as_comment(&self) -> Option<&str> {
+        let s = self.get_raw_text().as_bytes();
+        debug_assert!(str::from_utf8(s).is_ok());
+
+        let s = unsafe { str::from_utf8_unchecked(s) };
+
+        match self.kind() {
+            Trivia![lc] => Some(s.strip_prefix("//").unwrap().trim()),
+            Trivia![bc] => Some(s.strip_prefix("/*").unwrap().strip_suffix("*/").unwrap().trim()),
+            _ => None,
+        }
     }
 }

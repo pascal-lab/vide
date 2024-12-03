@@ -15,6 +15,8 @@ use syntax::{SyntaxToken, ast};
 
 pub type Ident = SmolStr;
 
+pub const DEFAULT_NAME: SmolStr = SmolStr::new_static("unnamed");
+
 #[inline]
 pub fn lower_ident(ident: Option<SyntaxToken>) -> Option<Ident> {
     Some(ident?.value_text().to_smolstr())

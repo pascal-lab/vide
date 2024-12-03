@@ -64,7 +64,7 @@ pub(crate) fn rename(
     let token = pick_token(file.syntax(), offset)?;
     let def = match DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)? {
         DefinitionClass::Definition(def) => def,
-        DefinitionClass::PortConnShorthand { data, .. } => data,
+        DefinitionClass::PortConnShorthand { local, .. } => local,
     };
 
     let old_name = lower_ident(Some(token.tok)).unwrap();

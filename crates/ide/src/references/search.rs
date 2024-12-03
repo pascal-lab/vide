@@ -240,8 +240,8 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 
         match def {
             DefinitionClass::Definition(def) => def == *self.def,
-            DefinitionClass::PortConnShorthand { data, port } => {
-                data == *self.def || port == *self.def
+            DefinitionClass::PortConnShorthand { local, port } => {
+                local == *self.def || port == *self.def
             }
         }
     }

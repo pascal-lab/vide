@@ -4,6 +4,7 @@ use hir::{
     db::HirDb,
     file::HirFileId,
     hir_def::{
+        DEFAULT_NAME,
         block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
@@ -25,8 +26,6 @@ use utils::{
 use vfs::FileId;
 
 use crate::SymbolKind;
-
-const DEFAULT_NAME: SmolStr = SmolStr::new_static("unnamed");
 
 #[derive(Debug, Clone)]
 pub struct DocumentSymbol {

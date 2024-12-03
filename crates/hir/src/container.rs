@@ -20,6 +20,7 @@ use crate::{
         module::{Module, ModuleId, ModuleSourceMap},
         stmt::{Stmt, StmtId, StmtSrc},
     },
+    region_tree::RegionTree,
 };
 
 define_enum_deriving_from! {
@@ -193,6 +194,17 @@ impl Container {
 impl AsRef<Container> for Container {
     fn as_ref(&self) -> &Container {
         self
+    }
+}
+
+impl ContainerSrcMap {
+    #[inline]
+    pub fn doc_tree(&self) -> Option<&RegionTree> {
+        match self {
+            ContainerSrcMap::FileSourceMap(_) => None,
+            ContainerSrcMap::ModuleSourceMap(module) => Some(&module.doc_tree),
+            ContainerSrcMap::BlockSourceMap(block) => Some(&block.doc_tree),
+        }
     }
 }
 

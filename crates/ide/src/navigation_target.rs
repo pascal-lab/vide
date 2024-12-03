@@ -20,7 +20,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{SymbolKind, definitions::DefinitionOrigins};
+use crate::{SymbolKind, definitions::DefinitionOrigin};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NavTarget {
@@ -45,15 +45,15 @@ pub(crate) trait ToNav {
     fn to_nav(&self, db: &RootDb) -> NavTarget;
 }
 
-impl ToNav for DefinitionOrigins {
+impl ToNav for DefinitionOrigin {
     fn to_nav(&self, db: &RootDb) -> NavTarget {
         match self {
-            DefinitionOrigins::ModuleId(module_id) => module_id.to_nav(db),
-            DefinitionOrigins::BlockId(block_id) => block_id.to_nav(db),
-            DefinitionOrigins::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
-            DefinitionOrigins::Decl(decl_id) => decl_id.to_nav(db),
-            DefinitionOrigins::Instance(instance_id) => instance_id.to_nav(db),
-            DefinitionOrigins::Stmt(stmt_id) => stmt_id.to_nav(db),
+            DefinitionOrigin::ModuleId(module_id) => module_id.to_nav(db),
+            DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
+            DefinitionOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
+            DefinitionOrigin::Decl(decl_id) => decl_id.to_nav(db),
+            DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
+            DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
         }
     }
 }

@@ -22,7 +22,7 @@ use utils::{
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum DefinitionOrigins {
+pub enum DefinitionOrigin {
     ModuleId(ModuleId),
     BlockId(BlockId),
 
@@ -32,7 +32,7 @@ pub enum DefinitionOrigins {
     Stmt(InContainer<StmtId>),
 }
 
-impl_from! { DefinitionOrigins =>
+impl_from! { DefinitionOrigin =>
     ModuleId,
     BlockId,
     NonAnsiPort(InModule<NonAnsiPortId>),
@@ -41,39 +41,39 @@ impl_from! { DefinitionOrigins =>
     Stmt(InContainer<StmtId>),
 }
 
-impl DefinitionOrigins {
+impl DefinitionOrigin {
     #[inline]
     pub fn container_id(&self, db: &dyn HirDb) -> ContainerId {
         match *self {
-            DefinitionOrigins::ModuleId(InFile { file_id, .. }) => file_id.into(),
-            DefinitionOrigins::BlockId(block_id) => block_id.lookup(db).cont_id,
-            DefinitionOrigins::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
-            DefinitionOrigins::Decl(InContainer { cont_id, .. }) => cont_id,
-            DefinitionOrigins::Instance(InModule { module_id, .. }) => module_id.into(),
-            DefinitionOrigins::Stmt(InContainer { cont_id, .. }) => cont_id,
+            DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
+            DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
+            DefinitionOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
+            DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
+            DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
+            DefinitionOrigin::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
     }
 
     pub fn name(&self, db: &dyn HirDb) -> SmolStr {
         match *self {
-            DefinitionOrigins::ModuleId(InFile { value, file_id }) => {
+            DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone().unwrap()
             }
-            DefinitionOrigins::BlockId(block_id) => {
+            DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
                 let cont = cont_id.to_container(db);
                 value.hir(&cont, &cont_id.to_container_src_map(db)).name.clone().unwrap()
             }
-            DefinitionOrigins::NonAnsiPort(InModule { value, module_id }) => {
+            DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).label.clone().unwrap()
             }
-            DefinitionOrigins::Decl(InContainer { value, cont_id }) => {
+            DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).name.clone().unwrap()
             }
-            DefinitionOrigins::Instance(InModule { value, module_id }) => {
+            DefinitionOrigin::Instance(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).name.clone().unwrap()
             }
-            DefinitionOrigins::Stmt(InContainer { value, cont_id }) => {
+            DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).label.clone().unwrap()
             }
         }
@@ -81,29 +81,59 @@ impl DefinitionOrigins {
 
     pub fn name_range(&self, db: &dyn HirDb) -> InFile<TextRange> {
         match *self {
-            DefinitionOrigins::ModuleId(InFile { value, file_id }) => {
+            DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(file_id, range)
             }
-            DefinitionOrigins::BlockId(block_id) => {
+            DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.name_range().unwrap();
                 InFile::new(file_id, range)
             }
-            DefinitionOrigins::NonAnsiPort(InModule { value, module_id }) => {
+            DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(module_id.file_id, range)
             }
-            DefinitionOrigins::Decl(InContainer { value, cont_id }) => {
+            DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
-            DefinitionOrigins::Instance(InModule { value, module_id }) => {
+            DefinitionOrigin::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(module_id.file_id, range)
             }
-            DefinitionOrigins::Stmt(InContainer { value, cont_id }) => {
+            DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value).name_range().unwrap();
+                InFile::new(cont_id.file_id(db).into(), range)
+            }
+        }
+    }
+
+    pub fn range(&self, db: &dyn HirDb) -> InFile<TextRange> {
+        match *self {
+            DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).range();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::BlockId(block_id) => {
+                let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
+                let range = value.range();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value).range();
+                InFile::new(module_id.file_id, range)
+            }
+            DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
+                let range = cont_id.to_container_src_map(db).get(value).range();
+                InFile::new(cont_id.file_id(db).into(), range)
+            }
+            DefinitionOrigin::Instance(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value).range();
+                InFile::new(module_id.file_id, range)
+            }
+            DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
+                let range = cont_id.to_container_src_map(db).get(value).range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
         }
@@ -112,7 +142,7 @@ impl DefinitionOrigins {
 
 // Definition may have multiple origins, e.g. non-ansi port
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Definition(PathResolution);
+pub struct Definition(pub PathResolution);
 
 impl From<PathResolution> for Definition {
     fn from(res: PathResolution) -> Self {
@@ -121,7 +151,7 @@ impl From<PathResolution> for Definition {
 }
 
 impl Definition {
-    pub fn origins(&self) -> SmallVec<[DefinitionOrigins; 3]> {
+    pub fn origins(&self) -> SmallVec<[DefinitionOrigin; 3]> {
         let mut res = smallvec![];
         let mut add_source = |source| res.push(source);
 
@@ -144,21 +174,37 @@ impl Definition {
         res
     }
 
-    pub fn declaration_origins(&self) -> SmallVec<[DefinitionOrigins; 1]> {
-        let mut res = smallvec![];
-        let mut add_source = |source| res.push(source);
-
+    pub fn declaration_origins(&self) -> Option<DefinitionOrigin> {
         match self.0 {
             PathResolution::NonAnsiPort { port_decl, data_decl, module, .. } => {
                 let container: ContainerId = module.into();
                 if let Some(port_decl) = port_decl {
-                    add_source(InContainer::new(container, port_decl).into());
+                    Some(InContainer::new(container, port_decl).into())
                 } else if let Some(decl) = data_decl {
-                    add_source(InContainer::new(container, decl).into());
+                    Some(InContainer::new(container, decl).into())
+                } else {
+                    None
                 }
             }
-            _ => add_source(self.pick()),
-        };
+            _ => Some(self.pick()),
+        }
+    }
+
+    pub fn def_origins(&self) -> SmallVec<[DefinitionOrigin; 2]> {
+        let mut res = SmallVec::new();
+        match self.0 {
+            PathResolution::NonAnsiPort { port_decl, data_decl, module, .. } => {
+                let container: ContainerId = module.into();
+                if let Some(port_decl) = port_decl {
+                    res.push(InContainer::new(container, port_decl).into());
+                }
+
+                if let Some(decl) = data_decl {
+                    res.push(InContainer::new(container, decl).into());
+                }
+            }
+            _ => res.push(self.pick()),
+        }
 
         res
     }
@@ -176,7 +222,7 @@ impl Definition {
     }
 
     #[inline]
-    fn pick(&self) -> DefinitionOrigins {
+    fn pick(&self) -> DefinitionOrigin {
         match self.0 {
             PathResolution::Module(module_id) => module_id.into(),
             PathResolution::Decl(decl_id) => decl_id.into(),
@@ -207,7 +253,7 @@ impl Definition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DefinitionClass {
     Definition(Definition),
-    PortConnShorthand { port: Definition, data: Definition },
+    PortConnShorthand { port: Definition, local: Definition },
 }
 
 impl_from! { DefinitionClass =>
@@ -230,10 +276,10 @@ impl DefinitionClass {
                 let port = sema.nameres_named_port_conn(it).map(Definition::from);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
-                    let data = sema.nameres_ident(tp).map(Definition::from);
+                    let local = sema.nameres_ident(tp).map(Definition::from);
 
-                    match (port, data) {
-                        (Some(port), Some(data)) => Self::PortConnShorthand { port, data },
+                    match (port, local) {
+                        (Some(port), Some(local)) => Self::PortConnShorthand { port, local },
                         (Some(it), None) | (None, Some(it)) => it.into(),
                         (None, None) => return None,
                     }
@@ -247,11 +293,11 @@ impl DefinitionClass {
         Some(res)
     }
 
-    pub(crate) fn origins(self) -> SmallVec<[DefinitionOrigins; 6]> {
+    pub(crate) fn origins(self) -> SmallVec<[DefinitionOrigin; 6]> {
         match self {
             DefinitionClass::Definition(definition) => definition.origins().into_iter().collect(),
-            DefinitionClass::PortConnShorthand { port, data } => {
-                port.origins().into_iter().chain(data.origins()).collect()
+            DefinitionClass::PortConnShorthand { port, local } => {
+                port.origins().into_iter().chain(local.origins()).collect()
             }
         }
     }
