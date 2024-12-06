@@ -1,7 +1,7 @@
 use la_arena::{Arena, Idx};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTrivia, WalkEvent, ast,
+    ChildrenIter, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTrivia, WalkEvent, ast,
     has_text_range::HasTextRange,
     match_ast,
     token::SyntaxTokenExt,
@@ -173,7 +173,7 @@ impl RegionTreeBuilder {
     fn handle_pseudo_region<'a>(
         &mut self,
         node: SyntaxNode<'a>,
-        trivias: impl DoubleEndedIterator<Item = SyntaxTrivia<'a>> + ExactSizeIterator + Clone,
+        trivias: impl ChildrenIter<SyntaxTrivia<'a>>,
     ) {
         match_ast! { node,
             ast::DataDeclaration
@@ -239,12 +239,7 @@ impl RegionTreeBuilder {
     }
 
     #[inline]
-    fn handle_trivia<'a>(
-        &'a mut self,
-        trivias: impl DoubleEndedIterator<Item = (TextRange, SyntaxTrivia<'a>)>
-        + ExactSizeIterator
-        + Clone,
-    ) {
+    fn handle_trivia<'a>(&'a mut self, trivias: impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)>) {
         for (range, trivia) in trivias {
             if let Some(name) = trivia.is_region_begin() {
                 let region = RegionKind::Region { name, begin_range: range };

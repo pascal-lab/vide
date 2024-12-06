@@ -1,6 +1,6 @@
 use either::Either;
 use slang::{
-    SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia, Token, TokenKind,
+    ChildrenIter, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia, Token, TokenKind,
     ast::{self, AstNode},
 };
 use utils::line_index::{TextRange, TextSize};
@@ -100,20 +100,12 @@ pub fn pair_token(
 pub trait SyntaxTokenExt<'a> {
     fn trivias_with_range(
         &self,
-    ) -> impl DoubleEndedIterator<Item = (TextRange, SyntaxTrivia<'a>)>
-    + ExactSizeIterator
-    + Clone
-    + use<'a, Self>;
+    ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a, Self>;
 }
 
 impl<'a> SyntaxTokenExt<'a> for SyntaxToken<'a> {
     #[inline]
-    fn trivias_with_range(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = (TextRange, SyntaxTrivia<'a>)>
-    + ExactSizeIterator
-    + Clone
-    + use<'a> {
+    fn trivias_with_range(&self) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
         self.trivias_with_loc().map(|((start, end), trivia)| {
             let range = TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32));
             (range, trivia)
