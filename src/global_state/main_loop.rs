@@ -141,6 +141,10 @@ impl GlobalState {
         if self.is_stuck() {
             let client_refresh = !was_stuck || state_changed;
 
+            if client_refresh && self.config.code_lens_refresh_support() {
+                self.send_request::<lsp_types::request::CodeLensRefresh>((), DEFAULT_REQ_HANDLER);
+            }
+
             if client_refresh && self.config.inlay_hint_refresh_support() {
                 self.send_request::<lsp_types::request::InlayHintRefreshRequest>(
                     (),
@@ -213,8 +217,6 @@ impl GlobalState {
     fn handle_notification(&mut self, notif: Notification) -> anyhow::Result<()> {
         use handlers::notification::*;
         use lsp_types::notification::*;
-
-        
 
         NotifDispatcher { notif: Some(notif), global_state: self }
             .on_sync_mut::<Cancel>(handle_cancel)?
