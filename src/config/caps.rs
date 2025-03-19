@@ -142,14 +142,14 @@ impl Config {
 }
 
 impl Config {
-    pub fn get_server_capabilities(&self) -> ServerCapabilities {
+    pub fn server_caps(&self) -> ServerCapabilities {
         ServerCapabilities {
             position_encoding: match self.negotiated_encoding() {
                 PositionEncoding::Utf8 => Some(PositionEncodingKind::UTF8),
                 PositionEncoding::Wide(wide) => match wide {
                     WideEncoding::Utf16 => Some(PositionEncodingKind::UTF16),
                     WideEncoding::Utf32 => Some(PositionEncodingKind::UTF32),
-                    _ => todo!(),
+                    _ => None,
                 },
             },
             text_document_sync: Some(
@@ -166,19 +166,19 @@ impl Config {
             hover_provider: Some(true.into()),
             completion_provider: CompletionOptions {
                 resolve_provider: self.cli_completion_item_edit_resolve().into(),
-                trigger_characters: Some([":", ",", "'", "(", "`"].map(String::from).into()),
+                trigger_characters: Some([":", ",", ".", "(", "`"].map(String::from).into()),
                 all_commit_characters: None,
                 completion_item: CompletionOptionsCompletionItem {
                     label_details_support: self.cli_completion_label_details_support().into(),
                 }
                 .into(),
-                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+                work_done_progress_options: Default::default(),
             }
             .into(),
             signature_help_provider: SignatureHelpOptions {
-                trigger_characters: Some(["(", ",", "`"].map(String::from).into()),
+                trigger_characters: Some(["(", ","].map(String::from).into()),
                 retrigger_characters: None,
-                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+                work_done_progress_options: Default::default(),
             }
             .into(),
             declaration_provider: Some(DeclarationCapability::Simple(true)),
@@ -200,7 +200,7 @@ impl Config {
             .into(),
             rename_provider: OneOf::Right(RenameOptions {
                 prepare_provider: true.into(),
-                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+                work_done_progress_options: Default::default(),
             })
             .into(),
             document_link_provider: None,
