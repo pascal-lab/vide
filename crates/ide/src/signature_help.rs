@@ -2,7 +2,13 @@ use hir::{
     container::{InContainer, InModule},
     db::HirDb,
     display::HirDisplay,
-    hir_def::module::{instantiation::PortConn, port::Ports},
+    hir_def::{
+        declaration::Declaration,
+        module::{
+            instantiation::{ParamAssign, PortConn},
+            port::Ports,
+        },
+    },
     semantics::Semantics,
 };
 use ide_db::root_db::RootDb;
@@ -11,6 +17,7 @@ use span::FilePosition;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
     match_ast,
 };
 // Last week, I found an issue with the original strategy and have successfully implemented
@@ -68,6 +75,16 @@ pub(crate) fn signature_help(
                 if it.close_paren().is_none_or(|tok| tok != token.tok) {
                     return sig_help_for_instance(&sema, it, offset, config);
                 }
+            },
+            ast::HierarchyInstantiation[it] => {
+                let Some(params) = it.parameters() else {
+                    continue;
+                };
+
+                if params.open_paren().and_then(|open_paren| open_paren.text_range()).is_some_and(|range| offset >= range.end()) &&
+                    params.close_paren().and_then(|close_paren| close_paren.text_range()).is_some_and(|range| offset <= range.start()) {
+                        return sig_help_for_instantiation(&sema, it, offset, config);
+                    }
             },
             _ => {},
         };
@@ -188,5 +205,87 @@ fn sig_help_for_instance(
     };
     res.label.push(')');
 
+    Some(res)
+}
+
+fn sig_help_for_instantiation(
+    sema: &Semantics<'_, RootDb>,
+    instantiation: ast::HierarchyInstantiation,
+    offset: TextSize,
+    config: SignatureHelpConfig,
+) -> Option<SignatureHelp> {
+    let db = sema.db;
+
+    let active_param = 'blk: {
+        let InModule { value: instantiation_id, module_id } =
+            sema.resolve_instantiation(instantiation);
+        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let instantiation = module.get(instantiation_id);
+
+        let Some((idx, conn_id)) = instantiation
+            .param_assigns
+            .iter()
+            .enumerate()
+            .find(|(_, conn_id)| module_src_map.get(**conn_id).node.range().end() >= offset)
+        else {
+            break 'blk None;
+        };
+
+        match module.get(*conn_id) {
+            ParamAssign::Ordered(_) => Some(Either::Left(idx)),
+            ParamAssign::Named(name, _) if let Some(name) = name.as_ref() => {
+                Some(Either::Right(name.to_owned()))
+            }
+            _ => None,
+        }
+    };
+
+    let module_id = sema.nameres_instantiation(instantiation)?;
+    let module = db.module(module_id);
+    let module_name =
+        module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
+
+    let mut res = SignatureHelp::new(config, format!("module {module_name} #("));
+
+    if let Some(active_param) = &active_param {
+        match active_param {
+            Either::Left(idx) => res.active_parameter = Some(*idx),
+            Either::Right(_) => {}
+        }
+    }
+
+    for port_decl in
+        module.declarations.values().take_while(|d| matches!(d, Declaration::ParamDecl(_)))
+    {
+        let mut buf = String::new();
+        if !res.config.params_only {
+            let ty = InContainer::new(module_id.into(), port_decl.ty())
+                .display_signature(db)
+                .unwrap_or_default();
+            buf.push_str(&ty);
+            if !ty.is_empty() {
+                buf.push(' ');
+            }
+        }
+        let header_size = buf.len();
+
+        for decl_id in port_decl.decls() {
+            match InContainer::new(module_id.into(), decl_id).display_signature(db) {
+                Ok(decl) => buf.push_str(&decl),
+                Err(_) => buf.push_str("<missing>"),
+            }
+            res.push_param(buf.as_str());
+            buf.truncate(header_size);
+
+            if let Some(Either::Right(active_name)) = &active_param
+                && let Some(decl_name) = module.get(decl_id).name.as_ref()
+                && active_name == decl_name.as_str()
+            {
+                res.active_parameter = Some(res.param_ranges.len() - 1);
+            }
+        }
+    }
+
+    res.label.push(')');
     Some(res)
 }
