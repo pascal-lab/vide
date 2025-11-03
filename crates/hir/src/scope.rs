@@ -635,6 +635,82 @@ impl SubroutineScope {
 
         items
     }
+
+    pub fn file_subroutine_scope_query(
+        db: &dyn HirDb,
+        subroutine_loc: InFile<SubroutineId>,
+    ) -> Arc<SubroutineScope> {
+        let mut scope = Scope::default();
+        let subroutine = subroutine_loc.to_container(db);
+
+        if !subroutine.has_body {
+            return Arc::new(scope);
+        }
+
+        for (decl_id, decl) in subroutine.decls.iter() {
+            scope.insert_opt(&decl.name, decl_id.into());
+        }
+
+        for (stmt_id, stmt) in subroutine.stmts.iter() {
+            scope.insert_opt(&stmt.label, stmt_id.into());
+
+            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
+                scope.insert_opt(name, (*block_id).into());
+            }
+        }
+
+        for (typedef_id, typedef_) in subroutine.typedefs.iter() {
+            scope.insert_opt(&typedef_.name, typedef_id.into());
+        }
+
+        Arc::new(scope)
+    }
+
+    pub fn collect_file_subroutine_completions(
+        &self,
+        db: &dyn HirDb,
+        subroutine_loc: InFile<SubroutineId>,
+    ) -> Vec<CompletionEntry> {
+        let subroutine = subroutine_loc.to_container(db);
+        let mut items = Vec::new();
+
+        for (ident, entry) in self.iter() {
+            let completion = match entry {
+                SubroutineEntry::DeclId(decl_id) => {
+                    let declarator = subroutine.decls.get(*decl_id);
+                    let kind = match declarator.parent {
+                        DeclaratorParent::PortDeclId(_) => CompletionEntryKind::Port,
+                        DeclaratorParent::DeclarationId(declaration_id) => {
+                            match subroutine.declarations.get(declaration_id) {
+                                Declaration::ParamDecl(_) => CompletionEntryKind::Parameter,
+                                Declaration::NetDecl(_) => CompletionEntryKind::Net,
+                                Declaration::DataDecl(_) => CompletionEntryKind::Variable,
+                            }
+                        }
+                        DeclaratorParent::StmtId(_) => CompletionEntryKind::Variable,
+                    };
+                    let detail = file_subroutine_decl_detail(db, subroutine_loc, &subroutine, *decl_id);
+                    Some(make_entry_with_detail(ident, kind, detail))
+                }
+                SubroutineEntry::StmtId(_) => {
+                    Some(make_entry(ident, CompletionEntryKind::Statement))
+                }
+                SubroutineEntry::BlockId(_) => Some(make_entry(ident, CompletionEntryKind::Block)),
+                SubroutineEntry::TypedefId(typedef_id) => {
+                    let typedef = subroutine.typedefs.get(*typedef_id);
+                    let detail =
+                        typedef_detail(db, ContainerId::FileSubroutineId(subroutine_loc), typedef);
+                    Some(make_entry_with_detail(ident, CompletionEntryKind::Type, detail))
+                }
+            };
+
+            if let Some(entry) = completion {
+                items.push(entry);
+            }
+        }
+
+        items
+    }
 }
 
 fn make_entry(ident: &Ident, kind: CompletionEntryKind) -> CompletionEntry {
@@ -819,6 +895,22 @@ fn subroutine_decl_detail(
         DeclaratorParent::DeclarationId(declaration_id) => {
             let declaration = subroutine.declarations.get(declaration_id);
             declaration_detail(db, ContainerId::SubroutineId(loc), declaration)
+        }
+        DeclaratorParent::StmtId(_) | DeclaratorParent::PortDeclId(_) => None,
+    }
+}
+
+fn file_subroutine_decl_detail(
+    db: &dyn HirDb,
+    loc: InFile<SubroutineId>,
+    subroutine: &Subroutine,
+    decl_id: DeclId,
+) -> Option<String> {
+    let declarator = subroutine.decls.get(decl_id);
+    match declarator.parent {
+        DeclaratorParent::DeclarationId(declaration_id) => {
+            let declaration = subroutine.declarations.get(declaration_id);
+            declaration_detail(db, ContainerId::FileSubroutineId(loc), declaration)
         }
         DeclaratorParent::StmtId(_) | DeclaratorParent::PortDeclId(_) => None,
     }

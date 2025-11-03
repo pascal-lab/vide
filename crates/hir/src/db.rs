@@ -4,7 +4,7 @@ use syntax::SyntaxTree;
 use triomphe::Arc;
 
 use crate::{
-    container::InModule,
+    container::{InFile, InModule},
     file::HirFileId,
     hir_def::{
         Ident,
@@ -91,6 +91,9 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(SubroutineScope::subroutine_scope_query)]
     fn subroutine_scope(&self, subroutine: InModule<SubroutineId>) -> Arc<SubroutineScope>;
+
+    #[salsa::invoke(SubroutineScope::file_subroutine_scope_query)]
+    fn file_subroutine_scope(&self, subroutine: InFile<SubroutineId>) -> Arc<SubroutineScope>;
 }
 
 fn parse(db: &dyn HirDb, file_id: HirFileId) -> SyntaxTree {

@@ -110,8 +110,16 @@ impl<'db> SemanticsImpl<'db> {
                         }
                     }
                 }
-                ContainerId::FileSubroutineId(_loc) => {
-                    // TODO: implement file-level subroutine scope
+                ContainerId::FileSubroutineId(loc) => {
+                    let scope = self.db.file_subroutine_scope(loc);
+                    for entry in scope.collect_file_subroutine_completions(self.db, loc) {
+                        if seen.insert(entry.name.clone()) {
+                            items.push(ScopedCompletionEntry {
+                                entry,
+                                scope: CompletionScope::Subroutine,
+                            });
+                        }
+                    }
                 }
                 ContainerId::HirFileId(file_id) => {
                     let scope = self.db.file_scope(file_id);
