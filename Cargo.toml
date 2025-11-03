@@ -59,6 +59,9 @@ syntax = { path = "./crates/syntax/", version = "0.0.0" }
 utils = { path = "./crates/utils", version = "0.0.0" }
 vfs = { path = "./crates/vfs", version = "0.0.0" }
 vfs-notify = { path = "./crates/vfs-notify/", version = "0.0.0" }
+slang = { path = "./crates/slang", version = "0.0.1" }
+parking_lot = "0.12.1"
+
 
 anyhow = "1.0.75"
 bitflags = "2.9.0"
@@ -75,7 +78,6 @@ rustc-hash = "2.1.1"
 salsa = "0.17.0-pre.2"
 serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.107"
-slang = { version = "0.0.1", path = "/Users/jiayanw/slang" }
 smallvec = { version = "1.10.0", features = [
   "const_new",
   "union",
@@ -106,3 +108,6 @@ debug = 0
 [profile.release-lto]
 inherits = "release"
 lto = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3.9" }

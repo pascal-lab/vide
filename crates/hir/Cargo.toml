@@ -5,7 +5,9 @@ edition.workspace = true
 
 [dependencies]
 base-db.workspace = true
-hashbrown = { version = "0.12.3", features = ["inline-more"], default-features = false }
+hashbrown = { version = "0.12.3", features = [
+    "inline-more",
+], default-features = false }
 itertools.workspace = true
 la-arena.workspace = true
 proc-macro-utils.workspace = true
@@ -17,3 +19,4 @@ syntax.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true
+slang.workspace = true
