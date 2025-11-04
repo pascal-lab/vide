@@ -6,11 +6,17 @@ use syntax::{
 };
 
 use super::{ExprId, LowerExprCtx, Selector};
+use crate::{
+    container::InContainer,
+    hir_def::aggregate::{ClassId, StructId},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(NamedDataTy),
+    Struct(InContainer<StructId>),
+    Class(InContainer<ClassId>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,6 +28,7 @@ pub enum BuiltinDataTy {
     Vector { kind: VecKind, signing: bool, dimensions: SmallVec<[Option<Dimension>; 2]> },
     Real(Real),
     String,
+    Void,
 }
 
 impl Default for BuiltinDataTy {
@@ -94,6 +101,7 @@ impl LowerExprCtx<'_> {
             RealType(_) => BuiltinDataTy::Real(Real::Real),
             ShortRealType(_) => BuiltinDataTy::Real(Real::ShortReal),
             RealTimeType(_) => BuiltinDataTy::Real(Real::RealTime),
+            VoidType(_) => BuiltinDataTy::Void,
             _ => unimplemented!("{:?}", ty.syntax().kind()),
         }
     }

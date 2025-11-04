@@ -9,6 +9,7 @@ use crate::{
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::{
+        aggregate::{StructDef, StructId, StructSrc},
         block::{Block, BlockId, BlockInfo, BlockSourceMap, BlockSrc, LocalBlockId},
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::{
@@ -18,7 +19,10 @@ use crate::{
         },
         file::{FileSourceMap, HirFile},
         module::{Module, ModuleId, ModuleSourceMap},
+        package::{Package, PackageId, PackageSourceMap},
         stmt::{Stmt, StmtId, StmtSrc},
+        subroutine::{Subroutine, SubroutineId, SubroutineSourceMap},
+        typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::RegionTree,
 };
@@ -26,9 +30,11 @@ use crate::{
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
     pub enum ContainerId {
-        HirFileId,
-        ModuleId,
-        BlockId,
+        HirFileId(HirFileId),
+        ModuleId(ModuleId),
+        PackageId(PackageId),
+        BlockId(BlockId),
+        SubroutineId(InModule<SubroutineId>),
     }
 }
 
@@ -49,6 +55,28 @@ impl<T> InContainer<T> {
 
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> InContainer<U> {
         InContainer::new(self.cont_id, f(self.value))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct InSubroutine<T> {
+    pub value: T,
+    pub subroutine: InModule<SubroutineId>,
+}
+
+impl<T> InSubroutine<T> {
+    pub fn new(subroutine: InModule<SubroutineId>, value: T) -> Self {
+        Self { value, subroutine }
+    }
+
+    pub fn with_value<U>(self, value: U) -> InSubroutine<U> {
+        InSubroutine { value, subroutine: self.subroutine }
+    }
+}
+
+impl<T> From<InSubroutine<T>> for InContainer<T> {
+    fn from(item: InSubroutine<T>) -> InContainer<T> {
+        InContainer::new(ContainerId::SubroutineId(item.subroutine), item.value)
     }
 }
 
@@ -87,6 +115,7 @@ macro_rules! define_container_id {
 define_container_id! {
     InFile[file_id: HirFileId],
     InModule[module_id: ModuleId],
+    InPackage[package_id: PackageId],
     InBlock[block_id: BlockId],
 }
 
@@ -95,7 +124,9 @@ impl ContainerId {
         match self {
             ContainerId::HirFileId(file_id) => file_id.file_id(),
             ContainerId::ModuleId(module_id) => module_id.file_id(),
+            ContainerId::PackageId(package_id) => package_id.file_id(),
             ContainerId::BlockId(block_id) => block_id.file_id(db),
+            ContainerId::SubroutineId(loc) => loc.module_id.file_id(),
         }
     }
 
@@ -103,7 +134,9 @@ impl ContainerId {
         match self {
             ContainerId::HirFileId(file_id) => file_id.to_container(db).into(),
             ContainerId::ModuleId(module_id) => module_id.to_container(db).into(),
+            ContainerId::PackageId(package_id) => package_id.to_container(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container(db).into(),
+            ContainerId::SubroutineId(loc) => loc.to_container(db).into(),
         }
     }
 
@@ -111,7 +144,9 @@ impl ContainerId {
         match self {
             ContainerId::HirFileId(file_id) => file_id.to_container_src_map(db).into(),
             ContainerId::ModuleId(module_id) => module_id.to_container_src_map(db).into(),
+            ContainerId::PackageId(package_id) => package_id.to_container_src_map(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container_src_map(db).into(),
+            ContainerId::SubroutineId(loc) => loc.to_container_src_map(db).into(),
         }
     }
 }
@@ -148,6 +183,22 @@ impl ModuleId {
     }
 }
 
+impl PackageId {
+    pub fn file_id(&self) -> FileId {
+        self.file_id.file_id()
+    }
+
+    #[inline]
+    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Package> {
+        db.package(*self)
+    }
+
+    #[inline]
+    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<PackageSourceMap> {
+        db.package_with_source_map(*self).1
+    }
+}
+
 impl BlockId {
     pub fn file_id(&self, db: &dyn InternDb) -> FileId {
         self.lookup(db).src.file_id.file_id()
@@ -164,14 +215,30 @@ impl BlockId {
     }
 }
 
+impl InModule<SubroutineId> {
+    #[inline]
+    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Subroutine> {
+        db.subroutine(*self)
+    }
+
+    #[inline]
+    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<SubroutineSourceMap> {
+        db.subroutine_with_source_map(*self).1
+    }
+}
+
 impl_container! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum {
         HirFile | FileSourceMap,
         Module | ModuleSourceMap,
+        Package | PackageSourceMap,
         Block | BlockSourceMap,
+        Subroutine | SubroutineSourceMap,
     } => {
         Declaration[DeclarationId | DeclarationSrc],
+        Typedef[TypedefId | TypedefSrc],
+        StructDef[StructId | StructSrc],
         Expr[ExprId | ExprSrc],
         EventExpr[EventExprId | EventExprSrc],
         Declarator[DeclId | DeclaratorSrc],
@@ -186,7 +253,9 @@ impl Container {
         match self {
             Container::HirFile(_) => None,
             Container::Module(module) => module.name.as_ref(),
+            Container::Package(package) => package.name.as_ref(),
             Container::Block(block) => block.name.as_ref(),
+            Container::Subroutine(subroutine) => subroutine.name.as_ref(),
         }
     }
 }
@@ -203,7 +272,9 @@ impl ContainerSrcMap {
         match self {
             ContainerSrcMap::FileSourceMap(file) => Some(&file.region_tree),
             ContainerSrcMap::ModuleSourceMap(module) => Some(&module.region_tree),
+            ContainerSrcMap::PackageSourceMap(package) => Some(&package.region_tree),
             ContainerSrcMap::BlockSourceMap(block) => Some(&block.region_tree),
+            ContainerSrcMap::SubroutineSourceMap(subroutine) => Some(&subroutine.region_tree),
         }
     }
 }
@@ -234,7 +305,9 @@ impl Iterator for ContainerParent<'_> {
         self.cont_id = match self.cont_id? {
             ContainerId::HirFileId(_) => None,
             ContainerId::ModuleId(module_id) => Some(module_id.file_id.into()),
+            ContainerId::PackageId(package_id) => Some(package_id.file_id.into()),
             ContainerId::BlockId(block_id) => Some(block_id.lookup(self.db).cont_id),
+            ContainerId::SubroutineId(loc) => Some(loc.module_id.into()),
         };
         next
     }

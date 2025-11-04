@@ -1,13 +1,16 @@
+pub mod aggregate;
 pub mod block;
 pub mod declaration;
 pub mod expr;
 pub mod file;
 pub mod literal;
 pub mod module;
+pub mod package;
 pub mod proc;
 pub mod stmt;
 pub mod subroutine;
 pub mod ty;
+pub mod typedef;
 
 use la_arena::{Arena, Idx, RawIdx};
 use smol_str::{SmolStr, ToSmolStr};

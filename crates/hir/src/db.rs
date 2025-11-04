@@ -1,14 +1,19 @@
 use base_db::{impl_intern_key, impl_intern_lookup, salsa, source_db::SourceDb};
+use rustc_hash::FxHashMap;
 use syntax::SyntaxTree;
 use triomphe::Arc;
 
 use crate::{
+    container::InModule,
     file::HirFileId,
     hir_def::{
+        Ident,
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
         module::{self, Module, ModuleId, ModuleSourceMap},
+        package::{self, Package, PackageId, PackageSourceMap},
+        subroutine::{self, Subroutine, SubroutineId, SubroutineSourceMap},
     },
     scope::{BlockScope, ModuleScope, UnitScope},
 };
@@ -45,10 +50,29 @@ pub trait HirDb: InternDb {
 
     fn module(&self, module_id: ModuleId) -> Arc<Module>;
 
+    #[salsa::invoke(package::package_with_source_map_query)]
+    fn package_with_source_map(
+        &self,
+        package_id: PackageId,
+    ) -> (Arc<Package>, Arc<PackageSourceMap>);
+
+    fn package(&self, package_id: PackageId) -> Arc<Package>;
+
+    #[salsa::invoke(package::packages_by_name_query)]
+    fn packages_by_name(&self) -> Arc<FxHashMap<Ident, Vec<PackageId>>>;
+
     #[salsa::invoke(block::block_with_source_map_query)]
     fn block_with_source_map(&self, block_id: BlockId) -> (Arc<Block>, Arc<BlockSourceMap>);
 
     fn block(&self, block_id: BlockId) -> Arc<Block>;
+
+    #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
+    fn subroutine_with_source_map(
+        &self,
+        subroutine: InModule<SubroutineId>,
+    ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
+
+    fn subroutine(&self, subroutine_id: InModule<SubroutineId>) -> Arc<Subroutine>;
 
     #[salsa::invoke(UnitScope::unit_scope_query)]
     fn unit_scope(&self) -> Arc<UnitScope>;
@@ -75,6 +99,14 @@ fn module(db: &dyn HirDb, module_id: ModuleId) -> Arc<Module> {
     db.module_with_source_map(module_id).0
 }
 
+fn package(db: &dyn HirDb, package_id: PackageId) -> Arc<Package> {
+    db.package_with_source_map(package_id).0
+}
+
 fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
     db.block_with_source_map(block_id).0
+}
+
+fn subroutine(db: &dyn HirDb, subroutine_id: InModule<SubroutineId>) -> Arc<Subroutine> {
+    db.subroutine_with_source_map(subroutine_id).0
 }

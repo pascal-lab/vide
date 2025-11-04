@@ -21,7 +21,16 @@ pub struct Instantiation {
 
 pub type InstantiationId = Idx<Instantiation>;
 
-define_src!(InstantiationSrc(ast::HierarchyInstantiation));
+define_src!(InstantiationSrc(ast::HierarchyInstantiation, ast::PrimitiveInstantiation));
+
+impl From<InstantiationSrc> for syntax::ptr::SyntaxNodePtr {
+    fn from(src: InstantiationSrc) -> Self {
+        match src {
+            InstantiationSrc::HierarchyInstantiation(ptr) => ptr,
+            InstantiationSrc::PrimitiveInstantiation(ptr) => ptr,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Instance {
@@ -74,6 +83,26 @@ impl LowerModuleCtx<'_> {
         alloc_idx_and_src! {
             Instantiation { module_name, param_assigns, instances } => self.module.instantiations,
             instance => self.module_source_map.instantiation_srcs,
+        }
+    }
+
+    pub(crate) fn lower_primitive_instantiation(
+        &mut self,
+        inst: ast::PrimitiveInstantiation,
+    ) -> InstantiationId {
+        let module_name = lower_ident_opt(inst.type_());
+        let param_assigns = SmallVec::new();
+
+        let next_instantiation_id = self.module.instantiations.nxt_idx();
+        let instances = inst
+            .instances()
+            .children()
+            .map(|hier| self.lower_instance(hier, next_instantiation_id))
+            .collect();
+
+        alloc_idx_and_src! {
+            Instantiation { module_name, param_assigns, instances } => self.module.instantiations,
+            inst => self.module_source_map.instantiation_srcs,
         }
     }
 
