@@ -1,0 +1,617 @@
+{
+  "cases": [
+    {
+      "name": "keywords_basic",
+      "fixture": "keywords/basic.sv",
+      "expect": {
+        "present": [
+          { "label": "module", "kind": "keyword" },
+          { "label": "modport", "kind": "keyword" }
+        ]
+      }
+    },
+    {
+      "name": "keywords_snippet",
+      "fixture": "keywords/snippet.sv",
+      "config": { "enable_snippets": true },
+      "expect": {
+        "present": [
+          {
+            "label": "module",
+            "kind": "snippet",
+            "insert_text_contains": "$1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "system_task_trigger",
+      "fixture": "system_tasks/trigger.sv",
+      "caret_replace": "$",
+      "trigger": "$",
+      "expect": {
+        "min_items": 1,
+        "present": [
+          { "label": "$display", "kind": "function" },
+          { "label": "$finish", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "system_task_module_prefix",
+      "fixture": "system_tasks/module_prefix.sv",
+      "expect": {
+        "present": [{ "label": "$display", "kind": "function" }]
+      }
+    },
+    {
+      "name": "directive_prefix",
+      "fixture": "directives/prefix.sv",
+      "expect": {
+        "min_items": 1
+      }
+    },
+    {
+      "name": "directive_trigger",
+      "fixture": "directives/trigger.sv",
+      "trigger": "\u0060",
+      "expect": {
+        "present": [
+          { "label": "`define", "kind": "keyword" },
+          { "label": "`include", "kind": "keyword" }
+        ]
+      }
+    },
+    {
+      "name": "directive_identifier_fallback",
+      "fixture": "directives/identifier_fallback.sv",
+      "expect": {
+        "min_items": 1
+      }
+    },
+    {
+      "name": "dot_struct_members",
+      "fixture": "dot/struct_members.sv",
+      "expect": {
+        "present": [
+          { "label": "valid", "kind": "field" },
+          { "label": "data", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_class",
+      "fixture": "dot/class.sv",
+      "expect": {
+        "present": [
+          { "label": "data", "kind": "field" },
+          { "label": "valid", "kind": "field" },
+          { "label": "id", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_struct_prefix_filter",
+      "fixture": "dot/struct_prefix.sv",
+      "expect": {
+        "present": [
+          { "label": "data", "kind": "field" },
+          { "label": "done", "kind": "field" }
+        ],
+        "absent": ["valid"]
+      }
+    },
+    {
+      "name": "dot_nested_struct_members",
+      "fixture": "dot/nested_struct.sv",
+      "expect": {
+        "present": [
+          { "label": "hdr", "kind": "field" },
+          { "label": "payload", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_struct_multiple_modules",
+      "fixture": "dot/multiple_modules.sv",
+      "expect": {
+        "present": [
+          { "label": "valid", "kind": "field" },
+          { "label": "data", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_varied_field_types",
+      "fixture": "dot/varied_field_types.sv",
+      "expect": {
+        "present": [
+          { "label": "flag", "kind": "field" },
+          { "label": "enable", "kind": "field" },
+          { "label": "counter", "kind": "field" },
+          { "label": "value", "kind": "field" },
+          { "label": "wide", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_local_typedef",
+      "fixture": "dot/local_typedef.sv",
+      "expect": {
+        "present": [
+          { "label": "ready", "kind": "field" },
+          { "label": "valid", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_multiple_variables",
+      "fixture": "dot/multiple_variables.sv",
+      "expect": {
+        "present": [
+          { "label": "x", "kind": "field" },
+          { "label": "y", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_procedural_block",
+      "fixture": "dot/procedural_block.sv",
+      "expect": {
+        "present": [
+          { "label": "start", "kind": "field" },
+          { "label": "stop", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_after_assignment",
+      "fixture": "dot/after_assignment.sv",
+      "expect": {
+        "present": [
+          { "label": "a", "kind": "field" },
+          { "label": "b", "kind": "field" },
+          { "label": "c", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_array_fields",
+      "fixture": "dot/array_fields.sv",
+      "expect": {
+        "present": [
+          { "label": "nibble", "kind": "field" },
+          { "label": "bytes", "kind": "field" },
+          { "label": "single", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_always_block",
+      "fixture": "dot/always_block.sv",
+      "expect": {
+        "present": [
+          { "label": "clk", "kind": "field" },
+          { "label": "rst", "kind": "field" },
+          { "label": "en", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_typedef_chain",
+      "fixture": "dot/typedef_chain.sv",
+      "expect": {
+        "present": [
+          { "label": "field1", "kind": "field" },
+          { "label": "field2", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_chained",
+      "fixture": "dot/chained.sv",
+      "expect": {
+        "present": [
+          { "label": "addr", "kind": "field" },
+          { "label": "data", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_triple_chained",
+      "fixture": "dot/triple_chained.sv",
+      "expect": {
+        "present": [{ "label": "id", "kind": "field" }]
+      }
+    },
+    {
+      "name": "dot_struct_with_control_fields",
+      "fixture": "dot/control_fields.sv",
+      "expect": {
+        "present": [
+          { "label": "mode", "kind": "field" },
+          { "label": "cfg", "kind": "field" },
+          { "label": "status", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_inside_function",
+      "fixture": "dot/inside_function.sv",
+      "expect": {
+        "present": [
+          { "label": "error", "kind": "field" },
+          { "label": "warning", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_multiple_structs",
+      "fixture": "dot/multiple_structs.sv",
+      "expect": {
+        "present": [
+          { "label": "x", "kind": "field" },
+          { "label": "y", "kind": "field" },
+          { "label": "z", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "dot_long_field_names",
+      "fixture": "dot/long_field_names.sv",
+      "expect": {
+        "present": [
+          { "label": "transmission_enable", "kind": "field" },
+          { "label": "reception_ready", "kind": "field" },
+          { "label": "accumulated_error_count", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "scope_package",
+      "fixture": "scope/package.sv",
+      "expect": {
+        "present": [
+          { "label": "byte_t", "kind": "type" },
+          { "label": "MAX_SIZE", "kind": "variable" },
+          { "label": "get_max", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "scope_single_colon_trigger",
+      "fixture": "scope/single_colon_trigger.sv",
+      "caret_replace": ":",
+      "trigger": ":",
+      "expect": {
+        "max_items": 0
+      }
+    },
+    {
+      "name": "scope_double_colon_trigger",
+      "fixture": "scope/double_colon_trigger.sv",
+      "caret_replace": ":",
+      "trigger": ":",
+      "expect": {
+        "present": [
+          { "label": "MAX_VALUE", "kind": "variable" }
+        ],
+        "min_items": 1
+      }
+    },
+    {
+      "name": "scope_prefix",
+      "fixture": "scope/prefix.sv",
+      "expect": {
+        "present": [
+          { "label": "MAX_VALUE", "kind": "variable" },
+          { "label": "MIN_VALUE", "kind": "variable" },
+          { "label": "MODE", "kind": "variable" }
+        ],
+        "absent": ["OUTER_VALUE"]
+      }
+    },
+    {
+      "name": "scope_chained",
+      "fixture": "scope/chained.sv",
+      "expect": {
+        "present": [
+          { "label": "byte_t", "kind": "type" },
+          { "label": "INNER_VALUE", "kind": "variable" }
+        ],
+        "absent": ["OUTER_VALUE"]
+      }
+    },
+    {
+      "name": "baseline_empty_file",
+      "fixture": "baseline/empty.sv",
+      "expect": {
+        "min_items": 50,
+        "min_keyword_items": 50,
+        "present": [
+          { "label": "module", "kind": "keyword" },
+          { "label": "always", "kind": "keyword" }
+        ]
+      }
+    },
+    {
+      "name": "identifier_module_scope",
+      "fixture": "identifiers/module_scope.sv",
+      "expect": {
+        "present": [
+          { "label": "pkt", "kind": "variable" },
+          { "label": "clk", "kind": "variable" },
+          { "label": "counter", "kind": "variable" },
+          { "label": "packet_t", "kind": "type" }
+        ]
+      }
+    },
+    {
+      "name": "identifier_prefix_filter",
+      "fixture": "identifiers/prefix_filter.sv",
+      "expect": {
+        "present": [
+          { "label": "pkt_valid", "kind": "variable" },
+          { "label": "pkt_ready", "kind": "variable" }
+        ],
+        "order_prefix": ["pkt_ready", "pkt_valid"]
+      }
+    },
+    {
+      "name": "port_connection_port_names",
+      "fixture": "port_connection/port_names.sv",
+      "trigger": ".",
+      "expect": {
+        "present": [
+          { "label": "clk", "kind": "field" },
+          { "label": "rst_n", "kind": "field" },
+          { "label": "a", "kind": "field" },
+          { "label": "b", "kind": "field" },
+          { "label": "sum", "kind": "field" }
+        ]
+      }
+    },
+    {
+      "name": "port_connection_port_names_snippets",
+      "fixture": "port_connection/port_names.sv",
+      "trigger": ".",
+      "config": { "enable_snippets": true },
+      "expect": {
+        "present": [
+          { "label": "clk", "kind": "snippet", "insert_text_contains": "($0)" },
+          { "label": "rst_n", "kind": "snippet", "insert_text_contains": "($0)" },
+          { "label": "a", "kind": "snippet" },
+          { "label": "b", "kind": "snippet" },
+          { "label": "sum", "kind": "snippet" }
+        ]
+      }
+    },
+    {
+      "name": "port_connection_values",
+      "fixture": "port_connection/connection_values.sv",
+      "expect": {
+        "present": [
+          { "label": "clock", "kind": "variable" },
+          { "label": "reset", "kind": "variable" },
+          { "label": "data_a", "kind": "variable" },
+          { "label": "data_b", "kind": "variable" },
+          { "label": "result", "kind": "variable" }
+        ]
+      }
+    },
+    {
+      "name": "port_connection_filter_connected",
+      "fixture": "port_connection/filter_connected.sv",
+      "trigger": ".",
+      "config": { "enable_snippets": true },
+      "expect": {
+        "present": [
+          { "label": "a", "kind": "snippet" },
+          { "label": "b", "kind": "snippet" },
+          { "label": "sum", "kind": "snippet" }
+        ],
+        "absent": ["clk", "rst_n"]
+      }
+    },
+    {
+      "name": "parameter_list_named",
+      "fixture": "parameter_list/named.sv",
+      "trigger": ".",
+      "expect": {
+        "present": [
+          { "label": "SIGNED", "kind": "variable" },
+          { "label": "WIDTH", "kind": "variable" }
+        ]
+      }
+    },
+    {
+      "name": "parameter_list_named_snippets",
+      "fixture": "parameter_list/named.sv",
+      "trigger": ".",
+      "config": { "enable_snippets": true },
+      "expect": {
+        "present": [
+          { "label": "SIGNED", "kind": "snippet", "insert_text_contains": "($0)" },
+          { "label": "WIDTH", "kind": "snippet", "insert_text_contains": "($0)" }
+        ]
+      }
+    },
+    {
+      "name": "parameter_list_filter_existing",
+      "fixture": "parameter_list/filter_existing.sv",
+      "trigger": ".",
+      "config": { "enable_snippets": true },
+      "expect": {
+        "present": [
+          { "label": "DEPTH", "kind": "snippet" },
+          { "label": "SIGNED", "kind": "snippet" }
+        ],
+        "absent": ["WIDTH"]
+      }
+    },
+    {
+      "name": "parameter_list_hash_trigger",
+      "fixture": "parameter_list/hash_trigger.sv",
+      "trigger": "#",
+      "expect": {
+        "present": [
+          {
+            "label": "#()",
+            "kind": "keyword",
+            "insert_text_contains": "#()"
+          }
+        ]
+      }
+    },
+    {
+      "name": "parameter_list_hash_trigger_snippets",
+      "fixture": "parameter_list/hash_trigger.sv",
+      "trigger": "#",
+      "config": { "enable_snippets": true },
+      "expect": {
+        "present": [
+          {
+            "label": "#(...)",
+            "kind": "snippet",
+            "insert_text_contains": "#($0)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ordering_expression_bias",
+      "fixture": "ordering/expression_bias.sv",
+      "expect": {
+        "order_prefix": ["signal_a", "signal_b"],
+        "present": [
+          { "label": "signal_a", "kind": "variable" },
+          { "label": "signal_b", "kind": "variable" },
+          { "label": "SIG_PARAM", "kind": "variable" }
+        ]
+      }
+    },
+    {
+      "name": "ordering_scope_bias",
+      "fixture": "ordering/scope_bias.sv",
+      "expect": {
+        "order_prefix": ["sig_local", "signal_module"],
+        "present": [
+          { "label": "sig_local", "kind": "variable" },
+          { "label": "signal_module", "kind": "variable" }
+        ]
+      }
+    },
+    {
+      "name": "package_import_items",
+      "fixture": "packages/import_items.sv",
+      "expect": {
+        "present": [
+          { "label": "get_size", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "package_qualified_access",
+      "fixture": "packages/qualified_access.sv",
+      "expect": {
+        "present": [
+          { "label": "state_t", "kind": "type" },
+          { "label": "TIMEOUT", "kind": "variable" },
+          { "label": "Config", "kind": "type" }
+        ]
+      }
+    },
+    {
+      "name": "package_multiple_imports",
+      "fixture": "packages/multiple_imports.sv",
+      "expect": {
+        "present": [
+          { "label": "byte_t", "kind": "type" },
+          { "label": "word_t", "kind": "type" },
+          { "label": "SIZE_A", "kind": "variable" },
+          { "label": "SIZE_B", "kind": "variable" }
+        ]
+      }
+    },
+    {
+      "name": "class_inheritance",
+      "fixture": "classes/inheritance.sv",
+      "expect": {
+        "present": [
+          { "label": "data", "kind": "field" },
+          { "label": "id", "kind": "field" },
+          { "label": "valid", "kind": "field" },
+          { "label": "set_data", "kind": "function" },
+          { "label": "set_id", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "class_static_members",
+      "fixture": "classes/static_members.sv",
+      "expect": {
+        "present": [
+          { "label": "count", "kind": "variable" },
+          { "label": "get_count", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "class_methods",
+      "fixture": "classes/methods.sv",
+      "expect": {
+        "present": [
+          { "label": "timeout", "kind": "field" },
+          { "label": "enable", "kind": "field" },
+          { "label": "set_timeout", "kind": "function" },
+          { "label": "get_timeout", "kind": "function" },
+          { "label": "wait_cycles", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "typedef_basic",
+      "fixture": "typedefs/basic.sv",
+      "expect": {
+        "present": [
+          { "label": "byte_t", "kind": "type" },
+          { "label": "word_t", "kind": "type" },
+          { "label": "dword_t", "kind": "type" },
+          { "label": "packet_t", "kind": "type" }
+        ]
+      }
+    },
+    {
+      "name": "typedef_enum_values",
+      "fixture": "typedefs/enum_values.sv",
+      "expect": {
+        "present": [
+          { "label": "IDLE", "kind": "variable" },
+          { "label": "ACTIVE", "kind": "variable" },
+          { "label": "DONE", "kind": "variable" },
+          { "label": "ERROR", "kind": "variable" }
+        ]
+      }
+    },
+    {
+      "name": "function_module_scope",
+      "fixture": "functions/module_scope.sv",
+      "expect": {
+        "present": [
+          { "label": "add", "kind": "function" },
+          { "label": "multiply", "kind": "function" },
+          { "label": "wait_cycles", "kind": "function" }
+        ]
+      }
+    },
+    {
+      "name": "function_nested_scope",
+      "fixture": "functions/nested_scope.sv",
+      "expect": {
+        "present": [
+          { "label": "helper_func", "kind": "function" }
+        ]
+      }
+    }
+  ]
+}
