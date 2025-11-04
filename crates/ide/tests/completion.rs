@@ -102,10 +102,41 @@ impl ItemKind {
 #[test]
 fn completion_fixtures() {
     let manifest = load_manifest();
+    let mut failures = Vec::new();
 
     for case in &manifest.cases {
-        eprintln!("{:#?} `{}`", case.name, case.fixture);
-        run_case(case);
+        eprintln!("Testing: {} `{}`", case.name, case.fixture);
+
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_case(case);
+        })) {
+            Ok(_) => eprintln!("  ✓ PASSED"),
+            Err(e) => {
+                let msg = if let Some(s) = e.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = e.downcast_ref::<&str>() {
+                    s.to_string()
+                } else {
+                    "Unknown panic".to_string()
+                };
+                eprintln!("  ✗ FAILED: {}", msg);
+                failures.push((case.name.clone(), msg));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        eprintln!("\n========================================");
+        eprintln!("SUMMARY: {} / {} tests failed\n", failures.len(), manifest.cases.len());
+        for (name, msg) in &failures {
+            eprintln!("❌ {}: {}", name, msg);
+        }
+        eprintln!("========================================");
+        panic!("\n{} test(s) failed", failures.len());
+    } else {
+        eprintln!("\n========================================");
+        eprintln!("✓ All {} tests passed!", manifest.cases.len());
+        eprintln!("========================================");
     }
 }
 
