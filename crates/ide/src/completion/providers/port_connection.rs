@@ -1,7 +1,7 @@
 use hir::{
-    UnitEntry,
     completion::{CompletionEntryKind, CompletionScope, ModuleScopeCompletionExt},
     db::HirDb,
+    scope::UnitEntry,
     semantics::Semantics,
 };
 use ide_db::root_db::RootDb;
