@@ -29,7 +29,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ContainerId, InModule},
+    container::{ContainerId, InFile, InModule},
     db::{HirDb, InternDb},
     define_src,
     file::HirFileId,
@@ -194,10 +194,37 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SubroutineLocation {
+    InModule(InModule<SubroutineId>),
+    InFile(InFile<SubroutineId>),
+}
+
+impl From<InModule<SubroutineId>> for SubroutineLocation {
+    fn from(loc: InModule<SubroutineId>) -> Self {
+        SubroutineLocation::InModule(loc)
+    }
+}
+
+impl From<InFile<SubroutineId>> for SubroutineLocation {
+    fn from(loc: InFile<SubroutineId>) -> Self {
+        SubroutineLocation::InFile(loc)
+    }
+}
+
+impl From<SubroutineLocation> for ContainerId {
+    fn from(loc: SubroutineLocation) -> ContainerId {
+        match loc {
+            SubroutineLocation::InModule(module_loc) => ContainerId::SubroutineId(module_loc),
+            SubroutineLocation::InFile(file_loc) => ContainerId::FileSubroutineId(file_loc),
+        }
+    }
+}
+
 pub struct LowerSubroutineBodyCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
-    pub(crate) subroutine_loc: InModule<SubroutineId>,
+    pub(crate) subroutine_loc: SubroutineLocation,
     pub(crate) subroutine: &'a mut Subroutine,
     pub(crate) subroutine_source_map: &'a mut SubroutineSourceMap,
     pub(crate) region_tree: RegionTreeBuilder,
