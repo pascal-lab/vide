@@ -80,6 +80,15 @@ pub(crate) fn lower_class_def(
     let name = lower_ident_opt(class_decl.name());
     let mut members = SmallVec::<[ClassMember; 4]>::new();
 
+    let base_class_name = class_decl.extends_clause().and_then(|extends| {
+        let base_name = extends.base_name();
+        if let Some(id_name) = base_name.as_identifier_name() {
+            lower_ident_opt(id_name.identifier())
+        } else {
+            None
+        }
+    });
+
     for item in class_decl.items().children() {
         match item {
             ast::Member::ClassPropertyDeclaration(prop) => {
@@ -113,7 +122,7 @@ pub(crate) fn lower_class_def(
         }
     }
 
-    ClassDef { name, members }
+    ClassDef { name, base_class_name, members }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -167,6 +176,7 @@ pub struct ClassMember {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassDef {
     pub name: Option<Ident>,
+    pub base_class_name: Option<Ident>,
     pub members: SmallVec<[ClassMember; 4]>,
 }
 
