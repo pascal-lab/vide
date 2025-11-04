@@ -86,6 +86,10 @@ impl Source2DefCtx<'_, '_> {
                 let subroutine = db.subroutine(loc);
                 resolve(&subroutine.exprs[expr_id])
             }
+            ContainerId::FileSubroutineId(loc) => {
+                let subroutine = loc.to_container(db);
+                resolve(&subroutine.exprs[expr_id])
+            }
         }
     }
 
@@ -119,6 +123,10 @@ impl Source2DefCtx<'_, '_> {
                 let scope = db.subroutine_scope(loc);
                 let entry = scope.get(&ident)?;
                 Some(InSubroutine::new(loc, entry).into())
+            }
+            ContainerId::FileSubroutineId(_loc) => {
+                // TODO: implement file-level subroutine scope lookup
+                None
             }
         })?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res);
