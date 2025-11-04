@@ -165,6 +165,7 @@ impl HirDisplay for InContainer<DataTy> {
                     }
                     ContainerId::BlockId(_) => None,
                     ContainerId::SubroutineId(_) => None,
+                    ContainerId::FileSubroutineId(_) => None,
                 };
                 if let Some(name) = class_name {
                     f.write_str(" ")?;

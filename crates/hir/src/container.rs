@@ -35,6 +35,7 @@ define_enum_deriving_from! {
         PackageId(PackageId),
         BlockId(BlockId),
         SubroutineId(InModule<SubroutineId>),
+        FileSubroutineId(InFile<SubroutineId>),
     }
 }
 
@@ -127,6 +128,7 @@ impl ContainerId {
             ContainerId::PackageId(package_id) => package_id.file_id(),
             ContainerId::BlockId(block_id) => block_id.file_id(db),
             ContainerId::SubroutineId(loc) => loc.module_id.file_id(),
+            ContainerId::FileSubroutineId(loc) => loc.file_id.file_id(),
         }
     }
 
@@ -137,6 +139,7 @@ impl ContainerId {
             ContainerId::PackageId(package_id) => package_id.to_container(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container(db).into(),
             ContainerId::SubroutineId(loc) => loc.to_container(db).into(),
+            ContainerId::FileSubroutineId(loc) => loc.to_container(db).into(),
         }
     }
 
@@ -147,6 +150,7 @@ impl ContainerId {
             ContainerId::PackageId(package_id) => package_id.to_container_src_map(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container_src_map(db).into(),
             ContainerId::SubroutineId(loc) => loc.to_container_src_map(db).into(),
+            ContainerId::FileSubroutineId(loc) => loc.to_container_src_map(db).into(),
         }
     }
 }
@@ -224,6 +228,20 @@ impl InModule<SubroutineId> {
     #[inline]
     pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<SubroutineSourceMap> {
         db.subroutine_with_source_map(*self).1
+    }
+}
+
+impl InFile<SubroutineId> {
+    #[inline]
+    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Subroutine> {
+        let file = db.hir_file(self.file_id);
+        Arc::new(file.subroutines[self.value].clone())
+    }
+
+    #[inline]
+    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<SubroutineSourceMap> {
+        let file = db.hir_file(self.file_id);
+        Arc::new(file.subroutine_source_maps[&self.value].clone())
     }
 }
 
@@ -308,6 +326,7 @@ impl Iterator for ContainerParent<'_> {
             ContainerId::PackageId(package_id) => Some(package_id.file_id.into()),
             ContainerId::BlockId(block_id) => Some(block_id.lookup(self.db).cont_id),
             ContainerId::SubroutineId(loc) => Some(loc.module_id.into()),
+            ContainerId::FileSubroutineId(loc) => Some(loc.file_id.into()),
         };
         next
     }

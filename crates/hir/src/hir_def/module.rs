@@ -322,7 +322,7 @@ impl LowerModuleCtx<'_> {
         };
 
         if func.end().is_some() {
-            let subroutine_loc = InModule::new(self.module_id, subroutine_id);
+            let subroutine_loc = InModule::new(self.module_id, subroutine_id).into();
             let subroutine = &mut self.module.subroutines[subroutine_id];
             let mut subroutine_source_map = SubroutineSourceMap::default();
             let mut ctx = LowerSubroutineBodyCtx {
