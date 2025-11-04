@@ -378,14 +378,7 @@ impl ToNav for InContainer<SubroutineId> {
                     .name
                     .clone()
                     .unwrap_or_else(|| DEFAULT_NAME.clone());
-                build(
-                    file_id.file_id(),
-                    None,
-                    src.range(),
-                    Some(name),
-                    SymbolKind::Fn,
-                    None,
-                )
+                build(file_id.file_id(), None, src.range(), Some(name), SymbolKind::Fn, None)
             }
         }
     }

@@ -8,8 +8,9 @@ use vfs::FileId;
 use super::SemanticsImpl;
 use crate::{
     completion::{
-        CompletionEntry, CompletionEntryKind, CompletionScope, DotField, DotFieldKind,
-        ScopedCompletionEntry,
+        BlockScopeCompletionExt, CompletionEntry, CompletionEntryKind, CompletionScope, DotField,
+        DotFieldKind, ModuleScopeCompletionExt, PackageScopeCompletionExt, ScopedCompletionEntry,
+        SubroutineScopeCompletionExt, UnitScopeCompletionExt,
     },
     container::{ContainerId, ContainerParent, InContainer, InFile, InModule},
     display::HirDisplay,

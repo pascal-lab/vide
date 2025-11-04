@@ -145,11 +145,7 @@ impl DefinitionOrigin {
                 }
                 ContainerId::HirFileId(file_id) => {
                     let file = file_id.to_container(db);
-                    file.subroutines
-                        .get(value)
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| DEFAULT_NAME.clone())
+                    file.subroutines.get(value).name.clone().unwrap_or_else(|| DEFAULT_NAME.clone())
                 }
                 ContainerId::BlockId(_) => DEFAULT_NAME.clone(),
                 ContainerId::SubroutineId(loc) => {
@@ -243,10 +239,9 @@ impl DefinitionOrigin {
                     HirFileId(loc.module_id.file_id()),
                     TextRange::empty(TextSize::from(0)),
                 ),
-                ContainerId::FileSubroutineId(InFile { file_id, .. }) => InFile::new(
-                    file_id,
-                    TextRange::empty(TextSize::from(0)),
-                ),
+                ContainerId::FileSubroutineId(InFile { file_id, .. }) => {
+                    InFile::new(file_id, TextRange::empty(TextSize::from(0)))
+                }
             },
             DefinitionOrigin::PackageImport(InModule { value, module_id }) => {
                 let src = module_id.to_container_src_map(db).get(value.import);
@@ -339,10 +334,9 @@ impl DefinitionOrigin {
                     HirFileId(loc.module_id.file_id()),
                     TextRange::empty(TextSize::from(0)),
                 ),
-                ContainerId::FileSubroutineId(InFile { file_id, .. }) => InFile::new(
-                    file_id,
-                    TextRange::empty(TextSize::from(0)),
-                ),
+                ContainerId::FileSubroutineId(InFile { file_id, .. }) => {
+                    InFile::new(file_id, TextRange::empty(TextSize::from(0)))
+                }
             },
             DefinitionOrigin::Package(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).range();

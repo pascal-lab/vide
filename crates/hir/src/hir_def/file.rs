@@ -185,11 +185,9 @@ impl LowerFileCtx<'_> {
 
     fn lower_class_decl(&mut self, class_decl: ast::ClassDeclaration) -> ClassId {
         let container_id = ContainerId::HirFileId(self.file_id);
-        let class_def = lower_class_def(
-            class_decl.clone(),
-            container_id,
-            |ty| self.expr_ctx().lower_data_ty(ty),
-        );
+        let class_def = lower_class_def(class_decl.clone(), container_id, |ty| {
+            self.expr_ctx().lower_data_ty(ty)
+        });
 
         alloc_idx_and_src! {
             class_def => self.file.classes,

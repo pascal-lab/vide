@@ -1,6 +1,6 @@
 use hir::{
     UnitEntry,
-    completion::{CompletionEntryKind, CompletionScope},
+    completion::{CompletionEntryKind, CompletionScope, ModuleScopeCompletionExt},
     db::HirDb,
     semantics::Semantics,
 };

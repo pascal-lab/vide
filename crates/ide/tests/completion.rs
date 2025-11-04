@@ -106,7 +106,7 @@ fn completion_fixtures() {
 
     for case in &manifest.cases {
         eprintln!("Testing: {} `{}`", case.name, case.fixture);
-        
+
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_case(case);
         })) {

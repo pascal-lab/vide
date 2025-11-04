@@ -1,3 +1,10 @@
+pub mod scope;
+
+pub use scope::{
+    BlockScopeCompletionExt, ModuleScopeCompletionExt, PackageScopeCompletionExt,
+    SubroutineScopeCompletionExt, UnitScopeCompletionExt,
+};
+
 use crate::hir_def::Ident;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

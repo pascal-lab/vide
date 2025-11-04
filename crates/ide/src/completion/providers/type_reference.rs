@@ -70,9 +70,9 @@ pub(crate) fn complete_type_reference(
     let sema = Semantics::new(db);
     let scope_entries = sema.scope_completions(ctx.position.file_id, ctx.position.offset);
 
-    // In type reference context, we primarily want types, but if we're in an expression
-    // (like the initialization part of a variable declaration), we should show all entries.
-    // Check if we're in an expression context as well.
+    // In type reference context, we primarily want types, but if we're in an
+    // expression (like the initialization part of a variable declaration), we
+    // should show all entries. Check if we're in an expression context as well.
     let is_also_expression = ctx.is_in_expression_context();
 
     for scoped in scope_entries {
