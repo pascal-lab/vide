@@ -244,14 +244,8 @@ impl Definition {
                     )
                 }
             }
-            PathResolution::Typedef(_) |
-            PathResolution::Class(_) |
-            PathResolution::PackageImport(_) |
-            PathResolution::Package(_) |
-            PathResolution::Subroutine(_) => {
-                // TODO: implement definition for these items
-                unreachable!("Definition navigation not yet supported for this item type")
-            }
+            // Future PathResolution variants not yet handled in this branch.
+            _ => unreachable!("Definition navigation not yet supported for this item type"),
         }
     }
 }
