@@ -86,6 +86,7 @@ impl LowerExprCtx<'_> {
             NamedType(named_type) => Either::Right(self.lower_named_ty(named_type)),
             IntegerType(ty) => Either::Left(self.lower_integer_type(ty)),
             ImplicitType(ty) => Either::Left(self.lower_implicit_type(ty)),
+            EnumType(enum_ty) => Either::Right(self.lower_enum_type(enum_ty)),
             _ => unimplemented!("{:?}", ty.syntax().kind()),
         };
         match ty {
@@ -115,6 +116,14 @@ impl LowerExprCtx<'_> {
             ScopedName(_) => NamedDataTy::Field(expr_id),
             _ => unreachable!("{:?}", ty.syntax().kind()),
         }
+    }
+
+    fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> NamedDataTy {
+        // For now, treat enum types as implicit types
+        // TODO: properly handle enum member completion
+        // We return a missing expression since enum types are anonymous
+        let expr_id = self.alloc_missing();
+        NamedDataTy::Ident(expr_id)
     }
 
     fn lower_integer_type(&mut self, ty: ast::IntegerType) -> BuiltinDataTy {
