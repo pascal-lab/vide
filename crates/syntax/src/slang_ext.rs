@@ -10,8 +10,11 @@ use utils::line_index::{TextRange, TextSize};
 
 use crate::{has_text_range::HasTextRange, ptr::SyntaxNodePtr};
 
+pub mod package;
 pub mod token;
 pub mod trivia;
+
+pub use package::*;
 
 #[derive(Clone, Debug)]
 pub enum TokenAtOffset<'a> {
