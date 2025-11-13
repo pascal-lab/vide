@@ -1,0 +1,117 @@
+{
+  "name": "vizsla-vscode",
+  "displayName": "Vizsla LSP",
+  "description": "Language support for Verilog and SystemVerilog powered by the Vizsla language server.",
+  "version": "0.0.1",
+  "publisher": "vizsla",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hongjr03/vizsla"
+  },
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "verilog",
+        "aliases": [
+          "Verilog"
+        ],
+        "extensions": [
+          ".v",
+          ".vh"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "systemverilog",
+        "aliases": [
+          "SystemVerilog"
+        ],
+        "extensions": [
+          ".sv",
+          ".svh",
+          ".svi"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "Vizsla Language Server",
+      "properties": {
+        "vizslaLsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        },
+        "vizslaLsp.server.command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Override command used to launch the Vizsla language server. Leave empty to use the bundled binary."
+        },
+        "vizslaLsp.server.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Arguments passed before any additional arguments when a custom command is provided."
+        },
+        "vizslaLsp.server.cwd": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Working directory for the Vizsla language server process. Defaults to the first workspace folder."
+        },
+        "vizslaLsp.server.additionalArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional arguments appended when launching the Vizsla language server."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "vizsla.restartServer",
+        "title": "Vizsla: Restart Language Server"
+      }
+    ]
+  },
+  "scripts": {
+    "package": "vsce package",
+    "package:darwin-arm64": "vsce package --out vizsla-vscode-darwin-arm64.vsix",
+    "package:darwin-x64": "vsce package --out vizsla-vscode-darwin-x64.vsix",
+    "package:linux-x64": "vsce package --out vizsla-vscode-linux-x64.vsix",
+    "package:linux-arm64": "vsce package --out vizsla-vscode-linux-arm64.vsix",
+    "package:win32-x64": "vsce package --out vizsla-vscode-win32-x64.vsix",
+    "install-extension": "code --install-extension vizsla-vscode-*.vsix"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/vscode": "^1.86.0",
+    "@vscode/vsce": "^3.6.2"
+  }
+}
