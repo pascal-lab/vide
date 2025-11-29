@@ -491,12 +491,15 @@ pub(crate) fn handle_code_action(
     };
 
     let action = snap.analysis.code_action(file_id, range, resolve_strategy.clone())?;
+    let diag_context =
+        (!params.context.diagnostics.is_empty()).then(|| params.context.diagnostics.clone());
 
     let mut res = Vec::new();
     for (id, assist) in action.into_iter().enumerate() {
         let resolve_data =
             resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
-        let code_action = to_proto::code_action(&snap, assist, resolve_data)?;
+        let code_action =
+            to_proto::code_action(&snap, assist, resolve_data, diag_context.clone())?;
         res.push(lsp_types::CodeActionOrCommand::CodeAction(code_action))
     }
 
@@ -535,7 +538,7 @@ pub(crate) fn handle_code_action_resolve(
 
     let action = snap.analysis.code_action(file_id, range, resolve_strategy)?.remove(idx);
 
-    let resolved_action = to_proto::code_action(&snap, action, None)?;
+    let resolved_action = to_proto::code_action(&snap, action, None, None)?;
     code_action.edit = resolved_action.edit;
     code_action.command = resolved_action.command;
 

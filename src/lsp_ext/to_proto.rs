@@ -712,6 +712,7 @@ pub(crate) fn code_action(
     snap: &GlobalStateSnapshot,
     CodeAction { id, label, source_change, .. }: CodeAction,
     resolve_data: Option<(usize, lsp_types::CodeActionParams, Option<i32>)>,
+    diagnostics: Option<Vec<lsp_types::Diagnostic>>,
 ) -> Cancellable<lsp_types::CodeAction> {
     let mut res = lsp_types::CodeAction {
         title: label,
@@ -719,7 +720,7 @@ pub(crate) fn code_action(
         edit: None,
         is_preferred: None,
         command: None, // TODO: fill commands
-        diagnostics: None,
+        diagnostics,
         disabled: None,
         data: None,
     };
