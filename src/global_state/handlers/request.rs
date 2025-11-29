@@ -97,6 +97,35 @@ pub(crate) fn handle_goto_declaration(
     Ok(Some(res))
 }
 
+pub(crate) fn handle_document_diagnostic(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::DocumentDiagnosticParams,
+) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
+    let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
+
+    let diagnostics = match snap.analysis.diagnostics(file_id) {
+        Ok(diags) => diags,
+        Err(_) => Vec::new(),
+    };
+
+    let items = match snap.line_info(file_id) {
+        Ok(line_info) => {
+            diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
+        }
+        Err(_) => Vec::new(),
+    };
+
+    let report = lsp_types::RelatedFullDocumentDiagnosticReport {
+        related_documents: None,
+        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+            result_id: snap.file_version(file_id).map(|it| it.to_string()),
+            items,
+        },
+    };
+
+    Ok(lsp_types::DocumentDiagnosticReport::Full(report).into())
+}
+
 pub(crate) fn handle_document_symbol(
     snap: GlobalStateSnapshot,
     params: lsp_types::DocumentSymbolParams,

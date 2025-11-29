@@ -1,11 +1,12 @@
 use ide::hover::HoverFormat;
 use lsp_types::{
     CodeActionKind, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
-    DeclarationCapability, DocumentOnTypeFormattingOptions, FileOperationFilter,
-    FileOperationPattern, FileOperationPatternKind, FileOperationRegistrationOptions,
-    InlayHintOptions, InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions,
-    SaveOptions, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncKind, TextDocumentSyncOptions,
+    DeclarationCapability, DiagnosticOptions, DiagnosticServerCapabilities,
+    DocumentOnTypeFormattingOptions, FileOperationFilter, FileOperationPattern,
+    FileOperationPatternKind, FileOperationRegistrationOptions, InlayHintOptions,
+    InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions, SaveOptions,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, ServerCapabilities,
+    SignatureHelpOptions, TextDocumentSyncKind, TextDocumentSyncOptions,
     WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
@@ -339,7 +340,12 @@ impl Config {
                 },
             ))
             .into(),
-            diagnostic_provider: None,
+            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                identifier: None,
+                inter_file_dependencies: true,
+                workspace_diagnostics: false,
+                work_done_progress_options: Default::default(),
+            })),
             experimental: None,
         }
     }
