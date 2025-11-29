@@ -212,6 +212,7 @@ impl GlobalState {
             .on::<DocumentSymbolRequest>(handle_document_symbol)
             .on::<FoldingRangeRequest>(handle_folding_ranges)
             .on::<DocumentDiagnosticRequest>(handle_document_diagnostic)
+            .on::<WorkspaceDiagnosticRequest>(handle_workspace_diagnostic)
             .on_no_retry::<SignatureHelpRequest>(handle_signature_help)
             .on_no_retry::<InlayHintRequest>(handle_inlay_hint)
             .on_no_retry::<CodeLensRequest>(handle_code_lens)

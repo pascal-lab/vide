@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ide::{
     code_action::CodeActionResolveStrategy, folding_ranges::FoldingConfig, references::References,
 };
@@ -124,6 +126,65 @@ pub(crate) fn handle_document_diagnostic(
     };
 
     Ok(lsp_types::DocumentDiagnosticReport::Full(report).into())
+}
+
+pub(crate) fn handle_workspace_diagnostic(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::WorkspaceDiagnosticParams,
+) -> anyhow::Result<lsp_types::WorkspaceDiagnosticReportResult> {
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+
+    for file_id in snap.file_ids() {
+        let uri = to_proto::url(&snap, file_id);
+        seen.insert(uri.clone());
+
+        let diagnostics = match snap.analysis.diagnostics(file_id) {
+            Ok(diags) => diags,
+            Err(_) => Vec::new(),
+        };
+
+        let diag_items = match snap.line_info(file_id) {
+            Ok(line_info) => {
+                diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
+            }
+            Err(_) => Vec::new(),
+        };
+
+        let result_id = snap.file_version(file_id).map(|version| version.to_string());
+        let version = snap.file_version(file_id).map(|version| version as i64);
+
+        let report = lsp_types::WorkspaceFullDocumentDiagnosticReport {
+            uri,
+            version,
+            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                result_id,
+                items: diag_items,
+            },
+        };
+
+        items.push(lsp_types::WorkspaceDocumentDiagnosticReport::Full(report));
+    }
+
+    for prev in params.previous_result_ids {
+        if seen.contains(&prev.uri) {
+            continue;
+        }
+
+        let report = lsp_types::WorkspaceFullDocumentDiagnosticReport {
+            uri: prev.uri,
+            version: None,
+            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                result_id: None,
+                items: Vec::new(),
+            },
+        };
+        items.push(lsp_types::WorkspaceDocumentDiagnosticReport::Full(report));
+    }
+
+    Ok(lsp_types::WorkspaceDiagnosticReportResult::Report(lsp_types::WorkspaceDiagnosticReport {
+        items,
+    }))
 }
 
 pub(crate) fn handle_document_symbol(
@@ -498,8 +559,7 @@ pub(crate) fn handle_code_action(
     for (id, assist) in action.into_iter().enumerate() {
         let resolve_data =
             resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
-        let code_action =
-            to_proto::code_action(&snap, assist, resolve_data, diag_context.clone())?;
+        let code_action = to_proto::code_action(&snap, assist, resolve_data, diag_context.clone())?;
         res.push(lsp_types::CodeActionOrCommand::CodeAction(code_action))
     }
 

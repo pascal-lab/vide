@@ -57,6 +57,11 @@ impl GlobalStateSnapshot {
         self.mem_docs.get(self.vfs_read().file_path(file_id)).map(|it| it.version)
     }
 
+    pub(crate) fn file_ids(&self) -> Vec<FileId> {
+        let vfs = self.vfs.read();
+        vfs.0.iter().map(|(file_id, _)| file_id).collect()
+    }
+
     pub(crate) fn url(&self, id: FileId) -> Url {
         let vfs = &self.vfs_read();
         let path = vfs.file_path(id);

@@ -343,7 +343,7 @@ impl Config {
             diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
                 identifier: None,
                 inter_file_dependencies: true,
-                workspace_diagnostics: false,
+                workspace_diagnostics: true,
                 work_done_progress_options: Default::default(),
             })),
             experimental: None,
