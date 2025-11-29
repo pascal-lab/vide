@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 use base_db::change::Change;
 use itertools::Itertools;
+use lsp_types::request::WorkspaceDiagnosticRefresh;
 use nohash_hasher::IntMap;
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -9,7 +10,7 @@ use utils::{lines::LineEnding, thread::ThreadIntent};
 use vfs::{ChangedFile, FileId, Vfs};
 
 use super::{
-    GlobalState,
+    DEFAULT_REQ_HANDLER, GlobalState,
     main_loop::{PublishDiagnosticsTask, Task},
     reload::should_refresh_for_change,
 };
@@ -167,5 +168,7 @@ impl GlobalState {
             }
             Task::Diagnostics(results)
         });
+
+        self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
     }
 }
