@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
 use ide::{
-    code_action::CodeActionResolveStrategy, folding_ranges::FoldingConfig, references::References,
+    code_action::{CodeActionKind, CodeActionResolveStrategy},
+    folding_ranges::FoldingConfig,
+    references::References,
 };
 use itertools::Itertools;
 use span::{FilePosition, FileRange};
@@ -556,14 +558,45 @@ pub(crate) fn handle_code_action(
         (!params.context.diagnostics.is_empty()).then(|| params.context.diagnostics.clone());
 
     let mut res = Vec::new();
-    for (id, assist) in action.into_iter().enumerate() {
+    for (id, mut assist) in action.into_iter().enumerate() {
         let resolve_data =
             resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
-        let code_action = to_proto::code_action(&snap, assist, resolve_data, diag_context.clone())?;
+        let mut action_diags = diag_context.clone();
+        if let Some(diags) = &diag_context {
+            if let Some(filtered) = quick_fix_diagnostics(assist.id.name, diags) {
+                assist.id.kind = CodeActionKind::QuickFix;
+                action_diags = Some(filtered);
+            }
+        }
+        let code_action = to_proto::code_action(&snap, assist, resolve_data, action_diags)?;
         res.push(lsp_types::CodeActionOrCommand::CodeAction(code_action))
     }
 
     Ok(Some(res))
+}
+
+fn quick_fix_diagnostics(
+    action_name: &str,
+    diagnostics: &[lsp_types::Diagnostic],
+) -> Option<Vec<lsp_types::Diagnostic>> {
+    let predicate: fn(&lsp_types::Diagnostic) -> bool = match action_name {
+        "add_missing_connections" => is_missing_connection_diagnostic,
+        "add_missing_parameters" => is_missing_parameter_diagnostic,
+        _ => return None,
+    };
+
+    let matches = diagnostics.iter().filter(|diag| predicate(diag)).cloned().collect::<Vec<_>>();
+    if matches.is_empty() { None } else { Some(matches) }
+}
+
+fn is_missing_connection_diagnostic(diag: &lsp_types::Diagnostic) -> bool {
+    let msg = diag.message.as_str();
+    msg.contains("has no connection")
+        || msg.contains("does not provide a connection for an unnamed port")
+}
+
+fn is_missing_parameter_diagnostic(diag: &lsp_types::Diagnostic) -> bool {
+    diag.message.contains("does not provide a value for parameter")
 }
 
 pub(crate) fn handle_code_action_resolve(
