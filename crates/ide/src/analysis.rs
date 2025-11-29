@@ -12,6 +12,7 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
+    diagnostics,
     Cancellable,
     code_action::{self, CodeAction, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
@@ -55,6 +56,10 @@ impl Analysis {
 
     pub fn file_text(&self, file_id: FileId) -> Cancellable<Arc<str>> {
         self.with_db(|db| db.file_text(file_id))
+    }
+
+    pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::parse_diagnostics(db, file_id))
     }
 }
 

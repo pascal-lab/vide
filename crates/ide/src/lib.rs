@@ -20,6 +20,7 @@ pub mod navigation_target;
 pub mod render;
 pub mod source_change;
 
+pub mod diagnostics;
 pub mod code_action;
 pub mod code_lens;
 pub mod completion;
