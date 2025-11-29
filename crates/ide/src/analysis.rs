@@ -12,7 +12,6 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    diagnostics,
     Cancellable,
     code_action::{self, CodeAction, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
@@ -20,6 +19,7 @@ use crate::{
         CompletionItem,
         context::{CompletionContext, TriggerChar},
     },
+    diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
     folding_ranges::{self, Fold, FoldingConfig},
