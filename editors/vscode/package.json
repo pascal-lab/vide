@@ -43,6 +43,18 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "grammars": [
+      {
+        "language": "verilog",
+        "scopeName": "source.verilog",
+        "path": "./syntaxes/verilog.tmLanguage.json"
+      },
+      {
+        "language": "systemverilog",
+        "scopeName": "source.systemverilog",
+        "path": "./syntaxes/systemverilog.tmLanguage.json"
+      }
+    ],
     "configuration": {
       "title": "Vizsla Language Server",
       "properties": {
