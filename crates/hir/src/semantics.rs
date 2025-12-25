@@ -84,7 +84,7 @@ impl<'db> SemanticsImpl<'db> {
         }
     }
 
-    pub fn parse(&self, file_id: FileId) -> ast::CompilationUnit {
+    pub fn parse(&self, file_id: FileId) -> ast::CompilationUnit<'_> {
         let tree = self.db.parse_src(file_id);
 
         // Unsafe: we garentee that the root node is valid for the lifetime of the db

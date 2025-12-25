@@ -263,13 +263,13 @@ pub enum Selector {
 }
 
 pub(crate) trait LowerExpr {
-    fn expr_ctx(&mut self) -> LowerExprCtx;
+    fn expr_ctx(&mut self) -> LowerExprCtx<'_>;
 }
 
 pub(in crate::hir_def) macro impl_lower_expr {
     ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
         impl $crate::hir_def::expr::LowerExpr for $ctx {
-            fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx {
+            fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx<'_> {
                 $crate::hir_def::expr::LowerExprCtx {
                     db: self.db,
                     exprs: &mut self.$($data.)?exprs,

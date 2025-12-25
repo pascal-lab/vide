@@ -221,7 +221,7 @@ pub struct ContainerParent<'db> {
 }
 
 impl ContainerParent<'_> {
-    pub fn start_from(db: &dyn InternDb, cont_id: ContainerId) -> ContainerParent {
+    pub fn start_from(db: &dyn InternDb, cont_id: ContainerId) -> ContainerParent<'_> {
         ContainerParent { db, cont_id: Some(cont_id) }
     }
 }

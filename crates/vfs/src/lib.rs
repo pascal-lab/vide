@@ -1,5 +1,3 @@
-#![feature(let_chains)]
-
 pub mod anchored_path;
 mod file_set;
 pub mod loader;

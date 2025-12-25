@@ -116,7 +116,7 @@ pub(crate) trait LowerDeclaration: LowerDecl + LowerEventExpr {
 
 pub(in crate::hir_def) macro impl_lower_declaration($ctx:ty, $data:ident, $src_map:ident) {
     impl $crate::hir_def::declaration::LowerDeclaration for $ctx {
-        fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx {
+        fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx<'_> {
             $crate::hir_def::declaration::LowerDeclarationCtx {
                 db: self.db,
                 declarations: &mut self.$data.declarations,

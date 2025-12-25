@@ -50,7 +50,7 @@ pub type ProcId = Idx<Proc>;
 define_src!(ProcSrc(ast::ProceduralBlock));
 
 pub(crate) trait LowerProc: LowerStmt {
-    fn proc_ctx(&mut self) -> LowerProcCtx;
+    fn proc_ctx(&mut self) -> LowerProcCtx<'_>;
 }
 
 pub(crate) struct LowerProcCtx<'a> {
