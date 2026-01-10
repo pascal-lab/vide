@@ -210,7 +210,13 @@ impl Config {
             completion_provider: Some(
                 lsp_types::CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".into()]),
+                    trigger_characters: Some(vec![
+                        ".".into(),
+                        "#".into(),
+                        "`".into(),
+                        "(".into(),
+                        ")".into(),
+                    ]),
                     ..Default::default()
                 }
                 .into(),
