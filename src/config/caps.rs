@@ -207,7 +207,14 @@ impl Config {
             ),
             selection_range_provider: Some(true.into()),
             hover_provider: Some(true.into()),
-            completion_provider: None,
+            completion_provider: Some(
+                lsp_types::CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![".".into()]),
+                    ..Default::default()
+                }
+                .into(),
+            ),
             signature_help_provider: SignatureHelpOptions {
                 trigger_characters: Some(["(", ",", "."].map(String::from).into()),
                 retrigger_characters: None,
