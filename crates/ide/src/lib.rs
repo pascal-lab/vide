@@ -22,6 +22,7 @@ pub mod source_change;
 
 pub mod code_action;
 pub mod code_lens;
+pub mod completion;
 pub mod document_highlight;
 pub mod document_symbols;
 pub mod folding_ranges;
@@ -30,7 +31,6 @@ pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
 pub mod inlay_hint;
-pub mod completion;
 pub mod references;
 pub mod rename;
 pub mod selection_ranges;

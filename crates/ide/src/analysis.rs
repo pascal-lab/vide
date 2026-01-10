@@ -14,8 +14,8 @@ use vfs::FileId;
 use crate::{
     Cancellable,
     code_action::{self, CodeAction, CodeActionResolveStrategy},
-    completion::context::CompletionContext,
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
+    completion::context::{CompletionContext, TriggerChar},
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
     folding_ranges::{self, Fold, FoldingConfig},
@@ -178,7 +178,15 @@ impl Analysis {
     }
 
     pub fn completion_context(&self, position: FilePosition) -> Cancellable<CompletionContext> {
-        self.with_db(|db| crate::completion::context::completion_context(db, position))
+        self.completion_context_with_trigger(position, None)
+    }
+
+    pub fn completion_context_with_trigger(
+        &self,
+        position: FilePosition,
+        trigger: Option<TriggerChar>,
+    ) -> Cancellable<CompletionContext> {
+        self.with_db(|db| crate::completion::context::completion_context(db, position, trigger))
     }
 
     pub fn code_action(

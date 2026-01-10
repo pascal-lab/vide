@@ -29,10 +29,29 @@ pub(crate) fn handle_completion(
     snap: GlobalStateSnapshot,
     params: lsp_types::CompletionParams,
 ) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
-    use ide::completion::context::{DotKind, HashKind, LexContext, ParenListKind, Qualifier};
+    use ide::completion::context::{
+        DotKind, HashKind, LexContext, ParenListKind, Qualifier, TriggerChar,
+    };
 
     let position = from_proto::file_position(&snap, params.text_document_position)?;
-    let ctx = snap.analysis.completion_context(position)?;
+
+    let trigger = params
+        .context
+        .as_ref()
+        .and_then(|ctx| ctx.trigger_character.as_deref())
+        .and_then(|s| s.chars().next())
+        .and_then(|ch| match ch {
+            '.' => Some(TriggerChar::Dot),
+            '(' => Some(TriggerChar::OpenParen),
+            ',' => Some(TriggerChar::Comma),
+            ' ' => Some(TriggerChar::Space),
+            '@' => Some(TriggerChar::At),
+            '#' => Some(TriggerChar::Hash),
+            '`' => Some(TriggerChar::Backtick),
+            _ => None,
+        });
+
+    let ctx = snap.analysis.completion_context_with_trigger(position, trigger)?;
 
     let label = match (ctx.lex, ctx.qualifier, ctx.syn) {
         (LexContext::LineComment, _, _) => "LineComment".to_owned(),
@@ -54,6 +73,8 @@ pub(crate) fn handle_completion(
             ParenListKind::PortConnections => "PortConnectionList".to_owned(),
             ParenListKind::Arguments => "ArgumentList".to_owned(),
         },
+        (LexContext::Code, Some(Qualifier::AfterAt(_)), _) => "AfterAtEventControl".to_owned(),
+        (LexContext::Code, Some(Qualifier::AfterBacktick), _) => "AfterBacktick".to_owned(),
         (LexContext::Code, None, syn) => format!("{syn:?}"),
     };
 

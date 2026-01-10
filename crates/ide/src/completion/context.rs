@@ -51,6 +51,11 @@ pub enum ParenListKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtKind {
+    EventControl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AfterDot {
     pub kind: DotKind,
 }
@@ -70,12 +75,26 @@ pub enum Qualifier {
     AfterDot(AfterDot),
     AfterHash(AfterHash),
     InParenList(InParenList),
+    AfterAt(AtKind),
+    AfterBacktick,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerChar {
+    Dot,
+    OpenParen,
+    Comma,
+    Space,
+    At,
+    Hash,
+    Backtick,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionContext {
     pub replacement: TextRange,
     pub prefix: String,
+    pub trigger: Option<TriggerChar>,
     pub lex: LexContext,
     pub syn: SynContext,
     pub qualifier: Option<Qualifier>,
@@ -84,13 +103,18 @@ pub struct CompletionContext {
 pub(crate) fn completion_context(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
+    trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     let sema = Semantics::new(db);
     let file = sema.parse(file_id);
-    detect_completion_context(file.syntax(), offset)
+    detect_completion_context(file.syntax(), offset, trigger)
 }
 
-pub fn detect_completion_context(root: SyntaxNode<'_>, offset: TextSize) -> CompletionContext {
+pub fn detect_completion_context(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    trigger: Option<TriggerChar>,
+) -> CompletionContext {
     let (replacement, prefix) = replacement_and_prefix(root, offset);
 
     let lex = detect_lex_context(root, offset);
@@ -98,16 +122,16 @@ pub fn detect_completion_context(root: SyntaxNode<'_>, offset: TextSize) -> Comp
         return CompletionContext {
             replacement,
             prefix,
+            trigger,
             lex,
             syn: SynContext::TopLevel,
             qualifier: None,
         };
     }
 
-    let (syn, qualifier) = detect_syn_context(root, offset);
-    CompletionContext { replacement, prefix, lex, syn, qualifier }
+    let (syn, qualifier) = detect_syn_context(root, offset, trigger);
+    CompletionContext { replacement, prefix, trigger, lex, syn, qualifier }
 }
-
 
 fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange, String) {
     let token_at = root.token_at_offset(offset);
@@ -169,7 +193,6 @@ fn detect_lex_context(root: SyntaxNode<'_>, offset: TextSize) -> LexContext {
 
     LexContext::Code
 }
-
 
 fn is_inside_string_literal(root: SyntaxNode<'_>, offset: TextSize) -> bool {
     let tok = root.token_at_offset(offset).left_biased();
@@ -253,7 +276,19 @@ fn is_preproc_directive_kind(kind: syntax::SyntaxKind) -> bool {
     )
 }
 
-fn detect_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> (SynContext, Option<Qualifier>) {
+fn detect_syn_context(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    trigger: Option<TriggerChar>,
+) -> (SynContext, Option<Qualifier>) {
+    if trigger == Some(TriggerChar::At) {
+        return (SynContext::SensitivityList, Some(Qualifier::AfterAt(AtKind::EventControl)));
+    }
+
+    if trigger == Some(TriggerChar::Backtick) {
+        return (base_syn_context(root, offset), Some(Qualifier::AfterBacktick));
+    }
+
     if let Some(qualifier) = qualifier_after_dot(root, offset) {
         let syn = match qualifier {
             Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort | DotKind::NamedParam }) => {
@@ -298,21 +333,25 @@ fn detect_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> (SynContext, Op
         return (SynContext::SensitivityList, None);
     }
 
+    (base_syn_context(root, offset), None)
+}
+
+fn base_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> SynContext {
     let elem = root.covering_element(TextRange::empty(offset));
     let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return (SynContext::TopLevel, None);
+        return SynContext::TopLevel;
     };
 
     if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_HEADER) {
-        return (SynContext::ModuleHeader, None);
+        return SynContext::ModuleHeader;
     }
 
     if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_DECLARATION)
     {
-        return (SynContext::ModuleItem, None);
+        return SynContext::ModuleItem;
     }
 
-    (SynContext::TopLevel, None)
+    SynContext::TopLevel
 }
 
 fn qualifier_after_dot(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
@@ -323,47 +362,43 @@ fn qualifier_after_dot(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifi
 
     for anc in SyntaxAncestors::start_from(node) {
         if let Some(named) = ast::NamedPortConnection::cast(anc) {
-            let (Some(dot), Some(name)) = (named.dot(), named.name()) else {
-                return None;
+            let Some(dot) = named.dot() else {
+                continue;
             };
 
             let Some(dot_range) = dot.text_range() else {
-                return None;
-            };
-            let Some(name_range) = name.text_range() else {
-                return None;
+                continue;
             };
 
             let zone_end = named
                 .open_paren()
                 .and_then(|t| t.text_range())
                 .map(|r| r.start())
-                .unwrap_or_else(|| name_range.end());
+                .or_else(|| named.name().and_then(|t| t.text_range()).map(|r| r.end()))
+                .unwrap_or_else(|| dot_range.end());
 
-            if offset >= dot_range.end() && offset <= zone_end && offset <= name_range.end() {
+            if offset >= dot_range.end() && offset <= zone_end {
                 return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort }));
             }
         }
 
         if let Some(named) = ast::NamedParamAssignment::cast(anc) {
-            let (Some(dot), Some(name)) = (named.dot(), named.name()) else {
-                return None;
+            let Some(dot) = named.dot() else {
+                continue;
             };
 
             let Some(dot_range) = dot.text_range() else {
-                return None;
-            };
-            let Some(name_range) = name.text_range() else {
-                return None;
+                continue;
             };
 
             let zone_end = named
                 .open_paren()
                 .and_then(|t| t.text_range())
                 .map(|r| r.start())
-                .unwrap_or_else(|| name_range.end());
+                .or_else(|| named.name().and_then(|t| t.text_range()).map(|r| r.end()))
+                .unwrap_or_else(|| dot_range.end());
 
-            if offset >= dot_range.end() && offset <= zone_end && offset <= name_range.end() {
+            if offset >= dot_range.end() && offset <= zone_end {
                 return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam }));
             }
         }
@@ -408,9 +443,7 @@ fn qualifier_after_hash(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualif
                 continue;
             };
             if hash_range.end() == offset {
-                return Some(Qualifier::AfterHash(AfterHash {
-                    kind: HashKind::ParameterPortList,
-                }));
+                return Some(Qualifier::AfterHash(AfterHash { kind: HashKind::ParameterPortList }));
             }
         }
     }
@@ -451,7 +484,9 @@ fn qualifier_in_paren_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qua
 
         if let Some(list) = ast::ArgumentList::cast(anc) {
             if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }));
+                return Some(Qualifier::InParenList(InParenList {
+                    kind: ParenListKind::Arguments,
+                }));
             }
         }
     }
@@ -464,13 +499,19 @@ fn in_parens(
     open_paren: Option<syntax::SyntaxToken<'_>>,
     close_paren: Option<syntax::SyntaxToken<'_>>,
 ) -> bool {
-    let (Some(open), Some(close)) = (open_paren, close_paren) else {
+    let Some(open) = open_paren else {
         return false;
     };
-    let (Some(open_range), Some(close_range)) = (open.text_range(), close.text_range()) else {
+    let Some(open_range) = open.text_range() else {
         return false;
     };
-    offset >= open_range.end() && offset <= close_range.start()
+
+    let close_start = close_paren
+        .and_then(|t| t.text_range())
+        .map(|r| r.start())
+        .unwrap_or_else(|| TextSize::from(u32::MAX));
+
+    offset >= open_range.end() && offset <= close_start
 }
 
 fn token_before_offset(
@@ -516,6 +557,10 @@ mod tests {
     static NEXT_FILE_ID: AtomicUsize = AtomicUsize::new(0);
 
     fn ctx(text: &str) -> CompletionContext {
+        ctx_with_trigger(text, None)
+    }
+
+    fn ctx_with_trigger(text: &str, trigger: Option<TriggerChar>) -> CompletionContext {
         let _guard = PARSE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
         let marker = "/*caret*/";
@@ -526,7 +571,7 @@ mod tests {
         let path = format!("test_{id}.v");
         let tree = SyntaxTree::from_text(&owned, "test", &path);
         let root = tree.root().unwrap();
-        detect_completion_context(root, TextSize::from(off as u32))
+        detect_completion_context(root, TextSize::from(off as u32), trigger)
     }
 
     #[test]
@@ -561,9 +606,25 @@ mod tests {
     }
 
     #[test]
+    fn detects_named_port_after_dot_without_name() {
+        let c = ctx("module m(input a); endmodule\nmodule top; m u0(./*caret*/); endmodule\n");
+        assert_eq!(c.syn, SynContext::Instantiation);
+        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort })));
+    }
+
+    #[test]
     fn detects_named_param_after_dot() {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/W(1)) u0(); endmodule\n",
+        );
+        assert_eq!(c.syn, SynContext::Instantiation);
+        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam })));
+    }
+
+    #[test]
+    fn detects_named_param_after_dot_without_name() {
+        let c = ctx(
+            "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/) u0(); endmodule\n",
         );
         assert_eq!(c.syn, SynContext::Instantiation);
         assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam })));
@@ -606,11 +667,39 @@ mod tests {
     }
 
     #[test]
+    fn detects_port_connection_list_without_close_paren() {
+        let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/\nendmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }))
+        );
+    }
+
+    #[test]
     fn detects_argument_list() {
         let c = ctx("module m; initial f(/*caret*/); endmodule\n");
         assert_eq!(
             c.qualifier,
             Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }))
         );
+    }
+
+    #[test]
+    fn detects_after_at_trigger() {
+        let c = ctx_with_trigger(
+            "module m; always @/*caret*/(posedge clk) begin end endmodule\n",
+            Some(TriggerChar::At),
+        );
+        assert_eq!(c.syn, SynContext::SensitivityList);
+        assert_eq!(c.qualifier, Some(Qualifier::AfterAt(AtKind::EventControl)));
+    }
+
+    #[test]
+    fn detects_after_backtick_trigger() {
+        let c = ctx_with_trigger(
+            "module m; initial `/*caret*/FOO; endmodule\n",
+            Some(TriggerChar::Backtick),
+        );
+        assert_eq!(c.qualifier, Some(Qualifier::AfterBacktick));
     }
 }
