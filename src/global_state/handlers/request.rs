@@ -29,7 +29,7 @@ pub(crate) fn handle_completion(
     snap: GlobalStateSnapshot,
     params: lsp_types::CompletionParams,
 ) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
-    use ide::completion::context::{DotKind, LexContext, Qualifier};
+    use ide::completion::context::{DotKind, HashKind, LexContext, ParenListKind, Qualifier};
 
     let position = from_proto::file_position(&snap, params.text_document_position)?;
     let ctx = snap.analysis.completion_context(position)?;
@@ -43,6 +43,16 @@ pub(crate) fn handle_completion(
             DotKind::NamedPort => "NamedPort".to_owned(),
             DotKind::NamedParam => "NamedParam".to_owned(),
             DotKind::Member => "HierMember".to_owned(),
+        },
+        (LexContext::Code, Some(Qualifier::AfterHash(after_hash)), _) => match after_hash.kind {
+            HashKind::ParamValueAssignment => "AfterHashParamValueAssignment".to_owned(),
+            HashKind::ParameterPortList => "AfterHashParameterPortList".to_owned(),
+        },
+        (LexContext::Code, Some(Qualifier::InParenList(in_list)), _) => match in_list.kind {
+            ParenListKind::ParamValueAssignment => "ParamValueAssignmentList".to_owned(),
+            ParenListKind::ParameterPortList => "ParameterPortList".to_owned(),
+            ParenListKind::PortConnections => "PortConnectionList".to_owned(),
+            ParenListKind::Arguments => "ArgumentList".to_owned(),
         },
         (LexContext::Code, None, syn) => format!("{syn:?}"),
     };
