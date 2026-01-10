@@ -1,7 +1,12 @@
+use hir::semantics::Semantics;
+use ide_db::root_db::RootDb;
+use span::FilePosition;
 use syntax::{
-    SyntaxAncestors, SyntaxCursorExt, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, SyntaxTrivia,
-    TokenKind, has_text_range::HasTextRange, token::SyntaxTokenExt,
+    SyntaxAncestors, SyntaxCursorExt, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
+    SyntaxTrivia, TokenKind,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
+    token::SyntaxTokenExt,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -49,6 +54,15 @@ pub struct CompletionContext {
     pub lex: LexContext,
     pub syn: SynContext,
     pub qualifier: Option<Qualifier>,
+}
+
+pub(crate) fn completion_context(
+    db: &RootDb,
+    FilePosition { file_id, offset }: FilePosition,
+) -> CompletionContext {
+    let sema = Semantics::new(db);
+    let file = sema.parse(file_id);
+    detect_completion_context(file.syntax(), offset)
 }
 
 pub fn detect_completion_context(root: SyntaxNode<'_>, offset: TextSize) -> CompletionContext {
@@ -128,7 +142,10 @@ fn detect_lex_context(root: SyntaxNode<'_>, offset: TextSize) -> LexContext {
 
 fn is_inside_string_literal(root: SyntaxNode<'_>, offset: TextSize) -> bool {
     let tok = root.token_at_offset(offset).left_biased();
-    tok.is_some_and(|tp| tp.kind() == TokenKind::STRING_LITERAL && tp.text_range().is_some_and(|r| r.contains(offset)))
+    tok.is_some_and(|tp| {
+        tp.kind() == TokenKind::STRING_LITERAL
+            && tp.text_range().is_some_and(|r| r.contains(offset))
+    })
 }
 
 fn trivia_at_offset(root: SyntaxNode<'_>, offset: TextSize) -> Option<SyntaxTrivia<'_>> {
@@ -159,10 +176,6 @@ fn token_after_or_at_offset(
 }
 
 fn detect_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> (SynContext, Option<Qualifier>) {
-    if is_in_sv_only_syntax(root, offset) {
-        return (SynContext::UnsupportedSv, None);
-    }
-
     if let Some(qualifier) = qualifier_after_dot(root, offset) {
         let syn = match qualifier {
             Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort | DotKind::NamedParam }) => {
@@ -186,44 +199,12 @@ fn detect_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> (SynContext, Op
         return (SynContext::ModuleHeader, None);
     }
 
-    if SyntaxAncestors::start_from(node)
-        .any(|n| n.kind() == syntax::SyntaxKind::MODULE_DECLARATION)
+    if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_DECLARATION)
     {
         return (SynContext::ModuleItem, None);
     }
 
     (SynContext::TopLevel, None)
-}
-
-fn is_in_sv_only_syntax(root: SyntaxNode<'_>, offset: TextSize) -> bool {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return false;
-    };
-    SyntaxAncestors::start_from(node).any(|n| is_sv_only_kind(n.kind()))
-}
-
-fn is_sv_only_kind(kind: syntax::SyntaxKind) -> bool {
-    use syntax::SyntaxKind;
-    matches!(
-        kind,
-        SyntaxKind::CLASS_DECLARATION
-            | SyntaxKind::INTERFACE_DECLARATION
-            | SyntaxKind::PACKAGE_DECLARATION
-            | SyntaxKind::PROGRAM_DECLARATION
-            | SyntaxKind::COVERGROUP_DECLARATION
-            | SyntaxKind::CHECKER_DECLARATION
-            | SyntaxKind::CLOCKING_DECLARATION
-            | SyntaxKind::PROPERTY_DECLARATION
-            | SyntaxKind::SEQUENCE_DECLARATION
-            | SyntaxKind::ALWAYS_COMB_BLOCK
-            | SyntaxKind::ALWAYS_FF_BLOCK
-            | SyntaxKind::ALWAYS_LATCH_BLOCK
-            | SyntaxKind::ASSERT_PROPERTY_STATEMENT
-            | SyntaxKind::ASSUME_PROPERTY_STATEMENT
-            | SyntaxKind::COVER_PROPERTY_STATEMENT
-            | SyntaxKind::COVER_SEQUENCE_STATEMENT
-    )
 }
 
 fn qualifier_after_dot(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
@@ -281,10 +262,14 @@ fn qualifier_after_dot(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifi
     }
 
     let prev = token_before_offset(root, offset)?;
-    (prev.kind() == syntax::Token![.]).then_some(Qualifier::AfterDot(AfterDot { kind: DotKind::Member }))
+    (prev.kind() == syntax::Token![.])
+        .then_some(Qualifier::AfterDot(AfterDot { kind: DotKind::Member }))
 }
 
-fn token_before_offset(root: SyntaxNode<'_>, offset: TextSize) -> Option<SyntaxTokenWithParent<'_>> {
+fn token_before_offset(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+) -> Option<SyntaxTokenWithParent<'_>> {
     let mut cursor = root.walk();
     if !cursor.goto_last_tok_before(offset) {
         return None;
@@ -311,12 +296,14 @@ fn is_in_sensitivity_list(root: SyntaxNode<'_>, offset: TextSize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::{
         Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
     };
+
     use syntax::SyntaxTree;
+
+    use super::*;
 
     static PARSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static NEXT_FILE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -362,7 +349,9 @@ mod tests {
 
     #[test]
     fn detects_named_param_after_dot() {
-        let c = ctx("module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/W(1)) u0(); endmodule\n");
+        let c = ctx(
+            "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/W(1)) u0(); endmodule\n",
+        );
         assert_eq!(c.syn, SynContext::Instantiation);
         assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam })));
     }
