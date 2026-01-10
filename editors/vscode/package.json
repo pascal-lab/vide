@@ -110,12 +110,12 @@
     ]
   },
   "scripts": {
-    "package": "vsce package",
-    "package:darwin-arm64": "vsce package --out vizsla-vscode-darwin-arm64.vsix",
-    "package:darwin-x64": "vsce package --out vizsla-vscode-darwin-x64.vsix",
-    "package:linux-x64": "vsce package --out vizsla-vscode-linux-x64.vsix",
-    "package:linux-arm64": "vsce package --out vizsla-vscode-linux-arm64.vsix",
-    "package:win32-x64": "vsce package --out vizsla-vscode-win32-x64.vsix",
+    "package": "bash scripts/package.sh",
+    "package:darwin-arm64": "bash scripts/package.sh darwin-arm64",
+    "package:darwin-x64": "bash scripts/package.sh darwin-x64",
+    "package:linux-x64": "bash scripts/package.sh linux-x64",
+    "package:linux-arm64": "bash scripts/package.sh linux-arm64",
+    "package:win32-x64": "bash scripts/package.sh win32-x64",
     "install-extension": "code --install-extension vizsla-vscode-*.vsix"
   },
   "dependencies": {
