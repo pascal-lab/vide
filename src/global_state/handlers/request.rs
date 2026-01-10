@@ -25,6 +25,37 @@ pub(crate) fn handle_goto_definition(
     Ok(Some(res))
 }
 
+pub(crate) fn handle_completion(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::CompletionParams,
+) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
+    use ide::completion::context::{DotKind, LexContext, Qualifier};
+
+    let position = from_proto::file_position(&snap, params.text_document_position)?;
+    let ctx = snap.analysis.completion_context(position)?;
+
+    let label = match (ctx.lex, ctx.qualifier, ctx.syn) {
+        (LexContext::LineComment, _, _) => "LineComment".to_owned(),
+        (LexContext::BlockComment, _, _) => "BlockComment".to_owned(),
+        (LexContext::StringLiteral, _, _) => "StringLiteral".to_owned(),
+        (LexContext::PreprocDirective, _, _) => "PreprocDirective".to_owned(),
+        (LexContext::Code, Some(Qualifier::AfterDot(after_dot)), _) => match after_dot.kind {
+            DotKind::NamedPort => "NamedPort".to_owned(),
+            DotKind::NamedParam => "NamedParam".to_owned(),
+            DotKind::Member => "HierMember".to_owned(),
+        },
+        (LexContext::Code, None, syn) => format!("{syn:?}"),
+    };
+
+    let item = lsp_types::CompletionItem {
+        label,
+        kind: Some(lsp_types::CompletionItemKind::TEXT),
+        ..Default::default()
+    };
+
+    Ok(Some(lsp_types::CompletionResponse::Array(vec![item])))
+}
+
 pub(crate) fn handle_goto_declaration(
     snap: GlobalStateSnapshot,
     params: lsp_types::request::GotoDeclarationParams,
