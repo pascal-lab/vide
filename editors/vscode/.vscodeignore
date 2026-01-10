@@ -10,4 +10,5 @@ vsc-extension-quickstart.md
 **/*.ts
 pnpm-lock.yaml
 package-lock.json
+bun.lock
 scripts/**

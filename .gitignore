@@ -21,5 +21,6 @@ generated.rs
 
 .DS_Store
 .vscode/
+.clice/
 
 rustc-ice*
