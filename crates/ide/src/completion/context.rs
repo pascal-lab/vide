@@ -548,6 +548,12 @@ mod tests {
     }
 
     #[test]
+    fn detects_preproc_directive() {
+        let c = ctx("`define /*caret*/FOO 1\nmodule m; endmodule\n");
+        assert_eq!(c.lex, LexContext::PreprocDirective);
+    }
+
+    #[test]
     fn detects_named_port_after_dot() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(./*caret*/a()); endmodule\n");
         assert_eq!(c.syn, SynContext::Instantiation);
