@@ -27,7 +27,6 @@ pub enum SynContext {
     Instantiation,
     HierRef,
     SensitivityList,
-    UnsupportedSv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,13 +37,39 @@ pub enum DotKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HashKind {
+    ParamValueAssignment,
+    ParameterPortList,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParenListKind {
+    ParamValueAssignment,
+    ParameterPortList,
+    PortConnections,
+    Arguments,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AfterDot {
     pub kind: DotKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AfterHash {
+    pub kind: HashKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InParenList {
+    pub kind: ParenListKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Qualifier {
     AfterDot(AfterDot),
+    AfterHash(AfterHash),
+    InParenList(InParenList),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +107,7 @@ pub fn detect_completion_context(root: SyntaxNode<'_>, offset: TextSize) -> Comp
     let (syn, qualifier) = detect_syn_context(root, offset);
     CompletionContext { replacement, prefix, lex, syn, qualifier }
 }
+
 
 fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange, String) {
     let token_at = root.token_at_offset(offset);
@@ -137,8 +163,13 @@ fn detect_lex_context(root: SyntaxNode<'_>, offset: TextSize) -> LexContext {
         };
     }
 
+    if is_inside_preproc_directive_node(root, offset) {
+        return LexContext::PreprocDirective;
+    }
+
     LexContext::Code
 }
+
 
 fn is_inside_string_literal(root: SyntaxNode<'_>, offset: TextSize) -> bool {
     let tok = root.token_at_offset(offset).left_biased();
@@ -175,6 +206,53 @@ fn token_after_or_at_offset(
     cursor.to_tok_with_parent()
 }
 
+fn is_inside_preproc_directive_node(root: SyntaxNode<'_>, offset: TextSize) -> bool {
+    let elem = root.covering_element(TextRange::empty(offset));
+    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
+        return false;
+    };
+
+    SyntaxAncestors::start_from(node).any(|n| is_preproc_directive_kind(n.kind()))
+}
+
+fn is_preproc_directive_kind(kind: syntax::SyntaxKind) -> bool {
+    use syntax::SyntaxKind;
+    matches!(
+        kind,
+        SyntaxKind::BEGIN_KEYWORDS_DIRECTIVE
+            | SyntaxKind::CELL_DEFINE_DIRECTIVE
+            | SyntaxKind::DEFAULT_DECAY_TIME_DIRECTIVE
+            | SyntaxKind::DEFAULT_NET_TYPE_DIRECTIVE
+            | SyntaxKind::DEFAULT_TRIREG_STRENGTH_DIRECTIVE
+            | SyntaxKind::DEFINE_DIRECTIVE
+            | SyntaxKind::DELAY_MODE_DISTRIBUTED_DIRECTIVE
+            | SyntaxKind::DELAY_MODE_PATH_DIRECTIVE
+            | SyntaxKind::DELAY_MODE_UNIT_DIRECTIVE
+            | SyntaxKind::DELAY_MODE_ZERO_DIRECTIVE
+            | SyntaxKind::ELSE_DIRECTIVE
+            | SyntaxKind::ELS_IF_DIRECTIVE
+            | SyntaxKind::END_CELL_DEFINE_DIRECTIVE
+            | SyntaxKind::END_IF_DIRECTIVE
+            | SyntaxKind::END_KEYWORDS_DIRECTIVE
+            | SyntaxKind::END_PROTECT_DIRECTIVE
+            | SyntaxKind::END_PROTECTED_DIRECTIVE
+            | SyntaxKind::IF_DEF_DIRECTIVE
+            | SyntaxKind::IF_N_DEF_DIRECTIVE
+            | SyntaxKind::INCLUDE_DIRECTIVE
+            | SyntaxKind::LINE_DIRECTIVE
+            | SyntaxKind::NO_UNCONNECTED_DRIVE_DIRECTIVE
+            | SyntaxKind::PRAGMA_DIRECTIVE
+            | SyntaxKind::PROTECT_DIRECTIVE
+            | SyntaxKind::PROTECTED_DIRECTIVE
+            | SyntaxKind::RESET_ALL_DIRECTIVE
+            | SyntaxKind::TIME_SCALE_DIRECTIVE
+            | SyntaxKind::UNCONNECTED_DRIVE_DIRECTIVE
+            | SyntaxKind::UNDEF_DIRECTIVE
+            | SyntaxKind::UNDEFINE_ALL_DIRECTIVE
+            | SyntaxKind::BIND_DIRECTIVE
+    )
+}
+
 fn detect_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> (SynContext, Option<Qualifier>) {
     if let Some(qualifier) = qualifier_after_dot(root, offset) {
         let syn = match qualifier {
@@ -182,6 +260,36 @@ fn detect_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> (SynContext, Op
                 SynContext::Instantiation
             }
             Qualifier::AfterDot(AfterDot { kind: DotKind::Member }) => SynContext::HierRef,
+            _ => unreachable!(),
+        };
+        return (syn, Some(qualifier));
+    }
+
+    if let Some(qualifier) = qualifier_after_hash(root, offset) {
+        let syn = match qualifier {
+            Qualifier::AfterHash(AfterHash { kind: HashKind::ParamValueAssignment }) => {
+                SynContext::Instantiation
+            }
+            Qualifier::AfterHash(AfterHash { kind: HashKind::ParameterPortList }) => {
+                SynContext::ModuleHeader
+            }
+            _ => unreachable!(),
+        };
+        return (syn, Some(qualifier));
+    }
+
+    if let Some(qualifier) = qualifier_in_paren_list(root, offset) {
+        let syn = match qualifier {
+            Qualifier::InParenList(InParenList {
+                kind: ParenListKind::ParamValueAssignment | ParenListKind::PortConnections,
+            }) => SynContext::Instantiation,
+            Qualifier::InParenList(InParenList { kind: ParenListKind::ParameterPortList }) => {
+                SynContext::ModuleHeader
+            }
+            Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }) => {
+                SynContext::ModuleItem
+            }
+            _ => unreachable!(),
         };
         return (syn, Some(qualifier));
     }
@@ -264,6 +372,105 @@ fn qualifier_after_dot(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifi
     let prev = token_before_offset(root, offset)?;
     (prev.kind() == syntax::Token![.])
         .then_some(Qualifier::AfterDot(AfterDot { kind: DotKind::Member }))
+}
+
+fn qualifier_after_hash(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
+    let prev = token_before_offset(root, offset)?;
+    if prev.kind() != syntax::Token![#] {
+        return None;
+    }
+
+    let elem = root.covering_element(TextRange::empty(offset));
+    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
+        return None;
+    };
+
+    for anc in SyntaxAncestors::start_from(node) {
+        if let Some(params) = ast::ParameterValueAssignment::cast(anc) {
+            let Some(hash) = params.hash() else {
+                continue;
+            };
+            let Some(hash_range) = hash.text_range() else {
+                continue;
+            };
+            if hash_range.end() == offset {
+                return Some(Qualifier::AfterHash(AfterHash {
+                    kind: HashKind::ParamValueAssignment,
+                }));
+            }
+        }
+
+        if let Some(params) = ast::ParameterPortList::cast(anc) {
+            let Some(hash) = params.hash() else {
+                continue;
+            };
+            let Some(hash_range) = hash.text_range() else {
+                continue;
+            };
+            if hash_range.end() == offset {
+                return Some(Qualifier::AfterHash(AfterHash {
+                    kind: HashKind::ParameterPortList,
+                }));
+            }
+        }
+    }
+
+    None
+}
+
+fn qualifier_in_paren_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
+    let elem = root.covering_element(TextRange::empty(offset));
+    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
+        return None;
+    };
+
+    for anc in SyntaxAncestors::start_from(node) {
+        if let Some(list) = ast::ParameterValueAssignment::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InParenList(InParenList {
+                    kind: ParenListKind::ParamValueAssignment,
+                }));
+            }
+        }
+
+        if let Some(list) = ast::ParameterPortList::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InParenList(InParenList {
+                    kind: ParenListKind::ParameterPortList,
+                }));
+            }
+        }
+
+        if let Some(list) = ast::HierarchicalInstance::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InParenList(InParenList {
+                    kind: ParenListKind::PortConnections,
+                }));
+            }
+        }
+
+        if let Some(list) = ast::ArgumentList::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }));
+            }
+        }
+    }
+
+    None
+}
+
+fn in_parens(
+    offset: TextSize,
+    open_paren: Option<syntax::SyntaxToken<'_>>,
+    close_paren: Option<syntax::SyntaxToken<'_>>,
+) -> bool {
+    let (Some(open), Some(close)) = (open_paren, close_paren) else {
+        return false;
+    };
+    let (Some(open_range), Some(close_range)) = (open.text_range(), close.text_range()) else {
+        return false;
+    };
+    offset >= open_range.end() && offset <= close_range.start()
 }
 
 fn token_before_offset(
@@ -361,5 +568,43 @@ mod tests {
         let c = ctx("module m; wire a; initial top.sub./*caret*/a; endmodule\n");
         assert_eq!(c.syn, SynContext::HierRef);
         assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::Member })));
+    }
+
+    #[test]
+    fn detects_param_value_assignment_list() {
+        let c = ctx(
+            "module m #(parameter W=1) (); endmodule\nmodule top; m #(/*caret*/1) u0(); endmodule\n",
+        );
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::ParamValueAssignment }))
+        );
+    }
+
+    #[test]
+    fn detects_parameter_port_list() {
+        let c = ctx("module m #(/*caret*/parameter W=1) (); endmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::ParameterPortList }))
+        );
+    }
+
+    #[test]
+    fn detects_port_connection_list() {
+        let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/); endmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }))
+        );
+    }
+
+    #[test]
+    fn detects_argument_list() {
+        let c = ctx("module m; initial f(/*caret*/); endmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }))
+        );
     }
 }
