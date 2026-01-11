@@ -85,6 +85,10 @@ impl<Entry: Copy> Scope<Entry> {
         self.entries.get(ident).copied()
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&Ident, Entry)> + '_ {
+        self.entries.iter().map(|(k, v)| (k, *v))
+    }
+
     pub(crate) fn get_mut(&mut self, ident: &Ident) -> Option<&mut Entry> {
         self.entries.get_mut(ident)
     }
