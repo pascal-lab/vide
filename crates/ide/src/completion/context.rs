@@ -77,6 +77,8 @@ pub enum Qualifier {
     InParenList(InParenList),
     AfterAt(AtKind),
     AfterBacktick,
+    InNamedPortConnExpr,
+    InNamedParamAssignExpr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,6 +315,16 @@ fn detect_syn_context(
         return (syn, Some(qualifier));
     }
 
+    if let Some(qualifier) = qualifier_in_named_conn_expr(root, offset) {
+        let syn = match qualifier {
+            Qualifier::InNamedPortConnExpr | Qualifier::InNamedParamAssignExpr => {
+                SynContext::Instantiation
+            }
+            _ => unreachable!(),
+        };
+        return (syn, Some(qualifier));
+    }
+
     if let Some(qualifier) = qualifier_in_paren_list(root, offset) {
         let syn = match qualifier {
             Qualifier::InParenList(InParenList {
@@ -494,6 +506,35 @@ fn qualifier_in_paren_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qua
     None
 }
 
+fn qualifier_in_named_conn_expr(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
+    let elem = root.covering_element(TextRange::empty(offset));
+    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
+        return None;
+    };
+
+    for anc in SyntaxAncestors::start_from(node) {
+        if let Some(conn) = ast::NamedPortConnection::cast(anc) {
+            if conn.name().is_none() {
+                continue;
+            }
+            if in_parens(offset, conn.open_paren(), conn.close_paren()) {
+                return Some(Qualifier::InNamedPortConnExpr);
+            }
+        }
+
+        if let Some(conn) = ast::NamedParamAssignment::cast(anc) {
+            if conn.name().is_none() {
+                continue;
+            }
+            if in_parens(offset, conn.open_paren(), conn.close_paren()) {
+                return Some(Qualifier::InNamedParamAssignExpr);
+            }
+        }
+    }
+
+    None
+}
+
 fn in_parens(
     offset: TextSize,
     open_paren: Option<syntax::SyntaxToken<'_>>,
@@ -628,6 +669,29 @@ mod tests {
         );
         assert_eq!(c.syn, SynContext::Instantiation);
         assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam })));
+    }
+
+    #[test]
+    fn detects_named_port_conn_expr_after_name() {
+        let c = ctx("module m(input a); endmodule\nmodule top; m u0(.a(/*caret*/)); endmodule\n");
+        assert_eq!(c.syn, SynContext::Instantiation);
+        assert_eq!(c.qualifier, Some(Qualifier::InNamedPortConnExpr));
+    }
+
+    #[test]
+    fn detects_named_port_conn_expr_after_name_without_close_paren() {
+        let c = ctx("module m(input a); endmodule\nmodule top; m u0(.a(/*caret*/\nendmodule\n");
+        assert_eq!(c.syn, SynContext::Instantiation);
+        assert_eq!(c.qualifier, Some(Qualifier::InNamedPortConnExpr));
+    }
+
+    #[test]
+    fn detects_named_param_assign_expr_after_name() {
+        let c = ctx(
+            "module m #(parameter W=1) (); endmodule\nmodule top; m #(.W(/*caret*/)) u0(); endmodule\n",
+        );
+        assert_eq!(c.syn, SynContext::Instantiation);
+        assert_eq!(c.qualifier, Some(Qualifier::InNamedParamAssignExpr));
     }
 
     #[test]
