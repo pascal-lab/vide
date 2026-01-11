@@ -222,12 +222,15 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
         let Some(range) = item.syntax().text_range() else {
             continue;
         };
-        if (range.is_empty() && range.start() == offset)
-            || (!range.is_empty() && range.contains(offset))
-        {
+        if range.is_empty() && range.start() == offset {
             return idx;
         }
-        if range.end() < offset || (!range.is_empty() && range.end() == offset) {
+
+        if !range.is_empty() && (range.contains(offset) || range.end() == offset) {
+            return idx;
+        }
+
+        if range.end() < offset {
             idx += 1;
         } else {
             break;

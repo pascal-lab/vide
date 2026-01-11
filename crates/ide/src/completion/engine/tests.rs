@@ -116,3 +116,18 @@ fn completes_ordered_param_assign_expr_by_width() {
     assert!(labels.contains(&"P8".to_string()));
     assert!(!labels.contains(&"P4".to_string()));
 }
+
+#[test]
+fn completes_first_ordered_param_assign_at_token_end() {
+    let items = completions_in_text(
+        "module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule\n\
+         module top;\n\
+         localparam [3:0] P4 = 4;\n\
+         localparam [7:0] P8 = 8;\n\
+         m #(P/*caret*/) u0();\n\
+         endmodule\n",
+    );
+    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
+    assert!(labels.contains(&"P4".to_string()));
+    assert!(!labels.contains(&"P8".to_string()));
+}
