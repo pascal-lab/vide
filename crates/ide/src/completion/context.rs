@@ -148,7 +148,28 @@ fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange,
                 right_range.is_some_and(|r| r.start() == offset).then_some(right)
             }
         }
-        syntax::TokenAtOffset::None => None,
+        syntax::TokenAtOffset::None => {
+            // Most commonly happens at EOF (offset == text_len), where slang returns None.
+            // Use the token just before the cursor, but only if it ends at the cursor.
+            if offset > TextSize::new(0) {
+                let prev_off = offset - TextSize::new(1);
+                match root.token_at_offset(prev_off) {
+                    syntax::TokenAtOffset::Single(tok) => {
+                        tok.text_range().is_some_and(|r| r.end() == offset).then_some(tok)
+                    }
+                    syntax::TokenAtOffset::Between(left, right) => {
+                        if left.text_range().is_some_and(|r| r.end() == offset) {
+                            Some(left)
+                        } else {
+                            right.text_range().is_some_and(|r| r.end() == offset).then_some(right)
+                        }
+                    }
+                    syntax::TokenAtOffset::None => None,
+                }
+            } else {
+                None
+            }
+        }
     };
 
     let Some(tok_with_parent) = tok_with_parent else {
@@ -656,6 +677,13 @@ mod tests {
     fn replacement_includes_keywords() {
         let c = ctx("module/*caret*/ m; endmodule\n");
         assert_eq!(c.prefix, "module");
+        assert!(!c.replacement.is_empty());
+    }
+
+    #[test]
+    fn replacement_at_eof_identifier() {
+        let c = ctx("mo/*caret*/");
+        assert_eq!(c.prefix, "mo");
         assert!(!c.replacement.is_empty());
     }
 
