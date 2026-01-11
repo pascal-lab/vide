@@ -6,7 +6,7 @@ use syntax::{
     SyntaxTrivia, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
-    token::SyntaxTokenExt,
+    token::{SyntaxTokenExt, SyntaxTokenWithParentExt},
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -176,7 +176,7 @@ fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange,
         return (TextRange::empty(offset), String::new());
     };
 
-    if is_word_like_token(tok_with_parent) {
+    if tok_with_parent.is_word_like() {
         let range = tok_with_parent.text_range().unwrap_or_else(|| TextRange::empty(offset));
         let prefix = if range.contains(offset) || range.end() == offset {
             let upto = usize::from(offset - range.start());
@@ -192,20 +192,6 @@ fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange,
         (range, prefix)
     } else {
         (TextRange::empty(offset), String::new())
-    }
-}
-
-fn is_word_like_token(tok: SyntaxTokenWithParent<'_>) -> bool {
-    match tok.kind() {
-        TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => true,
-        _ => {
-            let text = tok.tok.value_text().to_string();
-            let Some(first) = text.chars().next() else {
-                return false;
-            };
-            (first.is_ascii_alphabetic() || first == '_')
-                && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-        }
     }
 }
 

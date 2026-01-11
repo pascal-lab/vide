@@ -51,6 +51,45 @@ impl TokenKindExt for TokenKind {
     }
 }
 
+pub trait SyntaxTokenWithParentExt<'a> {
+    fn is_word_like(&self) -> bool;
+}
+
+impl<'a> SyntaxTokenWithParentExt<'a> for SyntaxTokenWithParent<'a> {
+    #[inline]
+    fn is_word_like(&self) -> bool {
+        match self.kind() {
+            TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => true,
+            _ => is_word_like_value_text(&self.tok.value_text().to_string()),
+        }
+    }
+}
+
+#[inline]
+fn is_word_like_value_text(text: &str) -> bool {
+    fn is_ident_start(b: u8) -> bool {
+        matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'_')
+    }
+
+    fn is_ident_continue(b: u8) -> bool {
+        is_ident_start(b) || matches!(b, b'0'..=b'9' | b'$')
+    }
+
+    let bytes = text.as_bytes();
+    let Some((&first, rest)) = bytes.split_first() else {
+        return false;
+    };
+
+    if first == b'$' {
+        let Some((&second, rest)) = rest.split_first() else {
+            return false;
+        };
+        is_ident_start(second) && rest.iter().copied().all(is_ident_continue)
+    } else {
+        is_ident_start(first) && rest.iter().copied().all(is_ident_continue)
+    }
+}
+
 /// [`Either::Left`] represents the beg-token, and [`Either::Right`] represents
 /// the end-token.
 pub fn pair_token(
