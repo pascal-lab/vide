@@ -1,5 +1,7 @@
+mod instantiation;
 mod keywords;
 mod named;
+mod paren_list;
 mod typed_filter;
 
 #[cfg(test)]
@@ -47,7 +49,9 @@ fn completions_with_context(
         }
         None => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
         Some(Qualifier::AfterHash(_)) => Vec::new(),
-        Some(Qualifier::InParenList(_)) => Vec::new(),
+        Some(Qualifier::InParenList(in_parens)) => {
+            paren_list::complete_in_paren_list(db, position, &ctx.prefix, ctx, in_parens.kind)
+        }
         Some(Qualifier::AfterAt(_)) => Vec::new(),
         Some(Qualifier::AfterBacktick) => Vec::new(),
     }

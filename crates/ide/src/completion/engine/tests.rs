@@ -38,6 +38,22 @@ fn completions_in_text(text: &str) -> Vec<CompletionItem> {
 }
 
 #[test]
+fn offers_module_instantiation_snippets() {
+    let items = completions_in_text(
+        "module Foo; endmodule\n\
+         module top;\n\
+         Fo/*caret*/\n\
+         endmodule\n",
+    );
+
+    let foo = items.iter().find(|it| it.label == "Foo").expect("missing Foo completion");
+    assert_eq!(foo.kind, CompletionItemKind::Snippet);
+    assert!(foo.snippet_edit.as_ref().is_some_and(|e| e.ins.contains("Foo ${1:u0}(")));
+
+    assert!(items.iter().any(|it| it.label == "Foo #(...)"));
+}
+
+#[test]
 fn filters_named_port_connection_expr_by_width() {
     let items = completions_in_text(
         "module m(input [3:0] a); endmodule\n\
@@ -67,4 +83,36 @@ fn filters_named_param_assign_expr_by_width() {
     let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
     assert!(labels.contains(&"P4".to_string()));
     assert!(!labels.contains(&"P8".to_string()));
+}
+
+#[test]
+fn completes_ordered_port_connection_expr_by_width() {
+    let items = completions_in_text(
+        "module m(input [3:0] a, input [7:0] b); endmodule\n\
+         module top;\n\
+         wire [3:0] sig4;\n\
+         wire [7:0] sig8;\n\
+         wire sig1;\n\
+         m u0(sig4, /*caret*/);\n\
+         endmodule\n",
+    );
+    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
+    assert!(labels.contains(&"sig8".to_string()));
+    assert!(!labels.contains(&"sig4".to_string()));
+    assert!(!labels.contains(&"sig1".to_string()));
+}
+
+#[test]
+fn completes_ordered_param_assign_expr_by_width() {
+    let items = completions_in_text(
+        "module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule\n\
+         module top;\n\
+         localparam [3:0] P4 = 4;\n\
+         localparam [7:0] P8 = 8;\n\
+         m #(P4, /*caret*/) u0();\n\
+         endmodule\n",
+    );
+    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
+    assert!(labels.contains(&"P8".to_string()));
+    assert!(!labels.contains(&"P4".to_string()));
 }

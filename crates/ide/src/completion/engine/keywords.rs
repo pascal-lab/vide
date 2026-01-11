@@ -1,3 +1,4 @@
+use hir::db::HirDb;
 use ide_db::root_db::RootDb;
 use span::FilePosition;
 use utils::text_edit::TextEditItem;
@@ -6,7 +7,7 @@ use super::named::{CompletionItem, CompletionItemKind};
 use crate::completion::context::{CompletionContext, SynContext};
 
 pub(super) fn complete_keywords(
-    _db: &RootDb,
+    db: &RootDb,
     _position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
@@ -23,10 +24,15 @@ pub(super) fn complete_keywords(
         _ => &[],
     };
 
-    all.iter()
+    let mut items: Vec<_> = all
+        .iter()
         .filter(|kw| kw.label.starts_with(prefix))
         .map(|kw| kw.to_completion(ctx.replacement))
-        .collect()
+        .collect();
+
+    items.extend(module_instantiation_snippets(db, prefix, ctx));
+
+    items
 }
 
 #[derive(Clone, Copy)]
@@ -189,4 +195,58 @@ fn module_item_keywords() -> &'static [Keyword<'static>] {
             kind: CompletionItemKind::Keyword,
         },
     ]
+}
+
+fn module_instantiation_snippets(
+    db: &RootDb,
+    prefix: &str,
+    ctx: &CompletionContext,
+) -> Vec<CompletionItem> {
+    use hir::scope::UnitEntry;
+
+    if ctx.syn != SynContext::ModuleItem {
+        return Vec::new();
+    }
+
+    if prefix.is_empty() {
+        return Vec::new();
+    }
+
+    let mut modules: Vec<String> = db
+        .unit_scope()
+        .iter()
+        .filter_map(|(ident, entry)| matches!(entry, UnitEntry::ModuleId(_)).then_some(ident))
+        .map(|ident| ident.to_string())
+        .filter(|name| name.starts_with(prefix))
+        .collect();
+
+    modules.sort();
+    modules.dedup();
+
+    let replace = ctx.replacement;
+    modules
+        .into_iter()
+        .flat_map(|name| {
+            let plain = format!("{name} u0();");
+            let snippet = format!("{name} ${{1:u0}}(${{2:ports}});");
+
+            let plain_with_params = format!("{name} #() u0();");
+            let snippet_with_params = format!("{name} #(${{1:params}}) ${{2:u0}}(${{3:ports}});");
+
+            [
+                CompletionItem {
+                    label: name.clone(),
+                    kind: CompletionItemKind::Snippet,
+                    edit: Some(TextEditItem::replace(replace, plain)),
+                    snippet_edit: Some(TextEditItem::replace(replace, snippet)),
+                },
+                CompletionItem {
+                    label: format!("{name} #(...)"),
+                    kind: CompletionItemKind::Snippet,
+                    edit: Some(TextEditItem::replace(replace, plain_with_params)),
+                    snippet_edit: Some(TextEditItem::replace(replace, snippet_with_params)),
+                },
+            ]
+        })
+        .collect()
 }
