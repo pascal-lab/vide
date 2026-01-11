@@ -16,7 +16,16 @@ use crate::completion::context::CompletionContext;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionItem {
     pub label: String,
+    pub kind: CompletionItemKind,
     pub edit: Option<TextEditItem>,
+    pub snippet_edit: Option<TextEditItem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionItemKind {
+    Text,
+    Keyword,
+    Snippet,
 }
 
 pub(super) fn complete_named_port_names(
@@ -39,9 +48,15 @@ pub(super) fn complete_named_port_names(
     ports_of_module(db, target_module_id)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
+        .map(|name| {
+            let plain = format!("{name}()");
+            let snippet = format!("{name}(${{1:expr}})");
+            CompletionItem {
+                label: name.clone(),
+                kind: CompletionItemKind::Text,
+                edit: Some(TextEditItem::replace(ctx.replacement, plain)),
+                snippet_edit: Some(TextEditItem::replace(ctx.replacement, snippet)),
+            }
         })
         .collect()
 }
@@ -66,9 +81,15 @@ pub(super) fn complete_named_param_names(
     overridable_params_of_module(db, target_module_id)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
+        .map(|name| {
+            let plain = format!("{name}()");
+            let snippet = format!("{name}(${{1:expr}})");
+            CompletionItem {
+                label: name.clone(),
+                kind: CompletionItemKind::Text,
+                edit: Some(TextEditItem::replace(ctx.replacement, plain)),
+                snippet_edit: Some(TextEditItem::replace(ctx.replacement, snippet)),
+            }
         })
         .collect()
 }
@@ -122,7 +143,9 @@ pub(super) fn complete_named_port_conn_expr(
         })
         .map(|(name, _)| CompletionItem {
             label: name.clone(),
+            kind: CompletionItemKind::Text,
             edit: Some(TextEditItem::replace(ctx.replacement, name)),
+            snippet_edit: None,
         })
         .collect()
 }
@@ -176,7 +199,9 @@ pub(super) fn complete_named_param_assign_expr(
         })
         .map(|(name, _)| CompletionItem {
             label: name.clone(),
+            kind: CompletionItemKind::Text,
             edit: Some(TextEditItem::replace(ctx.replacement, name)),
+            snippet_edit: None,
         })
         .collect()
 }

@@ -46,6 +46,19 @@ impl Config {
         ) == Some(true)
     }
 
+    pub fn cli_completion_snippet_support(&self) -> bool {
+        try_or_default!(
+            self.client_caps
+                .text_document
+                .as_ref()?
+                .completion
+                .as_ref()?
+                .completion_item
+                .as_ref()?
+                .snippet_support?
+        )
+    }
+
     pub fn hierarchical_symbols(&self) -> bool {
         try_!(
             self.client_caps

@@ -1,4 +1,4 @@
 pub mod context;
 mod engine;
 
-pub use engine::{CompletionItem, completions};
+pub use engine::{CompletionItem, CompletionItemKind, completions};

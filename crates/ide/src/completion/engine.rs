@@ -1,3 +1,4 @@
+mod keywords;
 mod named;
 mod typed_filter;
 
@@ -7,7 +8,7 @@ mod tests;
 use ide_db::root_db::RootDb;
 use span::FilePosition;
 
-pub use self::named::CompletionItem;
+pub use self::named::{CompletionItem, CompletionItemKind};
 use crate::completion::context::{
     CompletionContext, DotKind, LexContext, Qualifier, TriggerChar, completion_context,
 };
@@ -44,10 +45,10 @@ fn completions_with_context(
         Some(Qualifier::InNamedParamAssignExpr) => {
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
+        None => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
         Some(Qualifier::AfterHash(_)) => Vec::new(),
         Some(Qualifier::InParenList(_)) => Vec::new(),
         Some(Qualifier::AfterAt(_)) => Vec::new(),
         Some(Qualifier::AfterBacktick) => Vec::new(),
-        None => Vec::new(),
     }
 }
