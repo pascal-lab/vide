@@ -155,23 +155,36 @@ fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange,
         return (TextRange::empty(offset), String::new());
     };
 
-    match tok_with_parent.kind() {
-        TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => {
-            let range = tok_with_parent.text_range().unwrap_or_else(|| TextRange::empty(offset));
-            let prefix = if range.contains(offset) || range.end() == offset {
-                let upto = usize::from(offset - range.start());
-                let text = tok_with_parent.tok.raw_text().to_string();
-                if upto <= text.len() && text.is_char_boundary(upto) {
-                    text[..upto].to_string()
-                } else {
-                    String::new()
-                }
+    if is_word_like_token(tok_with_parent) {
+        let range = tok_with_parent.text_range().unwrap_or_else(|| TextRange::empty(offset));
+        let prefix = if range.contains(offset) || range.end() == offset {
+            let upto = usize::from(offset - range.start());
+            let text = tok_with_parent.tok.raw_text().to_string();
+            if upto <= text.len() && text.is_char_boundary(upto) {
+                text[..upto].to_string()
             } else {
                 String::new()
+            }
+        } else {
+            String::new()
+        };
+        (range, prefix)
+    } else {
+        (TextRange::empty(offset), String::new())
+    }
+}
+
+fn is_word_like_token(tok: SyntaxTokenWithParent<'_>) -> bool {
+    match tok.kind() {
+        TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => true,
+        _ => {
+            let text = tok.tok.value_text().to_string();
+            let Some(first) = text.chars().next() else {
+                return false;
             };
-            (range, prefix)
+            (first.is_ascii_alphabetic() || first == '_')
+                && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
         }
-        _ => (TextRange::empty(offset), String::new()),
     }
 }
 
@@ -637,6 +650,13 @@ mod tests {
     fn detects_preproc_directive() {
         let c = ctx("`define /*caret*/FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::PreprocDirective);
+    }
+
+    #[test]
+    fn replacement_includes_keywords() {
+        let c = ctx("module/*caret*/ m; endmodule\n");
+        assert_eq!(c.prefix, "module");
+        assert!(!c.replacement.is_empty());
     }
 
     #[test]
