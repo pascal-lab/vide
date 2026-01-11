@@ -131,3 +131,31 @@ fn completes_first_ordered_param_assign_at_token_end() {
     assert!(labels.contains(&"P4".to_string()));
     assert!(!labels.contains(&"P8".to_string()));
 }
+
+#[test]
+fn filters_already_connected_named_port_names_in_list() {
+    let items = completions_in_text(
+        "module m(input [3:0] a, input [7:0] b); endmodule\n\
+         module top;\n\
+         wire [3:0] sig4;\n\
+         m u0(.a(sig4), /*caret*/);\n\
+         endmodule\n",
+    );
+    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
+    assert!(!labels.contains(&"a".to_string()));
+    assert!(labels.contains(&"b".to_string()));
+}
+
+#[test]
+fn filters_already_assigned_named_param_names_in_list() {
+    let items = completions_in_text(
+        "module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule\n\
+         module top;\n\
+         localparam [3:0] P4 = 4;\n\
+         m #(.W(P4), /*caret*/) u0();\n\
+         endmodule\n",
+    );
+    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
+    assert!(!labels.contains(&"W".to_string()));
+    assert!(labels.contains(&"Z".to_string()));
+}

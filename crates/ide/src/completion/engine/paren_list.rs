@@ -1,5 +1,6 @@
-use hir::{db::HirDb, semantics::Semantics};
+use hir::{db::HirDb, hir_def::lower_ident_opt, semantics::Semantics};
 use ide_db::root_db::RootDb;
+use rustc_hash::FxHashSet;
 use span::FilePosition;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
@@ -68,8 +69,14 @@ fn complete_port_connections(
 
     let mut has_named = false;
     let mut has_ordered = false;
+    let mut used_named_ports: FxHashSet<hir::hir_def::Ident> = FxHashSet::default();
     for conn in instance.connections().children() {
-        has_named |= conn.as_named_port_connection().is_some();
+        if let Some(named) = conn.as_named_port_connection() {
+            has_named = true;
+            if let Some(name) = lower_ident_opt(named.name()) {
+                used_named_ports.insert(name);
+            }
+        }
         has_ordered |= conn.as_ordered_port_connection().is_some();
     }
 
@@ -77,6 +84,7 @@ fn complete_port_connections(
         return ports_of_module_sorted(db, target_module_id)
             .into_iter()
             .filter(|name| name.as_str().starts_with(prefix))
+            .filter(|name| !used_named_ports.contains(name))
             .map(|name| {
                 let label = name.to_string();
                 let plain = format!(".{label}()");
@@ -156,8 +164,14 @@ fn complete_param_value_assignment(
 
     let mut has_named = false;
     let mut has_ordered = false;
+    let mut used_named_params: FxHashSet<hir::hir_def::Ident> = FxHashSet::default();
     for assignment in params.parameters().children() {
-        has_named |= assignment.as_named_param_assignment().is_some();
+        if let Some(named) = assignment.as_named_param_assignment() {
+            has_named = true;
+            if let Some(name) = lower_ident_opt(named.name()) {
+                used_named_params.insert(name);
+            }
+        }
         has_ordered |= assignment.as_ordered_param_assignment().is_some();
     }
 
@@ -165,6 +179,7 @@ fn complete_param_value_assignment(
         return overridable_params_of_module_sorted(db, target_module_id)
             .into_iter()
             .filter(|name| name.as_str().starts_with(prefix))
+            .filter(|name| !used_named_params.contains(name))
             .map(|name| {
                 let label = name.to_string();
                 let plain = format!(".{label}()");
