@@ -15,7 +15,10 @@ use crate::{
     Cancellable,
     code_action::{self, CodeAction, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
-    completion::context::{CompletionContext, TriggerChar},
+    completion::{
+        CompletionItem,
+        context::{CompletionContext, TriggerChar},
+    },
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
     folding_ranges::{self, Fold, FoldingConfig},
@@ -187,6 +190,14 @@ impl Analysis {
         trigger: Option<TriggerChar>,
     ) -> Cancellable<CompletionContext> {
         self.with_db(|db| crate::completion::context::completion_context(db, position, trigger))
+    }
+
+    pub fn completions_with_trigger(
+        &self,
+        position: FilePosition,
+        trigger: Option<TriggerChar>,
+    ) -> Cancellable<Vec<CompletionItem>> {
+        self.with_db(|db| crate::completion::completions(db, position, trigger))
     }
 
     pub fn code_action(

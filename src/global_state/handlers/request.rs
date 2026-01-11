@@ -29,11 +29,11 @@ pub(crate) fn handle_completion(
     snap: GlobalStateSnapshot,
     params: lsp_types::CompletionParams,
 ) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
-    use ide::completion::context::{
-        DotKind, HashKind, LexContext, ParenListKind, Qualifier, TriggerChar,
-    };
+    use ide::completion::context::TriggerChar;
+    use lsp_types::CompletionTextEdit;
 
     let position = from_proto::file_position(&snap, params.text_document_position)?;
+    let line_info = snap.line_info(position.file_id)?;
 
     let trigger = params
         .context
@@ -51,40 +51,20 @@ pub(crate) fn handle_completion(
             _ => None,
         });
 
-    let ctx = snap.analysis.completion_context_with_trigger(position, trigger)?;
+    let items = snap.analysis.completions_with_trigger(position, trigger)?;
+    let items = items
+        .into_iter()
+        .map(|item| lsp_types::CompletionItem {
+            label: item.label,
+            kind: Some(lsp_types::CompletionItemKind::TEXT),
+            text_edit: item
+                .edit
+                .map(|edit| CompletionTextEdit::Edit(to_proto::text_edit(&line_info, edit))),
+            ..Default::default()
+        })
+        .collect();
 
-    let label = match (ctx.lex, ctx.qualifier, ctx.syn) {
-        (LexContext::LineComment, _, _) => "LineComment".to_owned(),
-        (LexContext::BlockComment, _, _) => "BlockComment".to_owned(),
-        (LexContext::StringLiteral, _, _) => "StringLiteral".to_owned(),
-        (LexContext::PreprocDirective, _, _) => "PreprocDirective".to_owned(),
-        (LexContext::Code, Some(Qualifier::AfterDot(after_dot)), _) => match after_dot.kind {
-            DotKind::NamedPort => "NamedPort".to_owned(),
-            DotKind::NamedParam => "NamedParam".to_owned(),
-            DotKind::Member => "HierMember".to_owned(),
-        },
-        (LexContext::Code, Some(Qualifier::AfterHash(after_hash)), _) => match after_hash.kind {
-            HashKind::ParamValueAssignment => "AfterHashParamValueAssignment".to_owned(),
-            HashKind::ParameterPortList => "AfterHashParameterPortList".to_owned(),
-        },
-        (LexContext::Code, Some(Qualifier::InParenList(in_list)), _) => match in_list.kind {
-            ParenListKind::ParamValueAssignment => "ParamValueAssignmentList".to_owned(),
-            ParenListKind::ParameterPortList => "ParameterPortList".to_owned(),
-            ParenListKind::PortConnections => "PortConnectionList".to_owned(),
-            ParenListKind::Arguments => "ArgumentList".to_owned(),
-        },
-        (LexContext::Code, Some(Qualifier::AfterAt(_)), _) => "AfterAtEventControl".to_owned(),
-        (LexContext::Code, Some(Qualifier::AfterBacktick), _) => "AfterBacktick".to_owned(),
-        (LexContext::Code, None, syn) => format!("{syn:?}"),
-    };
-
-    let item = lsp_types::CompletionItem {
-        label,
-        kind: Some(lsp_types::CompletionItemKind::TEXT),
-        ..Default::default()
-    };
-
-    Ok(Some(lsp_types::CompletionResponse::Array(vec![item])))
+    Ok(Some(lsp_types::CompletionResponse::Array(items)))
 }
 
 pub(crate) fn handle_goto_declaration(
