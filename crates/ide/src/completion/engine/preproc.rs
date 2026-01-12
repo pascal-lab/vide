@@ -49,30 +49,28 @@ pub(super) fn complete_directives(prefix: &str, ctx: &CompletionContext) -> Vec<
         snippet_map.insert(entry.label.clone(), entry);
     }
 
-    directive_keywords()
-        .iter()
-        .filter(|kw| kw.starts_with(prefix))
-        .map(|kw| {
-            if let Some(entry) = snippet_map.get(kw) {
-                CompletionItem {
-                    label: entry.label.clone(),
-                    kind: CompletionItemKind::Snippet,
-                    edit: Some(TextEditItem::replace(ctx.replacement, entry.plain.clone())),
-                    snippet_edit: Some(TextEditItem::replace(
-                        ctx.replacement,
-                        entry.snippet.clone(),
-                    )),
-                }
-            } else {
-                CompletionItem {
-                    label: kw.clone(),
-                    kind: CompletionItemKind::Keyword,
-                    edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
-                    snippet_edit: None,
-                }
-            }
-        })
-        .collect()
+    let mut items = Vec::new();
+    for kw in directive_keywords().iter().filter(|kw| kw.starts_with(prefix)) {
+        if let Some(entry) = snippet_map.get(kw) {
+            items.push(CompletionItem {
+                label: entry.label.clone(),
+                kind: CompletionItemKind::Snippet,
+                edit: Some(TextEditItem::replace(ctx.replacement, entry.plain.clone())),
+                snippet_edit: Some(TextEditItem::replace(
+                    ctx.replacement,
+                    entry.snippet.clone(),
+                )),
+            });
+        }
+        items.push(CompletionItem {
+            label: kw.clone(),
+            kind: CompletionItemKind::Keyword,
+            edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
+            snippet_edit: None,
+        });
+    }
+
+    items
 }
 
 fn directive_keywords() -> &'static Vec<String> {

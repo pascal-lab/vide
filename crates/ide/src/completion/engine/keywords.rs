@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::OnceLock};
+use std::{collections::BTreeMap, sync::OnceLock};
 
 use hir::db::HirDb;
 use ide_db::root_db::RootDb;
@@ -119,15 +119,15 @@ fn keywords_config() -> &'static KeywordsConfig {
         let generated = generated_keywords();
 
         KeywordsConfig {
-            top_level: merge_keywords(
+            top_level: combine_keywords(
                 Vec::new(),
                 snippets_to_keywords(snippets::entries(&manual.top_level)),
             ),
-            module_header: merge_keywords(
+            module_header: combine_keywords(
                 Vec::new(),
                 snippets_to_keywords(snippets::entries(&manual.module_header)),
             ),
-            module_item: merge_keywords(
+            module_item: combine_keywords(
                 generated,
                 snippets_to_keywords(snippets::entries(&manual.module_item)),
             ),
@@ -135,22 +135,22 @@ fn keywords_config() -> &'static KeywordsConfig {
     })
 }
 
-fn merge_keywords(generated: Vec<Keyword>, manual: Vec<Keyword>) -> Vec<Keyword> {
-    let mut seen = HashSet::new();
-    let mut merged = Vec::with_capacity(generated.len() + manual.len());
-
-    for kw in manual {
-        seen.insert(kw.label.clone());
-        merged.push(kw);
-    }
-
+fn combine_keywords(generated: Vec<Keyword>, snippets: Vec<Keyword>) -> Vec<Keyword> {
+    let mut by_label: BTreeMap<String, Vec<Keyword>> = BTreeMap::new();
     for kw in generated {
-        if seen.insert(kw.label.clone()) {
-            merged.push(kw);
-        }
+        by_label.entry(kw.label.clone()).or_default().push(kw);
+    }
+    for kw in snippets {
+        by_label.entry(kw.label.clone()).or_default().push(kw);
     }
 
-    merged
+    let mut combined = Vec::new();
+    for (_label, mut entries) in by_label {
+        entries.sort_by_key(keyword_sort_key);
+        combined.extend(entries);
+    }
+
+    combined
 }
 
 fn generated_keywords() -> Vec<Keyword> {
@@ -169,6 +169,13 @@ fn generated_keywords() -> Vec<Keyword> {
             kind: KeywordKind::Keyword,
         })
         .collect()
+}
+
+fn keyword_sort_key(keyword: &Keyword) -> u8 {
+    match keyword.kind {
+        KeywordKind::Keyword => 0,
+        KeywordKind::Snippet => 1,
+    }
 }
 
 fn module_instantiation_snippets(
