@@ -59,7 +59,9 @@ fn completions_with_context(
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
         None => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
-        Some(Qualifier::AfterHash(_)) => Vec::new(),
+        Some(Qualifier::AfterHash(after_hash)) => {
+            paren_list::complete_after_hash(&ctx.prefix, ctx, after_hash.kind)
+        }
         Some(Qualifier::InParenList(in_parens)) => {
             paren_list::complete_in_paren_list(db, position, &ctx.prefix, ctx, in_parens.kind)
         }

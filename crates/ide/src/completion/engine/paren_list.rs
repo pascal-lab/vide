@@ -20,7 +20,8 @@ use super::{
         value_candidates_in_module,
     },
 };
-use crate::completion::context::{CompletionContext, ParenListKind};
+use crate::completion::context::{CompletionContext, HashKind, ParenListKind};
+use crate::completion::engine::snippets;
 
 pub(super) fn complete_in_paren_list(
     db: &RootDb,
@@ -34,8 +35,65 @@ pub(super) fn complete_in_paren_list(
         ParenListKind::ParamValueAssignment => {
             complete_param_value_assignment(db, position, prefix, ctx)
         }
+        ParenListKind::ParameterPortList => complete_parameter_port_list(prefix, ctx),
         _ => Vec::new(),
     }
+}
+
+pub(super) fn complete_after_hash(
+    _prefix: &str,
+    ctx: &CompletionContext,
+    kind: HashKind,
+) -> Vec<CompletionItem> {
+    let label = match kind {
+        HashKind::ParamValueAssignment => "#(...)",
+        HashKind::ParameterPortList => "#(...)",
+    };
+
+    vec![CompletionItem {
+        label: label.to_string(),
+        kind: CompletionItemKind::Snippet,
+        edit: Some(TextEditItem::replace(ctx.replacement, "()".to_string())),
+        snippet_edit: Some(TextEditItem::replace(
+            ctx.replacement,
+            "(${1:params})".to_string(),
+        )),
+    }]
+}
+
+fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<CompletionItem> {
+    let mut items = Vec::new();
+
+    let snippet_entries = snippets::entries(&snippets::snippet_config().module_item);
+    for entry in snippet_entries {
+        if !matches!(entry.label.as_str(), "parameter" | "localparam") {
+            continue;
+        }
+        if !entry.label.starts_with(prefix) {
+            continue;
+        }
+        items.push(CompletionItem {
+            label: entry.label,
+            kind: CompletionItemKind::Snippet,
+            edit: Some(TextEditItem::replace(ctx.replacement, entry.plain)),
+            snippet_edit: Some(TextEditItem::replace(ctx.replacement, entry.snippet)),
+        });
+    }
+
+    let extra_keywords = ["parameter", "localparam", "integer", "real", "realtime", "time", "signed", "unsigned"];
+    for kw in extra_keywords {
+        if !kw.starts_with(prefix) {
+            continue;
+        }
+        items.push(CompletionItem {
+            label: kw.to_string(),
+            kind: CompletionItemKind::Keyword,
+            edit: Some(TextEditItem::replace(ctx.replacement, kw.to_string())),
+            snippet_edit: None,
+        });
+    }
+
+    items
 }
 
 fn complete_port_connections(
