@@ -149,20 +149,18 @@ fn keywords_config() -> &'static KeywordsConfig {
     static KEYWORDS: OnceLock<KeywordsConfig> = OnceLock::new();
     KEYWORDS.get_or_init(|| {
         let manual_raw = include_str!("snippets.toml");
-        let generated_raw = include_str!(concat!(env!("OUT_DIR"), "/keywords.generated.toml"));
 
         let manual: SnippetConfig =
             toml::from_str(manual_raw).expect("snippets.toml must be valid");
-        let generated: KeywordsConfig =
-            toml::from_str(generated_raw).expect("keywords.generated.toml must be valid");
+        let generated = generated_keywords();
 
         KeywordsConfig {
-            top_level: merge_keywords(generated.top_level, snippets_to_keywords(manual.top_level)),
+            top_level: merge_keywords(Vec::new(), snippets_to_keywords(manual.top_level)),
             module_header: merge_keywords(
-                generated.module_header,
+                Vec::new(),
                 snippets_to_keywords(manual.module_header),
             ),
-            module_item: merge_keywords(generated.module_item, snippets_to_keywords(manual.module_item)),
+            module_item: merge_keywords(generated, snippets_to_keywords(manual.module_item)),
         }
     })
 }
@@ -183,6 +181,24 @@ fn merge_keywords(generated: Vec<Keyword>, manual: Vec<Keyword>) -> Vec<Keyword>
     }
 
     merged
+}
+
+fn generated_keywords() -> Vec<Keyword> {
+    let mut keywords = syntax::keyword_table_for_version("1364-2005");
+    if keywords.is_empty() {
+        keywords = syntax::verilog_2005_keywords();
+    }
+    keywords.sort();
+    keywords.dedup();
+    keywords
+        .into_iter()
+        .map(|kw| Keyword {
+            label: kw.clone(),
+            plain: kw,
+            snippet: None,
+            kind: KeywordKind::Keyword,
+        })
+        .collect()
 }
 
 fn module_instantiation_snippets(

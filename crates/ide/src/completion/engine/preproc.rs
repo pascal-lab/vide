@@ -41,6 +41,7 @@ const DIRECTIVE_KINDS: &[SyntaxKind] = &[
 ];
 
 pub(super) fn complete_directives(prefix: &str, ctx: &CompletionContext) -> Vec<CompletionItem> {
+    let prefix = prefix.strip_prefix('`').unwrap_or(prefix);
     directive_keywords()
         .iter()
         .filter(|kw| kw.starts_with(prefix))
@@ -60,7 +61,8 @@ fn directive_keywords() -> &'static Vec<String> {
             .iter()
             .filter_map(|kind| {
                 let text = syntax::directive_text(*kind);
-                (!text.is_empty()).then_some(text)
+                let text = text.trim_start_matches('`');
+                (!text.is_empty()).then_some(text.to_string())
             })
             .collect();
         items.sort();
