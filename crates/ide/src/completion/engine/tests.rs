@@ -1,4 +1,7 @@
+use std::path::PathBuf;
+
 use base_db::{change::Change, source_root::SourceRoot};
+use insta::assert_debug_snapshot;
 use triomphe::Arc;
 use utils::{lines::LineEnding, text_edit::TextSize};
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
@@ -37,125 +40,33 @@ fn completions_in_text(text: &str) -> Vec<CompletionItem> {
     super::completions(host.raw_db(), position, None)
 }
 
-#[test]
-fn offers_module_instantiation_snippets() {
-    let items = completions_in_text(
-        "module Foo; endmodule\n\
-         module top;\n\
-         Fo/*caret*/\n\
-         endmodule\n",
-    );
-
-    let foo = items.iter().find(|it| it.label == "Foo").expect("missing Foo completion");
-    assert_eq!(foo.kind, CompletionItemKind::Snippet);
-    assert!(foo.snippet_edit.as_ref().is_some_and(|e| e.ins.contains("Foo ${1:u0}(")));
-
-    assert!(items.iter().any(|it| it.label == "Foo #(...)"));
+fn fixtures_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/completion/engine/fixtures")
 }
 
 #[test]
-fn filters_named_port_connection_expr_by_width() {
-    let items = completions_in_text(
-        "module m(input [3:0] a); endmodule\n\
-         module top;\n\
-         wire [3:0] sig4;\n\
-         wire [7:0] sig8;\n\
-         wire sig1;\n\
-         m u0(.a(/*caret*/));\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(labels.contains(&"sig4".to_string()));
-    assert!(!labels.contains(&"sig8".to_string()));
-    assert!(!labels.contains(&"sig1".to_string()));
-}
+fn completion_fixtures() {
+    let dir = fixtures_dir();
+    let mut fixtures: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|err| panic!("failed to read fixtures dir {dir:?}: {err}"))
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension()? != "v" {
+                return None;
+            }
+            let name = path.file_stem()?.to_string_lossy().to_string();
+            Some((name, path))
+        })
+        .collect();
 
-#[test]
-fn filters_named_param_assign_expr_by_width() {
-    let items = completions_in_text(
-        "module m #(parameter [3:0] W = 4) (); endmodule\n\
-         module top;\n\
-         localparam [3:0] P4 = 4;\n\
-         localparam [7:0] P8 = 8;\n\
-         m #(.W(/*caret*/)) u0();\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(labels.contains(&"P4".to_string()));
-    assert!(!labels.contains(&"P8".to_string()));
-}
+    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+    assert!(!fixtures.is_empty(), "no fixtures found in {dir:?}");
 
-#[test]
-fn completes_ordered_port_connection_expr_by_width() {
-    let items = completions_in_text(
-        "module m(input [3:0] a, input [7:0] b); endmodule\n\
-         module top;\n\
-         wire [3:0] sig4;\n\
-         wire [7:0] sig8;\n\
-         wire sig1;\n\
-         m u0(sig4, /*caret*/);\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(labels.contains(&"sig8".to_string()));
-    assert!(!labels.contains(&"sig4".to_string()));
-    assert!(!labels.contains(&"sig1".to_string()));
-}
-
-#[test]
-fn completes_ordered_param_assign_expr_by_width() {
-    let items = completions_in_text(
-        "module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule\n\
-         module top;\n\
-         localparam [3:0] P4 = 4;\n\
-         localparam [7:0] P8 = 8;\n\
-         m #(P4, /*caret*/) u0();\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(labels.contains(&"P8".to_string()));
-    assert!(!labels.contains(&"P4".to_string()));
-}
-
-#[test]
-fn completes_first_ordered_param_assign_at_token_end() {
-    let items = completions_in_text(
-        "module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule\n\
-         module top;\n\
-         localparam [3:0] P4 = 4;\n\
-         localparam [7:0] P8 = 8;\n\
-         m #(P/*caret*/) u0();\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(labels.contains(&"P4".to_string()));
-    assert!(!labels.contains(&"P8".to_string()));
-}
-
-#[test]
-fn filters_already_connected_named_port_names_in_list() {
-    let items = completions_in_text(
-        "module m(input [3:0] a, input [7:0] b); endmodule\n\
-         module top;\n\
-         wire [3:0] sig4;\n\
-         m u0(.a(sig4), /*caret*/);\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(!labels.contains(&"a".to_string()));
-    assert!(labels.contains(&"b".to_string()));
-}
-
-#[test]
-fn filters_already_assigned_named_param_names_in_list() {
-    let items = completions_in_text(
-        "module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule\n\
-         module top;\n\
-         localparam [3:0] P4 = 4;\n\
-         m #(.W(P4), /*caret*/) u0();\n\
-         endmodule\n",
-    );
-    let labels: Vec<_> = items.into_iter().map(|it| it.label).collect();
-    assert!(!labels.contains(&"W".to_string()));
-    assert!(labels.contains(&"Z".to_string()));
+    for (name, path) in fixtures {
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read fixture {path:?}: {err}"));
+        let items = completions_in_text(&text);
+        assert_debug_snapshot!(name, items);
+    }
 }

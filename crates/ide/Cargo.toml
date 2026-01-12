@@ -27,3 +27,6 @@ triomphe.workspace = true
 utils.workspace = true
 which = "7.0.0"
 vfs.workspace = true
+
+[dev-dependencies]
+insta = "1.46.0"
