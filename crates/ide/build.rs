@@ -6,7 +6,10 @@ fn main() {
     println!("cargo:rerun-if-changed={}", lexer_path.display());
     println!("cargo:rerun-if-changed={}", manifest_dir.join("build.rs").display());
 
-    let mut keywords = slang::verilog_2005_keywords();
+    let mut keywords = slang::keyword_table_for_version("1364-2005");
+    if keywords.is_empty() {
+        keywords = slang::verilog_2005_keywords();
+    }
     keywords.sort();
     keywords.dedup();
     let output = render_toml(&keywords);

@@ -2,6 +2,7 @@ mod instantiation;
 mod keywords;
 mod named;
 mod paren_list;
+mod preproc;
 mod sensitivity_list;
 mod typed_filter;
 
@@ -30,6 +31,10 @@ fn completions_with_context(
     position: FilePosition,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
+    if ctx.lex == LexContext::PreprocDirective {
+        return preproc::complete_directives(&ctx.prefix, ctx);
+    }
+
     if ctx.lex != LexContext::Code {
         return Vec::new();
     }
@@ -58,6 +63,6 @@ fn completions_with_context(
             paren_list::complete_in_paren_list(db, position, &ctx.prefix, ctx, in_parens.kind)
         }
         Some(Qualifier::AfterAt(_)) => Vec::new(),
-        Some(Qualifier::AfterBacktick) => Vec::new(),
+        Some(Qualifier::AfterBacktick) => preproc::complete_directives(&ctx.prefix, ctx),
     }
 }
