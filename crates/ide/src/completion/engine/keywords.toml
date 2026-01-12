@@ -1,0 +1,553 @@
+[[top_level]]
+label = "module"
+plain = "module"
+snippet = "module ${1:name} (${2:ports});\n\t${0}\nendmodule"
+kind = "snippet"
+
+[[top_level]]
+label = "primitive"
+plain = "primitive"
+snippet = "primitive ${1:name} (${2:ports});\n\t${0}\nendprimitive"
+kind = "snippet"
+
+[[top_level]]
+label = "macromodule"
+plain = "macromodule"
+snippet = "macromodule ${1:name} (${2:ports});\n\t${0}\nendmodule"
+kind = "snippet"
+
+[[module_header]]
+label = "input"
+plain = "input"
+kind = "keyword"
+
+[[module_header]]
+label = "output"
+plain = "output"
+kind = "keyword"
+
+[[module_header]]
+label = "inout"
+plain = "inout"
+kind = "keyword"
+
+[[module_header]]
+label = "wire"
+plain = "wire"
+kind = "keyword"
+
+[[module_header]]
+label = "reg"
+plain = "reg"
+kind = "keyword"
+
+[[module_header]]
+label = "tri"
+plain = "tri"
+kind = "keyword"
+
+[[module_header]]
+label = "tri0"
+plain = "tri0"
+kind = "keyword"
+
+[[module_header]]
+label = "tri1"
+plain = "tri1"
+kind = "keyword"
+
+[[module_header]]
+label = "trireg"
+plain = "trireg"
+kind = "keyword"
+
+[[module_header]]
+label = "triand"
+plain = "triand"
+kind = "keyword"
+
+[[module_header]]
+label = "trior"
+plain = "trior"
+kind = "keyword"
+
+[[module_header]]
+label = "wand"
+plain = "wand"
+kind = "keyword"
+
+[[module_header]]
+label = "wor"
+plain = "wor"
+kind = "keyword"
+
+[[module_header]]
+label = "supply0"
+plain = "supply0"
+kind = "keyword"
+
+[[module_header]]
+label = "supply1"
+plain = "supply1"
+kind = "keyword"
+
+[[module_header]]
+label = "signed"
+plain = "signed"
+kind = "keyword"
+
+[[module_header]]
+label = "integer"
+plain = "integer"
+kind = "keyword"
+
+[[module_header]]
+label = "real"
+plain = "real"
+kind = "keyword"
+
+[[module_header]]
+label = "realtime"
+plain = "realtime"
+kind = "keyword"
+
+[[module_header]]
+label = "time"
+plain = "time"
+kind = "keyword"
+
+[[module_header]]
+label = "vectored"
+plain = "vectored"
+kind = "keyword"
+
+[[module_header]]
+label = "scalared"
+plain = "scalared"
+kind = "keyword"
+
+[[module_header]]
+label = "parameter"
+plain = "parameter"
+kind = "keyword"
+
+[[module_header]]
+label = "localparam"
+plain = "localparam"
+kind = "keyword"
+
+[[module_item]]
+label = "wire"
+plain = "wire"
+snippet = "wire ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "reg"
+plain = "reg"
+snippet = "reg ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "tri"
+plain = "tri"
+snippet = "tri ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "tri0"
+plain = "tri0"
+snippet = "tri0 ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "tri1"
+plain = "tri1"
+snippet = "tri1 ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "trireg"
+plain = "trireg"
+snippet = "trireg ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "triand"
+plain = "triand"
+snippet = "triand ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "trior"
+plain = "trior"
+snippet = "trior ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "wand"
+plain = "wand"
+snippet = "wand ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "wor"
+plain = "wor"
+snippet = "wor ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "supply0"
+plain = "supply0"
+snippet = "supply0 ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "supply1"
+plain = "supply1"
+snippet = "supply1 ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "integer"
+plain = "integer"
+snippet = "integer ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "real"
+plain = "real"
+snippet = "real ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "realtime"
+plain = "realtime"
+snippet = "realtime ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "time"
+plain = "time"
+snippet = "time ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "event"
+plain = "event"
+snippet = "event ${1:name};"
+kind = "snippet"
+
+[[module_item]]
+label = "parameter"
+plain = "parameter"
+snippet = "parameter ${1:NAME} = ${2:VALUE};"
+kind = "snippet"
+
+[[module_item]]
+label = "localparam"
+plain = "localparam"
+snippet = "localparam ${1:NAME} = ${2:VALUE};"
+kind = "snippet"
+
+[[module_item]]
+label = "specparam"
+plain = "specparam"
+snippet = "specparam ${1:NAME} = ${2:VALUE};"
+kind = "snippet"
+
+[[module_item]]
+label = "defparam"
+plain = "defparam"
+snippet = "defparam ${1:path} = ${2:value};"
+kind = "snippet"
+
+[[module_item]]
+label = "genvar"
+plain = "genvar"
+snippet = "genvar ${1:i};"
+kind = "snippet"
+
+[[module_item]]
+label = "generate"
+plain = "generate"
+snippet = "generate\n\t${0}\nendgenerate"
+kind = "snippet"
+
+[[module_item]]
+label = "function"
+plain = "function"
+snippet = "function ${1:name};\n\t${0}\nendfunction"
+kind = "snippet"
+
+[[module_item]]
+label = "task"
+plain = "task"
+snippet = "task ${1:name};\n\t${0}\nendtask"
+kind = "snippet"
+
+[[module_item]]
+label = "assign"
+plain = "assign"
+snippet = "assign ${1:lhs} = ${0:rhs};"
+kind = "snippet"
+
+[[module_item]]
+label = "deassign"
+plain = "deassign"
+snippet = "deassign ${1:lhs};"
+kind = "snippet"
+
+[[module_item]]
+label = "force"
+plain = "force"
+snippet = "force ${1:lhs} = ${0:rhs};"
+kind = "snippet"
+
+[[module_item]]
+label = "release"
+plain = "release"
+snippet = "release ${1:lhs};"
+kind = "snippet"
+
+[[module_item]]
+label = "always"
+plain = "always"
+snippet = "always ${1} begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "always @(*)"
+plain = "always"
+snippet = "always @(*) begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "initial"
+plain = "initial"
+snippet = "initial begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "begin"
+plain = "begin"
+snippet = "begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "fork"
+plain = "fork"
+snippet = "fork\n\t${0}\njoin"
+kind = "snippet"
+
+[[module_item]]
+label = "if"
+plain = "if"
+snippet = "if (${1:cond}) begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "ifelse"
+plain = "if"
+snippet = "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "case"
+plain = "case"
+snippet = "case (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase"
+kind = "snippet"
+
+[[module_item]]
+label = "casez"
+plain = "casez"
+snippet = "casez (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase"
+kind = "snippet"
+
+[[module_item]]
+label = "casex"
+plain = "casex"
+snippet = "casex (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase"
+kind = "snippet"
+
+[[module_item]]
+label = "for"
+plain = "for"
+snippet = "for (${1:i} = ${2:0}; ${3:i} < ${4:N}; ${5:i} = ${6:i} + 1) begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "while"
+plain = "while"
+snippet = "while (${1:cond}) begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "repeat"
+plain = "repeat"
+snippet = "repeat (${1:N}) begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "forever"
+plain = "forever"
+snippet = "forever begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "disable"
+plain = "disable"
+snippet = "disable ${1:block};"
+kind = "snippet"
+
+[[module_item]]
+label = "wait"
+plain = "wait"
+snippet = "wait (${1:cond}) begin\n\t${0}\nend"
+kind = "snippet"
+
+[[module_item]]
+label = "specify"
+plain = "specify"
+snippet = "specify\n\t${0}\nendspecify"
+kind = "snippet"
+
+[[module_item]]
+label = "and"
+plain = "and"
+kind = "keyword"
+
+[[module_item]]
+label = "or"
+plain = "or"
+kind = "keyword"
+
+[[module_item]]
+label = "xor"
+plain = "xor"
+kind = "keyword"
+
+[[module_item]]
+label = "xnor"
+plain = "xnor"
+kind = "keyword"
+
+[[module_item]]
+label = "nand"
+plain = "nand"
+kind = "keyword"
+
+[[module_item]]
+label = "nor"
+plain = "nor"
+kind = "keyword"
+
+[[module_item]]
+label = "buf"
+plain = "buf"
+kind = "keyword"
+
+[[module_item]]
+label = "not"
+plain = "not"
+kind = "keyword"
+
+[[module_item]]
+label = "bufif0"
+plain = "bufif0"
+kind = "keyword"
+
+[[module_item]]
+label = "bufif1"
+plain = "bufif1"
+kind = "keyword"
+
+[[module_item]]
+label = "notif0"
+plain = "notif0"
+kind = "keyword"
+
+[[module_item]]
+label = "notif1"
+plain = "notif1"
+kind = "keyword"
+
+[[module_item]]
+label = "cmos"
+plain = "cmos"
+kind = "keyword"
+
+[[module_item]]
+label = "rcmos"
+plain = "rcmos"
+kind = "keyword"
+
+[[module_item]]
+label = "nmos"
+plain = "nmos"
+kind = "keyword"
+
+[[module_item]]
+label = "pmos"
+plain = "pmos"
+kind = "keyword"
+
+[[module_item]]
+label = "rnmos"
+plain = "rnmos"
+kind = "keyword"
+
+[[module_item]]
+label = "rpmos"
+plain = "rpmos"
+kind = "keyword"
+
+[[module_item]]
+label = "tran"
+plain = "tran"
+kind = "keyword"
+
+[[module_item]]
+label = "rtran"
+plain = "rtran"
+kind = "keyword"
+
+[[module_item]]
+label = "tranif0"
+plain = "tranif0"
+kind = "keyword"
+
+[[module_item]]
+label = "tranif1"
+plain = "tranif1"
+kind = "keyword"
+
+[[module_item]]
+label = "rtranif0"
+plain = "rtranif0"
+kind = "keyword"
+
+[[module_item]]
+label = "rtranif1"
+plain = "rtranif1"
+kind = "keyword"
+
+[[module_item]]
+label = "pullup"
+plain = "pullup"
+kind = "keyword"
+
+[[module_item]]
+label = "pulldown"
+plain = "pulldown"
+kind = "keyword"
+
+[[module_item]]
+label = "pull0"
+plain = "pull0"
+kind = "keyword"
+
+[[module_item]]
+label = "pull1"
+plain = "pull1"
+kind = "keyword"
