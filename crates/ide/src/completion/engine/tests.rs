@@ -7,7 +7,7 @@ use utils::{lines::LineEnding, text_edit::TextSize};
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
-use crate::analysis_host::AnalysisHost;
+use crate::{analysis_host::AnalysisHost, completion::context::TriggerChar};
 
 fn setup(text: &str) -> (AnalysisHost, FilePosition) {
     let marker = "/*caret*/";
@@ -35,13 +35,47 @@ fn setup(text: &str) -> (AnalysisHost, FilePosition) {
     (host, position)
 }
 
-fn completions_in_text(text: &str) -> Vec<CompletionItem> {
+fn completions_in_text(text: &str, trigger: Option<TriggerChar>) -> Vec<CompletionItem> {
     let (host, position) = setup(text);
-    super::completions(host.raw_db(), position, None)
+    super::completions(host.raw_db(), position, trigger)
 }
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/completion/engine/fixtures")
+}
+
+fn parse_trigger(line: &str) -> Option<TriggerChar> {
+    let line = line.trim();
+    let prefix = "// trigger:";
+    if !line.starts_with(prefix) {
+        return None;
+    }
+
+    match line[prefix.len()..].trim() {
+        "." => Some(TriggerChar::Dot),
+        "(" => Some(TriggerChar::OpenParen),
+        "," => Some(TriggerChar::Comma),
+        "space" => Some(TriggerChar::Space),
+        "@" => Some(TriggerChar::At),
+        "#" => Some(TriggerChar::Hash),
+        "`" => Some(TriggerChar::Backtick),
+        _ => None,
+    }
+}
+
+fn load_fixture(path: &PathBuf) -> (String, Option<TriggerChar>) {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+    let mut lines = text.lines();
+    let Some(first) = lines.next() else {
+        return (text, None);
+    };
+
+    if let Some(trigger) = parse_trigger(first) {
+        let remaining = lines.collect::<Vec<_>>().join("\n");
+        return (remaining, Some(trigger));
+    }
+
+    (text, None)
 }
 
 #[test]
@@ -64,9 +98,8 @@ fn completion_fixtures() {
     assert!(!fixtures.is_empty(), "no fixtures found in {dir:?}");
 
     for (name, path) in fixtures {
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|err| panic!("failed to read fixture {path:?}: {err}"));
-        let items = completions_in_text(&text);
+        let (text, trigger) = load_fixture(&path);
+        let items = completions_in_text(&text, trigger);
         assert_debug_snapshot!(name, items);
     }
 }

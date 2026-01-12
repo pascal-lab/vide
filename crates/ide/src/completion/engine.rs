@@ -2,6 +2,7 @@ mod instantiation;
 mod keywords;
 mod named;
 mod paren_list;
+mod sensitivity_list;
 mod typed_filter;
 
 #[cfg(test)]
@@ -12,7 +13,7 @@ use span::FilePosition;
 
 pub use self::named::{CompletionItem, CompletionItemKind};
 use crate::completion::context::{
-    CompletionContext, DotKind, LexContext, Qualifier, TriggerChar, completion_context,
+    CompletionContext, DotKind, LexContext, Qualifier, SynContext, TriggerChar, completion_context,
 };
 
 pub fn completions(
@@ -31,6 +32,10 @@ fn completions_with_context(
 ) -> Vec<CompletionItem> {
     if ctx.lex != LexContext::Code {
         return Vec::new();
+    }
+
+    if ctx.syn == SynContext::SensitivityList {
+        return sensitivity_list::complete_sensitivity_list(db, position, &ctx.prefix, ctx);
     }
 
     match ctx.qualifier {

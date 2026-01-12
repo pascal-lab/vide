@@ -121,7 +121,7 @@ fn module_item_keywords() -> &'static [Keyword<'static>] {
         Keyword {
             label: "always",
             plain: "always",
-            snippet: Some("always @(${1:*}) begin\n\t${0}\nend"),
+            snippet: Some("always ${1} begin\n\t${0}\nend"),
             kind: CompletionItemKind::Snippet,
         },
         Keyword {
