@@ -4,6 +4,7 @@ mod named;
 mod paren_list;
 mod preproc;
 mod sensitivity_list;
+mod snippets;
 mod typed_filter;
 
 #[cfg(test)]

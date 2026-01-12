@@ -1,10 +1,11 @@
-use std::sync::OnceLock;
+use std::{collections::HashMap, sync::OnceLock};
 
 use syntax::SyntaxKind;
 use utils::text_edit::TextEditItem;
 
 use super::{CompletionItem, CompletionItemKind};
 use crate::completion::context::CompletionContext;
+use crate::completion::engine::snippets;
 
 const DIRECTIVE_KINDS: &[SyntaxKind] = &[
     SyntaxKind::BEGIN_KEYWORDS_DIRECTIVE,
@@ -42,14 +43,34 @@ const DIRECTIVE_KINDS: &[SyntaxKind] = &[
 
 pub(super) fn complete_directives(prefix: &str, ctx: &CompletionContext) -> Vec<CompletionItem> {
     let prefix = prefix.strip_prefix('`').unwrap_or(prefix);
+    let snippet_entries = snippets::entries(&snippets::snippet_config().directives);
+    let mut snippet_map = HashMap::new();
+    for entry in snippet_entries {
+        snippet_map.insert(entry.label.clone(), entry);
+    }
+
     directive_keywords()
         .iter()
         .filter(|kw| kw.starts_with(prefix))
-        .map(|kw| CompletionItem {
-            label: kw.clone(),
-            kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
-            snippet_edit: None,
+        .map(|kw| {
+            if let Some(entry) = snippet_map.get(kw) {
+                CompletionItem {
+                    label: entry.label.clone(),
+                    kind: CompletionItemKind::Snippet,
+                    edit: Some(TextEditItem::replace(ctx.replacement, entry.plain.clone())),
+                    snippet_edit: Some(TextEditItem::replace(
+                        ctx.replacement,
+                        entry.snippet.clone(),
+                    )),
+                }
+            } else {
+                CompletionItem {
+                    label: kw.clone(),
+                    kind: CompletionItemKind::Keyword,
+                    edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
+                    snippet_edit: None,
+                }
+            }
         })
         .collect()
 }

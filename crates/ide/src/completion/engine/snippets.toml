@@ -50,3 +50,13 @@ forever = "forever begin\n\t${0}\nend"
 disable = "disable ${1:block};"
 wait = "wait (${1:cond}) begin\n\t${0}\nend"
 specify = "specify\n\t${0}\nendspecify"
+
+[directives]
+define = "define ${1:NAME} ${0:VALUE}"
+include = "include \"${1:file}\""
+ifdef = "ifdef ${1:SYMBOL}"
+ifndef = "ifndef ${1:SYMBOL}"
+elsif = "elsif ${1:SYMBOL}"
+pragma = "pragma ${1:pragma}"
+timescale = "timescale ${1:time_unit}/${2:time_precision}"
+default_nettype = "default_nettype ${1:wire}"
