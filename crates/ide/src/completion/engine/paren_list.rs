@@ -45,9 +45,9 @@ pub(super) fn complete_after_hash(
     ctx: &CompletionContext,
     kind: HashKind,
 ) -> Vec<CompletionItem> {
-    let label = match kind {
-        HashKind::ParamValueAssignment => "#(...)",
-        HashKind::ParameterPortList => "#(...)",
+    let (label, snippet_label) = match kind {
+        HashKind::ParamValueAssignment => ("#(...)", "params"),
+        HashKind::ParameterPortList => ("#(parameter ...)", "parameter ..."),
     };
 
     vec![CompletionItem {
@@ -56,7 +56,7 @@ pub(super) fn complete_after_hash(
         edit: Some(TextEditItem::replace(ctx.replacement, "()".to_string())),
         snippet_edit: Some(TextEditItem::replace(
             ctx.replacement,
-            "(${1:params})".to_string(),
+            format!("(${{1:{snippet_label}}})"),
         )),
     }]
 }
