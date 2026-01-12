@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{collections::HashSet, sync::OnceLock};
 
 use hir::db::HirDb;
 use ide_db::root_db::RootDb;
@@ -38,10 +38,13 @@ pub(super) fn complete_keywords(
     items
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 struct KeywordsConfig {
+    #[serde(default)]
     top_level: Vec<Keyword>,
+    #[serde(default)]
     module_header: Vec<Keyword>,
+    #[serde(default)]
     module_item: Vec<Keyword>,
 }
 
@@ -95,9 +98,38 @@ fn module_item_keywords() -> &'static [Keyword] {
 fn keywords_config() -> &'static KeywordsConfig {
     static KEYWORDS: OnceLock<KeywordsConfig> = OnceLock::new();
     KEYWORDS.get_or_init(|| {
-        let raw = include_str!("keywords.toml");
-        toml::from_str(raw).expect("keywords.toml must be valid")
+        let manual_raw = include_str!("keywords.toml");
+        let generated_raw = include_str!("keywords.generated.toml");
+
+        let manual: KeywordsConfig =
+            toml::from_str(manual_raw).expect("keywords.toml must be valid");
+        let generated: KeywordsConfig =
+            toml::from_str(generated_raw).expect("keywords.generated.toml must be valid");
+
+        KeywordsConfig {
+            top_level: merge_keywords(generated.top_level, manual.top_level),
+            module_header: merge_keywords(generated.module_header, manual.module_header),
+            module_item: merge_keywords(generated.module_item, manual.module_item),
+        }
     })
+}
+
+fn merge_keywords(generated: Vec<Keyword>, manual: Vec<Keyword>) -> Vec<Keyword> {
+    let mut seen = HashSet::new();
+    let mut merged = Vec::with_capacity(generated.len() + manual.len());
+
+    for kw in manual {
+        seen.insert(kw.label.clone());
+        merged.push(kw);
+    }
+
+    for kw in generated {
+        if seen.insert(kw.label.clone()) {
+            merged.push(kw);
+        }
+    }
+
+    merged
 }
 
 fn module_instantiation_snippets(
