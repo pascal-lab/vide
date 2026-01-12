@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::OnceLock};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::OnceLock,
+};
 
 use hir::db::HirDb;
 use ide_db::root_db::RootDb;
@@ -26,6 +29,11 @@ pub(super) fn complete_keywords(
         SynContext::ModuleItem => module_item_keywords(),
         _ => &[],
     };
+    let all = if ctx.syn == SynContext::ModuleHeader && all.is_empty() {
+        module_item_keywords()
+    } else {
+        all
+    };
 
     let mut items: Vec<_> = all
         .iter()
@@ -46,6 +54,23 @@ struct KeywordsConfig {
     module_header: Vec<Keyword>,
     #[serde(default)]
     module_item: Vec<Keyword>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SnippetConfig {
+    #[serde(default)]
+    top_level: BTreeMap<String, SnippetDef>,
+    #[serde(default)]
+    module_header: BTreeMap<String, SnippetDef>,
+    #[serde(default)]
+    module_item: BTreeMap<String, SnippetDef>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SnippetDef {
+    Simple(String),
+    Detailed { snippet: String, plain: Option<String> },
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +108,31 @@ impl Keyword {
     }
 }
 
+impl SnippetDef {
+    fn into_keyword(self, label: String) -> Keyword {
+        match self {
+            SnippetDef::Simple(snippet) => Keyword {
+                label: label.clone(),
+                plain: label,
+                snippet: Some(snippet),
+                kind: KeywordKind::Snippet,
+            },
+            SnippetDef::Detailed { snippet, plain } => Keyword {
+                label: label.clone(),
+                plain: plain.unwrap_or(label),
+                snippet: Some(snippet),
+                kind: KeywordKind::Snippet,
+            },
+        }
+    }
+}
+
+fn snippets_to_keywords(map: BTreeMap<String, SnippetDef>) -> Vec<Keyword> {
+    map.into_iter()
+        .map(|(label, def)| def.into_keyword(label))
+        .collect()
+}
+
 fn top_level_keywords() -> &'static [Keyword] {
     &keywords_config().top_level
 }
@@ -98,18 +148,21 @@ fn module_item_keywords() -> &'static [Keyword] {
 fn keywords_config() -> &'static KeywordsConfig {
     static KEYWORDS: OnceLock<KeywordsConfig> = OnceLock::new();
     KEYWORDS.get_or_init(|| {
-        let manual_raw = include_str!("keywords.toml");
-        let generated_raw = include_str!("keywords.generated.toml");
+        let manual_raw = include_str!("snippets.toml");
+        let generated_raw = include_str!(concat!(env!("OUT_DIR"), "/keywords.generated.toml"));
 
-        let manual: KeywordsConfig =
-            toml::from_str(manual_raw).expect("keywords.toml must be valid");
+        let manual: SnippetConfig =
+            toml::from_str(manual_raw).expect("snippets.toml must be valid");
         let generated: KeywordsConfig =
             toml::from_str(generated_raw).expect("keywords.generated.toml must be valid");
 
         KeywordsConfig {
-            top_level: merge_keywords(generated.top_level, manual.top_level),
-            module_header: merge_keywords(generated.module_header, manual.module_header),
-            module_item: merge_keywords(generated.module_item, manual.module_item),
+            top_level: merge_keywords(generated.top_level, snippets_to_keywords(manual.top_level)),
+            module_header: merge_keywords(
+                generated.module_header,
+                snippets_to_keywords(manual.module_header),
+            ),
+            module_item: merge_keywords(generated.module_item, snippets_to_keywords(manual.module_item)),
         }
     })
 }

@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "IDE related components"
 
 edition.workspace = true
+build = "build.rs"
 
 [dependencies]
 anyhow.workspace = true
@@ -32,3 +33,6 @@ vfs.workspace = true
 
 [dev-dependencies]
 insta = "1.46.0"
+
+[build-dependencies]
+slang.workspace = true
