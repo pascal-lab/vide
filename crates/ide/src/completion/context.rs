@@ -51,6 +51,12 @@ pub enum ParenListKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortListKind {
+    Ansi,
+    NonAnsi,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtKind {
     EventControl,
 }
@@ -71,10 +77,16 @@ pub struct InParenList {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InPortList {
+    pub kind: PortListKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Qualifier {
     AfterDot(AfterDot),
     AfterHash(AfterHash),
     InParenList(InParenList),
+    InPortList(InPortList),
     AfterAt(AtKind),
     AfterBacktick,
     InNamedPortConnExpr,
@@ -361,6 +373,10 @@ fn detect_syn_context(
         return (syn, Some(qualifier));
     }
 
+    if let Some(qualifier) = qualifier_in_port_list(root, offset) {
+        return (SynContext::ModuleHeader, Some(qualifier));
+    }
+
     if is_in_sensitivity_list(root, offset) {
         return (SynContext::SensitivityList, None);
     }
@@ -519,6 +535,29 @@ fn qualifier_in_paren_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qua
                 return Some(Qualifier::InParenList(InParenList {
                     kind: ParenListKind::Arguments,
                 }));
+            }
+        }
+    }
+
+    None
+}
+
+fn qualifier_in_port_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
+    let elem = root.covering_element(TextRange::empty(offset));
+    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
+        return None;
+    };
+
+    for anc in SyntaxAncestors::start_from(node) {
+        if let Some(list) = ast::AnsiPortList::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }));
+            }
+        }
+
+        if let Some(list) = ast::NonAnsiPortList::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InPortList(InPortList { kind: PortListKind::NonAnsi }));
             }
         }
     }
@@ -779,6 +818,24 @@ mod tests {
         assert_eq!(
             c.qualifier,
             Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }))
+        );
+    }
+
+    #[test]
+    fn detects_ansi_port_list() {
+        let c = ctx("module m(input /*caret*/a); endmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }))
+        );
+    }
+
+    #[test]
+    fn detects_non_ansi_port_list() {
+        let c = ctx("module m(a, /*caret*/b); input a; output b; endmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InPortList(InPortList { kind: PortListKind::NonAnsi }))
         );
     }
 

@@ -116,7 +116,6 @@ fn block_to_def(
     sema: &Semantics<'_, RootDb>,
     block: ast::BlockStatement<'_>,
 ) -> Option<BlockId> {
-    let file_id = sema.find_file(block.syntax());
     let block_src = BlockSrc::from(block);
     let parent_container = container_id_for_node(db, sema, block.syntax());
     block_id_from_src(db, parent_container, block_src)

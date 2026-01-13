@@ -4,6 +4,7 @@ mod expr;
 mod member;
 mod named;
 mod paren_list;
+mod port_list;
 mod preproc;
 mod sensitivity_list;
 mod snippets;
@@ -72,6 +73,9 @@ fn completions_with_context(
         }
         Some(Qualifier::InParenList(in_parens)) => {
             paren_list::complete_in_paren_list(db, position, &ctx.prefix, ctx, in_parens.kind)
+        }
+        Some(Qualifier::InPortList(in_ports)) => {
+            port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, in_ports.kind)
         }
         Some(Qualifier::AfterAt(_)) => Vec::new(),
         Some(Qualifier::AfterBacktick) => preproc::complete_directives(&ctx.prefix, ctx),
