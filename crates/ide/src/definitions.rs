@@ -14,7 +14,12 @@ use hir::{
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
 use smol_str::SmolStr;
-use syntax::{SyntaxTokenWithParent, ast, match_ast, token::TokenKindExt};
+use syntax::{
+    SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
+    ast::{self, AstNode},
+    match_ast,
+    token::TokenKindExt,
+};
 use utils::{
     get::{Get, GetRef},
     impl_from,
@@ -267,9 +272,11 @@ impl DefinitionClass {
             return None;
         }
 
+        if let Some(def) = resolve_member_or_scoped_name(sema, tp) {
+            return Some(def);
+        }
+
         let res = match_ast! { parent,
-            ast::MemberAccessExpression => unimplemented!(),
-            ast::ScopedName => unimplemented!(),
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
                 sema.nameres_named_param_assign(it).map(Definition::from)?.into()
             },
@@ -301,5 +308,39 @@ impl DefinitionClass {
                 port.origins().into_iter().chain(local.origins()).collect()
             }
         }
+    }
+}
+
+fn resolve_member_or_scoped_name(
+    sema: &Semantics<'_, RootDb>,
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    if let Some(access) = SyntaxAncestors::start_from(parent)
+        .find_map(ast::MemberAccessExpression::cast)
+    {
+        if access.name() == Some(tok) {
+            let expr = ast::Expression::cast(access.syntax())?;
+            let res = sema.expr_to_def(sema.resolve_expr(expr))?;
+            return Some(Definition::from(res).into());
+        }
+    }
+
+    let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
+    let right_tok = scoped_right_token(scoped)?;
+    if right_tok != tok {
+        return None;
+    }
+
+    let expr = ast::Expression::cast(scoped.syntax())?;
+    let res = sema.expr_to_def(sema.resolve_expr(expr))?;
+    Some(Definition::from(res).into())
+}
+
+fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
+    use ast::Name::*;
+    match scoped.right() {
+        IdentifierName(ident) => ident.identifier(),
+        IdentifierSelectName(ident) => ident.identifier(),
+        _ => None,
     }
 }
