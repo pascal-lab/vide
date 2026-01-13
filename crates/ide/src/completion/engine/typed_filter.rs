@@ -29,7 +29,7 @@ pub(super) fn expected_port_ty(
             decl_ty_in_module(target_module, decl_id)
         }
         ModuleEntry::NonAnsiPortEntry(entry) => {
-            let decl_id = entry.port_decl.or(entry.data_decl)?;
+            let decl_id = entry.data_decl.or(entry.port_decl)?;
             decl_ty_in_module(target_module, decl_id)
         }
         _ => None,
