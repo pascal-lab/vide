@@ -1,5 +1,6 @@
 mod instantiation;
 mod keywords;
+mod member;
 mod named;
 mod paren_list;
 mod preproc;
@@ -50,7 +51,7 @@ fn completions_with_context(
             DotKind::NamedParam => {
                 named::complete_named_param_names(db, position, &ctx.prefix, ctx)
             }
-            DotKind::Member => Vec::new(),
+            DotKind::Member => member::complete_member_access(db, position, &ctx.prefix, ctx),
         },
         Some(Qualifier::InNamedPortConnExpr) => {
             named::complete_named_port_conn_expr(db, position, &ctx.prefix, ctx)
