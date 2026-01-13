@@ -55,7 +55,6 @@ fn parse_trigger(line: &str) -> Option<TriggerChar> {
         "." => Some(TriggerChar::Dot),
         "(" => Some(TriggerChar::OpenParen),
         "," => Some(TriggerChar::Comma),
-        "space" => Some(TriggerChar::Space),
         "@" => Some(TriggerChar::At),
         "#" => Some(TriggerChar::Hash),
         "`" => Some(TriggerChar::Backtick),

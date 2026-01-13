@@ -98,7 +98,6 @@ pub enum TriggerChar {
     Dot,
     OpenParen,
     Comma,
-    Space,
     At,
     Hash,
     Backtick,
@@ -381,7 +380,40 @@ fn detect_syn_context(
         return (SynContext::SensitivityList, None);
     }
 
+    if let Some(qualifier) = qualifier_from_trigger(root, offset, trigger) {
+        let syn = match qualifier {
+            Qualifier::InParenList(InParenList {
+                kind: ParenListKind::ParamValueAssignment | ParenListKind::PortConnections,
+            }) => SynContext::Instantiation,
+            Qualifier::InParenList(InParenList { kind: ParenListKind::ParameterPortList }) => {
+                SynContext::ModuleHeader
+            }
+            Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }) => {
+                SynContext::ModuleItem
+            }
+            Qualifier::InPortList(_) => SynContext::ModuleHeader,
+            _ => base_syn_context(root, offset),
+        };
+        return (syn, Some(qualifier));
+    }
+
     (base_syn_context(root, offset), None)
+}
+
+fn qualifier_from_trigger(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    trigger: Option<TriggerChar>,
+) -> Option<Qualifier> {
+    match trigger {
+        Some(TriggerChar::OpenParen | TriggerChar::Comma) => {}
+        _ => return None,
+    }
+
+    let prev = token_before_offset(root, offset)?;
+    let node = prev.parent;
+    qualifier_in_paren_list_from_node(node.clone(), offset)
+        .or_else(|| qualifier_in_port_list_from_node(node, offset))
 }
 
 fn base_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> SynContext {
@@ -505,6 +537,10 @@ fn qualifier_in_paren_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qua
         return None;
     };
 
+    qualifier_in_paren_list_from_node(node, offset)
+}
+
+fn qualifier_in_paren_list_from_node(node: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
     for anc in SyntaxAncestors::start_from(node) {
         if let Some(list) = ast::ParameterValueAssignment::cast(anc) {
             if in_parens(offset, list.open_paren(), list.close_paren()) {
@@ -548,6 +584,10 @@ fn qualifier_in_port_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qual
         return None;
     };
 
+    qualifier_in_port_list_from_node(node, offset)
+}
+
+fn qualifier_in_port_list_from_node(node: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
     for anc in SyntaxAncestors::start_from(node) {
         if let Some(list) = ast::AnsiPortList::cast(anc) {
             if in_parens(offset, list.open_paren(), list.close_paren()) {
