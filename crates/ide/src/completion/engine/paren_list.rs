@@ -11,6 +11,7 @@ use utils::text_edit::TextEditItem;
 
 use super::{
     CompletionItem, CompletionItemKind,
+    expr,
     instantiation::{
         enclosing_instantiation, overridable_params_of_module_in_order,
         overridable_params_of_module_sorted, ports_of_module_in_order, ports_of_module_sorted,
@@ -36,7 +37,7 @@ pub(super) fn complete_in_paren_list(
             complete_param_value_assignment(db, position, prefix, ctx)
         }
         ParenListKind::ParameterPortList => complete_parameter_port_list(prefix, ctx),
-        _ => Vec::new(),
+        ParenListKind::Arguments => expr::complete_argument_exprs(db, position, prefix, ctx),
     }
 }
 

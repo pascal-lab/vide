@@ -1,5 +1,6 @@
 mod instantiation;
 mod keywords;
+mod expr;
 mod member;
 mod named;
 mod paren_list;
@@ -59,7 +60,13 @@ fn completions_with_context(
         Some(Qualifier::InNamedParamAssignExpr) => {
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
-        None => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
+        None => {
+            let mut items = keywords::complete_keywords(db, position, &ctx.prefix, ctx);
+            if ctx.syn == SynContext::ModuleItem {
+                items.extend(expr::complete_expression(db, position, &ctx.prefix, ctx));
+            }
+            items
+        }
         Some(Qualifier::AfterHash(after_hash)) => {
             paren_list::complete_after_hash(&ctx.prefix, ctx, after_hash.kind)
         }
