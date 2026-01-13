@@ -10,8 +10,7 @@ use syntax::{
 use utils::text_edit::TextEditItem;
 
 use super::{
-    CompletionItem, CompletionItemKind,
-    expr,
+    CompletionItem, CompletionItemKind, expr,
     instantiation::{
         enclosing_instantiation, overridable_params_of_module_in_order,
         overridable_params_of_module_sorted, ports_of_module_in_order, ports_of_module_sorted,
@@ -21,8 +20,10 @@ use super::{
         value_candidates_in_module,
     },
 };
-use crate::completion::context::{CompletionContext, HashKind, ParenListKind};
-use crate::completion::engine::snippets;
+use crate::completion::{
+    context::{CompletionContext, HashKind, ParenListKind},
+    engine::snippets,
+};
 
 pub(super) fn complete_in_paren_list(
     db: &RootDb,
@@ -81,7 +82,8 @@ fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<Co
         });
     }
 
-    let extra_keywords = ["parameter", "localparam", "integer", "real", "realtime", "time", "signed", "unsigned"];
+    let extra_keywords =
+        ["parameter", "localparam", "integer", "real", "realtime", "time", "signed", "unsigned"];
     for kw in extra_keywords {
         if !kw.starts_with(prefix) {
             continue;

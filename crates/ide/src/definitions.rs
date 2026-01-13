@@ -315,8 +315,8 @@ fn resolve_member_or_scoped_name(
     sema: &Semantics<'_, RootDb>,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionClass> {
-    if let Some(access) = SyntaxAncestors::start_from(parent)
-        .find_map(ast::MemberAccessExpression::cast)
+    if let Some(access) =
+        SyntaxAncestors::start_from(parent).find_map(ast::MemberAccessExpression::cast)
     {
         if access.name() == Some(tok) {
             let expr = ast::Expression::cast(access.syntax())?;

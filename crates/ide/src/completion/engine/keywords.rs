@@ -7,8 +7,10 @@ use span::FilePosition;
 use utils::text_edit::TextEditItem;
 
 use super::named::{CompletionItem, CompletionItemKind};
-use crate::completion::context::{CompletionContext, SynContext};
-use crate::completion::engine::snippets;
+use crate::completion::{
+    context::{CompletionContext, SynContext},
+    engine::snippets,
+};
 
 pub(super) fn complete_keywords(
     db: &RootDb,

@@ -1,6 +1,6 @@
+mod expr;
 mod instantiation;
 mod keywords;
-mod expr;
 mod member;
 mod named;
 mod paren_list;

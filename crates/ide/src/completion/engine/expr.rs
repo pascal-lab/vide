@@ -7,8 +7,8 @@ use hir::{
         block::{BlockId, BlockSrc},
         module::{ModuleId, ModuleSrc},
     },
-    semantics::Semantics,
     scope::{BlockEntry, ModuleEntry},
+    semantics::Semantics,
 };
 use ide_db::root_db::RootDb;
 use span::FilePosition;

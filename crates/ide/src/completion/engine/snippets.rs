@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    sync::OnceLock,
-};
+use std::{collections::BTreeMap, sync::OnceLock};
 
 use serde::Deserialize;
 
@@ -40,9 +37,7 @@ pub(super) fn snippet_config() -> &'static SnippetConfig {
 }
 
 pub(super) fn entries(map: &BTreeMap<String, SnippetDef>) -> Vec<SnippetEntry> {
-    map.iter()
-        .map(|(label, def)| def.to_entry(label))
-        .collect()
+    map.iter().map(|(label, def)| def.to_entry(label)).collect()
 }
 
 impl SnippetDef {

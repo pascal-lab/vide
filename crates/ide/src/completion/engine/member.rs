@@ -1,7 +1,8 @@
 use hir::{
     db::HirDb,
     hir_def::{
-        Ident, block::BlockId,
+        Ident,
+        block::BlockId,
         module::{ModuleId, instantiation::InstanceId},
     },
     scope::UnitEntry,
@@ -14,8 +15,7 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::get::GetRef;
-use utils::text_edit::TextEditItem;
+use utils::{get::GetRef, text_edit::TextEditItem};
 
 use super::{CompletionItem, CompletionItemKind};
 use crate::completion::context::CompletionContext;
@@ -133,18 +133,13 @@ fn resolve_scope_for_expr(
     resolve_scope_from_resolution(db, res)
 }
 
-fn resolve_scope_from_resolution(
-    db: &RootDb,
-    res: PathResolution,
-) -> Option<MemberScope> {
+fn resolve_scope_from_resolution(db: &RootDb, res: PathResolution) -> Option<MemberScope> {
     match res {
         PathResolution::Module(module_id) => Some(MemberScope::Module(module_id)),
-        PathResolution::Instance(instance) => resolve_instance_target_module_id(
-            db,
-            instance.module_id,
-            instance.value,
-        )
-        .map(MemberScope::Module),
+        PathResolution::Instance(instance) => {
+            resolve_instance_target_module_id(db, instance.module_id, instance.value)
+                .map(MemberScope::Module)
+        }
         PathResolution::Block(block_id) => Some(MemberScope::Block(block_id)),
         _ => None,
     }
@@ -176,16 +171,12 @@ fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
 
 fn scope_member_names(db: &RootDb, scope: MemberScope) -> Vec<Ident> {
     let mut names: Vec<Ident> = match scope {
-        MemberScope::Module(module_id) => db
-            .module_scope(module_id)
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect(),
-        MemberScope::Block(block_id) => db
-            .block_scope(block_id)
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect(),
+        MemberScope::Module(module_id) => {
+            db.module_scope(module_id).iter().map(|(name, _)| name.clone()).collect()
+        }
+        MemberScope::Block(block_id) => {
+            db.block_scope(block_id).iter().map(|(name, _)| name.clone()).collect()
+        }
     };
 
     names.sort();

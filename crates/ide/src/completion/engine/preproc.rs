@@ -4,8 +4,7 @@ use syntax::SyntaxKind;
 use utils::text_edit::TextEditItem;
 
 use super::{CompletionItem, CompletionItemKind};
-use crate::completion::context::CompletionContext;
-use crate::completion::engine::snippets;
+use crate::completion::{context::CompletionContext, engine::snippets};
 
 const DIRECTIVE_KINDS: &[SyntaxKind] = &[
     SyntaxKind::BEGIN_KEYWORDS_DIRECTIVE,
@@ -56,10 +55,7 @@ pub(super) fn complete_directives(prefix: &str, ctx: &CompletionContext) -> Vec<
                 label: entry.label.clone(),
                 kind: CompletionItemKind::Snippet,
                 edit: Some(TextEditItem::replace(ctx.replacement, entry.plain.clone())),
-                snippet_edit: Some(TextEditItem::replace(
-                    ctx.replacement,
-                    entry.snippet.clone(),
-                )),
+                snippet_edit: Some(TextEditItem::replace(ctx.replacement, entry.snippet.clone())),
             });
         }
         items.push(CompletionItem {
