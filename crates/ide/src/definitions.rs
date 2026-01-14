@@ -244,8 +244,6 @@ impl Definition {
                     )
                 }
             }
-            // Future PathResolution variants not yet handled in this branch.
-            _ => unreachable!("Definition navigation not yet supported for this item type"),
         }
     }
 }

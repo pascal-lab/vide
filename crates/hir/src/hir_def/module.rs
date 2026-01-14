@@ -23,10 +23,7 @@ use utils::{
 
 use super::{
     HirData, Ident,
-    aggregate::{
-        ClassDef, ClassId, ClassSrc, StructDef, StructId, StructSrc, lower_class_def,
-        lower_struct_def,
-    },
+    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
     declaration::{
@@ -39,10 +36,6 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
-    package::{
-        PackageImport, PackageImportId, PackageImportItem, PackageImportSrc,
-        lower_package_import_item,
-    },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -81,8 +74,6 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
-        classes: [ClassDef],
-        package_imports: [PackageImport],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<SubroutineId, SubroutineSourceMap>,
 
@@ -119,8 +110,6 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
-        class_srcs: [ClassDef | ClassSrc],
-        package_import_srcs: [PackageImport | PackageImportSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
@@ -173,8 +162,6 @@ impl ModuleSourceMap {
             ModuleItem::ContAssignId(idx) => self.get(*idx).0,
             ModuleItem::DeclarationId(idx) => self.get(*idx).ptr(),
             ModuleItem::StructId(idx) => self.get(*idx).node,
-            ModuleItem::ClassId(idx) => self.get(*idx).node,
-            ModuleItem::PackageImportId(idx) => self.get(*idx).node,
             ModuleItem::InstantiationId(idx) => self.get(*idx).into(),
             ModuleItem::ProcId(idx) => self.get(*idx).0,
             ModuleItem::PortDeclId(idx) => self.get(*idx).ptr(),
@@ -190,8 +177,6 @@ define_enum_deriving_from! {
         ContAssignId(ContAssignId),
         DeclarationId(DeclarationId),
         StructId(StructId),
-        ClassId(ClassId),
-        PackageImportId(PackageImportId),
         InstantiationId(InstantiationId),
         ProcId(ProcId),
         PortDeclId(PortDeclId),
@@ -260,34 +245,6 @@ impl LowerModuleCtx<'_> {
         alloc_idx_and_src! {
             struct_def => self.module.structs,
             struct_ty => self.module_source_map.struct_srcs,
-        }
-    }
-
-    fn lower_class_decl(&mut self, class_decl: ast::ClassDeclaration) -> ClassId {
-        let container_id = ContainerId::ModuleId(self.module_id);
-        let class_def = lower_class_def(
-            class_decl.clone(),
-            container_id,
-            |ty| self.expr_ctx().lower_data_ty(ty),
-        );
-
-        alloc_idx_and_src! {
-            class_def => self.module.classes,
-            class_decl => self.module_source_map.class_srcs,
-        }
-    }
-
-    fn lower_package_import(&mut self, import: ast::PackageImportDeclaration) -> PackageImportId {
-        let mut items = SmallVec::<[PackageImportItem; 2]>::new();
-        for item in import.items().children() {
-            if let Some(lowered) = lower_package_import_item(item) {
-                items.push(lowered);
-            }
-        }
-
-        alloc_idx_and_src! {
-            PackageImport { items } => self.module.package_imports,
-            import => self.module_source_map.package_import_srcs,
         }
     }
 
@@ -429,12 +386,16 @@ impl LowerModuleCtx<'_> {
                 ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => unreachable!(),
 
                 // Imports
-                PackageImportDeclaration(import_decl) => {
-                    self.lower_package_import(import_decl).into()
+                PackageImportDeclaration(_) => {
+                    // TODO: implement package import declaration lowering
+                    continue;
                 }
 
                 // Aggregates
-                ClassDeclaration(class_decl) => self.lower_class_decl(class_decl).into(),
+                ClassDeclaration(_) => {
+                    // TODO: implement class declaration lowering
+                    continue;
+                }
 
                 // Nested modules/interfaces/programs
                 ModuleDeclaration(_nested_module) => {

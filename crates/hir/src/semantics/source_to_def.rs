@@ -69,7 +69,6 @@ impl Source2DefCtx<'_, '_> {
                 let local_block_id = module_src_map.get(block_src);
                 module.get(local_block_id).block_id
             }
-            ContainerId::PackageId(_) => return None,
             ContainerId::BlockId(block_id) => {
                 let (block, block_src_map) = self.db.block_with_source_map(block_id);
                 let local_block_id = block_src_map.get(block_src);

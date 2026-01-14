@@ -87,7 +87,7 @@ impl SearchScope {
                 let range = block_id.lookup(db).src.value.range();
                 Self::single_range(block_id.file_id(db), range)
             }
-            ContainerId::PackageId(_) | ContainerId::SubroutineId(_) | ContainerId::FileSubroutineId(_) => {
+            ContainerId::SubroutineId(_) | ContainerId::FileSubroutineId(_) => {
                 // TODO: implement search scope for these container types
                 Self::all(db)
             }

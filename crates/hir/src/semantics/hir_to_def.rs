@@ -41,10 +41,6 @@ impl Source2DefCtx<'_, '_> {
                 let module = db.module(in_file);
                 resolve(module.get(expr_id))
             }
-            ContainerId::PackageId(package_id) => {
-                let package = db.package(package_id);
-                resolve(package.get(expr_id))
-            }
             ContainerId::BlockId(block_id) => {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
@@ -75,7 +71,6 @@ impl Source2DefCtx<'_, '_> {
                 let entry = scope.get(&ident)?;
                 Some(InBlock::new(block_id, entry).into())
             }
-            ContainerId::PackageId(_) => None,
             ContainerId::SubroutineId(_) => None,
             ContainerId::FileSubroutineId(_) => None,
         })?;

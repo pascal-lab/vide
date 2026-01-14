@@ -151,28 +151,6 @@ impl HirDisplay for InContainer<DataTy> {
                 }
                 Ok(())
             }
-            DataTy::Class(class_ref) => {
-                f.write_str("class")?;
-                let class_name = match class_ref.cont_id {
-                    ContainerId::HirFileId(file_id) => {
-                        file_id.to_container(f.db).classes.get(class_ref.value).name.clone()
-                    }
-                    ContainerId::ModuleId(module_id) => {
-                        module_id.to_container(f.db).classes.get(class_ref.value).name.clone()
-                    }
-                    ContainerId::PackageId(package_id) => {
-                        package_id.to_container(f.db).classes.get(class_ref.value).name.clone()
-                    }
-                    ContainerId::BlockId(_) => None,
-                    ContainerId::SubroutineId(_) => None,
-                    ContainerId::FileSubroutineId(_) => None,
-                };
-                if let Some(name) = class_name {
-                    f.write_str(" ")?;
-                    f.write_str(name.as_str())?;
-                }
-                Ok(())
-            }
         }
     }
 }

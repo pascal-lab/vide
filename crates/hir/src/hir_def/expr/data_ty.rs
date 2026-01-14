@@ -6,17 +6,13 @@ use syntax::{
 };
 
 use super::{ExprId, LowerExprCtx, Selector};
-use crate::{
-    container::InContainer,
-    hir_def::aggregate::{ClassId, StructId},
-};
+use crate::{container::InContainer, hir_def::aggregate::StructId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(NamedDataTy),
     Struct(InContainer<StructId>),
-    Class(InContainer<ClassId>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

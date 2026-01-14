@@ -12,7 +12,6 @@ use crate::{
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
         module::{self, Module, ModuleId, ModuleSourceMap},
-        package::{self, Package, PackageId, PackageSourceMap},
         subroutine::{self, Subroutine, SubroutineId, SubroutineSourceMap},
     },
     scope::{BlockScope, ModuleScope, UnitScope},
@@ -50,17 +49,6 @@ pub trait HirDb: InternDb {
 
     fn module(&self, module_id: ModuleId) -> Arc<Module>;
 
-    #[salsa::invoke(package::package_with_source_map_query)]
-    fn package_with_source_map(
-        &self,
-        package_id: PackageId,
-    ) -> (Arc<Package>, Arc<PackageSourceMap>);
-
-    fn package(&self, package_id: PackageId) -> Arc<Package>;
-
-    #[salsa::invoke(package::packages_by_name_query)]
-    fn packages_by_name(&self) -> Arc<FxHashMap<Ident, Vec<PackageId>>>;
-
     #[salsa::invoke(block::block_with_source_map_query)]
     fn block_with_source_map(&self, block_id: BlockId) -> (Arc<Block>, Arc<BlockSourceMap>);
 
@@ -97,10 +85,6 @@ fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {
 
 fn module(db: &dyn HirDb, module_id: ModuleId) -> Arc<Module> {
     db.module_with_source_map(module_id).0
-}
-
-fn package(db: &dyn HirDb, package_id: PackageId) -> Arc<Package> {
-    db.package_with_source_map(package_id).0
 }
 
 fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
