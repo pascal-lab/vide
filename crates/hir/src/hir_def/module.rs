@@ -10,7 +10,6 @@ use port::{
 };
 use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode, PortList},
     ptr::SyntaxNodePtr,

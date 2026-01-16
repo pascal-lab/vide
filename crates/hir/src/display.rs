@@ -6,7 +6,7 @@ use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
-    container::{ContainerId, InContainer, InModule},
+    container::{InContainer, InModule},
     db::HirDb,
     hir_def::{
         aggregate::StructKind,

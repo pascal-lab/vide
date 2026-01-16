@@ -8,7 +8,7 @@ use syntax::{
 };
 use utils::text_edit::TextRange;
 
-use super::{Ident, expr::data_ty::DataTy, lower_ident, lower_ident_opt};
+use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
 use crate::{
     container::{ContainerId, InContainer},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
@@ -70,59 +70,6 @@ pub(crate) fn lower_struct_def(
     }
 
     StructDef { kind, name: None, packed, signing, tagged, members }
-}
-
-pub(crate) fn lower_class_def(
-    class_decl: ast::ClassDeclaration,
-    container_id: ContainerId,
-    mut lower_data_ty: impl FnMut(ast::DataType) -> DataTy,
-) -> ClassDef {
-    let name = lower_ident_opt(class_decl.name());
-    let mut members = SmallVec::<[ClassMember; 4]>::new();
-
-    let base_class_name = class_decl.extends_clause().and_then(|extends| {
-        let base_name = extends.base_name();
-        if let Some(id_name) = base_name.as_identifier_name() {
-            lower_ident_opt(id_name.identifier())
-        } else {
-            None
-        }
-    });
-
-    for item in class_decl.items().children() {
-        match item {
-            ast::Member::ClassPropertyDeclaration(prop) => {
-                if let Some(data_decl) = prop.declaration().as_data_declaration() {
-                    let member_ty = lower_data_ty(data_decl.type_());
-                    for declarator in data_decl.declarators().children() {
-                        let member_name = lower_ident_opt(declarator.name());
-                        members.push(ClassMember {
-                            name: member_name,
-                            kind: ClassMemberKind::Property,
-                            ty: Some(InContainer::new(container_id, member_ty)),
-                        });
-                    }
-                }
-            }
-            ast::Member::ClassMethodDeclaration(method) => {
-                let func_decl = method.declaration();
-                let prototype = func_decl.prototype();
-                let method_name = if let Some(id) = prototype.name().as_identifier_name() {
-                    lower_ident(id.identifier())
-                } else {
-                    None
-                };
-                members.push(ClassMember {
-                    name: method_name,
-                    kind: ClassMemberKind::Method,
-                    ty: None, // methods don't have a simple data type
-                });
-            }
-            _ => {}
-        }
-    }
-
-    ClassDef { name, base_class_name, members }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

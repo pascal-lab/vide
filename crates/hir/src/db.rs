@@ -1,5 +1,4 @@
 use base_db::{impl_intern_key, impl_intern_lookup, salsa, source_db::SourceDb};
-use rustc_hash::FxHashMap;
 use syntax::SyntaxTree;
 use triomphe::Arc;
 
@@ -7,7 +6,6 @@ use crate::{
     container::InModule,
     file::HirFileId,
     hir_def::{
-        Ident,
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
