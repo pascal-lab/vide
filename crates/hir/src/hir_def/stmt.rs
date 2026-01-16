@@ -130,13 +130,13 @@ pub enum CaseItem {
 }
 
 pub(crate) trait LowerStmt: LowerExpr + LowerEventExpr + LowerDecl {
-    fn stmt_ctx(&mut self) -> LowerStmtCtx;
+    fn stmt_ctx(&mut self) -> LowerStmtCtx<'_>;
 }
 
 pub(in crate::hir_def) macro impl_lower_stmt {
     ($ctx:ty, $cont_id:ident $(,$data:ident, $src_map:ident)?) => {
         impl $crate::hir_def::stmt::LowerStmt for $ctx {
-            fn stmt_ctx(&mut self) -> $crate::hir_def::stmt::LowerStmtCtx {
+            fn stmt_ctx(&mut self) -> $crate::hir_def::stmt::LowerStmtCtx<'_> {
                 $crate::hir_def::stmt::LowerStmtCtx {
                     db: self.db,
                     file_id: self.file_id,

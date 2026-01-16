@@ -75,14 +75,14 @@ impl Config {
         client_caps: ClientCapabilities,
         workspace_roots: Vec<AbsPathBuf>,
         user_config: UserConfig,
-        snippets: Vec<Snippet>,
+        _snippets: Vec<Snippet>,
     ) -> Self {
         let discovered_manifests = Self::discover_manifest(&workspace_roots);
         Config { opt, workspace_roots, client_caps, root_path, user_config, discovered_manifests }
     }
 
     pub(crate) fn update(&mut self, json: serde_json::Value) -> Result<(), ConfigError> {
-        let (user_config, snippets, errors) = Self::parse_initialization_options(json);
+        let (user_config, _snippets, errors) = Self::parse_initialization_options(json);
         self.user_config = user_config;
 
         if errors.is_empty() { Ok(()) } else { Err(errors) }

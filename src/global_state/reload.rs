@@ -171,7 +171,7 @@ impl GlobalState {
     }
 
     pub(crate) fn update_configuration(&mut self, config: Config) {
-        let old_config = std::mem::replace(&mut self.config, Arc::new(config));
+        let _old_config = std::mem::replace(&mut self.config, Arc::new(config));
         // TODO: update LRU capacity
     }
 }

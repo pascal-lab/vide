@@ -1,5 +1,4 @@
 #![feature(try_blocks)]
-#![feature(let_chains)]
 #![feature(if_let_guard)]
 #![feature(decl_macro)]
 

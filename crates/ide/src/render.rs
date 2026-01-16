@@ -82,9 +82,9 @@ fn render_svint(svint: &SVInt, base: usize) -> String {
 
     for (i, c) in s.chars().enumerate() {
         if i > 0 {
-            if base == 2 && (len - i) % 16 == 0 {
+            if base == 2 && (len - i).is_multiple_of(16) {
                 result.push_str(" / ");
-            } else if (len - i) % interval == 0 {
+            } else if (len - i).is_multiple_of(interval) {
                 result.push(' ');
             }
         }

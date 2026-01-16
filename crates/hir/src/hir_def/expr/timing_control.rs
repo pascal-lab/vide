@@ -58,13 +58,13 @@ pub(crate) struct LowerEventExprCtx<'a> {
 }
 
 pub(crate) trait LowerEventExpr: LowerExpr {
-    fn event_expr_ctx(&mut self) -> LowerEventExprCtx;
+    fn event_expr_ctx(&mut self) -> LowerEventExprCtx<'_>;
 }
 
 pub(in crate::hir_def) macro impl_lower_event_expr {
     ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
         impl $crate::hir_def::expr::timing_control::LowerEventExpr for $ctx {
-            fn event_expr_ctx(&mut self) -> $crate::hir_def::expr::timing_control::LowerEventExprCtx {
+            fn event_expr_ctx(&mut self) -> $crate::hir_def::expr::timing_control::LowerEventExprCtx<'_> {
                 $crate::hir_def::expr::timing_control::LowerEventExprCtx {
                     db: self.db,
                     event_exprs: &mut self.$($data.)?event_exprs,

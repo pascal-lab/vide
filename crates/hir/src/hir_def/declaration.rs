@@ -35,14 +35,20 @@ define_enum_deriving_from! {
 }
 
 pub type DeclarationId = Idx<Declaration>;
-define_src!(DeclarationSrc(ast::DataDeclaration, ast::NetDeclaration, ast::ParameterDeclaration));
+define_src!(DeclarationSrc(
+    ast::DataDeclaration,
+    ast::NetDeclaration,
+    ast::ParameterDeclaration,
+    ast::LocalVariableDeclaration
+));
 
 impl DeclarationSrc {
     pub fn ptr(&self) -> SyntaxNodePtr {
         match self {
             DeclarationSrc::DataDeclaration(ptr)
             | DeclarationSrc::NetDeclaration(ptr)
-            | DeclarationSrc::ParameterDeclaration(ptr) => *ptr,
+            | DeclarationSrc::ParameterDeclaration(ptr)
+            | DeclarationSrc::LocalVariableDeclaration(ptr) => *ptr,
         }
     }
 }
@@ -116,7 +122,7 @@ pub(crate) trait LowerDeclaration: LowerDecl + LowerEventExpr {
 
 pub(in crate::hir_def) macro impl_lower_declaration($ctx:ty, $data:ident, $src_map:ident) {
     impl $crate::hir_def::declaration::LowerDeclaration for $ctx {
-        fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx {
+        fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx<'_> {
             $crate::hir_def::declaration::LowerDeclarationCtx {
                 db: self.db,
                 declarations: &mut self.$data.declarations,

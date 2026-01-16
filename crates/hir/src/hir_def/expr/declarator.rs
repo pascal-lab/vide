@@ -46,13 +46,13 @@ pub(crate) struct LowerDeclCtx<'a> {
 }
 
 pub(crate) trait LowerDecl: LowerExpr {
-    fn decl_ctx(&mut self) -> LowerDeclCtx;
+    fn decl_ctx(&mut self) -> LowerDeclCtx<'_>;
 }
 
 pub(in crate::hir_def) macro impl_lower_decl {
     ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
         impl $crate::hir_def::expr::declarator::LowerDecl for $ctx {
-            fn decl_ctx(&mut self) -> $crate::hir_def::expr::declarator::LowerDeclCtx {
+            fn decl_ctx(&mut self) -> $crate::hir_def::expr::declarator::LowerDeclCtx<'_> {
                 $crate::hir_def::expr::declarator::LowerDeclCtx {
                     db: self.db,
                     decls: &mut self.$($data.)?decls,

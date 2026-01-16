@@ -3,12 +3,14 @@ use syntax::SyntaxTree;
 use triomphe::Arc;
 
 use crate::{
+    container::InModule,
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
         module::{self, Module, ModuleId, ModuleSourceMap},
+        subroutine::{self, Subroutine, SubroutineId, SubroutineSourceMap},
     },
     scope::{BlockScope, ModuleScope, UnitScope},
 };
@@ -50,6 +52,14 @@ pub trait HirDb: InternDb {
 
     fn block(&self, block_id: BlockId) -> Arc<Block>;
 
+    #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
+    fn subroutine_with_source_map(
+        &self,
+        subroutine: InModule<SubroutineId>,
+    ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
+
+    fn subroutine(&self, subroutine_id: InModule<SubroutineId>) -> Arc<Subroutine>;
+
     #[salsa::invoke(UnitScope::unit_scope_query)]
     fn unit_scope(&self) -> Arc<UnitScope>;
 
@@ -77,4 +87,8 @@ fn module(db: &dyn HirDb, module_id: ModuleId) -> Arc<Module> {
 
 fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
     db.block_with_source_map(block_id).0
+}
+
+fn subroutine(db: &dyn HirDb, subroutine_id: InModule<SubroutineId>) -> Arc<Subroutine> {
+    db.subroutine_with_source_map(subroutine_id).0
 }

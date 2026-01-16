@@ -74,6 +74,9 @@ jobs:
   build-extension:
     needs: build-lsp
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         include:
@@ -127,7 +130,7 @@ jobs:
       - name: Package extension
         run: |
           cd editors/vscode          
-          npx vsce package --target ${{ matrix.platform }} --out vizsla-vscode-${{ matrix.platform }}.vsix
+          printf 'y\n' | npx vsce package --target ${{ matrix.platform }} --out vizsla-vscode-${{ matrix.platform }}.vsix
 
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4

@@ -10,7 +10,9 @@ use super::literal::{Literal, lower_literal};
 use crate::{
     db::InternDb,
     define_src,
-    hir_def::{Ident, alloc_idx_and_src, literal::lower_integer_vector, lower_ident_opt},
+    hir_def::{
+        Ident, alloc_idx_and_src, literal::lower_integer_vector, lower_ident, lower_ident_opt,
+    },
     source_map::SourceMap,
 };
 
@@ -263,13 +265,13 @@ pub enum Selector {
 }
 
 pub(crate) trait LowerExpr {
-    fn expr_ctx(&mut self) -> LowerExprCtx;
+    fn expr_ctx(&mut self) -> LowerExprCtx<'_>;
 }
 
 pub(in crate::hir_def) macro impl_lower_expr {
     ($ctx:ty $(,$data:ident, $src_map:ident)?) => {
         impl $crate::hir_def::expr::LowerExpr for $ctx {
-            fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx {
+            fn expr_ctx(&mut self) -> $crate::hir_def::expr::LowerExprCtx<'_> {
                 $crate::hir_def::expr::LowerExprCtx {
                     db: self.db,
                     exprs: &mut self.$($data.)?exprs,
@@ -418,7 +420,15 @@ impl LowerExprCtx<'_> {
                     _ => unreachable!("lower_name: {:?}", scoped.right().syntax().kind()),
                 }
             }
-            _ => unimplemented!("lower_name: {:?}", name.syntax().kind()),
+            ast::Name::KeywordName(keyword) => {
+                let ident = lower_ident(keyword.keyword());
+                Some(ident.map_or(Expr::Missing, Expr::Ident))
+            }
+            ast::Name::ClassName(class_name) => {
+                let ident = lower_ident_opt(class_name.identifier());
+                Some(ident.map_or(Expr::Missing, Expr::Ident))
+            }
+            ast::Name::EmptyIdentifierName(_) => Some(Expr::Missing),
         }
     }
 

@@ -24,7 +24,6 @@ impl Source2DefCtx<'_, '_> {
         let db = self.db;
 
         let mut resolve = |expr: &Expr| match expr {
-            Expr::Field { .. } => unimplemented!(),
             Expr::Ident(ident) => {
                 let res = self.name_to_def(InContainer::new(cont_id, ident.clone()))?;
                 self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
@@ -46,6 +45,8 @@ impl Source2DefCtx<'_, '_> {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
             }
+            ContainerId::SubroutineId(_) => None,
+            ContainerId::FileSubroutineId(_) => None,
         }
     }
 
@@ -70,6 +71,8 @@ impl Source2DefCtx<'_, '_> {
                 let entry = scope.get(&ident)?;
                 Some(InBlock::new(block_id, entry).into())
             }
+            ContainerId::SubroutineId(_) => None,
+            ContainerId::FileSubroutineId(_) => None,
         })?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res);
         Some(res)

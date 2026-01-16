@@ -1,4 +1,3 @@
-#![feature(let_chains)]
 #![feature(try_blocks)]
 use std::{env, fs, io, path::PathBuf};
 
@@ -115,9 +114,8 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         .filter(|folders| !folders.is_empty())
         .unwrap_or_else(|| vec![root_path.clone()]);
 
-    let (user_config, snippets) = if initialization_options.is_some() {
-        let (user_config, snippets, errors) =
-            Config::parse_initialization_options(initialization_options.unwrap());
+    let (user_config, snippets) = if let Some(options) = initialization_options {
+        let (user_config, snippets, errors) = Config::parse_initialization_options(options);
         if !errors.is_empty() {
             use lsp_types::notification::{Notification, ShowMessage};
             let noti = lsp_server::Notification::new(

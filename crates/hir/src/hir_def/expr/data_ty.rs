@@ -6,11 +6,13 @@ use syntax::{
 };
 
 use super::{ExprId, LowerExprCtx, Selector};
+use crate::{container::InContainer, hir_def::aggregate::StructId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DataTy {
     Builtin(BuiltinDataTyId),
     Named(NamedDataTy),
+    Struct(InContainer<StructId>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,6 +24,7 @@ pub enum BuiltinDataTy {
     Vector { kind: VecKind, signing: bool, dimensions: SmallVec<[Option<Dimension>; 2]> },
     Real(Real),
     String,
+    Void,
 }
 
 impl Default for BuiltinDataTy {
@@ -79,6 +82,7 @@ impl LowerExprCtx<'_> {
             NamedType(named_type) => Either::Right(self.lower_named_ty(named_type)),
             IntegerType(ty) => Either::Left(self.lower_integer_type(ty)),
             ImplicitType(ty) => Either::Left(self.lower_implicit_type(ty)),
+            EnumType(enum_ty) => Either::Right(self.lower_enum_type(enum_ty)),
             _ => unimplemented!("{:?}", ty.syntax().kind()),
         };
         match ty {
@@ -94,6 +98,7 @@ impl LowerExprCtx<'_> {
             RealType(_) => BuiltinDataTy::Real(Real::Real),
             ShortRealType(_) => BuiltinDataTy::Real(Real::ShortReal),
             RealTimeType(_) => BuiltinDataTy::Real(Real::RealTime),
+            VoidType(_) => BuiltinDataTy::Void,
             _ => unimplemented!("{:?}", ty.syntax().kind()),
         }
     }
@@ -107,6 +112,14 @@ impl LowerExprCtx<'_> {
             ScopedName(_) => NamedDataTy::Field(expr_id),
             _ => unreachable!("{:?}", ty.syntax().kind()),
         }
+    }
+
+    fn lower_enum_type(&mut self, _enum_ty: ast::EnumType) -> NamedDataTy {
+        // For now, treat enum types as implicit types
+        // TODO: properly handle enum member completion
+        // We return a missing expression since enum types are anonymous
+        let expr_id = self.alloc_missing();
+        NamedDataTy::Ident(expr_id)
     }
 
     fn lower_integer_type(&mut self, ty: ast::IntegerType) -> BuiltinDataTy {
