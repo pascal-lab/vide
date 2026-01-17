@@ -5,13 +5,18 @@ expression: items
 [
     CompletionItem {
         label: "px_func",
-        kind: Text,
+        kind: Snippet,
         edit: Some(
             TextEditItem {
-                ins: "px_func",
+                ins: "px_func()",
                 del: 113..117,
             },
         ),
-        snippet_edit: None,
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "px_func(${1:args})",
+                del: 113..117,
+            },
+        ),
     },
 ]

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use hir::{
     container::InFile,
@@ -24,6 +24,12 @@ use utils::{
 
 use super::{CompletionItem, CompletionItemKind};
 use crate::completion::context::CompletionContext;
+
+#[derive(Clone, Copy, Debug)]
+enum NameKind {
+    Value,
+    SubroutineCall,
+}
 
 pub(super) fn complete_expression(
     db: &RootDb,
@@ -58,7 +64,7 @@ fn complete_expression_impl(
         return Vec::new();
     }
 
-    let mut names: BTreeSet<String> = BTreeSet::new();
+    let mut names: BTreeMap<String, NameKind> = BTreeMap::new();
 
     if let Some(block_id) = block_id_at_offset(&sema, root, position.offset) {
         collect_block_names(db, block_id, &mut names);
@@ -74,12 +80,23 @@ fn complete_expression_impl(
 
     names
         .into_iter()
-        .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            kind: CompletionItemKind::Text,
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
-            snippet_edit: None,
+        .filter(|(name, _)| name.starts_with(prefix))
+        .map(|(name, kind)| match kind {
+            NameKind::Value => CompletionItem {
+                label: name.clone(),
+                kind: CompletionItemKind::Text,
+                edit: Some(TextEditItem::replace(ctx.replacement, name)),
+                snippet_edit: None,
+            },
+            NameKind::SubroutineCall => CompletionItem {
+                label: name.clone(),
+                kind: CompletionItemKind::Snippet,
+                edit: Some(TextEditItem::replace(ctx.replacement, format!("{name}()"))),
+                snippet_edit: Some(TextEditItem::replace(
+                    ctx.replacement,
+                    format!("{name}(${{1:args}})"),
+                )),
+            },
         })
         .collect()
 }
@@ -128,11 +145,11 @@ fn subroutine_id_at_offset(
     Some(db.intern_subroutine(SubroutineLoc { cont_id, src: InFile::new(file_id, src) }))
 }
 
-fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeSet<String>) {
+fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.block_scope(block_id);
     for (ident, entry) in scope.iter() {
         if matches!(entry, BlockEntry::DeclId(_)) {
-            names.insert(ident.to_string());
+            names.entry(ident.to_string()).or_insert(NameKind::Value);
         }
     }
 }
@@ -140,30 +157,32 @@ fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeSet<Stri
 fn collect_subroutine_names(
     db: &RootDb,
     subroutine_id: SubroutineId,
-    names: &mut BTreeSet<String>,
+    names: &mut BTreeMap<String, NameKind>,
 ) {
     let subroutine = db.subroutine(subroutine_id);
     for port in subroutine.ports.iter() {
         if let Some(name) = port.name.as_ref() {
-            names.insert(name.to_string());
+            names.entry(name.to_string()).or_insert(NameKind::Value);
         }
     }
     for (_decl_id, decl) in subroutine.decls.iter() {
         if let Some(name) = decl.name.as_ref() {
-            names.insert(name.to_string());
+            names.entry(name.to_string()).or_insert(NameKind::Value);
         }
     }
 }
 
-fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeSet<String>) {
+fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.module_scope(module_id);
     for (ident, entry) in scope.iter() {
         match entry {
             ModuleEntry::DeclId(_)
             | ModuleEntry::AnsiPortEntry(_)
-            | ModuleEntry::NonAnsiPortEntry(_)
-            | ModuleEntry::SubroutineId(_) => {
-                names.insert(ident.to_string());
+            | ModuleEntry::NonAnsiPortEntry(_) => {
+                names.entry(ident.to_string()).or_insert(NameKind::Value);
+            }
+            ModuleEntry::SubroutineId(_) => {
+                names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall);
             }
             _ => {}
         }
