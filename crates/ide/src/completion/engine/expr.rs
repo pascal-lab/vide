@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use hir::{
-    container::ContainerId,
-    db::HirDb,
+    container::InFile,
+    db::{HirDb, InternDb},
     hir_def::{
-        block::{BlockId, BlockSrc},
+        block::BlockId,
         module::{ModuleId, ModuleSrc},
+        subroutine::{SubroutineId, SubroutineLoc, SubroutineSrc},
     },
     scope::{BlockEntry, ModuleEntry},
     semantics::Semantics,
@@ -17,7 +18,7 @@ use syntax::{
     ast::{self, AstNode},
 };
 use utils::{
-    get::{Get, GetRef},
+    get::Get,
     text_edit::{TextEditItem, TextRange, TextSize},
 };
 
@@ -59,8 +60,12 @@ fn complete_expression_impl(
 
     let mut names: BTreeSet<String> = BTreeSet::new();
 
-    if let Some(block_id) = block_id_at_offset(db, &sema, root, position.offset) {
+    if let Some(block_id) = block_id_at_offset(&sema, root, position.offset) {
         collect_block_names(db, block_id, &mut names);
+    }
+
+    if let Some(subroutine_id) = subroutine_id_at_offset(db, &sema, root, position.offset) {
+        collect_subroutine_names(db, subroutine_id, &mut names);
     }
 
     if let Some(module_id) = module_id_at_offset(db, &sema, root, position.offset) {
@@ -102,87 +107,25 @@ fn module_id_at_offset(
 }
 
 fn block_id_at_offset(
-    db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     root: SyntaxNode<'_>,
     offset: TextSize,
 ) -> Option<BlockId> {
     let block = sema.find_node_at_offset::<ast::BlockStatement>(root, offset)?;
-    block_to_def(db, sema, block)
+    sema.block_to_def(block)
 }
 
-fn block_to_def(
+fn subroutine_id_at_offset(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
-    block: ast::BlockStatement<'_>,
-) -> Option<BlockId> {
-    let block_src = BlockSrc::from(block);
-    let parent_container = container_id_for_node(db, sema, block.syntax());
-    block_id_from_src(db, parent_container, block_src)
-}
-
-fn container_id_for_node(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
-    node: SyntaxNode<'_>,
-) -> ContainerId {
-    let file_id = sema.find_file(node);
-    container_id_for_node_inner(db, sema, file_id, node)
-}
-
-fn container_id_for_node_inner(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
-    file_id: hir::file::HirFileId,
-    node: SyntaxNode<'_>,
-) -> ContainerId {
-    for anc in SyntaxAncestors::start_from(node).skip(1) {
-        if let Some(module) = ast::ModuleDeclaration::cast(anc.clone()) {
-            let (_, file_src_map) = db.hir_file_with_source_map(file_id);
-            let module_src = ModuleSrc::from(module);
-            let local_module_id = file_src_map.get(module_src);
-            return ModuleId::new(file_id, local_module_id).into();
-        }
-
-        if let Some(block) = ast::BlockStatement::cast(anc.clone()) {
-            let block_src = BlockSrc::from(block);
-            let parent_container = container_id_for_node_inner(db, sema, file_id, block.syntax());
-            if let Some(block_id) = block_id_from_src(db, parent_container, block_src) {
-                return block_id.into();
-            }
-        }
-
-        if ast::CompilationUnit::can_cast(anc.kind()) {
-            return file_id.into();
-        }
-    }
-
-    file_id.into()
-}
-
-fn block_id_from_src(
-    db: &RootDb,
-    container_id: ContainerId,
-    block_src: BlockSrc,
-) -> Option<BlockId> {
-    match container_id {
-        ContainerId::HirFileId(file_id) => {
-            let (file, file_src_map) = db.hir_file_with_source_map(file_id);
-            let local_block_id = file_src_map.get(block_src);
-            Some(file.get(local_block_id).block_id)
-        }
-        ContainerId::ModuleId(module_id) => {
-            let (module, module_src_map) = db.module_with_source_map(module_id);
-            let local_block_id = module_src_map.get(block_src);
-            Some(module.get(local_block_id).block_id)
-        }
-        ContainerId::BlockId(block_id) => {
-            let (block, block_src_map) = db.block_with_source_map(block_id);
-            let local_block_id = block_src_map.get(block_src);
-            Some(block.get(local_block_id).block_id)
-        }
-        ContainerId::SubroutineId(_) => None,
-    }
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+) -> Option<SubroutineId> {
+    let func = sema.find_node_at_offset::<ast::FunctionDeclaration>(root, offset)?;
+    let file_id = sema.find_file(func.syntax());
+    let cont_id = module_id_at_offset(db, sema, root, offset).map_or(file_id.into(), Into::into);
+    let src = SubroutineSrc::from(func);
+    Some(db.intern_subroutine(SubroutineLoc { cont_id, src: InFile::new(file_id, src) }))
 }
 
 fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeSet<String>) {
@@ -194,13 +137,32 @@ fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeSet<Stri
     }
 }
 
+fn collect_subroutine_names(
+    db: &RootDb,
+    subroutine_id: SubroutineId,
+    names: &mut BTreeSet<String>,
+) {
+    let subroutine = db.subroutine(subroutine_id);
+    for port in subroutine.ports.iter() {
+        if let Some(name) = port.name.as_ref() {
+            names.insert(name.to_string());
+        }
+    }
+    for (_decl_id, decl) in subroutine.decls.iter() {
+        if let Some(name) = decl.name.as_ref() {
+            names.insert(name.to_string());
+        }
+    }
+}
+
 fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeSet<String>) {
     let scope = db.module_scope(module_id);
     for (ident, entry) in scope.iter() {
         match entry {
             ModuleEntry::DeclId(_)
             | ModuleEntry::AnsiPortEntry(_)
-            | ModuleEntry::NonAnsiPortEntry(_) => {
+            | ModuleEntry::NonAnsiPortEntry(_)
+            | ModuleEntry::SubroutineId(_) => {
                 names.insert(ident.to_string());
             }
             _ => {}
