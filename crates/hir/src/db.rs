@@ -10,7 +10,9 @@ use crate::{
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
         module::{self, Module, ModuleId, ModuleSourceMap},
-        subroutine::{self, Subroutine, SubroutineId, SubroutineSourceMap},
+        subroutine::{
+            self, LocalSubroutineId, Subroutine, SubroutineId, SubroutineLoc, SubroutineSourceMap,
+        },
     },
     scope::{BlockScope, ModuleScope, UnitScope},
 };
@@ -27,10 +29,14 @@ pub trait InternDb: SourceDb {
 
     #[salsa::interned]
     fn intern_block(&self, block: BlockLoc) -> BlockId;
+
+    #[salsa::interned]
+    fn intern_subroutine(&self, subroutine: SubroutineLoc) -> SubroutineId;
 }
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
 impl_intern!(BlockId, BlockLoc, intern_block, lookup_intern_block);
+impl_intern!(SubroutineId, SubroutineLoc, intern_subroutine, lookup_intern_subroutine);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {
@@ -55,10 +61,10 @@ pub trait HirDb: InternDb {
     #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
     fn subroutine_with_source_map(
         &self,
-        subroutine: InModule<SubroutineId>,
+        subroutine: InModule<LocalSubroutineId>,
     ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
 
-    fn subroutine(&self, subroutine_id: InModule<SubroutineId>) -> Arc<Subroutine>;
+    fn subroutine(&self, subroutine_id: InModule<LocalSubroutineId>) -> Arc<Subroutine>;
 
     #[salsa::invoke(UnitScope::unit_scope_query)]
     fn unit_scope(&self) -> Arc<UnitScope>;
@@ -89,6 +95,6 @@ fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
     db.block_with_source_map(block_id).0
 }
 
-fn subroutine(db: &dyn HirDb, subroutine_id: InModule<SubroutineId>) -> Arc<Subroutine> {
+fn subroutine(db: &dyn HirDb, subroutine_id: InModule<LocalSubroutineId>) -> Arc<Subroutine> {
     db.subroutine_with_source_map(subroutine_id).0
 }

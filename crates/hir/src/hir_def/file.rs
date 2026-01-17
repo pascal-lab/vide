@@ -26,7 +26,7 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LowerSubroutineBodyCtx, Subroutine, SubroutineId, SubroutineSourceMap, SubroutineSrc,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSourceMap, SubroutineSrc,
         lower_subroutine, lower_subroutine_body,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
@@ -49,7 +49,7 @@ define_container! {
         typedefs: [Typedef],
         structs: [StructDef],
         subroutines: [Subroutine],
-        subroutine_source_maps: FxHashMap<SubroutineId, SubroutineSourceMap>,
+        subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
         declarations: [Declaration],
         exprs: [Expr],
@@ -88,12 +88,12 @@ define_container! {
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
     pub enum FileItem {
-        LocalModuleId,
-        ProcId,
-        DeclarationId,
-        TypedefId,
-        StructId,
-        SubroutineId,
+        LocalModuleId(LocalModuleId),
+        ProcId(ProcId),
+        DeclarationId(DeclarationId),
+        TypedefId(TypedefId),
+        StructId(StructId),
+        SubroutineId(LocalSubroutineId),
     }
 }
 
@@ -184,7 +184,10 @@ impl LowerFileCtx<'_> {
         typedef_id
     }
 
-    fn lower_subroutine_decl(&mut self, func: ast::FunctionDeclaration) -> Option<SubroutineId> {
+    fn lower_subroutine_decl(
+        &mut self,
+        func: ast::FunctionDeclaration,
+    ) -> Option<LocalSubroutineId> {
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let subroutine_id = alloc_idx_and_src! {

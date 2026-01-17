@@ -126,9 +126,18 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-pub type SubroutineId = Idx<Subroutine>;
-
 define_src!(SubroutineSrc(ast::FunctionDeclaration));
+
+pub type LocalSubroutineId = Idx<Subroutine>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SubroutineId(pub salsa::InternId);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct SubroutineLoc {
+    pub cont_id: ContainerId,
+    pub src: InFile<SubroutineSrc>,
+}
 
 pub fn lower_subroutine<F>(func: &ast::FunctionDeclaration, mut lower_ty: F) -> Option<Subroutine>
 where
@@ -196,28 +205,19 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SubroutineLocation {
-    InModule(InModule<SubroutineId>),
-    InFile(InFile<SubroutineId>),
+    InModule(InModule<LocalSubroutineId>),
+    InFile(InFile<LocalSubroutineId>),
 }
 
-impl From<InModule<SubroutineId>> for SubroutineLocation {
-    fn from(loc: InModule<SubroutineId>) -> Self {
+impl From<InModule<LocalSubroutineId>> for SubroutineLocation {
+    fn from(loc: InModule<LocalSubroutineId>) -> Self {
         SubroutineLocation::InModule(loc)
     }
 }
 
-impl From<InFile<SubroutineId>> for SubroutineLocation {
-    fn from(loc: InFile<SubroutineId>) -> Self {
+impl From<InFile<LocalSubroutineId>> for SubroutineLocation {
+    fn from(loc: InFile<LocalSubroutineId>) -> Self {
         SubroutineLocation::InFile(loc)
-    }
-}
-
-impl From<SubroutineLocation> for ContainerId {
-    fn from(loc: SubroutineLocation) -> ContainerId {
-        match loc {
-            SubroutineLocation::InModule(module_loc) => ContainerId::SubroutineId(module_loc),
-            SubroutineLocation::InFile(file_loc) => ContainerId::FileSubroutineId(file_loc),
-        }
     }
 }
 
@@ -338,7 +338,7 @@ pub fn lower_subroutine_body(ctx: &mut LowerSubroutineBodyCtx<'_>, func: ast::Fu
 
 pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDb,
-    loc: InModule<SubroutineId>,
+    loc: InModule<LocalSubroutineId>,
 ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
     let module = db.module(loc.module_id);
     let subroutine = module.subroutines[loc.value].clone();
