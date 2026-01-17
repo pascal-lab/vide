@@ -14,6 +14,7 @@ use crate::{
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
+        subroutine::SubroutineId,
     },
     scope::{self, BlockEntry, ModuleEntry, UnitEntry},
 };
@@ -98,6 +99,7 @@ pub enum PathResolution {
     Module(ModuleId),
     Decl(InContainer<DeclId>),
     ParamDecl(InModule<DeclId>),
+    Subroutine(SubroutineId),
     NonAnsiPort {
         // There won't be a situation where all fields are None.
         label: Option<NonAnsiPortId>,
@@ -128,6 +130,7 @@ impl From<InModule<ModuleEntry>> for PathResolution {
             DeclId(decl_id) => Self::Decl(entry.with_value(decl_id).into()),
             InstanceId(idx) => Self::Instance(entry.with_value(idx)),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
+            SubroutineId(subroutine_id) => Self::Subroutine(subroutine_id),
             NonAnsiPortEntry(scope::NonAnsiPortEntry { label, port_decl, data_decl }) => {
                 Self::NonAnsiPort { label, port_decl, data_decl, module: entry.module_id }
             }

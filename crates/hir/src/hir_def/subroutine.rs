@@ -332,11 +332,8 @@ pub(crate) fn subroutine_with_source_map_query(
             let (_, file_src_map) = db.hir_file_with_source_map(file_id);
             let local_id = file_src_map.get(src.value);
             let subroutine = file.subroutines[local_id].clone();
-            let source_map = file
-                .subroutine_source_maps
-                .get(&local_id)
-                .cloned()
-                .unwrap_or_default();
+            let source_map =
+                file.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
             (Arc::new(subroutine), Arc::new(source_map))
         }
         ContainerId::ModuleId(module_id) => {
@@ -344,11 +341,8 @@ pub(crate) fn subroutine_with_source_map_query(
             let (_, module_src_map) = db.module_with_source_map(module_id);
             let local_id = module_src_map.get(src.value);
             let subroutine = module.subroutines[local_id].clone();
-            let source_map = module
-                .subroutine_source_maps
-                .get(&local_id)
-                .cloned()
-                .unwrap_or_default();
+            let source_map =
+                module.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
             (Arc::new(subroutine), Arc::new(source_map))
         }
         _ => unreachable!("subroutine parent must be file or module"),
