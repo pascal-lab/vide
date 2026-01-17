@@ -11,7 +11,7 @@ use hir::{
 use ide_db::root_db::RootDb;
 use span::FilePosition;
 use syntax::{
-    SyntaxAncestors, SyntaxCursorExt, SyntaxNode, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxToken,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
@@ -64,22 +64,11 @@ fn member_access_at_offset(
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
 ) -> Option<ast::MemberAccessExpression<'_>> {
-    let prev = token_before_offset(root, offset)?;
+    let prev = root.token_before_offset(offset)?;
     if prev.kind() != syntax::Token![.] {
         return None;
     }
     SyntaxAncestors::start_from(prev.parent).find_map(ast::MemberAccessExpression::cast)
-}
-
-fn token_before_offset(
-    root: SyntaxNode<'_>,
-    offset: utils::text_edit::TextSize,
-) -> Option<SyntaxTokenWithParent<'_>> {
-    let mut cursor = root.walk();
-    if !cursor.goto_last_tok_before(offset) {
-        return None;
-    }
-    cursor.to_tok_with_parent()
 }
 
 fn resolve_scope_before_dot(
@@ -88,16 +77,12 @@ fn resolve_scope_before_dot(
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
 ) -> Option<MemberScope> {
-    let dot = token_before_offset(root, offset)?;
+    let dot = root.token_before_offset(offset)?;
     if dot.kind() != syntax::Token![.] {
         return None;
     }
     let dot_range = dot.text_range()?;
-    let mut cursor = root.walk();
-    if !cursor.goto_last_tok_before(dot_range.start()) {
-        return None;
-    }
-    let prev = cursor.to_tok_with_parent()?;
+    let prev = root.token_before_offset(dot_range.start())?;
 
     if let Some(access) = SyntaxAncestors::start_from(prev.parent)
         .find_map(ast::MemberAccessExpression::cast)

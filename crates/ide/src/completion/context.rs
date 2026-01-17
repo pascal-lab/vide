@@ -1,14 +1,19 @@
+//! Completion context detection.
+
+mod caret;
+mod decl_name;
+mod lex;
+mod syn;
+mod util;
+
+use base_db::source_db::SourceDb;
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use span::FilePosition;
-use syntax::{
-    SyntaxAncestors, SyntaxCursorExt, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
-    SyntaxTrivia, TokenKind,
-    ast::{self, AstNode},
-    has_text_range::HasTextRange,
-    token::SyntaxTokenWithParentExt,
-};
+use syntax::{SyntaxNode, ast::AstNode};
 use utils::line_index::{TextRange, TextSize};
+
+use self::caret::CaretSnapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {
@@ -121,7 +126,8 @@ pub(crate) fn completion_context(
 ) -> CompletionContext {
     let sema = Semantics::new(db);
     let file = sema.parse(file_id);
-    detect_completion_context(file.syntax(), offset, trigger)
+    let expected_ident_offsets = db.expected_identifier_offsets(file_id);
+    detect_completion_context_impl(file.syntax(), offset, trigger, Some(&expected_ident_offsets))
 }
 
 pub fn detect_completion_context(
@@ -129,9 +135,28 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    let (replacement, prefix) = replacement_and_prefix(root, offset);
+    detect_completion_context_impl(root, offset, trigger, None)
+}
 
-    let lex = detect_lex_context(root, offset);
+pub fn detect_completion_context_with_expected_identifier_offsets(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    trigger: Option<TriggerChar>,
+    expected_identifier_offsets: &[TextSize],
+) -> CompletionContext {
+    detect_completion_context_impl(root, offset, trigger, Some(expected_identifier_offsets))
+}
+
+fn detect_completion_context_impl(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    trigger: Option<TriggerChar>,
+    expected_identifier_offsets: Option<&[TextSize]>,
+) -> CompletionContext {
+    let caret = CaretSnapshot::new(root, offset);
+    let (replacement, prefix) = caret.replacement_and_prefix();
+
+    let lex = lex::detect_lex_context(&caret);
     if lex != LexContext::Code {
         return CompletionContext {
             replacement,
@@ -144,807 +169,9 @@ pub fn detect_completion_context(
         };
     }
 
-    let in_decl_name = is_in_declarator_name(root, offset);
-    let (syn, qualifier) = detect_syn_context(root, offset, trigger);
+    let in_decl_name = decl_name::is_in_decl_name(&caret, expected_identifier_offsets);
+    let (syn, qualifier) = syn::detect_syn_context(&caret, trigger);
     CompletionContext { replacement, prefix, trigger, lex, syn, qualifier, in_decl_name }
-}
-
-fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange, String) {
-    let token_at = root.token_at_offset(offset);
-    let tok_with_parent = match token_at {
-        syntax::TokenAtOffset::Single(tok) => Some(tok),
-        syntax::TokenAtOffset::Between(left, right) => {
-            let left_range = left.text_range();
-            if left_range.is_some_and(|r| r.end() == offset) {
-                Some(left)
-            } else {
-                let right_range = right.text_range();
-                right_range.is_some_and(|r| r.start() == offset).then_some(right)
-            }
-        }
-        syntax::TokenAtOffset::None => {
-            // Most commonly happens at EOF (offset == text_len), where slang returns None.
-            // Use the token just before the cursor, but only if it ends at the cursor.
-            if offset > TextSize::new(0) {
-                let prev_off = offset - TextSize::new(1);
-                match root.token_at_offset(prev_off) {
-                    syntax::TokenAtOffset::Single(tok) => {
-                        tok.text_range().is_some_and(|r| r.end() == offset).then_some(tok)
-                    }
-                    syntax::TokenAtOffset::Between(left, right) => {
-                        if left.text_range().is_some_and(|r| r.end() == offset) {
-                            Some(left)
-                        } else {
-                            right.text_range().is_some_and(|r| r.end() == offset).then_some(right)
-                        }
-                    }
-                    syntax::TokenAtOffset::None => None,
-                }
-            } else {
-                None
-            }
-        }
-    };
-
-    let Some(tok_with_parent) = tok_with_parent else {
-        return (TextRange::empty(offset), String::new());
-    };
-
-    if tok_with_parent.is_word_like() {
-        let range = tok_with_parent.text_range().unwrap_or_else(|| TextRange::empty(offset));
-        let prefix = if range.contains(offset) || range.end() == offset {
-            let upto = usize::from(offset - range.start());
-            let text = tok_with_parent.tok.raw_text().to_string();
-            if upto <= text.len() && text.is_char_boundary(upto) {
-                text[..upto].to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-        (range, prefix)
-    } else {
-        (TextRange::empty(offset), String::new())
-    }
-}
-
-fn detect_lex_context(root: SyntaxNode<'_>, offset: TextSize) -> LexContext {
-    if is_inside_string_literal(root, offset) {
-        return LexContext::StringLiteral;
-    }
-
-    if let Some(kind) = trivia_kind_at_offset(root, offset) {
-        let kind = if kind == syntax::Trivia![eol] {
-            // Also treat the end boundary of a line comment as being inside the comment.
-            line_comment_kind_before_offset(root, offset).unwrap_or(kind)
-        } else {
-            kind
-        };
-        return match kind {
-            syntax::Trivia![lc] => LexContext::LineComment,
-            syntax::Trivia![bc] => LexContext::BlockComment,
-            syntax::Trivia!["`"] => LexContext::PreprocDirective,
-            _ => LexContext::Code,
-        };
-    }
-
-    if line_comment_kind_before_offset(root, offset).is_some() {
-        return LexContext::LineComment;
-    }
-
-    if is_inside_preproc_directive_node(root, offset) {
-        return LexContext::PreprocDirective;
-    }
-
-    LexContext::Code
-}
-
-fn line_comment_kind_before_offset(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-) -> Option<syntax::TriviaKind> {
-    // Also treat the end boundary of a line comment as being inside the comment.
-    // This covers the common case `// ...<caret>\n` where the cursor is right
-    // before the newline.
-    if offset == TextSize::new(0) {
-        return None;
-    }
-    let prev = offset - TextSize::new(1);
-    let kind = trivia_kind_at_offset(root, prev)?;
-    (kind == syntax::Trivia![lc]).then_some(kind)
-}
-
-fn is_inside_string_literal(root: SyntaxNode<'_>, offset: TextSize) -> bool {
-    let tok = root.token_at_offset(offset).left_biased();
-    tok.is_some_and(|tp| {
-        tp.kind() == TokenKind::STRING_LITERAL
-            && tp.text_range().is_some_and(|r| r.contains(offset))
-    })
-}
-
-fn trivia_kind_at_offset(root: SyntaxNode<'_>, offset: TextSize) -> Option<syntax::TriviaKind> {
-    // Trivia can be attached to either the token before it or after it, depending
-    // on how the underlying parser decides to associate it. Check both
-    // directions, plus the last token for trivia-only files.
-    if let Some(tok) = token_after_or_at_offset(root, offset)
-        && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
-    {
-        return Some(kind);
-    }
-
-    if let Some(tok) = token_before_offset(root, offset)
-        && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
-    {
-        return Some(kind);
-    }
-
-    if let Some(tok) = last_token(root)
-        && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
-    {
-        return Some(kind);
-    }
-
-    None
-}
-
-fn last_token(root: SyntaxNode<'_>) -> Option<SyntaxTokenWithParent<'_>> {
-    let mut cursor = root.walk();
-    let end = root.text_range()?.end();
-    if !cursor.goto_first_tok_after_or_last(end) {
-        return None;
-    }
-    cursor.to_tok_with_parent()
-}
-
-fn trivia_kind_at_offset_in_token(
-    tok: SyntaxTokenWithParent<'_>,
-    offset: TextSize,
-) -> Option<syntax::TriviaKind> {
-    for ((start, end), trivia) in tok.tok.trivias_with_loc() {
-        let range = TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32));
-        if range.contains(offset) {
-            return Some(trivia.kind());
-        }
-
-        // For directive trivia, check nested trivia in the directive's first token
-        if trivia.kind() == syntax::Trivia!["`"] {
-            if let Some(node) = trivia.syntax()
-                && let Some(first_tok) = node.first_token()
-            {
-                for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
-                    let nested_range =
-                        TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
-                    if nested_range.contains(offset) {
-                        return Some(nested_trivia.kind());
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn is_in_declarator_name(root: SyntaxNode<'_>, offset: TextSize) -> bool {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let mut seeds: Vec<SyntaxNode<'_>> =
-        elem.as_node().or_else(|| elem.parent()).into_iter().collect();
-    if let Some(prev) = token_before_offset(root, offset) {
-        seeds.push(prev.parent);
-    }
-    if let Some(next) = token_after_or_at_offset(root, offset) {
-        seeds.push(next.parent);
-    }
-
-    seeds.into_iter().any(|node| is_in_declarator_name_from_seed(root, offset, node))
-}
-
-fn is_in_declarator_name_from_seed(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-    node: SyntaxNode<'_>,
-) -> bool {
-    if let Some(declarator) = SyntaxAncestors::start_from(node).find_map(ast::Declarator::cast) {
-        if let Some(name) = declarator.name()
-            && let Some(range) = name.text_range()
-        {
-            if range.contains(offset) || range.end() == offset {
-                return true;
-            }
-        }
-    }
-
-    // Handle common error-recovery shapes where the missing declarator name isn't
-    // part of the covering element, but we still want to suppress completion in
-    // the "new symbol name" zone.
-    let sep_start = token_after_or_at_offset(root, offset)
-        .and_then(|t| t.text_range())
-        .map(|r| r.start())
-        .unwrap_or(offset);
-
-    if let Some(list) = SyntaxAncestors::start_from(node).find_map(ast::AnsiPortList::cast) {
-        let close_start =
-            list.close_paren().and_then(|t| t.text_range()).map(|r| r.start()).unwrap_or(sep_start);
-
-        let mut candidate: Option<ast::ImplicitAnsiPort<'_>> = None;
-        for member in list.ports().children() {
-            let Some(port) = member.as_implicit_ansi_port() else {
-                continue;
-            };
-            let Some(port_start) = port.syntax().text_range().map(|r| r.start()) else {
-                continue;
-            };
-            if port_start <= offset && offset <= close_start {
-                candidate = Some(port);
-            }
-        }
-
-        if let Some(port) = candidate {
-            let name = port.declarator().name();
-            let missing_name =
-                name.is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
-            if missing_name
-                && let Some(header_end) = last_token_end_in_node(root, port.header().syntax())
-                && offset >= header_end
-                && offset <= close_start
-            {
-                return true;
-            }
-        }
-    }
-
-    if let Some(list) = SyntaxAncestors::start_from(node).find_map(ast::FunctionPortList::cast) {
-        let close_start =
-            list.close_paren().and_then(|t| t.text_range()).map(|r| r.start()).unwrap_or(sep_start);
-
-        let mut candidate: Option<ast::FunctionPort<'_>> = None;
-        for base in list.ports().children() {
-            let Some(port) = base.as_function_port() else {
-                continue;
-            };
-            let Some(port_start) = port.syntax().text_range().map(|r| r.start()) else {
-                continue;
-            };
-            if port_start <= offset && offset <= close_start {
-                candidate = Some(port);
-            }
-        }
-
-        if let Some(port) = candidate {
-            let name = port.declarator().name();
-            let missing_name =
-                name.is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
-
-            if missing_name {
-                let mut header_end: Option<TextSize> = None;
-                let mut consider_end = |tok: Option<syntax::SyntaxToken<'_>>| {
-                    if let Some(end) = tok.and_then(|t| t.text_range()).map(|r| r.end()) {
-                        header_end = Some(header_end.map_or(end, |cur| cur.max(end)));
-                    }
-                };
-                consider_end(port.const_keyword());
-                consider_end(port.direction());
-                consider_end(port.static_keyword());
-                consider_end(port.var_keyword());
-                if let Some(dt_end) =
-                    port.data_type().and_then(|dt| last_token_end_in_node(root, dt.syntax()))
-                {
-                    header_end = Some(header_end.map_or(dt_end, |cur| cur.max(dt_end)));
-                }
-
-                if let Some(header_end) = header_end
-                    && offset >= header_end
-                    && offset <= close_start
-                {
-                    return true;
-                }
-            }
-        }
-    }
-
-    for anc in SyntaxAncestors::start_from(node) {
-        if let Some(port) = ast::ImplicitAnsiPort::cast(anc) {
-            let missing_name = port
-                .declarator()
-                .name()
-                .is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
-            if !missing_name {
-                continue;
-            }
-
-            let Some(header_end) = last_token_end_in_node(root, port.header().syntax()) else {
-                continue;
-            };
-
-            if offset >= header_end && offset <= sep_start {
-                return true;
-            }
-        }
-
-        if let Some(port) = ast::FunctionPort::cast(anc) {
-            let missing_name = port
-                .declarator()
-                .name()
-                .is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
-            if !missing_name {
-                continue;
-            }
-
-            let mut header_end: Option<TextSize> = None;
-            let mut consider_end = |tok: Option<syntax::SyntaxToken<'_>>| {
-                if let Some(end) = tok.and_then(|t| t.text_range()).map(|r| r.end()) {
-                    header_end = Some(header_end.map_or(end, |cur| cur.max(end)));
-                }
-            };
-            consider_end(port.const_keyword());
-            consider_end(port.direction());
-            consider_end(port.static_keyword());
-            consider_end(port.var_keyword());
-            if let Some(dt_end) =
-                port.data_type().and_then(|dt| last_token_end_in_node(root, dt.syntax()))
-            {
-                header_end = Some(header_end.map_or(dt_end, |cur| cur.max(dt_end)));
-            }
-
-            let Some(header_end) = header_end else {
-                continue;
-            };
-
-            if offset >= header_end && offset <= sep_start {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-fn token_after_or_at_offset(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-) -> Option<SyntaxTokenWithParent<'_>> {
-    if let Some(tok) = root.token_at_offset(offset).left_biased()
-        && tok.text_range().is_some_and(|r| r.contains(offset))
-    {
-        return Some(tok);
-    }
-
-    let mut cursor = root.walk();
-    if !cursor.goto_first_tok_after_or_last(offset) {
-        return None;
-    }
-    cursor.to_tok_with_parent()
-}
-
-fn is_inside_preproc_directive_node(root: SyntaxNode<'_>, offset: TextSize) -> bool {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return false;
-    };
-
-    SyntaxAncestors::start_from(node).any(|n| is_preproc_directive_kind(n.kind()))
-}
-
-fn is_preproc_directive_kind(kind: syntax::SyntaxKind) -> bool {
-    use syntax::SyntaxKind;
-    matches!(
-        kind,
-        SyntaxKind::BEGIN_KEYWORDS_DIRECTIVE
-            | SyntaxKind::CELL_DEFINE_DIRECTIVE
-            | SyntaxKind::DEFAULT_DECAY_TIME_DIRECTIVE
-            | SyntaxKind::DEFAULT_NET_TYPE_DIRECTIVE
-            | SyntaxKind::DEFAULT_TRIREG_STRENGTH_DIRECTIVE
-            | SyntaxKind::DEFINE_DIRECTIVE
-            | SyntaxKind::DELAY_MODE_DISTRIBUTED_DIRECTIVE
-            | SyntaxKind::DELAY_MODE_PATH_DIRECTIVE
-            | SyntaxKind::DELAY_MODE_UNIT_DIRECTIVE
-            | SyntaxKind::DELAY_MODE_ZERO_DIRECTIVE
-            | SyntaxKind::ELSE_DIRECTIVE
-            | SyntaxKind::ELS_IF_DIRECTIVE
-            | SyntaxKind::END_CELL_DEFINE_DIRECTIVE
-            | SyntaxKind::END_IF_DIRECTIVE
-            | SyntaxKind::END_KEYWORDS_DIRECTIVE
-            | SyntaxKind::END_PROTECT_DIRECTIVE
-            | SyntaxKind::END_PROTECTED_DIRECTIVE
-            | SyntaxKind::IF_DEF_DIRECTIVE
-            | SyntaxKind::IF_N_DEF_DIRECTIVE
-            | SyntaxKind::INCLUDE_DIRECTIVE
-            | SyntaxKind::LINE_DIRECTIVE
-            | SyntaxKind::NO_UNCONNECTED_DRIVE_DIRECTIVE
-            | SyntaxKind::PRAGMA_DIRECTIVE
-            | SyntaxKind::PROTECT_DIRECTIVE
-            | SyntaxKind::PROTECTED_DIRECTIVE
-            | SyntaxKind::RESET_ALL_DIRECTIVE
-            | SyntaxKind::TIME_SCALE_DIRECTIVE
-            | SyntaxKind::UNCONNECTED_DRIVE_DIRECTIVE
-            | SyntaxKind::UNDEF_DIRECTIVE
-            | SyntaxKind::UNDEFINE_ALL_DIRECTIVE
-            | SyntaxKind::BIND_DIRECTIVE
-    )
-}
-
-fn detect_syn_context(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-    trigger: Option<TriggerChar>,
-) -> (SynContext, Option<Qualifier>) {
-    if trigger == Some(TriggerChar::At) {
-        return (SynContext::SensitivityList, Some(Qualifier::AfterAt(AtKind::EventControl)));
-    }
-
-    if trigger == Some(TriggerChar::Backtick) {
-        return (base_syn_context(root, offset), Some(Qualifier::AfterBacktick));
-    }
-
-    if let Some(qualifier) = qualifier_after_dot(root, offset) {
-        let syn = match qualifier {
-            Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort | DotKind::NamedParam }) => {
-                SynContext::Instantiation
-            }
-            Qualifier::AfterDot(AfterDot { kind: DotKind::Member }) => SynContext::HierRef,
-            _ => unreachable!(),
-        };
-        return (syn, Some(qualifier));
-    }
-
-    if let Some(qualifier) = qualifier_after_hash(root, offset) {
-        let syn = match qualifier {
-            Qualifier::AfterHash(AfterHash { kind: HashKind::ParamValueAssignment }) => {
-                SynContext::Instantiation
-            }
-            Qualifier::AfterHash(AfterHash { kind: HashKind::ParameterPortList }) => {
-                SynContext::ModuleHeader
-            }
-            _ => unreachable!(),
-        };
-        return (syn, Some(qualifier));
-    }
-
-    if let Some(qualifier) = qualifier_in_named_conn_expr(root, offset) {
-        let syn = match qualifier {
-            Qualifier::InNamedPortConnExpr | Qualifier::InNamedParamAssignExpr => {
-                SynContext::Instantiation
-            }
-            _ => unreachable!(),
-        };
-        return (syn, Some(qualifier));
-    }
-
-    if let Some(qualifier) = qualifier_in_paren_list(root, offset) {
-        let syn = match qualifier {
-            Qualifier::InParenList(InParenList {
-                kind: ParenListKind::ParamValueAssignment | ParenListKind::PortConnections,
-            }) => SynContext::Instantiation,
-            Qualifier::InParenList(InParenList { kind: ParenListKind::ParameterPortList }) => {
-                SynContext::ModuleHeader
-            }
-            Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }) => {
-                SynContext::ModuleItem
-            }
-            _ => unreachable!(),
-        };
-        return (syn, Some(qualifier));
-    }
-
-    if let Some(qualifier) = qualifier_in_port_list(root, offset) {
-        return (SynContext::ModuleHeader, Some(qualifier));
-    }
-
-    if is_in_sensitivity_list(root, offset) {
-        return (SynContext::SensitivityList, None);
-    }
-
-    if let Some(qualifier) = qualifier_from_trigger(root, offset, trigger) {
-        let syn = match qualifier {
-            Qualifier::InParenList(InParenList {
-                kind: ParenListKind::ParamValueAssignment | ParenListKind::PortConnections,
-            }) => SynContext::Instantiation,
-            Qualifier::InParenList(InParenList { kind: ParenListKind::ParameterPortList }) => {
-                SynContext::ModuleHeader
-            }
-            Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }) => {
-                SynContext::ModuleItem
-            }
-            Qualifier::InPortList(_) => SynContext::ModuleHeader,
-            _ => base_syn_context(root, offset),
-        };
-        return (syn, Some(qualifier));
-    }
-
-    (base_syn_context(root, offset), None)
-}
-
-fn qualifier_from_trigger(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-    trigger: Option<TriggerChar>,
-) -> Option<Qualifier> {
-    match trigger {
-        Some(TriggerChar::OpenParen | TriggerChar::Comma) => {}
-        _ => return None,
-    }
-
-    let prev = token_before_offset(root, offset)?;
-    let node = prev.parent;
-    qualifier_in_paren_list_from_node(node.clone(), offset)
-        .or_else(|| qualifier_in_port_list_from_node(node, offset))
-}
-
-fn base_syn_context(root: SyntaxNode<'_>, offset: TextSize) -> SynContext {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return SynContext::TopLevel;
-    };
-
-    if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_HEADER) {
-        return SynContext::ModuleHeader;
-    }
-
-    if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_DECLARATION)
-    {
-        return SynContext::ModuleItem;
-    }
-
-    SynContext::TopLevel
-}
-
-fn qualifier_after_dot(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return None;
-    };
-
-    for anc in SyntaxAncestors::start_from(node) {
-        if let Some(named) = ast::NamedPortConnection::cast(anc) {
-            let Some(dot) = named.dot() else {
-                continue;
-            };
-
-            let Some(dot_range) = dot.text_range() else {
-                continue;
-            };
-
-            let zone_end = named
-                .open_paren()
-                .and_then(|t| t.text_range())
-                .map(|r| r.start())
-                .or_else(|| named.name().and_then(|t| t.text_range()).map(|r| r.end()))
-                .unwrap_or_else(|| dot_range.end());
-
-            if offset >= dot_range.end() && offset <= zone_end {
-                return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort }));
-            }
-        }
-
-        if let Some(named) = ast::NamedParamAssignment::cast(anc) {
-            let Some(dot) = named.dot() else {
-                continue;
-            };
-
-            let Some(dot_range) = dot.text_range() else {
-                continue;
-            };
-
-            let zone_end = named
-                .open_paren()
-                .and_then(|t| t.text_range())
-                .map(|r| r.start())
-                .or_else(|| named.name().and_then(|t| t.text_range()).map(|r| r.end()))
-                .unwrap_or_else(|| dot_range.end());
-
-            if offset >= dot_range.end() && offset <= zone_end {
-                return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam }));
-            }
-        }
-    }
-
-    let prev = token_before_offset(root, offset)?;
-    (prev.kind() == syntax::Token![.])
-        .then_some(Qualifier::AfterDot(AfterDot { kind: DotKind::Member }))
-}
-
-fn qualifier_after_hash(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    let prev = token_before_offset(root, offset)?;
-    if prev.kind() != syntax::Token![#] {
-        return None;
-    }
-
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return None;
-    };
-
-    for anc in SyntaxAncestors::start_from(node) {
-        if let Some(params) = ast::ParameterValueAssignment::cast(anc) {
-            let Some(hash) = params.hash() else {
-                continue;
-            };
-            let Some(hash_range) = hash.text_range() else {
-                continue;
-            };
-            if hash_range.end() == offset {
-                return Some(Qualifier::AfterHash(AfterHash {
-                    kind: HashKind::ParamValueAssignment,
-                }));
-            }
-        }
-
-        if let Some(params) = ast::ParameterPortList::cast(anc) {
-            let Some(hash) = params.hash() else {
-                continue;
-            };
-            let Some(hash_range) = hash.text_range() else {
-                continue;
-            };
-            if hash_range.end() == offset {
-                return Some(Qualifier::AfterHash(AfterHash { kind: HashKind::ParameterPortList }));
-            }
-        }
-    }
-
-    None
-}
-
-fn qualifier_in_paren_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return None;
-    };
-
-    qualifier_in_paren_list_from_node(node, offset)
-}
-
-fn qualifier_in_paren_list_from_node(node: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    for anc in SyntaxAncestors::start_from(node) {
-        if let Some(list) = ast::ParameterValueAssignment::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InParenList(InParenList {
-                    kind: ParenListKind::ParamValueAssignment,
-                }));
-            }
-        }
-
-        if let Some(list) = ast::ParameterPortList::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InParenList(InParenList {
-                    kind: ParenListKind::ParameterPortList,
-                }));
-            }
-        }
-
-        if let Some(list) = ast::HierarchicalInstance::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InParenList(InParenList {
-                    kind: ParenListKind::PortConnections,
-                }));
-            }
-        }
-
-        if let Some(list) = ast::ArgumentList::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InParenList(InParenList {
-                    kind: ParenListKind::Arguments,
-                }));
-            }
-        }
-    }
-
-    None
-}
-
-fn qualifier_in_port_list(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return None;
-    };
-
-    qualifier_in_port_list_from_node(node, offset)
-}
-
-fn qualifier_in_port_list_from_node(node: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    for anc in SyntaxAncestors::start_from(node) {
-        if let Some(list) = ast::AnsiPortList::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }));
-            }
-        }
-
-        if let Some(list) = ast::NonAnsiPortList::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InPortList(InPortList { kind: PortListKind::NonAnsi }));
-            }
-        }
-
-        if let Some(list) = ast::FunctionPortList::cast(anc) {
-            if in_parens(offset, list.open_paren(), list.close_paren()) {
-                return Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }));
-            }
-        }
-    }
-
-    None
-}
-
-fn qualifier_in_named_conn_expr(root: SyntaxNode<'_>, offset: TextSize) -> Option<Qualifier> {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return None;
-    };
-
-    for anc in SyntaxAncestors::start_from(node) {
-        if let Some(conn) = ast::NamedPortConnection::cast(anc) {
-            if conn.name().is_none() {
-                continue;
-            }
-            if in_parens(offset, conn.open_paren(), conn.close_paren()) {
-                return Some(Qualifier::InNamedPortConnExpr);
-            }
-        }
-
-        if let Some(conn) = ast::NamedParamAssignment::cast(anc) {
-            if conn.name().is_none() {
-                continue;
-            }
-            if in_parens(offset, conn.open_paren(), conn.close_paren()) {
-                return Some(Qualifier::InNamedParamAssignExpr);
-            }
-        }
-    }
-
-    None
-}
-
-fn in_parens(
-    offset: TextSize,
-    open_paren: Option<syntax::SyntaxToken<'_>>,
-    close_paren: Option<syntax::SyntaxToken<'_>>,
-) -> bool {
-    let Some(open) = open_paren else {
-        return false;
-    };
-    let Some(open_range) = open.text_range() else {
-        return false;
-    };
-
-    let close_start = close_paren
-        .and_then(|t| t.text_range())
-        .map(|r| r.start())
-        .unwrap_or_else(|| TextSize::from(u32::MAX));
-
-    offset >= open_range.end() && offset <= close_start
-}
-
-fn token_before_offset(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-) -> Option<SyntaxTokenWithParent<'_>> {
-    let mut cursor = root.walk();
-    if !cursor.goto_last_tok_before(offset) {
-        return None;
-    }
-    cursor.to_tok_with_parent()
-}
-
-fn last_token_end_in_node(root: SyntaxNode<'_>, node: SyntaxNode<'_>) -> Option<TextSize> {
-    let end = node.text_range()?.end();
-    token_before_offset(root, end).and_then(|t| t.text_range()).map(|r| r.end())
-}
-
-fn is_in_sensitivity_list(root: SyntaxNode<'_>, offset: TextSize) -> bool {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return false;
-    };
-
-    SyntaxAncestors::start_from(node).any(|n| {
-        matches!(
-            n.kind(),
-            syntax::SyntaxKind::EVENT_CONTROL
-                | syntax::SyntaxKind::EVENT_CONTROL_WITH_EXPRESSION
-                | syntax::SyntaxKind::IMPLICIT_EVENT_CONTROL
-                | syntax::SyntaxKind::REPEATED_EVENT_CONTROL
-        )
-    })
 }
 
 #[cfg(test)]
@@ -954,7 +181,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use syntax::SyntaxTree;
+    use syntax::{Compilation, SyntaxTree};
 
     use super::*;
 
@@ -975,8 +202,24 @@ mod tests {
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
         let path = format!("test_{id}.v");
         let tree = SyntaxTree::from_text(&owned, "test", &path);
+
+        let mut compilation = Compilation::new();
+        compilation.add_syntax_tree(tree.clone());
+        let mut expected_ident_offsets: Vec<TextSize> = compilation
+            .parse_diag_offsets_by_name("ExpectedIdentifier")
+            .into_iter()
+            .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from))
+            .collect();
+        expected_ident_offsets.sort();
+        expected_ident_offsets.dedup();
+
         let root = tree.root().unwrap();
-        detect_completion_context(root, TextSize::from(off as u32), trigger)
+        detect_completion_context_with_expected_identifier_offsets(
+            root,
+            TextSize::from(off as u32),
+            trigger,
+            &expected_ident_offsets,
+        )
     }
 
     #[test]
