@@ -1,0 +1,237 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "input",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "input",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "output",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "output",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "inout",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "inout",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri0",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri1",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "trireg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "trireg",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "triand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "triand",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "trior",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "trior",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wand",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wor",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply0",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply1",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "real",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "time",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "signed",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "signed",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "unsigned",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "unsigned",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+]
