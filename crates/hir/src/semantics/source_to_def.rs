@@ -8,13 +8,13 @@ use utils::get::{Get, GetRef};
 
 use super::hir_to_def::Hir2DefCache;
 use crate::{
-    container::{ContainerId, InFile, InModule},
+    container::{ContainerId, InFile},
     db::HirDb,
     file::HirFileId,
     hir_def::{
         block::{BlockId, BlockSrc},
         module::{ModuleId, ModuleSrc},
-        subroutine::{SubroutineLocation, SubroutineSrc},
+        subroutine::{SubroutineLoc, SubroutineSrc},
     },
     source_map::ToAstNode,
 };
@@ -74,14 +74,9 @@ impl Source2DefCtx<'_, '_> {
                 let local_block_id = block_src_map.get(block_src);
                 block.get(local_block_id).block_id
             }
-            ContainerId::SubroutineId(SubroutineLocation::InModule(loc)) => {
-                let (subroutine, subroutine_src_map) = self.db.subroutine_with_source_map(loc);
-                let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
-                subroutine.stmts.get(local_block_id).block_id
-            }
-            ContainerId::SubroutineId(SubroutineLocation::InFile(loc)) => {
-                let subroutine = loc.to_container(self.db);
-                let subroutine_src_map = loc.to_container_src_map(self.db);
+            ContainerId::SubroutineId(subroutine_id) => {
+                let (subroutine, subroutine_src_map) =
+                    self.db.subroutine_with_source_map(subroutine_id);
                 let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
                 subroutine.stmts.get(local_block_id).block_id
             }
@@ -102,18 +97,25 @@ impl Source2DefCtx<'_, '_> {
            },
            ast::FunctionDeclaration[func] => {
                let mut ancestors = SyntaxAncestors::start_from(node).skip(1);
-               let module_id = ancestors.find_map(|ancestor| {
-                   match_ast! { ancestor,
-                       ast::ModuleDeclaration[module] => {
-                           let src = ModuleSrc::from(module);
-                           self.module_to_def(InFile::new(file_id, src))
-                       },
-                       _ => None,
-                   }
-               })?;
-               let (_, module_src_map) = self.db.module_with_source_map(module_id);
-                let subroutine_id = module_src_map.get(SubroutineSrc::from(func));
-                InModule::new(module_id, subroutine_id).into()
+               let module_id = ancestors.find_map(|ancestor| match_ast! { ancestor,
+                   ast::ModuleDeclaration[module] => {
+                       let src = ModuleSrc::from(module);
+                       self.module_to_def(InFile::new(file_id, src))
+                   },
+                   _ => None,
+               });
+
+               let cont_id: ContainerId = match module_id {
+                   Some(module_id) => module_id.into(),
+                   None => file_id.into(),
+               };
+
+               let src = SubroutineSrc::from(func);
+               let subroutine_id = self.db.intern_subroutine(SubroutineLoc {
+                   cont_id,
+                   src: InFile::new(file_id, src),
+               });
+               subroutine_id.into()
            },
            ast::CompilationUnit => file_id.into(),
            _ => return None,

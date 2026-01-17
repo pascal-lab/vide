@@ -20,9 +20,7 @@ use crate::{
         file::{FileSourceMap, HirFile},
         module::{Module, ModuleId, ModuleSourceMap},
         stmt::{Stmt, StmtId, StmtSrc},
-        subroutine::{
-            LocalSubroutineId, Subroutine, SubroutineLocation, SubroutineSourceMap,
-        },
+        subroutine::{Subroutine, SubroutineId, SubroutineSourceMap},
         typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::RegionTree,
@@ -34,7 +32,7 @@ define_enum_deriving_from! {
         HirFileId(HirFileId),
         ModuleId(ModuleId),
         BlockId(BlockId),
-        SubroutineId(SubroutineLocation),
+        SubroutineId(SubroutineId),
     }
 }
 
@@ -61,11 +59,11 @@ impl<T> InContainer<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct InSubroutine<T> {
     pub value: T,
-    pub subroutine: SubroutineLocation,
+    pub subroutine: SubroutineId,
 }
 
 impl<T> InSubroutine<T> {
-    pub fn new(subroutine: SubroutineLocation, value: T) -> Self {
+    pub fn new(subroutine: SubroutineId, value: T) -> Self {
         Self { value, subroutine }
     }
 
@@ -124,10 +122,7 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.file_id(),
             ContainerId::ModuleId(module_id) => module_id.file_id(),
             ContainerId::BlockId(block_id) => block_id.file_id(db),
-            ContainerId::SubroutineId(loc) => match loc {
-                SubroutineLocation::InModule(loc) => loc.module_id.file_id(),
-                SubroutineLocation::InFile(loc) => loc.file_id.file_id(),
-            },
+            ContainerId::SubroutineId(subroutine_id) => subroutine_id.lookup(db).src.file_id.file_id(),
         }
     }
 
@@ -136,10 +131,7 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.to_container(db).into(),
             ContainerId::ModuleId(module_id) => module_id.to_container(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container(db).into(),
-            ContainerId::SubroutineId(loc) => match loc {
-                SubroutineLocation::InModule(loc) => loc.to_container(db).into(),
-                SubroutineLocation::InFile(loc) => loc.to_container(db).into(),
-            },
+            ContainerId::SubroutineId(subroutine_id) => db.subroutine(subroutine_id).into(),
         }
     }
 
@@ -148,23 +140,10 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.to_container_src_map(db).into(),
             ContainerId::ModuleId(module_id) => module_id.to_container_src_map(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container_src_map(db).into(),
-            ContainerId::SubroutineId(loc) => match loc {
-                SubroutineLocation::InModule(loc) => loc.to_container_src_map(db).into(),
-                SubroutineLocation::InFile(loc) => loc.to_container_src_map(db).into(),
-            },
+            ContainerId::SubroutineId(subroutine_id) => {
+                db.subroutine_with_source_map(subroutine_id).1.into()
+            }
         }
-    }
-}
-
-impl From<InModule<LocalSubroutineId>> for ContainerId {
-    fn from(loc: InModule<LocalSubroutineId>) -> Self {
-        ContainerId::SubroutineId(loc.into())
-    }
-}
-
-impl From<InFile<LocalSubroutineId>> for ContainerId {
-    fn from(loc: InFile<LocalSubroutineId>) -> Self {
-        ContainerId::SubroutineId(loc.into())
     }
 }
 
@@ -213,32 +192,6 @@ impl BlockId {
     #[inline]
     pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<BlockSourceMap> {
         db.block_with_source_map(*self).1
-    }
-}
-
-impl InModule<LocalSubroutineId> {
-    #[inline]
-    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Subroutine> {
-        db.subroutine(*self)
-    }
-
-    #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<SubroutineSourceMap> {
-        db.subroutine_with_source_map(*self).1
-    }
-}
-
-impl InFile<LocalSubroutineId> {
-    #[inline]
-    pub fn to_container(&self, db: &dyn HirDb) -> Arc<Subroutine> {
-        let file = db.hir_file(self.file_id);
-        Arc::new(file.subroutines[self.value].clone())
-    }
-
-    #[inline]
-    pub fn to_container_src_map(&self, db: &dyn HirDb) -> Arc<SubroutineSourceMap> {
-        let file = db.hir_file(self.file_id);
-        Arc::new(file.subroutine_source_maps[&self.value].clone())
     }
 }
 
@@ -318,10 +271,7 @@ impl Iterator for ContainerParent<'_> {
             ContainerId::HirFileId(_) => None,
             ContainerId::ModuleId(module_id) => Some(module_id.file_id.into()),
             ContainerId::BlockId(block_id) => Some(block_id.lookup(self.db).cont_id),
-            ContainerId::SubroutineId(loc) => match loc {
-                SubroutineLocation::InModule(loc) => Some(loc.module_id.into()),
-                SubroutineLocation::InFile(loc) => Some(loc.file_id.into()),
-            },
+            ContainerId::SubroutineId(subroutine_id) => Some(subroutine_id.lookup(self.db).cont_id),
         };
         next
     }

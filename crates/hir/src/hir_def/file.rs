@@ -26,8 +26,8 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSourceMap, SubroutineSrc,
-        lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSourceMap,
+        SubroutineSrc, lower_subroutine, lower_subroutine_body,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -188,32 +188,39 @@ impl LowerFileCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
+        let src = SubroutineSrc::from(func.clone());
+        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
+            cont_id: self.file_id.into(),
+            src: InFile::new(self.file_id, src),
+        });
+
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
-        let subroutine_id = alloc_idx_and_src! {
+        let local_subroutine_id = alloc_idx_and_src! {
             subroutine => self.file.subroutines,
             func => self.file_source_map.subroutine_srcs,
         };
 
         if func.end().is_some() {
-            let subroutine_loc = InFile::new(self.file_id, subroutine_id).into();
-            let subroutine = &mut self.file.subroutines[subroutine_id];
+            let subroutine = &mut self.file.subroutines[local_subroutine_id];
             let mut subroutine_source_map = SubroutineSourceMap::default();
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
-                subroutine_loc,
+                subroutine_id: subroutine_def_id,
                 subroutine,
                 subroutine_source_map: &mut subroutine_source_map,
                 region_tree: RegionTreeBuilder::new(),
             };
             lower_subroutine_body(&mut ctx, func);
-            self.file.subroutine_source_maps.insert(subroutine_id, subroutine_source_map);
+            self.file
+                .subroutine_source_maps
+                .insert(local_subroutine_id, subroutine_source_map);
         }
 
-        self.file.subroutines[subroutine_id].shrink_to_fit();
+        self.file.subroutines[local_subroutine_id].shrink_to_fit();
 
-        Some(subroutine_id)
+        Some(local_subroutine_id)
     }
 
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {

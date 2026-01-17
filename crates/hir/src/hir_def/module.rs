@@ -38,14 +38,14 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineSourceMap, SubroutineSrc,
-        lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSourceMap,
+        SubroutineSrc, lower_subroutine, lower_subroutine_body,
     },
     ty::NetKind,
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ContainerId, InFile, InModule},
+    container::{ContainerId, InFile},
     db::{HirDb, InternDb},
     define_src_with_name,
     file::HirFileId,
@@ -273,6 +273,12 @@ impl LowerModuleCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
+        let src = SubroutineSrc::from(func.clone());
+        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
+            cont_id: self.module_id.into(),
+            src: InFile::new(self.file_id, src),
+        });
+
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let subroutine_id = alloc_idx_and_src! {
@@ -281,13 +287,12 @@ impl LowerModuleCtx<'_> {
         };
 
         if func.end().is_some() {
-            let subroutine_loc = InModule::new(self.module_id, subroutine_id).into();
             let subroutine = &mut self.module.subroutines[subroutine_id];
             let mut subroutine_source_map = SubroutineSourceMap::default();
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
-                subroutine_loc,
+                subroutine_id: subroutine_def_id,
                 subroutine,
                 subroutine_source_map: &mut subroutine_source_map,
                 region_tree: RegionTreeBuilder::new(),
