@@ -39,7 +39,7 @@ fn completions_with_context(
         return preproc::complete_directives(&ctx.prefix, ctx);
     }
 
-    if ctx.lex != LexContext::Code {
+    if ctx.lex != LexContext::Code || ctx.in_decl_name {
         return Vec::new();
     }
 

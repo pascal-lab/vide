@@ -6,7 +6,7 @@ use syntax::{
     SyntaxTrivia, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
-    token::{SyntaxTokenExt, SyntaxTokenWithParentExt},
+    token::SyntaxTokenWithParentExt,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -111,6 +111,7 @@ pub struct CompletionContext {
     pub lex: LexContext,
     pub syn: SynContext,
     pub qualifier: Option<Qualifier>,
+    pub in_decl_name: bool,
 }
 
 pub(crate) fn completion_context(
@@ -139,11 +140,13 @@ pub fn detect_completion_context(
             lex,
             syn: SynContext::TopLevel,
             qualifier: None,
+            in_decl_name: false,
         };
     }
 
+    let in_decl_name = is_in_declarator_name(root, offset);
     let (syn, qualifier) = detect_syn_context(root, offset, trigger);
-    CompletionContext { replacement, prefix, trigger, lex, syn, qualifier }
+    CompletionContext { replacement, prefix, trigger, lex, syn, qualifier, in_decl_name }
 }
 
 fn replacement_and_prefix(root: SyntaxNode<'_>, offset: TextSize) -> (TextRange, String) {
@@ -211,8 +214,14 @@ fn detect_lex_context(root: SyntaxNode<'_>, offset: TextSize) -> LexContext {
         return LexContext::StringLiteral;
     }
 
-    if let Some(trivia) = trivia_at_offset(root, offset) {
-        return match trivia.kind() {
+    if let Some(kind) = trivia_kind_at_offset(root, offset) {
+        let kind = if kind == syntax::Trivia![eol] {
+            // Also treat the end boundary of a line comment as being inside the comment.
+            line_comment_kind_before_offset(root, offset).unwrap_or(kind)
+        } else {
+            kind
+        };
+        return match kind {
             syntax::Trivia![lc] => LexContext::LineComment,
             syntax::Trivia![bc] => LexContext::BlockComment,
             syntax::Trivia!["`"] => LexContext::PreprocDirective,
@@ -220,11 +229,30 @@ fn detect_lex_context(root: SyntaxNode<'_>, offset: TextSize) -> LexContext {
         };
     }
 
+    if line_comment_kind_before_offset(root, offset).is_some() {
+        return LexContext::LineComment;
+    }
+
     if is_inside_preproc_directive_node(root, offset) {
         return LexContext::PreprocDirective;
     }
 
     LexContext::Code
+}
+
+fn line_comment_kind_before_offset(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+) -> Option<syntax::TriviaKind> {
+    // Also treat the end boundary of a line comment as being inside the comment.
+    // This covers the common case `// ...<caret>\n` where the cursor is right
+    // before the newline.
+    if offset == TextSize::new(0) {
+        return None;
+    }
+    let prev = offset - TextSize::new(1);
+    let kind = trivia_kind_at_offset(root, prev)?;
+    (kind == syntax::Trivia![lc]).then_some(kind)
 }
 
 fn is_inside_string_literal(root: SyntaxNode<'_>, offset: TextSize) -> bool {
@@ -235,14 +263,240 @@ fn is_inside_string_literal(root: SyntaxNode<'_>, offset: TextSize) -> bool {
     })
 }
 
-fn trivia_at_offset(root: SyntaxNode<'_>, offset: TextSize) -> Option<SyntaxTrivia<'_>> {
-    let tok = token_after_or_at_offset(root, offset)?;
-    for (range, trivia) in tok.tok.trivias_with_range() {
+fn trivia_kind_at_offset(root: SyntaxNode<'_>, offset: TextSize) -> Option<syntax::TriviaKind> {
+    // Trivia can be attached to either the token before it or after it, depending
+    // on how the underlying parser decides to associate it. Check both
+    // directions, plus the last token for trivia-only files.
+    if let Some(tok) = token_after_or_at_offset(root, offset)
+        && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
+    {
+        return Some(kind);
+    }
+
+    if let Some(tok) = token_before_offset(root, offset)
+        && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
+    {
+        return Some(kind);
+    }
+
+    if let Some(tok) = last_token(root)
+        && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
+    {
+        return Some(kind);
+    }
+
+    None
+}
+
+fn last_token(root: SyntaxNode<'_>) -> Option<SyntaxTokenWithParent<'_>> {
+    let mut cursor = root.walk();
+    let end = root.text_range()?.end();
+    if !cursor.goto_first_tok_after_or_last(end) {
+        return None;
+    }
+    cursor.to_tok_with_parent()
+}
+
+fn trivia_kind_at_offset_in_token(
+    tok: SyntaxTokenWithParent<'_>,
+    offset: TextSize,
+) -> Option<syntax::TriviaKind> {
+    for ((start, end), trivia) in tok.tok.trivias_with_loc() {
+        let range = TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32));
         if range.contains(offset) {
-            return Some(trivia);
+            return Some(trivia.kind());
+        }
+
+        // For directive trivia, check nested trivia in the directive's first token
+        if trivia.kind() == syntax::Trivia!["`"] {
+            if let Some(node) = trivia.syntax()
+                && let Some(first_tok) = node.first_token()
+            {
+                for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
+                    let nested_range =
+                        TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
+                    if nested_range.contains(offset) {
+                        return Some(nested_trivia.kind());
+                    }
+                }
+            }
         }
     }
     None
+}
+
+fn is_in_declarator_name(root: SyntaxNode<'_>, offset: TextSize) -> bool {
+    let elem = root.covering_element(TextRange::empty(offset));
+    let mut seeds: Vec<SyntaxNode<'_>> =
+        elem.as_node().or_else(|| elem.parent()).into_iter().collect();
+    if let Some(prev) = token_before_offset(root, offset) {
+        seeds.push(prev.parent);
+    }
+    if let Some(next) = token_after_or_at_offset(root, offset) {
+        seeds.push(next.parent);
+    }
+
+    seeds.into_iter().any(|node| is_in_declarator_name_from_seed(root, offset, node))
+}
+
+fn is_in_declarator_name_from_seed(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    node: SyntaxNode<'_>,
+) -> bool {
+    if let Some(declarator) = SyntaxAncestors::start_from(node).find_map(ast::Declarator::cast) {
+        if let Some(name) = declarator.name()
+            && let Some(range) = name.text_range()
+        {
+            if range.contains(offset) || range.end() == offset {
+                return true;
+            }
+        }
+    }
+
+    // Handle common error-recovery shapes where the missing declarator name isn't
+    // part of the covering element, but we still want to suppress completion in
+    // the "new symbol name" zone.
+    let sep_start = token_after_or_at_offset(root, offset)
+        .and_then(|t| t.text_range())
+        .map(|r| r.start())
+        .unwrap_or(offset);
+
+    if let Some(list) = SyntaxAncestors::start_from(node).find_map(ast::AnsiPortList::cast) {
+        let close_start =
+            list.close_paren().and_then(|t| t.text_range()).map(|r| r.start()).unwrap_or(sep_start);
+
+        let mut candidate: Option<ast::ImplicitAnsiPort<'_>> = None;
+        for member in list.ports().children() {
+            let Some(port) = member.as_implicit_ansi_port() else {
+                continue;
+            };
+            let Some(port_start) = port.syntax().text_range().map(|r| r.start()) else {
+                continue;
+            };
+            if port_start <= offset && offset <= close_start {
+                candidate = Some(port);
+            }
+        }
+
+        if let Some(port) = candidate {
+            let name = port.declarator().name();
+            let missing_name =
+                name.is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
+            if missing_name
+                && let Some(header_end) = last_token_end_in_node(root, port.header().syntax())
+                && offset >= header_end
+                && offset <= close_start
+            {
+                return true;
+            }
+        }
+    }
+
+    if let Some(list) = SyntaxAncestors::start_from(node).find_map(ast::FunctionPortList::cast) {
+        let close_start =
+            list.close_paren().and_then(|t| t.text_range()).map(|r| r.start()).unwrap_or(sep_start);
+
+        let mut candidate: Option<ast::FunctionPort<'_>> = None;
+        for base in list.ports().children() {
+            let Some(port) = base.as_function_port() else {
+                continue;
+            };
+            let Some(port_start) = port.syntax().text_range().map(|r| r.start()) else {
+                continue;
+            };
+            if port_start <= offset && offset <= close_start {
+                candidate = Some(port);
+            }
+        }
+
+        if let Some(port) = candidate {
+            let name = port.declarator().name();
+            let missing_name =
+                name.is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
+
+            if missing_name {
+                let mut header_end: Option<TextSize> = None;
+                let mut consider_end = |tok: Option<syntax::SyntaxToken<'_>>| {
+                    if let Some(end) = tok.and_then(|t| t.text_range()).map(|r| r.end()) {
+                        header_end = Some(header_end.map_or(end, |cur| cur.max(end)));
+                    }
+                };
+                consider_end(port.const_keyword());
+                consider_end(port.direction());
+                consider_end(port.static_keyword());
+                consider_end(port.var_keyword());
+                if let Some(dt_end) =
+                    port.data_type().and_then(|dt| last_token_end_in_node(root, dt.syntax()))
+                {
+                    header_end = Some(header_end.map_or(dt_end, |cur| cur.max(dt_end)));
+                }
+
+                if let Some(header_end) = header_end
+                    && offset >= header_end
+                    && offset <= close_start
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    for anc in SyntaxAncestors::start_from(node) {
+        if let Some(port) = ast::ImplicitAnsiPort::cast(anc) {
+            let missing_name = port
+                .declarator()
+                .name()
+                .is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
+            if !missing_name {
+                continue;
+            }
+
+            let Some(header_end) = last_token_end_in_node(root, port.header().syntax()) else {
+                continue;
+            };
+
+            if offset >= header_end && offset <= sep_start {
+                return true;
+            }
+        }
+
+        if let Some(port) = ast::FunctionPort::cast(anc) {
+            let missing_name = port
+                .declarator()
+                .name()
+                .is_none_or(|t| t.is_missing() || t.raw_text().to_string().is_empty());
+            if !missing_name {
+                continue;
+            }
+
+            let mut header_end: Option<TextSize> = None;
+            let mut consider_end = |tok: Option<syntax::SyntaxToken<'_>>| {
+                if let Some(end) = tok.and_then(|t| t.text_range()).map(|r| r.end()) {
+                    header_end = Some(header_end.map_or(end, |cur| cur.max(end)));
+                }
+            };
+            consider_end(port.const_keyword());
+            consider_end(port.direction());
+            consider_end(port.static_keyword());
+            consider_end(port.var_keyword());
+            if let Some(dt_end) =
+                port.data_type().and_then(|dt| last_token_end_in_node(root, dt.syntax()))
+            {
+                header_end = Some(header_end.map_or(dt_end, |cur| cur.max(dt_end)));
+            }
+
+            let Some(header_end) = header_end else {
+                continue;
+            };
+
+            if offset >= header_end && offset <= sep_start {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn token_after_or_at_offset(
@@ -600,6 +854,12 @@ fn qualifier_in_port_list_from_node(node: SyntaxNode<'_>, offset: TextSize) -> O
                 return Some(Qualifier::InPortList(InPortList { kind: PortListKind::NonAnsi }));
             }
         }
+
+        if let Some(list) = ast::FunctionPortList::cast(anc) {
+            if in_parens(offset, list.open_paren(), list.close_paren()) {
+                return Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }));
+            }
+        }
     }
 
     None
@@ -665,6 +925,11 @@ fn token_before_offset(
     cursor.to_tok_with_parent()
 }
 
+fn last_token_end_in_node(root: SyntaxNode<'_>, node: SyntaxNode<'_>) -> Option<TextSize> {
+    let end = node.text_range()?.end();
+    token_before_offset(root, end).and_then(|t| t.text_range()).map(|r| r.end())
+}
+
 fn is_in_sensitivity_list(root: SyntaxNode<'_>, offset: TextSize) -> bool {
     let elem = root.covering_element(TextRange::empty(offset));
     let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
@@ -721,6 +986,27 @@ mod tests {
     }
 
     #[test]
+    fn detects_line_comment_at_file_start() {
+        // regression: line comment at file start should be detected
+        let c = ctx("// hello /*caret*/world\nmodule m; endmodule\n");
+        assert_eq!(c.lex, LexContext::LineComment);
+    }
+
+    #[test]
+    fn detects_line_comment_at_file_start_with_comma() {
+        // regression: comma trigger in line comment at file start
+        let c = ctx_with_trigger("// ,/*caret*/,\nmodule m; endmodule\n", Some(TriggerChar::Comma));
+        assert_eq!(c.lex, LexContext::LineComment);
+    }
+
+    #[test]
+    fn detects_line_comment_in_middle_of_file() {
+        // regression: line comment in middle of file (before any module)
+        let c = ctx("// line1\n// line2 /*caret*/\nmodule m; endmodule\n");
+        assert_eq!(c.lex, LexContext::LineComment);
+    }
+
+    #[test]
     fn detects_block_comment() {
         let c = ctx("module m; /* hello /*caret*/world */ endmodule\n");
         assert_eq!(c.lex, LexContext::BlockComment);
@@ -736,6 +1022,25 @@ mod tests {
     fn detects_preproc_directive() {
         let c = ctx("`define /*caret*/FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::PreprocDirective);
+    }
+
+    #[test]
+    fn detects_line_comment_at_eof_top_level() {
+        let c = ctx("// ,/*caret*/");
+        assert_eq!(c.lex, LexContext::LineComment);
+    }
+
+    #[test]
+    fn detects_line_comment_at_eol_boundary_top_level() {
+        let c = ctx("// ,/*caret*/\n");
+        assert_eq!(c.lex, LexContext::LineComment);
+    }
+
+    #[test]
+    fn detects_line_comment_before_directive() {
+        // regression: line comment before `timescale should still be detected
+        let c = ctx("// comment/*caret*/\n`timescale 1ns / 1ps\nmodule m; endmodule\n");
+        assert_eq!(c.lex, LexContext::LineComment);
     }
 
     #[test]
@@ -896,5 +1201,29 @@ mod tests {
             Some(TriggerChar::Backtick),
         );
         assert_eq!(c.qualifier, Some(Qualifier::AfterBacktick));
+    }
+
+    #[test]
+    fn detects_decl_name_in_ansi_port_list() {
+        let c = ctx("module m(input [3:0] /*caret*/); endmodule\n");
+        assert!(c.in_decl_name);
+    }
+
+    #[test]
+    fn detects_decl_name_in_tf_port_list() {
+        let c = ctx("module m; task t(input [3:0] /*caret*/); endtask endmodule\n");
+        assert!(c.in_decl_name);
+    }
+
+    #[test]
+    fn detects_decl_name_in_ansi_port_list_multiline() {
+        let c = ctx("module m(\n  input [3:0] /*caret*/\n);\nendmodule\n");
+        assert!(c.in_decl_name);
+    }
+
+    #[test]
+    fn detects_decl_name_in_tf_port_list_multiline() {
+        let c = ctx("module m;\ntask t(\n  input [3:0] /*caret*/\n);\nendtask\nendmodule\n");
+        assert!(c.in_decl_name);
     }
 }

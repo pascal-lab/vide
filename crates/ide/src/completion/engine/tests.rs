@@ -78,6 +78,90 @@ fn load_fixture(path: &PathBuf) -> (String, Option<TriggerChar>) {
 }
 
 #[test]
+fn no_completion_in_line_comment_at_eof_top_level() {
+    let items = completions_in_text("// ,/*caret*/", None);
+    assert!(items.is_empty());
+}
+
+#[test]
+fn no_completion_in_line_comment_at_file_start() {
+    // regression: line comment before any module should not trigger completion
+    let items = completions_in_text("// hello /*caret*/world\nmodule m; endmodule\n", None);
+    assert!(items.is_empty());
+}
+
+#[test]
+fn no_completion_in_line_comment_with_comma_trigger() {
+    // regression: comma trigger in line comment should not trigger completion
+    let items =
+        completions_in_text("// ,,/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
+    assert!(items.is_empty());
+}
+
+#[test]
+fn no_completion_in_line_comment_middle_of_file() {
+    // regression: line comment between modules should not trigger completion
+    let items = completions_in_text(
+        "// first line\n// second line ,/*caret*/\n\nmodule m; endmodule\n",
+        Some(TriggerChar::Comma),
+    );
+    assert!(items.is_empty());
+}
+
+#[test]
+fn no_completion_in_line_comment_user_reported_case() {
+    // exact reproduction of user's file with // ,, at line 6
+    let text = r#"// when declaring new symbol, after typing the type, the completion should not suggest anything
+
+// when in trivia and string literals, no completion should be suggested
+
+// those keywords complete in modules (input, etc) should also be suggested in tasks and functions
+
+// ,,/*caret*/
+
+`timescale 1ns / 1ps
+
+module adder (
+    input  [3:0] a,
+    input  [3:0] b,
+    output [4:0] y
+);
+endmodule
+"#;
+    let items = completions_in_text(text, Some(TriggerChar::Comma));
+    assert!(items.is_empty(), "should not complete in line comment, got: {:?}", items);
+}
+
+#[test]
+fn no_completion_in_line_comment_before_timescale() {
+    // simpler reproduction: comment line right before `timescale directive
+    let text = r#"// comment ,/*caret*/
+`timescale 1ns / 1ps
+module m; endmodule
+"#;
+    let items = completions_in_text(text, Some(TriggerChar::Comma));
+    assert!(
+        items.is_empty(),
+        "should not complete in line comment before `timescale, got: {:?}",
+        items
+    );
+}
+
+#[test]
+fn no_completion_in_line_comment_before_module() {
+    // comment line right before module (no directive)
+    let text = r#"// comment ,/*caret*/
+module m; endmodule
+"#;
+    let items = completions_in_text(text, Some(TriggerChar::Comma));
+    assert!(
+        items.is_empty(),
+        "should not complete in line comment before module, got: {:?}",
+        items
+    );
+}
+
+#[test]
 fn completion_fixtures() {
     let dir = fixtures_dir();
     let mut fixtures: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
