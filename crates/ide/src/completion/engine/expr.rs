@@ -181,6 +181,7 @@ fn block_id_from_src(
             let local_block_id = block_src_map.get(block_src);
             Some(block.get(local_block_id).block_id)
         }
+        ContainerId::SubroutineId(_) => None,
     }
 }
 

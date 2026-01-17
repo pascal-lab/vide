@@ -205,6 +205,7 @@ fn type_class(db: &RootDb, ty: DataTy) -> Option<TyClass> {
         BuiltinDataTy::Int { .. } | BuiltinDataTy::Vector { .. } => Some(TyClass::Integral),
         BuiltinDataTy::Real(_) => Some(TyClass::Real),
         BuiltinDataTy::String => Some(TyClass::String),
+        BuiltinDataTy::Void => None,
     }
 }
 
@@ -214,7 +215,7 @@ fn packed_bit_width(db: &RootDb, module: &hir::hir_def::module::Module, ty: Data
     };
     let builtin = db.lookup_intern_ty(id);
     match builtin {
-        BuiltinDataTy::String | BuiltinDataTy::Real(_) => None,
+        BuiltinDataTy::String | BuiltinDataTy::Real(_) | BuiltinDataTy::Void => None,
         BuiltinDataTy::Int { kind, .. } => Some(int_kind_width(kind) as u64),
         BuiltinDataTy::Vector { dimensions, .. } => {
             if dimensions.is_empty() {
