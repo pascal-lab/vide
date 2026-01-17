@@ -9,9 +9,7 @@ use crate::{
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
         module::{self, Module, ModuleId, ModuleSourceMap},
-        subroutine::{
-            self, Subroutine, SubroutineId, SubroutineLoc, SubroutineSourceMap,
-        },
+        subroutine::{self, Subroutine, SubroutineId, SubroutineLoc, SubroutineSourceMap},
     },
     scope::{BlockScope, ModuleScope, UnitScope},
 };
@@ -58,8 +56,10 @@ pub trait HirDb: InternDb {
     fn block(&self, block_id: BlockId) -> Arc<Block>;
 
     #[salsa::invoke(subroutine::subroutine_with_source_map_query)]
-    fn subroutine_with_source_map(&self, subroutine: SubroutineId)
-        -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
+    fn subroutine_with_source_map(
+        &self,
+        subroutine: SubroutineId,
+    ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>);
 
     fn subroutine(&self, subroutine_id: SubroutineId) -> Arc<Subroutine>;
 

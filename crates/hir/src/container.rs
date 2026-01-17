@@ -122,7 +122,9 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.file_id(),
             ContainerId::ModuleId(module_id) => module_id.file_id(),
             ContainerId::BlockId(block_id) => block_id.file_id(db),
-            ContainerId::SubroutineId(subroutine_id) => subroutine_id.lookup(db).src.file_id.file_id(),
+            ContainerId::SubroutineId(subroutine_id) => {
+                subroutine_id.lookup(db).src.file_id.file_id()
+            }
         }
     }
 

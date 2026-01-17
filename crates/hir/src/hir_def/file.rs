@@ -213,9 +213,7 @@ impl LowerFileCtx<'_> {
                 region_tree: RegionTreeBuilder::new(),
             };
             lower_subroutine_body(&mut ctx, func);
-            self.file
-                .subroutine_source_maps
-                .insert(local_subroutine_id, subroutine_source_map);
+            self.file.subroutine_source_maps.insert(local_subroutine_id, subroutine_source_map);
         }
 
         self.file.subroutines[local_subroutine_id].shrink_to_fit();
