@@ -7,6 +7,7 @@ use hir::{
         expr::declarator::DeclId,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
+        subroutine::SubroutineId,
     },
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc},
@@ -30,6 +31,7 @@ use utils::{
 pub enum DefinitionOrigin {
     ModuleId(ModuleId),
     BlockId(BlockId),
+    SubroutineId(SubroutineId),
 
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -40,6 +42,7 @@ pub enum DefinitionOrigin {
 impl_from! { DefinitionOrigin =>
     ModuleId,
     BlockId,
+    SubroutineId,
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
     Instance(InModule<InstanceId>),
@@ -52,6 +55,7 @@ impl DefinitionOrigin {
         match *self {
             DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
+            DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id,
             DefinitionOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
@@ -68,6 +72,9 @@ impl DefinitionOrigin {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
                 let cont = cont_id.to_container(db);
                 value.hir(&cont, &cont_id.to_container_src_map(db)).name.clone().unwrap()
+            }
+            DefinitionOrigin::SubroutineId(subroutine_id) => {
+                db.subroutine(subroutine_id).name.clone().unwrap()
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).label.clone().unwrap()
@@ -94,6 +101,10 @@ impl DefinitionOrigin {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.name_range().unwrap();
                 InFile::new(file_id, range)
+            }
+            DefinitionOrigin::SubroutineId(subroutine_id) => {
+                let src = subroutine_id.lookup(db).src;
+                InFile::new(src.file_id, src.value.range())
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
@@ -124,6 +135,11 @@ impl DefinitionOrigin {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.range();
                 InFile::new(file_id, range)
+            }
+            DefinitionOrigin::SubroutineId(subroutine_id) => {
+                let src = subroutine_id.lookup(db).src;
+                let range = src.value.range();
+                InFile::new(src.file_id, range)
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).range();
@@ -232,6 +248,7 @@ impl Definition {
             PathResolution::Instance(instance_id) => instance_id.into(),
             PathResolution::Stmt(stmt_id) => stmt_id.into(),
             PathResolution::Block(blk_id) => blk_id.into(),
+            PathResolution::Subroutine(subroutine_id) => subroutine_id.into(),
             PathResolution::ParamDecl(decl_id) | PathResolution::AnsiPort(decl_id) => {
                 InContainer::new(decl_id.module_id.into(), decl_id.value).into()
             }
