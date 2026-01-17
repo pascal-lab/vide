@@ -46,7 +46,6 @@ impl Source2DefCtx<'_, '_> {
                 resolve(block.get(expr_id))
             }
             ContainerId::SubroutineId(_) => None,
-            ContainerId::FileSubroutineId(_) => None,
         }
     }
 
@@ -72,7 +71,6 @@ impl Source2DefCtx<'_, '_> {
                 Some(InBlock::new(block_id, entry).into())
             }
             ContainerId::SubroutineId(_) => None,
-            ContainerId::FileSubroutineId(_) => None,
         })?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res);
         Some(res)

@@ -14,7 +14,7 @@ use crate::{
     hir_def::{
         block::{BlockId, BlockSrc},
         module::{ModuleId, ModuleSrc},
-        subroutine::SubroutineSrc,
+        subroutine::{SubroutineLocation, SubroutineSrc},
     },
     source_map::ToAstNode,
 };
@@ -74,12 +74,12 @@ impl Source2DefCtx<'_, '_> {
                 let local_block_id = block_src_map.get(block_src);
                 block.get(local_block_id).block_id
             }
-            ContainerId::SubroutineId(loc) => {
+            ContainerId::SubroutineId(SubroutineLocation::InModule(loc)) => {
                 let (subroutine, subroutine_src_map) = self.db.subroutine_with_source_map(loc);
                 let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
                 subroutine.stmts.get(local_block_id).block_id
             }
-            ContainerId::FileSubroutineId(loc) => {
+            ContainerId::SubroutineId(SubroutineLocation::InFile(loc)) => {
                 let subroutine = loc.to_container(self.db);
                 let subroutine_src_map = loc.to_container_src_map(self.db);
                 let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;

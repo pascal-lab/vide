@@ -20,7 +20,9 @@ use crate::{
         file::{FileSourceMap, HirFile},
         module::{Module, ModuleId, ModuleSourceMap},
         stmt::{Stmt, StmtId, StmtSrc},
-        subroutine::{Subroutine, SubroutineId, SubroutineSourceMap},
+        subroutine::{
+            LocalSubroutineId, Subroutine, SubroutineLocation, SubroutineSourceMap,
+        },
         typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::RegionTree,
@@ -32,8 +34,7 @@ define_enum_deriving_from! {
         HirFileId(HirFileId),
         ModuleId(ModuleId),
         BlockId(BlockId),
-        SubroutineId(InModule<SubroutineId>),
-        FileSubroutineId(InFile<SubroutineId>),
+        SubroutineId(SubroutineLocation),
     }
 }
 
@@ -60,11 +61,11 @@ impl<T> InContainer<T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct InSubroutine<T> {
     pub value: T,
-    pub subroutine: InModule<SubroutineId>,
+    pub subroutine: SubroutineLocation,
 }
 
 impl<T> InSubroutine<T> {
-    pub fn new(subroutine: InModule<SubroutineId>, value: T) -> Self {
+    pub fn new(subroutine: SubroutineLocation, value: T) -> Self {
         Self { value, subroutine }
     }
 
@@ -123,8 +124,10 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.file_id(),
             ContainerId::ModuleId(module_id) => module_id.file_id(),
             ContainerId::BlockId(block_id) => block_id.file_id(db),
-            ContainerId::SubroutineId(loc) => loc.module_id.file_id(),
-            ContainerId::FileSubroutineId(loc) => loc.file_id.file_id(),
+            ContainerId::SubroutineId(loc) => match loc {
+                SubroutineLocation::InModule(loc) => loc.module_id.file_id(),
+                SubroutineLocation::InFile(loc) => loc.file_id.file_id(),
+            },
         }
     }
 
@@ -133,8 +136,10 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.to_container(db).into(),
             ContainerId::ModuleId(module_id) => module_id.to_container(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container(db).into(),
-            ContainerId::SubroutineId(loc) => loc.to_container(db).into(),
-            ContainerId::FileSubroutineId(loc) => loc.to_container(db).into(),
+            ContainerId::SubroutineId(loc) => match loc {
+                SubroutineLocation::InModule(loc) => loc.to_container(db).into(),
+                SubroutineLocation::InFile(loc) => loc.to_container(db).into(),
+            },
         }
     }
 
@@ -143,9 +148,23 @@ impl ContainerId {
             ContainerId::HirFileId(file_id) => file_id.to_container_src_map(db).into(),
             ContainerId::ModuleId(module_id) => module_id.to_container_src_map(db).into(),
             ContainerId::BlockId(block_id) => block_id.to_container_src_map(db).into(),
-            ContainerId::SubroutineId(loc) => loc.to_container_src_map(db).into(),
-            ContainerId::FileSubroutineId(loc) => loc.to_container_src_map(db).into(),
+            ContainerId::SubroutineId(loc) => match loc {
+                SubroutineLocation::InModule(loc) => loc.to_container_src_map(db).into(),
+                SubroutineLocation::InFile(loc) => loc.to_container_src_map(db).into(),
+            },
         }
+    }
+}
+
+impl From<InModule<LocalSubroutineId>> for ContainerId {
+    fn from(loc: InModule<LocalSubroutineId>) -> Self {
+        ContainerId::SubroutineId(loc.into())
+    }
+}
+
+impl From<InFile<LocalSubroutineId>> for ContainerId {
+    fn from(loc: InFile<LocalSubroutineId>) -> Self {
+        ContainerId::SubroutineId(loc.into())
     }
 }
 
@@ -197,7 +216,7 @@ impl BlockId {
     }
 }
 
-impl InModule<SubroutineId> {
+impl InModule<LocalSubroutineId> {
     #[inline]
     pub fn to_container(&self, db: &dyn HirDb) -> Arc<Subroutine> {
         db.subroutine(*self)
@@ -209,7 +228,7 @@ impl InModule<SubroutineId> {
     }
 }
 
-impl InFile<SubroutineId> {
+impl InFile<LocalSubroutineId> {
     #[inline]
     pub fn to_container(&self, db: &dyn HirDb) -> Arc<Subroutine> {
         let file = db.hir_file(self.file_id);
@@ -299,8 +318,10 @@ impl Iterator for ContainerParent<'_> {
             ContainerId::HirFileId(_) => None,
             ContainerId::ModuleId(module_id) => Some(module_id.file_id.into()),
             ContainerId::BlockId(block_id) => Some(block_id.lookup(self.db).cont_id),
-            ContainerId::SubroutineId(loc) => Some(loc.module_id.into()),
-            ContainerId::FileSubroutineId(loc) => Some(loc.file_id.into()),
+            ContainerId::SubroutineId(loc) => match loc {
+                SubroutineLocation::InModule(loc) => Some(loc.module_id.into()),
+                SubroutineLocation::InFile(loc) => Some(loc.file_id.into()),
+            },
         };
         next
     }
