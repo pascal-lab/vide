@@ -43,6 +43,18 @@ fn completions_with_context(
         return Vec::new();
     }
 
+    // When completion is triggered by a punctuation character, but we couldn't
+    // infer any syntactic completion zone (and we also aren't replacing a
+    // word-like token), returning general keyword/snippet completions often
+    // produces invalid edits like `,module ...`.
+    if ctx.trigger.is_some()
+        && ctx.qualifier.is_none()
+        && ctx.prefix.is_empty()
+        && ctx.replacement.is_empty()
+    {
+        return Vec::new();
+    }
+
     if ctx.syn == SynContext::SensitivityList {
         return sensitivity_list::complete_sensitivity_list(db, position, &ctx.prefix, ctx);
     }

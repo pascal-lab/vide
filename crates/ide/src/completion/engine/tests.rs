@@ -162,6 +162,16 @@ module m; endmodule
 }
 
 #[test]
+fn no_completion_at_top_level_with_comma_trigger() {
+    let items = completions_in_text(",/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
+    assert!(
+        items.is_empty(),
+        "should not complete at top level on comma trigger, got: {:?}",
+        items
+    );
+}
+
+#[test]
 fn completion_fixtures() {
     let dir = fixtures_dir();
     let mut fixtures: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
