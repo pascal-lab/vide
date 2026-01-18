@@ -10,6 +10,7 @@ use utils::line_index::{TextRange, TextSize};
 
 use crate::{has_text_range::HasTextRange, ptr::SyntaxNodePtr};
 
+pub mod ast_ext;
 pub mod token;
 pub mod trivia;
 

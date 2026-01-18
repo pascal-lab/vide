@@ -1,6 +1,7 @@
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt, SyntaxToken,
     ast::{self, AstNode},
+    ast_ext::NamedConnectionDotZoneExt,
     has_text_range::HasTextRange,
 };
 
@@ -105,29 +106,13 @@ fn qualifier_after_dot(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
     let offset = caret.offset;
 
     if let Some(named) = caret.root.find_node_at_offset::<ast::NamedPortConnection<'_>>(offset) {
-        let dot = named.dot()?;
-        let dot_range = dot.text_range()?;
-        let zone_end = named
-            .open_paren()
-            .and_then(|t| t.text_range())
-            .map(|r| r.start())
-            .or_else(|| named.name().and_then(|t| t.text_range()).map(|r| r.end()))
-            .unwrap_or_else(|| dot_range.end());
-        if offset >= dot_range.end() && offset <= zone_end {
+        if named.dot_name_zone_contains(offset) {
             return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort }));
         }
     }
 
     if let Some(named) = caret.root.find_node_at_offset::<ast::NamedParamAssignment<'_>>(offset) {
-        let dot = named.dot()?;
-        let dot_range = dot.text_range()?;
-        let zone_end = named
-            .open_paren()
-            .and_then(|t| t.text_range())
-            .map(|r| r.start())
-            .or_else(|| named.name().and_then(|t| t.text_range()).map(|r| r.end()))
-            .unwrap_or_else(|| dot_range.end());
-        if offset >= dot_range.end() && offset <= zone_end {
+        if named.dot_name_zone_contains(offset) {
             return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam }));
         }
     }
