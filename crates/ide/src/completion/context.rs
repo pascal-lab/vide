@@ -401,6 +401,19 @@ mod tests {
     }
 
     #[test]
+    fn detects_port_connection_list_trigger_open_paren_without_close_paren() {
+        let c = ctx_with_trigger(
+            "module m(input a); endmodule\nmodule top; m u0(/*caret*/\nendmodule\n",
+            Some(TriggerChar::OpenParen),
+        );
+        assert_eq!(c.syn, SynContext::Instantiation);
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }))
+        );
+    }
+
+    #[test]
     fn detects_argument_list() {
         let c = ctx("module m; initial f(/*caret*/); endmodule\n");
         assert_eq!(
@@ -410,8 +423,34 @@ mod tests {
     }
 
     #[test]
+    fn detects_argument_list_trigger_open_paren_without_close_paren() {
+        let c = ctx_with_trigger(
+            "module m; initial f(/*caret*/\nendmodule\n",
+            Some(TriggerChar::OpenParen),
+        );
+        assert_eq!(c.syn, SynContext::ModuleItem);
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }))
+        );
+    }
+
+    #[test]
     fn detects_ansi_port_list() {
         let c = ctx("module m(input /*caret*/a); endmodule\n");
+        assert_eq!(
+            c.qualifier,
+            Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }))
+        );
+    }
+
+    #[test]
+    fn detects_ansi_port_list_trigger_comma() {
+        let c = ctx_with_trigger(
+            "module m(input a, /*caret*/b); endmodule\n",
+            Some(TriggerChar::Comma),
+        );
+        assert_eq!(c.syn, SynContext::ModuleHeader);
         assert_eq!(
             c.qualifier,
             Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }))
