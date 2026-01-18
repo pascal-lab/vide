@@ -1,6 +1,6 @@
 use syntax::{
-    SyntaxAncestors, SyntaxNodeExt,
-    ast::{self},
+    SyntaxAncestors, SyntaxNodeExt, SyntaxToken,
+    ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
 
@@ -8,6 +8,48 @@ use super::{
     AfterDot, AfterHash, AtKind, DotKind, HashKind, InParenList, InPortList, ParenListKind,
     PortListKind, Qualifier, SynContext, TriggerChar, caret::CaretSnapshot, util::in_parens,
 };
+
+trait AstParens<'a>: AstNode<'a> {
+    fn open_paren(&self) -> Option<SyntaxToken<'a>>;
+    fn close_paren(&self) -> Option<SyntaxToken<'a>>;
+}
+
+macro_rules! impl_ast_parens {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl<'a> AstParens<'a> for $ty {
+                fn open_paren(&self) -> Option<SyntaxToken<'a>> {
+                    <$ty>::open_paren(self)
+                }
+
+                fn close_paren(&self) -> Option<SyntaxToken<'a>> {
+                    <$ty>::close_paren(self)
+                }
+            }
+        )+
+    };
+}
+
+impl_ast_parens!(
+    ast::AnsiPortList<'a>,
+    ast::ArgumentList<'a>,
+    ast::FunctionPortList<'a>,
+    ast::HierarchicalInstance<'a>,
+    ast::NamedParamAssignment<'a>,
+    ast::NamedPortConnection<'a>,
+    ast::NonAnsiPortList<'a>,
+    ast::ParameterPortList<'a>,
+    ast::ParameterValueAssignment<'a>,
+);
+
+fn node_at_offset_in_parens<'a, N>(caret: &CaretSnapshot<'a>) -> Option<N>
+where
+    N: AstParens<'a>,
+{
+    let offset = caret.offset;
+    let node = caret.root.find_node_at_offset::<N>(offset)?;
+    in_parens(offset, node.open_paren(), node.close_paren()).then_some(node)
+}
 
 pub(super) fn detect_syn_context(
     caret: &CaretSnapshot<'_>,
@@ -120,33 +162,23 @@ fn qualifier_after_hash(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
 }
 
 fn qualifier_in_paren_list(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
-    let offset = caret.offset;
-
-    if let Some(list) = caret.root.find_node_at_offset::<ast::ParameterValueAssignment<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::ParameterValueAssignment<'_>>(caret).is_some() {
         return Some(Qualifier::InParenList(InParenList {
             kind: ParenListKind::ParamValueAssignment,
         }));
     }
 
-    if let Some(list) = caret.root.find_node_at_offset::<ast::ParameterPortList<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::ParameterPortList<'_>>(caret).is_some() {
         return Some(Qualifier::InParenList(InParenList {
             kind: ParenListKind::ParameterPortList,
         }));
     }
 
-    if let Some(list) = caret.root.find_node_at_offset::<ast::HierarchicalInstance<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::HierarchicalInstance<'_>>(caret).is_some() {
         return Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }));
     }
 
-    if let Some(list) = caret.root.find_node_at_offset::<ast::ArgumentList<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::ArgumentList<'_>>(caret).is_some() {
         return Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }));
     }
 
@@ -154,23 +186,15 @@ fn qualifier_in_paren_list(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
 }
 
 fn qualifier_in_port_list(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
-    let offset = caret.offset;
-
-    if let Some(list) = caret.root.find_node_at_offset::<ast::AnsiPortList<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::AnsiPortList<'_>>(caret).is_some() {
         return Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }));
     }
 
-    if let Some(list) = caret.root.find_node_at_offset::<ast::NonAnsiPortList<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::NonAnsiPortList<'_>>(caret).is_some() {
         return Some(Qualifier::InPortList(InPortList { kind: PortListKind::NonAnsi }));
     }
 
-    if let Some(list) = caret.root.find_node_at_offset::<ast::FunctionPortList<'_>>(offset)
-        && in_parens(offset, list.open_paren(), list.close_paren())
-    {
+    if node_at_offset_in_parens::<ast::FunctionPortList<'_>>(caret).is_some() {
         return Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }));
     }
 
@@ -178,18 +202,14 @@ fn qualifier_in_port_list(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
 }
 
 fn qualifier_in_named_conn_expr(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
-    let offset = caret.offset;
-
-    if let Some(conn) = caret.root.find_node_at_offset::<ast::NamedPortConnection<'_>>(offset)
+    if let Some(conn) = node_at_offset_in_parens::<ast::NamedPortConnection<'_>>(caret)
         && conn.name().is_some()
-        && in_parens(offset, conn.open_paren(), conn.close_paren())
     {
         return Some(Qualifier::InNamedPortConnExpr);
     }
 
-    if let Some(conn) = caret.root.find_node_at_offset::<ast::NamedParamAssignment<'_>>(offset)
+    if let Some(conn) = node_at_offset_in_parens::<ast::NamedParamAssignment<'_>>(caret)
         && conn.name().is_some()
-        && in_parens(offset, conn.open_paren(), conn.close_paren())
     {
         return Some(Qualifier::InNamedParamAssignExpr);
     }
