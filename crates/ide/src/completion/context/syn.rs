@@ -1,5 +1,5 @@
 use syntax::{
-    SyntaxAncestors, SyntaxNodeExt, SyntaxToken,
+    SyntaxNodeExt, SyntaxToken,
     ast::{self, AstNode},
     ast_ext::NamedConnectionDotZoneExt,
     has_text_range::HasTextRange,
@@ -86,20 +86,18 @@ pub(super) fn detect_syn_context(
 }
 
 fn base_syn_context(caret: &CaretSnapshot<'_>) -> SynContext {
-    let Some(node) = caret.covering_node() else {
+    let offset = caret.offset;
+    let Some(module) = caret.root.find_node_at_offset::<ast::ModuleDeclaration<'_>>(offset) else {
         return SynContext::TopLevel;
     };
 
-    if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_HEADER) {
-        return SynContext::ModuleHeader;
-    }
+    let in_header = module
+        .header()
+        .syntax()
+        .text_range()
+        .is_some_and(|r| r.contains(offset) || r.end() == offset);
 
-    if SyntaxAncestors::start_from(node).any(|n| n.kind() == syntax::SyntaxKind::MODULE_DECLARATION)
-    {
-        return SynContext::ModuleItem;
-    }
-
-    SynContext::TopLevel
+    if in_header { SynContext::ModuleHeader } else { SynContext::ModuleItem }
 }
 
 fn qualifier_after_dot(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
@@ -203,19 +201,12 @@ fn qualifier_in_named_conn_expr(caret: &CaretSnapshot<'_>) -> Option<Qualifier> 
 }
 
 fn is_in_sensitivity_list(caret: &CaretSnapshot<'_>) -> bool {
-    let Some(node) = caret.covering_node() else {
-        return false;
-    };
+    let offset = caret.offset;
 
-    SyntaxAncestors::start_from(node).any(|n| {
-        matches!(
-            n.kind(),
-            syntax::SyntaxKind::EVENT_CONTROL
-                | syntax::SyntaxKind::EVENT_CONTROL_WITH_EXPRESSION
-                | syntax::SyntaxKind::IMPLICIT_EVENT_CONTROL
-                | syntax::SyntaxKind::REPEATED_EVENT_CONTROL
-        )
-    })
+    caret.root.find_node_at_offset::<ast::EventControl<'_>>(offset).is_some()
+        || caret.root.find_node_at_offset::<ast::EventControlWithExpression<'_>>(offset).is_some()
+        || caret.root.find_node_at_offset::<ast::ImplicitEventControl<'_>>(offset).is_some()
+        || caret.root.find_node_at_offset::<ast::RepeatedEventControl<'_>>(offset).is_some()
 }
 
 fn syn_context_for_qualifier(base: SynContext, qualifier: Qualifier) -> SynContext {
