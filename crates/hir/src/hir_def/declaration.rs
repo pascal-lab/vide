@@ -35,14 +35,20 @@ define_enum_deriving_from! {
 }
 
 pub type DeclarationId = Idx<Declaration>;
-define_src!(DeclarationSrc(ast::DataDeclaration, ast::NetDeclaration, ast::ParameterDeclaration));
+define_src!(DeclarationSrc(
+    ast::DataDeclaration,
+    ast::NetDeclaration,
+    ast::ParameterDeclaration,
+    ast::LocalVariableDeclaration
+));
 
 impl DeclarationSrc {
     pub fn ptr(&self) -> SyntaxNodePtr {
         match self {
             DeclarationSrc::DataDeclaration(ptr)
             | DeclarationSrc::NetDeclaration(ptr)
-            | DeclarationSrc::ParameterDeclaration(ptr) => *ptr,
+            | DeclarationSrc::ParameterDeclaration(ptr)
+            | DeclarationSrc::LocalVariableDeclaration(ptr) => *ptr,
         }
     }
 }

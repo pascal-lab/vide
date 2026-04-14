@@ -1,0 +1,22 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "b",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: ".b()",
+                del: 94..94,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: ".b(${1:expr})",
+                del: 94..94,
+            },
+        ),
+    },
+]

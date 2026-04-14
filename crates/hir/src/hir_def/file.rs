@@ -1,5 +1,6 @@
 use la_arena::Arena;
 use proc_macro_utils::define_container;
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
@@ -9,13 +10,14 @@ use triomphe::Arc;
 use utils::{define_enum_deriving_from, get::Get};
 
 use super::{
+    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
     },
     expr::{
-        Expr, ExprSrc,
+        Expr, ExprSrc, LowerExpr,
         declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
         impl_lower_expr,
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
@@ -23,8 +25,14 @@ use super::{
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
+    subroutine::{
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSourceMap,
+        SubroutineSrc, lower_subroutine, lower_subroutine_body,
+    },
+    typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    container::{ContainerId, InFile},
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::lower_ident_opt,
@@ -37,6 +45,11 @@ define_container! {
     pub struct HirFile {
         modules: [ModuleInfo],
         procs: [Proc],
+
+        typedefs: [Typedef],
+        structs: [StructDef],
+        subroutines: [Subroutine],
+        subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
         declarations: [Declaration],
         exprs: [Expr],
@@ -59,6 +72,9 @@ define_container! {
         proc_srcs: [Proc | ProcSrc],
 
         declaration_srcs: [Declaration | DeclarationSrc],
+        typedef_srcs: [Typedef | TypedefSrc],
+        struct_srcs: [StructDef | StructSrc],
+        subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
         decl_srcs: [Declarator | DeclaratorSrc],
@@ -72,9 +88,12 @@ define_container! {
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
     pub enum FileItem {
-        LocalModuleId,
-        ProcId,
-        DeclarationId,
+        LocalModuleId(LocalModuleId),
+        ProcId(ProcId),
+        DeclarationId(DeclarationId),
+        TypedefId(TypedefId),
+        StructId(StructId),
+        SubroutineId(LocalSubroutineId),
     }
 }
 
@@ -84,6 +103,9 @@ impl FileSourceMap {
             FileItem::LocalModuleId(idx) => self.get(*idx).node,
             FileItem::ProcId(idx) => self.get(*idx).0,
             FileItem::DeclarationId(idx) => self.get(*idx).ptr(),
+            FileItem::TypedefId(idx) => self.get(*idx).ptr(),
+            FileItem::StructId(idx) => self.get(*idx).node,
+            FileItem::SubroutineId(idx) => self.get(*idx).0,
         }
     }
 }
@@ -129,6 +151,76 @@ impl LowerProc for LowerFileCtx<'_> {
 }
 
 impl LowerFileCtx<'_> {
+    fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
+        let container_id = ContainerId::HirFileId(self.file_id);
+        let struct_def = lower_struct_def(struct_ty.clone(), container_id, |ty| {
+            self.expr_ctx().lower_data_ty(ty)
+        });
+
+        alloc_idx_and_src! {
+            struct_def => self.file.structs,
+            struct_ty => self.file_source_map.struct_srcs,
+        }
+    }
+
+    fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
+        let name = lower_ident_opt(typedef.name());
+        let typedef_id = alloc_idx_and_src! {
+            Typedef { name, ty: None } => self.file.typedefs,
+            typedef => self.file_source_map.typedef_srcs,
+        };
+
+        let data_ty = typedef.type_();
+        let lowered_ty = lower_typedef_data_ty(
+            self,
+            data_ty,
+            ContainerId::HirFileId(self.file_id),
+            |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
+            |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
+        );
+
+        self.file.typedefs[typedef_id].ty = Some(lowered_ty);
+
+        typedef_id
+    }
+
+    fn lower_subroutine_decl(
+        &mut self,
+        func: ast::FunctionDeclaration,
+    ) -> Option<LocalSubroutineId> {
+        let src = SubroutineSrc::from(func.clone());
+        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
+            cont_id: self.file_id.into(),
+            src: InFile::new(self.file_id, src),
+        });
+
+        let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
+
+        let local_subroutine_id = alloc_idx_and_src! {
+            subroutine => self.file.subroutines,
+            func => self.file_source_map.subroutine_srcs,
+        };
+
+        if func.end().is_some() {
+            let subroutine = &mut self.file.subroutines[local_subroutine_id];
+            let mut subroutine_source_map = SubroutineSourceMap::default();
+            let mut ctx = LowerSubroutineBodyCtx {
+                db: self.db,
+                file_id: self.file_id,
+                subroutine_id: subroutine_def_id,
+                subroutine,
+                subroutine_source_map: &mut subroutine_source_map,
+                region_tree: RegionTreeBuilder::new(),
+            };
+            lower_subroutine_body(&mut ctx, func);
+            self.file.subroutine_source_maps.insert(local_subroutine_id, subroutine_source_map);
+        }
+
+        self.file.subroutines[local_subroutine_id].shrink_to_fit();
+
+        Some(local_subroutine_id)
+    }
+
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {
         for member in root.members().children() {
             use ast::Member::*;
@@ -148,6 +240,11 @@ impl LowerFileCtx<'_> {
                 }
                 NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
                 EmptyMember(_x) => continue,
+                TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
+                FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
+                    Some(id) => id.into(),
+                    None => continue,
+                },
                 _ => unimplemented!("{:?}", member.syntax().kind()),
             };
             self.file_source_map.items.push(idx);

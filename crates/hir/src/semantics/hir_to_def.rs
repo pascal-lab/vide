@@ -6,8 +6,11 @@ use crate::{
     container::{ContainerId, ContainerParent, InBlock, InContainer, InModule},
     hir_def::{
         Ident,
+        block::BlockId,
         expr::{Expr, ExprId},
+        module::{ModuleId, instantiation::InstanceId},
     },
+    scope::UnitEntry,
 };
 
 #[derive(Default, Debug)]
@@ -24,7 +27,18 @@ impl Source2DefCtx<'_, '_> {
         let db = self.db;
 
         let mut resolve = |expr: &Expr| match expr {
-            Expr::Field { .. } => unimplemented!(),
+            Expr::Field { receiver, field } => {
+                let field = field.as_ref()?;
+                let receiver_res = self.expr_to_def(InContainer::new(cont_id, *receiver))?;
+                let res = self.resolve_member_from_resolution(receiver_res, field)?;
+                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
+                Some(res)
+            }
+            Expr::ElementSelect { receiver, .. } => {
+                let res = self.expr_to_def(InContainer::new(cont_id, *receiver))?;
+                self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
+                Some(res)
+            }
             Expr::Ident(ident) => {
                 let res = self.name_to_def(InContainer::new(cont_id, ident.clone()))?;
                 self.hir_cache.expr_map.insert(InContainer::new(cont_id, expr_id), res);
@@ -46,6 +60,7 @@ impl Source2DefCtx<'_, '_> {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
             }
+            ContainerId::SubroutineId(_) => None,
         }
     }
 
@@ -70,8 +85,61 @@ impl Source2DefCtx<'_, '_> {
                 let entry = scope.get(&ident)?;
                 Some(InBlock::new(block_id, entry).into())
             }
+            ContainerId::SubroutineId(_) => None,
         })?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res);
         Some(res)
+    }
+
+    fn resolve_member_from_resolution(
+        &mut self,
+        res: PathResolution,
+        field: &Ident,
+    ) -> Option<PathResolution> {
+        match res {
+            PathResolution::Module(module_id) => self.resolve_member_in_module(module_id, field),
+            PathResolution::Instance(instance) => {
+                let target_module =
+                    self.instance_target_module_id(instance.module_id, instance.value)?;
+                self.resolve_member_in_module(target_module, field)
+            }
+            PathResolution::Block(block_id) => self.resolve_member_in_block(block_id, field),
+            _ => None,
+        }
+    }
+
+    fn resolve_member_in_module(
+        &mut self,
+        module_id: ModuleId,
+        field: &Ident,
+    ) -> Option<PathResolution> {
+        let scope = self.db.module_scope(module_id);
+        let entry = scope.get(field)?;
+        Some(InModule::new(module_id, entry).into())
+    }
+
+    fn resolve_member_in_block(
+        &mut self,
+        block_id: BlockId,
+        field: &Ident,
+    ) -> Option<PathResolution> {
+        let scope = self.db.block_scope(block_id);
+        let entry = scope.get(field)?;
+        Some(InBlock::new(block_id, entry).into())
+    }
+
+    fn instance_target_module_id(
+        &mut self,
+        module_id: ModuleId,
+        instance_id: InstanceId,
+    ) -> Option<ModuleId> {
+        let module = self.db.module(module_id);
+        let instance = module.get(instance_id);
+        let instantiation = module.get(instance.parent);
+        let module_name = instantiation.module_name.as_ref()?;
+        match self.db.unit_scope().get(module_name)? {
+            UnitEntry::ModuleId(module_id) => Some(module_id),
+            _ => None,
+        }
     }
 }

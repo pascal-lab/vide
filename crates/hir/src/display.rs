@@ -9,6 +9,7 @@ use crate::{
     container::{InContainer, InModule},
     db::HirDb,
     hir_def::{
+        aggregate::StructKind,
         expr::{
             Arg, AssignOp, BinaryOp, Expr, ExprId, IncDecOp, Selector, StreamOp, UnaryOp,
             data_ty::{BuiltinDataTy, DataTy, Dimension, IntKind, NamedDataTy, Real, VecKind},
@@ -130,11 +131,26 @@ impl HirDisplay for InContainer<DataTy> {
                     Real::RealTime => f.write_str("realtime"),
                 },
                 BuiltinDataTy::String => f.write_str("string"),
+                BuiltinDataTy::Void => f.write_str("void"),
             },
             DataTy::Named(named) => match named {
                 NamedDataTy::Ident(expr_id) => self.with_value(expr_id).hir_fmt(f),
                 NamedDataTy::Field(expr_id) => self.with_value(expr_id).hir_fmt(f),
             },
+            DataTy::Struct(struct_ref) => {
+                let cont = struct_ref.cont_id.to_container(f.db);
+                let def = cont.get(struct_ref.value);
+                let keyword = match def.kind {
+                    StructKind::Struct => "struct",
+                    StructKind::Union => "union",
+                };
+                f.write_str(keyword)?;
+                if let Some(name) = &def.name {
+                    f.write_str(" ")?;
+                    f.write_str(name.as_str())?;
+                }
+                Ok(())
+            }
         }
     }
 }

@@ -191,6 +191,9 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::DeclarationId(declaration_id) => {
                 build_declaration(&mut collector, declaration_id, file, src_map);
             }
+            FileItem::TypedefId(_) | FileItem::StructId(_) | FileItem::SubroutineId(_) => {
+                // TODO: implement document symbols for these items
+            }
         }
     }
 
@@ -264,6 +267,9 @@ fn collect_module_items(
                 build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map)
             }
             ModuleItem::ContAssignId(_) => {}
+            ModuleItem::StructId(_) | ModuleItem::TypedefId(_) | ModuleItem::SubroutineId(_) => {
+                // TODO: implement document symbols for these items
+            }
         }
     }
     collector.pop();
@@ -293,6 +299,9 @@ fn collect_block_items(
                 build_declaration(collector, declaration_id, block, src_map)
             }
             BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, block, src_map),
+            BlockItem::TypedefId(_) | BlockItem::StructId(_) => {
+                // TODO: implement document symbols for these items
+            }
         }
     }
     collector.pop();

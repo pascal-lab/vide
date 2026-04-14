@@ -14,6 +14,7 @@ use crate::{
     hir_def::{
         block::{BlockId, BlockSrc},
         module::{ModuleId, ModuleSrc},
+        subroutine::{SubroutineLoc, SubroutineSrc},
     },
     source_map::ToAstNode,
 };
@@ -73,6 +74,12 @@ impl Source2DefCtx<'_, '_> {
                 let local_block_id = block_src_map.get(block_src);
                 block.get(local_block_id).block_id
             }
+            ContainerId::SubroutineId(subroutine_id) => {
+                let (subroutine, subroutine_src_map) =
+                    self.db.subroutine_with_source_map(subroutine_id);
+                let local_block_id = *subroutine_src_map.block_srcs.get(&block_src)?;
+                subroutine.stmts.get(local_block_id).block_id
+            }
         };
 
         Some(block_id)
@@ -87,6 +94,28 @@ impl Source2DefCtx<'_, '_> {
            ast::BlockStatement[block] => {
                let block_src = BlockSrc::from(block);
                self.block_to_def_inner(file_id, block, block_src)?.into()
+           },
+           ast::FunctionDeclaration[func] => {
+               let mut ancestors = SyntaxAncestors::start_from(node).skip(1);
+               let module_id = ancestors.find_map(|ancestor| match_ast! { ancestor,
+                   ast::ModuleDeclaration[module] => {
+                       let src = ModuleSrc::from(module);
+                       self.module_to_def(InFile::new(file_id, src))
+                   },
+                   _ => None,
+               });
+
+               let cont_id: ContainerId = match module_id {
+                   Some(module_id) => module_id.into(),
+                   None => file_id.into(),
+               };
+
+               let src = SubroutineSrc::from(func);
+               let subroutine_id = self.db.intern_subroutine(SubroutineLoc {
+                   cont_id,
+                   src: InFile::new(file_id, src),
+               });
+               subroutine_id.into()
            },
            ast::CompilationUnit => file_id.into(),
            _ => return None,

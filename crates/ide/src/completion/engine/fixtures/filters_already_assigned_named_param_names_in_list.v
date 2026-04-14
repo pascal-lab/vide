@@ -1,0 +1,5 @@
+module m #(parameter [3:0] W = 4, parameter [7:0] Z = 8) (); endmodule
+module top;
+localparam [3:0] P4 = 4;
+m #(.W(P4), /*caret*/) u0();
+endmodule

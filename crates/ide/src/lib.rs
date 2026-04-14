@@ -22,6 +22,7 @@ pub mod source_change;
 
 pub mod code_action;
 pub mod code_lens;
+pub mod completion;
 pub mod document_highlight;
 pub mod document_symbols;
 pub mod folding_ranges;

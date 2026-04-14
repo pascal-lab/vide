@@ -3,13 +3,14 @@ use std::iter;
 use either::Either;
 use slang::{
     ChildrenIter, SyntaxAncestors, SyntaxCursor, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
-    SyntaxTrivia, TokenKind, ast::AstNode,
+    SyntaxTrivia, TokenKind, Trivia, TriviaKind, ast::AstNode,
 };
 use token::SyntaxTokenExt;
 use utils::line_index::{TextRange, TextSize};
 
 use crate::{has_text_range::HasTextRange, ptr::SyntaxNodePtr};
 
+pub mod ast_ext;
 pub mod token;
 pub mod trivia;
 
@@ -79,6 +80,11 @@ pub trait SyntaxNodeExt<'a> {
     fn elem_at_exact_range(&self, range: TextRange) -> Option<SyntaxElement<'a>>;
     fn covering_element(&self, range: TextRange) -> SyntaxElement<'a>;
     fn token_at_offset(&self, offset: TextSize) -> TokenAtOffset<'a>;
+    fn token_at_offset_including_eof(&self, offset: TextSize) -> TokenAtOffset<'a>;
+    fn token_after_or_at_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>>;
+    fn token_before_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>>;
+    fn trivia_kind_at_offset(&self, offset: TextSize) -> Option<TriviaKind>;
+    fn find_node_at_offset<N: AstNode<'a>>(&self, offset: TextSize) -> Option<N>;
     fn token_or_node_at_offset(
         &self,
         offset: TextSize,
@@ -161,6 +167,145 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             (false, true) => TokenAtOffset::Single(right.unwrap()),
             (false, false) => TokenAtOffset::None,
         }
+    }
+
+    fn token_at_offset_including_eof(&self, offset: TextSize) -> TokenAtOffset<'a> {
+        let at = self.token_at_offset(offset);
+        if !matches!(at, TokenAtOffset::None) {
+            return at;
+        }
+
+        let Some(range) = self.text_range() else {
+            return TokenAtOffset::None;
+        };
+        if offset != range.end() {
+            return TokenAtOffset::None;
+        }
+
+        self.token_before_offset(offset)
+            .and_then(|tok| tok.text_range().is_some_and(|r| r.end() == offset).then_some(tok))
+            .map_or(TokenAtOffset::None, TokenAtOffset::Single)
+    }
+
+    fn token_after_or_at_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>> {
+        if let Some(tok) = self.token_at_offset(offset).left_biased()
+            && tok.text_range().is_some_and(|r| r.contains(offset))
+        {
+            return Some(tok);
+        }
+
+        let mut cursor = self.walk();
+        if !cursor.goto_first_tok_after_or_last(offset) {
+            return None;
+        }
+        cursor.to_tok_with_parent()
+    }
+
+    fn token_before_offset(&self, offset: TextSize) -> Option<SyntaxTokenWithParent<'a>> {
+        let mut cursor = self.walk();
+        if !cursor.goto_last_tok_before(offset) {
+            return None;
+        }
+        cursor.to_tok_with_parent()
+    }
+
+    fn trivia_kind_at_offset(&self, offset: TextSize) -> Option<TriviaKind> {
+        fn trivia_kind_at_offset_in_token(
+            tok: SyntaxTokenWithParent<'_>,
+            offset: TextSize,
+        ) -> Option<TriviaKind> {
+            for ((start, end), trivia) in tok.tok.trivias_with_loc() {
+                let range = TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32));
+                if range.contains(offset) {
+                    return Some(trivia.kind());
+                }
+
+                // For directive trivia, check nested trivia in the directive's first token.
+                if trivia.kind() == Trivia!["`"] {
+                    if let Some(node) = trivia.syntax()
+                        && let Some(first_tok) = node.first_token()
+                    {
+                        for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
+                            let nested_range =
+                                TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
+                            if nested_range.contains(offset) {
+                                return Some(nested_trivia.kind());
+                            }
+                        }
+                    }
+                }
+            }
+
+            None
+        }
+
+        // Trivia can be attached to either the token before it or after it, depending
+        // on how the underlying parser decides to associate it. Check both
+        // directions, plus the last token for trivia-only files.
+        if let Some(tok) = self.token_after_or_at_offset(offset)
+            && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
+        {
+            return Some(kind);
+        }
+
+        if let Some(tok) = self.token_before_offset(offset)
+            && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
+        {
+            return Some(kind);
+        }
+
+        let mut cursor = self.walk();
+        let end = self.text_range()?.end();
+        if !cursor.goto_first_tok_after_or_last(end) {
+            return None;
+        }
+        let last = cursor.to_tok_with_parent()?;
+        trivia_kind_at_offset_in_token(last, offset)
+    }
+
+    fn find_node_at_offset<N: AstNode<'a>>(&self, offset: TextSize) -> Option<N> {
+        fn best_match_in_ancestors<'a, N: AstNode<'a>>(
+            start: SyntaxNode<'a>,
+        ) -> Option<(TextSize, N)> {
+            let mut best: Option<(TextSize, N)> = None;
+            for anc in SyntaxAncestors::start_from(start) {
+                let Some(cast) = N::cast(anc) else {
+                    continue;
+                };
+                let len = anc
+                    .text_range()
+                    .map(|range| range.end() - range.start())
+                    .unwrap_or_else(|| TextSize::from(u32::MAX));
+                match &best {
+                    Some((best_len, _)) if *best_len <= len => {}
+                    _ => best = Some((len, cast)),
+                }
+            }
+            best
+        }
+
+        let elem = self.covering_element(TextRange::empty(offset));
+        let mut seeds: Vec<SyntaxNode<'a>> =
+            elem.as_node().or_else(|| elem.parent()).into_iter().collect();
+        if let Some(prev) = self.token_before_offset(offset) {
+            seeds.push(prev.parent);
+        }
+        if let Some(next) = self.token_after_or_at_offset(offset) {
+            seeds.push(next.parent);
+        }
+
+        let mut best: Option<(TextSize, N)> = None;
+        for seed in seeds {
+            let Some((len, node)) = best_match_in_ancestors::<N>(seed) else {
+                continue;
+            };
+            match &best {
+                Some((best_len, _)) if *best_len <= len => {}
+                _ => best = Some((len, node)),
+            }
+        }
+
+        best.map(|(_, node)| node)
     }
 
     fn token_or_node_at_offset(

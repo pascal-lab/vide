@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 use triomphe::Arc;
-use utils::define_enum_deriving_from;
+use utils::{define_enum_deriving_from, get::Get};
 
 use crate::{
     container::InFile,
@@ -16,6 +16,7 @@ use crate::{
             port::{NonAnsiPortId, Ports},
         },
         stmt::{StmtId, StmtKind},
+        subroutine::{SubroutineId, SubroutineLoc, SubroutineSrc},
     },
 };
 
@@ -31,13 +32,14 @@ pub type FiledDeclId = InFile<DeclId>;
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-    pub enum ModuleEntry {
+pub enum ModuleEntry {
         DeclId,
         NonAnsiPortEntry,
         AnsiPortEntry,
         InstanceId,
         StmtId,
         BlockId,
+        SubroutineId,
     }
 }
 
@@ -85,6 +87,10 @@ impl<Entry: Copy> Scope<Entry> {
         self.entries.get(ident).copied()
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&Ident, Entry)> + '_ {
+        self.entries.iter().map(|(k, v)| (k, *v))
+    }
+
     pub(crate) fn get_mut(&mut self, ident: &Ident) -> Option<&mut Entry> {
         self.entries.get_mut(ident)
     }
@@ -128,7 +134,8 @@ impl UnitScope {
 impl ModuleScope {
     pub fn module_scope_query(db: &dyn HirDb, module_id: ModuleId) -> Arc<ModuleScope> {
         let mut scope = Scope::default();
-        let module = db.module(module_id);
+        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let file_id = HirFileId(module_id.file_id());
 
         // handle labels of non-ansi ports
         if let Ports::NonAnsi { ports, .. } = &module.ports {
@@ -136,6 +143,15 @@ impl ModuleScope {
                 let entry = NonAnsiPortEntry { label: Some(port_id), ..Default::default() }.into();
                 scope.insert_opt(&port.label, entry);
             }
+        }
+
+        for (local_subroutine_id, subroutine) in module.subroutines.iter() {
+            let src: SubroutineSrc = module_src_map.get(local_subroutine_id);
+            let subroutine_id = db.intern_subroutine(SubroutineLoc {
+                cont_id: module_id.into(),
+                src: InFile::new(file_id, src),
+            });
+            scope.insert_opt(&subroutine.name, subroutine_id.into());
         }
 
         // handle other members

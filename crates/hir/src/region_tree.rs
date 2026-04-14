@@ -16,13 +16,13 @@ pub enum RegionKind {
     PseudoRegion { description: Option<SmolStr> },
 }
 
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct RegionTree {
     pub roots: Vec<Idx<RegionNode>>,
     pub nodes: Arena<RegionNode>,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct RegionNode {
     pub range: TextRange,
     pub kind: RegionKind,

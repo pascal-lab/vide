@@ -16,17 +16,20 @@ use utils::{
 
 use super::{
     Ident,
+    aggregate::{StructDef, StructId, StructSrc, lower_struct_def},
+    alloc_idx_and_src,
     declaration::{
         Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
     },
     expr::{
-        Expr, ExprSrc,
+        Expr, ExprSrc, LowerExpr,
         declarator::{Declarator, DeclaratorSrc, impl_lower_decl},
         impl_lower_expr,
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
     stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc, impl_lower_stmt},
+    typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
     container::{ContainerId, InFile},
@@ -44,6 +47,8 @@ define_container! {
         kind: BlockKind,
 
         declarations: [Declaration],
+        typedefs: [Typedef],
+        structs: [StructDef],
         exprs: [Expr],
         event_exprs: [EventExpr],
         decls: [Declarator],
@@ -61,6 +66,8 @@ define_container! {
         region_tree: RegionTree,
 
         declaration_srcs: [Declaration | DeclarationSrc],
+        typedef_srcs: [Typedef | TypedefSrc],
+        struct_srcs: [StructDef | StructSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
         decl_srcs: [Declarator | DeclaratorSrc],
@@ -75,6 +82,8 @@ impl BlockSourceMap {
     pub fn item_to_ptr(&self, item: &BlockItem) -> SyntaxNodePtr {
         match item {
             BlockItem::DeclarationId(idx) => self.get(*idx).ptr(),
+            BlockItem::TypedefId(idx) => self.get(*idx).ptr(),
+            BlockItem::StructId(idx) => self.get(*idx).node,
             BlockItem::StmtId(idx) => self.get(*idx).node,
         }
     }
@@ -148,6 +157,8 @@ define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum BlockItem {
         DeclarationId,
+        TypedefId,
+        StructId,
         StmtId,
     }
 }
@@ -158,7 +169,8 @@ pub struct BlockInfo {
     pub block_id: BlockId,
 }
 
-pub struct LocalBlockId(StmtId);
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct LocalBlockId(pub StmtId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct BlockId(pub salsa::InternId);
@@ -187,6 +199,40 @@ impl_lower_stmt!(LowerBlockCtx<'_>, block_id, block, block_source_map);
 impl_lower_declaration!(LowerBlockCtx<'_>, block, block_source_map);
 
 impl LowerBlockCtx<'_> {
+    fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
+        let container_id = ContainerId::BlockId(self.block_id);
+        let struct_def = lower_struct_def(struct_ty.clone(), container_id, |ty| {
+            self.expr_ctx().lower_data_ty(ty)
+        });
+
+        alloc_idx_and_src! {
+            struct_def => self.block.structs,
+            struct_ty => self.block_source_map.struct_srcs,
+        }
+    }
+
+    fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
+        let name = lower_ident_opt(typedef.name());
+
+        let typedef_id = alloc_idx_and_src! {
+            Typedef { name, ty: None } => self.block.typedefs,
+            typedef => self.block_source_map.typedef_srcs,
+        };
+
+        let data_ty = typedef.type_();
+        let lowered_ty = lower_typedef_data_ty(
+            self,
+            data_ty,
+            ContainerId::BlockId(self.block_id),
+            |ctx, struct_ty| ctx.lower_struct_type(struct_ty),
+            |ctx, ty| ctx.expr_ctx().lower_data_ty(ty),
+        );
+
+        self.block.typedefs[typedef_id].ty = Some(lowered_ty);
+
+        typedef_id
+    }
+
     pub(crate) fn lower_block(&mut self, block: ast::BlockStatement) {
         // TODO: label? end_block_name?
         self.block.name = block.block_name().and_then(|name| lower_ident_opt(name.name()));
@@ -201,6 +247,7 @@ impl LowerBlockCtx<'_> {
             let idx = match_ast! { node.syntax(),
                 ast::Statement[it] => self.stmt_ctx().lower_stmt(it).into(),
                 ast::DataDeclaration[it] => self.declaration_ctx().lower_data_decl(it).into(),
+                ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
                 _ => unimplemented!("{:?}", node.syntax().kind()),
             };
             self.block_source_map.items.push(idx);
