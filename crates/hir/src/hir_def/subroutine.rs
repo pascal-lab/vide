@@ -33,7 +33,7 @@ use super::{
 use crate::{
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src,
+    define_src_with_name,
     file::HirFileId,
     hir_def::{
         HirData,
@@ -117,6 +117,9 @@ pub struct SubroutinePort {
     pub name: Option<Ident>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SubroutinePortId(pub u32);
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum SubroutinePortDir {
     Input,
@@ -128,7 +131,7 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-define_src!(SubroutineSrc(ast::FunctionDeclaration));
+define_src_with_name!(SubroutineSrc(ast::FunctionDeclaration));
 
 pub type LocalSubroutineId = Idx<Subroutine>;
 

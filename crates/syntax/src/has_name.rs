@@ -1,8 +1,8 @@
 use slang::{
     SyntaxToken,
     ast::{
-        AstNode, BlockStatement, Declarator, HierarchicalInstance, ModuleDeclaration, NonAnsiPort,
-        ParamAssignment, PortConnection, PortReference, Statement,
+        AstNode, BlockStatement, Declarator, FunctionDeclaration, HierarchicalInstance,
+        ModuleDeclaration, NonAnsiPort, ParamAssignment, PortConnection, PortReference, Statement,
     },
 };
 
@@ -66,5 +66,24 @@ impl<'a> HasName<'a> for HierarchicalInstance<'a> {
 impl<'a> HasName<'a> for Statement<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
         self.label()?.name()
+    }
+}
+
+impl<'a> HasName<'a> for FunctionDeclaration<'a> {
+    fn name(&self) -> Option<SyntaxToken<'a>> {
+        fn rightmost_name_token(name: slang::ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+            if let Some(name) = name.as_identifier_name() {
+                return name.identifier();
+            }
+            if let Some(name) = name.as_identifier_select_name() {
+                return name.identifier();
+            }
+            if let Some(name) = name.as_scoped_name() {
+                return rightmost_name_token(name.right());
+            }
+            None
+        }
+
+        rightmost_name_token(self.prototype().name())
     }
 }

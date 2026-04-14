@@ -165,7 +165,7 @@ impl ModuleSourceMap {
             ModuleItem::ProcId(idx) => self.get(*idx).0,
             ModuleItem::PortDeclId(idx) => self.get(*idx).ptr(),
             ModuleItem::TypedefId(idx) => self.get(*idx).ptr(),
-            ModuleItem::SubroutineId(idx) => self.get(*idx).0,
+            ModuleItem::SubroutineId(idx) => self.get(*idx).node,
         }
     }
 }
