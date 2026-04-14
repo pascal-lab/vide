@@ -3,7 +3,7 @@ use utils::get::GetRef;
 
 use super::{Source2DefCtx, pathres::PathResolution};
 use crate::{
-    container::{ContainerId, ContainerParent, InBlock, InContainer, InModule},
+    container::{ContainerId, ContainerParent, InBlock, InContainer, InModule, InSubroutine},
     hir_def::{
         Ident,
         block::BlockId,
@@ -85,7 +85,11 @@ impl Source2DefCtx<'_, '_> {
                 let entry = scope.get(&ident)?;
                 Some(InBlock::new(block_id, entry).into())
             }
-            ContainerId::SubroutineId(_) => None,
+            ContainerId::SubroutineId(subroutine_id) => {
+                let scope = db.subroutine_scope(subroutine_id);
+                let entry = scope.get(&ident)?;
+                Some(InSubroutine::new(subroutine_id, entry).into())
+            }
         })?;
         self.hir_cache.name_map.insert(InContainer::new(cont_id, ident), res);
         Some(res)

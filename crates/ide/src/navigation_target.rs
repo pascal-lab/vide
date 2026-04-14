@@ -1,6 +1,6 @@
 use base_db::intern::Lookup;
 use hir::{
-    container::{InContainer, InFile, InModule},
+    container::{InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     hir_def::{
         block::{BlockId, BlockLoc},
@@ -8,13 +8,13 @@ use hir::{
         expr::declarator::{DeclId, DeclaratorParent},
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
-        subroutine::SubroutineId,
+        subroutine::{SubroutineId, SubroutinePortId},
     },
-    source_map::{IsNamedSrc, IsSrc},
+    source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
-use syntax::{SyntaxTokenWithParent, has_text_range::HasTextRange};
+use syntax::{SyntaxTokenWithParent, ast::AstNode, has_text_range::HasTextRange};
 use utils::{
     get::{Get, GetRef},
     line_index::TextRange,
@@ -52,6 +52,7 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::ModuleId(module_id) => module_id.to_nav(db),
             DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
+            DefinitionOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
             DefinitionOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
             DefinitionOrigin::Decl(decl_id) => decl_id.to_nav(db),
             DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
@@ -91,6 +92,39 @@ impl ToNav for SubroutineId {
 
         let file_id = loc.src.file_id.file_id();
         build(file_id, focus_range, loc.src.value.range(), name, SymbolKind::Fn, cont_name)
+    }
+}
+
+impl ToNav for InSubroutine<SubroutinePortId> {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let InSubroutine { subroutine, value } = *self;
+        let loc = subroutine.lookup(db);
+        let cont_name = db.subroutine(subroutine).name.clone();
+        let subroutine_src = loc.src;
+        let tree = db.parse(subroutine_src.file_id);
+        let func = subroutine_src.value.to_node(&tree).unwrap();
+        let ports = func
+            .prototype()
+            .port_list()
+            .map(|ports| ports.ports().children().collect::<Vec<_>>())
+            .unwrap_or_default();
+        let port = ports
+            .into_iter()
+            .nth(value.0 as usize)
+            .and_then(|port| port.as_function_port())
+            .unwrap();
+        let name = db.subroutine(subroutine).ports[value.0 as usize].name.clone();
+        let focus_range = port.declarator().name().and_then(|name| name.text_range());
+        let full_range = port.syntax().text_range().unwrap();
+
+        build(
+            subroutine_src.file_id.file_id(),
+            focus_range,
+            full_range,
+            name,
+            SymbolKind::PortDecl,
+            cont_name,
+        )
     }
 }
 

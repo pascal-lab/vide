@@ -16,7 +16,7 @@ use crate::{
             port::{NonAnsiPortId, Ports},
         },
         stmt::{StmtId, StmtKind},
-        subroutine::{SubroutineId, SubroutineLoc, SubroutineSrc},
+        subroutine::{SubroutineId, SubroutineLoc, SubroutinePortId, SubroutineSrc},
     },
 };
 
@@ -63,6 +63,16 @@ define_enum_deriving_from! {
     }
 }
 
+define_enum_deriving_from! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+    pub enum SubroutineEntry {
+        StmtId,
+        DeclId,
+        BlockId,
+        SubroutinePortId,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Scope<Entry> {
     entries: FxHashMap<Ident, Entry>,
@@ -99,6 +109,7 @@ impl<Entry: Copy> Scope<Entry> {
 pub type UnitScope = Scope<UnitEntry>;
 pub type ModuleScope = Scope<ModuleEntry>;
 pub type BlockScope = Scope<BlockEntry>;
+pub type SubroutineScope = Scope<SubroutineEntry>;
 
 // TODO: diagnostics
 
@@ -211,6 +222,32 @@ impl BlockScope {
         }
 
         for (stmt_id, stmt) in block.stmts.iter() {
+            scope.insert_opt(&stmt.label, stmt_id.into());
+
+            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
+                scope.insert_opt(name, (*block_id).into());
+            }
+        }
+
+        Arc::new(scope)
+    }
+}
+
+impl SubroutineScope {
+    pub fn subroutine_scope_query(db: &dyn HirDb, subroutine_id: SubroutineId) -> Arc<Self> {
+        let mut scope = Scope::default();
+        let subroutine = db.subroutine(subroutine_id);
+
+        for (port_idx, port) in subroutine.ports.iter().enumerate() {
+            let port_id = SubroutinePortId(port_idx as u32);
+            scope.insert_opt(&port.name, port_id.into());
+        }
+
+        for (decl_id, decl) in subroutine.decls.iter() {
+            scope.insert_opt(&decl.name, decl_id.into());
+        }
+
+        for (stmt_id, stmt) in subroutine.stmts.iter() {
             scope.insert_opt(&stmt.label, stmt_id.into());
 
             if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {

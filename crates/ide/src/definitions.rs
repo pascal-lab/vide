@@ -1,16 +1,16 @@
 use base_db::intern::Lookup;
 use hir::{
-    container::{ContainerId, InContainer, InFile, InModule},
+    container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     hir_def::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
-        subroutine::SubroutineId,
+        subroutine::{SubroutineId, SubroutinePortId},
     },
     semantics::{Semantics, pathres::PathResolution},
-    source_map::{IsNamedSrc, IsSrc},
+    source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
@@ -18,6 +18,7 @@ use smol_str::SmolStr;
 use syntax::{
     SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
+    has_text_range::HasTextRange,
     match_ast,
     token::TokenKindExt,
 };
@@ -32,6 +33,7 @@ pub enum DefinitionOrigin {
     ModuleId(ModuleId),
     BlockId(BlockId),
     SubroutineId(SubroutineId),
+    SubroutinePort(InSubroutine<SubroutinePortId>),
 
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -43,6 +45,7 @@ impl_from! { DefinitionOrigin =>
     ModuleId,
     BlockId,
     SubroutineId,
+    SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
     Instance(InModule<InstanceId>),
@@ -56,6 +59,9 @@ impl DefinitionOrigin {
             DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id,
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, .. }) => {
+                ContainerId::SubroutineId(subroutine)
+            }
             DefinitionOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
@@ -75,6 +81,9 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 db.subroutine(subroutine_id).name.clone().unwrap()
+            }
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+                db.subroutine(subroutine).ports[value.0 as usize].name.clone().unwrap()
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).label.clone().unwrap()
@@ -105,6 +114,23 @@ impl DefinitionOrigin {
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
                 InFile::new(src.file_id, src.value.name_or_full_range())
+            }
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+                let src = subroutine.lookup(db).src;
+                let tree = db.parse(src.file_id);
+                let func = src.value.to_node(&tree).unwrap();
+                let ports = func
+                    .prototype()
+                    .port_list()
+                    .map(|ports| ports.ports().children().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let port = ports
+                    .into_iter()
+                    .nth(value.0 as usize)
+                    .and_then(|port| port.as_function_port())
+                    .unwrap();
+                let range = port.declarator().name().unwrap().text_range().unwrap();
+                InFile::new(src.file_id, range)
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
@@ -140,6 +166,22 @@ impl DefinitionOrigin {
                 let src = subroutine_id.lookup(db).src;
                 let range = src.value.range();
                 InFile::new(src.file_id, range)
+            }
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+                let src = subroutine.lookup(db).src;
+                let tree = db.parse(src.file_id);
+                let func = src.value.to_node(&tree).unwrap();
+                let ports = func
+                    .prototype()
+                    .port_list()
+                    .map(|ports| ports.ports().children().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let port = ports
+                    .into_iter()
+                    .nth(value.0 as usize)
+                    .and_then(|port| port.as_function_port())
+                    .unwrap();
+                InFile::new(src.file_id, port.syntax().text_range().unwrap())
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).range();
@@ -249,6 +291,7 @@ impl Definition {
             PathResolution::Stmt(stmt_id) => stmt_id.into(),
             PathResolution::Block(blk_id) => blk_id.into(),
             PathResolution::Subroutine(subroutine_id) => subroutine_id.into(),
+            PathResolution::SubroutinePort(port_id) => port_id.into(),
             PathResolution::ParamDecl(decl_id) | PathResolution::AnsiPort(decl_id) => {
                 InContainer::new(decl_id.module_id.into(), decl_id.value).into()
             }

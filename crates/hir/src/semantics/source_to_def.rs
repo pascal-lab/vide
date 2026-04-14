@@ -71,7 +71,7 @@ impl Source2DefCtx<'_, '_> {
             }
             ContainerId::BlockId(block_id) => {
                 let (block, block_src_map) = self.db.block_with_source_map(block_id);
-                let local_block_id = block_src_map.get(block_src);
+                let local_block_id = *block_src_map.block_srcs.get(&block_src)?;
                 block.get(local_block_id).block_id
             }
             ContainerId::SubroutineId(subroutine_id) => {
