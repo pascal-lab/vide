@@ -348,6 +348,10 @@ impl GlobalState {
     }
 
     fn publish_diagnostics(&mut self, diagnostics: Vec<PublishDiagnosticsTask>) {
+        if self.config.cli_pull_diagnostics_support() {
+            return;
+        }
+
         for diag in diagnostics {
             let should_publish = match self.diagnostics.get(&diag.file_id) {
                 Some(prev) => prev != &diag.diagnostics,

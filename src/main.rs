@@ -167,3 +167,283 @@ fn main() -> anyhow::Result<()> {
     run_server(opt)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        env, fs,
+        path::{Path, PathBuf},
+        thread,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    use lsp_server::{Connection, Message, Notification, Request};
+    use lsp_types::{
+        ClientCapabilities, DiagnosticClientCapabilities, DidOpenTextDocumentParams,
+        DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+        ProgressParams, PublishDiagnosticsParams, TextDocumentClientCapabilities,
+        TextDocumentIdentifier, TextDocumentItem, Url, WorkDoneProgressParams,
+        notification::{DidOpenTextDocument, Exit, Notification as _},
+        request::{DocumentDiagnosticRequest, Request as _, Shutdown},
+    };
+    use utils::paths::AbsPathBuf;
+
+    use crate::{
+        Opt,
+        config::{self, user_config::UserConfig},
+        global_state::main_loop,
+    };
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new() -> Self {
+            let unique = format!(
+                "vizsla-diag-test-{}-{}",
+                std::process::id(),
+                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            );
+            let path = env::temp_dir().join(unique);
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn setup_diagnostics_test(
+        client_caps: ClientCapabilities,
+    ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+        let temp_dir = TempDir::new();
+        let file_path = temp_dir.path().join("broken.sv");
+        let file_text = "module broken(;\nendmodule\n";
+        fs::write(&file_path, file_text).unwrap();
+
+        let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+        let opt = Opt {
+            process_name: "vizsla-test".to_string(),
+            log: "error".to_string(),
+            log_filename: None,
+        };
+        let config = config::Config::new(
+            opt,
+            root_path.clone(),
+            client_caps,
+            vec![root_path],
+            UserConfig::default(),
+            Vec::new(),
+        );
+
+        let (server, client) = Connection::memory();
+        let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+
+        let uri = Url::from_file_path(&file_path).unwrap();
+        let did_open = DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "systemverilog".to_string(),
+                version: 1,
+                text: file_text.to_string(),
+            },
+        };
+        client
+            .sender
+            .send(Message::Notification(Notification::new(
+                DidOpenTextDocument::METHOD.to_string(),
+                did_open,
+            )))
+            .unwrap();
+
+        (temp_dir, client, server_thread, uri)
+    }
+
+    fn shutdown_test_server(
+        client: &Connection,
+        server_thread: thread::JoinHandle<anyhow::Result<()>>,
+    ) {
+        let shutdown_id = lsp_server::RequestId::from(2);
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                shutdown_id.clone(),
+                Shutdown::METHOD.to_string(),
+                (),
+            )))
+            .unwrap();
+
+        loop {
+            match client.receiver.recv_timeout(Duration::from_secs(10)).unwrap() {
+                Message::Response(response) if response.id == shutdown_id => break,
+                Message::Notification(notification)
+                    if notification.method == lsp_types::notification::Progress::METHOD => {}
+                Message::Notification(notification)
+                    if notification.method
+                        == lsp_types::notification::PublishDiagnostics::METHOD => {}
+                other => panic!("unexpected message while shutting down test server: {other:?}"),
+            }
+        }
+
+        client
+            .sender
+            .send(Message::Notification(Notification::new(Exit::METHOD.to_string(), ())))
+            .unwrap();
+
+        server_thread.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
+        let pull_caps = ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (_temp_dir, client, server_thread, uri) = setup_diagnostics_test(pull_caps);
+        let request_id = lsp_server::RequestId::from(1);
+        let request = Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        );
+        client.sender.send(Message::Request(request)).unwrap();
+
+        let mut pull_diagnostics = None;
+        let mut saw_publish_diagnostics = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+
+        while std::time::Instant::now() < deadline && pull_diagnostics.is_none() {
+            let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+            let message = client.receiver.recv_timeout(timeout).unwrap();
+
+            match message {
+                Message::Response(response) if response.id == request_id => {
+                    assert!(response.error.is_none(), "{:?}", response.error);
+                    let result = serde_json::from_value::<DocumentDiagnosticReportResult>(
+                        response.result.unwrap(),
+                    )
+                    .unwrap();
+                    let items = match result {
+                        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
+                            report,
+                        )) => report.full_document_diagnostic_report.items,
+                        other => panic!("unexpected diagnostic response: {other:?}"),
+                    };
+                    pull_diagnostics = Some(items);
+                }
+                Message::Notification(notification)
+                    if notification.method
+                        == lsp_types::notification::PublishDiagnostics::METHOD =>
+                {
+                    let params =
+                        serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                            .unwrap();
+                    if params.uri == uri {
+                        saw_publish_diagnostics = true;
+                    }
+                }
+                Message::Notification(notification)
+                    if notification.method == lsp_types::notification::Progress::METHOD =>
+                {
+                    let _ = serde_json::from_value::<ProgressParams>(notification.params).unwrap();
+                }
+                Message::Request(request) => {
+                    panic!("unexpected server request during diagnostics test: {request:?}");
+                }
+                _ => {}
+            }
+        }
+
+        let pull_diagnostics = pull_diagnostics.expect("documentDiagnostic response not received");
+        assert!(!pull_diagnostics.is_empty(), "expected pulled diagnostics");
+        assert!(
+            pull_diagnostics.iter().any(|diag| !diag.message.is_empty()),
+            "expected pulled diagnostic message"
+        );
+        assert!(
+            !saw_publish_diagnostics,
+            "pull-capable client should not receive publishDiagnostics"
+        );
+
+        let quiet_until = std::time::Instant::now() + Duration::from_millis(500);
+        while std::time::Instant::now() < quiet_until {
+            let timeout = quiet_until.saturating_duration_since(std::time::Instant::now());
+            match client.receiver.recv_timeout(timeout) {
+                Ok(Message::Notification(notification))
+                    if notification.method
+                        == lsp_types::notification::PublishDiagnostics::METHOD =>
+                {
+                    let params =
+                        serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                            .unwrap();
+                    assert_ne!(
+                        params.uri, uri,
+                        "pull-capable client should not receive publishDiagnostics"
+                    );
+                }
+                Ok(Message::Notification(notification))
+                    if notification.method == lsp_types::notification::Progress::METHOD => {}
+                Ok(other) => {
+                    panic!("unexpected message after pull diagnostics response: {other:?}");
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    panic!("test client disconnected unexpectedly");
+                }
+            }
+        }
+
+        shutdown_test_server(&client, server_thread);
+    }
+
+    #[test]
+    fn legacy_client_receives_publish_diagnostics() {
+        let (_temp_dir, client, server_thread, uri) =
+            setup_diagnostics_test(ClientCapabilities::default());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+
+        while std::time::Instant::now() < deadline {
+            let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+            match client.receiver.recv_timeout(timeout).unwrap() {
+                Message::Notification(notification)
+                    if notification.method
+                        == lsp_types::notification::PublishDiagnostics::METHOD =>
+                {
+                    let params =
+                        serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                            .unwrap();
+                    if params.uri == uri {
+                        assert!(!params.diagnostics.is_empty(), "expected published diagnostics");
+                        shutdown_test_server(&client, server_thread);
+                        return;
+                    }
+                }
+                Message::Notification(notification)
+                    if notification.method == lsp_types::notification::Progress::METHOD => {}
+                Message::Request(request) => {
+                    panic!("unexpected server request during diagnostics test: {request:?}");
+                }
+                _ => {}
+            }
+        }
+
+        panic!("publishDiagnostics notification not received");
+    }
+}

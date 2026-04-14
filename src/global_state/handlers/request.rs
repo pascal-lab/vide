@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ide::{
     code_action::{CodeActionKind, CodeActionResolveStrategy},
@@ -119,21 +119,19 @@ pub(crate) fn handle_document_diagnostic(
         Err(_) => Vec::new(),
     };
 
-    let report = lsp_types::RelatedFullDocumentDiagnosticReport {
-        related_documents: None,
-        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-            result_id: snap.file_version(file_id).map(|it| it.to_string()),
-            items,
-        },
-    };
-
-    Ok(lsp_types::DocumentDiagnosticReport::Full(report).into())
+    let result_id = file_result_id(snap.file_version(file_id));
+    Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
 }
 
 pub(crate) fn handle_workspace_diagnostic(
     snap: GlobalStateSnapshot,
     params: lsp_types::WorkspaceDiagnosticParams,
 ) -> anyhow::Result<lsp_types::WorkspaceDiagnosticReportResult> {
+    let previous_result_ids = params
+        .previous_result_ids
+        .into_iter()
+        .map(|prev| (prev.uri, prev.value))
+        .collect::<HashMap<_, _>>();
     let mut seen = HashSet::new();
     let mut items = Vec::new();
 
@@ -153,40 +151,158 @@ pub(crate) fn handle_workspace_diagnostic(
             Err(_) => Vec::new(),
         };
 
-        let result_id = snap.file_version(file_id).map(|version| version.to_string());
+        let result_id = file_result_id(snap.file_version(file_id));
         let version = snap.file_version(file_id).map(|version| version as i64);
+        let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
 
-        let report = lsp_types::WorkspaceFullDocumentDiagnosticReport {
+        items.push(workspace_diagnostic_report(
             uri,
             version,
-            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                result_id,
-                items: diag_items,
-            },
-        };
-
-        items.push(lsp_types::WorkspaceDocumentDiagnosticReport::Full(report));
+            result_id,
+            diag_items,
+            previous_result_id,
+        ));
     }
 
-    for prev in params.previous_result_ids {
-        if seen.contains(&prev.uri) {
+    for (uri, _) in previous_result_ids {
+        if seen.contains(&uri) {
             continue;
         }
 
-        let report = lsp_types::WorkspaceFullDocumentDiagnosticReport {
-            uri: prev.uri,
-            version: None,
-            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                result_id: None,
-                items: Vec::new(),
-            },
-        };
-        items.push(lsp_types::WorkspaceDocumentDiagnosticReport::Full(report));
+        items.push(workspace_diagnostic_report(uri, None, None, Vec::new(), None));
     }
 
     Ok(lsp_types::WorkspaceDiagnosticReportResult::Report(lsp_types::WorkspaceDiagnosticReport {
         items,
     }))
+}
+
+fn file_result_id(version: Option<i32>) -> Option<String> {
+    version.map(|it| it.to_string())
+}
+
+fn document_diagnostic_report(
+    result_id: Option<String>,
+    items: Vec<lsp_types::Diagnostic>,
+    previous_result_id: Option<&str>,
+) -> lsp_types::DocumentDiagnosticReport {
+    if result_id.as_deref() == previous_result_id {
+        return lsp_types::DocumentDiagnosticReport::Unchanged(
+            lsp_types::RelatedUnchangedDocumentDiagnosticReport {
+                related_documents: None,
+                unchanged_document_diagnostic_report:
+                    lsp_types::UnchangedDocumentDiagnosticReport {
+                        result_id: result_id.expect("matching previous result id must exist"),
+                    },
+            },
+        );
+    }
+
+    lsp_types::DocumentDiagnosticReport::Full(lsp_types::RelatedFullDocumentDiagnosticReport {
+        related_documents: None,
+        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+            result_id,
+            items,
+        },
+    })
+}
+
+fn workspace_diagnostic_report(
+    uri: lsp_types::Url,
+    version: Option<i64>,
+    result_id: Option<String>,
+    items: Vec<lsp_types::Diagnostic>,
+    previous_result_id: Option<&str>,
+) -> lsp_types::WorkspaceDocumentDiagnosticReport {
+    if result_id.as_deref() == previous_result_id {
+        return lsp_types::WorkspaceDocumentDiagnosticReport::Unchanged(
+            lsp_types::WorkspaceUnchangedDocumentDiagnosticReport {
+                uri,
+                version,
+                unchanged_document_diagnostic_report:
+                    lsp_types::UnchangedDocumentDiagnosticReport {
+                        result_id: result_id.expect("matching previous result id must exist"),
+                    },
+            },
+        );
+    }
+
+    lsp_types::WorkspaceDocumentDiagnosticReport::Full(
+        lsp_types::WorkspaceFullDocumentDiagnosticReport {
+            uri,
+            version,
+            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                result_id,
+                items,
+            },
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_types::{
+        DocumentDiagnosticReport, UnchangedDocumentDiagnosticReport, Url,
+        WorkspaceDocumentDiagnosticReport,
+    };
+
+    use super::{document_diagnostic_report, workspace_diagnostic_report};
+
+    #[test]
+    fn document_diagnostic_report_uses_unchanged_for_matching_result_id() {
+        let report = document_diagnostic_report(Some("7".to_string()), Vec::new(), Some("7"));
+
+        match report {
+            DocumentDiagnosticReport::Unchanged(report) => assert_eq!(
+                report.unchanged_document_diagnostic_report,
+                UnchangedDocumentDiagnosticReport { result_id: "7".to_string() }
+            ),
+            other => panic!("expected unchanged report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_diagnostic_report_uses_full_for_new_result_id() {
+        let uri = Url::parse("file:///tmp/test.sv").unwrap();
+        let report = workspace_diagnostic_report(
+            uri.clone(),
+            Some(3),
+            Some("4".to_string()),
+            Vec::new(),
+            Some("2"),
+        );
+
+        match report {
+            WorkspaceDocumentDiagnosticReport::Full(report) => {
+                assert_eq!(report.uri, uri);
+                assert_eq!(report.version, Some(3));
+                assert_eq!(report.full_document_diagnostic_report.result_id.as_deref(), Some("4"));
+                assert!(report.full_document_diagnostic_report.items.is_empty());
+            }
+            other => panic!("expected full report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_diagnostic_report_uses_unchanged_for_matching_result_id() {
+        let uri = Url::parse("file:///tmp/test.sv").unwrap();
+        let report = workspace_diagnostic_report(
+            uri.clone(),
+            Some(5),
+            Some("5".to_string()),
+            Vec::new(),
+            Some("5"),
+        );
+
+        match report {
+            WorkspaceDocumentDiagnosticReport::Unchanged(report) => {
+                assert_eq!(report.uri, uri);
+                assert_eq!(report.version, Some(5));
+                assert_eq!(report.unchanged_document_diagnostic_report.result_id, "5");
+            }
+            other => panic!("expected unchanged report, got {other:?}"),
+        }
+    }
 }
 
 pub(crate) fn handle_document_symbol(

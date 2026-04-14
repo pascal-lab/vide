@@ -136,6 +136,19 @@ impl Config {
         }
     }
 
+    pub fn cli_workspace_diagnostic_refresh_support(&self) -> bool {
+        try_or_default! {
+            self.client_caps
+            .workspace.as_ref()?
+            .diagnostic.as_ref()?
+            .refresh_support?
+        }
+    }
+
+    pub fn cli_pull_diagnostics_support(&self) -> bool {
+        try_!(self.client_caps.text_document.as_ref()?.diagnostic.as_ref()).is_some()
+    }
+
     pub fn cli_signature_help_label_offsets_support(&self) -> bool {
         try_or_default! {
             self.client_caps
