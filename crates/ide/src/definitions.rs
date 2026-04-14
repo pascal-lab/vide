@@ -1,20 +1,27 @@
 use base_db::intern::Lookup;
 use hir::{
-    container::{ContainerId, InContainer, InFile, InModule},
+    container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     hir_def::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
+        subroutine::{SubroutineId, SubroutinePortId},
     },
     semantics::{Semantics, pathres::PathResolution},
-    source_map::{IsNamedSrc, IsSrc},
+    source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
 use smol_str::SmolStr;
-use syntax::{SyntaxTokenWithParent, ast, match_ast, token::TokenKindExt};
+use syntax::{
+    SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
+    ast::{self, AstNode},
+    has_text_range::HasTextRange,
+    match_ast,
+    token::TokenKindExt,
+};
 use utils::{
     get::{Get, GetRef},
     impl_from,
@@ -25,6 +32,8 @@ use utils::{
 pub enum DefinitionOrigin {
     ModuleId(ModuleId),
     BlockId(BlockId),
+    SubroutineId(SubroutineId),
+    SubroutinePort(InSubroutine<SubroutinePortId>),
 
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
@@ -35,6 +44,8 @@ pub enum DefinitionOrigin {
 impl_from! { DefinitionOrigin =>
     ModuleId,
     BlockId,
+    SubroutineId,
+    SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
     Instance(InModule<InstanceId>),
@@ -47,6 +58,10 @@ impl DefinitionOrigin {
         match *self {
             DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
+            DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id,
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, .. }) => {
+                ContainerId::SubroutineId(subroutine)
+            }
             DefinitionOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
@@ -63,6 +78,12 @@ impl DefinitionOrigin {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
                 let cont = cont_id.to_container(db);
                 value.hir(&cont, &cont_id.to_container_src_map(db)).name.clone().unwrap()
+            }
+            DefinitionOrigin::SubroutineId(subroutine_id) => {
+                db.subroutine(subroutine_id).name.clone().unwrap()
+            }
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+                db.subroutine(subroutine).ports[value.0 as usize].name.clone().unwrap()
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).label.clone().unwrap()
@@ -89,6 +110,27 @@ impl DefinitionOrigin {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.name_range().unwrap();
                 InFile::new(file_id, range)
+            }
+            DefinitionOrigin::SubroutineId(subroutine_id) => {
+                let src = subroutine_id.lookup(db).src;
+                InFile::new(src.file_id, src.value.name_or_full_range())
+            }
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+                let src = subroutine.lookup(db).src;
+                let tree = db.parse(src.file_id);
+                let func = src.value.to_node(&tree).unwrap();
+                let ports = func
+                    .prototype()
+                    .port_list()
+                    .map(|ports| ports.ports().children().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let port = ports
+                    .into_iter()
+                    .nth(value.0 as usize)
+                    .and_then(|port| port.as_function_port())
+                    .unwrap();
+                let range = port.declarator().name().unwrap().text_range().unwrap();
+                InFile::new(src.file_id, range)
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
@@ -119,6 +161,27 @@ impl DefinitionOrigin {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
                 let range = value.range();
                 InFile::new(file_id, range)
+            }
+            DefinitionOrigin::SubroutineId(subroutine_id) => {
+                let src = subroutine_id.lookup(db).src;
+                let range = src.value.range();
+                InFile::new(src.file_id, range)
+            }
+            DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
+                let src = subroutine.lookup(db).src;
+                let tree = db.parse(src.file_id);
+                let func = src.value.to_node(&tree).unwrap();
+                let ports = func
+                    .prototype()
+                    .port_list()
+                    .map(|ports| ports.ports().children().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let port = ports
+                    .into_iter()
+                    .nth(value.0 as usize)
+                    .and_then(|port| port.as_function_port())
+                    .unwrap();
+                InFile::new(src.file_id, port.syntax().text_range().unwrap())
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).range();
@@ -227,6 +290,8 @@ impl Definition {
             PathResolution::Instance(instance_id) => instance_id.into(),
             PathResolution::Stmt(stmt_id) => stmt_id.into(),
             PathResolution::Block(blk_id) => blk_id.into(),
+            PathResolution::Subroutine(subroutine_id) => subroutine_id.into(),
+            PathResolution::SubroutinePort(port_id) => port_id.into(),
             PathResolution::ParamDecl(decl_id) | PathResolution::AnsiPort(decl_id) => {
                 InContainer::new(decl_id.module_id.into(), decl_id.value).into()
             }
@@ -267,9 +332,11 @@ impl DefinitionClass {
             return None;
         }
 
+        if let Some(def) = resolve_member_or_scoped_name(sema, tp) {
+            return Some(def);
+        }
+
         let res = match_ast! { parent,
-            ast::MemberAccessExpression => unimplemented!(),
-            ast::ScopedName => unimplemented!(),
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
                 sema.nameres_named_param_assign(it).map(Definition::from)?.into()
             },
@@ -301,5 +368,39 @@ impl DefinitionClass {
                 port.origins().into_iter().chain(local.origins()).collect()
             }
         }
+    }
+}
+
+fn resolve_member_or_scoped_name(
+    sema: &Semantics<'_, RootDb>,
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    if let Some(access) =
+        SyntaxAncestors::start_from(parent).find_map(ast::MemberAccessExpression::cast)
+    {
+        if access.name() == Some(tok) {
+            let expr = ast::Expression::cast(access.syntax())?;
+            let res = sema.expr_to_def(sema.resolve_expr(expr))?;
+            return Some(Definition::from(res).into());
+        }
+    }
+
+    let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;
+    let right_tok = scoped_right_token(scoped)?;
+    if right_tok != tok {
+        return None;
+    }
+
+    let expr = ast::Expression::cast(scoped.syntax())?;
+    let res = sema.expr_to_def(sema.resolve_expr(expr))?;
+    Some(Definition::from(res).into())
+}
+
+fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
+    use ast::Name::*;
+    match scoped.right() {
+        IdentifierName(ident) => ident.identifier(),
+        IdentifierSelectName(ident) => ident.identifier(),
+        _ => None,
     }
 }

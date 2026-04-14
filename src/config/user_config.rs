@@ -106,6 +106,8 @@ config_data! {
         semantic_tokens_port_clk_rst_enable: bool = true,
         semantic_tokens_port_input_output_enable: bool = true,
 
+        semantic_diagnostics_enable: bool = true,
+
         signature_help_params_only: bool = false,
     }
 }
@@ -160,6 +162,10 @@ impl Config {
                 io: self.user_config.semantic_tokens_port_input_output_enable,
             },
         }
+    }
+
+    pub(crate) fn semantic_diagnostics_enabled(&self) -> bool {
+        self.user_config.semantic_diagnostics_enable
     }
 
     pub(crate) fn signature_help(&self) -> SignatureHelpConfig {

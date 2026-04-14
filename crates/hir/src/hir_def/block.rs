@@ -1,6 +1,7 @@
 use base_db::intern::Lookup;
 use la_arena::Arena;
 use proc_macro_utils::define_container;
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
     TokenKind,
@@ -74,7 +75,8 @@ define_container! {
         stmt_srcs: [Stmt | StmtSrc] => {
             [StmtId | StmtSrc],
             [LocalBlockId | BlockSrc],
-        }
+        },
+        block_srcs: FxHashMap<BlockSrc, LocalBlockId>,
     }
 }
 
@@ -245,7 +247,15 @@ impl LowerBlockCtx<'_> {
 
         for node in block.items().children() {
             let idx = match_ast! { node.syntax(),
-                ast::Statement[it] => self.stmt_ctx().lower_stmt(it).into(),
+                ast::Statement[it] => {
+                    let stmt_id = self.stmt_ctx().lower_stmt(it);
+                    if let Some(block_stmt) = it.as_block_statement() {
+                        let block_src = BlockSrc::from(block_stmt);
+                        let local_block_id = LocalBlockId(stmt_id);
+                        self.block_source_map.block_srcs.insert(block_src, local_block_id);
+                    }
+                    stmt_id.into()
+                },
                 ast::DataDeclaration[it] => self.declaration_ctx().lower_data_decl(it).into(),
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
                 _ => unimplemented!("{:?}", node.syntax().kind()),

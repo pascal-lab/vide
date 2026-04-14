@@ -56,6 +56,9 @@ impl RootDb {
     pub fn update_parse_query_lru_capacity(&mut self, lru_capacity: Option<usize>) {
         let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
         base_db::source_db::ParseSrcQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        base_db::source_db::ExpectedIdentifierOffsetsQuery
+            .in_db_mut(self)
+            .set_lru_capacity(lru_capacity);
         hir::db::HirFileWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         hir::db::ModuleWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         hir::db::BlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);

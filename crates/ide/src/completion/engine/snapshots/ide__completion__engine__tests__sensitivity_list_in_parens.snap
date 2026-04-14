@@ -1,0 +1,103 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "*",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "*",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "*",
+                del: 62..62,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "posedge",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "posedge ",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "posedge ${1:signal}",
+                del: 62..62,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "negedge",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "negedge ",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "negedge ${1:signal}",
+                del: 62..62,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "edge",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "edge ",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "edge ${1:signal}",
+                del: 62..62,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "clk",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "clk",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "en",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "en",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rst",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "rst",
+                del: 62..62,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

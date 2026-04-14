@@ -1,11 +1,12 @@
 use ide::hover::HoverFormat;
 use lsp_types::{
     CodeActionKind, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
-    DeclarationCapability, DocumentOnTypeFormattingOptions, FileOperationFilter,
-    FileOperationPattern, FileOperationPatternKind, FileOperationRegistrationOptions,
-    InlayHintOptions, InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions,
-    SaveOptions, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncKind, TextDocumentSyncOptions,
+    DeclarationCapability, DiagnosticOptions, DiagnosticServerCapabilities,
+    DocumentOnTypeFormattingOptions, FileOperationFilter, FileOperationPattern,
+    FileOperationPatternKind, FileOperationRegistrationOptions, InlayHintOptions,
+    InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions, SaveOptions,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, ServerCapabilities,
+    SignatureHelpOptions, TextDocumentSyncKind, TextDocumentSyncOptions,
     WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
@@ -44,6 +45,19 @@ impl Config {
                 .iter()
                 .any(|cap_string| cap_string.as_str() == "additionalTextEdits")
         ) == Some(true)
+    }
+
+    pub fn cli_completion_snippet_support(&self) -> bool {
+        try_or_default!(
+            self.client_caps
+                .text_document
+                .as_ref()?
+                .completion
+                .as_ref()?
+                .completion_item
+                .as_ref()?
+                .snippet_support?
+        )
     }
 
     pub fn hierarchical_symbols(&self) -> bool {
@@ -120,6 +134,19 @@ impl Config {
             .code_lens.as_ref()?
             .refresh_support?
         }
+    }
+
+    pub fn cli_workspace_diagnostic_refresh_support(&self) -> bool {
+        try_or_default! {
+            self.client_caps
+            .workspace.as_ref()?
+            .diagnostic.as_ref()?
+            .refresh_support?
+        }
+    }
+
+    pub fn cli_pull_diagnostics_support(&self) -> bool {
+        try_!(self.client_caps.text_document.as_ref()?.diagnostic.as_ref()).is_some()
     }
 
     pub fn cli_signature_help_label_offsets_support(&self) -> bool {
@@ -207,7 +234,21 @@ impl Config {
             ),
             selection_range_provider: Some(true.into()),
             hover_provider: Some(true.into()),
-            completion_provider: None,
+            completion_provider: Some(
+                lsp_types::CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![
+                        ".".into(),
+                        "(".into(),
+                        ",".into(),
+                        "@".into(),
+                        "#".into(),
+                        "`".into(),
+                    ]),
+                    ..Default::default()
+                }
+                .into(),
+            ),
             signature_help_provider: SignatureHelpOptions {
                 trigger_characters: Some(["(", ",", "."].map(String::from).into()),
                 retrigger_characters: None,
@@ -312,7 +353,12 @@ impl Config {
                 },
             ))
             .into(),
-            diagnostic_provider: None,
+            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                identifier: None,
+                inter_file_dependencies: true,
+                workspace_diagnostics: true,
+                work_done_progress_options: Default::default(),
+            })),
             experimental: None,
         }
     }

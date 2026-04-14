@@ -1,0 +1,39 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "data",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "data",
+                del: 168..168,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "inner",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "inner",
+                del: 168..168,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "u1",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "u1",
+                del: 168..168,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

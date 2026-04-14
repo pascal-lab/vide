@@ -2,13 +2,19 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 use base_db::change::Change;
 use itertools::Itertools;
+use lsp_types::request::WorkspaceDiagnosticRefresh;
 use nohash_hasher::IntMap;
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
-use rustc_hash::FxHashMap;
-use utils::lines::LineEnding;
+use rustc_hash::{FxHashMap, FxHashSet};
+use utils::{lines::LineEnding, thread::ThreadIntent};
 use vfs::{ChangedFile, FileId, Vfs};
 
-use super::{GlobalState, reload::should_refresh_for_change};
+use super::{
+    DEFAULT_REQ_HANDLER, GlobalState,
+    main_loop::{PublishDiagnosticsTask, Task},
+    reload::should_refresh_for_change,
+};
+use crate::lsp_ext::to_proto;
 
 // Apply changes
 impl GlobalState {
@@ -27,6 +33,7 @@ impl GlobalState {
         let mut workspace_structure_change = None;
         let mut has_structure_changes = false; // Any file was added or deleted
         let mut bytes = vec![];
+        let mut changed_file_ids = FxHashSet::default();
         for changed_file in changed_files {
             let path = vfs.file_path(changed_file.file_id);
             if let Some(path) = path.as_abs_path().map(|apath| apath.to_path_buf()) {
@@ -37,6 +44,7 @@ impl GlobalState {
                 }
             }
 
+            changed_file_ids.insert(changed_file.file_id);
             bytes.push(changed_file);
         }
 
@@ -47,6 +55,7 @@ impl GlobalState {
         std::mem::drop(write_guard);
 
         self.analysis_host.apply_change(change);
+        self.request_diagnostics(changed_file_ids.into_iter().collect());
 
         if let Some(path) = workspace_structure_change {
             self.fetch_workspaces_task.request(format!("workspace vfs change: {:?}", path));
@@ -130,5 +139,42 @@ impl GlobalState {
             .collect_vec();
 
         Some(changed_file)
+    }
+
+    fn request_diagnostics(&mut self, files: Vec<FileId>) {
+        if files.is_empty() {
+            return;
+        }
+
+        if !self.config.cli_pull_diagnostics_support() {
+            let snapshot = self.make_snapshot();
+            self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
+                let mut results = Vec::with_capacity(files.len());
+                for file_id in files {
+                    let uri = snapshot.url(file_id);
+                    let version = snapshot.file_version(file_id);
+
+                    let diagnostics = match snapshot.diagnostics(file_id) {
+                        Ok(diags) if !diags.is_empty() => match snapshot.line_info(file_id) {
+                            Ok(line_info) => diags
+                                .into_iter()
+                                .map(|diag| to_proto::diagnostic(&line_info, diag))
+                                .collect(),
+                            Err(_) => Vec::new(),
+                        },
+                        Ok(_) | Err(_) => Vec::new(),
+                    };
+
+                    results.push(PublishDiagnosticsTask { file_id, uri, version, diagnostics });
+                }
+                Task::Diagnostics(results)
+            });
+        }
+
+        if self.config.cli_pull_diagnostics_support()
+            && self.config.cli_workspace_diagnostic_refresh_support()
+        {
+            self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
+        }
     }
 }

@@ -1,0 +1,38 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "Foo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "Foo u0();",
+                del: 34..36,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "Foo ${1:u0}(${2:ports});",
+                del: 34..36,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "Foo #(...)",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "Foo #() u0();",
+                del: 34..36,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "Foo #(${1:params}) ${2:u0}(${3:ports});",
+                del: 34..36,
+            },
+        ),
+    },
+]

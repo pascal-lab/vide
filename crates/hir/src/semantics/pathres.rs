@@ -6,7 +6,7 @@ use utils::get::GetRef;
 
 use super::SemanticsImpl;
 use crate::{
-    container::{ContainerId, InBlock, InContainer, InFile, InModule},
+    container::{ContainerId, InBlock, InContainer, InFile, InModule, InSubroutine},
     hir_def::{
         block::BlockId,
         declaration::Declaration,
@@ -14,8 +14,9 @@ use crate::{
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
+        subroutine::{SubroutineId, SubroutinePortId},
     },
-    scope::{self, BlockEntry, ModuleEntry, UnitEntry},
+    scope::{self, BlockEntry, ModuleEntry, SubroutineEntry, UnitEntry},
 };
 
 impl SemanticsImpl<'_> {
@@ -98,6 +99,8 @@ pub enum PathResolution {
     Module(ModuleId),
     Decl(InContainer<DeclId>),
     ParamDecl(InModule<DeclId>),
+    Subroutine(SubroutineId),
+    SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort {
         // There won't be a situation where all fields are None.
         label: Option<NonAnsiPortId>,
@@ -128,6 +131,7 @@ impl From<InModule<ModuleEntry>> for PathResolution {
             DeclId(decl_id) => Self::Decl(entry.with_value(decl_id).into()),
             InstanceId(idx) => Self::Instance(entry.with_value(idx)),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
+            SubroutineId(subroutine_id) => Self::Subroutine(subroutine_id),
             NonAnsiPortEntry(scope::NonAnsiPortEntry { label, port_decl, data_decl }) => {
                 Self::NonAnsiPort { label, port_decl, data_decl, module: entry.module_id }
             }
@@ -144,6 +148,18 @@ impl From<InBlock<BlockEntry>> for PathResolution {
             DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             BlockId(block_id) => Self::Block(block_id),
+        }
+    }
+}
+
+impl From<InSubroutine<SubroutineEntry>> for PathResolution {
+    fn from(entry: InSubroutine<SubroutineEntry>) -> Self {
+        use SubroutineEntry::*;
+        match entry.value {
+            DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
+            StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
+            BlockId(block_id) => Self::Block(block_id),
+            SubroutinePortId(idx) => Self::SubroutinePort(entry.with_value(idx)),
         }
     }
 }

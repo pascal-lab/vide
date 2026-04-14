@@ -13,10 +13,14 @@ use utils::text_edit::TextSize;
 use vfs::FileId;
 
 use crate::{
-    container::InContainer,
+    container::{InContainer, InFile},
     db::HirDb,
     file::HirFileId,
-    hir_def::{Ident, expr::ExprId},
+    hir_def::{
+        Ident,
+        block::{BlockId, BlockSrc},
+        expr::ExprId,
+    },
 };
 
 mod hir_to_def;
@@ -129,6 +133,12 @@ impl<'db> SemanticsImpl<'db> {
 }
 
 impl SemanticsImpl<'_> {
+    pub fn block_to_def(&self, block: ast::BlockStatement) -> Option<BlockId> {
+        let file_id = self.find_file(block.syntax());
+        let block_src = BlockSrc::from(block);
+        self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))
+    }
+
     pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Option<PathResolution> {
         self.with_ctx(|ctx| ctx.expr_to_def(in_cont))
     }

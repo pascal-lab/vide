@@ -1,0 +1,39 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "px_in",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "px_in",
+                del: 112..114,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "px_inner",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "px_inner",
+                del: 112..114,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "px_local",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "px_local",
+                del: 112..114,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

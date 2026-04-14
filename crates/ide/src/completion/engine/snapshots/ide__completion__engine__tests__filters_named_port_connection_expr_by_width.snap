@@ -1,0 +1,17 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+---
+[
+    CompletionItem {
+        label: "sig4",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "sig4",
+                del: 100..100,
+            },
+        ),
+        snippet_edit: None,
+    },
+]
