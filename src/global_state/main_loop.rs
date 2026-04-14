@@ -7,7 +7,7 @@ use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::notification::Notification as _;
 use project_model::project_manifest;
 use triomphe::Arc;
-use vfs::{VfsPath, loader as vfs_loader};
+use vfs::{FileId, VfsPath, loader as vfs_loader};
 
 use super::{
     GlobalState, VfsProgress,
@@ -26,11 +26,19 @@ enum Event {
 }
 
 #[derive(Debug)]
+pub(crate) struct PublishDiagnosticsTask {
+    pub(crate) file_id: FileId,
+    pub(crate) uri: lsp_types::Url,
+    pub(crate) version: Option<i32>,
+    pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
+}
+
+#[derive(Debug)]
 pub(crate) enum Task {
     Response(lsp_server::Response),
     Retry(lsp_server::Request),
     FetchWorkspace(FetchWorkspaceProgress),
-    // Diagnostics(Vec<(FileId, Vec<lsp_types::Diagnostic>)>)
+    Diagnostics(Vec<PublishDiagnosticsTask>),
 }
 
 pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
@@ -203,6 +211,8 @@ impl GlobalState {
             .on_latency_sensitive::<SemanticTokensRangeRequest>(handle_semantic_tokens_range)
             .on::<DocumentSymbolRequest>(handle_document_symbol)
             .on::<FoldingRangeRequest>(handle_folding_ranges)
+            .on::<DocumentDiagnosticRequest>(handle_document_diagnostic)
+            .on::<WorkspaceDiagnosticRequest>(handle_workspace_diagnostic)
             .on_no_retry::<SignatureHelpRequest>(handle_signature_help)
             .on_no_retry::<InlayHintRequest>(handle_inlay_hint)
             .on_no_retry::<CodeLensRequest>(handle_code_lens)
@@ -287,6 +297,7 @@ impl GlobalState {
 
                 self.report_progress("Fetching Workspaces", state, None, None, None);
             }
+            Task::Diagnostics(diags) => self.publish_diagnostics(diags),
         }
     }
 
@@ -333,6 +344,37 @@ impl GlobalState {
                     }
                 }
             }
+        }
+    }
+
+    fn publish_diagnostics(&mut self, diagnostics: Vec<PublishDiagnosticsTask>) {
+        if self.config.cli_pull_diagnostics_support() {
+            return;
+        }
+
+        for diag in diagnostics {
+            let should_publish = match self.diagnostics.get(&diag.file_id) {
+                Some(prev) => prev != &diag.diagnostics,
+                None => !diag.diagnostics.is_empty(),
+            };
+
+            if !should_publish {
+                continue;
+            }
+
+            if diag.diagnostics.is_empty() {
+                self.diagnostics.remove(&diag.file_id);
+            } else {
+                self.diagnostics.insert(diag.file_id, diag.diagnostics.clone());
+            }
+
+            self.send_notification::<lsp_types::notification::PublishDiagnostics>(
+                lsp_types::PublishDiagnosticsParams {
+                    uri: diag.uri,
+                    diagnostics: diag.diagnostics,
+                    version: diag.version,
+                },
+            );
         }
     }
 }

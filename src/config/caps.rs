@@ -1,11 +1,12 @@
 use ide::hover::HoverFormat;
 use lsp_types::{
     CodeActionKind, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
-    DeclarationCapability, DocumentOnTypeFormattingOptions, FileOperationFilter,
-    FileOperationPattern, FileOperationPatternKind, FileOperationRegistrationOptions,
-    InlayHintOptions, InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions,
-    SaveOptions, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    ServerCapabilities, SignatureHelpOptions, TextDocumentSyncKind, TextDocumentSyncOptions,
+    DeclarationCapability, DiagnosticOptions, DiagnosticServerCapabilities,
+    DocumentOnTypeFormattingOptions, FileOperationFilter, FileOperationPattern,
+    FileOperationPatternKind, FileOperationRegistrationOptions, InlayHintOptions,
+    InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions, SaveOptions,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, ServerCapabilities,
+    SignatureHelpOptions, TextDocumentSyncKind, TextDocumentSyncOptions,
     WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
@@ -133,6 +134,19 @@ impl Config {
             .code_lens.as_ref()?
             .refresh_support?
         }
+    }
+
+    pub fn cli_workspace_diagnostic_refresh_support(&self) -> bool {
+        try_or_default! {
+            self.client_caps
+            .workspace.as_ref()?
+            .diagnostic.as_ref()?
+            .refresh_support?
+        }
+    }
+
+    pub fn cli_pull_diagnostics_support(&self) -> bool {
+        try_!(self.client_caps.text_document.as_ref()?.diagnostic.as_ref()).is_some()
     }
 
     pub fn cli_signature_help_label_offsets_support(&self) -> bool {
@@ -339,7 +353,12 @@ impl Config {
                 },
             ))
             .into(),
-            diagnostic_provider: None,
+            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                identifier: None,
+                inter_file_dependencies: true,
+                workspace_diagnostics: true,
+                work_done_progress_options: Default::default(),
+            })),
             experimental: None,
         }
     }

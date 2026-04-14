@@ -1,5 +1,9 @@
+use std::collections::{HashMap, HashSet};
+
 use ide::{
-    code_action::CodeActionResolveStrategy, folding_ranges::FoldingConfig, references::References,
+    code_action::{CodeActionKind, CodeActionResolveStrategy},
+    folding_ranges::FoldingConfig,
+    references::References,
 };
 use itertools::Itertools;
 use span::{FilePosition, FileRange};
@@ -95,6 +99,210 @@ pub(crate) fn handle_goto_declaration(
     let src = FileRange { file_id: position.file_id, range: nav_info.range };
     let res = to_proto::goto_definition_response(&snap, Some(src), nav_info.info)?;
     Ok(Some(res))
+}
+
+pub(crate) fn handle_document_diagnostic(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::DocumentDiagnosticParams,
+) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
+    let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
+
+    let diagnostics = match snap.diagnostics(file_id) {
+        Ok(diags) => diags,
+        Err(_) => Vec::new(),
+    };
+
+    let items = match snap.line_info(file_id) {
+        Ok(line_info) => {
+            diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
+        }
+        Err(_) => Vec::new(),
+    };
+
+    let result_id = file_result_id(snap.file_version(file_id));
+    Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
+}
+
+pub(crate) fn handle_workspace_diagnostic(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::WorkspaceDiagnosticParams,
+) -> anyhow::Result<lsp_types::WorkspaceDiagnosticReportResult> {
+    let previous_result_ids = params
+        .previous_result_ids
+        .into_iter()
+        .map(|prev| (prev.uri, prev.value))
+        .collect::<HashMap<_, _>>();
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+
+    for file_id in snap.file_ids() {
+        let uri = to_proto::url(&snap, file_id);
+        seen.insert(uri.clone());
+
+        let diagnostics = match snap.diagnostics(file_id) {
+            Ok(diags) => diags,
+            Err(_) => Vec::new(),
+        };
+
+        let diag_items = match snap.line_info(file_id) {
+            Ok(line_info) => {
+                diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
+            }
+            Err(_) => Vec::new(),
+        };
+
+        let result_id = file_result_id(snap.file_version(file_id));
+        let version = snap.file_version(file_id).map(|version| version as i64);
+        let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
+
+        items.push(workspace_diagnostic_report(
+            uri,
+            version,
+            result_id,
+            diag_items,
+            previous_result_id,
+        ));
+    }
+
+    for (uri, _) in previous_result_ids {
+        if seen.contains(&uri) {
+            continue;
+        }
+
+        items.push(workspace_diagnostic_report(uri, None, None, Vec::new(), None));
+    }
+
+    Ok(lsp_types::WorkspaceDiagnosticReportResult::Report(lsp_types::WorkspaceDiagnosticReport {
+        items,
+    }))
+}
+
+fn file_result_id(version: Option<i32>) -> Option<String> {
+    version.map(|it| it.to_string())
+}
+
+fn document_diagnostic_report(
+    result_id: Option<String>,
+    items: Vec<lsp_types::Diagnostic>,
+    previous_result_id: Option<&str>,
+) -> lsp_types::DocumentDiagnosticReport {
+    if result_id.as_deref() == previous_result_id {
+        return lsp_types::DocumentDiagnosticReport::Unchanged(
+            lsp_types::RelatedUnchangedDocumentDiagnosticReport {
+                related_documents: None,
+                unchanged_document_diagnostic_report:
+                    lsp_types::UnchangedDocumentDiagnosticReport {
+                        result_id: result_id.expect("matching previous result id must exist"),
+                    },
+            },
+        );
+    }
+
+    lsp_types::DocumentDiagnosticReport::Full(lsp_types::RelatedFullDocumentDiagnosticReport {
+        related_documents: None,
+        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+            result_id,
+            items,
+        },
+    })
+}
+
+fn workspace_diagnostic_report(
+    uri: lsp_types::Url,
+    version: Option<i64>,
+    result_id: Option<String>,
+    items: Vec<lsp_types::Diagnostic>,
+    previous_result_id: Option<&str>,
+) -> lsp_types::WorkspaceDocumentDiagnosticReport {
+    if result_id.as_deref() == previous_result_id {
+        return lsp_types::WorkspaceDocumentDiagnosticReport::Unchanged(
+            lsp_types::WorkspaceUnchangedDocumentDiagnosticReport {
+                uri,
+                version,
+                unchanged_document_diagnostic_report:
+                    lsp_types::UnchangedDocumentDiagnosticReport {
+                        result_id: result_id.expect("matching previous result id must exist"),
+                    },
+            },
+        );
+    }
+
+    lsp_types::WorkspaceDocumentDiagnosticReport::Full(
+        lsp_types::WorkspaceFullDocumentDiagnosticReport {
+            uri,
+            version,
+            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                result_id,
+                items,
+            },
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_types::{
+        DocumentDiagnosticReport, UnchangedDocumentDiagnosticReport, Url,
+        WorkspaceDocumentDiagnosticReport,
+    };
+
+    use super::{document_diagnostic_report, workspace_diagnostic_report};
+
+    #[test]
+    fn document_diagnostic_report_uses_unchanged_for_matching_result_id() {
+        let report = document_diagnostic_report(Some("7".to_string()), Vec::new(), Some("7"));
+
+        match report {
+            DocumentDiagnosticReport::Unchanged(report) => assert_eq!(
+                report.unchanged_document_diagnostic_report,
+                UnchangedDocumentDiagnosticReport { result_id: "7".to_string() }
+            ),
+            other => panic!("expected unchanged report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_diagnostic_report_uses_full_for_new_result_id() {
+        let uri = Url::parse("file:///tmp/test.sv").unwrap();
+        let report = workspace_diagnostic_report(
+            uri.clone(),
+            Some(3),
+            Some("4".to_string()),
+            Vec::new(),
+            Some("2"),
+        );
+
+        match report {
+            WorkspaceDocumentDiagnosticReport::Full(report) => {
+                assert_eq!(report.uri, uri);
+                assert_eq!(report.version, Some(3));
+                assert_eq!(report.full_document_diagnostic_report.result_id.as_deref(), Some("4"));
+                assert!(report.full_document_diagnostic_report.items.is_empty());
+            }
+            other => panic!("expected full report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_diagnostic_report_uses_unchanged_for_matching_result_id() {
+        let uri = Url::parse("file:///tmp/test.sv").unwrap();
+        let report = workspace_diagnostic_report(
+            uri.clone(),
+            Some(5),
+            Some("5".to_string()),
+            Vec::new(),
+            Some("5"),
+        );
+
+        match report {
+            WorkspaceDocumentDiagnosticReport::Unchanged(report) => {
+                assert_eq!(report.uri, uri);
+                assert_eq!(report.version, Some(5));
+                assert_eq!(report.unchanged_document_diagnostic_report.result_id, "5");
+            }
+            other => panic!("expected unchanged report, got {other:?}"),
+        }
+    }
 }
 
 pub(crate) fn handle_document_symbol(
@@ -462,16 +670,49 @@ pub(crate) fn handle_code_action(
     };
 
     let action = snap.analysis.code_action(file_id, range, resolve_strategy.clone())?;
+    let diag_context =
+        (!params.context.diagnostics.is_empty()).then(|| params.context.diagnostics.clone());
 
     let mut res = Vec::new();
-    for (id, assist) in action.into_iter().enumerate() {
+    for (id, mut assist) in action.into_iter().enumerate() {
         let resolve_data =
             resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
-        let code_action = to_proto::code_action(&snap, assist, resolve_data)?;
+        let mut action_diags = diag_context.clone();
+        if let Some(diags) = &diag_context {
+            if let Some(filtered) = quick_fix_diagnostics(assist.id.name, diags) {
+                assist.id.kind = CodeActionKind::QuickFix;
+                action_diags = Some(filtered);
+            }
+        }
+        let code_action = to_proto::code_action(&snap, assist, resolve_data, action_diags)?;
         res.push(lsp_types::CodeActionOrCommand::CodeAction(code_action))
     }
 
     Ok(Some(res))
+}
+
+fn quick_fix_diagnostics(
+    action_name: &str,
+    diagnostics: &[lsp_types::Diagnostic],
+) -> Option<Vec<lsp_types::Diagnostic>> {
+    let predicate: fn(&lsp_types::Diagnostic) -> bool = match action_name {
+        "add_missing_connections" => is_missing_connection_diagnostic,
+        "add_missing_parameters" => is_missing_parameter_diagnostic,
+        _ => return None,
+    };
+
+    let matches = diagnostics.iter().filter(|diag| predicate(diag)).cloned().collect::<Vec<_>>();
+    if matches.is_empty() { None } else { Some(matches) }
+}
+
+fn is_missing_connection_diagnostic(diag: &lsp_types::Diagnostic) -> bool {
+    let msg = diag.message.as_str();
+    msg.contains("has no connection")
+        || msg.contains("does not provide a connection for an unnamed port")
+}
+
+fn is_missing_parameter_diagnostic(diag: &lsp_types::Diagnostic) -> bool {
+    diag.message.contains("does not provide a value for parameter")
 }
 
 pub(crate) fn handle_code_action_resolve(
@@ -506,7 +747,7 @@ pub(crate) fn handle_code_action_resolve(
 
     let action = snap.analysis.code_action(file_id, range, resolve_strategy)?.remove(idx);
 
-    let resolved_action = to_proto::code_action(&snap, action, None)?;
+    let resolved_action = to_proto::code_action(&snap, action, None, None)?;
     code_action.edit = resolved_action.edit;
     code_action.command = resolved_action.command;
 

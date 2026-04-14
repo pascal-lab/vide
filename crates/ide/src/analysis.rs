@@ -19,6 +19,7 @@ use crate::{
         CompletionItem,
         context::{CompletionContext, TriggerChar},
     },
+    diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
     folding_ranges::{self, Fold, FoldingConfig},
@@ -55,6 +56,14 @@ impl Analysis {
 
     pub fn file_text(&self, file_id: FileId) -> Cancellable<Arc<str>> {
         self.with_db(|db| db.file_text(file_id))
+    }
+
+    pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::diagnostics(db, file_id))
+    }
+
+    pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::parse_diagnostics(db, file_id))
     }
 }
 
