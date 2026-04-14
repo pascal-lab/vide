@@ -32,10 +32,9 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     SyntaxTree::from_text(&text, "", "")
 }
 
-<<<<<<< HEAD
 fn expected_identifier_offsets(db: &dyn SourceDb, file_id: FileId) -> Arc<Vec<TextSize>> {
     let tree = db.parse_src(file_id);
-    let mut compilation = syntax::Compilation::new();
+    let mut compilation = Compilation::new();
     compilation.add_syntax_tree(tree.clone());
     let mut out: Vec<TextSize> = compilation
         .parse_diag_offsets_by_name("ExpectedIdentifier")
