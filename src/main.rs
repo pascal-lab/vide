@@ -223,10 +223,11 @@ mod tests {
 
     fn setup_diagnostics_test(
         client_caps: ClientCapabilities,
+        user_config: UserConfig,
+        file_text: &str,
     ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
         let temp_dir = TempDir::new();
         let file_path = temp_dir.path().join("broken.sv");
-        let file_text = "module broken(;\nendmodule\n";
         fs::write(&file_path, file_text).unwrap();
 
         let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
@@ -240,7 +241,7 @@ mod tests {
             root_path.clone(),
             client_caps,
             vec![root_path],
-            UserConfig::default(),
+            user_config,
             Vec::new(),
         );
 
@@ -253,7 +254,7 @@ mod tests {
                 uri: uri.clone(),
                 language_id: "systemverilog".to_string(),
                 version: 1,
-                text: file_text.to_string(),
+                text: file_text.to_owned(),
             },
         };
         client
@@ -310,7 +311,11 @@ mod tests {
             }),
             ..Default::default()
         };
-        let (_temp_dir, client, server_thread, uri) = setup_diagnostics_test(pull_caps);
+        let (_temp_dir, client, server_thread, uri) = setup_diagnostics_test(
+            pull_caps,
+            UserConfig::default(),
+            "module broken(;\nendmodule\n",
+        );
         let request_id = lsp_server::RequestId::from(1);
         let request = Request::new(
             request_id.clone(),
@@ -415,8 +420,11 @@ mod tests {
 
     #[test]
     fn legacy_client_receives_publish_diagnostics() {
-        let (_temp_dir, client, server_thread, uri) =
-            setup_diagnostics_test(ClientCapabilities::default());
+        let (_temp_dir, client, server_thread, uri) = setup_diagnostics_test(
+            ClientCapabilities::default(),
+            UserConfig::default(),
+            "module broken(;\nendmodule\n",
+        );
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
 
         while std::time::Instant::now() < deadline {
@@ -445,5 +453,77 @@ mod tests {
         }
 
         panic!("publishDiagnostics notification not received");
+    }
+
+    #[test]
+    fn semantic_diagnostics_can_be_disabled() {
+        let pull_caps = ClientCapabilities {
+            text_document: Some(TextDocumentClientCapabilities {
+                diagnostic: Some(DiagnosticClientCapabilities::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let user_config =
+            UserConfig { semantic_diagnostics_enable: false, ..UserConfig::default() };
+        let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+        let (_temp_dir, client, server_thread, uri) =
+            setup_diagnostics_test(pull_caps, user_config, file_text);
+
+        let request_id = lsp_server::RequestId::from(1);
+        let request = Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        );
+        client.sender.send(Message::Request(request)).unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+            match client.receiver.recv_timeout(timeout).unwrap() {
+                Message::Response(response) if response.id == request_id => {
+                    assert!(response.error.is_none(), "{:?}", response.error);
+                    let result = serde_json::from_value::<DocumentDiagnosticReportResult>(
+                        response.result.unwrap(),
+                    )
+                    .unwrap();
+                    let items = match result {
+                        DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(
+                            report,
+                        )) => report.full_document_diagnostic_report.items,
+                        other => panic!("unexpected diagnostic response: {other:?}"),
+                    };
+                    assert!(
+                        items.is_empty(),
+                        "semantic diagnostics should be filtered when disabled: {items:?}"
+                    );
+                    shutdown_test_server(&client, server_thread);
+                    return;
+                }
+                Message::Notification(notification)
+                    if notification.method == lsp_types::notification::Progress::METHOD => {}
+                Message::Request(request) => {
+                    panic!("unexpected server request during diagnostics test: {request:?}");
+                }
+                _ => {}
+            }
+        }
+
+        panic!("documentDiagnostic response not received");
     }
 }

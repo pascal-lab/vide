@@ -53,6 +53,17 @@ impl GlobalStateSnapshot {
         Ok(text)
     }
 
+    pub(crate) fn diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+        if self.config.semantic_diagnostics_enabled() {
+            return self.analysis.diagnostics(file_id);
+        }
+
+        self.analysis.parse_diagnostics(file_id)
+    }
+
     pub(crate) fn file_version(&self, file_id: FileId) -> Option<i32> {
         self.mem_docs.get(self.vfs_read().file_path(file_id)).map(|it| it.version)
     }

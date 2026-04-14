@@ -13,16 +13,21 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    db.parse_diagnostics(file_id)
+        .iter()
+        .map(|diag| Diagnostic {
+            code: diag.code,
+            subsystem: diag.subsystem,
+            range: to_text_range(diag),
+            severity: diag.severity,
+            message: diag.message.clone(),
+        })
+        .collect()
+}
 
-    diagnostics.extend(db.parse_diagnostics(file_id).iter().map(|diag| Diagnostic {
-        code: diag.code,
-        subsystem: diag.subsystem,
-        range: to_text_range(diag),
-        severity: diag.severity,
-        message: diag.message.clone(),
-    }));
+pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    let mut diagnostics = parse_diagnostics(db, file_id);
 
     diagnostics.extend(db.semantic_diagnostics(file_id).iter().map(|diag| Diagnostic {
         code: diag.code,

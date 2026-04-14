@@ -154,7 +154,7 @@ impl GlobalState {
                     let uri = snapshot.url(file_id);
                     let version = snapshot.file_version(file_id);
 
-                    let diagnostics = match snapshot.analysis.diagnostics(file_id) {
+                    let diagnostics = match snapshot.diagnostics(file_id) {
                         Ok(diags) if !diags.is_empty() => match snapshot.line_info(file_id) {
                             Ok(line_info) => diags
                                 .into_iter()

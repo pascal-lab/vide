@@ -61,6 +61,10 @@ impl Analysis {
     pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
         self.with_db(|db| diagnostics::diagnostics(db, file_id))
     }
+
+    pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::parse_diagnostics(db, file_id))
+    }
 }
 
 impl Analysis {

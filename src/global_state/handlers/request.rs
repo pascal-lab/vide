@@ -107,7 +107,7 @@ pub(crate) fn handle_document_diagnostic(
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
 
-    let diagnostics = match snap.analysis.diagnostics(file_id) {
+    let diagnostics = match snap.diagnostics(file_id) {
         Ok(diags) => diags,
         Err(_) => Vec::new(),
     };
@@ -139,7 +139,7 @@ pub(crate) fn handle_workspace_diagnostic(
         let uri = to_proto::url(&snap, file_id);
         seen.insert(uri.clone());
 
-        let diagnostics = match snap.analysis.diagnostics(file_id) {
+        let diagnostics = match snap.diagnostics(file_id) {
             Ok(diags) => diags,
             Err(_) => Vec::new(),
         };
