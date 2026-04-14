@@ -104,7 +104,7 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
-                InFile::new(src.file_id, src.value.range())
+                InFile::new(src.file_id, src.value.name_or_full_range())
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();

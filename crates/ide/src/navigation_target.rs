@@ -87,9 +87,10 @@ impl ToNav for SubroutineId {
         let loc = self.lookup(db);
         let cont_name = loc.cont_id.to_container(db).name().cloned();
         let name = db.subroutine(*self).name.clone();
+        let focus_range = loc.src.value.name_range();
 
         let file_id = loc.src.file_id.file_id();
-        build(file_id, None, loc.src.value.range(), name, SymbolKind::Fn, cont_name)
+        build(file_id, focus_range, loc.src.value.range(), name, SymbolKind::Fn, cont_name)
     }
 }
 

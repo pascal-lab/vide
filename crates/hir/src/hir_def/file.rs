@@ -105,7 +105,7 @@ impl FileSourceMap {
             FileItem::DeclarationId(idx) => self.get(*idx).ptr(),
             FileItem::TypedefId(idx) => self.get(*idx).ptr(),
             FileItem::StructId(idx) => self.get(*idx).node,
-            FileItem::SubroutineId(idx) => self.get(*idx).0,
+            FileItem::SubroutineId(idx) => self.get(*idx).node,
         }
     }
 }
