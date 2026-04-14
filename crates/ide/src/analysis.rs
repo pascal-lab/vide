@@ -15,6 +15,11 @@ use crate::{
     Cancellable,
     code_action::{self, CodeAction, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
+    completion::{
+        CompletionItem,
+        context::{CompletionContext, TriggerChar},
+    },
+    diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},
     folding_ranges::{self, Fold, FoldingConfig},
@@ -51,6 +56,14 @@ impl Analysis {
 
     pub fn file_text(&self, file_id: FileId) -> Cancellable<Arc<str>> {
         self.with_db(|db| db.file_text(file_id))
+    }
+
+    pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::diagnostics(db, file_id))
+    }
+
+    pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::parse_diagnostics(db, file_id))
     }
 }
 
@@ -174,6 +187,26 @@ impl Analysis {
         config: SignatureHelpConfig,
     ) -> Cancellable<Option<SignatureHelp>> {
         self.with_db(|db| signature_help::signature_help(db, position, config))
+    }
+
+    pub fn completion_context(&self, position: FilePosition) -> Cancellable<CompletionContext> {
+        self.completion_context_with_trigger(position, None)
+    }
+
+    pub fn completion_context_with_trigger(
+        &self,
+        position: FilePosition,
+        trigger: Option<TriggerChar>,
+    ) -> Cancellable<CompletionContext> {
+        self.with_db(|db| crate::completion::context::completion_context(db, position, trigger))
+    }
+
+    pub fn completions_with_trigger(
+        &self,
+        position: FilePosition,
+        trigger: Option<TriggerChar>,
+    ) -> Cancellable<Vec<CompletionItem>> {
+        self.with_db(|db| crate::completion::completions(db, position, trigger))
     }
 
     pub fn code_action(

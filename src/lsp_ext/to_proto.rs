@@ -6,6 +6,7 @@ use ide::{
     Cancellable, SymbolKind,
     code_action::{CodeAction, CodeActionKind},
     code_lens::{CodeLens, CodeLensKind},
+    diagnostics as ide_diagnostics,
     document_highlight::DocumentHighlight,
     folding_ranges::{Fold, FoldingConfig},
     hover::HoverFormat,
@@ -20,6 +21,7 @@ use ide::{
 };
 use itertools::Itertools;
 use span::{FilePosition, FileRange};
+use syntax::DiagnosticSeverity as SlangDiagnosticSeverity;
 use utils::{
     line_index::{TextRange, TextSize},
     lines::{LineEnding, LineInfo, PositionEncoding},
@@ -120,6 +122,35 @@ pub(crate) fn document_highlight(
     };
 
     lsp_types::DocumentHighlight { range: self::range(line_info, range), kind }
+}
+
+const DIAGNOSTIC_SOURCE: &str = "vizsla";
+
+pub(crate) fn diagnostic(
+    line_info: &LineInfo,
+    diag: ide_diagnostics::Diagnostic,
+) -> lsp_types::Diagnostic {
+    lsp_types::Diagnostic {
+        range: self::range(line_info, diag.range),
+        severity: diagnostic_severity(diag.severity),
+        code: Some(lsp_types::NumberOrString::Number(diag.code.into())),
+        code_description: None,
+        source: Some(DIAGNOSTIC_SOURCE.to_string()),
+        message: diag.message,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+fn diagnostic_severity(severity: SlangDiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {
+    use lsp_types::DiagnosticSeverity as LspSeverity;
+    match severity {
+        SlangDiagnosticSeverity::Ignored => None,
+        SlangDiagnosticSeverity::Note => Some(LspSeverity::INFORMATION),
+        SlangDiagnosticSeverity::Warning => Some(LspSeverity::WARNING),
+        SlangDiagnosticSeverity::Error | SlangDiagnosticSeverity::Fatal => Some(LspSeverity::ERROR),
+    }
 }
 
 fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
@@ -681,6 +712,7 @@ pub(crate) fn code_action(
     snap: &GlobalStateSnapshot,
     CodeAction { id, label, source_change, .. }: CodeAction,
     resolve_data: Option<(usize, lsp_types::CodeActionParams, Option<i32>)>,
+    diagnostics: Option<Vec<lsp_types::Diagnostic>>,
 ) -> Cancellable<lsp_types::CodeAction> {
     let mut res = lsp_types::CodeAction {
         title: label,
@@ -688,7 +720,7 @@ pub(crate) fn code_action(
         edit: None,
         is_preferred: None,
         command: None, // TODO: fill commands
-        diagnostics: None,
+        diagnostics,
         disabled: None,
         data: None,
     };

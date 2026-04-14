@@ -22,6 +22,7 @@ hir.workspace = true
 ide.workspace = true
 project-model.workspace = true
 span.workspace = true
+syntax.workspace = true
 utils.workspace = true
 vfs-notify.workspace = true
 vfs.workspace = true

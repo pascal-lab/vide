@@ -100,6 +100,7 @@ pub(crate) struct GlobalState {
     pub(crate) shutdown_requested: bool,
 
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
+    pub(crate) diagnostics: FxHashMap<FileId, Vec<lsp_types::Diagnostic>>,
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
@@ -140,6 +141,7 @@ impl GlobalState {
             source_root_config: SourceRootConfig::default(),
 
             semantic_tokens_cache: Arc::new(Default::default()),
+            diagnostics: FxHashMap::default(),
 
             vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),

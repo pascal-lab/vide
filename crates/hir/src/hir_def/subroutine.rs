@@ -1,3 +1,4 @@
+use base_db::intern::Lookup;
 use la_arena::{Arena, Idx};
 use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
@@ -8,6 +9,7 @@ use syntax::{
     match_ast,
 };
 use triomphe::Arc;
+use utils::get::Get;
 
 use super::{
     Ident,
@@ -29,9 +31,9 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
-    container::{ContainerId, InFile, InModule},
+    container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src,
+    define_src_with_name,
     file::HirFileId,
     hir_def::{
         HirData,
@@ -115,6 +117,9 @@ pub struct SubroutinePort {
     pub name: Option<Ident>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SubroutinePortId(pub u32);
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum SubroutinePortDir {
     Input,
@@ -126,9 +131,18 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-pub type SubroutineId = Idx<Subroutine>;
+define_src_with_name!(SubroutineSrc(ast::FunctionDeclaration));
 
-define_src!(SubroutineSrc(ast::FunctionDeclaration));
+pub type LocalSubroutineId = Idx<Subroutine>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SubroutineId(pub salsa::InternId);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct SubroutineLoc {
+    pub cont_id: ContainerId,
+    pub src: InFile<SubroutineSrc>,
+}
 
 pub fn lower_subroutine<F>(func: &ast::FunctionDeclaration, mut lower_ty: F) -> Option<Subroutine>
 where
@@ -194,37 +208,10 @@ fn map_direction(kind: Option<TokenKind>) -> SubroutinePortDir {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SubroutineLocation {
-    InModule(InModule<SubroutineId>),
-    InFile(InFile<SubroutineId>),
-}
-
-impl From<InModule<SubroutineId>> for SubroutineLocation {
-    fn from(loc: InModule<SubroutineId>) -> Self {
-        SubroutineLocation::InModule(loc)
-    }
-}
-
-impl From<InFile<SubroutineId>> for SubroutineLocation {
-    fn from(loc: InFile<SubroutineId>) -> Self {
-        SubroutineLocation::InFile(loc)
-    }
-}
-
-impl From<SubroutineLocation> for ContainerId {
-    fn from(loc: SubroutineLocation) -> ContainerId {
-        match loc {
-            SubroutineLocation::InModule(module_loc) => ContainerId::SubroutineId(module_loc),
-            SubroutineLocation::InFile(file_loc) => ContainerId::FileSubroutineId(file_loc),
-        }
-    }
-}
-
 pub struct LowerSubroutineBodyCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
-    pub(crate) subroutine_loc: SubroutineLocation,
+    pub(crate) subroutine_id: SubroutineId,
     pub(crate) subroutine: &'a mut Subroutine,
     pub(crate) subroutine_source_map: &'a mut SubroutineSourceMap,
     pub(crate) region_tree: RegionTreeBuilder,
@@ -233,12 +220,12 @@ pub struct LowerSubroutineBodyCtx<'a> {
 impl_lower_expr!(LowerSubroutineBodyCtx<'_>, subroutine, subroutine_source_map);
 impl_lower_decl!(LowerSubroutineBodyCtx<'_>, subroutine, subroutine_source_map);
 impl_lower_event_expr!(LowerSubroutineBodyCtx<'_>, subroutine, subroutine_source_map);
-impl_lower_stmt!(LowerSubroutineBodyCtx<'_>, subroutine_loc, subroutine, subroutine_source_map);
+impl_lower_stmt!(LowerSubroutineBodyCtx<'_>, subroutine_id, subroutine, subroutine_source_map);
 impl_lower_declaration!(LowerSubroutineBodyCtx<'_>, subroutine, subroutine_source_map);
 
 impl LowerSubroutineBodyCtx<'_> {
     fn container_id(&self) -> ContainerId {
-        self.subroutine_loc.into()
+        ContainerId::SubroutineId(self.subroutine_id)
     }
 
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
@@ -338,10 +325,29 @@ pub fn lower_subroutine_body(ctx: &mut LowerSubroutineBodyCtx<'_>, func: ast::Fu
 
 pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDb,
-    loc: InModule<SubroutineId>,
+    subroutine_id: SubroutineId,
 ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
-    let module = db.module(loc.module_id);
-    let subroutine = module.subroutines[loc.value].clone();
-    let source_map = module.subroutine_source_maps.get(&loc.value).cloned().unwrap_or_default();
-    (Arc::new(subroutine), Arc::new(source_map))
+    let SubroutineLoc { cont_id, src } = subroutine_id.lookup(db);
+
+    match cont_id {
+        ContainerId::HirFileId(file_id) => {
+            let file = db.hir_file(file_id);
+            let (_, file_src_map) = db.hir_file_with_source_map(file_id);
+            let local_id = file_src_map.get(src.value);
+            let subroutine = file.subroutines[local_id].clone();
+            let source_map =
+                file.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
+            (Arc::new(subroutine), Arc::new(source_map))
+        }
+        ContainerId::ModuleId(module_id) => {
+            let module = db.module(module_id);
+            let (_, module_src_map) = db.module_with_source_map(module_id);
+            let local_id = module_src_map.get(src.value);
+            let subroutine = module.subroutines[local_id].clone();
+            let source_map =
+                module.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
+            (Arc::new(subroutine), Arc::new(source_map))
+        }
+        _ => unreachable!("subroutine parent must be file or module"),
+    }
 }
