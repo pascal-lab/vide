@@ -156,9 +156,9 @@ fn combine_keywords(generated: Vec<Keyword>, snippets: Vec<Keyword>) -> Vec<Keyw
 }
 
 fn generated_keywords() -> Vec<Keyword> {
-    let mut keywords = syntax::keyword_table_for_version("1364-2005");
+    let mut keywords = syntax::SyntaxToken::keyword_table_for_version("1364-2005");
     if keywords.is_empty() {
-        keywords = syntax::verilog_2005_keywords();
+        keywords = syntax::SyntaxToken::verilog_2005_keywords();
     }
     keywords.sort();
     keywords.dedup();

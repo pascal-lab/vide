@@ -75,7 +75,7 @@ fn directive_keywords() -> &'static Vec<String> {
         let mut items: Vec<String> = DIRECTIVE_KINDS
             .iter()
             .filter_map(|kind| {
-                let text = syntax::directive_text(*kind);
+                let text = syntax::SyntaxToken::directive_text(*kind);
                 let text = text.trim_start_matches('`');
                 (!text.is_empty()).then_some(text.to_string())
             })
