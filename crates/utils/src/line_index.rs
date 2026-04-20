@@ -225,7 +225,8 @@ fn line_len_test() {
     let text = "a\nb\nc";
     let line_index = LineIndex::new(text);
     assert_eq!(line_index.lines_len(), 3);
-    assert!(line_index.range_for_line(3).is_some());
+    assert!(line_index.range_for_line(2).is_some());
+    assert!(line_index.range_for_line(3).is_none());
 }
 
 /// This is adapted from the rustc_span crate, https://github.com/rust-lang/rust/blob/de59844c98f7925242a798a72c59dc3610dd0e2c/compiler/rustc_span/src/analyze_source_file.rs
@@ -308,17 +309,17 @@ unsafe fn analyze_source_file_sse2(
 
         // For character in the chunk, see if its byte value is < 0, which
         // indicates that it's part of a UTF-8 char.
-        let multibyte_test = unsafe { _mm_cmplt_epi8(chunk, _mm_set1_epi8(0)) };
+        let multibyte_test = _mm_cmplt_epi8(chunk, _mm_set1_epi8(0));
         // Create a bit mask from the comparison results.
-        let multibyte_mask = unsafe { _mm_movemask_epi8(multibyte_test) };
+        let multibyte_mask = _mm_movemask_epi8(multibyte_test);
 
         // If the bit mask is all zero, we only have ASCII chars here:
         if multibyte_mask == 0 {
             assert!(intra_chunk_offset == 0);
 
             // Check for newlines in the chunk
-            let newlines_test = unsafe { _mm_cmpeq_epi8(chunk, _mm_set1_epi8(b'\n' as i8)) };
-            let newlines_mask = unsafe { _mm_movemask_epi8(newlines_test) };
+            let newlines_test = _mm_cmpeq_epi8(chunk, _mm_set1_epi8(b'\n' as i8));
+            let newlines_mask = _mm_movemask_epi8(newlines_test);
 
             if newlines_mask != 0 {
                 // All control characters are newlines, record them
