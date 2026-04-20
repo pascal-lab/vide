@@ -10,9 +10,10 @@ use super::*;
 use crate::{analysis_host::AnalysisHost, completion::context::TriggerChar};
 
 fn setup(text: &str) -> (AnalysisHost, FilePosition) {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let marker = "/*caret*/";
     let off = text.find(marker).expect("missing /*caret*/");
-    let mut owned = text.to_string();
+    let mut owned = text;
     owned = owned.replace(marker, "");
 
     let file_id = FileId(0);
