@@ -32,9 +32,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.target == 'linux-arm64' && 'aarch64-unknown-linux-gnu' || matrix.target == 'darwin-arm64' && 'aarch64-apple-darwin' || matrix.target == 'win32-arm64' && 'aarch64-pc-windows-msvc' || '' }}
       
@@ -49,7 +51,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v3
         with:
-          version: 8
+          version: 9
 
       - name: Install JS dependencies
         working-directory: editors/vscode
@@ -72,6 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -82,3 +86,4 @@ jobs:
           tag_name: ${{ github.ref_name }}
           prerelease: ${{ github.ref_name == 'nightly' }}
           files: artifacts/**/*.vsix
+
