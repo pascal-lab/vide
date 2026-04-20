@@ -20,7 +20,7 @@ impl RootDb {
         tracing::trace!("apply_change {:?}", change);
 
         if let Some(roots) = &change.roots {
-            let (lib_roots, local_roots): (FxHashSet<_>, FxHashSet<_>) =
+            let (_lib_roots, _local_roots): (FxHashSet<_>, FxHashSet<_>) =
                 roots.iter().enumerate().partition_map(|(idx, root)| {
                     let source_root_id = SourceRootId(idx as u32);
                     if root.is_lib {

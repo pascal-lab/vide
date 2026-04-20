@@ -41,10 +41,12 @@ impl MemDocs {
         self.mem_docs.get_mut(path)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn iter(&self) -> impl Iterator<Item = &VfsPath> {
         self.mem_docs.keys()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn take_changes(&mut self) -> bool {
         mem::replace(&mut self.added_or_removed, false)
     }

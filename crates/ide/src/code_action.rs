@@ -1,9 +1,6 @@
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
-use syntax::{
-    SyntaxElement, SyntaxNodeExt, TokenAtOffset,
-    ast::{AstNode, CompilationUnit},
-};
+use syntax::ast::{AstNode, CompilationUnit};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -124,16 +121,12 @@ struct CodeActionCtx<'a> {
     file_id: FileId,
     range: TextRange,
     compilation_unit: CompilationUnit<'a>,
-    token_at_offset: TokenAtOffset<'a>,
-    covering_element: SyntaxElement<'a>,
 }
 
 impl<'a> CodeActionCtx<'a> {
     fn new(sema: &'a Semantics<'a, RootDb>, file_id: FileId, range: TextRange) -> Self {
         let compilation_unit = sema.parse(file_id);
-        let token_at_offset = compilation_unit.syntax().token_at_offset(range.start());
-        let covering_element = compilation_unit.syntax().covering_element(range);
-        Self { sema, file_id, range, compilation_unit, token_at_offset, covering_element }
+        Self { sema, file_id, range, compilation_unit }
     }
 
     fn offset(&self) -> TextSize {

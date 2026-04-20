@@ -70,6 +70,7 @@ pub(crate) fn goto_definition_response(
     Ok(res)
 }
 
+#[allow(deprecated)]
 pub(crate) fn document_symbol(
     line_info: &LineInfo,
     symbol: ide::document_symbols::DocumentSymbol,
@@ -89,6 +90,7 @@ pub(crate) fn document_symbol(
     }
 }
 
+#[allow(deprecated)]
 pub(crate) fn document_symbol_information(
     symbol: ide::document_symbols::DocumentSymbol,
     url: lsp_types::Url,
@@ -274,6 +276,7 @@ pub(crate) fn format_error(err: Error) -> LspError {
     LspError::new(lsp_server::ErrorCode::RequestFailed as i32, err.to_string())
 }
 
+#[allow(dead_code)]
 pub(crate) fn code_action_resolve_error(err: Error) -> LspError {
     LspError::new(lsp_server::ErrorCode::InvalidParams as i32, err.to_string())
 }

@@ -67,6 +67,7 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(deprecated)]
 fn run_server(opt: Opt) -> anyhow::Result<()> {
     tracing::info!("Server {}_{} started.", &opt.process_name, VERSION);
 

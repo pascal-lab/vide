@@ -103,16 +103,16 @@ fn base_syn_context(caret: &CaretSnapshot<'_>) -> SynContext {
 fn qualifier_after_dot(caret: &CaretSnapshot<'_>) -> Option<Qualifier> {
     let offset = caret.offset;
 
-    if let Some(named) = caret.root.find_node_at_offset::<ast::NamedPortConnection<'_>>(offset) {
-        if named.dot_name_zone_contains(offset) {
-            return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort }));
-        }
+    if let Some(named) = caret.root.find_node_at_offset::<ast::NamedPortConnection<'_>>(offset)
+        && named.dot_name_zone_contains(offset)
+    {
+        return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort }));
     }
 
-    if let Some(named) = caret.root.find_node_at_offset::<ast::NamedParamAssignment<'_>>(offset) {
-        if named.dot_name_zone_contains(offset) {
-            return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam }));
-        }
+    if let Some(named) = caret.root.find_node_at_offset::<ast::NamedParamAssignment<'_>>(offset)
+        && named.dot_name_zone_contains(offset)
+    {
+        return Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam }));
     }
 
     let prev = caret.root.token_before_offset(offset)?;

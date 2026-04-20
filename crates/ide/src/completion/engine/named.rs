@@ -53,10 +53,10 @@ pub(super) fn complete_named_port_names(
         sema.find_node_at_offset::<ast::HierarchicalInstance>(file.syntax(), position.offset)
     {
         for conn in instance.connections().children() {
-            if let Some(named) = conn.as_named_port_connection() {
-                if let Some(name) = lower_ident_opt(named.name()) {
-                    used_named_ports.insert(name);
-                }
+            if let Some(named) = conn.as_named_port_connection()
+                && let Some(name) = lower_ident_opt(named.name())
+            {
+                used_named_ports.insert(name);
             }
         }
     }
@@ -99,10 +99,10 @@ pub(super) fn complete_named_param_names(
     let mut used_named_params = FxHashSet::default();
     if let Some(params) = instantiation.parameters() {
         for assignment in params.parameters().children() {
-            if let Some(named) = assignment.as_named_param_assignment() {
-                if let Some(name) = lower_ident_opt(named.name()) {
-                    used_named_params.insert(name);
-                }
+            if let Some(named) = assignment.as_named_param_assignment()
+                && let Some(name) = lower_ident_opt(named.name())
+            {
+                used_named_params.insert(name);
             }
         }
     }

@@ -83,9 +83,10 @@ fn is_inside_preproc_directive_token(caret: &CaretSnapshot<'_>) -> bool {
         return true;
     }
 
-    caret.root.token_before_offset(caret.offset).is_some_and(|tok| {
-        token_has_covering_directive_trivia(tok, caret.offset)
-    })
+    caret
+        .root
+        .token_before_offset(caret.offset)
+        .is_some_and(|tok| token_has_covering_directive_trivia(tok, caret.offset))
 }
 
 fn is_inside_preproc_directive_node(caret: &CaretSnapshot<'_>) -> bool {

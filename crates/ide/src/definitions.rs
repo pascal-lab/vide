@@ -393,12 +393,11 @@ fn resolve_member_or_scoped_name(
 ) -> Option<DefinitionClass> {
     if let Some(access) =
         SyntaxAncestors::start_from(parent).find_map(ast::MemberAccessExpression::cast)
+        && access.name() == Some(tok)
     {
-        if access.name() == Some(tok) {
-            let expr = ast::Expression::cast(access.syntax())?;
-            let res = sema.expr_to_def(sema.resolve_expr(expr))?;
-            return Some(Definition::from(res).into());
-        }
+        let expr = ast::Expression::cast(access.syntax())?;
+        let res = sema.expr_to_def(sema.resolve_expr(expr))?;
+        return Some(Definition::from(res).into());
     }
 
     let scoped = SyntaxAncestors::start_from(parent).find_map(ast::ScopedName::cast)?;

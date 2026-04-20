@@ -1,5 +1,4 @@
 #![feature(try_blocks)]
-#![feature(if_let_guard)]
 #![feature(decl_macro)]
 
 pub use base_db::Cancelled;

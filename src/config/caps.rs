@@ -15,6 +15,7 @@ use utils::{line_index::WideEncoding, lines::PositionEncoding, try_, try_or_defa
 use crate::{config::Config, lsp_ext::ext};
 
 impl Config {
+    #[allow(dead_code)]
     pub fn cli_completion_label_details_support(&self) -> bool {
         try_!(
             self.client_caps
@@ -30,6 +31,7 @@ impl Config {
         .is_some()
     }
 
+    #[allow(dead_code)]
     pub fn cli_completion_item_edit_resolve(&self) -> bool {
         try_!(
             self.client_caps
@@ -234,21 +236,18 @@ impl Config {
             ),
             selection_range_provider: Some(true.into()),
             hover_provider: Some(true.into()),
-            completion_provider: Some(
-                lsp_types::CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: Some(vec![
-                        ".".into(),
-                        "(".into(),
-                        ",".into(),
-                        "@".into(),
-                        "#".into(),
-                        "`".into(),
-                    ]),
-                    ..Default::default()
-                }
-                .into(),
-            ),
+            completion_provider: Some(lsp_types::CompletionOptions {
+                resolve_provider: Some(false),
+                trigger_characters: Some(vec![
+                    ".".into(),
+                    "(".into(),
+                    ",".into(),
+                    "@".into(),
+                    "#".into(),
+                    "`".into(),
+                ]),
+                ..Default::default()
+            }),
             signature_help_provider: SignatureHelpOptions {
                 trigger_characters: Some(["(", ",", "."].map(String::from).into()),
                 retrigger_characters: None,

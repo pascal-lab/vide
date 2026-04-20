@@ -1,4 +1,3 @@
-#![feature(trait_alias)]
 #![feature(decl_macro)]
 
 pub mod container;

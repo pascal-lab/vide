@@ -107,10 +107,7 @@ pub(crate) fn handle_document_diagnostic(
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
 
-    let diagnostics = match snap.diagnostics(file_id) {
-        Ok(diags) => diags,
-        Err(_) => Vec::new(),
-    };
+    let diagnostics = snap.diagnostics(file_id).unwrap_or_default();
 
     let items = match snap.line_info(file_id) {
         Ok(line_info) => {
@@ -139,10 +136,7 @@ pub(crate) fn handle_workspace_diagnostic(
         let uri = to_proto::url(&snap, file_id);
         seen.insert(uri.clone());
 
-        let diagnostics = match snap.diagnostics(file_id) {
-            Ok(diags) => diags,
-            Err(_) => Vec::new(),
-        };
+        let diagnostics = snap.diagnostics(file_id).unwrap_or_default();
 
         let diag_items = match snap.line_info(file_id) {
             Ok(line_info) => {
@@ -240,6 +234,7 @@ fn workspace_diagnostic_report(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use lsp_types::{
         DocumentDiagnosticReport, UnchangedDocumentDiagnosticReport, Url,
@@ -678,11 +673,11 @@ pub(crate) fn handle_code_action(
         let resolve_data =
             resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
         let mut action_diags = diag_context.clone();
-        if let Some(diags) = &diag_context {
-            if let Some(filtered) = quick_fix_diagnostics(assist.id.name, diags) {
-                assist.id.kind = CodeActionKind::QuickFix;
-                action_diags = Some(filtered);
-            }
+        if let Some(diags) = &diag_context
+            && let Some(filtered) = quick_fix_diagnostics(assist.id.name, diags)
+        {
+            assist.id.kind = CodeActionKind::QuickFix;
+            action_diags = Some(filtered);
         }
         let code_action = to_proto::code_action(&snap, assist, resolve_data, action_diags)?;
         res.push(lsp_types::CodeActionOrCommand::CodeAction(code_action))
