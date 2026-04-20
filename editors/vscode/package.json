@@ -116,6 +116,7 @@
     "package:linux-x64": "bash scripts/package.sh linux-x64",
     "package:linux-arm64": "bash scripts/package.sh linux-arm64",
     "package:win32-x64": "bash scripts/package.sh win32-x64",
+    "package:win32-arm64": "bash scripts/package.sh win32-arm64",
     "install-extension": "code --install-extension vizsla-vscode-*.vsix"
   },
   "dependencies": {
