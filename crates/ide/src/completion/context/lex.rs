@@ -27,6 +27,10 @@ pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
         return LexContext::LineComment;
     }
 
+    if is_inside_preproc_directive_token(caret) {
+        return LexContext::PreprocDirective;
+    }
+
     if is_inside_preproc_directive_node(caret) {
         return LexContext::PreprocDirective;
     }
@@ -51,6 +55,36 @@ fn is_inside_string_literal(caret: &CaretSnapshot<'_>) -> bool {
     tok.is_some_and(|tp| {
         tp.kind() == TokenKind::STRING_LITERAL
             && tp.text_range().is_some_and(|r| r.contains(caret.offset))
+    })
+}
+
+fn is_inside_preproc_directive_token(caret: &CaretSnapshot<'_>) -> bool {
+    fn token_has_covering_directive_trivia(
+        tok: syntax::SyntaxTokenWithParent<'_>,
+        offset: TextSize,
+    ) -> bool {
+        tok.tok.trivias().any(|trivia| {
+            if trivia.kind() != syntax::Trivia!["`"] {
+                return false;
+            }
+
+            let Some(node) = trivia.syntax() else {
+                return false;
+            };
+            node.text_range().is_some_and(|range| range.contains(offset) || range.end() == offset)
+        })
+    }
+
+    if caret
+        .root
+        .token_after_or_at_offset(caret.offset)
+        .is_some_and(|tok| token_has_covering_directive_trivia(tok, caret.offset))
+    {
+        return true;
+    }
+
+    caret.root.token_before_offset(caret.offset).is_some_and(|tok| {
+        token_has_covering_directive_trivia(tok, caret.offset)
     })
 }
 
