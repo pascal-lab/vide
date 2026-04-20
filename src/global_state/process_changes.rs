@@ -21,12 +21,20 @@ impl GlobalState {
     pub(crate) fn process_changes(&mut self) -> bool {
         let mut write_guard = self.vfs.write();
         let changed_files = write_guard.0.take_changes();
+        let mem_docs_changed = self.mem_docs.take_changes();
         // downgrade earlier to allow more reader
         let read_guard = RwLockWriteGuard::downgrade_to_upgradable(write_guard);
         let vfs = &read_guard.0;
 
         // collect changes
         let Some(changed_files) = Self::colease_modifications(changed_files) else {
+            if mem_docs_changed {
+                let file_ids =
+                    self.mem_docs.iter().filter_map(|path| vfs.file_id(path)).collect_vec();
+                std::mem::drop(read_guard);
+                self.request_diagnostics(file_ids);
+                return true;
+            }
             return false;
         };
 
@@ -46,6 +54,10 @@ impl GlobalState {
 
             changed_file_ids.insert(changed_file.file_id);
             bytes.push(changed_file);
+        }
+
+        if mem_docs_changed {
+            changed_file_ids.extend(self.mem_docs.iter().filter_map(|path| vfs.file_id(path)));
         }
 
         let mut write_guard = RwLockUpgradableReadGuard::upgrade(read_guard);
@@ -141,7 +153,7 @@ impl GlobalState {
         Some(changed_file)
     }
 
-    fn request_diagnostics(&mut self, files: Vec<FileId>) {
+    pub(crate) fn request_diagnostics(&mut self, files: Vec<FileId>) {
         if files.is_empty() {
             return;
         }
