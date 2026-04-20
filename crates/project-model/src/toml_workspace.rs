@@ -20,6 +20,7 @@ static KV_RE: LazyLock<Regex> =
 
 #[derive(Debug, Deserialize)]
 struct TomlManifestSchema {
+    #[serde(default = "default_top_module")]
     pub top_module: String,
     #[serde(deserialize_with = "de_macros", default)]
     pub macros: MacroDef,
@@ -27,6 +28,10 @@ struct TomlManifestSchema {
     pub include: Option<Vec<Utf8PathBuf>>,
     #[serde(default)]
     pub exclude: Vec<Utf8PathBuf>,
+}
+
+fn default_top_module() -> String {
+    DEFAULT_TOP_MODULE.to_owned()
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
@@ -135,9 +140,18 @@ mod tests {
     #[test]
     fn test_de_macros() {
         let toml = r#"
-
+top_module = "main"
+macros = [
+    "foo",
+    "bar",
+    "FOO=bar",
+    "BAR=foo",
+    "BAZ=foo bar",
+    "eqwe=123",
+]
         "#;
         let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
+        assert_eq!(toml_schema.top_module, DEFAULT_TOP_MODULE);
         let mut macros = FxHashSet::default();
         macros.insert(MacroAtom::Flag("foo".into()));
         macros.insert(MacroAtom::Flag("bar".into()));
