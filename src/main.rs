@@ -8,6 +8,7 @@ use const_format::formatcp;
 use itertools::Itertools;
 use lsp_server::Connection;
 use lsp_types::{MessageType, ShowMessageParams};
+use slang as _;
 use tracing_subscriber::{
     Registry, filter::Targets, fmt::writer::BoxMakeWriter, layer::SubscriberExt,
     util::SubscriberInitExt,
