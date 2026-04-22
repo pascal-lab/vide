@@ -268,6 +268,12 @@ mod tests {
     }
 
     #[test]
+    fn detects_preproc_directive_at_boundary() {
+        let c = ctx("`define FOO/*caret*/\nmodule m; endmodule\n");
+        assert_eq!(c.lex, LexContext::PreprocDirective);
+    }
+
+    #[test]
     fn detects_line_comment_at_eof_top_level() {
         let c = ctx("// ,/*caret*/");
         assert_eq!(c.lex, LexContext::LineComment);
