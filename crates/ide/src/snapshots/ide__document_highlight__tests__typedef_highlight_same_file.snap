@@ -1,23 +1,22 @@
 ---
 source: crates/ide/src/document_highlight.rs
-assertion_line: 169
 expression: highlights
 ---
 [
     DocumentHighlight {
-        range: 32..40,
+        range: 33..41,
         category: ReferenceCategory(
             0x0,
         ),
     },
     DocumentHighlight {
-        range: 42..50,
+        range: 44..52,
         category: ReferenceCategory(
             0x0,
         ),
     },
     DocumentHighlight {
-        range: 54..62,
+        range: 57..65,
         category: ReferenceCategory(
             0x0,
         ),
