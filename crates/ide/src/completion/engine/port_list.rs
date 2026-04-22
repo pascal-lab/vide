@@ -48,15 +48,12 @@ fn complete_ansi_port_list(
         })
         .collect::<Vec<_>>();
 
-    items.extend(keywords
-        .iter()
-        .filter(|kw| kw.starts_with(prefix))
-        .map(|kw| CompletionItem {
-            label: (*kw).to_string(),
-            kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, (*kw).to_string())),
-            snippet_edit: None,
-        }));
+    items.extend(keywords.iter().filter(|kw| kw.starts_with(prefix)).map(|kw| CompletionItem {
+        label: (*kw).to_string(),
+        kind: CompletionItemKind::Keyword,
+        edit: Some(TextEditItem::replace(ctx.replacement, (*kw).to_string())),
+        snippet_edit: None,
+    }));
 
     items
 }
@@ -84,7 +81,9 @@ fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec
     names.extend(
         db.module_scope(module_id)
             .iter()
-            .filter_map(|(ident, entry)| matches!(entry, ModuleEntry::TypedefId(_)).then_some(ident))
+            .filter_map(|(ident, entry)| {
+                matches!(entry, ModuleEntry::TypedefId(_)).then_some(ident)
+            })
             .map(|ident| ident.to_string()),
     );
 

@@ -7,8 +7,7 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::get::Get;
-use utils::text_edit::TextEditItem;
+use utils::{get::Get, text_edit::TextEditItem};
 
 use super::{
     CompletionItem, CompletionItemKind, expr,

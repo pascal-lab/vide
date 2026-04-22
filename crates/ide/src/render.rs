@@ -11,7 +11,10 @@ use itertools::Itertools;
 use syntax::{SVInt, SyntaxCursorExt, ast::AstNode, trivia::TriviaExt};
 use utils::text_edit::TextSize;
 
-use crate::{definitions::{Definition, DefinitionOrigin}, markup::Markup};
+use crate::{
+    definitions::{Definition, DefinitionOrigin},
+    markup::Markup,
+};
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
     let mut res = Markup::new();

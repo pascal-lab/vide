@@ -184,7 +184,14 @@ impl ToNav for InContainer<TypedefId> {
         let typedef = cont.get(typedef_id);
         let cont_name = cont.name().cloned();
 
-        build(file_id, src.name_range(), src.range(), typedef.name.clone(), SymbolKind::Typedef, cont_name)
+        build(
+            file_id,
+            src.name_range(),
+            src.range(),
+            typedef.name.clone(),
+            SymbolKind::Typedef,
+            cont_name,
+        )
     }
 }
 
