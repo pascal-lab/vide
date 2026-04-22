@@ -126,7 +126,7 @@ impl UnitScope {
         for file_id in db.files().iter() {
             let file_id = HirFileId(*file_id);
             let file_scope = db.file_scope(file_id);
-            scope.entries.extend(file_scope.entries.clone().into_iter());
+            scope.entries.extend(file_scope.entries.clone());
         }
 
         Arc::new(scope)

@@ -227,11 +227,11 @@ fn packed_bit_width(db: &RootDb, module: &hir::hir_def::module::Module, ty: Data
                 let dim = dim?;
                 let width = match dim {
                     Dimension::Range(left, right) => {
-                        let l = eval_const_i128(module, left, db)?;
-                        let r = eval_const_i128(module, right, db)?;
+                        let l = eval_const_i128(module, left)?;
+                        let r = eval_const_i128(module, right)?;
                         i128::abs(l - r).checked_add(1)?
                     }
-                    Dimension::Size(size) => eval_const_i128(module, size, db)?,
+                    Dimension::Size(size) => eval_const_i128(module, size)?,
                 };
                 let width: u64 = width.try_into().ok()?;
                 product = product.checked_mul(width)?;
@@ -252,15 +252,11 @@ fn int_kind_width(kind: IntKind) -> usize {
     }
 }
 
-fn eval_const_i128(
-    module: &hir::hir_def::module::Module,
-    expr_id: ExprId,
-    db: &RootDb,
-) -> Option<i128> {
+fn eval_const_i128(module: &hir::hir_def::module::Module, expr_id: ExprId) -> Option<i128> {
     match module.get(expr_id) {
         Expr::Literal(Literal::Int(int)) => int.get_single_word().map(|v| v as i128),
         Expr::Unary { op, expr } => {
-            let v = eval_const_i128(module, *expr, db)?;
+            let v = eval_const_i128(module, *expr)?;
             match op {
                 UnaryOp::Pos => Some(v),
                 UnaryOp::Neg => Some(v.checked_neg()?),
@@ -268,8 +264,8 @@ fn eval_const_i128(
             }
         }
         Expr::Binary { op, lhs, rhs } => {
-            let l = eval_const_i128(module, *lhs, db)?;
-            let r = eval_const_i128(module, *rhs, db)?;
+            let l = eval_const_i128(module, *lhs)?;
+            let r = eval_const_i128(module, *rhs)?;
             match op {
                 BinaryOp::Add => l.checked_add(r),
                 BinaryOp::Sub => l.checked_sub(r),
@@ -281,9 +277,7 @@ fn eval_const_i128(
                 _ => None,
             }
         }
-        Expr::Cast { expr, .. } | Expr::SignedCast { expr, .. } => {
-            eval_const_i128(module, *expr, db)
-        }
+        Expr::Cast { expr, .. } | Expr::SignedCast { expr, .. } => eval_const_i128(module, *expr),
         _ => None,
     }
 }

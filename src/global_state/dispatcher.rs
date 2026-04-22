@@ -25,11 +25,6 @@ type FnReqSynSnap<R> = fn(
     GlobalStateSnapshot,
     <R as lsp_types::request::Request>::Params,
 ) -> anyhow::Result<<R as lsp_types::request::Request>::Result>;
-type FnReqSyn<R> = fn(
-    GlobalStateSnapshot,
-    <R as lsp_types::request::Request>::Params,
-) -> anyhow::Result<<R as lsp_types::request::Request>::Result>;
-
 type FnReqErrHandler = fn(Request) -> Task;
 
 impl ReqDispatcher<'_> {

@@ -103,12 +103,13 @@ mod tests {
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
-    use crate::{ScopeVisibility, analysis_host::AnalysisHost};
+    use crate::{ScopeVisibility, analysis_host::AnalysisHost, test_utils::normalize_fixture_text};
 
     fn setup(text: &str) -> (AnalysisHost, FilePosition) {
+        let text = normalize_fixture_text(text);
         let marker = "/*caret*/";
         let off = text.find(marker).expect("missing /*caret*/");
-        let mut owned = text.to_string();
+        let mut owned = text;
         owned = owned.replace(marker, "");
 
         let file_id = FileId(0);
@@ -157,6 +158,7 @@ mod tests {
         for (name, path) in fixtures {
             let text =
                 std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+            let text = normalize_fixture_text(&text);
             let (host, position) = setup(&text);
             let highlights = host
                 .make_analysis()

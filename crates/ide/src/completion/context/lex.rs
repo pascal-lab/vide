@@ -8,13 +8,7 @@ pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
         return LexContext::StringLiteral;
     }
 
-    if let Some(kind) = caret.root.trivia_kind_at_offset(caret.offset) {
-        let kind = if kind == syntax::Trivia![eol] {
-            // Also treat the end boundary of a line comment as being inside the comment.
-            line_comment_kind_before_offset(caret).unwrap_or(kind)
-        } else {
-            kind
-        };
+    if let Some(kind) = trivia_kind_at_caret_offset(caret) {
         return match kind {
             syntax::Trivia![lc] => LexContext::LineComment,
             syntax::Trivia![bc] => LexContext::BlockComment,
@@ -23,8 +17,8 @@ pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
         };
     }
 
-    if line_comment_kind_before_offset(caret).is_some() {
-        return LexContext::LineComment;
+    if is_inside_preproc_directive_trivia(caret) {
+        return LexContext::PreprocDirective;
     }
 
     if is_inside_preproc_directive_node(caret) {
@@ -34,13 +28,16 @@ pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
     LexContext::Code
 }
 
-fn line_comment_kind_before_offset(caret: &CaretSnapshot<'_>) -> Option<syntax::TriviaKind> {
-    // Also treat the end boundary of a line comment as being inside the comment.
-    // This covers the common case `// ...<caret>\n` where the cursor is right
-    // before the newline.
+fn trivia_kind_at_caret_offset(caret: &CaretSnapshot<'_>) -> Option<syntax::TriviaKind> {
+    let kind = caret.root.trivia_kind_at_offset(caret.offset);
+    if !matches!(kind, Some(syntax::Trivia![eol]) | None) {
+        return kind;
+    }
+
     if caret.offset == TextSize::new(0) {
         return None;
     }
+
     let prev = caret.offset - TextSize::new(1);
     let kind = caret.root.trivia_kind_at_offset(prev)?;
     (kind == syntax::Trivia![lc]).then_some(kind)
@@ -52,6 +49,37 @@ fn is_inside_string_literal(caret: &CaretSnapshot<'_>) -> bool {
         tp.kind() == TokenKind::STRING_LITERAL
             && tp.text_range().is_some_and(|r| r.contains(caret.offset))
     })
+}
+
+fn is_inside_preproc_directive_trivia(caret: &CaretSnapshot<'_>) -> bool {
+    fn token_has_covering_directive_trivia(
+        tok: syntax::SyntaxTokenWithParent<'_>,
+        offset: TextSize,
+    ) -> bool {
+        tok.tok.trivias().any(|trivia| {
+            if trivia.kind() != syntax::Trivia!["`"] {
+                return false;
+            }
+
+            let Some(node) = trivia.syntax() else {
+                return false;
+            };
+            node.text_range().is_some_and(|range| range.contains(offset) || range.end() == offset)
+        })
+    }
+
+    if caret
+        .root
+        .token_after_or_at_offset(caret.offset)
+        .is_some_and(|tok| token_has_covering_directive_trivia(tok, caret.offset))
+    {
+        return true;
+    }
+
+    caret
+        .root
+        .token_before_offset(caret.offset)
+        .is_some_and(|tok| token_has_covering_directive_trivia(tok, caret.offset))
 }
 
 fn is_inside_preproc_directive_node(caret: &CaretSnapshot<'_>) -> bool {

@@ -237,9 +237,8 @@ impl LowerProc for LowerModuleCtx<'_> {
 impl LowerModuleCtx<'_> {
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container_id = ContainerId::ModuleId(self.module_id);
-        let struct_def = lower_struct_def(struct_ty.clone(), container_id, |ty| {
-            self.expr_ctx().lower_data_ty(ty)
-        });
+        let struct_def =
+            lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
             struct_def => self.module.structs,
@@ -273,7 +272,7 @@ impl LowerModuleCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
-        let src = SubroutineSrc::from(func.clone());
+        let src = SubroutineSrc::from(func);
         let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
             cont_id: self.module_id.into(),
             src: InFile::new(self.file_id, src),

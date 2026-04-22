@@ -67,6 +67,7 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(deprecated)]
 fn run_server(opt: Opt) -> anyhow::Result<()> {
     tracing::info!("Server {}_{} started.", &opt.process_name, VERSION);
 
@@ -193,6 +194,7 @@ mod tests {
         Opt,
         config::{self, user_config::UserConfig},
         global_state::main_loop,
+        lsp_ext::to_proto,
     };
 
     struct TempDir {
@@ -249,7 +251,7 @@ mod tests {
         let (server, client) = Connection::memory();
         let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
 
-        let uri = Url::from_file_path(&file_path).unwrap();
+        let uri = to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref());
         let did_open = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri: uri.clone(),

@@ -221,16 +221,15 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                 }
 
                 // For directive trivia, check nested trivia in the directive's first token.
-                if trivia.kind() == Trivia!["`"] {
-                    if let Some(node) = trivia.syntax()
-                        && let Some(first_tok) = node.first_token()
-                    {
-                        for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
-                            let nested_range =
-                                TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
-                            if nested_range.contains(offset) {
-                                return Some(nested_trivia.kind());
-                            }
+                if trivia.kind() == Trivia!["`"]
+                    && let Some(node) = trivia.syntax()
+                    && let Some(first_tok) = node.first_token()
+                {
+                    for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
+                        let nested_range =
+                            TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
+                        if nested_range.contains(offset) {
+                            return Some(nested_trivia.kind());
                         }
                     }
                 }

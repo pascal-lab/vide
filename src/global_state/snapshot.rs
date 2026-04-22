@@ -22,6 +22,7 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) mem_docs: MemDocs,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
+    #[allow(dead_code)]
     pub(crate) workspaces: Arc<Vec<Workspace>>,
 }
 

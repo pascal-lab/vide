@@ -1,6 +1,5 @@
 ---
 source: crates/ide/src/document_highlight.rs
-assertion_line: 169
 expression: highlights
 ---
 [

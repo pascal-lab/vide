@@ -10,7 +10,7 @@ use utils::{paths::AbsPath, thread::ThreadIntent};
 use super::main_loop::Task;
 use crate::{
     config::{Config, FilesWatcher},
-    global_state::{DEFAULT_REQ_HANDLER, GlobalState},
+    global_state::{DEFAULT_REQ_HANDLER, GlobalState, process_changes::DiagnosticInvalidation},
 };
 
 #[derive(Debug)]
@@ -166,6 +166,8 @@ impl GlobalState {
         });
 
         self.source_root_config = source_root_config;
+
+        self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
 
         tracing::info!("did switch workspaces");
     }

@@ -16,6 +16,12 @@ use super::{
 };
 use crate::lsp_ext::to_proto;
 
+#[derive(Debug)]
+pub(crate) enum DiagnosticInvalidation {
+    FileChanges(FxHashSet<FileId>),
+    WorkspaceChanged,
+}
+
 // Apply changes
 impl GlobalState {
     pub(crate) fn process_changes(&mut self) -> bool {
@@ -55,13 +61,26 @@ impl GlobalState {
         std::mem::drop(write_guard);
 
         self.analysis_host.apply_change(change);
-        self.request_diagnostics(changed_file_ids.into_iter().collect());
+        self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(changed_file_ids));
 
         if let Some(path) = workspace_structure_change {
             self.fetch_workspaces_task.request(format!("workspace vfs change: {:?}", path));
         }
 
         true
+    }
+
+    pub(crate) fn open_mem_doc_file_ids(&self) -> Vec<FileId> {
+        let vfs = self.vfs.read();
+        self.mem_docs.iter().filter_map(|path| vfs.0.file_id(path)).collect()
+    }
+
+    pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {
+        let file_ids = match invalidation {
+            DiagnosticInvalidation::FileChanges(file_ids) => file_ids.into_iter().collect(),
+            DiagnosticInvalidation::WorkspaceChanged => self.open_mem_doc_file_ids(),
+        };
+        self.request_diagnostics(file_ids);
     }
 
     fn collect_changes(
@@ -141,7 +160,7 @@ impl GlobalState {
         Some(changed_file)
     }
 
-    fn request_diagnostics(&mut self, files: Vec<FileId>) {
+    pub(crate) fn request_diagnostics(&mut self, files: Vec<FileId>) {
         if files.is_empty() {
             return;
         }
