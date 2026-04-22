@@ -167,11 +167,7 @@ impl GlobalState {
 
         self.source_root_config = source_root_config;
 
-        let open_file_ids = {
-            let vfs = self.vfs.read();
-            self.mem_docs.iter().filter_map(|path| vfs.0.file_id(path)).collect_vec()
-        };
-        self.request_diagnostics(open_file_ids);
+        self.request_diagnostics(self.open_mem_doc_file_ids());
 
         tracing::info!("did switch workspaces");
     }
