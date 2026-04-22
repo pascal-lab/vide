@@ -1,6 +1,7 @@
 use base_db::source_db::SourceDb;
 use hir::{
     container::{ContainerId, ContainerParent, InFile},
+    display::HirDisplay,
     hir_def::{DEFAULT_NAME, literal::Literal},
     region_tree::RegionParent,
     semantics::Semantics,
@@ -10,10 +11,7 @@ use itertools::Itertools;
 use syntax::{SVInt, SyntaxCursorExt, ast::AstNode, trivia::TriviaExt};
 use utils::text_edit::TextSize;
 
-use crate::{
-    definitions::{Definition, DefinitionOrigin},
-    markup::Markup,
-};
+use crate::{definitions::{Definition, DefinitionOrigin}, markup::Markup};
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
     let mut res = Markup::new();
@@ -121,6 +119,10 @@ pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Ma
 fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {
     let mut res = Markup::new();
 
+    if let Some(signature) = render_signature(sema, origin) {
+        res.push_with_code_fence(&signature);
+    }
+
     res.merge(render_containers(sema, origin));
 
     if let Some(markup) = render_side_comments(sema, origin) {
@@ -131,6 +133,14 @@ fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Mar
     }
 
     res
+}
+
+fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Option<String> {
+    let db = sema.db;
+    match origin {
+        DefinitionOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
+        _ => None,
+    }
 }
 
 fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin) -> Option<Markup> {

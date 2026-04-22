@@ -162,6 +162,7 @@ fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::ParamDecl => LspSymbolKind::TYPE_PARAMETER,
         SymbolKind::NetDecl => LspSymbolKind::PROPERTY,
         SymbolKind::DataDecl => LspSymbolKind::VARIABLE,
+        SymbolKind::Typedef => LspSymbolKind::TYPE_PARAMETER,
         SymbolKind::Instance => LspSymbolKind::OBJECT,
         SymbolKind::Block => LspSymbolKind::NAMESPACE,
         SymbolKind::Stmt => LspSymbolKind::NAMESPACE,
@@ -590,6 +591,7 @@ pub(crate) fn semantic_tokens(
             SemaTokenTag::Port(SemaTokenPort::Rst) => sema_token_types::RST_PORT,
             SemaTokenTag::Port(SemaTokenPort::Others) => sema_token_types::OTHERS_PORT,
             SemaTokenTag::Instance => sema_token_types::INSTANCE,
+            SemaTokenTag::Type => sema_token_types::TYPE_ALIAS,
             SemaTokenTag::None => sema_token_types::GENERIC,
         };
         // WORKAROUND: currently we haven't implemented client.
@@ -599,6 +601,8 @@ pub(crate) fn semantic_tokens(
         let mut mods_set = SemaTokenModifierSet::default();
         for modifier in mods {
             let modifier = match modifier {
+                SemaTokenModifier::DECL => sema_token_modifiers::DECLARATION,
+                SemaTokenModifier::DEF => sema_token_modifiers::DEF,
                 SemaTokenModifier::READ => sema_token_modifiers::READ,
                 SemaTokenModifier::WRITE => sema_token_modifiers::WRITE,
                 SemaTokenModifier::REF => sema_token_modifiers::REF,

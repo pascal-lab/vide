@@ -45,6 +45,7 @@ pub enum SymbolKind {
     ParamDecl,
     NetDecl,
     DataDecl,
+    Typedef,
     Instance,
     Block,
     Stmt,
@@ -63,6 +64,7 @@ impl SymbolKind {
             ast::ParameterDeclaration => SymbolKind::ParamDecl,
             ast::NetDeclaration => SymbolKind::NetDecl,
             ast::DataDeclaration => SymbolKind::DataDecl,
+            ast::TypedefDeclaration => SymbolKind::Typedef,
             ast::Declarator => SymbolKind::DataDecl,
             ast::HierarchicalInstance => SymbolKind::Instance,
 

@@ -8,6 +8,7 @@ use hir::{
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
+        typedef::TypedefId,
     },
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
@@ -37,6 +38,7 @@ pub enum DefinitionOrigin {
 
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
+    Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
 }
@@ -48,6 +50,7 @@ impl_from! { DefinitionOrigin =>
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
+    Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
 }
@@ -64,6 +67,7 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
+            DefinitionOrigin::Typedef(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
@@ -89,6 +93,9 @@ impl DefinitionOrigin {
                 module_id.to_container(db).get(value).label.clone().unwrap()
             }
             DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
+                cont_id.to_container(db).get(value).name.clone().unwrap()
+            }
+            DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
@@ -140,6 +147,10 @@ impl DefinitionOrigin {
                 let range = cont_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
+            DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
+                let range = cont_id.to_container_src_map(db).get(value).name_range().unwrap();
+                InFile::new(cont_id.file_id(db).into(), range)
+            }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(module_id.file_id, range)
@@ -188,6 +199,10 @@ impl DefinitionOrigin {
                 InFile::new(module_id.file_id, range)
             }
             DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
+                let range = cont_id.to_container_src_map(db).get(value).range();
+                InFile::new(cont_id.file_id(db).into(), range)
+            }
+            DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value).range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
@@ -287,6 +302,7 @@ impl Definition {
         match self.0 {
             PathResolution::Module(module_id) => module_id.into(),
             PathResolution::Decl(decl_id) => decl_id.into(),
+            PathResolution::Typedef(typedef_id) => typedef_id.into(),
             PathResolution::Instance(instance_id) => instance_id.into(),
             PathResolution::Stmt(stmt_id) => stmt_id.into(),
             PathResolution::Block(blk_id) => blk_id.into(),

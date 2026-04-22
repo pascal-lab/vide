@@ -75,6 +75,7 @@ define_semantic_token_kind! {
         (RST_PORT, "port_reset") => KEYWORD,
         (OTHERS_PORT, "port_generic") => PARAMETER,
         (INSTANCE, "instance") => VARIABLE,
+        (TYPE_ALIAS, "type_alias") => TYPE,
         (GENERIC, "generic") => TYPE_PARAMETER,
     }
 }
@@ -105,6 +106,7 @@ define_semantic_token_kind! {
         (READ, "read") => READONLY,
         (WRITE, "write") => MODIFICATION,
         (REF, "ref") => MODIFICATION,
+        (DEF, "definition"),
     }
 }
 

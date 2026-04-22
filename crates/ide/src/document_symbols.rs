@@ -11,6 +11,7 @@ use hir::{
         file::FileItem,
         module::{ModuleId, ModuleItem, ModuleSrc, port::Ports},
         stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
+        typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{IsNamedSrc, IsSrc},
@@ -191,7 +192,8 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::DeclarationId(declaration_id) => {
                 build_declaration(&mut collector, declaration_id, file, src_map);
             }
-            FileItem::TypedefId(_) | FileItem::StructId(_) | FileItem::SubroutineId(_) => {
+            FileItem::TypedefId(typedef_id) => build_typedef(&mut collector, typedef_id, file, src_map),
+            FileItem::StructId(_) | FileItem::SubroutineId(_) => {
                 // TODO: implement document symbols for these items
             }
         }
@@ -267,7 +269,8 @@ fn collect_module_items(
                 build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map)
             }
             ModuleItem::ContAssignId(_) => {}
-            ModuleItem::StructId(_) | ModuleItem::TypedefId(_) | ModuleItem::SubroutineId(_) => {
+            ModuleItem::TypedefId(typedef_id) => build_typedef(collector, typedef_id, module, src_map),
+            ModuleItem::StructId(_) | ModuleItem::SubroutineId(_) => {
                 // TODO: implement document symbols for these items
             }
         }
@@ -299,7 +302,8 @@ fn collect_block_items(
                 build_declaration(collector, declaration_id, block, src_map)
             }
             BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, block, src_map),
-            BlockItem::TypedefId(_) | BlockItem::StructId(_) => {
+            BlockItem::TypedefId(typedef_id) => build_typedef(collector, typedef_id, block, src_map),
+            BlockItem::StructId(_) => {
                 // TODO: implement document symbols for these items
             }
         }
@@ -425,5 +429,21 @@ fn build_decl<Arn, SrcMap>(
     let hir = arena.get(decl);
     let src = src_map.get(decl);
     collector.push_symbol_with_kind(&hir.name, src, kind);
+    collector.pop();
+}
+
+#[inline]
+fn build_typedef<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    typedef_id: Idx<Typedef>,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<TypedefId, Output = Typedef>,
+    SrcMap: Get<TypedefId, Output = TypedefSrc>,
+{
+    let hir = arena.get(typedef_id);
+    let src = src_map.get(typedef_id);
+    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Typedef);
     collector.pop();
 }

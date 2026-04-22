@@ -18,6 +18,7 @@ use crate::{
         literal::Literal,
         module::port::{PortDirection, PortHeader},
         ty::{NetKind, NetType},
+        typedef::TypedefId,
     },
 };
 
@@ -498,6 +499,28 @@ impl HirDisplay for InContainer<DeclId> {
 
         for dim in decl.dimensions.iter().flatten() {
             self.with_value(*dim).hir_fmt(f)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl HirDisplay for InContainer<TypedefId> {
+    fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
+        let InContainer { cont_id, value: typedef_id } = self;
+        let container = cont_id.to_container(f.db);
+        let typedef = container.get(*typedef_id);
+
+        f.write_str("typedef ")?;
+        if let Some(ty) = typedef.ty {
+            InContainer::new(*cont_id, ty).hir_fmt(f)?;
+            if typedef.name.is_some() {
+                f.write_str(" ")?;
+            }
+        }
+
+        if let Some(name) = &typedef.name {
+            f.write_str(name)?;
         }
 
         Ok(())
