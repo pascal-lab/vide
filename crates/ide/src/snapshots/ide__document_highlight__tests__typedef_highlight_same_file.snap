@@ -4,19 +4,19 @@ expression: highlights
 ---
 [
     DocumentHighlight {
-        range: 33..41,
+        range: 32..40,
         category: ReferenceCategory(
             0x0,
         ),
     },
     DocumentHighlight {
-        range: 44..52,
+        range: 42..50,
         category: ReferenceCategory(
             0x0,
         ),
     },
     DocumentHighlight {
-        range: 57..65,
+        range: 54..62,
         category: ReferenceCategory(
             0x0,
         ),

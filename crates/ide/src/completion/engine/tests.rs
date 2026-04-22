@@ -7,10 +7,13 @@ use utils::{lines::LineEnding, text_edit::TextSize};
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
-use crate::{analysis_host::AnalysisHost, completion::context::TriggerChar};
+use crate::{
+    analysis_host::AnalysisHost, completion::context::TriggerChar,
+    test_utils::normalize_fixture_text,
+};
 
 fn setup(text: &str) -> (AnalysisHost, FilePosition) {
-    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let text = normalize_fixture_text(text);
     let marker = "/*caret*/";
     let off = text.find(marker).expect("missing /*caret*/");
     let mut owned = text;
@@ -65,6 +68,7 @@ fn parse_trigger(line: &str) -> Option<TriggerChar> {
 
 fn load_fixture(path: &PathBuf) -> (String, Option<TriggerChar>) {
     let text = std::fs::read_to_string(path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+    let text = normalize_fixture_text(&text);
     let mut lines = text.lines();
     let Some(first) = lines.next() else {
         return (text, None);

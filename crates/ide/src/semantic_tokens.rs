@@ -409,9 +409,10 @@ mod tests {
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
-    use crate::analysis_host::AnalysisHost;
+    use crate::{analysis_host::AnalysisHost, test_utils::normalize_fixture_text};
 
     fn setup(text: &str) -> (AnalysisHost, FileId) {
+        let text = normalize_fixture_text(text);
         let file_id = FileId(0);
         let path = VfsPath::new_virtual_path("/test.v".to_string());
 
@@ -423,7 +424,7 @@ mod tests {
         change.set_roots(vec![root]);
         change.add_changed_file(ChangedFile {
             file_id,
-            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+            change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
         });
 
         let mut host = AnalysisHost::default();
@@ -457,6 +458,7 @@ mod tests {
         for (name, path) in fixtures {
             let text =
                 std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+            let text = normalize_fixture_text(&text);
             let (host, file_id) = setup(&text);
             let tokens = host
                 .make_analysis()

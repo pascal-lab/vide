@@ -4,49 +4,49 @@ expression: tokens
 ---
 [
     SemaToken {
-        range: 0..33,
+        range: 0..32,
         tag: None,
         mods: SemaTokenModifier(
             0x0,
         ),
     },
     SemaToken {
-        range: 33..41,
+        range: 32..40,
         tag: Type,
         mods: SemaTokenModifier(
             DECL | DEF,
         ),
     },
     SemaToken {
-        range: 41..44,
+        range: 40..42,
         tag: None,
         mods: SemaTokenModifier(
             0x0,
         ),
     },
     SemaToken {
-        range: 44..52,
+        range: 42..50,
         tag: Type,
         mods: SemaTokenModifier(
             REF,
         ),
     },
     SemaToken {
-        range: 52..57,
+        range: 50..54,
         tag: None,
         mods: SemaTokenModifier(
             0x0,
         ),
     },
     SemaToken {
-        range: 57..65,
+        range: 54..62,
         tag: Type,
         mods: SemaTokenModifier(
             REF,
         ),
     },
     SemaToken {
-        range: 65..81,
+        range: 62..76,
         tag: None,
         mods: SemaTokenModifier(
             0x0,
