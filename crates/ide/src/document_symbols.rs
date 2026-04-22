@@ -192,7 +192,9 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::DeclarationId(declaration_id) => {
                 build_declaration(&mut collector, declaration_id, file, src_map);
             }
-            FileItem::TypedefId(typedef_id) => build_typedef(&mut collector, typedef_id, file, src_map),
+            FileItem::TypedefId(typedef_id) => {
+                build_typedef(&mut collector, typedef_id, file, src_map)
+            }
             FileItem::StructId(_) | FileItem::SubroutineId(_) => {
                 // TODO: implement document symbols for these items
             }
@@ -269,7 +271,9 @@ fn collect_module_items(
                 build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map)
             }
             ModuleItem::ContAssignId(_) => {}
-            ModuleItem::TypedefId(typedef_id) => build_typedef(collector, typedef_id, module, src_map),
+            ModuleItem::TypedefId(typedef_id) => {
+                build_typedef(collector, typedef_id, module, src_map)
+            }
             ModuleItem::StructId(_) | ModuleItem::SubroutineId(_) => {
                 // TODO: implement document symbols for these items
             }
@@ -302,7 +306,9 @@ fn collect_block_items(
                 build_declaration(collector, declaration_id, block, src_map)
             }
             BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, block, src_map),
-            BlockItem::TypedefId(typedef_id) => build_typedef(collector, typedef_id, block, src_map),
+            BlockItem::TypedefId(typedef_id) => {
+                build_typedef(collector, typedef_id, block, src_map)
+            }
             BlockItem::StructId(_) => {
                 // TODO: implement document symbols for these items
             }
