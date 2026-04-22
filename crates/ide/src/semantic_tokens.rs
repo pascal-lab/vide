@@ -58,6 +58,7 @@ pub struct SemaToken {
 pub enum SemaTokenTag {
     Port(SemaTokenPort),
     Instance,
+    Type,
     None,
 }
 
@@ -71,9 +72,11 @@ pub enum SemaTokenPort {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SemaTokenModifier: u32 {
+        const DECL = 1 << 0;
         const READ = 1 << 1;
         const WRITE = 1 << 2;
         const REF = 1 << 3;
+        const DEF = 1 << 4;
     }
 }
 
@@ -173,6 +176,19 @@ fn collect_file(
         };
     }
 
+    for (typedef_id, typedef) in hir_file.typedefs.iter() {
+        let _: Option<()> = try {
+            let _name = typedef.name.as_ref()?;
+            let range = file_src_map.get(typedef_id).name_range()?;
+            check_range!(collector, range);
+            collector.tokens.add(SemaToken {
+                range,
+                tag: SemaTokenTag::Type,
+                mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
+            });
+        };
+    }
+
     for (stmt_id, stmt) in hir_file.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
             let range = file_src_map.get(stmt_id).range();
@@ -254,6 +270,19 @@ fn collect_module(
         };
     }
 
+    for (typedef_id, typedef) in module.typedefs.iter() {
+        let _: Option<()> = try {
+            let _name = typedef.name.as_ref()?;
+            let range = module_src_map.get(typedef_id).name_range()?;
+            check_range!(collector, range);
+            collector.tokens.add(SemaToken {
+                range,
+                tag: SemaTokenTag::Type,
+                mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
+            });
+        };
+    }
+
     for (stmt_id, stmt) in module.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
             let range = module_src_map.get(stmt_id).range();
@@ -296,6 +325,19 @@ fn collect_block(
             let range = block_src_map.get(decl_id).name_range()?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
+        };
+    }
+
+    for (typedef_id, typedef) in block.typedefs.iter() {
+        let _: Option<()> = try {
+            let _name = typedef.name.as_ref()?;
+            let range = block_src_map.get(typedef_id).name_range()?;
+            check_range!(collector, range);
+            collector.tokens.add(SemaToken {
+                range,
+                tag: SemaTokenTag::Type,
+                mods: SemaTokenModifier::DECL | SemaTokenModifier::DEF,
+            });
         };
     }
 
@@ -343,8 +385,88 @@ fn collect_ident_like(
                 SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
             collector.tokens.add(sema_token);
         }
+        PathResolution::Typedef(_) => {
+            collector.tokens.add(SemaToken {
+                range,
+                tag: SemaTokenTag::Type,
+                mods: SemaTokenModifier::REF,
+            });
+        }
         _ => {}
     }
 
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use base_db::{change::Change, source_root::SourceRoot};
+    use insta::assert_debug_snapshot;
+    use triomphe::Arc;
+    use utils::{lines::LineEnding, text_edit::TextRange};
+    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+
+    use super::*;
+    use crate::analysis_host::AnalysisHost;
+
+    fn setup(text: &str) -> (AnalysisHost, FileId) {
+        let file_id = FileId(0);
+        let path = VfsPath::new_virtual_path("/test.v".to_string());
+
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, path);
+        let root = SourceRoot::new_local(file_set);
+
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+        });
+
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        (host, file_id)
+    }
+
+    fn fixtures_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/semantic_tokens/fixtures")
+    }
+
+    #[test]
+    fn semantic_token_fixtures() {
+        let dir = fixtures_dir();
+        let mut fixtures: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|err| panic!("failed to read fixtures dir {dir:?}: {err}"))
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                if path.extension()? != "v" {
+                    return None;
+                }
+                let name = path.file_stem()?.to_string_lossy().to_string();
+                Some((name, path))
+            })
+            .collect();
+
+        fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+        assert!(!fixtures.is_empty(), "no fixtures found in {dir:?}");
+
+        for (name, path) in fixtures {
+            let text =
+                std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+            let (host, file_id) = setup(&text);
+            let tokens = host
+                .make_analysis()
+                .semantic_tokens(
+                    file_id,
+                    SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } },
+                    Some(TextRange::up_to(utils::text_edit::TextSize::of(text.as_str()))),
+                )
+                .unwrap();
+            assert_debug_snapshot!(name, tokens);
+        }
+    }
 }

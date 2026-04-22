@@ -9,6 +9,7 @@ use hir::{
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
+        typedef::TypedefId,
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
@@ -55,6 +56,7 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
             DefinitionOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
             DefinitionOrigin::Decl(decl_id) => decl_id.to_nav(db),
+            DefinitionOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
             DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
             DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
         }
@@ -168,6 +170,21 @@ impl ToNav for InContainer<DeclId> {
         let cont_name = cont.name().cloned();
 
         build(file_id, src.name_range(), src.range(), name, kind, cont_name)
+    }
+}
+
+impl ToNav for InContainer<TypedefId> {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let InContainer { value: typedef_id, cont_id } = *self;
+
+        let file_id = cont_id.file_id(db);
+        let src = cont_id.to_container_src_map(db).get(typedef_id);
+
+        let cont = cont_id.to_container(db);
+        let typedef = cont.get(typedef_id);
+        let cont_name = cont.name().cloned();
+
+        build(file_id, src.name_range(), src.range(), typedef.name.clone(), SymbolKind::Typedef, cont_name)
     }
 }
 

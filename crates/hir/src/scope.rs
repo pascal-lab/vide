@@ -17,23 +17,27 @@ use crate::{
         },
         stmt::{StmtId, StmtKind},
         subroutine::{SubroutineId, SubroutineLoc, SubroutinePortId, SubroutineSrc},
+        typedef::TypedefId,
     },
 };
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-    pub enum UnitEntry {
+pub enum UnitEntry {
         ModuleId,
         FiledDeclId,
+        FiledTypedefId,
     }
 }
 
 pub type FiledDeclId = InFile<DeclId>;
+pub type FiledTypedefId = InFile<TypedefId>;
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum ModuleEntry {
         DeclId,
+        TypedefId,
         NonAnsiPortEntry,
         AnsiPortEntry,
         InstanceId,
@@ -59,6 +63,7 @@ define_enum_deriving_from! {
     pub enum BlockEntry {
         StmtId,
         DeclId,
+        TypedefId,
         BlockId,
     }
 }
@@ -68,6 +73,7 @@ define_enum_deriving_from! {
     pub enum SubroutineEntry {
         StmtId,
         DeclId,
+        TypedefId,
         BlockId,
         SubroutinePortId,
     }
@@ -138,6 +144,10 @@ impl UnitScope {
             scope.insert_opt(&decl.name, InFile::new(file_id, decl_id).into());
         }
 
+        for (typedef_id, typedef) in hir_file.typedefs.iter() {
+            scope.insert_opt(&typedef.name, InFile::new(file_id, typedef_id).into());
+        }
+
         Arc::new(scope)
     }
 }
@@ -196,6 +206,10 @@ impl ModuleScope {
             scope.insert(name, entry);
         }
 
+        for (typedef_id, typedef) in module.typedefs.iter() {
+            scope.insert_opt(&typedef.name, typedef_id.into());
+        }
+
         for (instance_id, instance) in module.instances.iter() {
             scope.insert_opt(&instance.name, instance_id.into());
         }
@@ -219,6 +233,10 @@ impl BlockScope {
 
         for (decl_id, decl) in block.decls.iter() {
             scope.insert_opt(&decl.name, decl_id.into());
+        }
+
+        for (typedef_id, typedef) in block.typedefs.iter() {
+            scope.insert_opt(&typedef.name, typedef_id.into());
         }
 
         for (stmt_id, stmt) in block.stmts.iter() {
@@ -245,6 +263,10 @@ impl SubroutineScope {
 
         for (decl_id, decl) in subroutine.decls.iter() {
             scope.insert_opt(&decl.name, decl_id.into());
+        }
+
+        for (typedef_id, typedef) in subroutine.typedefs.iter() {
+            scope.insert_opt(&typedef.name, typedef_id.into());
         }
 
         for (stmt_id, stmt) in subroutine.stmts.iter() {

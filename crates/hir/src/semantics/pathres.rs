@@ -15,6 +15,7 @@ use crate::{
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
+        typedef::TypedefId,
     },
     scope::{self, BlockEntry, ModuleEntry, SubroutineEntry, UnitEntry},
 };
@@ -85,7 +86,7 @@ impl SemanticsImpl<'_> {
         let module_name = lower_ident_opt(instantiation.type_())?;
         match self.db.unit_scope().get(&module_name)? {
             UnitEntry::ModuleId(module_id) => Some(module_id),
-            UnitEntry::FiledDeclId(_) => None,
+            UnitEntry::FiledDeclId(_) | UnitEntry::FiledTypedefId(_) => None,
         }
     }
 
@@ -98,6 +99,7 @@ impl SemanticsImpl<'_> {
 pub enum PathResolution {
     Module(ModuleId),
     Decl(InContainer<DeclId>),
+    Typedef(InContainer<TypedefId>),
     ParamDecl(InModule<DeclId>),
     Subroutine(SubroutineId),
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -120,6 +122,7 @@ impl From<UnitEntry> for PathResolution {
         match entry {
             ModuleId(idx) => Self::Module(idx),
             FiledDeclId(idx) => Self::Decl(idx.into()),
+            FiledTypedefId(idx) => Self::Typedef(idx.into()),
         }
     }
 }
@@ -129,6 +132,7 @@ impl From<InModule<ModuleEntry>> for PathResolution {
         use ModuleEntry::*;
         match entry.value {
             DeclId(decl_id) => Self::Decl(entry.with_value(decl_id).into()),
+            TypedefId(typedef_id) => Self::Typedef(entry.with_value(typedef_id).into()),
             InstanceId(idx) => Self::Instance(entry.with_value(idx)),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             SubroutineId(subroutine_id) => Self::Subroutine(subroutine_id),
@@ -146,6 +150,7 @@ impl From<InBlock<BlockEntry>> for PathResolution {
         use BlockEntry::*;
         match entry.value {
             DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
+            TypedefId(idx) => Self::Typedef(entry.with_value(idx).into()),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             BlockId(block_id) => Self::Block(block_id),
         }
@@ -157,6 +162,7 @@ impl From<InSubroutine<SubroutineEntry>> for PathResolution {
         use SubroutineEntry::*;
         match entry.value {
             DeclId(idx) => Self::Decl(entry.with_value(idx).into()),
+            TypedefId(idx) => Self::Typedef(entry.with_value(idx).into()),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             BlockId(block_id) => Self::Block(block_id),
             SubroutinePortId(idx) => Self::SubroutinePort(entry.with_value(idx)),
