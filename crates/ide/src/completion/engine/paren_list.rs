@@ -211,24 +211,16 @@ fn complete_port_connections(
         return Vec::new();
     };
 
-    let target_module = db.module(target_module_id);
-    let expected_ty = expected_port_ty(db, &target_module, target_module_id, port_name);
+    let expected_ty = expected_port_ty(db, target_module_id, port_name);
 
-    let current_module = db.module(current_module_id);
     let candidates = value_candidates_in_module(db, current_module_id);
     candidates
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .filter(|(_, candidate_ty)| {
-            expected_ty.is_none_or(|expected_ty| {
-                is_compatible_typed_value(
-                    db,
-                    &target_module,
-                    expected_ty,
-                    &current_module,
-                    *candidate_ty,
-                )
-            })
+            expected_ty
+                .as_ref()
+                .is_none_or(|expected_ty| is_compatible_typed_value(db, expected_ty, candidate_ty))
         })
         .map(|(name, _)| CompletionItem {
             label: name.clone(),
@@ -306,24 +298,16 @@ fn complete_param_value_assignment(
         return Vec::new();
     };
 
-    let target_module = db.module(target_module_id);
-    let expected_ty = expected_param_ty(db, &target_module, target_module_id, param_name);
+    let expected_ty = expected_param_ty(db, target_module_id, param_name);
 
-    let current_module = db.module(current_module_id);
     let candidates = const_candidates_in_module(db, current_module_id);
     candidates
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .filter(|(_, candidate_ty)| {
-            expected_ty.is_none_or(|expected_ty| {
-                is_compatible_typed_value(
-                    db,
-                    &target_module,
-                    expected_ty,
-                    &current_module,
-                    *candidate_ty,
-                )
-            })
+            expected_ty
+                .as_ref()
+                .is_none_or(|expected_ty| is_compatible_typed_value(db, expected_ty, candidate_ty))
         })
         .map(|(name, _)| CompletionItem {
             label: name.clone(),
