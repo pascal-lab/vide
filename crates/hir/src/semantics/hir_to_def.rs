@@ -60,7 +60,10 @@ impl Source2DefCtx<'_, '_> {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
             }
-            ContainerId::SubroutineId(_) => None,
+            ContainerId::SubroutineId(subroutine_id) => {
+                let subroutine = db.subroutine(subroutine_id);
+                resolve(subroutine.get(expr_id))
+            }
         }
     }
 
