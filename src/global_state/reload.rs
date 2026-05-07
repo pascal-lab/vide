@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use base_db::source_db::SourceDb;
+use itertools::Itertools;
 use project_model::{
     Workspace, get_workspace_folder,
     project_manifest::{MANIFEST_FILE_NAME, ProjectManifest},

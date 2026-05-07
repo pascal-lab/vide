@@ -1,3 +1,7 @@
+use base_db::diagnostics_config::{
+    DiagnosticPhaseConfig, DiagnosticRule, DiagnosticRuleSeverity, DiagnosticSelector,
+    DiagnosticSource, DiagnosticsConfig, SlangDiagnosticsConfig,
+};
 use ide::{
     code_lens::CodeLensConfig,
     document_highlight::DocumentHighlightConfig,
@@ -13,11 +17,6 @@ use serde::{Deserialize, Serialize};
 use utils::{json::get_field, paths::Utf8PathBuf};
 
 use super::Config;
-use base_db::diagnostics_config::{
-    DiagnosticPhaseConfig, DiagnosticRule, DiagnosticRuleSeverity, DiagnosticSelector,
-    DiagnosticSource,
-    DiagnosticsConfig, SlangDiagnosticsConfig,
-};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -187,12 +186,8 @@ impl UserConfig {
         DiagnosticsConfig {
             revision: 0,
             enabled: self.diagnostics.enable,
-            parse: DiagnosticPhaseConfig {
-                enabled: self.diagnostics.parse.enable,
-            },
-            semantic: DiagnosticPhaseConfig {
-                enabled: self.diagnostics.semantic.enable,
-            },
+            parse: DiagnosticPhaseConfig { enabled: self.diagnostics.parse.enable },
+            semantic: DiagnosticPhaseConfig { enabled: self.diagnostics.semantic.enable },
             slang: SlangDiagnosticsConfig {
                 warnings: self.diagnostics.slang.warnings.clone(),
                 rules: self

@@ -136,10 +136,7 @@ pub(crate) fn diagnostic(
     lsp_types::Diagnostic {
         range: self::range(line_info, diag.range),
         severity: diagnostic_severity(diag.severity),
-        code: Some(lsp_types::NumberOrString::String(format!(
-            "{}:{}",
-            diag.subsystem, diag.code
-        ))),
+        code: Some(lsp_types::NumberOrString::String(format!("{}:{}", diag.subsystem, diag.code))),
         code_description: None,
         source: Some(SLANG_DIAGNOSTIC_SOURCE.to_string()),
         message: diag.message,
