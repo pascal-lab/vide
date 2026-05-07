@@ -35,6 +35,10 @@ pub struct DiagnosticCode {
 pub enum RepairKind {
     MissingConnection,
     MissingParameter,
+    ConvertOrderedPorts,
+    ConvertOrderedParams,
+    AddImplicitNamedPortParens,
+    AddInstanceParens,
 }
 
 pub(crate) fn append_missing_list_entries(entries: Vec<String>, has_existing: bool) -> String {
@@ -68,6 +72,22 @@ impl CodeActionDiagnostic {
             RepairKind::MissingParameter => {
                 self.source == Some(DiagnosticSource::Semantic)
                     && self.name.as_deref() == Some("ParamHasNoValue")
+            }
+            RepairKind::ConvertOrderedPorts => {
+                self.source == Some(DiagnosticSource::Semantic)
+                    && self.name.as_deref() == Some("MixingOrderedAndNamedPorts")
+            }
+            RepairKind::ConvertOrderedParams => {
+                self.source == Some(DiagnosticSource::Semantic)
+                    && self.name.as_deref() == Some("MixingOrderedAndNamedParams")
+            }
+            RepairKind::AddImplicitNamedPortParens => {
+                self.source == Some(DiagnosticSource::Semantic)
+                    && self.name.as_deref() == Some("ImplicitNamedPortNotFound")
+            }
+            RepairKind::AddInstanceParens => {
+                self.source == Some(DiagnosticSource::Semantic)
+                    && self.name.as_deref() == Some("InstanceMissingParens")
             }
         }
     }
@@ -236,11 +256,18 @@ mod handlers {
 
     mod add_missing_connections;
     mod add_missing_parameters;
+    mod convert_ordered_connections;
+    mod add_implicit_named_port_parens;
+    mod add_instance_parens;
 
     pub(crate) fn all() -> &'static [Handler] {
         &[
             add_missing_connections::add_missing_connections,
             add_missing_parameters::add_missing_parameters,
+            convert_ordered_connections::convert_ordered_ports,
+            convert_ordered_connections::convert_ordered_params,
+            add_implicit_named_port_parens::add_implicit_named_port_parens,
+            add_instance_parens::add_instance_parens,
         ]
     }
 }
@@ -288,6 +315,12 @@ mod tests {
         let action = actions.into_iter().find(|action| match repair {
             RepairKind::MissingConnection => action.id.name == "add_missing_connections",
             RepairKind::MissingParameter => action.id.name == "add_missing_parameters",
+            RepairKind::ConvertOrderedPorts => action.id.name == "convert_ordered_ports",
+            RepairKind::ConvertOrderedParams => action.id.name == "convert_ordered_params",
+            RepairKind::AddImplicitNamedPortParens => {
+                action.id.name == "add_implicit_named_port_parens"
+            }
+            RepairKind::AddInstanceParens => action.id.name == "add_instance_parens",
         })?;
         let mut text = text.replace("/*caret*/", "");
         let edit = action.source_change?.text_edits.remove(&file_id)?;
@@ -307,6 +340,30 @@ mod tests {
                 source: Some(DiagnosticSource::Semantic),
                 code: Some(DiagnosticCode { subsystem: 2, code: 29 }),
                 name: Some("ParamHasNoValue".to_owned()),
+                option: None,
+            },
+            RepairKind::ConvertOrderedPorts => CodeActionDiagnostic {
+                source: Some(DiagnosticSource::Semantic),
+                code: None,
+                name: Some("MixingOrderedAndNamedPorts".to_owned()),
+                option: None,
+            },
+            RepairKind::ConvertOrderedParams => CodeActionDiagnostic {
+                source: Some(DiagnosticSource::Semantic),
+                code: None,
+                name: Some("MixingOrderedAndNamedParams".to_owned()),
+                option: None,
+            },
+            RepairKind::AddImplicitNamedPortParens => CodeActionDiagnostic {
+                source: Some(DiagnosticSource::Semantic),
+                code: None,
+                name: Some("ImplicitNamedPortNotFound".to_owned()),
+                option: None,
+            },
+            RepairKind::AddInstanceParens => CodeActionDiagnostic {
+                source: Some(DiagnosticSource::Semantic),
+                code: None,
+                name: Some("InstanceMissingParens".to_owned()),
                 option: None,
             },
         }
@@ -454,5 +511,42 @@ mod tests {
             RepairKind::MissingParameter,
         );
         assert!(!labels.iter().any(|label| label == "Fill parameters"));
+    }
+
+    #[test]
+    fn convert_ordered_ports_repair_names_ordered_connections() {
+        let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, .b(y)); endmodule\n";
+        let fixed = apply_action(text, RepairKind::ConvertOrderedPorts).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn convert_ordered_params_repair_names_ordered_assignments() {
+        let text = "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/8, .B(16)) u(); endmodule\n";
+        let fixed = apply_action(text, RepairKind::ConvertOrderedParams).unwrap();
+        assert_eq!(
+            fixed,
+            "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn implicit_named_port_repair_adds_empty_parens() {
+        let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
+        let fixed = apply_action(text, RepairKind::AddImplicitNamedPortParens).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a); endmodule\nmodule top; child u(.a()); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn instance_missing_parens_repair_adds_port_list() {
+        let text = "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n";
+        let fixed = apply_action(text, RepairKind::AddInstanceParens).unwrap();
+        assert_eq!(fixed, "module child; endmodule\nmodule top; child u(); endmodule\n");
     }
 }

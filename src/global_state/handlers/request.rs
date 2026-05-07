@@ -642,6 +642,12 @@ fn quick_fix_diagnostics(
     let repair = match action_name {
         "add_missing_connections" => ide::code_action::RepairKind::MissingConnection,
         "add_missing_parameters" => ide::code_action::RepairKind::MissingParameter,
+        "convert_ordered_ports" => ide::code_action::RepairKind::ConvertOrderedPorts,
+        "convert_ordered_params" => ide::code_action::RepairKind::ConvertOrderedParams,
+        "add_implicit_named_port_parens" => {
+            ide::code_action::RepairKind::AddImplicitNamedPortParens
+        }
+        "add_instance_parens" => ide::code_action::RepairKind::AddInstanceParens,
         _ => return None,
     };
 
@@ -859,5 +865,92 @@ mod tests {
         };
 
         assert!(quick_fix_diagnostics("add_missing_connections", &[diag]).is_some());
+    }
+
+    #[test]
+    fn quick_fix_diagnostics_match_new_repairs() {
+        let ports = Diagnostic {
+            range: Range::default(),
+            severity: None,
+            code: Some(NumberOrString::String("2:998".to_owned())),
+            code_description: None,
+            source: Some("slang".to_owned()),
+            message: "localized message".to_owned(),
+            related_information: None,
+            tags: None,
+            data: Some(serde_json::json!({
+                "source": "semantic",
+                "subsystem": 2,
+                "code": 998,
+                "name": "MixingOrderedAndNamedPorts",
+                "option": null,
+                "groups": [],
+                "selectorHints": ["name:MixingOrderedAndNamedPorts", "source:semantic"]
+            })),
+        };
+        assert!(quick_fix_diagnostics("convert_ordered_ports", &[ports]).is_some());
+
+        let params = Diagnostic {
+            range: Range::default(),
+            severity: None,
+            code: Some(NumberOrString::String("2:997".to_owned())),
+            code_description: None,
+            source: Some("slang".to_owned()),
+            message: "localized message".to_owned(),
+            related_information: None,
+            tags: None,
+            data: Some(serde_json::json!({
+                "source": "semantic",
+                "subsystem": 2,
+                "code": 997,
+                "name": "MixingOrderedAndNamedParams",
+                "option": null,
+                "groups": [],
+                "selectorHints": ["name:MixingOrderedAndNamedParams", "source:semantic"]
+            })),
+        };
+        assert!(quick_fix_diagnostics("convert_ordered_params", &[params]).is_some());
+
+        let implicit = Diagnostic {
+            range: Range::default(),
+            severity: None,
+            code: Some(NumberOrString::String("2:996".to_owned())),
+            code_description: None,
+            source: Some("slang".to_owned()),
+            message: "localized message".to_owned(),
+            related_information: None,
+            tags: None,
+            data: Some(serde_json::json!({
+                "source": "semantic",
+                "subsystem": 2,
+                "code": 996,
+                "name": "ImplicitNamedPortNotFound",
+                "option": null,
+                "groups": [],
+                "selectorHints": ["name:ImplicitNamedPortNotFound", "source:semantic"]
+            })),
+        };
+        assert!(quick_fix_diagnostics("add_implicit_named_port_parens", &[implicit]).is_some());
+
+        let instance = Diagnostic {
+            range: Range::default(),
+            severity: None,
+            code: Some(NumberOrString::String("2:999".to_owned())),
+            code_description: None,
+            source: Some("slang".to_owned()),
+            message: "localized message".to_owned(),
+            related_information: None,
+            tags: None,
+            data: Some(serde_json::json!({
+                "source": "semantic",
+                "subsystem": 2,
+                "code": 999,
+                "name": "InstanceMissingParens",
+                "option": null,
+                "groups": [],
+                "selectorHints": ["name:InstanceMissingParens", "source:semantic"]
+            })),
+        };
+        assert!(quick_fix_diagnostics("add_instance_parens", &[instance]).is_some());
     }
 }
