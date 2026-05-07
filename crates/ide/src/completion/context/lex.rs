@@ -1,11 +1,11 @@
-use syntax::{SyntaxAncestors, SyntaxNodeExt, TokenKind, has_text_range::HasTextRange};
+use syntax::{SyntaxAncestors, SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
 use utils::line_index::TextSize;
 
 use super::{LexContext, caret::CaretSnapshot};
 
 pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
-    if is_inside_string_literal(caret) {
-        return LexContext::StringLiteral;
+    if is_inside_literal(caret) {
+        return LexContext::Literal;
     }
 
     if let Some(kind) = trivia_kind_at_caret_offset(caret) {
@@ -43,10 +43,10 @@ fn trivia_kind_at_caret_offset(caret: &CaretSnapshot<'_>) -> Option<syntax::Triv
     (kind == syntax::Trivia![lc]).then_some(kind)
 }
 
-fn is_inside_string_literal(caret: &CaretSnapshot<'_>) -> bool {
+fn is_inside_literal(caret: &CaretSnapshot<'_>) -> bool {
     let tok = caret.root.token_at_offset(caret.offset).left_biased();
     tok.is_some_and(|tp| {
-        tp.kind() == TokenKind::STRING_LITERAL
+        tp.kind().is_literal()
             && tp.text_range().is_some_and(|r| r.contains(caret.offset))
     })
 }
