@@ -14,7 +14,7 @@ use super::{
     main_loop::{PublishDiagnosticsTask, Task},
     reload::should_refresh_for_change,
 };
-use crate::lsp_ext::to_proto;
+use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
 
 #[derive(Debug)]
 pub(crate) enum DiagnosticInvalidation {
@@ -61,7 +61,9 @@ impl GlobalState {
         std::mem::drop(write_guard);
 
         self.analysis_host.apply_change(change);
-        self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(changed_file_ids));
+        if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType {
+            self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(changed_file_ids));
+        }
 
         if let Some(path) = workspace_structure_change {
             self.fetch_workspaces_task.request(format!("workspace vfs change: {:?}", path));

@@ -5,6 +5,7 @@ use lsp_types::{
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams,
 };
+use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::{
     line_index::LineIndex,
@@ -13,8 +14,9 @@ use utils::{
 use vfs::{VfsPath, loader::LoadResult};
 
 use crate::{
+    config::user_config::DiagnosticsUpdateUserConfig,
     DEFAULT_PROCESS_NAME,
-    global_state::{GlobalState, reload},
+    global_state::{GlobalState, process_changes::DiagnosticInvalidation, reload},
     lsp_ext::from_proto,
 };
 
@@ -106,6 +108,14 @@ pub(crate) fn handle_did_save_text_document(
     {
         // Re-fetch workspaces if a workspace related file has changed
         state.fetch_workspaces_task.request(format!("DidSaveTextDocument {abs_path}"));
+    }
+
+    if state.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnSave
+        && let Ok(file_id) = state.make_snapshot().file_id(&params.text_document.uri)
+    {
+        state.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(FxHashSet::from_iter([
+            file_id,
+        ])));
     }
 
     Ok(())

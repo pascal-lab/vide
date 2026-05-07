@@ -2,7 +2,7 @@ mod dispatcher;
 mod handlers;
 pub mod main_loop;
 mod mem_docs;
-mod process_changes;
+pub(crate) mod process_changes;
 pub mod reload;
 pub mod respond;
 pub(crate) mod snapshot;

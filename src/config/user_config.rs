@@ -47,11 +47,21 @@ pub(crate) struct DiagnosticsUserConfig {
     #[serde(default = "default_true")]
     pub(crate) enable: bool,
     #[serde(default)]
+    pub(crate) update: DiagnosticsUpdateUserConfig,
+    #[serde(default)]
     pub(crate) parse: DiagnosticsPhaseUserConfig,
     #[serde(default)]
     pub(crate) semantic: DiagnosticsPhaseUserConfig,
     #[serde(default)]
     pub(crate) slang: SlangDiagnosticsUserConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum DiagnosticsUpdateUserConfig {
+    OnType,
+    #[default]
+    OnSave,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -90,6 +100,7 @@ impl Default for DiagnosticsUserConfig {
     fn default() -> Self {
         Self {
             enable: true,
+            update: DiagnosticsUpdateUserConfig::default(),
             parse: DiagnosticsPhaseUserConfig::default(),
             semantic: DiagnosticsPhaseUserConfig::default(),
             slang: SlangDiagnosticsUserConfig::default(),
@@ -315,6 +326,7 @@ fn check_default() {
 fn parses_nested_diagnostics_config() {
     let json = serde_json::json!({
         "diagnostics": {
+            "update": "onType",
             "semantic": { "enable": false },
             "slang": {
                 "warnings": ["default", "no-unused"],
@@ -330,6 +342,7 @@ fn parses_nested_diagnostics_config() {
     assert!(errors.is_empty(), "{errors:?}");
 
     let config = user_cfg.diagnostics_config();
+    assert_eq!(user_cfg.diagnostics.update, DiagnosticsUpdateUserConfig::OnType);
     assert!(config.parse.enabled);
     assert!(!config.semantic.enabled);
     assert_eq!(config.slang.warnings, ["default", "no-unused"]);

@@ -122,6 +122,15 @@
               "default": true,
               "description": "Enable all Vizsla diagnostics."
             },
+            "update": {
+              "type": "string",
+              "enum": [
+                "onSave",
+                "onType"
+              ],
+              "default": "onSave",
+              "markdownDescription": "Controls when diagnostics are refreshed. `onSave` avoids running expensive diagnostics on every edit; `onType` refreshes diagnostics after document changes."
+            },
             "parse": {
               "type": "object",
               "default": {
