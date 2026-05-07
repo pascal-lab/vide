@@ -15,6 +15,7 @@ pub struct CodeActionDiagnostics {
 pub struct CodeActionDiagnostic {
     pub source: Option<DiagnosticSource>,
     pub code: Option<DiagnosticCode>,
+    pub name: Option<String>,
     pub option: Option<String>,
 }
 
@@ -46,7 +47,7 @@ pub(crate) fn append_missing_list_entries(entries: Vec<String>, has_existing: bo
 
 impl CodeActionDiagnostics {
     pub fn allows_repair(&self, repair: RepairKind) -> bool {
-        self.items.is_empty() || self.items.iter().any(|diag| diag.allows_repair(repair))
+        self.items.iter().any(|diag| diag.allows_repair(repair))
     }
 }
 
@@ -66,7 +67,7 @@ impl CodeActionDiagnostic {
             }
             RepairKind::MissingParameter => {
                 self.source == Some(DiagnosticSource::Semantic)
-                    && self.code == Some(DiagnosticCode { subsystem: 2, code: 29 })
+                    && self.name.as_deref() == Some("ParamHasNoValue")
             }
         }
     }
@@ -299,11 +300,13 @@ mod tests {
             RepairKind::MissingConnection => CodeActionDiagnostic {
                 source: Some(DiagnosticSource::Semantic),
                 code: None,
+                name: Some("UnconnectedNamedPort".to_owned()),
                 option: Some("unconnected-port".to_owned()),
             },
             RepairKind::MissingParameter => CodeActionDiagnostic {
                 source: Some(DiagnosticSource::Semantic),
                 code: Some(DiagnosticCode { subsystem: 2, code: 29 }),
+                name: Some("ParamHasNoValue".to_owned()),
                 option: None,
             },
         }
@@ -317,6 +320,20 @@ mod tests {
             file_id,
             utils::text_edit::TextRange::empty(offset),
             diagnostics,
+            CodeActionResolveStrategy::None,
+        )
+        .into_iter()
+        .map(|action| action.label)
+        .collect()
+    }
+
+    fn action_labels_without_diagnostics(text: &str) -> Vec<String> {
+        let (db, file_id, offset) = db_with_file(text);
+        code_action(
+            &db,
+            file_id,
+            utils::text_edit::TextRange::empty(offset),
+            CodeActionDiagnostics::default(),
             CodeActionResolveStrategy::None,
         )
         .into_iter()
@@ -338,6 +355,16 @@ mod tests {
         );
 
         assert!(actions.iter().all(|action| action.id.name != "add_missing_connections"));
+    }
+
+    #[test]
+    fn repair_actions_require_diagnostics() {
+        let labels = action_labels_without_diagnostics(
+            "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n",
+        );
+
+        assert!(!labels.iter().any(|label| label == "Fill connections"));
+        assert!(!labels.iter().any(|label| label == "Fill parameters"));
     }
 
     #[test]
@@ -371,6 +398,16 @@ mod tests {
     }
 
     #[test]
+    fn missing_connection_repair_uses_valid_ordered_placeholders() {
+        let text = "module child(input a, input b, input c); endmodule\nmodule top; child u(/*caret*/1'b0); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b, input c); endmodule\nmodule top; child u(1'b0, /* b */ '0, /* c */ '0); endmodule\n"
+        );
+    }
+
+    #[test]
     fn missing_parameter_repair_fills_named_parameters() {
         let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
         let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
@@ -397,6 +434,16 @@ mod tests {
         assert_eq!(
             fixed,
             "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(1, B, C) u(); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_parameter_repair_uses_valid_ordered_placeholders() {
+        let text = "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; child #(/*caret*/1) u(); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
+        assert_eq!(
+            fixed,
+            "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; child #(1, /* B */ 0, /* C */ 0) u(); endmodule\n"
         );
     }
 

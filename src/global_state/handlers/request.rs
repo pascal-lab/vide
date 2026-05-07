@@ -664,6 +664,10 @@ fn code_action_diagnostics(diagnostics: &[lsp_types::Diagnostic]) -> CodeActionD
 }
 
 fn code_action_diagnostic(diag: &lsp_types::Diagnostic) -> Option<CodeActionDiagnostic> {
+    if diag.source.as_deref() != Some("slang") {
+        return None;
+    }
+
     let data = diag.data.as_ref()?;
     let source = data.get("source").and_then(|value| value.as_str()).and_then(|value| match value {
         "parse" => Some(DiagnosticSource::Parse),
@@ -682,10 +686,15 @@ fn code_action_diagnostic(diag: &lsp_types::Diagnostic) -> Option<CodeActionDiag
         .get("option")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned);
+    let name = data
+        .get("name")
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned);
 
     Some(CodeActionDiagnostic {
         source,
         code: subsystem.zip(code).map(|(subsystem, code)| DiagnosticCode { subsystem, code }),
+        name,
         option,
     })
 }
@@ -721,10 +730,14 @@ pub(crate) fn handle_code_action_resolve(
     let resolve_strategy = CodeActionResolveStrategy::Single { name };
 
     let repair_diagnostics = code_action_diagnostics(&data.code_action_params.context.diagnostics);
-    let action = snap
+    let mut actions = snap
         .analysis
-        .code_action(file_id, range, repair_diagnostics, resolve_strategy)?
-        .remove(idx);
+        .code_action(file_id, range, repair_diagnostics, resolve_strategy)?;
+    let action = if idx < actions.len() {
+        actions.remove(idx)
+    } else {
+        return Err(CodeActionResolveError::Stable.into());
+    };
 
     let resolved_action = to_proto::code_action(&snap, action, None, None)?;
     code_action.edit = resolved_action.edit;
@@ -813,6 +826,7 @@ mod tests {
                 "source": "semantic",
                 "subsystem": 2,
                 "code": 29,
+                "name": "ParamHasNoValue",
                 "option": null,
                 "groups": [],
                 "selectorHints": ["code:2:29", "source:semantic"]
@@ -837,6 +851,7 @@ mod tests {
                 "source": "semantic",
                 "subsystem": 2,
                 "code": 260,
+                "name": "UnconnectedNamedPort",
                 "option": "unconnected-port",
                 "groups": [],
                 "selectorHints": ["code:2:260", "option:unconnected-port", "source:semantic"]

@@ -3,7 +3,7 @@ use hir::{
     db::HirDb,
     hir_def::{declaration::Declaration, module::instantiation::ParamAssign},
 };
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
@@ -60,34 +60,36 @@ pub(super) fn add_missing_parameters(
             .skip(assigned)
             .collect_vec();
 
-        Either::Left(names)
+        names
     } else {
-        let mut names = FxHashSet::default();
-
-        for decl_id in target_module.declarations.values() {
-            if let Declaration::ParamDecl(_) = decl_id {
-                for decl in decl_id.decls() {
-                    if let Some(name) = target_module.get(decl).name.clone() {
-                        names.insert(name);
-                    }
-                }
-            }
-        }
-
+        let mut assigned_names = FxHashSet::default();
         for param_id in instantiation.param_assigns.iter() {
             match module.get(*param_id) {
                 ParamAssign::Named(Some(name), _) => {
-                    names.remove(name);
+                    assigned_names.insert(name.clone());
                 }
                 ParamAssign::Ordered(_) => return None,
                 _ => {}
             }
         }
 
-        Either::Right(names)
+        let mut names = Vec::default();
+
+        for decl_id in target_module.declarations.values() {
+            if let Declaration::ParamDecl(_) = decl_id {
+                for decl in decl_id.decls() {
+                    if let Some(name) = target_module.get(decl).name.clone()
+                        && !assigned_names.contains(&name)
+                    {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+        names
     };
 
-    if names.as_ref().either(Vec::is_empty, FxHashSet::is_empty) {
+    if names.is_empty() {
         return None;
     }
 
@@ -98,20 +100,13 @@ pub(super) fn add_missing_parameters(
             sema.name_to_def(InContainer::new(cont_id, name.clone())),
             is_ordered,
         ) {
-            (None, true) => entries.push(format!("/* {name} */")),
+            (None, true) => entries.push(format!("/* {name} */ 0")),
             (None, false) => entries.push(format!(".{name}()")),
             (Some(_), true) => entries.push(name.to_string()),
             (Some(_), false) => entries.push(format!(".{name}")),
         };
 
-        match names {
-            Either::Left(names) => {
-                names.into_iter().for_each(&mut add_to_text);
-            }
-            Either::Right(names) => {
-                names.into_iter().for_each(&mut add_to_text);
-            }
-        }
+        names.into_iter().for_each(&mut add_to_text);
 
         builder.insert(insert_offset, append_missing_list_entries(entries, has_existing_assigns));
     });

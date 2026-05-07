@@ -3,7 +3,6 @@ use hir::{
     db::HirDb,
     hir_def::module::{instantiation::PortConn, port::Ports},
 };
-use itertools::Either;
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use syntax::{
@@ -71,13 +70,26 @@ pub(super) fn add_missing_connections(
                     });
             }
         }
-        Either::Left(names)
+        names
     } else {
-        let mut names = FxHashSet::default();
+        let mut connected_names = FxHashSet::default();
+        for conn_id in instance.connections.iter() {
+            match module.get(*conn_id) {
+                PortConn::Named(Some(name), _) => {
+                    connected_names.insert(name.clone());
+                }
+                PortConn::Ordered(_) => return None,
+                _ => {}
+            }
+        }
+
+        let mut names = Vec::default();
         match &target_module.ports {
             Ports::NonAnsi { ports, .. } => {
                 ports.values().filter_map(|port| port.label.clone()).for_each(|label| {
-                    names.insert(label);
+                    if !connected_names.contains(&label) {
+                        names.push(label);
+                    }
                 });
             }
             Ports::Ansi(ports) => {
@@ -86,25 +98,16 @@ pub(super) fn add_missing_connections(
                     .flat_map(|port| port.decls.clone())
                     .filter_map(|decl| target_module.get(decl).name.clone())
                     .for_each(|name| {
-                        names.insert(name);
+                        if !connected_names.contains(&name) {
+                            names.push(name);
+                        }
                     });
             }
         }
-
-        for conn_id in instance.connections.iter() {
-            match module.get(*conn_id) {
-                PortConn::Named(Some(name), _) => {
-                    names.remove(name);
-                }
-                PortConn::Ordered(_) => return None,
-                _ => {}
-            }
-        }
-
-        Either::Right(names)
+        names
     };
 
-    if names.as_ref().either(Vec::is_empty, FxHashSet::is_empty) {
+    if names.is_empty() {
         return None;
     }
 
@@ -115,20 +118,13 @@ pub(super) fn add_missing_connections(
             sema.name_to_def(InContainer::new(cont_id, name.clone())),
             is_ordered,
         ) {
-            (None, true) => entries.push(format!("/* {name} */")),
+            (None, true) => entries.push(format!("/* {name} */ '0")),
             (None, false) => entries.push(format!(".{name}()")),
             (Some(_), true) => entries.push(name.to_string()),
             (Some(_), false) => entries.push(format!(".{name}")),
         };
 
-        match names {
-            Either::Left(names) => {
-                names.into_iter().for_each(&mut add_to_text);
-            }
-            Either::Right(names) => {
-                names.into_iter().for_each(&mut add_to_text);
-            }
-        }
+        names.into_iter().for_each(&mut add_to_text);
 
         builder.insert(insert_offset, append_missing_list_entries(entries, has_existing_connections));
     });

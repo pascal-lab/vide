@@ -154,6 +154,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         },
         "subsystem": diag.subsystem,
         "code": diag.code,
+        "name": diag.name,
         "option": diag.option_name,
         "groups": diag.groups,
         "selectorHints": diagnostic_selector_hints(diag),
@@ -162,6 +163,8 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
 
 fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> {
     let mut selectors = vec![format!("code:{}:{}", diag.subsystem, diag.code)];
+
+    selectors.push(format!("name:{}", diag.name));
 
     if let Some(option) = &diag.option_name {
         selectors.push(format!("option:{option}"));
