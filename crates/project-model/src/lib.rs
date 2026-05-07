@@ -23,7 +23,7 @@ pub struct WorkspaceRoot {
 impl Workspace {
     pub fn load(manifest: &ProjectManifest, is_lib: bool) -> anyhow::Result<Workspace> {
         Self::load_helper(manifest, is_lib)
-            .with_context(|| format!("failed to load workspace {:?}", &manifest))
+            .with_context(|| format!("failed to load workspace {:?}", manifest))
     }
 
     fn load_helper(manifest: &ProjectManifest, is_lib: bool) -> anyhow::Result<Workspace> {

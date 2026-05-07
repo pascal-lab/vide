@@ -77,7 +77,7 @@ impl GlobalState {
             }
             self.handle_event(event)?;
         }
-        anyhow::bail!("{} exited without proper shutdown sequence", &self.config.opt.process_name);
+        anyhow::bail!("{} exited without proper shutdown sequence", self.config.opt.process_name);
     }
 
     fn register_did_save_cap(&mut self) {

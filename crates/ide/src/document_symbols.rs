@@ -126,7 +126,7 @@ impl SymbolCollecter {
     }
 
     pub fn finish(self) -> Vec<DocumentSymbol> {
-        assert!(self.stack.is_empty(), "{:?}", &self.stack);
+        assert!(self.stack.is_empty(), "{:?}", self.stack);
         self.res
     }
 }
