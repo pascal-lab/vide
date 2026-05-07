@@ -116,7 +116,7 @@ pub(crate) fn handle_document_diagnostic(
         Err(_) => Vec::new(),
     };
 
-    let result_id = file_result_id(snap.file_version(file_id));
+    let result_id = snap.diagnostic_result_id(file_id);
     Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
 }
 
@@ -131,12 +131,23 @@ pub(crate) fn handle_workspace_diagnostic(
         .collect::<HashMap<_, _>>();
     let mut seen = HashSet::new();
     let mut items = Vec::new();
+    let mut diagnostics_by_file = HashMap::new();
+
+    for file_id in snap.file_ids() {
+        if diagnostics_by_file.contains_key(&file_id) {
+            continue;
+        }
+
+        for diag in snap.source_root_diagnostics(file_id).unwrap_or_default() {
+            diagnostics_by_file.entry(diag.file_id).or_insert_with(Vec::new).push(diag);
+        }
+    }
 
     for file_id in snap.file_ids() {
         let uri = to_proto::url(&snap, file_id);
         seen.insert(uri.clone());
 
-        let diagnostics = snap.diagnostics(file_id).unwrap_or_default();
+        let diagnostics = diagnostics_by_file.remove(&file_id).unwrap_or_default();
 
         let diag_items = match snap.line_info(file_id) {
             Ok(line_info) => {
@@ -145,7 +156,7 @@ pub(crate) fn handle_workspace_diagnostic(
             Err(_) => Vec::new(),
         };
 
-        let result_id = file_result_id(snap.file_version(file_id));
+        let result_id = snap.diagnostic_result_id(file_id);
         let version = snap.file_version(file_id).map(|version| version as i64);
         let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
 
@@ -169,10 +180,6 @@ pub(crate) fn handle_workspace_diagnostic(
     Ok(lsp_types::WorkspaceDiagnosticReportResult::Report(lsp_types::WorkspaceDiagnosticReport {
         items,
     }))
-}
-
-fn file_result_id(version: Option<i32>) -> Option<String> {
-    version.map(|it| it.to_string())
 }
 
 fn document_diagnostic_report(

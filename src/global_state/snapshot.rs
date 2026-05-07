@@ -3,7 +3,7 @@ use lsp_types::Url;
 use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use project_model::Workspace;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::lines::{LineEnding, LineInfo};
 use vfs::{FileId, Vfs};
@@ -65,8 +65,51 @@ impl GlobalStateSnapshot {
         self.analysis.parse_diagnostics(file_id)
     }
 
+    pub(crate) fn source_root_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+        if self.config.semantic_diagnostics_enabled() {
+            return self.analysis.source_root_diagnostics(file_id);
+        }
+
+        self.analysis.parse_diagnostics(file_id)
+    }
+
     pub(crate) fn file_version(&self, file_id: FileId) -> Option<i32> {
         self.mem_docs.get(self.vfs_read().file_path(file_id)).map(|it| it.version)
+    }
+
+    pub(crate) fn diagnostic_result_id(&self, file_id: FileId) -> Option<String> {
+        let file_ids = if self.config.semantic_diagnostics_enabled() {
+            self.analysis.source_root_file_ids(file_id).ok()?
+        } else {
+            vec![file_id]
+        };
+
+        let open_file_ids = self
+            .mem_docs
+            .iter()
+            .filter_map(|path| self.vfs_read().file_id(path))
+            .collect::<FxHashSet<_>>();
+        let mut versions = file_ids
+            .into_iter()
+            .filter(|file_id| open_file_ids.contains(file_id))
+            .map(|file_id| self.file_version(file_id).map(|version| (file_id.0, version)))
+            .collect::<Option<Vec<_>>>()?;
+
+        versions.sort_unstable();
+        Some(
+            versions
+                .into_iter()
+                .map(|(file_id, version)| format!("{file_id}:{version}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+
+    pub(crate) fn source_root_file_ids(&self, file_id: FileId) -> Vec<FileId> {
+        self.analysis.source_root_file_ids(file_id).unwrap_or_else(|_| vec![file_id])
     }
 
     pub(crate) fn file_ids(&self) -> Vec<FileId> {
