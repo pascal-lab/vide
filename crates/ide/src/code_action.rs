@@ -36,6 +36,14 @@ pub enum RepairKind {
     MissingParameter,
 }
 
+pub(crate) fn append_missing_list_entries(entries: Vec<String>, has_existing: bool) -> String {
+    let mut text = entries.join(", ");
+    if has_existing && !text.is_empty() {
+        text.insert_str(0, ", ");
+    }
+    text
+}
+
 impl CodeActionDiagnostics {
     pub fn allows_repair(&self, repair: RepairKind) -> bool {
         self.items.is_empty() || self.items.iter().any(|diag| diag.allows_repair(repair))
@@ -47,10 +55,14 @@ impl CodeActionDiagnostic {
         match repair {
             RepairKind::MissingConnection => {
                 self.source == Some(DiagnosticSource::Semantic)
-                    && matches!(
-                        self.option.as_deref(),
-                        Some("unconnected-port" | "unconnected-unnamed-port")
-                    )
+                    && (matches!(
+                            self.option.as_deref(),
+                            Some("unconnected-port" | "unconnected-unnamed-port")
+                        )
+                        || self.code
+                            == Some(DiagnosticCode { subsystem: 2, code: 260 })
+                        || self.code
+                            == Some(DiagnosticCode { subsystem: 2, code: 261 }))
             }
             RepairKind::MissingParameter => {
                 self.source == Some(DiagnosticSource::Semantic)
@@ -297,6 +309,21 @@ mod tests {
         }
     }
 
+    fn action_labels(text: &str, repair: RepairKind) -> Vec<String> {
+        let (db, file_id, offset) = db_with_file(text);
+        let diagnostics = CodeActionDiagnostics { items: vec![diagnostic_for_repair(repair)] };
+        code_action(
+            &db,
+            file_id,
+            utils::text_edit::TextRange::empty(offset),
+            diagnostics,
+            CodeActionResolveStrategy::None,
+        )
+        .into_iter()
+        .map(|action| action.label)
+        .collect()
+    }
+
     #[test]
     fn missing_connection_repair_requires_matching_diagnostic() {
         let (db, file_id, offset) = db_with_file(
@@ -324,6 +351,26 @@ mod tests {
     }
 
     #[test]
+    fn missing_connection_repair_fills_empty_named_connection_list() {
+        let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_connection_repair_fills_ordered_connections() {
+        let text = "module child(input a, input b, input c); endmodule\nmodule top; logic b, c; child u(/*caret*/1'b0); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b, input c); endmodule\nmodule top; logic b, c; child u(1'b0, b, c); endmodule\n"
+        );
+    }
+
+    #[test]
     fn missing_parameter_repair_fills_named_parameters() {
         let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
         let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
@@ -331,5 +378,34 @@ mod tests {
             fixed,
             "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
         );
+    }
+
+    #[test]
+    fn missing_parameter_repair_fills_empty_parameter_list() {
+        let text = "module child #(parameter A, parameter B) (); endmodule\nmodule top; child #(/*caret*/) u(); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
+        assert_eq!(
+            fixed,
+            "module child #(parameter A, parameter B) (); endmodule\nmodule top; child #(.A(), .B()) u(); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_parameter_repair_fills_ordered_parameters() {
+        let text = "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(/*caret*/1) u(); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
+        assert_eq!(
+            fixed,
+            "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(1, B, C) u(); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_parameter_repair_is_not_offered_when_nothing_is_missing() {
+        let labels = action_labels(
+            "module child #(parameter A = 1) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n",
+            RepairKind::MissingParameter,
+        );
+        assert!(!labels.iter().any(|label| label == "Fill parameters"));
     }
 }

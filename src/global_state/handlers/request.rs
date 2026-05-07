@@ -821,4 +821,28 @@ mod tests {
 
         assert!(quick_fix_diagnostics("add_missing_parameters", &[diag]).is_some());
     }
+
+    #[test]
+    fn quick_fix_diagnostics_match_connection_options() {
+        let diag = Diagnostic {
+            range: Range::default(),
+            severity: None,
+            code: Some(NumberOrString::String("2:260".to_owned())),
+            code_description: None,
+            source: Some("slang".to_owned()),
+            message: "localized message that should not be matched".to_owned(),
+            related_information: None,
+            tags: None,
+            data: Some(serde_json::json!({
+                "source": "semantic",
+                "subsystem": 2,
+                "code": 260,
+                "option": "unconnected-port",
+                "groups": [],
+                "selectorHints": ["code:2:260", "option:unconnected-port", "source:semantic"]
+            })),
+        };
+
+        assert!(quick_fix_diagnostics("add_missing_connections", &[diag]).is_some());
+    }
 }

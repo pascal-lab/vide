@@ -10,7 +10,8 @@ use syntax::{ast, has_text_range::HasTextRange};
 use utils::get::GetRef;
 
 use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    append_missing_list_entries, CodeActionCollector, CodeActionCtx, CodeActionId,
+    CodeActionKind, RepairKind,
 };
 
 const ID: CodeActionId =
@@ -112,12 +113,7 @@ pub(super) fn add_missing_parameters(
             }
         }
 
-        let mut text = entries.join(", ");
-        if has_existing_assigns && !text.is_empty() {
-            text.insert_str(0, ", ");
-        }
-
-        builder.insert(insert_offset, text);
+        builder.insert(insert_offset, append_missing_list_entries(entries, has_existing_assigns));
     });
 
     Some(())
