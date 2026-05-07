@@ -419,3 +419,60 @@ fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use base_db::{change::Change, source_root::SourceRoot};
+    use hir::{container::InModule, semantics::pathres::PathResolution};
+    use ide_db::root_db::RootDb;
+    use syntax::SyntaxNodeExt;
+    use triomphe::Arc;
+    use utils::{lines::LineEnding, text_edit::TextSize};
+    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+
+    use crate::analysis_host::AnalysisHost;
+
+    use super::*;
+
+    fn host_with_file(text: &str) -> (AnalysisHost, FileId) {
+        let file_id = FileId(0);
+        let path = VfsPath::new_virtual_path("/test.v".to_string());
+
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, path);
+        let root = SourceRoot::new_local(file_set);
+
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+        });
+
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        (host, file_id)
+    }
+
+    #[test]
+    fn implicit_non_ansi_port_origin_uses_header_port_name_range() {
+        let text = "module m(a); input a; endmodule";
+        let (host, file_id) = host_with_file(text);
+        let db = host.raw_db();
+        let sema = Semantics::<RootDb>::new(db);
+        let file = sema.parse(file_id);
+        let port_decl_name_offset = TextSize::from(text.find("input a").unwrap() as u32 + 6);
+        let token = file.syntax().token_at_offset(port_decl_name_offset).left_biased().unwrap();
+        let DefinitionClass::Definition(def) = DefinitionClass::resolve(&sema, token).unwrap()
+        else {
+            panic!("expected plain definition");
+        };
+
+        let PathResolution::NonAnsiPort { label: Some(label), module, .. } = def.0 else {
+            panic!("expected non-ANSI port label resolution");
+        };
+        let range = DefinitionOrigin::NonAnsiPort(InModule::new(module, label)).name_range(db);
+        assert_eq!(range.file_id.file_id(), file_id);
+        assert_eq!(range.value, TextRange::new(TextSize::from(9), TextSize::from(10)));
+    }
+}

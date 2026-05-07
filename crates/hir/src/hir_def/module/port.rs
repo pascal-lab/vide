@@ -313,7 +313,7 @@ impl LowerModuleCtx<'_> {
         let mut ports = Arena::default();
         let mut refs = Arena::default();
         let mut port_srcs = SourceMap::default();
-        let mut ref_srcs = SourceMap::default();
+        let mut ref_srcs: SourceMap<PortRefSrc, PortRef> = SourceMap::default();
 
         for port in port_list.ports().children() {
             use ast::{NonAnsiPort::*, PortExpression::*};
@@ -344,26 +344,31 @@ impl LowerModuleCtx<'_> {
                 }
             };
 
-            let hir_port = match port {
-                ExplicitNonAnsiPort(port) => NonAnsiPort {
+            let (hir_port, src_name) = match port {
+                ExplicitNonAnsiPort(port) => (NonAnsiPort {
                     label: lower_ident_opt(port.name()),
                     refs: lower_port_exprs(port.expr()),
-                },
+                }, None),
                 ImplicitNonAnsiPort(port) => {
                     let sub_refs = lower_port_exprs(Some(port.expr()));
                     debug_assert!(sub_refs.as_ref().is_none_or(|refs| refs.len() == 1));
 
-                    let label = refs[sub_refs.as_ref().unwrap().start()].ident.clone();
-                    NonAnsiPort { label, refs: sub_refs }
+                    let port_ref_id = sub_refs.as_ref().unwrap().start();
+                    let label = refs[port_ref_id].ident.clone();
+                    let src_name = ref_srcs.get(port_ref_id).name;
+                    (NonAnsiPort { label, refs: sub_refs }, src_name)
                 }
-                EmptyNonAnsiPort(_) => NonAnsiPort { label: None, refs: None },
+                EmptyNonAnsiPort(_) => (NonAnsiPort { label: None, refs: None }, None),
             };
 
             self.region_tree.handle_node(port.syntax());
-            alloc_idx_and_src! {
+            let port_id = alloc_idx_and_src! {
                 hir_port => ports,
                 port => port_srcs,
             };
+            if src_name.is_some() {
+                port_srcs.insert(NonAnsiPortSrc { name: src_name, ..port_srcs.get(port_id) }, port_id);
+            }
         }
 
         self.region_tree.stage(port_list.close_paren());
