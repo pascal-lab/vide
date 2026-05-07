@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 use utils::{json::get_field, paths::Utf8PathBuf};
 
 use super::Config;
+use base_db::diagnostics_config::{
+    DiagnosticPhaseConfig, DiagnosticRule, DiagnosticRuleSeverity, DiagnosticSelector,
+    DiagnosticSource,
+    DiagnosticsConfig, SlangDiagnosticsConfig,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +41,71 @@ impl From<ScopeVisibility> for ide::ScopeVisibility {
             ScopeVisibility::Private => ide::ScopeVisibility::Private,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DiagnosticsUserConfig {
+    #[serde(default = "default_true")]
+    pub(crate) enable: bool,
+    #[serde(default)]
+    pub(crate) parse: DiagnosticsPhaseUserConfig,
+    #[serde(default)]
+    pub(crate) semantic: DiagnosticsPhaseUserConfig,
+    #[serde(default)]
+    pub(crate) slang: SlangDiagnosticsUserConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DiagnosticsPhaseUserConfig {
+    #[serde(default = "default_true")]
+    pub(crate) enable: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SlangDiagnosticsUserConfig {
+    #[serde(default)]
+    pub(crate) warnings: Vec<String>,
+    #[serde(default)]
+    pub(crate) rules: Vec<DiagnosticRuleUserConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DiagnosticRuleUserConfig {
+    pub(crate) selector: String,
+    pub(crate) severity: DiagnosticRuleSeverityUserConfig,
+    #[serde(default)]
+    pub(crate) force: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum DiagnosticRuleSeverityUserConfig {
+    Ignore,
+    Info,
+    Warning,
+    Error,
+    Fatal,
+}
+
+impl Default for DiagnosticsUserConfig {
+    fn default() -> Self {
+        Self {
+            enable: true,
+            parse: DiagnosticsPhaseUserConfig::default(),
+            semantic: DiagnosticsPhaseUserConfig::default(),
+            slang: SlangDiagnosticsUserConfig::default(),
+        }
+    }
+}
+
+impl Default for DiagnosticsPhaseUserConfig {
+    fn default() -> Self {
+        Self { enable: true }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 macro_rules! default_value {
@@ -106,9 +176,78 @@ config_data! {
         semantic_tokens_port_clk_rst_enable: bool = true,
         semantic_tokens_port_input_output_enable: bool = true,
 
-        semantic_diagnostics_enable: bool = true,
+        diagnostics: DiagnosticsUserConfig = DiagnosticsUserConfig::default(),
 
         signature_help_params_only: bool = false,
+    }
+}
+
+impl UserConfig {
+    pub(crate) fn diagnostics_config(&self) -> DiagnosticsConfig {
+        DiagnosticsConfig {
+            revision: 0,
+            enabled: self.diagnostics.enable,
+            parse: DiagnosticPhaseConfig {
+                enabled: self.diagnostics.parse.enable,
+            },
+            semantic: DiagnosticPhaseConfig {
+                enabled: self.diagnostics.semantic.enable,
+            },
+            slang: SlangDiagnosticsConfig {
+                warnings: self.diagnostics.slang.warnings.clone(),
+                rules: self
+                    .diagnostics
+                    .slang
+                    .rules
+                    .iter()
+                    .filter_map(DiagnosticRuleUserConfig::to_config)
+                    .collect(),
+            },
+        }
+        .with_fresh_revision()
+    }
+}
+
+impl DiagnosticRuleUserConfig {
+    fn to_config(&self) -> Option<DiagnosticRule> {
+        Some(DiagnosticRule {
+            selector: parse_selector(&self.selector)?,
+            severity: self.severity.into(),
+            force: self.force,
+        })
+    }
+}
+
+impl From<DiagnosticRuleSeverityUserConfig> for DiagnosticRuleSeverity {
+    fn from(value: DiagnosticRuleSeverityUserConfig) -> Self {
+        match value {
+            DiagnosticRuleSeverityUserConfig::Ignore => DiagnosticRuleSeverity::Ignore,
+            DiagnosticRuleSeverityUserConfig::Info => DiagnosticRuleSeverity::Info,
+            DiagnosticRuleSeverityUserConfig::Warning => DiagnosticRuleSeverity::Warning,
+            DiagnosticRuleSeverityUserConfig::Error => DiagnosticRuleSeverity::Error,
+            DiagnosticRuleSeverityUserConfig::Fatal => DiagnosticRuleSeverity::Fatal,
+        }
+    }
+}
+
+fn parse_selector(selector: &str) -> Option<DiagnosticSelector> {
+    let (kind, value) = selector.split_once(':')?;
+    match kind {
+        "code" => {
+            let (subsystem, code) = value.split_once(':')?;
+            Some(DiagnosticSelector::Code {
+                subsystem: subsystem.parse().ok()?,
+                code: code.parse().ok()?,
+            })
+        }
+        "option" => Some(DiagnosticSelector::Option(value.to_owned())),
+        "group" => Some(DiagnosticSelector::Group(value.to_owned())),
+        "source" => match value {
+            "parse" => Some(DiagnosticSelector::Source(DiagnosticSource::Parse)),
+            "semantic" => Some(DiagnosticSelector::Source(DiagnosticSource::Semantic)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -164,10 +303,6 @@ impl Config {
         }
     }
 
-    pub(crate) fn semantic_diagnostics_enabled(&self) -> bool {
-        self.user_config.semantic_diagnostics_enable
-    }
-
     pub(crate) fn signature_help(&self) -> SignatureHelpConfig {
         SignatureHelpConfig { params_only: self.user_config.signature_help_params_only }
     }
@@ -179,4 +314,29 @@ fn check_default() {
     let mut errors = vec![];
     let user_cfg = UserConfig::from_json(json, &mut errors);
     assert_eq!(user_cfg, UserConfig::default());
+}
+
+#[test]
+fn parses_nested_diagnostics_config() {
+    let json = serde_json::json!({
+        "diagnostics": {
+            "semantic": { "enable": false },
+            "slang": {
+                "warnings": ["default", "no-unused"],
+                "rules": [
+                    { "selector": "source:parse", "severity": "ignore" },
+                    { "selector": "code:1:2", "severity": "error", "force": true }
+                ]
+            }
+        }
+    });
+    let mut errors = vec![];
+    let user_cfg = UserConfig::from_json(json, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let config = user_cfg.diagnostics_config();
+    assert!(config.parse.enabled);
+    assert!(!config.semantic.enabled);
+    assert_eq!(config.slang.warnings, ["default", "no-unused"]);
+    assert_eq!(config.slang.rules.len(), 2);
 }

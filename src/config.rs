@@ -88,6 +88,10 @@ impl Config {
         if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 
+    pub fn diagnostics_config(&self) -> base_db::diagnostics_config::DiagnosticsConfig {
+        self.user_config.diagnostics_config()
+    }
+
     pub(crate) fn parse_initialization_options(
         options: serde_json::Value,
     ) -> (UserConfig, Vec<Snippet>, ConfigError) {

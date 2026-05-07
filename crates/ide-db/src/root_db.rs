@@ -1,9 +1,11 @@
 use std::{fmt, mem::ManuallyDrop};
 
 use base_db::{
+    diagnostics_config::DiagnosticsConfig,
     salsa::{self, Durability},
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
+use triomphe::Arc;
 use vfs::{FileId, anchored_path::AnchoredPath};
 
 use crate::line_index_db::LineIndexDbStorage;
@@ -49,6 +51,10 @@ impl RootDb {
     pub fn new(lru_capacity: Option<usize>) -> RootDb {
         let mut db = RootDb { storage: ManuallyDrop::new(salsa::Storage::default()) };
         db.set_files_with_durability(Default::default(), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::HIGH,
+        );
         db.update_parse_query_lru_capacity(lru_capacity);
         db
     }

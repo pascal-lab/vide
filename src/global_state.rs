@@ -9,7 +9,7 @@ pub(crate) mod snapshot;
 
 use std::time::Instant;
 
-use base_db::source_root::SourceRootConfig;
+use base_db::{source_db::SourceDb, source_root::SourceRootConfig};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use ide::analysis_host::AnalysisHost;
 use lsp_server::{Message, ReqQueue, Request};
@@ -127,7 +127,12 @@ impl GlobalState {
             Handle { handle, receiver }
         };
 
-        let analysis_host = AnalysisHost::new(None);
+        let mut analysis_host = AnalysisHost::new(None);
+        let diagnostics_config = Arc::new(config.diagnostics_config());
+        analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
+            diagnostics_config,
+            base_db::salsa::Durability::HIGH,
+        );
 
         GlobalState {
             sender,

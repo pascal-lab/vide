@@ -4,11 +4,20 @@ use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticSource {
+    SlangParse,
+    SlangSemantic,
+}
+
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub file_id: FileId,
     pub code: u16,
     pub subsystem: u16,
+    pub option_name: Option<String>,
+    pub groups: Vec<String>,
+    pub source: DiagnosticSource,
     pub range: TextRange,
     pub severity: DiagnosticSeverity,
     pub message: String,
@@ -21,6 +30,9 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
             file_id,
             code: diag.code,
             subsystem: diag.subsystem,
+            option_name: diag.option_name.clone(),
+            groups: diag.groups.clone(),
+            source: DiagnosticSource::SlangParse,
             range: to_text_range(diag),
             severity: diag.severity,
             message: diag.message.clone(),
@@ -37,6 +49,9 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
                 file_id: *diag_file_id,
                 code: diag.code,
                 subsystem: diag.subsystem,
+                option_name: diag.option_name.clone(),
+                groups: diag.groups.clone(),
+                source: DiagnosticSource::SlangSemantic,
                 range: to_text_range(diag),
                 severity: diag.severity,
                 message: diag.message.clone(),
@@ -61,6 +76,9 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
             file_id: *diag_file_id,
             code: diag.code,
             subsystem: diag.subsystem,
+            option_name: diag.option_name.clone(),
+            groups: diag.groups.clone(),
+            source: DiagnosticSource::SlangSemantic,
             range: to_text_range(diag),
             severity: diag.severity,
             message: diag.message.clone(),

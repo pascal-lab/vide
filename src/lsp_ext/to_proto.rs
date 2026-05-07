@@ -126,23 +126,57 @@ pub(crate) fn document_highlight(
     lsp_types::DocumentHighlight { range: self::range(line_info, range), kind }
 }
 
-const DIAGNOSTIC_SOURCE: &str = "vizsla";
+const SLANG_DIAGNOSTIC_SOURCE: &str = "slang";
 
 pub(crate) fn diagnostic(
     line_info: &LineInfo,
     diag: ide_diagnostics::Diagnostic,
 ) -> lsp_types::Diagnostic {
+    let data = diagnostic_data(&diag);
     lsp_types::Diagnostic {
         range: self::range(line_info, diag.range),
         severity: diagnostic_severity(diag.severity),
-        code: Some(lsp_types::NumberOrString::Number(diag.code.into())),
+        code: Some(lsp_types::NumberOrString::String(format!(
+            "{}:{}",
+            diag.subsystem, diag.code
+        ))),
         code_description: None,
-        source: Some(DIAGNOSTIC_SOURCE.to_string()),
+        source: Some(SLANG_DIAGNOSTIC_SOURCE.to_string()),
         message: diag.message,
         related_information: None,
         tags: None,
-        data: None,
+        data: Some(data),
     }
+}
+
+fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
+    serde_json::json!({
+        "source": match diag.source {
+            ide_diagnostics::DiagnosticSource::SlangParse => "parse",
+            ide_diagnostics::DiagnosticSource::SlangSemantic => "semantic",
+        },
+        "subsystem": diag.subsystem,
+        "code": diag.code,
+        "option": diag.option_name,
+        "groups": diag.groups,
+        "selectorHints": diagnostic_selector_hints(diag),
+    })
+}
+
+fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> {
+    let mut selectors = vec![format!("code:{}:{}", diag.subsystem, diag.code)];
+
+    if let Some(option) = &diag.option_name {
+        selectors.push(format!("option:{option}"));
+    }
+
+    selectors.extend(diag.groups.iter().map(|group| format!("group:{group}")));
+    selectors.push(match diag.source {
+        ide_diagnostics::DiagnosticSource::SlangParse => "source:parse".to_owned(),
+        ide_diagnostics::DiagnosticSource::SlangSemantic => "source:semantic".to_owned(),
+    });
+
+    selectors
 }
 
 fn diagnostic_severity(severity: SlangDiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {

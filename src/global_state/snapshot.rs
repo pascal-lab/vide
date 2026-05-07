@@ -58,7 +58,7 @@ impl GlobalStateSnapshot {
         &self,
         file_id: FileId,
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
-        if self.config.semantic_diagnostics_enabled() {
+        if self.config.diagnostics_config().semantic.enabled {
             return self.analysis.diagnostics(file_id);
         }
 
@@ -69,7 +69,7 @@ impl GlobalStateSnapshot {
         &self,
         file_id: FileId,
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
-        if self.config.semantic_diagnostics_enabled() {
+        if self.config.diagnostics_config().semantic.enabled {
             return self.analysis.source_root_diagnostics(file_id);
         }
 
@@ -81,7 +81,8 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn diagnostic_result_id(&self, file_id: FileId) -> Option<String> {
-        let file_ids = if self.config.semantic_diagnostics_enabled() {
+        let diagnostics_config = self.config.diagnostics_config();
+        let file_ids = if diagnostics_config.semantic.enabled {
             self.analysis.source_root_file_ids(file_id).ok()?
         } else {
             vec![file_id]
@@ -97,13 +98,12 @@ impl GlobalStateSnapshot {
         }
 
         versions.sort_unstable();
-        Some(
-            versions
-                .into_iter()
-                .map(|(file_id, version)| format!("{file_id}:{version}"))
-                .collect::<Vec<_>>()
-                .join(","),
-        )
+        let file_versions = versions
+            .into_iter()
+            .map(|(file_id, version)| format!("{file_id}:{version}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        Some(format!("diag:{}:{file_versions}", diagnostics_config.revision))
     }
 
     pub(crate) fn source_root_file_ids(&self, file_id: FileId) -> Vec<FileId> {

@@ -77,7 +77,7 @@ impl GlobalState {
     pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {
         let file_ids = match invalidation {
             DiagnosticInvalidation::FileChanges(file_ids) => {
-                if self.config.semantic_diagnostics_enabled() {
+                if self.config.diagnostics_config().semantic.enabled {
                     let snapshot = self.make_snapshot();
                     let open_file_ids =
                         self.open_mem_doc_file_ids().into_iter().collect::<FxHashSet<_>>();

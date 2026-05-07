@@ -400,7 +400,13 @@ fn semantic_diagnostics_can_be_disabled() {
         }),
         ..Default::default()
     };
-    let user_config = UserConfig { semantic_diagnostics_enable: false, ..UserConfig::default() };
+    let user_config = UserConfig {
+        diagnostics: crate::config::user_config::DiagnosticsUserConfig {
+            semantic: crate::config::user_config::DiagnosticsPhaseUserConfig { enable: false },
+            ..Default::default()
+        },
+        ..UserConfig::default()
+    };
     let file_text = "\
 module child(input logic a, input logic b);
 endmodule

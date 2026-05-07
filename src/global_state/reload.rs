@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use base_db::source_db::SourceDb;
 use project_model::{
     Workspace, get_workspace_folder,
     project_manifest::{MANIFEST_FILE_NAME, ProjectManifest},
@@ -173,7 +174,13 @@ impl GlobalState {
     }
 
     pub(crate) fn update_configuration(&mut self, config: Config) {
+        let diagnostics_config = Arc::new(config.diagnostics_config());
         let _old_config = std::mem::replace(&mut self.config, Arc::new(config));
+        self.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
+            diagnostics_config,
+            base_db::salsa::Durability::HIGH,
+        );
+        self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         // TODO: update LRU capacity
     }
 }

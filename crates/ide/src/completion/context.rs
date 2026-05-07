@@ -206,7 +206,7 @@ mod tests {
         let mut compilation = Compilation::new();
         compilation.add_syntax_tree(tree.clone());
         let mut expected_ident_offsets: Vec<TextSize> = compilation
-            .parse_diag_offsets_by_name("ExpectedIdentifier")
+            .parse_diag_offsets_by_name("ExpectedIdentifier", &[])
             .into_iter()
             .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from))
             .collect();
