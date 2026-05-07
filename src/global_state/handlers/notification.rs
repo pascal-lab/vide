@@ -14,7 +14,7 @@ use vfs::{VfsPath, loader::LoadResult};
 
 use crate::{
     DEFAULT_PROCESS_NAME,
-    global_state::{GlobalState, mem_docs::DocumentData, reload},
+    global_state::{GlobalState, reload},
     lsp_ext::from_proto,
 };
 
@@ -36,11 +36,11 @@ pub(crate) fn handle_did_open_text_document(
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
         let file_id = set_vfs_file_contents(state, &path, params.text_document.text.clone());
-        let data = DocumentData {
-            version: params.text_document.version,
-            data: params.text_document.text.clone(),
-        };
-        if state.mem_docs.insert(file_id, path.clone(), data).is_some() {
+        if state
+            .mem_docs
+            .insert(file_id, path.clone(), params.text_document.version, params.text_document.text)
+            .is_some()
+        {
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
     }
@@ -52,7 +52,7 @@ pub(crate) fn handle_did_change_text_document(
     params: DidChangeTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        let data = match state.mem_docs.get_mut(&path) {
+        let data = match state.mem_docs.get_mut_by_path(&path) {
             Some(doc) => {
                 // The version in DidChangeTextDocument is the one after all edits,
                 // so we should apply it before the vfs is notified.
@@ -84,7 +84,7 @@ pub(crate) fn handle_did_close_text_document(
     params: DidCloseTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        if state.mem_docs.remove(&path).is_none() {
+        if state.mem_docs.remove_path(&path).is_none() {
             tracing::error!("orphan DidCloseTextDocument: {}", path);
         }
 
