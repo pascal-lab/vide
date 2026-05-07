@@ -99,6 +99,116 @@
           },
           "default": [],
           "description": "Additional arguments appended when launching the Vizsla language server."
+        },
+        "vizsla.diagnostics": {
+          "type": "object",
+          "default": {
+            "enable": true,
+            "parse": {
+              "enable": true
+            },
+            "semantic": {
+              "enable": true
+            },
+            "slang": {
+              "warnings": [],
+              "rules": []
+            }
+          },
+          "markdownDescription": "Controls Vizsla diagnostics. Use this object for advanced diagnostic filtering and severity overrides.",
+          "properties": {
+            "enable": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable all Vizsla diagnostics."
+            },
+            "parse": {
+              "type": "object",
+              "default": {
+                "enable": true
+              },
+              "description": "Controls syntax and parse diagnostics.",
+              "properties": {
+                "enable": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Enable syntax and parse diagnostics."
+                }
+              },
+              "additionalProperties": false
+            },
+            "semantic": {
+              "type": "object",
+              "default": {
+                "enable": true
+              },
+              "description": "Controls compilation and semantic diagnostics.",
+              "properties": {
+                "enable": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Enable compilation and semantic diagnostics."
+                }
+              },
+              "additionalProperties": false
+            },
+            "slang": {
+              "type": "object",
+              "default": {
+                "warnings": [],
+                "rules": []
+              },
+              "description": "Controls diagnostics produced by slang.",
+              "properties": {
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "markdownDescription": "slang warning options, equivalent to command-line warning names such as `default`, `everything`, `none`, `error`, `no-<name>`, or `error=<name>`."
+                },
+                "rules": {
+                  "type": "array",
+                  "default": [],
+                  "markdownDescription": "Rules that filter or override diagnostic severities. Supported selectors: `code:<subsystem>:<code>`, `option:<name>`, `group:<name>`, `source:parse`, `source:semantic`.",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "selector",
+                      "severity"
+                    ],
+                    "properties": {
+                      "selector": {
+                        "type": "string",
+                        "pattern": "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$",
+                        "markdownDescription": "Diagnostic selector. Examples: `code:1:2`, `option:unconnected-port`, `group:default`, `source:semantic`."
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "ignore",
+                          "info",
+                          "warning",
+                          "error",
+                          "fatal"
+                        ],
+                        "description": "Severity to apply when this rule matches. Use ignore to hide the diagnostic."
+                      },
+                      "force": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Reserved for future support for overriding in-source diagnostic pragmas."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       }
     },

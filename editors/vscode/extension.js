@@ -201,6 +201,7 @@ async function createClient(context) {
       { scheme: 'file', language: 'systemverilog' }
     ],
     synchronize: {
+      configurationSection: 'vizsla',
       fileEvents: [
         vscode.workspace.createFileSystemWatcher('**/*.v'),
         vscode.workspace.createFileSystemWatcher('**/*.vh'),
