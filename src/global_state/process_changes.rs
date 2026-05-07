@@ -71,8 +71,7 @@ impl GlobalState {
     }
 
     pub(crate) fn open_mem_doc_file_ids(&self) -> Vec<FileId> {
-        let vfs = self.vfs.read();
-        self.mem_docs.iter().filter_map(|path| vfs.0.file_id(path)).collect()
+        self.mem_docs.file_ids().collect()
     }
 
     pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {

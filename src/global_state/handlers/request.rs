@@ -187,14 +187,14 @@ fn document_diagnostic_report(
     items: Vec<lsp_types::Diagnostic>,
     previous_result_id: Option<&str>,
 ) -> lsp_types::DocumentDiagnosticReport {
-    if result_id.as_deref() == previous_result_id {
+    if let Some(result_id) = result_id.as_ref()
+        && Some(result_id.as_str()) == previous_result_id
+    {
         return lsp_types::DocumentDiagnosticReport::Unchanged(
             lsp_types::RelatedUnchangedDocumentDiagnosticReport {
                 related_documents: None,
                 unchanged_document_diagnostic_report:
-                    lsp_types::UnchangedDocumentDiagnosticReport {
-                        result_id: result_id.expect("matching previous result id must exist"),
-                    },
+                    lsp_types::UnchangedDocumentDiagnosticReport { result_id: result_id.clone() },
             },
         );
     }
@@ -202,7 +202,7 @@ fn document_diagnostic_report(
     lsp_types::DocumentDiagnosticReport::Full(lsp_types::RelatedFullDocumentDiagnosticReport {
         related_documents: None,
         full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-            result_id,
+            result_id: result_id.clone(),
             items,
         },
     })
@@ -215,15 +215,15 @@ fn workspace_diagnostic_report(
     items: Vec<lsp_types::Diagnostic>,
     previous_result_id: Option<&str>,
 ) -> lsp_types::WorkspaceDocumentDiagnosticReport {
-    if result_id.as_deref() == previous_result_id {
+    if let Some(result_id) = result_id.as_ref()
+        && Some(result_id.as_str()) == previous_result_id
+    {
         return lsp_types::WorkspaceDocumentDiagnosticReport::Unchanged(
             lsp_types::WorkspaceUnchangedDocumentDiagnosticReport {
                 uri,
                 version,
                 unchanged_document_diagnostic_report:
-                    lsp_types::UnchangedDocumentDiagnosticReport {
-                        result_id: result_id.expect("matching previous result id must exist"),
-                    },
+                    lsp_types::UnchangedDocumentDiagnosticReport { result_id: result_id.clone() },
             },
         );
     }
@@ -233,7 +233,7 @@ fn workspace_diagnostic_report(
             uri,
             version,
             full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                result_id,
+                result_id: result_id.clone(),
                 items,
             },
         },

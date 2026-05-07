@@ -3,7 +3,7 @@ use lsp_types::Url;
 use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use project_model::Workspace;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use triomphe::Arc;
 use utils::lines::{LineEnding, LineInfo};
 use vfs::{FileId, Vfs};
@@ -77,7 +77,7 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn file_version(&self, file_id: FileId) -> Option<i32> {
-        self.mem_docs.get(self.vfs_read().file_path(file_id)).map(|it| it.version)
+        self.mem_docs.version(file_id)
     }
 
     pub(crate) fn diagnostic_result_id(&self, file_id: FileId) -> Option<String> {
@@ -87,16 +87,14 @@ impl GlobalStateSnapshot {
             vec![file_id]
         };
 
-        let open_file_ids = self
-            .mem_docs
-            .iter()
-            .filter_map(|path| self.vfs_read().file_id(path))
-            .collect::<FxHashSet<_>>();
         let mut versions = file_ids
             .into_iter()
-            .filter(|file_id| open_file_ids.contains(file_id))
-            .map(|file_id| self.file_version(file_id).map(|version| (file_id.0, version)))
-            .collect::<Option<Vec<_>>>()?;
+            .filter_map(|file_id| self.file_version(file_id).map(|version| (file_id.0, version)))
+            .collect::<Vec<_>>();
+
+        if versions.is_empty() {
+            return None;
+        }
 
         versions.sort_unstable();
         Some(
@@ -126,6 +124,6 @@ impl GlobalStateSnapshot {
 
     pub(crate) fn url_file_version(&self, url: &Url) -> Option<i32> {
         let path = from_proto::vfs_path(url).ok()?;
-        Some(self.mem_docs.get(&path)?.version)
+        self.mem_docs.file_id(&path).and_then(|file_id| self.file_version(file_id))
     }
 }

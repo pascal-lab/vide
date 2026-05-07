@@ -591,6 +591,7 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
         .unwrap();
     let (first_result_id, first_items) = recv_document_diagnostics(&client, first_id);
     let first_result_id = first_result_id.expect("expected first diagnostic result id");
+    assert!(!first_result_id.is_empty(), "diagnostic result id should include open file versions");
     assert!(
         first_items.iter().any(|diag| diag.message.contains("port 'b' has no connection")),
         "expected missing port diagnostic before dependency edit: {first_items:?}"

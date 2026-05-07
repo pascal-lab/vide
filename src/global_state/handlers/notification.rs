@@ -10,7 +10,7 @@ use utils::{
     line_index::LineIndex,
     lines::{LineEnding, LineInfo, PositionEncoding},
 };
-use vfs::loader::LoadResult;
+use vfs::{VfsPath, loader::LoadResult};
 
 use crate::{
     DEFAULT_PROCESS_NAME,
@@ -35,16 +35,14 @@ pub(crate) fn handle_did_open_text_document(
     params: DidOpenTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
+        let file_id = set_vfs_file_contents(state, &path, params.text_document.text.clone());
         let data = DocumentData {
             version: params.text_document.version,
             data: params.text_document.text.clone(),
         };
-        if state.mem_docs.insert(path.clone(), data).is_some() {
+        if state.mem_docs.insert(file_id, path.clone(), data).is_some() {
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
-
-        let (text, endings) = LineEnding::normalize(params.text_document.text);
-        state.vfs.write().0.set_file_contents(&path, LoadResult::Loaded(text, endings));
     }
     Ok(())
 }
@@ -73,11 +71,9 @@ pub(crate) fn handle_did_change_text_document(
             params.content_changes,
         );
 
-        let (text, endings) = LineEnding::normalize(text);
-
         if *data != text {
             *data = text.clone();
-            state.vfs.write().0.set_file_contents(&path, LoadResult::Loaded(text, endings));
+            set_vfs_file_contents(state, &path, text);
         }
     }
     Ok(())
@@ -188,6 +184,13 @@ pub(crate) fn handle_did_change_watched_files(
         }
     }
     Ok(())
+}
+
+fn set_vfs_file_contents(state: &mut GlobalState, path: &VfsPath, text: String) -> vfs::FileId {
+    let (text, endings) = LineEnding::normalize(text);
+    let mut vfs = state.vfs.write();
+    vfs.0.set_file_contents(path, LoadResult::Loaded(text, endings));
+    vfs.0.file_id(path).expect("loaded file must have a FileId")
 }
 
 fn apply_document_changes(
