@@ -179,6 +179,18 @@ fn no_completion_inside_based_literal() {
 }
 
 #[test]
+fn no_completion_while_typing_based_literal() {
+    for text in [
+        "module m; initial x = 4'/*caret*/; endmodule\n",
+        "module m; initial x = 4'b/*caret*/; endmodule\n",
+        "module m; initial x = 4'b0001/*caret*/; endmodule\n",
+    ] {
+        let items = completions_in_text(text, None);
+        assert!(items.is_empty(), "should not complete while typing based literal, got: {:?}", items);
+    }
+}
+
+#[test]
 fn no_completion_at_top_level_with_comma_trigger() {
     let items = completions_in_text(",/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
     assert!(

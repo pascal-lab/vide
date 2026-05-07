@@ -274,6 +274,24 @@ mod tests {
     }
 
     #[test]
+    fn detects_typing_based_literal_after_quote() {
+        let c = ctx("module m; initial x = 4'/*caret*/; endmodule\n");
+        assert_eq!(c.lex, LexContext::Literal);
+    }
+
+    #[test]
+    fn detects_typing_based_literal_after_base() {
+        let c = ctx("module m; initial x = 4'b/*caret*/; endmodule\n");
+        assert_eq!(c.lex, LexContext::Literal);
+    }
+
+    #[test]
+    fn detects_typing_based_literal_after_digits() {
+        let c = ctx("module m; initial x = 4'b0001/*caret*/; endmodule\n");
+        assert_eq!(c.lex, LexContext::Literal);
+    }
+
+    #[test]
     fn detects_preproc_directive() {
         let c = ctx("`define /*caret*/FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::PreprocDirective);
