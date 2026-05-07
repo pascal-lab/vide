@@ -80,7 +80,8 @@ impl GlobalState {
             DiagnosticInvalidation::FileChanges(file_ids) => {
                 if self.config.semantic_diagnostics_enabled() {
                     let snapshot = self.make_snapshot();
-                    let open_file_ids = self.open_mem_doc_file_ids().into_iter().collect::<FxHashSet<_>>();
+                    let open_file_ids =
+                        self.open_mem_doc_file_ids().into_iter().collect::<FxHashSet<_>>();
                     file_ids
                         .into_iter()
                         .flat_map(|file_id| snapshot.source_root_file_ids(file_id))

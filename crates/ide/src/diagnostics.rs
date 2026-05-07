@@ -93,11 +93,7 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{
-        change::Change,
-        source_db::SourceRootDb,
-        source_root::SourceRoot,
-    };
+    use base_db::{change::Change, source_db::SourceRootDb, source_root::SourceRoot};
     use ide_db::root_db::RootDb;
     use triomphe::Arc;
     use utils::lines::LineEnding;

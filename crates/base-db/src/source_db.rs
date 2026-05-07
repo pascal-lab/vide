@@ -61,7 +61,10 @@ pub trait SourceRootDb: SourceDb {
     fn source_root(&self, id: SourceRootId) -> Arc<SourceRoot>;
 
     fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
-    fn source_root_semantic_diagnostics(&self, file_id: FileId) -> Arc<[(FileId, SyntaxDiagnostic)]>;
+    fn source_root_semantic_diagnostics(
+        &self,
+        file_id: FileId,
+    ) -> Arc<[(FileId, SyntaxDiagnostic)]>;
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
