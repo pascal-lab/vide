@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use ide::{
-    code_action::{CodeActionKind, CodeActionResolveStrategy},
+    code_action::{
+        CodeActionDiagnostic, CodeActionDiagnostics, CodeActionKind, CodeActionResolveStrategy,
+        DiagnosticCode, DiagnosticSource,
+    },
     folding_ranges::FoldingConfig,
     references::References,
 };
@@ -604,7 +607,13 @@ pub(crate) fn handle_code_action(
         CodeActionResolveStrategy::All
     };
 
-    let action = snap.analysis.code_action(file_id, range, resolve_strategy.clone())?;
+    let repair_diagnostics = code_action_diagnostics(&params.context.diagnostics);
+    let action = snap.analysis.code_action(
+        file_id,
+        range,
+        repair_diagnostics,
+        resolve_strategy.clone(),
+    )?;
     let diag_context =
         (!params.context.diagnostics.is_empty()).then(|| params.context.diagnostics.clone());
 
@@ -630,24 +639,55 @@ fn quick_fix_diagnostics(
     action_name: &str,
     diagnostics: &[lsp_types::Diagnostic],
 ) -> Option<Vec<lsp_types::Diagnostic>> {
-    let predicate: fn(&lsp_types::Diagnostic) -> bool = match action_name {
-        "add_missing_connections" => is_missing_connection_diagnostic,
-        "add_missing_parameters" => is_missing_parameter_diagnostic,
+    let repair = match action_name {
+        "add_missing_connections" => ide::code_action::RepairKind::MissingConnection,
+        "add_missing_parameters" => ide::code_action::RepairKind::MissingParameter,
         _ => return None,
     };
 
-    let matches = diagnostics.iter().filter(|diag| predicate(diag)).cloned().collect::<Vec<_>>();
+    let matches = diagnostics
+        .iter()
+        .filter(|diag| {
+            code_action_diagnostic(diag).is_some_and(|diag| {
+                CodeActionDiagnostics { items: vec![diag] }.allows_repair(repair)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     if matches.is_empty() { None } else { Some(matches) }
 }
 
-fn is_missing_connection_diagnostic(diag: &lsp_types::Diagnostic) -> bool {
-    let msg = diag.message.as_str();
-    msg.contains("has no connection")
-        || msg.contains("does not provide a connection for an unnamed port")
+fn code_action_diagnostics(diagnostics: &[lsp_types::Diagnostic]) -> CodeActionDiagnostics {
+    CodeActionDiagnostics {
+        items: diagnostics.iter().filter_map(code_action_diagnostic).collect(),
+    }
 }
 
-fn is_missing_parameter_diagnostic(diag: &lsp_types::Diagnostic) -> bool {
-    diag.message.contains("does not provide a value for parameter")
+fn code_action_diagnostic(diag: &lsp_types::Diagnostic) -> Option<CodeActionDiagnostic> {
+    let data = diag.data.as_ref()?;
+    let source = data.get("source").and_then(|value| value.as_str()).and_then(|value| match value {
+        "parse" => Some(DiagnosticSource::Parse),
+        "semantic" => Some(DiagnosticSource::Semantic),
+        _ => None,
+    });
+    let subsystem = data
+        .get("subsystem")
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u16::try_from(value).ok());
+    let code = data
+        .get("code")
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u16::try_from(value).ok());
+    let option = data
+        .get("option")
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned);
+
+    Some(CodeActionDiagnostic {
+        source,
+        code: subsystem.zip(code).map(|(subsystem, code)| DiagnosticCode { subsystem, code }),
+        option,
+    })
 }
 
 pub(crate) fn handle_code_action_resolve(
@@ -680,7 +720,11 @@ pub(crate) fn handle_code_action_resolve(
     let (idx, name) = parse_action_id(&data.id).map_err(CodeActionResolveError::InvalidId)?;
     let resolve_strategy = CodeActionResolveStrategy::Single { name };
 
-    let action = snap.analysis.code_action(file_id, range, resolve_strategy)?.remove(idx);
+    let repair_diagnostics = code_action_diagnostics(&data.code_action_params.context.diagnostics);
+    let action = snap
+        .analysis
+        .code_action(file_id, range, repair_diagnostics, resolve_strategy)?
+        .remove(idx);
 
     let resolved_action = to_proto::code_action(&snap, action, None, None)?;
     code_action.edit = resolved_action.edit;
@@ -692,11 +736,11 @@ pub(crate) fn handle_code_action_resolve(
 #[cfg(test)]
 mod tests {
     use lsp_types::{
-        DocumentDiagnosticReport, UnchangedDocumentDiagnosticReport, Url,
+        Diagnostic, DocumentDiagnosticReport, NumberOrString, Range, UnchangedDocumentDiagnosticReport, Url,
         WorkspaceDocumentDiagnosticReport,
     };
 
-    use super::{document_diagnostic_report, workspace_diagnostic_report};
+    use super::{document_diagnostic_report, quick_fix_diagnostics, workspace_diagnostic_report};
 
     #[test]
     fn document_diagnostic_report_uses_unchanged_for_matching_result_id() {
@@ -752,5 +796,29 @@ mod tests {
             }
             other => panic!("expected unchanged report, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn quick_fix_diagnostics_use_stable_diagnostic_data() {
+        let diag = Diagnostic {
+            range: Range::default(),
+            severity: None,
+            code: Some(NumberOrString::String("2:29".to_owned())),
+            code_description: None,
+            source: Some("slang".to_owned()),
+            message: "localized message that should not be matched".to_owned(),
+            related_information: None,
+            tags: None,
+            data: Some(serde_json::json!({
+                "source": "semantic",
+                "subsystem": 2,
+                "code": 29,
+                "option": null,
+                "groups": [],
+                "selectorHints": ["code:2:29", "source:semantic"]
+            })),
+        };
+
+        assert!(quick_fix_diagnostics("add_missing_parameters", &[diag]).is_some());
     }
 }

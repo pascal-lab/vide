@@ -13,7 +13,7 @@ use vfs::FileId;
 
 use crate::{
     Cancellable,
-    code_action::{self, CodeAction, CodeActionResolveStrategy},
+    code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
     completion::{
         CompletionItem,
@@ -224,8 +224,9 @@ impl Analysis {
         &self,
         file_id: FileId,
         range: TextRange,
+        diagnostics: CodeActionDiagnostics,
         resolve_strategy: CodeActionResolveStrategy,
     ) -> Cancellable<Vec<CodeAction>> {
-        self.with_db(|db| code_action::code_action(db, file_id, range, resolve_strategy))
+        self.with_db(|db| code_action::code_action(db, file_id, range, diagnostics, resolve_strategy))
     }
 }

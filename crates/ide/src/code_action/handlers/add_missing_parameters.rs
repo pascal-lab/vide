@@ -9,7 +9,9 @@ use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
 use utils::get::GetRef;
 
-use crate::code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind};
+use crate::code_action::{
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+};
 
 const ID: CodeActionId =
     CodeActionId { name: "add_missing_parameters", kind: CodeActionKind::Generate };
@@ -19,6 +21,10 @@ pub(super) fn add_missing_parameters(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
+    if !ctx.diagnostics.allows_repair(RepairKind::MissingParameter) {
+        return None;
+    }
+
     let sema = ctx.sema;
     let db = sema.db;
 
@@ -34,6 +40,7 @@ pub(super) fn add_missing_parameters(
     let target_module_id = sema.nameres_instantiation(ast_instantiation)?;
     let target_module = db.module(target_module_id);
 
+    let has_existing_assigns = !instantiation.param_assigns.is_empty();
     let is_ordered = instantiation
         .param_assigns
         .first()
@@ -79,17 +86,21 @@ pub(super) fn add_missing_parameters(
         Either::Right(names)
     };
 
+    if names.as_ref().either(Vec::is_empty, FxHashSet::is_empty) {
+        return None;
+    }
+
     collector.add(ID, LABEL, ctx.range, |builder| {
-        let mut text = String::new();
+        let mut entries = Vec::new();
         let cont_id = module_id.into();
         let mut add_to_text = |name: SmolStr| match (
             sema.name_to_def(InContainer::new(cont_id, name.clone())),
             is_ordered,
         ) {
-            (None, true) => text.push_str(&format!("/* {name} */, ")),
-            (None, false) => text.push_str(&format!(".{name}(), ")),
-            (Some(_), true) => text.push_str(&format!("{name}, ")),
-            (Some(_), false) => text.push_str(&format!(".{name}, ")),
+            (None, true) => entries.push(format!("/* {name} */")),
+            (None, false) => entries.push(format!(".{name}()")),
+            (Some(_), true) => entries.push(name.to_string()),
+            (Some(_), false) => entries.push(format!(".{name}")),
         };
 
         match names {
@@ -101,9 +112,9 @@ pub(super) fn add_missing_parameters(
             }
         }
 
-        if !text.is_empty() {
-            assert!(text.pop() == Some(' '));
-            assert!(text.pop() == Some(','));
+        let mut text = entries.join(", ");
+        if has_existing_assigns && !text.is_empty() {
+            text.insert_str(0, ", ");
         }
 
         builder.insert(insert_offset, text);
