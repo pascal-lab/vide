@@ -20,7 +20,7 @@ pub enum LexContext {
     Code,
     LineComment,
     BlockComment,
-    StringLiteral,
+    Literal,
     PreprocDirective,
 }
 
@@ -258,7 +258,19 @@ mod tests {
     #[test]
     fn detects_string_literal() {
         let c = ctx("module m; initial $display(\"he/*caret*/llo\"); endmodule\n");
-        assert_eq!(c.lex, LexContext::StringLiteral);
+        assert_eq!(c.lex, LexContext::Literal);
+    }
+
+    #[test]
+    fn detects_literal() {
+        let c = ctx("module m; initial x = 12/*caret*/34; endmodule\n");
+        assert_eq!(c.lex, LexContext::Literal);
+    }
+
+    #[test]
+    fn detects_based_literal() {
+        let c = ctx("module m; initial x = 4'b10/*caret*/10; endmodule\n");
+        assert_eq!(c.lex, LexContext::Literal);
     }
 
     #[test]

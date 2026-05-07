@@ -167,6 +167,18 @@ module m; endmodule
 }
 
 #[test]
+fn no_completion_inside_literal() {
+    let items = completions_in_text("module m; initial x = 12/*caret*/34; endmodule\n", None);
+    assert!(items.is_empty(), "should not complete in numeric literal, got: {:?}", items);
+}
+
+#[test]
+fn no_completion_inside_based_literal() {
+    let items = completions_in_text("module m; initial x = 4'b10/*caret*/10; endmodule\n", None);
+    assert!(items.is_empty(), "should not complete in based numeric literal, got: {:?}", items);
+}
+
+#[test]
 fn no_completion_at_top_level_with_comma_trigger() {
     let items = completions_in_text(",/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
     assert!(
