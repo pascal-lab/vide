@@ -4,8 +4,10 @@ use triomphe::Arc;
 use utils::line_index::TextSize;
 use vfs::{FileId, anchored_path::AnchoredPath};
 
-use crate::diagnostics_config::{DiagnosticSource, DiagnosticsConfig};
-use crate::source_root::{SourceRoot, SourceRootId};
+use crate::{
+    diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
+    source_root::{SourceRoot, SourceRootId},
+};
 
 pub trait FileLoader {
     fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId>;
