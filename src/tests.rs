@@ -20,7 +20,10 @@ use utils::paths::AbsPathBuf;
 
 use crate::{
     Opt,
-    config::{self, user_config::UserConfig},
+    config::{
+        self,
+        user_config::{DiagnosticsUpdateUserConfig, UserConfig},
+    },
     global_state::main_loop,
     lsp_ext::to_proto,
 };
@@ -827,9 +830,12 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
 
 #[test]
 fn legacy_publish_diagnostics_refreshes_dependent_open_files() {
+    let mut user_config = UserConfig::default();
+    user_config.diagnostics.update = DiagnosticsUpdateUserConfig::OnType;
+
     let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
         ClientCapabilities::default(),
-        UserConfig::default(),
+        user_config,
         &[
             ("child.sv", "module child(input logic a, input logic b);\nendmodule\n"),
             ("top.sv", "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n"),
