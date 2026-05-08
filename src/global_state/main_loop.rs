@@ -7,6 +7,7 @@ use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::notification::Notification as _;
 use project_model::project_manifest;
 use triomphe::Arc;
+use utils::thread::ThreadIntent;
 use vfs::{FileId, VfsPath, loader as vfs_loader};
 
 use super::{
@@ -180,6 +181,16 @@ impl GlobalState {
     }
 
     fn handle_request(&mut self, req: Request) {
+        if matches!(
+            req.method.as_str(),
+            lsp_types::request::DocumentDiagnosticRequest::METHOD
+                | lsp_types::request::WorkspaceDiagnosticRequest::METHOD
+        ) && !self.is_stuck()
+        {
+            self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || Task::Retry(req));
+            return;
+        }
+
         let mut dispatcher = ReqDispatcher { req: Some(req), global_state: self };
 
         // Handle shutdown req first

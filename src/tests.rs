@@ -12,7 +12,7 @@ use lsp_types::{
     DocumentDiagnosticReportResult, ProgressParams, PublishDiagnosticsParams,
     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentItem, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
+    WorkspaceClientCapabilities, WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
     notification::{DidChangeTextDocument, DidOpenTextDocument, Exit, Notification as _},
     request::{DocumentDiagnosticRequest, Request as _, Shutdown, WorkspaceDiagnosticRequest},
 };
@@ -570,6 +570,164 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Request(request) => {
                 panic!("unexpected server request during diagnostics test: {request:?}");
+            }
+            _ => {}
+        }
+    }
+
+    panic!("workspaceDiagnostic response not received");
+}
+
+#[test]
+fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        workspace: Some(WorkspaceClientCapabilities {
+            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+                refresh_support: Some(true),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new();
+    let child_path = temp_dir.path().join("child.sv");
+    let top_path = temp_dir.path().join("top.v");
+    let top_text = "module top;\n  wire sig;\n  child u(.a(sig));\nendmodule\n";
+    fs::write(&child_path, "module child(input logic a, input logic b);\nendmodule\n").unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let top_uri = to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref());
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: top_uri.clone(),
+                    language_id: "verilog".to_string(),
+                    version: 1,
+                    text: top_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+        match client.receiver.recv_timeout(timeout).unwrap() {
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+                break;
+            }
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request) => {
+                panic!("unexpected server request while waiting for diagnostic refresh: {request:?}");
+            }
+            _ => {}
+        }
+    }
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            WorkspaceDiagnosticRequest::METHOD.to_string(),
+            WorkspaceDiagnosticParams {
+                identifier: None,
+                previous_result_ids: Vec::new(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+        match client.receiver.recv_timeout(timeout).unwrap() {
+            Message::Response(response) if response.id == request_id => {
+                assert!(response.error.is_none(), "{:?}", response.error);
+                let result = serde_json::from_value::<WorkspaceDiagnosticReportResult>(
+                    response.result.unwrap(),
+                )
+                .unwrap();
+                let report = match result {
+                    WorkspaceDiagnosticReportResult::Report(report) => report,
+                    other => panic!("unexpected workspace diagnostic response: {other:?}"),
+                };
+                let mut top_diagnostics = None;
+                for item in report.items {
+                    if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
+                        && full.uri == top_uri
+                    {
+                        top_diagnostics = Some(full.full_document_diagnostic_report.items);
+                    }
+                }
+                let top_diagnostics = top_diagnostics.expect("missing top diagnostics");
+                assert!(
+                    !top_diagnostics
+                        .iter()
+                        .any(|diag| diag.message.contains("unknown module 'child'")),
+                    "top.v should resolve child module from unopened child.sv: {top_diagnostics:?}"
+                );
+                assert!(
+                    top_diagnostics
+                        .iter()
+                        .any(|diag| diag.message.contains("port 'b' has no connection")),
+                    "top.v should use unopened child.sv module definition: {top_diagnostics:?}"
+                );
+                shutdown_test_server(&client, server_thread);
+                return;
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+            }
+            Message::Request(request) => {
+                panic!("unexpected server request during workspace diagnostics: {request:?}");
             }
             _ => {}
         }
