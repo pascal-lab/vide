@@ -113,8 +113,7 @@ fn line_text_before_caret(caret: &CaretSnapshot<'_>) -> Option<String> {
 fn is_inside_literal(caret: &CaretSnapshot<'_>) -> bool {
     let tok = caret.root.token_at_offset(caret.offset).left_biased();
     tok.is_some_and(|tp| {
-        tp.kind().is_literal()
-            && tp.text_range().is_some_and(|r| r.contains(caret.offset))
+        tp.kind().is_literal() && tp.text_range().is_some_and(|r| r.contains(caret.offset))
     })
 }
 

@@ -1,10 +1,7 @@
 use base_db::source_db::SourceDb;
 use hir::{
     db::HirDb,
-    hir_def::{
-        declaration::Declaration,
-        module::port::Ports,
-    },
+    hir_def::{declaration::Declaration, module::port::Ports},
 };
 use itertools::Itertools;
 use smol_str::SmolStr;
@@ -112,7 +109,9 @@ pub(super) fn convert_ordered_params(
 
 fn port_names(module: &hir::hir_def::module::Module) -> Vec<SmolStr> {
     match &module.ports {
-        Ports::NonAnsi { ports, .. } => ports.values().filter_map(|port| port.label.clone()).collect(),
+        Ports::NonAnsi { ports, .. } => {
+            ports.values().filter_map(|port| port.label.clone()).collect()
+        }
         Ports::Ansi(ports) => ports
             .values()
             .flat_map(|port| port.decls.clone())

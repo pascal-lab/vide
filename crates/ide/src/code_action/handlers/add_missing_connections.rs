@@ -12,8 +12,8 @@ use syntax::{
 use utils::get::GetRef;
 
 use crate::code_action::{
-    append_missing_list_entries, CodeActionCollector, CodeActionCtx, CodeActionId,
-    CodeActionKind, RepairKind,
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    append_missing_list_entries,
 };
 
 const ID: CodeActionId =
@@ -126,7 +126,8 @@ pub(super) fn add_missing_connections(
 
         names.into_iter().for_each(&mut add_to_text);
 
-        builder.insert(insert_offset, append_missing_list_entries(entries, has_existing_connections));
+        builder
+            .insert(insert_offset, append_missing_list_entries(entries, has_existing_connections));
     });
 
     Some(())

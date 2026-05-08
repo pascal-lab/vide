@@ -171,5 +171,4 @@ mod tests {
             assert_debug_snapshot!(name, highlights);
         }
     }
-
 }

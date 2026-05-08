@@ -657,7 +657,9 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request while waiting for diagnostic refresh: {request:?}");
+                panic!(
+                    "unexpected server request while waiting for diagnostic refresh: {request:?}"
+                );
             }
             _ => {}
         }

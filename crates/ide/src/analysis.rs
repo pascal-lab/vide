@@ -227,6 +227,8 @@ impl Analysis {
         diagnostics: CodeActionDiagnostics,
         resolve_strategy: CodeActionResolveStrategy,
     ) -> Cancellable<Vec<CodeAction>> {
-        self.with_db(|db| code_action::code_action(db, file_id, range, diagnostics, resolve_strategy))
+        self.with_db(|db| {
+            code_action::code_action(db, file_id, range, diagnostics, resolve_strategy)
+        })
     }
 }

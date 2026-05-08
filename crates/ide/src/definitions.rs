@@ -430,9 +430,8 @@ mod tests {
     use utils::{lines::LineEnding, text_edit::TextSize};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use crate::analysis_host::AnalysisHost;
-
     use super::*;
+    use crate::analysis_host::AnalysisHost;
 
     fn host_with_file(text: &str) -> (AnalysisHost, FileId) {
         let file_id = FileId(0);

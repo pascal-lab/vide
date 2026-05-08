@@ -10,8 +10,8 @@ use syntax::{ast, has_text_range::HasTextRange};
 use utils::get::GetRef;
 
 use crate::code_action::{
-    append_missing_list_entries, CodeActionCollector, CodeActionCtx, CodeActionId,
-    CodeActionKind, RepairKind,
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    append_missing_list_entries,
 };
 
 const ID: CodeActionId =
@@ -51,16 +51,14 @@ pub(super) fn add_missing_parameters(
     let names = if is_ordered {
         let assigned = instantiation.param_assigns.len();
 
-        let names = target_module
+        target_module
             .declarations
             .values()
             .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
             .flat_map(|declaration| declaration.decls())
             .filter_map(|decl| target_module.get(decl).name.clone())
             .skip(assigned)
-            .collect_vec();
-
-        names
+            .collect_vec()
     } else {
         let mut assigned_names = FxHashSet::default();
         for param_id in instantiation.param_assigns.iter() {

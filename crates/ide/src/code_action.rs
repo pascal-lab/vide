@@ -61,13 +61,10 @@ impl CodeActionDiagnostic {
             RepairKind::MissingConnection => {
                 self.source == Some(DiagnosticSource::Semantic)
                     && (matches!(
-                            self.option.as_deref(),
-                            Some("unconnected-port" | "unconnected-unnamed-port")
-                        )
-                        || self.code
-                            == Some(DiagnosticCode { subsystem: 2, code: 260 })
-                        || self.code
-                            == Some(DiagnosticCode { subsystem: 2, code: 261 }))
+                        self.option.as_deref(),
+                        Some("unconnected-port" | "unconnected-unnamed-port")
+                    ) || self.code == Some(DiagnosticCode { subsystem: 2, code: 260 })
+                        || self.code == Some(DiagnosticCode { subsystem: 2, code: 261 }))
             }
             RepairKind::MissingParameter => {
                 self.source == Some(DiagnosticSource::Semantic)
@@ -254,11 +251,11 @@ mod handlers {
 
     pub(crate) type Handler = fn(&mut CodeActionCollector, &CodeActionCtx<'_>) -> Option<()>;
 
+    mod add_implicit_named_port_parens;
+    mod add_instance_parens;
     mod add_missing_connections;
     mod add_missing_parameters;
     mod convert_ordered_connections;
-    mod add_implicit_named_port_parens;
-    mod add_instance_parens;
 
     pub(crate) fn all() -> &'static [Handler] {
         &[
@@ -407,7 +404,9 @@ mod tests {
             &db,
             file_id,
             utils::text_edit::TextRange::empty(offset),
-            CodeActionDiagnostics { items: vec![diagnostic_for_repair(RepairKind::MissingParameter)] },
+            CodeActionDiagnostics {
+                items: vec![diagnostic_for_repair(RepairKind::MissingParameter)],
+            },
             CodeActionResolveStrategy::All,
         );
 
@@ -535,7 +534,8 @@ mod tests {
 
     #[test]
     fn implicit_named_port_repair_adds_empty_parens() {
-        let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
+        let text =
+            "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
         let fixed = apply_action(text, RepairKind::AddImplicitNamedPortParens).unwrap();
         assert_eq!(
             fixed,

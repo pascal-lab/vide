@@ -14,8 +14,8 @@ use utils::{
 use vfs::{VfsPath, loader::LoadResult};
 
 use crate::{
-    config::user_config::DiagnosticsUpdateUserConfig,
     DEFAULT_PROCESS_NAME,
+    config::user_config::DiagnosticsUpdateUserConfig,
     global_state::{GlobalState, process_changes::DiagnosticInvalidation, reload},
     lsp_ext::from_proto,
 };

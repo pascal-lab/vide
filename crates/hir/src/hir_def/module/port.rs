@@ -345,10 +345,13 @@ impl LowerModuleCtx<'_> {
             };
 
             let (hir_port, src_name) = match port {
-                ExplicitNonAnsiPort(port) => (NonAnsiPort {
-                    label: lower_ident_opt(port.name()),
-                    refs: lower_port_exprs(port.expr()),
-                }, None),
+                ExplicitNonAnsiPort(port) => (
+                    NonAnsiPort {
+                        label: lower_ident_opt(port.name()),
+                        refs: lower_port_exprs(port.expr()),
+                    },
+                    None,
+                ),
                 ImplicitNonAnsiPort(port) => {
                     let sub_refs = lower_port_exprs(Some(port.expr()));
                     debug_assert!(sub_refs.as_ref().is_none_or(|refs| refs.len() == 1));
@@ -367,7 +370,8 @@ impl LowerModuleCtx<'_> {
                 port => port_srcs,
             };
             if src_name.is_some() {
-                port_srcs.insert(NonAnsiPortSrc { name: src_name, ..port_srcs.get(port_id) }, port_id);
+                port_srcs
+                    .insert(NonAnsiPortSrc { name: src_name, ..port_srcs.get(port_id) }, port_id);
             }
         }
 

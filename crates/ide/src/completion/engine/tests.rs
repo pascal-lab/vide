@@ -186,7 +186,11 @@ fn no_completion_while_typing_based_literal() {
         "module m; initial x = 4'b0001/*caret*/; endmodule\n",
     ] {
         let items = completions_in_text(text, None);
-        assert!(items.is_empty(), "should not complete while typing based literal, got: {:?}", items);
+        assert!(
+            items.is_empty(),
+            "should not complete while typing based literal, got: {:?}",
+            items
+        );
     }
 }
 
