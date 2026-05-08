@@ -482,11 +482,13 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
         UserConfig::default(),
         &[
             ("child.sv", "module child(input logic a, input logic b);\nendmodule\n"),
+            ("unused.sv", "module unused;\nendmodule\n"),
             ("top.sv", "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n"),
         ],
     );
     let child_uri = uris[0].clone();
-    let top_uri = uris[1].clone();
+    let unused_uri = uris[1].clone();
+    let top_uri = uris[2].clone();
 
     let request_id = lsp_server::RequestId::from(1);
     let request = Request::new(
@@ -516,11 +518,14 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
                     other => panic!("unexpected workspace diagnostic response: {other:?}"),
                 };
                 let mut child_diagnostics = None;
+                let mut unused_diagnostics = None;
                 let mut top_diagnostics = None;
                 for item in report.items {
                     if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item {
                         if full.uri == child_uri {
                             child_diagnostics = Some(full.full_document_diagnostic_report.items);
+                        } else if full.uri == unused_uri {
+                            unused_diagnostics = Some(full.full_document_diagnostic_report.items);
                         } else if full.uri == top_uri {
                             top_diagnostics = Some(full.full_document_diagnostic_report.items);
                         }
@@ -528,16 +533,29 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
                 }
 
                 let child_diagnostics = child_diagnostics.expect("missing child diagnostics");
+                let unused_diagnostics = unused_diagnostics.expect("missing unused diagnostics");
                 let top_diagnostics = top_diagnostics.expect("missing top diagnostics");
                 assert!(
                     child_diagnostics.is_empty(),
                     "child.sv should not receive top.sv diagnostics: {child_diagnostics:?}"
                 );
                 assert!(
+                    unused_diagnostics.is_empty(),
+                    "unused.sv should not receive top.sv diagnostics: {unused_diagnostics:?}"
+                );
+                assert!(
                     top_diagnostics
                         .iter()
                         .any(|diag| diag.message.contains("port 'b' has no connection")),
                     "top.sv should receive semantic diagnostic using child.sv: {top_diagnostics:?}"
+                );
+                assert_eq!(
+                    top_diagnostics
+                        .iter()
+                        .filter(|diag| diag.message.contains("port 'b' has no connection"))
+                        .count(),
+                    1,
+                    "workspace diagnostics should not duplicate source-root diagnostics: {top_diagnostics:?}"
                 );
                 assert!(
                     !top_diagnostics

@@ -130,14 +130,22 @@ pub(crate) fn handle_workspace_diagnostic(
     let previous_result_ids = params
         .previous_result_ids
         .into_iter()
-        .map(|prev| (prev.uri, prev.value))
+        .map(|prev| {
+            let uri = from_proto::abs_path(&prev.uri)
+                .map(|path| to_proto::url_from_abs_path(path.as_ref()))
+                .unwrap_or(prev.uri);
+            (uri, prev.value)
+        })
         .collect::<HashMap<_, _>>();
     let mut seen = HashSet::new();
     let mut items = Vec::new();
     let mut diagnostics_by_file = HashMap::new();
+    let mut diagnosed_roots = HashSet::new();
 
     for file_id in snap.file_ids() {
-        if diagnostics_by_file.contains_key(&file_id) {
+        let mut source_root_file_ids = snap.source_root_file_ids(file_id);
+        source_root_file_ids.sort_unstable_by_key(|file_id| file_id.0);
+        if !diagnosed_roots.insert(source_root_file_ids) {
             continue;
         }
 
