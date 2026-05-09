@@ -222,6 +222,12 @@ fn preproc_completion_preserves_typed_backtick() {
 }
 
 #[test]
+fn no_directive_keyword_completion_in_directive_body() {
+    let items = completions_in_text("`define /*caret*/FOO 1\nmodule m; endmodule\n", None);
+    assert!(items.is_empty(), "directive body should not suggest directive keywords: {items:?}");
+}
+
+#[test]
 fn expression_completion_excludes_module_item_keywords() {
     let items = completions_in_text(
         "module m; wire a; wire out; assign out = a + /*caret*/; endmodule\n",
