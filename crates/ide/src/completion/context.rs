@@ -191,9 +191,7 @@ fn detect_completion_context_impl(
 }
 
 fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {
-    let Some(source_text) = source_text else {
-        return None;
-    };
+    let source_text = source_text?;
     let offset = usize::from(offset);
     if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
         return None;
