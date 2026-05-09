@@ -141,7 +141,7 @@ pub(super) fn is_compatible_typed_value(
     let (Some(expected_class), Some(candidate_class)) =
         (type_class(db, expected_ty), type_class(db, candidate_ty))
     else {
-        return true;
+        return false;
     };
     if expected_class != candidate_class {
         return false;
@@ -155,7 +155,7 @@ pub(super) fn is_compatible_typed_value(
     let candidate_w = packed_bit_width(db, candidate_module, candidate_ty);
     match (expected_w, candidate_w) {
         (Some(a), Some(b)) => a == b,
-        _ => true,
+        _ => false,
     }
 }
 

@@ -44,6 +44,10 @@ fn completions_in_text(text: &str, trigger: Option<TriggerChar>) -> Vec<Completi
     super::completions(host.raw_db(), position, trigger)
 }
 
+fn labels(items: &[CompletionItem]) -> Vec<&str> {
+    items.iter().map(|item| item.label.as_str()).collect()
+}
+
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/completion/engine/fixtures")
 }
@@ -202,6 +206,106 @@ fn no_completion_at_top_level_with_comma_trigger() {
         "should not complete at top level on comma trigger, got: {:?}",
         items
     );
+}
+
+#[test]
+fn expression_completion_excludes_module_item_keywords() {
+    let items = completions_in_text(
+        "module m; wire a; wire out; assign out = a + /*caret*/; endmodule\n",
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"a"), "expression names should be offered: {items:?}");
+    assert!(!labels.contains(&"assign"), "module item keyword leaked into expression: {items:?}");
+    assert!(!labels.contains(&"always"), "module item snippet leaked into expression: {items:?}");
+}
+
+#[test]
+fn initializer_expression_completion_excludes_module_item_keywords() {
+    let items =
+        completions_in_text("module m; wire a; localparam P = a + /*caret*/; endmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"a"), "initializer expression names should be offered: {items:?}");
+    assert!(!labels.contains(&"assign"), "module item keyword leaked into initializer: {items:?}");
+}
+
+#[test]
+fn module_item_identifier_prefix_stays_module_item_start() {
+    let items =
+        completions_in_text("module Foo; endmodule\nmodule top; Fo/*caret*/\nendmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"Foo"), "module instantiation snippet expected: {items:?}");
+    assert!(
+        !labels.contains(&"top"),
+        "module item prefix should not be treated as expression: {items:?}"
+    );
+}
+
+#[test]
+fn incomplete_member_access_uses_structural_left_expression() {
+    let items = completions_in_text(
+        "module sub; wire inner; endmodule\nmodule top; sub u0(); initial u0./*caret*/ endmodule\n",
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"inner"), "member access should recover left expression: {items:?}");
+}
+
+#[test]
+fn incomplete_chained_member_access_uses_structural_left_expression() {
+    let items = completions_in_text(
+        "module leaf; wire leaf_wire; endmodule\nmodule sub; leaf u1(); endmodule\nmodule top; sub u0(); initial u0.u1./*caret*/ endmodule\n",
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(
+        labels.contains(&"leaf_wire"),
+        "chained member access should recover left expression: {items:?}"
+    );
+}
+
+#[test]
+fn incomplete_array_member_access_uses_structural_left_expression() {
+    let items = completions_in_text(
+        "module sub; wire inner; endmodule\nmodule top; sub u0 [0:1] (); initial u0[0]./*caret*/ endmodule\n",
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(
+        labels.contains(&"inner"),
+        "array member access should recover left expression: {items:?}"
+    );
+}
+
+#[test]
+fn manual_and_triggered_at_use_same_sensitivity_site_behavior() {
+    let text = "module m; wire clk; always @/*caret*/(posedge clk) begin end endmodule\n";
+    let manual = completions_in_text(text, None);
+    let triggered = completions_in_text(text, Some(TriggerChar::At));
+
+    assert_eq!(manual, triggered);
+    assert!(labels(&manual).contains(&"*"), "sensitivity completions expected: {manual:?}");
+}
+
+#[test]
+fn unresolved_instantiation_does_not_complete_connections() {
+    let items = completions_in_text("module top; missing u0(/*caret*/); endmodule\n", None);
+    assert!(items.is_empty(), "unresolved instantiation should not fall back: {items:?}");
+}
+
+#[test]
+fn named_port_expr_without_known_type_does_not_fallback_to_all_values() {
+    let items = completions_in_text(
+        "module m(input custom_t a); endmodule\nmodule top; wire sig; m u0(.a(/*caret*/)); endmodule\n",
+        None,
+    );
+    assert!(items.is_empty(), "unknown typed port should not accept all values: {items:?}");
 }
 
 #[test]

@@ -14,12 +14,12 @@ use hir::{
 use ide_db::root_db::RootDb;
 use span::FilePosition;
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt,
+    SyntaxNode,
     ast::{self, AstNode},
 };
 use utils::{
     get::Get,
-    text_edit::{TextEditItem, TextRange, TextSize},
+    text_edit::{TextEditItem, TextSize},
 };
 
 use super::{CompletionItem, CompletionItemKind};
@@ -37,7 +37,7 @@ pub(super) fn complete_expression(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    complete_expression_impl(db, position, prefix, ctx, true)
+    complete_expression_impl(db, position, prefix, ctx)
 }
 
 pub(super) fn complete_argument_exprs(
@@ -46,7 +46,7 @@ pub(super) fn complete_argument_exprs(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    complete_expression_impl(db, position, prefix, ctx, false)
+    complete_expression_impl(db, position, prefix, ctx)
 }
 
 fn complete_expression_impl(
@@ -54,15 +54,10 @@ fn complete_expression_impl(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-    require_expr_node: bool,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
     let file = sema.parse(position.file_id);
     let root = file.syntax();
-
-    if require_expr_node && !is_in_expression(root, position.offset) {
-        return Vec::new();
-    }
 
     let mut names: BTreeMap<String, NameKind> = BTreeMap::new();
 
@@ -99,15 +94,6 @@ fn complete_expression_impl(
             },
         })
         .collect()
-}
-
-fn is_in_expression(root: SyntaxNode<'_>, offset: TextSize) -> bool {
-    let elem = root.covering_element(TextRange::empty(offset));
-    let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
-        return false;
-    };
-
-    SyntaxAncestors::start_from(node).any(|n| ast::Expression::can_cast(n.kind()))
 }
 
 fn module_id_at_offset(

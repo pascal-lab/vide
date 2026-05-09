@@ -18,7 +18,8 @@ use span::FilePosition;
 
 pub use self::named::{CompletionItem, CompletionItemKind};
 use crate::completion::context::{
-    CompletionContext, DotKind, LexContext, Qualifier, SynContext, TriggerChar, completion_context,
+    CompletionContext, CompletionSite, HashKind, LexContext, ParenListKind, PortListKind,
+    TriggerChar, completion_context,
 };
 
 pub fn completions(
@@ -35,61 +36,95 @@ fn completions_with_context(
     position: FilePosition,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    if ctx.lex == LexContext::PreprocDirective {
+    if ctx.site == CompletionSite::PreprocDirective {
         return preproc::complete_directives(&ctx.prefix, ctx);
     }
 
-    if ctx.lex != LexContext::Code || ctx.in_decl_name {
+    if ctx.lex != LexContext::Code || ctx.site == CompletionSite::Forbidden {
         return Vec::new();
     }
 
-    // When completion is triggered by a punctuation character, but we couldn't
-    // infer any syntactic completion zone (and we also aren't replacing a
-    // word-like token), returning general keyword/snippet completions often
-    // produces invalid edits like `,module ...`.
-    if ctx.trigger.is_some()
-        && ctx.qualifier.is_none()
-        && ctx.prefix.is_empty()
-        && ctx.replacement.is_empty()
-    {
+    if punctuation_trigger_without_site(ctx) {
         return Vec::new();
     }
 
-    if ctx.syn == SynContext::SensitivityList {
-        return sensitivity_list::complete_sensitivity_list(db, position, &ctx.prefix, ctx);
-    }
-
-    match ctx.qualifier {
-        Some(Qualifier::AfterDot(after_dot)) => match after_dot.kind {
-            DotKind::NamedPort => named::complete_named_port_names(db, position, &ctx.prefix, ctx),
-            DotKind::NamedParam => {
-                named::complete_named_param_names(db, position, &ctx.prefix, ctx)
-            }
-            DotKind::Member => member::complete_member_access(db, position, &ctx.prefix, ctx),
-        },
-        Some(Qualifier::InNamedPortConnExpr) => {
+    match ctx.site {
+        CompletionSite::Forbidden | CompletionSite::PreprocDirective => Vec::new(),
+        CompletionSite::TopLevel
+        | CompletionSite::ModuleHeader
+        | CompletionSite::ModuleItemStart => {
+            keywords::complete_keywords(db, position, &ctx.prefix, ctx)
+        }
+        CompletionSite::Expr => expr::complete_expression(db, position, &ctx.prefix, ctx),
+        CompletionSite::NamedPortName => {
+            named::complete_named_port_names(db, position, &ctx.prefix, ctx)
+        }
+        CompletionSite::NamedParamName => {
+            named::complete_named_param_names(db, position, &ctx.prefix, ctx)
+        }
+        CompletionSite::MemberAccess => {
+            member::complete_member_access(db, position, &ctx.prefix, ctx)
+        }
+        CompletionSite::NamedPortConnExpr => {
             named::complete_named_port_conn_expr(db, position, &ctx.prefix, ctx)
         }
-        Some(Qualifier::InNamedParamAssignExpr) => {
+        CompletionSite::NamedParamAssignExpr => {
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
-        None => {
-            let mut items = keywords::complete_keywords(db, position, &ctx.prefix, ctx);
-            if ctx.syn == SynContext::ModuleItem {
-                items.extend(expr::complete_expression(db, position, &ctx.prefix, ctx));
-            }
-            items
+        CompletionSite::AfterParamValueAssignmentHash => {
+            paren_list::complete_after_hash(&ctx.prefix, ctx, HashKind::ParamValueAssignment)
         }
-        Some(Qualifier::AfterHash(after_hash)) => {
-            paren_list::complete_after_hash(&ctx.prefix, ctx, after_hash.kind)
+        CompletionSite::AfterParameterPortListHash => {
+            paren_list::complete_after_hash(&ctx.prefix, ctx, HashKind::ParameterPortList)
         }
-        Some(Qualifier::InParenList(in_parens)) => {
-            paren_list::complete_in_paren_list(db, position, &ctx.prefix, ctx, in_parens.kind)
+        CompletionSite::ParamValueAssignment => paren_list::complete_in_paren_list(
+            db,
+            position,
+            &ctx.prefix,
+            ctx,
+            ParenListKind::ParamValueAssignment,
+        ),
+        CompletionSite::ParameterPortList => paren_list::complete_in_paren_list(
+            db,
+            position,
+            &ctx.prefix,
+            ctx,
+            ParenListKind::ParameterPortList,
+        ),
+        CompletionSite::PortConnections => paren_list::complete_in_paren_list(
+            db,
+            position,
+            &ctx.prefix,
+            ctx,
+            ParenListKind::PortConnections,
+        ),
+        CompletionSite::Arguments => paren_list::complete_in_paren_list(
+            db,
+            position,
+            &ctx.prefix,
+            ctx,
+            ParenListKind::Arguments,
+        ),
+        CompletionSite::AnsiPortList => {
+            port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, PortListKind::Ansi)
         }
-        Some(Qualifier::InPortList(in_ports)) => {
-            port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, in_ports.kind)
+        CompletionSite::NonAnsiPortList => {
+            port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, PortListKind::NonAnsi)
         }
-        Some(Qualifier::AfterAt(_)) => Vec::new(),
-        Some(Qualifier::AfterBacktick) => preproc::complete_directives(&ctx.prefix, ctx),
+        CompletionSite::AfterAtEventControl | CompletionSite::SensitivityList => {
+            sensitivity_list::complete_sensitivity_list(db, position, &ctx.prefix, ctx)
+        }
     }
+}
+
+fn punctuation_trigger_without_site(ctx: &CompletionContext) -> bool {
+    ctx.trigger.is_some()
+        && matches!(
+            ctx.site,
+            CompletionSite::TopLevel
+                | CompletionSite::ModuleHeader
+                | CompletionSite::ModuleItemStart
+        )
+        && ctx.prefix.is_empty()
+        && ctx.replacement.is_empty()
 }

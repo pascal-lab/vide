@@ -25,23 +25,6 @@ pub enum LexContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SynContext {
-    TopLevel,
-    ModuleHeader,
-    ModuleItem,
-    Instantiation,
-    HierRef,
-    SensitivityList,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DotKind {
-    NamedPort,
-    NamedParam,
-    Member,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashKind {
     ParamValueAssignment,
     ParameterPortList,
@@ -62,43 +45,6 @@ pub enum PortListKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AtKind {
-    EventControl,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AfterDot {
-    pub kind: DotKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AfterHash {
-    pub kind: HashKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InParenList {
-    pub kind: ParenListKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InPortList {
-    pub kind: PortListKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Qualifier {
-    AfterDot(AfterDot),
-    AfterHash(AfterHash),
-    InParenList(InParenList),
-    InPortList(InPortList),
-    AfterAt(AtKind),
-    AfterBacktick,
-    InNamedPortConnExpr,
-    InNamedParamAssignExpr,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerChar {
     Dot,
     OpenParen,
@@ -108,14 +54,38 @@ pub enum TriggerChar {
     Backtick,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionSite {
+    Forbidden,
+    PreprocDirective,
+    TopLevel,
+    ModuleHeader,
+    ModuleItemStart,
+    Expr,
+    NamedPortName,
+    NamedParamName,
+    MemberAccess,
+    NamedPortConnExpr,
+    NamedParamAssignExpr,
+    AfterParamValueAssignmentHash,
+    AfterParameterPortListHash,
+    ParamValueAssignment,
+    ParameterPortList,
+    PortConnections,
+    Arguments,
+    AnsiPortList,
+    NonAnsiPortList,
+    AfterAtEventControl,
+    SensitivityList,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionContext {
     pub replacement: TextRange,
     pub prefix: String,
     pub trigger: Option<TriggerChar>,
     pub lex: LexContext,
-    pub syn: SynContext,
-    pub qualifier: Option<Qualifier>,
+    pub site: CompletionSite,
     pub in_decl_name: bool,
 }
 
@@ -126,8 +96,15 @@ pub(crate) fn completion_context(
 ) -> CompletionContext {
     let sema = Semantics::new(db);
     let file = sema.parse(file_id);
+    let text = db.file_text(file_id);
     let expected_ident_offsets = db.expected_identifier_offsets(file_id);
-    detect_completion_context_impl(file.syntax(), offset, trigger, Some(&expected_ident_offsets))
+    detect_completion_context_impl(
+        file.syntax(),
+        offset,
+        trigger,
+        Some(&text),
+        Some(&expected_ident_offsets),
+    )
 }
 
 pub fn detect_completion_context(
@@ -135,7 +112,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None)
+    detect_completion_context_impl(root, offset, trigger, None, None)
 }
 
 pub fn detect_completion_context_with_expected_identifier_offsets(
@@ -144,13 +121,30 @@ pub fn detect_completion_context_with_expected_identifier_offsets(
     trigger: Option<TriggerChar>,
     expected_identifier_offsets: &[TextSize],
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, Some(expected_identifier_offsets))
+    detect_completion_context_impl(root, offset, trigger, None, Some(expected_identifier_offsets))
+}
+
+pub fn detect_completion_context_with_source_text(
+    root: SyntaxNode<'_>,
+    offset: TextSize,
+    trigger: Option<TriggerChar>,
+    source_text: &str,
+    expected_identifier_offsets: &[TextSize],
+) -> CompletionContext {
+    detect_completion_context_impl(
+        root,
+        offset,
+        trigger,
+        Some(source_text),
+        Some(expected_identifier_offsets),
+    )
 }
 
 fn detect_completion_context_impl(
     root: SyntaxNode<'_>,
     offset: TextSize,
     trigger: Option<TriggerChar>,
+    source_text: Option<&str>,
     expected_identifier_offsets: Option<&[TextSize]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
@@ -163,15 +157,44 @@ fn detect_completion_context_impl(
             prefix,
             trigger,
             lex,
-            syn: SynContext::TopLevel,
-            qualifier: None,
+            site: if lex == LexContext::PreprocDirective {
+                CompletionSite::PreprocDirective
+            } else {
+                CompletionSite::Forbidden
+            },
+            in_decl_name: false,
+        };
+    }
+
+    if is_after_source_backtick(source_text, offset) {
+        return CompletionContext {
+            replacement,
+            prefix,
+            trigger,
+            lex,
+            site: CompletionSite::PreprocDirective,
             in_decl_name: false,
         };
     }
 
     let in_decl_name = decl_name::is_in_decl_name(&caret, expected_identifier_offsets);
-    let (syn, qualifier) = syn::detect_syn_context(&caret, trigger);
-    CompletionContext { replacement, prefix, trigger, lex, syn, qualifier, in_decl_name }
+    let mut site = syn::detect_completion_site(&caret);
+    if in_decl_name {
+        site = CompletionSite::Forbidden;
+    }
+    CompletionContext { replacement, prefix, trigger, lex, site, in_decl_name }
+}
+
+fn is_after_source_backtick(source_text: Option<&str>, offset: TextSize) -> bool {
+    let Some(source_text) = source_text else {
+        return false;
+    };
+    let offset = usize::from(offset);
+    if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
+        return false;
+    }
+
+    source_text[..offset].chars().next_back() == Some('`')
 }
 
 #[cfg(test)]
@@ -214,10 +237,11 @@ mod tests {
         expected_ident_offsets.dedup();
 
         let root = tree.root().unwrap();
-        detect_completion_context_with_expected_identifier_offsets(
+        detect_completion_context_with_source_text(
             root,
             TextSize::from(off as u32),
             trigger,
+            &owned,
             &expected_ident_offsets,
         )
     }
@@ -339,15 +363,13 @@ mod tests {
     #[test]
     fn detects_named_port_after_dot() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(./*caret*/a()); endmodule\n");
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort })));
+        assert_eq!(c.site, CompletionSite::NamedPortName);
     }
 
     #[test]
     fn detects_named_port_after_dot_without_name() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(./*caret*/); endmodule\n");
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedPort })));
+        assert_eq!(c.site, CompletionSite::NamedPortName);
     }
 
     #[test]
@@ -355,8 +377,7 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/W(1)) u0(); endmodule\n",
         );
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam })));
+        assert_eq!(c.site, CompletionSite::NamedParamName);
     }
 
     #[test]
@@ -364,22 +385,19 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/) u0(); endmodule\n",
         );
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::NamedParam })));
+        assert_eq!(c.site, CompletionSite::NamedParamName);
     }
 
     #[test]
     fn detects_named_port_conn_expr_after_name() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(.a(/*caret*/)); endmodule\n");
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::InNamedPortConnExpr));
+        assert_eq!(c.site, CompletionSite::NamedPortConnExpr);
     }
 
     #[test]
     fn detects_named_port_conn_expr_after_name_without_close_paren() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(.a(/*caret*/\nendmodule\n");
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::InNamedPortConnExpr));
+        assert_eq!(c.site, CompletionSite::NamedPortConnExpr);
     }
 
     #[test]
@@ -387,15 +405,13 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(.W(/*caret*/)) u0(); endmodule\n",
         );
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(c.qualifier, Some(Qualifier::InNamedParamAssignExpr));
+        assert_eq!(c.site, CompletionSite::NamedParamAssignExpr);
     }
 
     #[test]
     fn detects_hier_member_after_dot() {
         let c = ctx("module m; wire a; initial top.sub./*caret*/a; endmodule\n");
-        assert_eq!(c.syn, SynContext::HierRef);
-        assert_eq!(c.qualifier, Some(Qualifier::AfterDot(AfterDot { kind: DotKind::Member })));
+        assert_eq!(c.site, CompletionSite::MemberAccess);
     }
 
     #[test]
@@ -403,37 +419,25 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(/*caret*/1) u0(); endmodule\n",
         );
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::ParamValueAssignment }))
-        );
+        assert_eq!(c.site, CompletionSite::ParamValueAssignment);
     }
 
     #[test]
     fn detects_parameter_port_list() {
         let c = ctx("module m #(/*caret*/parameter W=1) (); endmodule\n");
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::ParameterPortList }))
-        );
+        assert_eq!(c.site, CompletionSite::ParameterPortList);
     }
 
     #[test]
     fn detects_port_connection_list() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/); endmodule\n");
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }))
-        );
+        assert_eq!(c.site, CompletionSite::PortConnections);
     }
 
     #[test]
     fn detects_port_connection_list_without_close_paren() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/\nendmodule\n");
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }))
-        );
+        assert_eq!(c.site, CompletionSite::PortConnections);
     }
 
     #[test]
@@ -442,20 +446,13 @@ mod tests {
             "module m(input a); endmodule\nmodule top; m u0(/*caret*/\nendmodule\n",
             Some(TriggerChar::OpenParen),
         );
-        assert_eq!(c.syn, SynContext::Instantiation);
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::PortConnections }))
-        );
+        assert_eq!(c.site, CompletionSite::PortConnections);
     }
 
     #[test]
     fn detects_argument_list() {
         let c = ctx("module m; initial f(/*caret*/); endmodule\n");
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }))
-        );
+        assert_eq!(c.site, CompletionSite::Arguments);
     }
 
     #[test]
@@ -464,20 +461,13 @@ mod tests {
             "module m; initial f(/*caret*/\nendmodule\n",
             Some(TriggerChar::OpenParen),
         );
-        assert_eq!(c.syn, SynContext::ModuleItem);
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InParenList(InParenList { kind: ParenListKind::Arguments }))
-        );
+        assert_eq!(c.site, CompletionSite::Arguments);
     }
 
     #[test]
     fn detects_ansi_port_list() {
         let c = ctx("module m(input /*caret*/a); endmodule\n");
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }))
-        );
+        assert_eq!(c.site, CompletionSite::Forbidden);
     }
 
     #[test]
@@ -486,20 +476,13 @@ mod tests {
             "module m(input a, /*caret*/b); endmodule\n",
             Some(TriggerChar::Comma),
         );
-        assert_eq!(c.syn, SynContext::ModuleHeader);
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InPortList(InPortList { kind: PortListKind::Ansi }))
-        );
+        assert_eq!(c.site, CompletionSite::Forbidden);
     }
 
     #[test]
     fn detects_non_ansi_port_list() {
         let c = ctx("module m(a, /*caret*/b); input a; output b; endmodule\n");
-        assert_eq!(
-            c.qualifier,
-            Some(Qualifier::InPortList(InPortList { kind: PortListKind::NonAnsi }))
-        );
+        assert_eq!(c.site, CompletionSite::NonAnsiPortList);
     }
 
     #[test]
@@ -508,8 +491,7 @@ mod tests {
             "module m; always @/*caret*/(posedge clk) begin end endmodule\n",
             Some(TriggerChar::At),
         );
-        assert_eq!(c.syn, SynContext::SensitivityList);
-        assert_eq!(c.qualifier, Some(Qualifier::AfterAt(AtKind::EventControl)));
+        assert_eq!(c.site, CompletionSite::AfterAtEventControl);
     }
 
     #[test]
@@ -518,7 +500,15 @@ mod tests {
             "module m; initial `/*caret*/FOO; endmodule\n",
             Some(TriggerChar::Backtick),
         );
-        assert_eq!(c.qualifier, Some(Qualifier::AfterBacktick));
+        assert_eq!(c.site, CompletionSite::PreprocDirective);
+    }
+
+    #[test]
+    fn manual_and_triggered_backtick_use_same_site() {
+        let text = "module m; initial `/*caret*/FOO; endmodule\n";
+        let manual = ctx(text);
+        let triggered = ctx_with_trigger(text, Some(TriggerChar::Backtick));
+        assert_eq!(manual.site, triggered.site);
     }
 
     #[test]

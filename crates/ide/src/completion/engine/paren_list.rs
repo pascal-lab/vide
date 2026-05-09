@@ -112,7 +112,7 @@ fn complete_parameter_port_list_with_typedefs(
     let Some(module) =
         sema.find_node_at_offset::<ast::ModuleDeclaration>(file.syntax(), position.offset)
     else {
-        return complete_parameter_port_list(prefix, ctx);
+        return Vec::new();
     };
     let file_id = sema.find_file(module.syntax());
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
@@ -212,7 +212,10 @@ fn complete_port_connections(
     };
 
     let target_module = db.module(target_module_id);
-    let expected_ty = expected_port_ty(db, &target_module, target_module_id, port_name);
+    let Some(expected_ty) = expected_port_ty(db, &target_module, target_module_id, port_name)
+    else {
+        return Vec::new();
+    };
 
     let current_module = db.module(current_module_id);
     let candidates = value_candidates_in_module(db, current_module_id);
@@ -220,15 +223,13 @@ fn complete_port_connections(
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .filter(|(_, candidate_ty)| {
-            expected_ty.is_none_or(|expected_ty| {
-                is_compatible_typed_value(
-                    db,
-                    &target_module,
-                    expected_ty,
-                    &current_module,
-                    *candidate_ty,
-                )
-            })
+            is_compatible_typed_value(
+                db,
+                &target_module,
+                expected_ty,
+                &current_module,
+                *candidate_ty,
+            )
         })
         .map(|(name, _)| CompletionItem {
             label: name.clone(),
@@ -307,7 +308,10 @@ fn complete_param_value_assignment(
     };
 
     let target_module = db.module(target_module_id);
-    let expected_ty = expected_param_ty(db, &target_module, target_module_id, param_name);
+    let Some(expected_ty) = expected_param_ty(db, &target_module, target_module_id, param_name)
+    else {
+        return Vec::new();
+    };
 
     let current_module = db.module(current_module_id);
     let candidates = const_candidates_in_module(db, current_module_id);
@@ -315,15 +319,13 @@ fn complete_param_value_assignment(
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .filter(|(_, candidate_ty)| {
-            expected_ty.is_none_or(|expected_ty| {
-                is_compatible_typed_value(
-                    db,
-                    &target_module,
-                    expected_ty,
-                    &current_module,
-                    *candidate_ty,
-                )
-            })
+            is_compatible_typed_value(
+                db,
+                &target_module,
+                expected_ty,
+                &current_module,
+                *candidate_ty,
+            )
         })
         .map(|(name, _)| CompletionItem {
             label: name.clone(),
@@ -361,17 +363,9 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
 }
 
 fn resolve_target_module_id(
-    db: &RootDb,
+    _db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<hir::hir_def::module::ModuleId> {
-    if let Some(module_id) = sema.nameres_instantiation(instantiation) {
-        return Some(module_id);
-    }
-
-    let name = hir::hir_def::lower_ident_opt(instantiation.type_())?;
-    match db.unit_scope().get(&name)? {
-        hir::scope::UnitEntry::ModuleId(module_id) => Some(module_id),
-        _ => None,
-    }
+    sema.nameres_instantiation(instantiation)
 }

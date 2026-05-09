@@ -8,7 +8,7 @@ use utils::text_edit::TextEditItem;
 
 use super::named::{CompletionItem, CompletionItemKind};
 use crate::completion::{
-    context::{CompletionContext, SynContext},
+    context::{CompletionContext, CompletionSite},
     engine::snippets,
 };
 
@@ -18,23 +18,12 @@ pub(super) fn complete_keywords(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    if !matches!(ctx.syn, SynContext::TopLevel | SynContext::ModuleHeader | SynContext::ModuleItem)
-    {
-        return Vec::new();
-    }
-
-    let all = match ctx.syn {
-        SynContext::TopLevel => top_level_keywords(),
-        SynContext::ModuleHeader => module_header_keywords(),
-        SynContext::ModuleItem => module_item_keywords(),
-        _ => &[],
+    let all = match ctx.site {
+        CompletionSite::TopLevel => top_level_keywords(),
+        CompletionSite::ModuleHeader => module_header_keywords(),
+        CompletionSite::ModuleItemStart => module_item_keywords(),
+        _ => return Vec::new(),
     };
-    let all = if ctx.syn == SynContext::ModuleHeader && all.is_empty() {
-        module_item_keywords()
-    } else {
-        all
-    };
-
     let mut items: Vec<_> = all
         .iter()
         .filter(|kw| kw.label.starts_with(prefix))
@@ -157,9 +146,6 @@ fn combine_keywords(generated: Vec<Keyword>, snippets: Vec<Keyword>) -> Vec<Keyw
 
 fn generated_keywords() -> Vec<Keyword> {
     let mut keywords = syntax::SyntaxToken::keyword_table_for_version("1364-2005");
-    if keywords.is_empty() {
-        keywords = syntax::SyntaxToken::verilog_2005_keywords();
-    }
     keywords.sort();
     keywords.dedup();
     keywords
@@ -187,7 +173,7 @@ fn module_instantiation_snippets(
 ) -> Vec<CompletionItem> {
     use hir::scope::UnitEntry;
 
-    if ctx.syn != SynContext::ModuleItem {
+    if ctx.site != CompletionSite::ModuleItemStart {
         return Vec::new();
     }
 
