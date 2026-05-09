@@ -148,10 +148,18 @@ fn detect_completion_context_impl(
     expected_identifier_offsets: Option<&[TextSize]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
-    let (replacement, prefix) = caret.replacement_and_prefix();
+    let (mut replacement, mut prefix) = caret.replacement_and_prefix();
 
     let lex = lex::detect_lex_context(&caret);
     if lex != LexContext::Code {
+        if lex == LexContext::PreprocDirective
+            && let Some((source_replacement, source_prefix)) =
+                directive_word_at_offset(source_text, offset)
+        {
+            replacement = source_replacement;
+            prefix = source_prefix;
+        }
+
         return CompletionContext {
             replacement,
             prefix,
@@ -166,7 +174,10 @@ fn detect_completion_context_impl(
         };
     }
 
-    if is_after_source_backtick(source_text, offset) {
+    if let Some((source_replacement, source_prefix)) = directive_word_at_offset(source_text, offset)
+    {
+        replacement = source_replacement;
+        prefix = source_prefix;
         return CompletionContext {
             replacement,
             prefix,
@@ -185,16 +196,40 @@ fn detect_completion_context_impl(
     CompletionContext { replacement, prefix, trigger, lex, site, in_decl_name }
 }
 
-fn is_after_source_backtick(source_text: Option<&str>, offset: TextSize) -> bool {
+fn directive_word_at_offset(
+    source_text: Option<&str>,
+    offset: TextSize,
+) -> Option<(TextRange, String)> {
     let Some(source_text) = source_text else {
-        return false;
+        return None;
     };
     let offset = usize::from(offset);
     if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
-        return false;
+        return None;
     }
 
-    source_text[..offset].chars().next_back() == Some('`')
+    let bytes = source_text.as_bytes();
+    let mut start = offset;
+    while start > 0 && is_directive_name_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+
+    if start == 0 || bytes[start - 1] != b'`' {
+        return None;
+    }
+
+    let mut end = offset;
+    while end < bytes.len() && is_directive_name_byte(bytes[end]) {
+        end += 1;
+    }
+
+    let prefix = source_text[start..offset].to_string();
+    let range = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
+    Some((range, prefix))
+}
+
+fn is_directive_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
 
 #[cfg(test)]
@@ -325,6 +360,23 @@ mod tests {
     fn detects_preproc_directive_at_boundary() {
         let c = ctx("`define FOO/*caret*/\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::PreprocDirective);
+    }
+
+    #[test]
+    fn normalizes_preproc_directive_word_replacement() {
+        let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
+        assert_eq!(c.lex, LexContext::Code);
+        assert_eq!(c.site, CompletionSite::PreprocDirective);
+        assert_eq!(c.prefix, "de");
+        assert_eq!(c.replacement, TextRange::new(TextSize::from(1), TextSize::from(7)));
+    }
+
+    #[test]
+    fn detects_inline_preproc_directive_word() {
+        let c = ctx("module m; initial `de/*caret*/; endmodule\n");
+        assert_eq!(c.lex, LexContext::Code);
+        assert_eq!(c.site, CompletionSite::PreprocDirective);
+        assert_eq!(c.prefix, "de");
     }
 
     #[test]

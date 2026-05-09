@@ -37,7 +37,7 @@ fn completions_with_context(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     if ctx.site == CompletionSite::PreprocDirective {
-        return preproc::complete_directives(&ctx.prefix, ctx);
+        return preproc::complete_directives(ctx);
     }
 
     if ctx.lex != LexContext::Code || ctx.site == CompletionSite::Forbidden {
