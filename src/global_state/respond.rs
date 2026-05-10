@@ -20,7 +20,7 @@ impl Progress {
 
 impl GlobalState {
     pub(crate) fn send(&self, message: lsp_server::Message) {
-        self.sender.send(message).unwrap()
+        self.sender.send(message).ok();
     }
 
     pub(crate) fn send_notification<N: notification::Notification>(&self, params: N::Params) {
