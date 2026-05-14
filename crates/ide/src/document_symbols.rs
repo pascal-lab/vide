@@ -15,6 +15,7 @@ use hir::{
         },
         module::{
             ModuleId, ModuleItem, ModuleSrc,
+            generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc},
             port::Ports,
             specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
         },
@@ -292,6 +293,9 @@ fn collect_module_items(
             }
             ModuleItem::ContAssignId(_) => {}
             ModuleItem::DefParamId(_) => {}
+            ModuleItem::GenerateRegionId(generate_region_id) => {
+                build_generate_region(collector, generate_region_id, module, src_map)
+            }
             ModuleItem::SpecifyBlockId(specify_block_id) => {
                 build_specify_block(collector, specify_block_id, module, src_map)
             }
@@ -439,6 +443,40 @@ fn build_declaration<Arn, SrcMap>(
         arena,
         src_map,
     );
+}
+
+#[inline]
+fn build_generate_region<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    generate_region_id: GenerateRegionId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<GenerateRegionId, Output = GenerateRegion>
+        + GetRef<DeclarationId, Output = Declaration>
+        + GetRef<DeclId, Output = Declarator>
+        + GetRef<OpaqueItemId, Output = OpaqueItem>,
+    SrcMap: Get<GenerateRegionId, Output = GenerateRegionSrc>
+        + Get<DeclarationId, Output = DeclarationSrc>
+        + Get<DeclId, Output = DeclaratorSrc>
+        + Get<OpaqueItemId, Output = OpaqueItemSrc>,
+{
+    let hir = arena.get(generate_region_id);
+    let src = src_map.get(generate_region_id);
+    let name = Some(SmolStr::new_static("generate"));
+    collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
+    for item in hir.items.iter() {
+        match *item {
+            ModuleItem::DeclarationId(declaration_id) => {
+                build_declaration(collector, declaration_id, arena, src_map);
+            }
+            ModuleItem::OpaqueItemId(opaque_id) => {
+                build_opaque(collector, opaque_id, arena, src_map);
+            }
+            _ => {}
+        }
+    }
+    collector.pop();
 }
 
 #[inline]

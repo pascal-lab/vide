@@ -410,6 +410,10 @@ endmodule
         diagnostics.iter().all(|diag| !diag.message.contains("GENVAR_DECLARATION")),
         "genvar declarations should lower as real HIR declarations, not opaque diagnostics: {diagnostics:?}"
     );
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("GENERATE_REGION")),
+        "generate/endgenerate regions should lower as real HIR wrappers, not opaque diagnostics: {diagnostics:?}"
+    );
 }
 
 #[test]

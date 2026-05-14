@@ -1,5 +1,6 @@
 use continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc};
 use defparam::{DefParam, DefParamId, DefParamSrc};
+use generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc};
 use instantiation::{
     Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc, ParamAssign,
     ParamAssignSrc, PortConn, PortConnSrc,
@@ -62,6 +63,7 @@ use crate::{
 
 pub mod continuous_assgin;
 pub mod defparam;
+pub mod generate;
 pub mod instantiation;
 pub mod port;
 pub mod specify;
@@ -80,6 +82,7 @@ define_container! {
 
         cont_assigns: [ContAssign],
         defparams: [DefParam],
+        generate_regions: [GenerateRegion],
         specify_blocks: [SpecifyBlock],
         specify_items: [SpecifyItem],
         declarations: [Declaration],
@@ -120,6 +123,7 @@ define_container! {
 
         assign_srcs: [ContAssign | ContAssignSrc],
         defparam_srcs: [DefParam | DefParamSrc],
+        generate_region_srcs: [GenerateRegion | GenerateRegionSrc],
         specify_block_srcs: [SpecifyBlock | SpecifyBlockSrc],
         specify_item_srcs: [SpecifyItem | SpecifyItemSrc],
         declaration_srcs: [Declaration | DeclarationSrc],
@@ -177,6 +181,7 @@ impl ModuleSourceMap {
         match item {
             ModuleItem::ContAssignId(idx) => self.get(*idx).0,
             ModuleItem::DefParamId(idx) => self.get(*idx).0,
+            ModuleItem::GenerateRegionId(idx) => self.get(*idx).0,
             ModuleItem::SpecifyBlockId(idx) => self.get(*idx).0,
             ModuleItem::SpecifyItemId(idx) => self.get(*idx).into(),
             ModuleItem::DeclarationId(idx) => self.get(*idx).ptr(),
@@ -196,6 +201,7 @@ define_enum_deriving_from! {
     pub enum ModuleItem {
         ContAssignId(ContAssignId),
         DefParamId(DefParamId),
+        GenerateRegionId(GenerateRegionId),
         SpecifyBlockId(SpecifyBlockId),
         SpecifyItemId(SpecifyItemId),
         DeclarationId(DeclarationId),
@@ -424,21 +430,7 @@ impl LowerModuleCtx<'_> {
                 }
 
                 // Generate constructs
-                gen_region @ GenerateRegion(region) => {
-                    for item in region.members().children() {
-                        if !matches!(item, EmptyMember(_)) {
-                            let child = match item {
-                                GenvarDeclaration(genvar_decl) => {
-                                    self.declaration_ctx().lower_genvar_decl(genvar_decl).into()
-                                }
-                                item => self.lower_opaque_member(item).into(),
-                            };
-                            self.module_source_map.items.push(child);
-                            self.region_tree.handle_node(item.syntax());
-                        }
-                    }
-                    self.lower_opaque_member(gen_region).into()
-                }
+                GenerateRegion(region) => self.lower_generate_region(region).into(),
                 gen_item @ GenerateBlock(_)
                 | gen_item @ IfGenerate(_)
                 | gen_item @ CaseGenerate(_)
