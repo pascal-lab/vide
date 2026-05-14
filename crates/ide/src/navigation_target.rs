@@ -165,6 +165,7 @@ impl ToNav for InContainer<DeclId> {
                 Declaration::NetDecl(_) => SymbolKind::NetDecl,
                 Declaration::ParamDecl(_) => SymbolKind::ParamDecl,
                 Declaration::GenvarDecl(_) => SymbolKind::Genvar,
+                Declaration::SpecparamDecl(_) => SymbolKind::Specparam,
             },
             DeclaratorParent::StmtId(_) => SymbolKind::DataDecl,
         };

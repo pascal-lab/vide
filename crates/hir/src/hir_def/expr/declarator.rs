@@ -19,6 +19,7 @@ pub struct Declarator {
     pub name: Option<Ident>,
     pub dimensions: SmallVec<[Option<Dimension>; 2]>,
     pub initializer: Option<ExprId>,
+    pub secondary_initializer: Option<ExprId>,
     pub parent: DeclaratorParent,
 }
 
@@ -34,7 +35,11 @@ define_enum_deriving_from! {
 pub type DeclId = Idx<Declarator>;
 pub type DeclsRange = IdxRange<Declarator>;
 
-define_src_with_name!(DeclaratorSrc(ast::Declarator, ast::IdentifierName));
+define_src_with_name!(DeclaratorSrc(
+    ast::Declarator,
+    ast::IdentifierName,
+    ast::SpecparamDeclarator
+));
 
 pub(crate) struct LowerDeclCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
@@ -95,7 +100,13 @@ impl LowerDeclCtx<'_> {
         let initializer =
             declarator.initializer().map(|init| self.expr_ctx().lower_expr(init.expr()));
         alloc_idx_and_src! {
-            Declarator { name, dimensions, initializer, parent } => self.decls,
+            Declarator {
+                name,
+                dimensions,
+                initializer,
+                secondary_initializer: None,
+                parent
+            } => self.decls,
             declarator => self.decl_srcs,
         }
     }
@@ -120,8 +131,48 @@ impl LowerDeclCtx<'_> {
     ) -> DeclId {
         let name = lower_ident_opt(ident.identifier());
         alloc_idx_and_src! {
-            Declarator { name, dimensions: SmallVec::new(), initializer: None, parent } => self.decls,
+            Declarator {
+                name,
+                dimensions: SmallVec::new(),
+                initializer: None,
+                secondary_initializer: None,
+                parent
+            } => self.decls,
             ident => self.decl_srcs,
+        }
+    }
+
+    pub(crate) fn lower_specparam_declarators<'a>(
+        &mut self,
+        declarators: ast::SeparatedList<'a, ast::SpecparamDeclarator<'a>>,
+        parent: DeclaratorParent,
+    ) -> DeclsRange {
+        let start = self.decls.nxt_idx();
+        declarators.children().for_each(|decl| {
+            self.lower_specparam_declarator(decl, parent);
+        });
+        let end = self.decls.nxt_idx();
+        DeclsRange::new(start..end)
+    }
+
+    fn lower_specparam_declarator(
+        &mut self,
+        declarator: ast::SpecparamDeclarator,
+        parent: DeclaratorParent,
+    ) -> DeclId {
+        let name = lower_ident_opt(declarator.name());
+        let initializer = Some(self.expr_ctx().lower_expr(declarator.value_1()));
+        let secondary_initializer =
+            declarator.value_2().map(|expr| self.expr_ctx().lower_expr(expr));
+        alloc_idx_and_src! {
+            Declarator {
+                name,
+                dimensions: SmallVec::new(),
+                initializer,
+                secondary_initializer,
+                parent
+            } => self.decls,
+            declarator => self.decl_srcs,
         }
     }
 }

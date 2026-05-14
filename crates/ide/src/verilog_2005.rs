@@ -65,6 +65,7 @@ module top(input wire clk);
 
   initial begin : blk
     /*marker:task_ref*/do_task(sig);
+    sig = /*marker:specparam_ref*/T_SETUP;
     sig = /*marker:instance_ref*/u_child.y;
     sig = /*marker:generate_ref*/g_loop[0].lane;
     disable /*marker:block_ref*/blk;
@@ -411,6 +412,24 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_specparam_declaration_is_not_model_limited() {
+    let text = r#"
+module specparam_ctx(input wire a, output wire y);
+  specify
+    specparam T_SETUP = 1;
+    (a => y) = T_SETUP;
+  endspecify
+endmodule
+"#;
+    let (host, file_id) = setup(text);
+    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("SPECPARAM_DECLARATION")),
+        "specparam declarations should lower as real HIR declarations, not opaque diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn verilog_2005_lsp_snapshots() {
     let (host, file_id, clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();
@@ -446,6 +465,7 @@ fn verilog_2005_lsp_snapshots() {
         "port_ref",
         "sig_ref",
         "genvar_ref",
+        "specparam_ref",
         "task_ref",
         "instance_ref",
         "generate_ref",
@@ -472,6 +492,7 @@ fn verilog_2005_lsp_snapshots() {
         "port_ref",
         "sig_ref",
         "genvar_ref",
+        "specparam_ref",
         "task_ref",
         "instance_ref",
         "generate_ref",
@@ -500,6 +521,7 @@ fn verilog_2005_lsp_snapshots() {
         ("port_ref", "renamed_a"),
         ("sig_ref", "renamed_sig"),
         ("genvar_ref", "renamed_i"),
+        ("specparam_ref", "renamed_T_SETUP"),
         ("task_ref", "renamed_task"),
         ("instance_ref", "renamed_u_child"),
         ("generate_ref", "renamed_g_loop"),

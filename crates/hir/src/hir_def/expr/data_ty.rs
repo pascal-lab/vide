@@ -155,6 +155,10 @@ impl LowerExprCtx<'_> {
         BuiltinDataTy::Vector { kind: VecKind::Logic, signing, dimensions }
     }
 
+    pub(crate) fn lower_implicit_data_ty(&mut self, ty: ast::ImplicitType) -> DataTy {
+        DataTy::Builtin(self.db.intern_ty(self.lower_implicit_type(ty)))
+    }
+
     fn lower_signing(signing: Option<SyntaxToken>) -> Option<bool> {
         match signing?.kind() {
             TokenKind::SIGNED_KEYWORD => Some(true),

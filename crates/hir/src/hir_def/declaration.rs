@@ -32,6 +32,7 @@ define_enum_deriving_from! {
         NetDecl,
         ParamDecl,
         GenvarDecl,
+        SpecparamDecl,
     }
 }
 
@@ -42,7 +43,8 @@ define_src!(DeclarationSrc(
     ast::ParameterDeclaration,
     ast::TypeParameterDeclaration,
     ast::LocalVariableDeclaration,
-    ast::GenvarDeclaration
+    ast::GenvarDeclaration,
+    ast::SpecparamDeclaration
 ));
 
 impl DeclarationSrc {
@@ -53,7 +55,8 @@ impl DeclarationSrc {
             | DeclarationSrc::ParameterDeclaration(ptr)
             | DeclarationSrc::TypeParameterDeclaration(ptr)
             | DeclarationSrc::LocalVariableDeclaration(ptr)
-            | DeclarationSrc::GenvarDeclaration(ptr) => *ptr,
+            | DeclarationSrc::GenvarDeclaration(ptr)
+            | DeclarationSrc::SpecparamDeclaration(ptr) => *ptr,
         }
     }
 }
@@ -65,6 +68,7 @@ impl Declaration {
             Declaration::NetDecl(net_decl) => net_decl.decls.clone(),
             Declaration::ParamDecl(param_decl) => param_decl.decls.clone(),
             Declaration::GenvarDecl(genvar_decl) => genvar_decl.decls.clone(),
+            Declaration::SpecparamDecl(specparam_decl) => specparam_decl.decls.clone(),
         }
     }
 
@@ -74,6 +78,7 @@ impl Declaration {
             Declaration::NetDecl(net_decl) => net_decl.ty,
             Declaration::ParamDecl(param_decl) => param_decl.ty,
             Declaration::GenvarDecl(genvar_decl) => genvar_decl.ty,
+            Declaration::SpecparamDecl(specparam_decl) => specparam_decl.ty,
         }
     }
 }
@@ -110,6 +115,12 @@ pub struct ParamDecl {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct GenvarDecl {
+    pub ty: DataTy,
+    pub decls: DeclsRange,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SpecparamDecl {
     pub ty: DataTy,
     pub decls: DeclsRange,
 }
@@ -264,6 +275,21 @@ impl LowerDeclarationCtx<'_> {
         alloc_idx_and_src! {
             GenvarDecl { ty, decls } => self.declarations,
             genvar_decl => self.declaration_srcs,
+        }
+    }
+
+    pub(crate) fn lower_specparam_decl(
+        &mut self,
+        specparam_decl: ast::SpecparamDeclaration,
+    ) -> DeclarationId {
+        let ty = self.expr_ctx().lower_implicit_data_ty(specparam_decl.type_());
+        let parent = self.declarations.nxt_idx().into();
+        let decls =
+            self.decl_ctx().lower_specparam_declarators(specparam_decl.declarators(), parent);
+
+        alloc_idx_and_src! {
+            SpecparamDecl { ty, decls } => self.declarations,
+            specparam_decl => self.declaration_srcs,
         }
     }
 }

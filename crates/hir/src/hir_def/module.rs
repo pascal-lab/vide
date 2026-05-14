@@ -452,8 +452,14 @@ impl LowerModuleCtx<'_> {
                 specify_block @ SpecifyBlock(block) => {
                     for item in block.items().children() {
                         if !matches!(item, EmptyMember(_)) {
-                            let child = self.lower_opaque_member(item);
-                            self.module_source_map.items.push(child.into());
+                            let child = match item {
+                                SpecparamDeclaration(specparam_decl) => self
+                                    .declaration_ctx()
+                                    .lower_specparam_decl(specparam_decl)
+                                    .into(),
+                                item => self.lower_opaque_member(item).into(),
+                            };
+                            self.module_source_map.items.push(child);
                             self.region_tree.handle_node(item.syntax());
                         }
                     }
@@ -463,9 +469,11 @@ impl LowerModuleCtx<'_> {
                 | specify @ ConditionalPathDeclaration(_)
                 | specify @ IfNonePathDeclaration(_)
                 | specify @ SystemTimingCheck(_)
-                | specify @ SpecparamDeclaration(_)
                 | specify @ PulseStyleDeclaration(_)
                 | specify @ DefaultSkewItem(_) => self.lower_opaque_member(specify).into(),
+                SpecparamDeclaration(specparam_decl) => {
+                    self.declaration_ctx().lower_specparam_decl(specparam_decl).into()
+                }
 
                 // DPI and external
                 external @ DPIImport(_)

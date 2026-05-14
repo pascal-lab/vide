@@ -17,7 +17,7 @@ top Module container=None
   i Genvar container=Some("top")
   g_loop Generate container=Some("top")
   unnamed Generate container=Some("top")
-  T_SETUP ParamDecl container=Some("top")
+  T_SETUP Specparam container=Some("top")
   unnamed Opaque container=Some("top")
   blk Block container=Some("top")
 cfg_top Module container=None
@@ -29,7 +29,7 @@ cfg_top Module container=None
 219..226 Instance SemaTokenModifier(0x0)
 253..258 Instance SemaTokenModifier(0x0)
 264..267 Port(Clk) SemaTokenModifier(READ)
-579..586 Instance SemaTokenModifier(0x0)
+598..605 Instance SemaTokenModifier(0x0)
 
 # navigation
 module_ref: ["Some(\"child\"):Some(Module)"]
@@ -37,6 +37,7 @@ udp_ref: ["Some(\"udp_and\"):Some(Module)"]
 port_ref: ["Some(\"a\"):Some(PortDecl)"]
 sig_ref: ["Some(\"sig\"):Some(NetDecl)"]
 genvar_ref: ["Some(\"i\"):Some(Genvar)"]
+specparam_ref: ["Some(\"T_SETUP\"):Some(Specparam)"]
 task_ref: ["Some(\"do_task\"):Some(Fn)"]
 instance_ref: ["Some(\"u_child\"):Some(Instance)"]
 generate_ref: ["Some(\"g_loop\"):Some(Generate)"]
@@ -47,8 +48,9 @@ config_def: ["Some(\"cfg_top\"):Some(Module)"]
 module_ref: defs=1 refs=1
 udp_ref: defs=1 refs=1
 port_ref: defs=1 refs=1
-sig_ref: defs=1 refs=6
+sig_ref: defs=1 refs=7
 genvar_ref: defs=1 refs=4
+specparam_ref: defs=1 refs=1
 task_ref: defs=1 refs=1
 instance_ref: defs=1 refs=1
 generate_ref: defs=1 refs=1
@@ -71,11 +73,15 @@ sig_ref -> renamed_sig
   udp_and u_udp(renamed_sig, clk);
   renamed_sig = t_in;
   do_task(renamed_sig);
+  renamed_sig = T_SETUP;
   renamed_sig = u_child.y;
   renamed_sig = g_loop[0].lane;
 genvar_ref -> renamed_i
   genvar renamed_i;
   for (renamed_i = 0; renamed_i < 1; renamed_i = renamed_i + 1) begin : g_loop
+specparam_ref -> renamed_T_SETUP
+  specparam renamed_T_SETUP = 1;
+  sig = renamed_T_SETUP;
 task_ref -> renamed_task
   task automatic renamed_task;
   renamed_task(sig);
