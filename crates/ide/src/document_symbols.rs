@@ -410,6 +410,7 @@ fn build_stmt<Arn, SrcMap>(
         StmtKind::Empty
         | StmtKind::Expr(_)
         | StmtKind::Jump(_)
+        | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
         | StmtKind::Disable(_)
         | StmtKind::Opaque => {}

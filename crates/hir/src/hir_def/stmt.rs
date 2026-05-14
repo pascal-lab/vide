@@ -44,6 +44,7 @@ pub enum StmtKind {
     Expr(ExprId),
     TimingCtrl(TimingControl, StmtId),
     ProcAssign(ProcAssignKind),
+    EventTrigger(EventTrigger),
     Block(BlockInfo),
 
     Cond {
@@ -83,6 +84,19 @@ pub enum ProcAssignKind {
     Force(ExprId),
     Deassign(ExprId),
     Release(ExprId),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct EventTrigger {
+    pub kind: EventTriggerKind,
+    pub timing: Option<TimingControl>,
+    pub event: ExprId,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum EventTriggerKind {
+    Blocking,
+    Nonblocking,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -200,6 +214,7 @@ impl LowerStmtCtx<'_> {
             TimingControlStatement(stmt) => self.lower_timing_ctrl_stmt(stmt),
             ProceduralAssignStatement(stmt) => self.lower_assign_stmt(stmt),
             ProceduralDeassignStatement(stmt) => self.lower_deassign_stmt(stmt),
+            EventTriggerStatement(stmt) => self.lower_event_trigger_stmt(stmt),
 
             WaitStatement(stmt) => self.lower_wait_stmt(stmt),
             DisableStatement(stmt) => self.lower_disable_stmt(stmt),
@@ -250,6 +265,24 @@ impl LowerStmtCtx<'_> {
         };
 
         StmtKind::ProcAssign(kind)
+    }
+
+    fn lower_event_trigger_stmt(&mut self, stmt: ast::EventTriggerStatement) -> StmtKind {
+        let event = ast::Expression::cast(stmt.name().syntax())
+            .map(|expr| self.expr_ctx().lower_expr(expr))
+            .unwrap_or_else(|| self.expr_ctx().lower_expr_opt(None));
+        let timing = stmt.timing().map(|timing| self.event_expr_ctx().lower_timing_control(timing));
+
+        let kind = match stmt {
+            ast::EventTriggerStatement::BlockingEventTriggerStatement(_) => {
+                EventTriggerKind::Blocking
+            }
+            ast::EventTriggerStatement::NonblockingEventTriggerStatement(_) => {
+                EventTriggerKind::Nonblocking
+            }
+        };
+
+        StmtKind::EventTrigger(EventTrigger { kind, timing, event })
     }
 
     fn lower_forever_stmt(&mut self, stmt: ast::ForeverStatement) -> StmtKind {
