@@ -30,7 +30,10 @@ use crate::{
     Opt,
     config::{
         self,
-        user_config::{DiagnosticsUpdateUserConfig, UserConfig},
+        user_config::{
+            DiagnosticsUpdateUserConfig, UserConfig, VerilogModelUnsupportedConstructs,
+            VerilogUserConfig,
+        },
     },
     global_state::main_loop,
     lsp_ext::to_proto,
@@ -374,8 +377,20 @@ endconfig
             },
         )))
         .unwrap();
-    let _: DocumentDiagnosticReportResult =
+    let diagnostics: DocumentDiagnosticReportResult =
         recv_response(&client, diagnostics_id, "documentDiagnostic");
+    if let DocumentDiagnosticReportResult::Report(DocumentDiagnosticReport::Full(report)) =
+        diagnostics
+    {
+        assert!(
+            report
+                .full_document_diagnostic_report
+                .items
+                .iter()
+                .all(|diag| diag.source.as_deref() != Some("vizsla")),
+            "default opaque mode should not emit Vizsla model diagnostics"
+        );
+    }
 
     let symbols_id = lsp_server::RequestId::from(101);
     client
@@ -464,6 +479,67 @@ endconfig
     let definition: Option<GotoDefinitionResponse> =
         recv_response(&client, definition_id, "definition");
     assert!(definition.is_some(), "definition should return a result for sig reference");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn verilog_diagnostic_mode_reports_model_limited_constructs() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let user_config = UserConfig {
+        verilog: VerilogUserConfig {
+            model_unsupported_constructs: VerilogModelUnsupportedConstructs::Diagnostic,
+        },
+        ..UserConfig::default()
+    };
+    let file_text = "\
+primitive udp_and(out, in);
+  output out;
+  input in;
+  table
+    1 : 1;
+  endtable
+endprimitive
+
+module top;
+  specify
+    specparam T_SETUP = 1;
+  endspecify
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(pull_caps, user_config, file_text);
+
+    let request_id = lsp_server::RequestId::from(110);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().any(|diag| {
+            diag.source.as_deref() == Some("vizsla")
+                && diag.message.contains("semantic IDE support is limited")
+        }),
+        "diagnostic mode should report model-limited Verilog constructs: {diagnostics:?}"
+    );
 
     shutdown_test_server(&client, server_thread);
 }

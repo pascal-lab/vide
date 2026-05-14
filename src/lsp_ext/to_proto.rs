@@ -127,6 +127,7 @@ pub(crate) fn document_highlight(
 }
 
 const SLANG_DIAGNOSTIC_SOURCE: &str = "slang";
+const VIZSLA_DIAGNOSTIC_SOURCE: &str = "vizsla";
 
 pub(crate) fn diagnostic(
     line_info: &LineInfo,
@@ -138,7 +139,14 @@ pub(crate) fn diagnostic(
         severity: diagnostic_severity(diag.severity),
         code: Some(lsp_types::NumberOrString::String(format!("{}:{}", diag.subsystem, diag.code))),
         code_description: None,
-        source: Some(SLANG_DIAGNOSTIC_SOURCE.to_string()),
+        source: Some(
+            match diag.source {
+                ide_diagnostics::DiagnosticSource::SlangParse
+                | ide_diagnostics::DiagnosticSource::SlangSemantic => SLANG_DIAGNOSTIC_SOURCE,
+                ide_diagnostics::DiagnosticSource::VizslaModel => VIZSLA_DIAGNOSTIC_SOURCE,
+            }
+            .to_string(),
+        ),
         message: diag.message,
         related_information: None,
         tags: None,
@@ -151,6 +159,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "source": match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => "parse",
             ide_diagnostics::DiagnosticSource::SlangSemantic => "semantic",
+            ide_diagnostics::DiagnosticSource::VizslaModel => "model",
         },
         "subsystem": diag.subsystem,
         "code": diag.code,
@@ -174,6 +183,7 @@ fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> 
     selectors.push(match diag.source {
         ide_diagnostics::DiagnosticSource::SlangParse => "source:parse".to_owned(),
         ide_diagnostics::DiagnosticSource::SlangSemantic => "source:semantic".to_owned(),
+        ide_diagnostics::DiagnosticSource::VizslaModel => "source:model".to_owned(),
     });
 
     selectors

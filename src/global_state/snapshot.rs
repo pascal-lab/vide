@@ -10,7 +10,7 @@ use vfs::{FileId, Vfs};
 
 use super::mem_docs::MemDocs;
 use crate::{
-    config::Config,
+    config::{Config, user_config::VerilogModelUnsupportedConstructs},
     lsp_ext::{from_proto, to_proto},
 };
 
@@ -58,22 +58,46 @@ impl GlobalStateSnapshot {
         &self,
         file_id: FileId,
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
-        if self.config.diagnostics_config().semantic.enabled {
-            return self.analysis.diagnostics(file_id);
-        }
+        let mut diagnostics = if self.config.diagnostics_config().semantic.enabled {
+            self.analysis.diagnostics(file_id)?
+        } else {
+            self.analysis.parse_diagnostics(file_id)?
+        };
 
-        self.analysis.parse_diagnostics(file_id)
+        self.extend_model_limit_diagnostics([file_id], &mut diagnostics)?;
+        Ok(diagnostics)
     }
 
     pub(crate) fn source_root_diagnostics(
         &self,
         file_id: FileId,
     ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
-        if self.config.diagnostics_config().semantic.enabled {
-            return self.analysis.source_root_diagnostics(file_id);
+        let mut diagnostics = if self.config.diagnostics_config().semantic.enabled {
+            self.analysis.source_root_diagnostics(file_id)?
+        } else {
+            self.analysis.parse_diagnostics(file_id)?
+        };
+
+        self.extend_model_limit_diagnostics(self.source_root_file_ids(file_id), &mut diagnostics)?;
+        Ok(diagnostics)
+    }
+
+    fn extend_model_limit_diagnostics(
+        &self,
+        file_ids: impl IntoIterator<Item = FileId>,
+        diagnostics: &mut Vec<ide::diagnostics::Diagnostic>,
+    ) -> Cancellable<()> {
+        if self.config.user_config.verilog.model_unsupported_constructs
+            != VerilogModelUnsupportedConstructs::Diagnostic
+        {
+            return Ok(());
         }
 
-        self.analysis.parse_diagnostics(file_id)
+        for file_id in file_ids {
+            diagnostics.extend(self.analysis.model_limit_diagnostics(file_id)?);
+        }
+
+        Ok(())
     }
 
     pub(crate) fn file_version(&self, file_id: FileId) -> Option<i32> {
@@ -103,7 +127,11 @@ impl GlobalStateSnapshot {
             .map(|(file_id, version)| format!("{file_id}:{version}"))
             .collect::<Vec<_>>()
             .join(",");
-        Some(format!("diag:{}:{file_versions}", diagnostics_config.revision))
+        Some(format!(
+            "diag:{}:{:?}:{file_versions}",
+            diagnostics_config.revision,
+            self.config.user_config.verilog.model_unsupported_constructs
+        ))
     }
 
     pub(crate) fn source_root_file_ids(&self, file_id: FileId) -> Vec<FileId> {
