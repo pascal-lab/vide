@@ -271,7 +271,7 @@ macro_rules! define_src_with_name {
             fn name_kind(&self) -> Option<syntax::TokenKind> {
                 match self {
                     $(
-                        $name::$ty { name, .. } => name.kind(),
+                        $name::$ty { name, .. } => name.map(|name| name.kind()),
                     )*
                 }
             }
@@ -279,7 +279,7 @@ macro_rules! define_src_with_name {
             fn name_range(&self) -> Option<utils::text_edit::TextRange> {
                 match self {
                     $(
-                        $name::$ty { name, .. } => name.range(),
+                        $name::$ty { name, .. } => name.map(|name| name.range()),
                     )*
                 }
             }
@@ -307,7 +307,8 @@ macro_rules! define_src_with_name {
                 fn from(node: ast::$ty<'_>) -> Self {
                     Self::$ty {
                         node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                        name: node.name(),
+                        name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
+                            .map(|name| syntax::ptr::SyntaxTokenPtr::from_token(name)),
                     }
                 }
             }

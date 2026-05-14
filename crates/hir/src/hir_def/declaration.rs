@@ -14,7 +14,7 @@ use crate::{
         HirData, alloc_idx_and_src,
         expr::{
             Expr, ExprSrc, LowerExpr,
-            data_ty::DataTy,
+            data_ty::{BuiltinDataTy, DataTy, IntKind},
             declarator::{Declarator, DeclaratorSrc, LowerDecl},
             timing_control::{DelayControl, EventExpr, EventExprSrc, LowerEventExpr},
         },
@@ -31,6 +31,7 @@ define_enum_deriving_from! {
         DataDecl,
         NetDecl,
         ParamDecl,
+        GenvarDecl,
     }
 }
 
@@ -40,7 +41,8 @@ define_src!(DeclarationSrc(
     ast::NetDeclaration,
     ast::ParameterDeclaration,
     ast::TypeParameterDeclaration,
-    ast::LocalVariableDeclaration
+    ast::LocalVariableDeclaration,
+    ast::GenvarDeclaration
 ));
 
 impl DeclarationSrc {
@@ -50,7 +52,8 @@ impl DeclarationSrc {
             | DeclarationSrc::NetDeclaration(ptr)
             | DeclarationSrc::ParameterDeclaration(ptr)
             | DeclarationSrc::TypeParameterDeclaration(ptr)
-            | DeclarationSrc::LocalVariableDeclaration(ptr) => *ptr,
+            | DeclarationSrc::LocalVariableDeclaration(ptr)
+            | DeclarationSrc::GenvarDeclaration(ptr) => *ptr,
         }
     }
 }
@@ -61,6 +64,7 @@ impl Declaration {
             Declaration::DataDecl(data_decl) => data_decl.decls.clone(),
             Declaration::NetDecl(net_decl) => net_decl.decls.clone(),
             Declaration::ParamDecl(param_decl) => param_decl.decls.clone(),
+            Declaration::GenvarDecl(genvar_decl) => genvar_decl.decls.clone(),
         }
     }
 
@@ -69,6 +73,7 @@ impl Declaration {
             Declaration::DataDecl(data_decl) => data_decl.ty,
             Declaration::NetDecl(net_decl) => net_decl.ty,
             Declaration::ParamDecl(param_decl) => param_decl.ty,
+            Declaration::GenvarDecl(genvar_decl) => genvar_decl.ty,
         }
     }
 }
@@ -99,6 +104,12 @@ pub enum NetStrength {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ParamDecl {
+    pub ty: DataTy,
+    pub decls: DeclsRange,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct GenvarDecl {
     pub ty: DataTy,
     pub decls: DeclsRange,
 }
@@ -237,6 +248,22 @@ impl LowerDeclarationCtx<'_> {
         alloc_idx_and_src! {
             ParamDecl { ty, decls } => self.declarations,
             param_decl => self.declaration_srcs,
+        }
+    }
+
+    pub(crate) fn lower_genvar_decl(
+        &mut self,
+        genvar_decl: ast::GenvarDeclaration,
+    ) -> DeclarationId {
+        let ty = DataTy::Builtin(
+            self.db.intern_ty(BuiltinDataTy::Int { kind: IntKind::Integer, signing: true }),
+        );
+        let parent = self.declarations.nxt_idx().into();
+        let decls = self.decl_ctx().lower_identifier_names(genvar_decl.identifiers(), parent);
+
+        alloc_idx_and_src! {
+            GenvarDecl { ty, decls } => self.declarations,
+            genvar_decl => self.declaration_srcs,
         }
     }
 }

@@ -2,7 +2,8 @@ use slang::{
     SyntaxToken,
     ast::{
         AstNode, BlockStatement, Declarator, FunctionDeclaration, HierarchicalInstance,
-        ModuleDeclaration, NonAnsiPort, ParamAssignment, PortConnection, PortReference, Statement,
+        IdentifierName, ModuleDeclaration, NonAnsiPort, ParamAssignment, PortConnection,
+        PortReference, Statement,
     },
 };
 
@@ -37,6 +38,12 @@ impl<'a> HasName<'a> for PortReference<'a> {
 impl<'a> HasName<'a> for Declarator<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
         self.name()
+    }
+}
+
+impl<'a> HasName<'a> for IdentifierName<'a> {
+    fn name(&self) -> Option<SyntaxToken<'a>> {
+        self.identifier()
     }
 }
 

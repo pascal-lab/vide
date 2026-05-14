@@ -361,10 +361,12 @@ impl LowerModuleCtx<'_> {
                     self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into()
                 }
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
+                GenvarDeclaration(genvar_decl) => {
+                    self.declaration_ctx().lower_genvar_decl(genvar_decl).into()
+                }
                 net_type_decl @ NetTypeDeclaration(_)
                 | net_type_decl @ ForwardTypedefDeclaration(_)
-                | net_type_decl @ UserDefinedNetDeclaration(_)
-                | net_type_decl @ GenvarDeclaration(_) => {
+                | net_type_decl @ UserDefinedNetDeclaration(_) => {
                     self.lower_opaque_member(net_type_decl).into()
                 }
 
@@ -407,8 +409,13 @@ impl LowerModuleCtx<'_> {
                 gen_region @ GenerateRegion(region) => {
                     for item in region.members().children() {
                         if !matches!(item, EmptyMember(_)) {
-                            let child = self.lower_opaque_member(item);
-                            self.module_source_map.items.push(child.into());
+                            let child = match item {
+                                GenvarDeclaration(genvar_decl) => {
+                                    self.declaration_ctx().lower_genvar_decl(genvar_decl).into()
+                                }
+                                item => self.lower_opaque_member(item).into(),
+                            };
+                            self.module_source_map.items.push(child);
                             self.region_tree.handle_node(item.syntax());
                         }
                     }

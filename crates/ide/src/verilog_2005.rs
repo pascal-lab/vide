@@ -53,8 +53,8 @@ module top(input wire clk);
   endtask
 
   generate
-    genvar i;
-    for (i = 0; i < 1; i = i + 1) begin : /*marker:gen_label*/g_loop
+    genvar /*marker:genvar_def*/i;
+    for (/*marker:genvar_ref*/i = 0; i < 1; i = i + 1) begin : /*marker:gen_label*/g_loop
       wire lane;
     end
   endgenerate
@@ -343,9 +343,9 @@ endconfig
     let symbols = analysis.document_symbol(file_id).unwrap();
     let mut names = Vec::new();
     flatten_symbols(&symbols, &mut names);
-    for expected in
-        ["child", "udp_and", "top", "sig", "u_child", "do_task", "g_loop", "T_SETUP", "cfg_top"]
-    {
+    for expected in [
+        "child", "udp_and", "top", "sig", "u_child", "do_task", "i", "g_loop", "T_SETUP", "cfg_top",
+    ] {
         assert!(
             names.iter().any(|name| name == expected),
             "missing document symbol {expected:?}; got {names:?}"
@@ -391,6 +391,26 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_genvar_declaration_is_not_model_limited() {
+    let text = r#"
+module genvar_ctx;
+  generate
+    genvar i, j;
+    for (i = 0; i < 1; i = i + 1) begin : g_loop
+      wire lane;
+    end
+  endgenerate
+endmodule
+"#;
+    let (host, file_id) = setup(text);
+    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("GENVAR_DECLARATION")),
+        "genvar declarations should lower as real HIR declarations, not opaque diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn verilog_2005_lsp_snapshots() {
     let (host, file_id, clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();
@@ -425,6 +445,7 @@ fn verilog_2005_lsp_snapshots() {
         "udp_ref",
         "port_ref",
         "sig_ref",
+        "genvar_ref",
         "task_ref",
         "instance_ref",
         "generate_ref",
@@ -450,6 +471,7 @@ fn verilog_2005_lsp_snapshots() {
         "udp_ref",
         "port_ref",
         "sig_ref",
+        "genvar_ref",
         "task_ref",
         "instance_ref",
         "generate_ref",
@@ -477,6 +499,7 @@ fn verilog_2005_lsp_snapshots() {
         ("udp_ref", "renamed_udp"),
         ("port_ref", "renamed_a"),
         ("sig_ref", "renamed_sig"),
+        ("genvar_ref", "renamed_i"),
         ("task_ref", "renamed_task"),
         ("instance_ref", "renamed_u_child"),
         ("generate_ref", "renamed_g_loop"),

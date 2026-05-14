@@ -14,7 +14,7 @@ top Module container=None
   u_child Instance container=Some("top")
   u_udp Instance container=Some("top")
   do_task Fn container=Some("top")
-  i DataDecl container=Some("top")
+  i Genvar container=Some("top")
   g_loop Generate container=Some("top")
   unnamed Generate container=Some("top")
   T_SETUP ParamDecl container=Some("top")
@@ -36,6 +36,7 @@ module_ref: ["Some(\"child\"):Some(Module)"]
 udp_ref: ["Some(\"udp_and\"):Some(Module)"]
 port_ref: ["Some(\"a\"):Some(PortDecl)"]
 sig_ref: ["Some(\"sig\"):Some(NetDecl)"]
+genvar_ref: ["Some(\"i\"):Some(Genvar)"]
 task_ref: ["Some(\"do_task\"):Some(Fn)"]
 instance_ref: ["Some(\"u_child\"):Some(Instance)"]
 generate_ref: ["Some(\"g_loop\"):Some(Generate)"]
@@ -47,6 +48,7 @@ module_ref: defs=1 refs=1
 udp_ref: defs=1 refs=1
 port_ref: defs=1 refs=1
 sig_ref: defs=1 refs=6
+genvar_ref: defs=1 refs=4
 task_ref: defs=1 refs=1
 instance_ref: defs=1 refs=1
 generate_ref: defs=1 refs=1
@@ -71,6 +73,9 @@ sig_ref -> renamed_sig
   do_task(renamed_sig);
   renamed_sig = u_child.y;
   renamed_sig = g_loop[0].lane;
+genvar_ref -> renamed_i
+  genvar renamed_i;
+  for (renamed_i = 0; renamed_i < 1; renamed_i = renamed_i + 1) begin : g_loop
 task_ref -> renamed_task
   task automatic renamed_task;
   renamed_task(sig);

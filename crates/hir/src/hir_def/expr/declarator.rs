@@ -34,7 +34,7 @@ define_enum_deriving_from! {
 pub type DeclId = Idx<Declarator>;
 pub type DeclsRange = IdxRange<Declarator>;
 
-define_src_with_name!(DeclaratorSrc(ast::Declarator));
+define_src_with_name!(DeclaratorSrc(ast::Declarator, ast::IdentifierName));
 
 pub(crate) struct LowerDeclCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
@@ -97,6 +97,31 @@ impl LowerDeclCtx<'_> {
         alloc_idx_and_src! {
             Declarator { name, dimensions, initializer, parent } => self.decls,
             declarator => self.decl_srcs,
+        }
+    }
+
+    pub(crate) fn lower_identifier_names<'a>(
+        &mut self,
+        identifiers: ast::SeparatedList<'a, ast::IdentifierName<'a>>,
+        parent: DeclaratorParent,
+    ) -> DeclsRange {
+        let start = self.decls.nxt_idx();
+        identifiers.children().for_each(|ident| {
+            self.lower_identifier_name(ident, parent);
+        });
+        let end = self.decls.nxt_idx();
+        DeclsRange::new(start..end)
+    }
+
+    fn lower_identifier_name(
+        &mut self,
+        ident: ast::IdentifierName,
+        parent: DeclaratorParent,
+    ) -> DeclId {
+        let name = lower_ident_opt(ident.identifier());
+        alloc_idx_and_src! {
+            Declarator { name, dimensions: SmallVec::new(), initializer: None, parent } => self.decls,
+            ident => self.decl_srcs,
         }
     }
 }

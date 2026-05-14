@@ -69,7 +69,7 @@ pub(super) fn value_candidates_in_module(
     for (_, decl) in module.declarations.iter() {
         let ty = decl.ty();
         match decl {
-            Declaration::DataDecl(_) | Declaration::NetDecl(_) => {
+            Declaration::DataDecl(_) | Declaration::NetDecl(_) | Declaration::GenvarDecl(_) => {
                 for decl_id in decl.decls().clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
                         candidates.push((name.to_string(), ty));

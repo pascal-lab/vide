@@ -49,6 +49,7 @@ pub enum SymbolKind {
     ParamDecl,
     NetDecl,
     DataDecl,
+    Genvar,
     Typedef,
     Instance,
     Block,
@@ -69,6 +70,7 @@ impl SymbolKind {
             ast::ParameterDeclaration => SymbolKind::ParamDecl,
             ast::NetDeclaration => SymbolKind::NetDecl,
             ast::DataDeclaration => SymbolKind::DataDecl,
+            ast::GenvarDeclaration => SymbolKind::Genvar,
             ast::TypedefDeclaration => SymbolKind::Typedef,
             ast::Declarator => SymbolKind::DataDecl,
             ast::HierarchicalInstance => SymbolKind::Instance,
@@ -87,7 +89,7 @@ impl SymbolKind {
             OpaqueKind::Udp => SymbolKind::Module,
             OpaqueKind::Config | OpaqueKind::Library => SymbolKind::Module,
             OpaqueKind::Specparam => SymbolKind::ParamDecl,
-            OpaqueKind::Genvar => SymbolKind::DataDecl,
+            OpaqueKind::Genvar => SymbolKind::Genvar,
             OpaqueKind::Statement => SymbolKind::Stmt,
             OpaqueKind::BlockItem | OpaqueKind::FileItem | OpaqueKind::ModuleItem => {
                 SymbolKind::from_syntax_kind(syntax_kind)
