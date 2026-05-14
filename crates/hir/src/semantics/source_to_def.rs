@@ -95,6 +95,12 @@ impl Source2DefCtx<'_, '_> {
     }
 
     fn container_to_def(&mut self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {
+        if let Some(member) = ast::Member::cast(node.clone())
+            && let Some(cont_id) = self.single_member_generate_block_to_def(file_id, member)
+        {
+            return Some(cont_id);
+        }
+
         let cont_id = match_ast! { node,
            ast::ModuleDeclaration[module] => {
                let src = module.into();
@@ -109,6 +115,7 @@ impl Source2DefCtx<'_, '_> {
                let anchor = match src {
                    GenerateBlockSrc::GenerateBlock { .. } => block.syntax(),
                    GenerateBlockSrc::LoopGenerate { .. } => block.syntax().parent()?,
+                   GenerateBlockSrc::SingleMember { .. } => block.syntax(),
                };
                let parent = SyntaxAncestors::start_from(anchor)
                    .skip(1)
@@ -146,6 +153,55 @@ impl Source2DefCtx<'_, '_> {
         };
 
         Some(cont_id)
+    }
+
+    fn single_member_generate_block_to_def(
+        &mut self,
+        file_id: HirFileId,
+        member: ast::Member,
+    ) -> Option<ContainerId> {
+        if matches!(member, ast::Member::GenerateBlock(_) | ast::Member::LoopGenerate(_)) {
+            return None;
+        }
+
+        let anchor = member.syntax();
+        if !Self::is_generate_branch_member(anchor.clone()) {
+            return None;
+        }
+
+        let parent = SyntaxAncestors::start_from(anchor)
+            .skip(1)
+            .find_map(|node| self.container_to_def(file_id, node))
+            .unwrap_or(file_id.into());
+
+        Some(
+            self.db
+                .intern_generate_block(GenerateBlockLoc {
+                    cont_id: parent,
+                    src: InFile::new(file_id, member.into()),
+                })
+                .into(),
+        )
+    }
+
+    fn is_generate_branch_member(member: SyntaxNode) -> bool {
+        for ancestor in SyntaxAncestors::start_from(member).skip(1) {
+            if ast::IfGenerate::can_cast(ancestor.kind())
+                || ast::CaseGenerate::can_cast(ancestor.kind())
+            {
+                return true;
+            }
+
+            if ast::GenerateBlock::can_cast(ancestor.kind())
+                || ast::GenerateRegion::can_cast(ancestor.kind())
+                || ast::ModuleDeclaration::can_cast(ancestor.kind())
+                || ast::BlockStatement::can_cast(ancestor.kind())
+            {
+                return false;
+            }
+        }
+
+        false
     }
 
     pub(super) fn find_container(

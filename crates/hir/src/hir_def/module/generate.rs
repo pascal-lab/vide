@@ -80,6 +80,7 @@ impl IsNamedSrc for GenerateRegionSrc {
 pub enum GenerateBlockSrc {
     GenerateBlock { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
     LoopGenerate { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
+    SingleMember { node: SyntaxNodePtr, name: Option<SyntaxTokenPtr> },
 }
 
 impl GenerateBlockSrc {
@@ -96,15 +97,21 @@ impl GenerateBlockSrc {
     pub fn node(&self) -> SyntaxNodePtr {
         match self {
             GenerateBlockSrc::GenerateBlock { node, .. }
-            | GenerateBlockSrc::LoopGenerate { node, .. } => *node,
+            | GenerateBlockSrc::LoopGenerate { node, .. }
+            | GenerateBlockSrc::SingleMember { node, .. } => *node,
         }
     }
 
     fn name(&self) -> Option<SyntaxTokenPtr> {
         match self {
             GenerateBlockSrc::GenerateBlock { name, .. }
-            | GenerateBlockSrc::LoopGenerate { name, .. } => *name,
+            | GenerateBlockSrc::LoopGenerate { name, .. }
+            | GenerateBlockSrc::SingleMember { name, .. } => *name,
         }
+    }
+
+    fn to_member<'a>(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::Member<'a>> {
+        ast::Member::cast(self.node().to_node(tree)?)
     }
 }
 
@@ -146,6 +153,7 @@ impl<'a> ToAstNode<'a, ast::GenerateBlock<'a>> for GenerateBlockSrc {
                 let loop_generate = ast::LoopGenerate::cast(node)?;
                 loop_generate.block().as_generate_block()
             }
+            GenerateBlockSrc::SingleMember { .. } => None,
         }
     }
 }
@@ -161,6 +169,7 @@ impl<'a> ToAstNode<'a, ast::LoopGenerate<'a>> for GenerateBlockSrc {
                 ast::LoopGenerate::cast(node)
             }
             GenerateBlockSrc::GenerateBlock { .. } => None,
+            GenerateBlockSrc::SingleMember { .. } => None,
         }
     }
 }
@@ -183,6 +192,15 @@ impl From<ast::LoopGenerate<'_>> for GenerateBlockSrc {
                 .as_generate_block()
                 .and_then(generate_block_name)
                 .map(SyntaxTokenPtr::from_token),
+        }
+    }
+}
+
+impl From<ast::Member<'_>> for GenerateBlockSrc {
+    fn from(member: ast::Member<'_>) -> Self {
+        GenerateBlockSrc::SingleMember {
+            node: syntax::slang_ext::AstNodeExt::to_ptr(&member),
+            name: None,
         }
     }
 }
@@ -447,6 +465,73 @@ impl LowerGenerateBlockCtx<'_> {
         })
     }
 
+    fn generate_block_item_from_branch(
+        &mut self,
+        member: ast::Member,
+    ) -> SmallVec<[GenerateBlockItem; 4]> {
+        use ast::Member::*;
+        match member {
+            EmptyMember(_) => SmallVec::new(),
+            GenerateBlock(block) => smallvec::smallvec![
+                self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
+            ],
+            LoopGenerate(loop_generate) => {
+                smallvec::smallvec![self.intern_generate_block(loop_generate.into()).into()]
+            }
+            IfGenerate(if_generate) => self.lower_if_generate_items(if_generate),
+            CaseGenerate(case_generate) => self.lower_case_generate_items(case_generate),
+            member => smallvec::smallvec![self.intern_generate_block(member.into()).into()],
+        }
+    }
+
+    fn lower_if_generate_items(
+        &mut self,
+        if_generate: ast::IfGenerate,
+    ) -> SmallVec<[GenerateBlockItem; 4]> {
+        self.expr_ctx().lower_expr(if_generate.condition());
+
+        let mut items = self.generate_block_item_from_branch(if_generate.block());
+        if let Some(else_clause) = if_generate.else_clause()
+            && let Some(member) = ast::Member::cast(else_clause.clause().syntax())
+        {
+            items.extend(self.generate_block_item_from_branch(member));
+        }
+        items
+    }
+
+    fn lower_case_generate_items(
+        &mut self,
+        case_generate: ast::CaseGenerate,
+    ) -> SmallVec<[GenerateBlockItem; 4]> {
+        self.expr_ctx().lower_expr(case_generate.condition());
+
+        let mut items = SmallVec::new();
+        for item in case_generate.items().children() {
+            use ast::CaseItem::*;
+            match item {
+                StandardCaseItem(item) => {
+                    for expr in item.expressions().children() {
+                        self.expr_ctx().lower_expr(expr);
+                    }
+                    if let Some(member) = ast::Member::cast(item.clause().syntax()) {
+                        items.extend(self.generate_block_item_from_branch(member));
+                    }
+                }
+                DefaultCaseItem(item) => {
+                    if let Some(member) = ast::Member::cast(item.clause().syntax()) {
+                        items.extend(self.generate_block_item_from_branch(member));
+                    }
+                }
+                PatternCaseItem(item) => {
+                    if let Some(expr) = item.expr() {
+                        self.expr_ctx().lower_expr(expr);
+                    }
+                }
+            }
+        }
+        items
+    }
+
     fn lower_generate_member(&mut self, member: ast::Member) -> Option<GenerateBlockItem> {
         use ast::Member::*;
         let item = match member {
@@ -474,6 +559,20 @@ impl LowerGenerateBlockCtx<'_> {
                 self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
             }
             LoopGenerate(loop_generate) => self.intern_generate_block(loop_generate.into()).into(),
+            IfGenerate(if_generate) => {
+                for item in self.lower_if_generate_items(if_generate) {
+                    self.generate_block.items.push(item.clone());
+                    self.generate_block_source_map.items.push(item);
+                }
+                return None;
+            }
+            CaseGenerate(case_generate) => {
+                for item in self.lower_case_generate_items(case_generate) {
+                    self.generate_block.items.push(item.clone());
+                    self.generate_block_source_map.items.push(item);
+                }
+                return None;
+            }
             DefParam(defparam) => self.defparam_ctx().lower_defparam(defparam).into(),
             EmptyMember(_) => return None,
             item => self.lower_opaque_member(item).into(),
@@ -533,6 +632,16 @@ impl LowerGenerateBlockCtx<'_> {
         self.generate_block.region_tree = self.region_tree.finish();
         self.generate_block_source_map.region_tree = self.generate_block.region_tree.clone();
     }
+
+    fn lower_single_member(&mut self, member: ast::Member) {
+        if let Some(item) = self.lower_generate_member(member) {
+            self.generate_block.items.push(item.clone());
+            self.generate_block_source_map.items.push(item);
+        }
+
+        self.generate_block.region_tree = self.region_tree.finish();
+        self.generate_block_source_map.region_tree = self.generate_block.region_tree.clone();
+    }
 }
 
 impl LowerModuleCtx<'_> {
@@ -543,31 +652,101 @@ impl LowerModuleCtx<'_> {
         })
     }
 
+    fn generate_item_from_branch(&mut self, member: ast::Member) -> SmallVec<[GenerateItem; 4]> {
+        use ast::Member::*;
+        match member {
+            EmptyMember(_) => SmallVec::new(),
+            GenerateBlock(block) => smallvec::smallvec![
+                self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
+            ],
+            LoopGenerate(loop_generate) => {
+                smallvec::smallvec![self.intern_generate_block(loop_generate.into()).into()]
+            }
+            IfGenerate(if_generate) => self.lower_if_generate_items(if_generate),
+            CaseGenerate(case_generate) => self.lower_case_generate_items(case_generate),
+            member => smallvec::smallvec![self.intern_generate_block(member.into()).into()],
+        }
+    }
+
+    fn lower_if_generate_items(
+        &mut self,
+        if_generate: ast::IfGenerate,
+    ) -> SmallVec<[GenerateItem; 4]> {
+        self.expr_ctx().lower_expr(if_generate.condition());
+
+        let mut items = self.generate_item_from_branch(if_generate.block());
+        if let Some(else_clause) = if_generate.else_clause()
+            && let Some(member) = ast::Member::cast(else_clause.clause().syntax())
+        {
+            items.extend(self.generate_item_from_branch(member));
+        }
+        items
+    }
+
+    fn lower_case_generate_items(
+        &mut self,
+        case_generate: ast::CaseGenerate,
+    ) -> SmallVec<[GenerateItem; 4]> {
+        self.expr_ctx().lower_expr(case_generate.condition());
+
+        let mut items = SmallVec::new();
+        for item in case_generate.items().children() {
+            use ast::CaseItem::*;
+            match item {
+                StandardCaseItem(item) => {
+                    for expr in item.expressions().children() {
+                        self.expr_ctx().lower_expr(expr);
+                    }
+                    if let Some(member) = ast::Member::cast(item.clause().syntax()) {
+                        items.extend(self.generate_item_from_branch(member));
+                    }
+                }
+                DefaultCaseItem(item) => {
+                    if let Some(member) = ast::Member::cast(item.clause().syntax()) {
+                        items.extend(self.generate_item_from_branch(member));
+                    }
+                }
+                PatternCaseItem(item) => {
+                    if let Some(expr) = item.expr() {
+                        self.expr_ctx().lower_expr(expr);
+                    }
+                }
+            }
+        }
+        items
+    }
+
     pub(crate) fn lower_generate_region(
         &mut self,
         region: ast::GenerateRegion,
     ) -> GenerateRegionId {
-        let items = region
-            .members()
-            .children()
-            .filter_map(|item| {
-                use ast::Member::*;
-                match item {
-                    EmptyMember(_) => None,
-                    GenvarDeclaration(genvar_decl) => {
-                        Some(self.declaration_ctx().lower_genvar_decl(genvar_decl).into())
-                    }
-                    GenerateBlock(block) => Some(
+        let mut items = SmallVec::new();
+
+        for item in region.members().children() {
+            use ast::Member::*;
+            match item {
+                EmptyMember(_) => {}
+                GenvarDeclaration(genvar_decl) => {
+                    items.push(self.declaration_ctx().lower_genvar_decl(genvar_decl).into());
+                }
+                GenerateBlock(block) => {
+                    items.push(
                         self.intern_generate_block(GenerateBlockSrc::from_generate_block(block))
                             .into(),
-                    ),
-                    LoopGenerate(loop_generate) => {
-                        Some(self.intern_generate_block(loop_generate.into()).into())
-                    }
-                    item => Some(self.lower_opaque_member(item).into()),
+                    );
                 }
-            })
-            .collect();
+                LoopGenerate(loop_generate) => {
+                    items.push(self.intern_generate_block(loop_generate.into()).into());
+                }
+                IfGenerate(if_generate) => {
+                    items.extend(self.lower_if_generate_items(if_generate));
+                }
+                CaseGenerate(case_generate) => {
+                    items.extend(self.lower_case_generate_items(case_generate));
+                }
+                item => items.push(self.lower_opaque_member(item).into()),
+            }
+        }
 
         alloc_idx_and_src! {
             GenerateRegion { items } => self.module.generate_regions,
@@ -604,6 +783,11 @@ pub(crate) fn generate_block_with_source_map_query(
         GenerateBlockSrc::LoopGenerate { .. } => {
             if let Some(loop_generate) = src.to_node(&tree) {
                 lower_ctx.lower_loop_generate(loop_generate);
+            }
+        }
+        GenerateBlockSrc::SingleMember { .. } => {
+            if let Some(member) = src.to_member(&tree) {
+                lower_ctx.lower_single_member(member);
             }
         }
     }
