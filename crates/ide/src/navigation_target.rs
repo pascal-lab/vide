@@ -7,6 +7,7 @@ use hir::{
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
+        opaque::OpaqueItemId,
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
         typedef::TypedefId,
@@ -57,6 +58,7 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
             DefinitionOrigin::Decl(decl_id) => decl_id.to_nav(db),
             DefinitionOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
+            DefinitionOrigin::Opaque(opaque_id) => opaque_id.to_nav(db),
             DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
             DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
         }
@@ -190,6 +192,28 @@ impl ToNav for InContainer<TypedefId> {
             src.range(),
             typedef.name.clone(),
             SymbolKind::Typedef,
+            cont_name,
+        )
+    }
+}
+
+impl ToNav for InContainer<OpaqueItemId> {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let InContainer { value: opaque_id, cont_id } = *self;
+
+        let file_id = cont_id.file_id(db);
+        let src = cont_id.to_container_src_map(db).get(opaque_id);
+
+        let cont = cont_id.to_container(db);
+        let opaque = cont.get(opaque_id);
+        let cont_name = cont.name().cloned();
+
+        build(
+            file_id,
+            src.name_range(),
+            src.range(),
+            opaque.name.clone(),
+            SymbolKind::from_opaque_kind(opaque.kind, src.kind()),
             cont_name,
         )
     }

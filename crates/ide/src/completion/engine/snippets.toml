@@ -2,6 +2,8 @@
 module = "module ${1:name} (${2:ports});\n\t${0}\nendmodule"
 primitive = "primitive ${1:name} (${2:ports});\n\t${0}\nendprimitive"
 macromodule = "macromodule ${1:name} (${2:ports});\n\t${0}\nendmodule"
+config = "config ${1:name};\n\tdesign ${2:work.top};\nendconfig"
+library = "library ${1:name} ${2:\"*.v\"};"
 
 [module_item]
 wire = "wire ${1:name};"

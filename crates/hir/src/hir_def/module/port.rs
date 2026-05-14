@@ -40,16 +40,19 @@ use crate::{
 pub struct PortDecl {
     pub header: PortHeader,
     pub decls: DeclsRange,
+    pub name: Option<Ident>,
 }
 
 pub type PortDeclId = Idx<PortDecl>;
 
-define_src!(PortDeclSrc(ast::ImplicitAnsiPort, ast::PortDeclaration));
+define_src!(PortDeclSrc(ast::ImplicitAnsiPort, ast::ExplicitAnsiPort, ast::PortDeclaration));
 
 impl PortDeclSrc {
     pub fn ptr(&self) -> SyntaxNodePtr {
         match self {
-            PortDeclSrc::ImplicitAnsiPort(ptr) | PortDeclSrc::PortDeclaration(ptr) => *ptr,
+            PortDeclSrc::ImplicitAnsiPort(ptr)
+            | PortDeclSrc::ExplicitAnsiPort(ptr)
+            | PortDeclSrc::PortDeclaration(ptr) => *ptr,
         }
     }
 }
@@ -188,7 +191,7 @@ impl PortSrcs {
     }
 }
 
-define_src!(PortListSrc(ast::NonAnsiPortList, ast::AnsiPortList));
+define_src!(PortListSrc(ast::NonAnsiPortList, ast::AnsiPortList, ast::WildcardPortList));
 
 impl Default for PortSrcs {
     fn default() -> Self {
@@ -292,11 +295,29 @@ impl LowerModuleCtx<'_> {
                     let end = self.module.decls.nxt_idx();
 
                     alloc_idx_and_src! {
-                        PortDecl { header: header.unwrap(), decls: IdxRange::new(decl_id..end) } => ports,
+                        PortDecl {
+                            header: header.unwrap(),
+                            decls: IdxRange::new(decl_id..end),
+                            name: None,
+                        } => ports,
                         port => decls,
                     };
                 }
-                ExplicitAnsiPort(_port) => unimplemented!(),
+                ExplicitAnsiPort(port) => {
+                    header = Some(self.lower_explicit_ansi_header(port.direction(), header));
+                    if let Some(expr) = port.expr() {
+                        self.expr_ctx().lower_expr(expr);
+                    }
+
+                    let idx = ports.alloc(PortDecl {
+                        header: header.unwrap(),
+                        decls: IdxRange::new(
+                            self.module.decls.nxt_idx()..self.module.decls.nxt_idx(),
+                        ),
+                        name: lower_ident_opt(port.name()),
+                    });
+                    decls.insert(port.into(), idx);
+                }
                 _ => unreachable!(),
             };
             self.region_tree.handle_node(port.syntax());
@@ -307,6 +328,15 @@ impl LowerModuleCtx<'_> {
         self.module.ports = Ports::Ansi(ports);
         self.module_source_map.port_srcs =
             PortSrcs::Ansi { decls, port_list_src: Some(PortListSrc::from(port_list)) };
+    }
+
+    pub(crate) fn lower_wildcard_ports(&mut self, port_list: ast::WildcardPortList) {
+        self.region_tree.stage(port_list.close_paren());
+        self.module.ports = Ports::Ansi(Arena::default());
+        self.module_source_map.port_srcs = PortSrcs::Ansi {
+            decls: SourceMap::default(),
+            port_list_src: Some(PortListSrc::from(port_list)),
+        };
     }
 
     pub(crate) fn lower_nonansi_port(&mut self, port_list: ast::NonAnsiPortList) {
@@ -390,23 +420,20 @@ impl LowerModuleCtx<'_> {
         let header = self.lower_port_header(decl.header(), None);
 
         let parent = match &self.module.ports {
-            Ports::NonAnsi { decls, .. } => decls.nxt_idx().into(),
-            Ports::Ansi(_) => todo!("diagnostics"),
+            Ports::NonAnsi { decls, .. } | Ports::Ansi(decls) => decls.nxt_idx().into(),
         };
 
         let decls = self.decl_ctx().lower_declarators(decl.declarators(), parent);
 
-        let Ports::NonAnsi { decls: port_decls, .. } = &mut self.module.ports else {
-            unreachable!();
-        };
-
-        let PortSrcs::NonAnsi { decls: srcs, .. } = &mut self.module_source_map.port_srcs else {
-            unreachable!();
-        };
-
-        alloc_idx_and_src! {
-            PortDecl { header, decls } => port_decls,
-            decl => srcs,
+        match (&mut self.module.ports, &mut self.module_source_map.port_srcs) {
+            (Ports::NonAnsi { decls: port_decls, .. }, PortSrcs::NonAnsi { decls: srcs, .. })
+            | (Ports::Ansi(port_decls), PortSrcs::Ansi { decls: srcs, .. }) => {
+                alloc_idx_and_src! {
+                    PortDecl { header, decls, name: None } => port_decls,
+                    decl => srcs,
+                }
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -419,10 +446,7 @@ impl LowerModuleCtx<'_> {
     ) -> PortHeader {
         let default_data_ty = DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()));
         let default_net_kind = self.default_net_type.unwrap();
-        let prev_header = prev_header.unwrap_or_else(|| PortHeader::Net {
-            dir: PortDirection::default(),
-            net_ty: NetType { kind: default_net_kind, ty: default_data_ty },
-        });
+        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
 
         use ast::PortHeader::*;
         match header {
@@ -473,7 +497,33 @@ impl LowerModuleCtx<'_> {
                     }
                 }
             }
-            InterfacePortHeader(_header) => unimplemented!(),
+            InterfacePortHeader(_header) => prev_header,
+        }
+    }
+
+    fn lower_explicit_ansi_header(
+        &mut self,
+        direction: Option<SyntaxToken>,
+        prev_header: Option<PortHeader>,
+    ) -> PortHeader {
+        let dir = Self::lower_dir(direction);
+        let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
+        let Some(dir) = dir else {
+            return prev_header;
+        };
+
+        match prev_header {
+            PortHeader::Var { var_kw, ty, .. } => PortHeader::Var { dir, var_kw, ty },
+            PortHeader::Net { net_ty, .. } => PortHeader::Net { dir, net_ty },
+        }
+    }
+
+    fn default_port_header(&mut self) -> PortHeader {
+        let default_data_ty = DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()));
+        let default_net_kind = self.default_net_type.unwrap();
+        PortHeader::Net {
+            dir: PortDirection::default(),
+            net_ty: NetType { kind: default_net_kind, ty: default_data_ty },
         }
     }
 

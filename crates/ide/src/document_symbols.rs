@@ -10,7 +10,9 @@ use hir::{
         expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
         file::FileItem,
         module::{ModuleId, ModuleItem, ModuleSrc, port::Ports},
+        opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
         stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
+        subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
         typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::{RegionNode, RegionTreeIterator},
@@ -195,7 +197,13 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::TypedefId(typedef_id) => {
                 build_typedef(&mut collector, typedef_id, file, src_map)
             }
-            FileItem::StructId(_) | FileItem::SubroutineId(_) => {
+            FileItem::OpaqueItemId(opaque_id) => {
+                build_opaque(&mut collector, opaque_id, file, src_map)
+            }
+            FileItem::SubroutineId(subroutine_id) => {
+                build_subroutine(&mut collector, subroutine_id, file, src_map)
+            }
+            FileItem::StructId(_) => {
                 // TODO: implement document symbols for these items
             }
         }
@@ -274,7 +282,13 @@ fn collect_module_items(
             ModuleItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, module, src_map)
             }
-            ModuleItem::StructId(_) | ModuleItem::SubroutineId(_) => {
+            ModuleItem::OpaqueItemId(opaque_id) => {
+                build_opaque(collector, opaque_id, module, src_map)
+            }
+            ModuleItem::SubroutineId(subroutine_id) => {
+                build_subroutine(collector, subroutine_id, module, src_map)
+            }
+            ModuleItem::StructId(_) => {
                 // TODO: implement document symbols for these items
             }
         }
@@ -308,6 +322,9 @@ fn collect_block_items(
             BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, block, src_map),
             BlockItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, block, src_map)
+            }
+            BlockItem::OpaqueItemId(opaque_id) => {
+                build_opaque(collector, opaque_id, block, src_map)
             }
             BlockItem::StructId(_) => {
                 // TODO: implement document symbols for these items
@@ -377,7 +394,8 @@ fn build_stmt<Arn, SrcMap>(
         | StmtKind::Expr(_)
         | StmtKind::Jump(_)
         | StmtKind::ProcAssign(_)
-        | StmtKind::Disable(_) => {}
+        | StmtKind::Disable(_)
+        | StmtKind::Opaque => {}
 
         StmtKind::Block(_) => unreachable!(),
     }
@@ -451,5 +469,38 @@ fn build_typedef<Arn, SrcMap>(
     let hir = arena.get(typedef_id);
     let src = src_map.get(typedef_id);
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Typedef);
+    collector.pop();
+}
+
+#[inline]
+fn build_subroutine<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    subroutine_id: LocalSubroutineId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<LocalSubroutineId, Output = Subroutine>,
+    SrcMap: Get<LocalSubroutineId, Output = SubroutineSrc>,
+{
+    let hir = arena.get(subroutine_id);
+    let src = src_map.get(subroutine_id);
+    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);
+    collector.pop();
+}
+
+#[inline]
+fn build_opaque<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    opaque_id: OpaqueItemId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<OpaqueItemId, Output = OpaqueItem>,
+    SrcMap: Get<OpaqueItemId, Output = OpaqueItemSrc>,
+{
+    let hir = arena.get(opaque_id);
+    let src = src_map.get(opaque_id);
+    let kind = SymbolKind::from_opaque_kind(hir.kind, src.kind());
+    collector.push_symbol_with_kind(&hir.name, src, kind);
     collector.pop();
 }

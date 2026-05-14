@@ -9,7 +9,7 @@ use hir::{
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use syntax::{SVInt, SyntaxCursorExt, ast::AstNode, trivia::TriviaExt};
-use utils::text_edit::TextSize;
+use utils::{get::GetRef, text_edit::TextSize};
 
 use crate::{
     definitions::{Definition, DefinitionOrigin},
@@ -142,6 +142,14 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opti
     let db = sema.db;
     match origin {
         DefinitionOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
+        DefinitionOrigin::Opaque(opaque) => {
+            let item = opaque.cont_id.to_container(db);
+            let item = item.get(opaque.value);
+            Some(format!(
+                "recognized Verilog-2005 construct; semantic IDE support is limited\nkind: {:?}",
+                item.kind
+            ))
+        }
         _ => None,
     }
 }

@@ -19,6 +19,7 @@ use crate::{
         },
         file::{FileSourceMap, HirFile},
         module::{Module, ModuleId, ModuleSourceMap},
+        opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
         stmt::{Stmt, StmtId, StmtSrc},
         subroutine::{Subroutine, SubroutineId, SubroutineSourceMap},
         typedef::{Typedef, TypedefId, TypedefSrc},
@@ -213,6 +214,7 @@ impl_container! {
         Declarator[DeclId | DeclaratorSrc],
         Stmt[StmtId | StmtSrc],
         BlockInfo[LocalBlockId | BlockSrc],
+        OpaqueItem[OpaqueItemId | OpaqueItemSrc],
     }
 }
 

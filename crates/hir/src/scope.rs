@@ -15,6 +15,7 @@ use crate::{
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
+        opaque::OpaqueItemId,
         stmt::{StmtId, StmtKind},
         subroutine::{SubroutineId, SubroutineLoc, SubroutinePortId, SubroutineSrc},
         typedef::TypedefId,
@@ -27,11 +28,13 @@ pub enum UnitEntry {
         ModuleId,
         FiledDeclId,
         FiledTypedefId,
+        FiledOpaqueItemId,
     }
 }
 
 pub type FiledDeclId = InFile<DeclId>;
 pub type FiledTypedefId = InFile<TypedefId>;
+pub type FiledOpaqueItemId = InFile<OpaqueItemId>;
 
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -44,6 +47,7 @@ pub enum ModuleEntry {
         StmtId,
         BlockId,
         SubroutineId,
+        OpaqueItemId,
     }
 }
 
@@ -65,6 +69,7 @@ define_enum_deriving_from! {
         DeclId,
         TypedefId,
         BlockId,
+        OpaqueItemId,
     }
 }
 
@@ -76,6 +81,7 @@ define_enum_deriving_from! {
         TypedefId,
         BlockId,
         SubroutinePortId,
+        OpaqueItemId,
     }
 }
 
@@ -148,6 +154,10 @@ impl UnitScope {
             scope.insert_opt(&typedef.name, InFile::new(file_id, typedef_id).into());
         }
 
+        for (opaque_id, opaque) in hir_file.opaque_items.iter() {
+            scope.insert_opt(&opaque.name, InFile::new(file_id, opaque_id).into());
+        }
+
         Arc::new(scope)
     }
 }
@@ -210,6 +220,10 @@ impl ModuleScope {
             scope.insert_opt(&typedef.name, typedef_id.into());
         }
 
+        for (opaque_id, opaque) in module.opaque_items.iter() {
+            scope.insert_opt(&opaque.name, opaque_id.into());
+        }
+
         for (instance_id, instance) in module.instances.iter() {
             scope.insert_opt(&instance.name, instance_id.into());
         }
@@ -237,6 +251,10 @@ impl BlockScope {
 
         for (typedef_id, typedef) in block.typedefs.iter() {
             scope.insert_opt(&typedef.name, typedef_id.into());
+        }
+
+        for (opaque_id, opaque) in block.opaque_items.iter() {
+            scope.insert_opt(&opaque.name, opaque_id.into());
         }
 
         for (stmt_id, stmt) in block.stmts.iter() {
@@ -267,6 +285,10 @@ impl SubroutineScope {
 
         for (typedef_id, typedef) in subroutine.typedefs.iter() {
             scope.insert_opt(&typedef.name, typedef_id.into());
+        }
+
+        for (opaque_id, opaque) in subroutine.opaque_items.iter() {
+            scope.insert_opt(&opaque.name, opaque_id.into());
         }
 
         for (stmt_id, stmt) in subroutine.stmts.iter() {

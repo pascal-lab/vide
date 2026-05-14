@@ -29,6 +29,7 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
+    opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind, lower_opaque_node},
     stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -38,7 +39,7 @@ use crate::{
     define_src_with_name,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{SourceMap, ToAstNode},
+    source_map::{IsNamedSrc, IsSrc, SourceMap, ToAstNode},
 };
 
 define_container! {
@@ -50,6 +51,7 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
+        opaque_items: [OpaqueItem],
         exprs: [Expr],
         event_exprs: [EventExpr],
         decls: [Declarator],
@@ -69,6 +71,7 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
+        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
         decl_srcs: [Declarator | DeclaratorSrc],
@@ -86,6 +89,7 @@ impl BlockSourceMap {
             BlockItem::DeclarationId(idx) => self.get(*idx).ptr(),
             BlockItem::TypedefId(idx) => self.get(*idx).ptr(),
             BlockItem::StructId(idx) => self.get(*idx).node,
+            BlockItem::OpaqueItemId(idx) => self.get(*idx).node,
             BlockItem::StmtId(idx) => self.get(*idx).node,
         }
     }
@@ -138,9 +142,35 @@ impl Get<BlockSrc> for SourceMap<StmtSrc, Stmt> {
     type Output = LocalBlockId;
 
     fn get(&self, block_src: BlockSrc) -> Self::Output {
-        let src: StmtSrc = block_src.into();
-        LocalBlockId(self.get(src))
+        find_local_block_id(self, block_src).unwrap()
     }
+}
+
+pub(crate) fn find_local_block_id(
+    stmt_srcs: &SourceMap<StmtSrc, Stmt>,
+    block_src: BlockSrc,
+) -> Option<LocalBlockId> {
+    let src: StmtSrc = block_src.into();
+    if let Some((stmt_id, _)) = stmt_srcs.iter().find(|(_, stmt_src)| **stmt_src == src) {
+        return Some(LocalBlockId(stmt_id));
+    }
+
+    let block_kind = block_src.kind();
+    let block_range = block_src.range();
+    let block_name_range = block_src.name_range();
+    let (stmt_id, _) = stmt_srcs
+        .iter()
+        .find(|(_, stmt_src)| {
+            stmt_src.kind() == block_kind
+                && stmt_src.range() == block_range
+                && stmt_src.name_range() == block_name_range
+        })
+        .or_else(|| {
+            stmt_srcs.iter().find(|(_, stmt_src)| {
+                stmt_src.kind() == block_kind && stmt_src.range() == block_range
+            })
+        })?;
+    Some(LocalBlockId(stmt_id))
 }
 
 impl GetRef<LocalBlockId> for Arena<Stmt> {
@@ -161,6 +191,7 @@ define_enum_deriving_from! {
         DeclarationId,
         TypedefId,
         StructId,
+        OpaqueItemId,
         StmtId,
     }
 }
@@ -257,7 +288,13 @@ impl LowerBlockCtx<'_> {
                 },
                 ast::DataDeclaration[it] => self.declaration_ctx().lower_data_decl(it).into(),
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
-                _ => unimplemented!("{:?}", node.syntax().kind()),
+                _ => {
+                    let (opaque, src) =
+                        lower_opaque_node(node.syntax(), None, OpaqueKind::BlockItem);
+                    let opaque_id = self.block.opaque_items.alloc(opaque);
+                    self.block_source_map.opaque_srcs.insert(src, opaque_id);
+                    opaque_id.into()
+                },
             };
             self.block_source_map.items.push(idx);
             self.region_tree.handle_node(node.syntax());

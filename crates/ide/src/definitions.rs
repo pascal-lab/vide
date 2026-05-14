@@ -6,6 +6,7 @@ use hir::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
+        opaque::OpaqueItemId,
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
         typedef::TypedefId,
@@ -39,6 +40,7 @@ pub enum DefinitionOrigin {
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
+    Opaque(InContainer<OpaqueItemId>),
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
 }
@@ -51,6 +53,7 @@ impl_from! { DefinitionOrigin =>
     NonAnsiPort(InModule<NonAnsiPortId>),
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
+    Opaque(InContainer<OpaqueItemId>),
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
 }
@@ -68,6 +71,7 @@ impl DefinitionOrigin {
             DefinitionOrigin::NonAnsiPort(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Typedef(InContainer { cont_id, .. }) => cont_id,
+            DefinitionOrigin::Opaque(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
@@ -96,6 +100,9 @@ impl DefinitionOrigin {
                 cont_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
+                cont_id.to_container(db).get(value).name.clone().unwrap()
+            }
+            DefinitionOrigin::Opaque(InContainer { value, cont_id }) => {
                 cont_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
@@ -151,6 +158,11 @@ impl DefinitionOrigin {
                 let range = cont_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
+            DefinitionOrigin::Opaque(InContainer { value, cont_id }) => {
+                let src = cont_id.to_container_src_map(db).get(value);
+                let range = src.name_or_full_range();
+                InFile::new(cont_id.file_id(db).into(), range)
+            }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(module_id.file_id, range)
@@ -203,6 +215,10 @@ impl DefinitionOrigin {
                 InFile::new(cont_id.file_id(db).into(), range)
             }
             DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
+                let range = cont_id.to_container_src_map(db).get(value).range();
+                InFile::new(cont_id.file_id(db).into(), range)
+            }
+            DefinitionOrigin::Opaque(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value).range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
@@ -303,6 +319,7 @@ impl Definition {
             PathResolution::Module(module_id) => module_id.into(),
             PathResolution::Decl(decl_id) => decl_id.into(),
             PathResolution::Typedef(typedef_id) => typedef_id.into(),
+            PathResolution::Opaque(opaque_id) => opaque_id.into(),
             PathResolution::Instance(instance_id) => instance_id.into(),
             PathResolution::Stmt(stmt_id) => stmt_id.into(),
             PathResolution::Block(blk_id) => blk_id.into(),

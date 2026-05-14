@@ -1,9 +1,6 @@
 use std::fmt;
 
-use syntax::{
-    Bit, SVInt, TimeUnit,
-    ast::{self, AstNode},
-};
+use syntax::{Bit, SVInt, TimeUnit, ast};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Literal {
@@ -82,7 +79,9 @@ pub(crate) fn lower_literal(literal: ast::LiteralExpression) -> Option<Literal> 
             let s = syntax_node.child_token(0)?.value_text().to_string();
             Some(Literal::Str(s.into_boxed_str()))
         }
-        _ => unimplemented!("Unsupported literal expression: {:?}", literal.syntax().kind()),
+        NullLiteralExpression(_)
+        | WildcardLiteralExpression(_)
+        | DefaultPatternKeyExpression(_) => None,
     }
 }
 

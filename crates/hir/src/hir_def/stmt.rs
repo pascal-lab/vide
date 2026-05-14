@@ -72,6 +72,7 @@ pub enum StmtKind {
 
     Wait(WaitKind, StmtId),
     Disable(DisableKind),
+    Opaque,
 }
 
 define_src_with_name!(StmtSrc(ast::Statement));
@@ -216,7 +217,7 @@ impl LowerStmtCtx<'_> {
             BlockStatement(stmt) => self.lower_block_stmt(stmt),
 
             EmptyStatement(_) => StmtKind::Empty,
-            _ => unimplemented!("lower_stmt: {:?}", stmt.syntax().kind()),
+            _ => StmtKind::Opaque,
         };
 
         Stmt { label, kind }
@@ -387,7 +388,14 @@ impl LowerStmtCtx<'_> {
                             self.lower_stmt_opt(ast::Statement::cast(item.clause().syntax()));
                         CaseItem::Case { exprs, clause }
                     }
-                    PatternCaseItem(_) => unimplemented!(),
+                    PatternCaseItem(item) => {
+                        let mut exprs = SmallVec::new();
+                        if let Some(expr) = item.expr() {
+                            exprs.push(self.expr_ctx().lower_expr(expr));
+                        }
+                        let clause = self.lower_stmt(item.statement());
+                        CaseItem::Case { exprs, clause }
+                    }
                 }
             })
             .collect();

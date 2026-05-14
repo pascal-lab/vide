@@ -13,6 +13,7 @@ use crate::{
         expr::declarator::{DeclId, DeclaratorParent},
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
+        opaque::OpaqueItemId,
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
         typedef::TypedefId,
@@ -86,7 +87,9 @@ impl SemanticsImpl<'_> {
         let module_name = lower_ident_opt(instantiation.type_())?;
         match self.db.unit_scope().get(&module_name)? {
             UnitEntry::ModuleId(module_id) => Some(module_id),
-            UnitEntry::FiledDeclId(_) | UnitEntry::FiledTypedefId(_) => None,
+            UnitEntry::FiledDeclId(_)
+            | UnitEntry::FiledTypedefId(_)
+            | UnitEntry::FiledOpaqueItemId(_) => None,
         }
     }
 
@@ -114,6 +117,7 @@ pub enum PathResolution {
     Instance(InModule<InstanceId>),
     Stmt(InContainer<StmtId>),
     Block(BlockId),
+    Opaque(InContainer<OpaqueItemId>),
 }
 
 impl From<UnitEntry> for PathResolution {
@@ -123,6 +127,7 @@ impl From<UnitEntry> for PathResolution {
             ModuleId(idx) => Self::Module(idx),
             FiledDeclId(idx) => Self::Decl(idx.into()),
             FiledTypedefId(idx) => Self::Typedef(idx.into()),
+            FiledOpaqueItemId(idx) => Self::Opaque(idx.into()),
         }
     }
 }
@@ -136,6 +141,7 @@ impl From<InModule<ModuleEntry>> for PathResolution {
             InstanceId(idx) => Self::Instance(entry.with_value(idx)),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             SubroutineId(subroutine_id) => Self::Subroutine(subroutine_id),
+            OpaqueItemId(opaque_id) => Self::Opaque(entry.with_value(opaque_id).into()),
             NonAnsiPortEntry(scope::NonAnsiPortEntry { label, port_decl, data_decl }) => {
                 Self::NonAnsiPort { label, port_decl, data_decl, module: entry.module_id }
             }
@@ -153,6 +159,7 @@ impl From<InBlock<BlockEntry>> for PathResolution {
             TypedefId(idx) => Self::Typedef(entry.with_value(idx).into()),
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             BlockId(block_id) => Self::Block(block_id),
+            OpaqueItemId(opaque_id) => Self::Opaque(entry.with_value(opaque_id).into()),
         }
     }
 }
@@ -166,6 +173,7 @@ impl From<InSubroutine<SubroutineEntry>> for PathResolution {
             StmtId(idx) => Self::Stmt(entry.with_value(idx).into()),
             BlockId(block_id) => Self::Block(block_id),
             SubroutinePortId(idx) => Self::SubroutinePort(entry.with_value(idx)),
+            OpaqueItemId(opaque_id) => Self::Opaque(entry.with_value(opaque_id).into()),
         }
     }
 }

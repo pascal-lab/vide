@@ -63,6 +63,10 @@ pub(super) fn detect_completion_site(caret: &CaretSnapshot<'_>) -> CompletionSit
     }
 
     if is_in_module(caret) {
+        if is_statement_keyword_site(caret) {
+            return CompletionSite::ModuleItemStart;
+        }
+
         return if is_expression_site(caret) {
             CompletionSite::Expr
         } else {
@@ -202,6 +206,24 @@ fn is_in_sensitivity_list(caret: &CaretSnapshot<'_>) -> bool {
         || caret.root.find_node_at_offset::<ast::EventControlWithExpression<'_>>(offset).is_some()
         || caret.root.find_node_at_offset::<ast::ImplicitEventControl<'_>>(offset).is_some()
         || caret.root.find_node_at_offset::<ast::RepeatedEventControl<'_>>(offset).is_some()
+}
+
+fn is_statement_keyword_site(caret: &CaretSnapshot<'_>) -> bool {
+    let Some(stmt) = caret.root.find_node_at_offset::<ast::Statement<'_>>(caret.offset) else {
+        return false;
+    };
+    let Some(stmt_range) = stmt.syntax().text_range() else {
+        return false;
+    };
+
+    let (replacement, prefix) = caret.replacement_and_prefix();
+    if prefix.is_empty()
+        || !(stmt_range.contains(replacement.start()) || stmt_range.start() == replacement.start())
+    {
+        return false;
+    }
+
+    stmt.syntax().token_before_offset(replacement.start()).is_none()
 }
 
 fn is_expression_site(caret: &CaretSnapshot<'_>) -> bool {

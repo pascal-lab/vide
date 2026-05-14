@@ -82,7 +82,7 @@ impl InlayHintCollector {
             ast::ParamAssignment => InlayKind::ParamAssign,
             ast::OrderedPortConnection | ast::EmptyPortConnection => InlayKind::Port,
             ast::ModuleDeclaration => InlayKind::EndStructure,
-            _ => unimplemented!("{:?}", src.kind()),
+            _ => return,
         };
 
         let position = match_ast_kind! { src.kind(),

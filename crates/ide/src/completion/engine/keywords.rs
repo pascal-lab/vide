@@ -45,7 +45,7 @@ struct KeywordsConfig {
     module_item: Vec<Keyword>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Keyword {
     label: String,
     plain: String,
@@ -107,19 +107,18 @@ fn keywords_config() -> &'static KeywordsConfig {
     static KEYWORDS: OnceLock<KeywordsConfig> = OnceLock::new();
     KEYWORDS.get_or_init(|| {
         let manual = snippets::snippet_config();
-        let generated = generated_keywords();
 
         KeywordsConfig {
             top_level: combine_keywords(
-                Vec::new(),
+                generated_keywords(),
                 snippets_to_keywords(snippets::entries(&manual.top_level)),
             ),
             module_header: combine_keywords(
-                Vec::new(),
+                generated_keywords(),
                 snippets_to_keywords(snippets::entries(&manual.module_header)),
             ),
             module_item: combine_keywords(
-                generated,
+                generated_keywords(),
                 snippets_to_keywords(snippets::entries(&manual.module_item)),
             ),
         }

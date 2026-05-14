@@ -9,13 +9,21 @@ use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
     ClientCapabilities, DiagnosticClientCapabilities, DidChangeTextDocumentParams,
     DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentDiagnosticReportResult, ProgressParams, PublishDiagnosticsParams,
+    DocumentDiagnosticReportResult, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position,
+    ProgressParams, PublishDiagnosticsParams, SemanticTokensParams, SemanticTokensResult,
     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
-    WorkspaceClientCapabilities, WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
+    TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
+    WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReportResult,
     notification::{DidChangeTextDocument, DidOpenTextDocument, Exit, Notification as _},
-    request::{DocumentDiagnosticRequest, Request as _, Shutdown, WorkspaceDiagnosticRequest},
+    request::{
+        DocumentDiagnosticRequest, DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition,
+        HoverRequest, Request as _, SemanticTokensFullRequest, Shutdown,
+        WorkspaceDiagnosticRequest,
+    },
 };
+use serde::de::DeserializeOwned;
 use utils::paths::AbsPathBuf;
 
 use crate::{
@@ -248,6 +256,216 @@ fn recv_publish_diagnostics_for_uri(client: &Connection, uri: &Url) -> Vec<lsp_t
     }
 
     panic!("publishDiagnostics notification not received for {uri}");
+}
+
+fn recv_response<T: DeserializeOwned>(
+    client: &Connection,
+    request_id: lsp_server::RequestId,
+    label: &str,
+) -> T {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+        match client.receiver.recv_timeout(timeout).unwrap() {
+            Message::Response(response) if response.id == request_id => {
+                assert!(response.error.is_none(), "{label} returned error: {:?}", response.error);
+                return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
+                    .unwrap_or_else(|err| panic!("failed to decode {label} response: {err}"));
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+            }
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+            }
+            Message::Request(request) => {
+                panic!("unexpected server request during {label}: {request:?}");
+            }
+            _ => {}
+        }
+    }
+
+    panic!("{label} response not received");
+}
+
+fn position_of(text: &str, needle: &str) -> Position {
+    let offset = text.find(needle).unwrap_or_else(|| panic!("missing {needle:?}"));
+    let line = text[..offset].bytes().filter(|byte| *byte == b'\n').count() as u32;
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    Position { line, character: (offset - line_start) as u32 }
+}
+
+#[test]
+fn verilog_2005_memory_lsp_requests_handle_opaque_constructs() {
+    let file_text = "\
+module child(input wire a, output wire y);
+endmodule
+
+primitive udp_and(out, in);
+  output out;
+  input in;
+  table
+    1 : 1;
+  endtable
+endprimitive
+
+module top(input wire clk);
+  wire sig;
+  child u_child(.a(sig), .y());
+
+  task automatic do_task;
+    input reg t_in;
+    begin
+      sig = t_in;
+    end
+  endtask
+
+  generate
+    genvar i;
+    for (i = 0; i < 1; i = i + 1) begin : g_loop
+      wire lane;
+    end
+  endgenerate
+
+  specify
+    specparam T_SETUP = 1;
+  endspecify
+
+  initial begin : blk
+    do_task(sig);
+    $display(\"%0d\", sig);
+  end
+endmodule
+
+config cfg_top;
+  design work.top;
+endconfig
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(ClientCapabilities::default(), UserConfig::default(), file_text);
+    let text_document = TextDocumentIdentifier { uri: uri.clone() };
+
+    let diagnostics_id = lsp_server::RequestId::from(100);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: text_document.clone(),
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let _: DocumentDiagnosticReportResult =
+        recv_response(&client, diagnostics_id, "documentDiagnostic");
+
+    let symbols_id = lsp_server::RequestId::from(101);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            symbols_id.clone(),
+            DocumentSymbolRequest::METHOD.to_string(),
+            DocumentSymbolParams {
+                text_document: text_document.clone(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let symbols: Option<DocumentSymbolResponse> =
+        recv_response(&client, symbols_id, "documentSymbol");
+    assert!(symbols.is_some(), "documentSymbol should return a result");
+
+    let tokens_id = lsp_server::RequestId::from(102);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            tokens_id.clone(),
+            SemanticTokensFullRequest::METHOD.to_string(),
+            SemanticTokensParams {
+                text_document: text_document.clone(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let tokens: Option<SemanticTokensResult> =
+        recv_response(&client, tokens_id, "semanticTokens/full");
+    assert!(tokens.is_some(), "semanticTokens/full should return a result");
+
+    let folding_id = lsp_server::RequestId::from(103);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            folding_id.clone(),
+            FoldingRangeRequest::METHOD.to_string(),
+            FoldingRangeParams {
+                text_document: text_document.clone(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let folds: Option<Vec<FoldingRange>> = recv_response(&client, folding_id, "foldingRange");
+    assert!(folds.is_some_and(|folds| !folds.is_empty()), "folding ranges expected");
+
+    let hover_id = lsp_server::RequestId::from(104);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            hover_id.clone(),
+            HoverRequest::METHOD.to_string(),
+            HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: text_document.clone(),
+                    position: position_of(file_text, "g_loop"),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+    let hover: Option<Hover> = recv_response(&client, hover_id, "hover");
+    assert!(hover.is_some(), "hover should return a result for generate label");
+
+    let definition_id = lsp_server::RequestId::from(105);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            definition_id.clone(),
+            GotoDefinition::METHOD.to_string(),
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document,
+                    position: position_of(file_text, "sig), .y"),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let definition: Option<GotoDefinitionResponse> =
+        recv_response(&client, definition_id, "definition");
+    assert!(definition.is_some(), "definition should return a result for sig reference");
+
+    shutdown_test_server(&client, server_thread);
 }
 
 #[test]

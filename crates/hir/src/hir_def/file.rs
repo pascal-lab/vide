@@ -23,6 +23,7 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
+    opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc, lower_opaque_member},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -48,6 +49,7 @@ define_container! {
 
         typedefs: [Typedef],
         structs: [StructDef],
+        opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
@@ -74,6 +76,7 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
+        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
@@ -93,6 +96,7 @@ define_enum_deriving_from! {
         DeclarationId(DeclarationId),
         TypedefId(TypedefId),
         StructId(StructId),
+        OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -105,6 +109,7 @@ impl FileSourceMap {
             FileItem::DeclarationId(idx) => self.get(*idx).ptr(),
             FileItem::TypedefId(idx) => self.get(*idx).ptr(),
             FileItem::StructId(idx) => self.get(*idx).node,
+            FileItem::OpaqueItemId(idx) => self.get(*idx).node,
             FileItem::SubroutineId(idx) => self.get(*idx).node,
         }
     }
@@ -244,7 +249,12 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
-                _ => unimplemented!("{:?}", member.syntax().kind()),
+                _ => {
+                    let (opaque, src) = lower_opaque_member(member);
+                    let idx = self.file.opaque_items.alloc(opaque);
+                    self.file_source_map.opaque_srcs.insert(src, idx);
+                    idx.into()
+                }
             };
             self.file_source_map.items.push(idx);
             self.region_tree.handle_node(member.syntax());

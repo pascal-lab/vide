@@ -35,6 +35,9 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
+    opaque::{
+        OpaqueItem, OpaqueItemId, OpaqueItemSrc, lower_opaque_member as lower_opaque_member_data,
+    },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -73,6 +76,7 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
+        opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
@@ -109,6 +113,7 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
+        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
@@ -165,6 +170,7 @@ impl ModuleSourceMap {
             ModuleItem::ProcId(idx) => self.get(*idx).0,
             ModuleItem::PortDeclId(idx) => self.get(*idx).ptr(),
             ModuleItem::TypedefId(idx) => self.get(*idx).ptr(),
+            ModuleItem::OpaqueItemId(idx) => self.get(*idx).node,
             ModuleItem::SubroutineId(idx) => self.get(*idx).node,
         }
     }
@@ -180,6 +186,7 @@ define_enum_deriving_from! {
         ProcId(ProcId),
         PortDeclId(PortDeclId),
         TypedefId(TypedefId),
+        OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -305,6 +312,13 @@ impl LowerModuleCtx<'_> {
         Some(subroutine_id)
     }
 
+    fn lower_opaque_member(&mut self, member: ast::Member) -> OpaqueItemId {
+        let (opaque, src) = lower_opaque_member_data(member);
+        let idx = self.module.opaque_items.alloc(opaque);
+        self.module_source_map.opaque_srcs.insert(src, idx);
+        idx
+    }
+
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
         if let Some(param_ports) = header.parameters() {
@@ -325,7 +339,7 @@ impl LowerModuleCtx<'_> {
         match header.ports() {
             Some(PortList::AnsiPortList(port_list)) => self.lower_ansi_ports(port_list),
             Some(PortList::NonAnsiPortList(port_list)) => self.lower_nonansi_port(port_list),
-            Some(PortList::WildcardPortList(_)) => unimplemented!(),
+            Some(PortList::WildcardPortList(port_list)) => self.lower_wildcard_ports(port_list),
             None => {}
         };
 
@@ -340,30 +354,18 @@ impl LowerModuleCtx<'_> {
                     self.declaration_ctx().lower_data_decl(data_decl).into()
                 }
                 NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
-                LocalVariableDeclaration(_local_decl) => {
-                    // Local variable declarations shouldn't appear at module level,
-                    // they appear in function/task bodies
-                    continue;
+                local_decl @ LocalVariableDeclaration(_) => {
+                    self.lower_opaque_member(local_decl).into()
                 }
                 ParameterDeclarationStatement(param_decl) => {
                     self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into()
                 }
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
-                NetTypeDeclaration(_net_type_decl) => {
-                    // TODO: implement net type declaration lowering
-                    continue;
-                }
-                ForwardTypedefDeclaration(_fwd_typedef) => {
-                    // TODO: implement forward typedef lowering
-                    continue;
-                }
-                UserDefinedNetDeclaration(_udn_decl) => {
-                    // TODO: implement user defined net declaration lowering
-                    continue;
-                }
-                GenvarDeclaration(_genvar_decl) => {
-                    // TODO: implement genvar declaration lowering
-                    continue;
+                net_type_decl @ NetTypeDeclaration(_)
+                | net_type_decl @ ForwardTypedefDeclaration(_)
+                | net_type_decl @ UserDefinedNetDeclaration(_)
+                | net_type_decl @ GenvarDeclaration(_) => {
+                    self.lower_opaque_member(net_type_decl).into()
                 }
 
                 // Instantiations
@@ -373,9 +375,8 @@ impl LowerModuleCtx<'_> {
                 PrimitiveInstantiation(instantiation) => {
                     self.lower_primitive_instantiation(instantiation).into()
                 }
-                CheckerInstantiation(_checker_inst) => {
-                    // TODO: implement checker instantiation lowering
-                    continue;
+                checker_inst @ CheckerInstantiation(_) => {
+                    self.lower_opaque_member(checker_inst).into()
                 }
 
                 // Subroutines
@@ -392,288 +393,144 @@ impl LowerModuleCtx<'_> {
                 ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => unreachable!(),
 
                 // Imports
-                PackageImportDeclaration(_) => {
-                    // TODO: implement package import declaration lowering
-                    continue;
-                }
+                import @ PackageImportDeclaration(_) => self.lower_opaque_member(import).into(),
 
                 // Aggregates
-                ClassDeclaration(_) => {
-                    // TODO: implement class declaration lowering
-                    continue;
-                }
+                class_decl @ ClassDeclaration(_) => self.lower_opaque_member(class_decl).into(),
 
                 // Nested modules/interfaces/programs
-                ModuleDeclaration(_nested_module) => {
-                    // TODO: handle nested module declarations
-                    continue;
+                nested_module @ ModuleDeclaration(_) => {
+                    self.lower_opaque_member(nested_module).into()
                 }
 
                 // Generate constructs
-                GenerateRegion(_gen_region) => {
-                    // TODO: implement generate region lowering
-                    continue;
+                gen_region @ GenerateRegion(region) => {
+                    for item in region.members().children() {
+                        if !matches!(item, EmptyMember(_)) {
+                            let child = self.lower_opaque_member(item);
+                            self.module_source_map.items.push(child.into());
+                            self.region_tree.handle_node(item.syntax());
+                        }
+                    }
+                    self.lower_opaque_member(gen_region).into()
                 }
-                GenerateBlock(_gen_block) => {
-                    // TODO: implement generate block lowering
-                    continue;
-                }
-                IfGenerate(_if_gen) => {
-                    // TODO: implement if generate lowering
-                    continue;
-                }
-                CaseGenerate(_case_gen) => {
-                    // TODO: implement case generate lowering
-                    continue;
-                }
-                LoopGenerate(_loop_gen) => {
-                    // TODO: implement loop generate lowering
-                    continue;
-                }
+                gen_item @ GenerateBlock(_)
+                | gen_item @ IfGenerate(_)
+                | gen_item @ CaseGenerate(_)
+                | gen_item @ LoopGenerate(_) => self.lower_opaque_member(gen_item).into(),
 
                 // Timing and clocking
-                TimeUnitsDeclaration(_time_units) => {
-                    // TODO: implement time units declaration lowering
-                    continue;
-                }
-                ClockingDeclaration(_clocking_decl) => {
-                    // TODO: implement clocking declaration lowering
-                    continue;
-                }
-                DefaultClockingReference(_default_clocking) => {
-                    // TODO: implement default clocking reference lowering
-                    continue;
-                }
-                ClockingItem(_clocking_item) => {
-                    // TODO: implement clocking item lowering
-                    continue;
-                }
+                timing @ TimeUnitsDeclaration(_)
+                | timing @ ClockingDeclaration(_)
+                | timing @ DefaultClockingReference(_)
+                | timing @ ClockingItem(_) => self.lower_opaque_member(timing).into(),
 
                 // Assertions and properties
-                PropertyDeclaration(_prop_decl) => {
-                    // TODO: implement property declaration lowering
-                    continue;
-                }
-                SequenceDeclaration(_seq_decl) => {
-                    // TODO: implement sequence declaration lowering
-                    continue;
-                }
-                ImmediateAssertionMember(_assert_member) => {
-                    // TODO: implement immediate assertion lowering
-                    continue;
-                }
-                ConcurrentAssertionMember(_assert_member) => {
-                    // TODO: implement concurrent assertion lowering
-                    continue;
+                assertion @ PropertyDeclaration(_)
+                | assertion @ SequenceDeclaration(_)
+                | assertion @ ImmediateAssertionMember(_)
+                | assertion @ ConcurrentAssertionMember(_) => {
+                    self.lower_opaque_member(assertion).into()
                 }
 
                 // Coverage
-                CovergroupDeclaration(_covergroup) => {
-                    // TODO: implement covergroup lowering
-                    continue;
-                }
-                Coverpoint(_coverpoint) => {
-                    // TODO: implement coverpoint lowering
-                    continue;
-                }
-                CoverCross(_cover_cross) => {
-                    // TODO: implement cover cross lowering
-                    continue;
-                }
-                CoverageBins(_coverage_bins) => {
-                    // TODO: implement coverage bins lowering
-                    continue;
-                }
-                BinsSelection(_bins_selection) => {
-                    // TODO: implement bins selection lowering
-                    continue;
-                }
-                CoverageOption(_coverage_option) => {
-                    // TODO: implement coverage option lowering
-                    continue;
-                }
+                coverage @ CovergroupDeclaration(_)
+                | coverage @ Coverpoint(_)
+                | coverage @ CoverCross(_)
+                | coverage @ CoverageBins(_)
+                | coverage @ BinsSelection(_)
+                | coverage @ CoverageOption(_) => self.lower_opaque_member(coverage).into(),
 
                 // Specify blocks
-                SpecifyBlock(_specify_block) => {
-                    // TODO: implement specify block lowering
-                    continue;
+                specify_block @ SpecifyBlock(block) => {
+                    for item in block.items().children() {
+                        if !matches!(item, EmptyMember(_)) {
+                            let child = self.lower_opaque_member(item);
+                            self.module_source_map.items.push(child.into());
+                            self.region_tree.handle_node(item.syntax());
+                        }
+                    }
+                    self.lower_opaque_member(specify_block).into()
                 }
-                PathDeclaration(_path_decl) => {
-                    // TODO: implement path declaration lowering
-                    continue;
-                }
-                ConditionalPathDeclaration(_cond_path) => {
-                    // TODO: implement conditional path declaration lowering
-                    continue;
-                }
-                IfNonePathDeclaration(_if_none_path) => {
-                    // TODO: implement if none path declaration lowering
-                    continue;
-                }
-                SystemTimingCheck(_timing_check) => {
-                    // TODO: implement system timing check lowering
-                    continue;
-                }
-                SpecparamDeclaration(_specparam) => {
-                    // TODO: implement specparam declaration lowering
-                    continue;
-                }
-                PulseStyleDeclaration(_pulse_style) => {
-                    // TODO: implement pulse style declaration lowering
-                    continue;
-                }
-                DefaultSkewItem(_default_skew) => {
-                    // TODO: implement default skew item lowering
-                    continue;
-                }
+                specify @ PathDeclaration(_)
+                | specify @ ConditionalPathDeclaration(_)
+                | specify @ IfNonePathDeclaration(_)
+                | specify @ SystemTimingCheck(_)
+                | specify @ SpecparamDeclaration(_)
+                | specify @ PulseStyleDeclaration(_)
+                | specify @ DefaultSkewItem(_) => self.lower_opaque_member(specify).into(),
 
                 // DPI and external
-                DPIImport(_dpi_import) => {
-                    // TODO: implement DPI import lowering
-                    continue;
-                }
-                DPIExport(_dpi_export) => {
-                    // TODO: implement DPI export lowering
-                    continue;
-                }
-                ExternInterfaceMethod(_extern_method) => {
-                    // TODO: implement extern interface method lowering
-                    continue;
-                }
-                ExternModuleDecl(_extern_module) => {
-                    // TODO: implement extern module declaration lowering
-                    continue;
-                }
-                ExternUdpDecl(_extern_udp) => {
-                    // TODO: implement extern UDP declaration lowering
-                    continue;
-                }
+                external @ DPIImport(_)
+                | external @ DPIExport(_)
+                | external @ ExternInterfaceMethod(_)
+                | external @ ExternModuleDecl(_)
+                | external @ ExternUdpDecl(_) => self.lower_opaque_member(external).into(),
 
                 // UDP
-                UdpDeclaration(_udp_decl) => {
-                    // TODO: implement UDP declaration lowering
-                    continue;
-                }
+                udp_decl @ UdpDeclaration(_) => self.lower_opaque_member(udp_decl).into(),
 
                 // Defparam
-                DefParam(_defparam) => {
-                    // TODO: implement defparam lowering
-                    continue;
-                }
+                defparam @ DefParam(_) => self.lower_opaque_member(defparam).into(),
 
                 // Net alias
-                NetAlias(_net_alias) => {
-                    // TODO: implement net alias lowering
-                    continue;
-                }
+                net_alias @ NetAlias(_) => self.lower_opaque_member(net_alias).into(),
 
                 // Modport
-                ModportDeclaration(_modport_decl) => {
-                    // TODO: implement modport declaration lowering
-                    continue;
-                }
-                ModportClockingPort(_modport_clocking) => {
-                    // TODO: implement modport clocking port lowering
-                    continue;
-                }
-                ModportSimplePortList(_modport_simple) => {
-                    // TODO: implement modport simple port list lowering
-                    continue;
-                }
-                ModportSubroutinePortList(_modport_subroutine) => {
-                    // TODO: implement modport subroutine port list lowering
-                    continue;
+                modport @ ModportDeclaration(_)
+                | modport @ ModportClockingPort(_)
+                | modport @ ModportSimplePortList(_)
+                | modport @ ModportSubroutinePortList(_) => {
+                    self.lower_opaque_member(modport).into()
                 }
 
                 // Class members (shouldn't appear in module but handle anyway)
-                ClassPropertyDeclaration(_class_prop) => {
-                    // Class property shouldn't appear directly in module
-                    continue;
-                }
-                ClassMethodDeclaration(_class_method) => {
-                    // Class method shouldn't appear directly in module
-                    continue;
-                }
-                ClassMethodPrototype(_class_method_proto) => {
-                    // Class method prototype shouldn't appear directly in module
-                    continue;
+                class_member @ ClassPropertyDeclaration(_)
+                | class_member @ ClassMethodDeclaration(_)
+                | class_member @ ClassMethodPrototype(_) => {
+                    self.lower_opaque_member(class_member).into()
                 }
 
                 // Checker
-                CheckerDeclaration(_checker_decl) => {
-                    // TODO: implement checker declaration lowering
-                    continue;
-                }
-                CheckerDataDeclaration(_checker_data) => {
-                    // TODO: implement checker data declaration lowering
-                    continue;
+                checker @ CheckerDeclaration(_) | checker @ CheckerDataDeclaration(_) => {
+                    self.lower_opaque_member(checker).into()
                 }
 
                 // Constraints
-                ConstraintDeclaration(_constraint_decl) => {
-                    // TODO: implement constraint declaration lowering
-                    continue;
-                }
-                ConstraintPrototype(_constraint_proto) => {
-                    // TODO: implement constraint prototype lowering
-                    continue;
+                constraint @ ConstraintDeclaration(_) | constraint @ ConstraintPrototype(_) => {
+                    self.lower_opaque_member(constraint).into()
                 }
 
                 // Config
-                ConfigDeclaration(_config_decl) => {
-                    // TODO: implement config declaration lowering
-                    continue;
-                }
+                config_decl @ ConfigDeclaration(_) => self.lower_opaque_member(config_decl).into(),
 
                 // Bind
-                BindDirective(_bind_directive) => {
-                    // TODO: implement bind directive lowering
-                    continue;
-                }
+                bind @ BindDirective(_) => self.lower_opaque_member(bind).into(),
 
                 // Package exports
-                PackageExportDeclaration(_pkg_export) => {
-                    // TODO: implement package export declaration lowering
-                    continue;
-                }
-                PackageExportAllDeclaration(_pkg_export_all) => {
-                    // TODO: implement package export all declaration lowering
-                    continue;
+                pkg_export @ PackageExportDeclaration(_)
+                | pkg_export @ PackageExportAllDeclaration(_) => {
+                    self.lower_opaque_member(pkg_export).into()
                 }
 
                 // Library
-                LibraryDeclaration(_lib_decl) => {
-                    // TODO: implement library declaration lowering
-                    continue;
-                }
-                LibraryIncludeStatement(_lib_include) => {
-                    // TODO: implement library include statement lowering
-                    continue;
+                library @ LibraryDeclaration(_) | library @ LibraryIncludeStatement(_) => {
+                    self.lower_opaque_member(library).into()
                 }
 
                 // Let declaration
-                LetDeclaration(_let_decl) => {
-                    // TODO: implement let declaration lowering
-                    continue;
-                }
+                let_decl @ LetDeclaration(_) => self.lower_opaque_member(let_decl).into(),
 
                 // Default disable
-                DefaultDisableDeclaration(_default_disable) => {
-                    // TODO: implement default disable declaration lowering
-                    continue;
+                default_disable @ DefaultDisableDeclaration(_) => {
+                    self.lower_opaque_member(default_disable).into()
                 }
 
                 // Elaboration system task
-                ElabSystemTask(_elab_task) => {
-                    // TODO: implement elaboration system task lowering
-                    continue;
-                }
+                elab_task @ ElabSystemTask(_) => self.lower_opaque_member(elab_task).into(),
 
                 // Anonymous program
-                AnonymousProgram(_anon_program) => {
-                    // TODO: implement anonymous program lowering
-                    continue;
-                }
+                anon_program @ AnonymousProgram(_) => self.lower_opaque_member(anon_program).into(),
 
                 // Empty member - skip
                 EmptyMember(_) => continue,

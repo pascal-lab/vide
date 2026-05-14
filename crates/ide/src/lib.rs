@@ -6,6 +6,7 @@ use hir::hir_def::{
     block::BlockId,
     expr::declarator::DeclId,
     module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
+    opaque::OpaqueKind,
     stmt::StmtId,
 };
 use syntax::{SyntaxKind, ast, match_ast_kind};
@@ -38,6 +39,8 @@ pub mod semantic_tokens;
 pub mod signature_help;
 #[cfg(test)]
 mod test_utils;
+#[cfg(test)]
+mod verilog_2005;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SymbolKind {
     Module,
@@ -54,6 +57,7 @@ pub enum SymbolKind {
     Generate,
     Interface,
     Region,
+    Opaque,
 }
 
 impl SymbolKind {
@@ -73,7 +77,22 @@ impl SymbolKind {
             ast::Statement => SymbolKind::Stmt, // the order of these two is important
 
             ast::FunctionDeclaration => SymbolKind::Fn,
-            _ => unreachable!(),
+            _ => SymbolKind::Opaque,
+        }
+    }
+
+    pub fn from_opaque_kind(kind: OpaqueKind, syntax_kind: SyntaxKind) -> Self {
+        match kind {
+            OpaqueKind::Generate => SymbolKind::Generate,
+            OpaqueKind::Udp => SymbolKind::Module,
+            OpaqueKind::Config | OpaqueKind::Library => SymbolKind::Module,
+            OpaqueKind::Specparam => SymbolKind::ParamDecl,
+            OpaqueKind::Genvar => SymbolKind::DataDecl,
+            OpaqueKind::Statement => SymbolKind::Stmt,
+            OpaqueKind::BlockItem | OpaqueKind::FileItem | OpaqueKind::ModuleItem => {
+                SymbolKind::from_syntax_kind(syntax_kind)
+            }
+            OpaqueKind::Specify | OpaqueKind::DefParam => SymbolKind::Opaque,
         }
     }
 }

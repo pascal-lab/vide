@@ -12,7 +12,7 @@ use crate::{
     db::HirDb,
     file::HirFileId,
     hir_def::{
-        block::{BlockId, BlockSrc},
+        block::{BlockId, BlockSrc, find_local_block_id},
         module::{ModuleId, ModuleSrc},
         subroutine::{SubroutineLoc, SubroutineSrc},
     },
@@ -61,12 +61,12 @@ impl Source2DefCtx<'_, '_> {
         let block_id = match container {
             ContainerId::HirFileId(file_id) => {
                 let (file, file_src_map) = self.db.hir_file_with_source_map(file_id);
-                let local_block_id = file_src_map.get(block_src);
+                let local_block_id = find_local_block_id(&file_src_map.stmt_srcs, block_src)?;
                 file.get(local_block_id).block_id
             }
             ContainerId::ModuleId(module_id) => {
                 let (module, module_src_map) = self.db.module_with_source_map(module_id);
-                let local_block_id = module_src_map.get(block_src);
+                let local_block_id = find_local_block_id(&module_src_map.stmt_srcs, block_src)?;
                 module.get(local_block_id).block_id
             }
             ContainerId::BlockId(block_id) => {

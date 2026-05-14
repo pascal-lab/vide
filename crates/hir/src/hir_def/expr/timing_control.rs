@@ -153,8 +153,7 @@ impl LowerEventExprCtx<'_> {
         let val = self.expr_ctx().lower_expr(delay.delay_value());
 
         match delay {
-            ast::Delay::CycleDelay(_) => unimplemented!(),
-            ast::Delay::DelayControl(_) => DelayControl::Value(val),
+            ast::Delay::CycleDelay(_) | ast::Delay::DelayControl(_) => DelayControl::Value(val),
         }
     }
 

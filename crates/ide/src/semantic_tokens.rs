@@ -157,7 +157,7 @@ fn collect_file(
 
     for (expr_id, expr) in hir_file.exprs.iter() {
         match expr {
-            Expr::Field { .. } => unimplemented!(),
+            Expr::Field { .. } => {}
             Expr::Ident(name) => {
                 let range = file_src_map.get(expr_id).range();
                 check_range!(collector, range);
@@ -251,7 +251,7 @@ fn collect_module(
 
     for (expr_id, expr) in module.exprs.iter() {
         match expr {
-            Expr::Field { .. } => unimplemented!(),
+            Expr::Field { .. } => {}
             Expr::Ident(name) => {
                 let range = module_src_map.get(expr_id).range();
                 check_range!(collector, range);
@@ -309,7 +309,7 @@ fn collect_block(
 
     for (expr_id, expr) in block.exprs.iter() {
         match expr {
-            Expr::Field { .. } => unimplemented!(),
+            Expr::Field { .. } => {}
             Expr::Ident(name) => {
                 let range = block_src_map.get(expr_id).range();
                 check_range!(collector, range);

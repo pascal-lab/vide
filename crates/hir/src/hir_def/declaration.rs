@@ -39,6 +39,7 @@ define_src!(DeclarationSrc(
     ast::DataDeclaration,
     ast::NetDeclaration,
     ast::ParameterDeclaration,
+    ast::TypeParameterDeclaration,
     ast::LocalVariableDeclaration
 ));
 
@@ -48,6 +49,7 @@ impl DeclarationSrc {
             DeclarationSrc::DataDeclaration(ptr)
             | DeclarationSrc::NetDeclaration(ptr)
             | DeclarationSrc::ParameterDeclaration(ptr)
+            | DeclarationSrc::TypeParameterDeclaration(ptr)
             | DeclarationSrc::LocalVariableDeclaration(ptr) => *ptr,
         }
     }
@@ -204,7 +206,25 @@ impl LowerDeclarationCtx<'_> {
         use ast::ParameterDeclarationBase::*;
         match param_decl {
             ParameterDeclaration(param_decl) => self.lower_param_decl(param_decl),
-            TypeParameterDeclaration(_) => unimplemented!(),
+            TypeParameterDeclaration(type_param_decl) => {
+                self.lower_type_param_decl(type_param_decl)
+            }
+        }
+    }
+
+    fn lower_type_param_decl(
+        &mut self,
+        type_param_decl: ast::TypeParameterDeclaration,
+    ) -> DeclarationId {
+        let start = self.decls.nxt_idx();
+        let ty = DataTy::Builtin(
+            self.db.intern_ty(crate::hir_def::expr::data_ty::BuiltinDataTy::default()),
+        );
+        let decls = DeclsRange::new(start..self.decls.nxt_idx());
+
+        alloc_idx_and_src! {
+            ParamDecl { ty, decls } => self.declarations,
+            type_param_decl => self.declaration_srcs,
         }
     }
 
