@@ -301,7 +301,7 @@ impl LowerSubroutineBodyCtx<'_> {
                 },
                 ast::PortDeclaration[it] => {
                     if let Some(decl_id) =
-                        self.declaration_ctx().lower_port_decl_as_data_decl(it.clone())
+                        self.declaration_ctx().lower_port_decl_as_data_decl(it)
                     {
                         self.subroutine_source_map.items.push(BlockItem::DeclarationId(decl_id));
                     }

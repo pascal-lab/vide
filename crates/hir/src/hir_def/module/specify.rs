@@ -122,7 +122,7 @@ impl LowerModuleCtx<'_> {
     }
 
     pub(crate) fn lower_specify_path_item(&mut self, path: ast::PathDeclaration) -> SpecifyItemId {
-        let item = SpecifyItem::Path(self.lower_specify_path(path.clone()));
+        let item = SpecifyItem::Path(self.lower_specify_path(path));
         alloc_idx_and_src! {
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,

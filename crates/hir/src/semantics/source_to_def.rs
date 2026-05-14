@@ -95,7 +95,7 @@ impl Source2DefCtx<'_, '_> {
     }
 
     fn container_to_def(&mut self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {
-        if let Some(member) = ast::Member::cast(node.clone())
+        if let Some(member) = ast::Member::cast(node)
             && let Some(cont_id) = self.single_member_generate_block_to_def(file_id, member)
         {
             return Some(cont_id);
@@ -165,7 +165,7 @@ impl Source2DefCtx<'_, '_> {
         }
 
         let anchor = member.syntax();
-        if !Self::is_generate_branch_member(anchor.clone()) {
+        if !Self::is_generate_branch_member(anchor) {
             return None;
         }
 
