@@ -501,8 +501,7 @@ fn verilog_diagnostic_mode_reports_model_limited_constructs() {
     let file_text = "\
 module top;
   generate
-    genvar i;
-    for (i = 0; i < 1; i = i + 1) begin : g_loop
+    if (1) begin : g_if
       wire lane;
     end
   endgenerate

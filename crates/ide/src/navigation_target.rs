@@ -7,7 +7,12 @@ use hir::{
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
         file::{config::ConfigDeclId, udp::UdpDeclId},
-        module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
+        module::{
+            ModuleId,
+            generate::{GenerateBlockId, GenerateBlockLoc},
+            instantiation::InstanceId,
+            port::NonAnsiPortId,
+        },
         opaque::OpaqueItemId,
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
@@ -56,6 +61,7 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::Config(config_id) => config_id.to_nav(db),
             DefinitionOrigin::Udp(udp_id) => udp_id.to_nav(db),
             DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
+            DefinitionOrigin::GenerateBlockId(generate_block_id) => generate_block_id.to_nav(db),
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
             DefinitionOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
             DefinitionOrigin::NonAnsiPort(nonansi_port_id) => nonansi_port_id.to_nav(db),
@@ -107,6 +113,23 @@ impl ToNav for BlockId {
 
         let file_id = file_id.file_id();
         build(file_id, src.name_range(), src.range(), name, SymbolKind::Block, cont_name)
+    }
+}
+
+impl ToNav for GenerateBlockId {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let GenerateBlockLoc { cont_id, src: InFile { value: src, file_id } } = self.lookup(db);
+        let name = self.to_container(db).name.clone();
+        let cont_name = cont_id.to_container(db).name().cloned();
+
+        build(
+            file_id.file_id(),
+            src.name_range(),
+            src.range(),
+            name,
+            SymbolKind::Generate,
+            cont_name,
+        )
     }
 }
 

@@ -4,7 +4,10 @@ use hir::{
     file::HirFileId,
     hir_def::{
         block::BlockId,
-        module::ModuleId,
+        module::{
+            ModuleId,
+            generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
+        },
         opaque::{OpaqueItemId, OpaqueItemSrc},
         stmt::{Stmt, StmtKind},
         subroutine::SubroutineSourceMap,
@@ -141,6 +144,21 @@ pub(crate) fn model_limit_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
                 collect_block_opaque_diagnostics(db, block_id, &mut diagnostics);
             }
         }
+
+        for item in &module_src_map.items {
+            if let hir::hir_def::module::ModuleItem::GenerateRegionId(generate_region_id) = *item {
+                let generate_region = module.get(generate_region_id);
+                for item in &generate_region.items {
+                    if let GenerateItem::GenerateBlockId(generate_block_id) = *item {
+                        collect_generate_block_opaque_diagnostics(
+                            db,
+                            generate_block_id,
+                            &mut diagnostics,
+                        );
+                    }
+                }
+            }
+        }
     }
 
     diagnostics
@@ -165,6 +183,37 @@ fn collect_block_opaque_diagnostics(
     for (_, stmt) in block.stmts.iter() {
         if let StmtKind::Block(info) = &stmt.kind {
             collect_block_opaque_diagnostics(db, info.block_id, diagnostics);
+        }
+    }
+}
+
+fn collect_generate_block_opaque_diagnostics(
+    db: &RootDb,
+    generate_block_id: GenerateBlockId,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let (generate_block, source_map) = db.generate_block_with_source_map(generate_block_id);
+    collect_opaque_diagnostics(generate_block_id.file_id(db), &source_map.opaque_srcs, diagnostics);
+
+    for (_, subroutine_source_map) in generate_block.subroutine_source_maps.iter() {
+        collect_subroutine_opaque_diagnostics(
+            HirFileId(generate_block_id.file_id(db)),
+            subroutine_source_map,
+            diagnostics,
+        );
+    }
+
+    for (_, proc) in generate_block.procs.iter() {
+        let mut block_ids = Vec::new();
+        collect_stmt_block_ids(&generate_block.stmts, proc.stmt, &mut block_ids);
+        for block_id in block_ids {
+            collect_block_opaque_diagnostics(db, block_id, diagnostics);
+        }
+    }
+
+    for item in &generate_block.items {
+        if let GenerateBlockItem::GenerateBlockId(child_id) = *item {
+            collect_generate_block_opaque_diagnostics(db, child_id, diagnostics);
         }
     }
 }

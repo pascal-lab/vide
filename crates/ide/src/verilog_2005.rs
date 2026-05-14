@@ -20,7 +20,6 @@ use crate::{
     completion::CompletionItem,
     document_symbols::DocumentSymbol,
     folding_ranges::FoldingConfig,
-    hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
     rename::RenameConfig,
     semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
@@ -68,7 +67,7 @@ module top(input wire clk);
     /*marker:task_ref*/do_task(sig);
     sig = /*marker:specparam_ref*/T_SETUP;
     sig = /*marker:instance_ref*/u_child.y;
-    sig = /*marker:generate_ref*/g_loop[0].lane;
+    sig = /*marker:generate_ref*/g_loop[0]./*marker:lane_ref*/lane;
     disable /*marker:block_ref*/blk;
   end
 endmodule
@@ -273,6 +272,7 @@ module top(input wire clk);
 
   initial begin : blk
     /*marker:task_ref*/do_task(sig);
+    sig = /*marker:generate_ref*/g_loop[0]./*marker:lane_ref*/lane;
   end
 endmodule
 
@@ -329,17 +329,22 @@ endconfig
     assert!(renamed.contains(".a(renamed_sig)"));
     assert!(renamed.contains("do_task(renamed_sig)"));
 
-    let hover = analysis
-        .hover(
-            position(file_id, &markers, "gen_label"),
-            HoverConfig { format: HoverFormat::PlainText },
-        )
+    let generate_nav = analysis
+        .goto_definition(position(file_id, &markers, "generate_ref"))
         .unwrap()
-        .expect("generate label hover expected");
+        .expect("generate scope definition expected");
     assert!(
-        hover.info.as_str().contains("recognized Verilog-2005 construct"),
-        "opaque hover should explain limited semantic support: {:?}",
-        hover.info
+        generate_nav.info.iter().any(|nav| nav.name.as_deref() == Some("g_loop")),
+        "generate scope should be reachable: {generate_nav:?}"
+    );
+
+    let lane_nav = analysis
+        .goto_definition(position(file_id, &markers, "lane_ref"))
+        .unwrap()
+        .expect("generate member definition expected");
+    assert!(
+        lane_nav.info.iter().any(|nav| nav.name.as_deref() == Some("lane")),
+        "generate member should resolve through generate scope: {lane_nav:?}"
     );
 
     let symbols = analysis.document_symbol(file_id).unwrap();
@@ -413,6 +418,14 @@ endmodule
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("GENERATE_REGION")),
         "generate/endgenerate regions should lower as real HIR wrappers, not opaque diagnostics: {diagnostics:?}"
+    );
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("LOOP_GENERATE")),
+        "loop generate constructs should lower as real HIR scopes, not opaque diagnostics: {diagnostics:?}"
+    );
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("GENERATE_BLOCK")),
+        "generate blocks should lower as real HIR scopes, not opaque diagnostics: {diagnostics:?}"
     );
 }
 

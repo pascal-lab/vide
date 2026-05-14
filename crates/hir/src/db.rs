@@ -8,10 +8,15 @@ use crate::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
-        module::{self, Module, ModuleId, ModuleSourceMap},
+        module::{
+            self, Module, ModuleId, ModuleSourceMap,
+            generate::{
+                self, GenerateBlock, GenerateBlockId, GenerateBlockLoc, GenerateBlockSourceMap,
+            },
+        },
         subroutine::{self, Subroutine, SubroutineId, SubroutineLoc, SubroutineSourceMap},
     },
-    scope::{BlockScope, ModuleScope, SubroutineScope, UnitScope},
+    scope::{BlockScope, GenerateBlockScope, ModuleScope, SubroutineScope, UnitScope},
 };
 
 pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident) {
@@ -29,11 +34,20 @@ pub trait InternDb: SourceDb {
 
     #[salsa::interned]
     fn intern_subroutine(&self, subroutine: SubroutineLoc) -> SubroutineId;
+
+    #[salsa::interned]
+    fn intern_generate_block(&self, generate_block: GenerateBlockLoc) -> GenerateBlockId;
 }
 
 impl_intern!(BuiltinDataTyId, BuiltinDataTy, intern_ty, lookup_intern_ty);
 impl_intern!(BlockId, BlockLoc, intern_block, lookup_intern_block);
 impl_intern!(SubroutineId, SubroutineLoc, intern_subroutine, lookup_intern_subroutine);
+impl_intern!(
+    GenerateBlockId,
+    GenerateBlockLoc,
+    intern_generate_block,
+    lookup_intern_generate_block
+);
 
 #[salsa::query_group(HirDbStorage)]
 pub trait HirDb: InternDb {
@@ -63,6 +77,14 @@ pub trait HirDb: InternDb {
 
     fn subroutine(&self, subroutine_id: SubroutineId) -> Arc<Subroutine>;
 
+    #[salsa::invoke(generate::generate_block_with_source_map_query)]
+    fn generate_block_with_source_map(
+        &self,
+        generate_block_id: GenerateBlockId,
+    ) -> (Arc<GenerateBlock>, Arc<GenerateBlockSourceMap>);
+
+    fn generate_block(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock>;
+
     #[salsa::invoke(UnitScope::unit_scope_query)]
     fn unit_scope(&self) -> Arc<UnitScope>;
 
@@ -71,6 +93,9 @@ pub trait HirDb: InternDb {
 
     #[salsa::invoke(ModuleScope::module_scope_query)]
     fn module_scope(&self, module_id: ModuleId) -> Arc<ModuleScope>;
+
+    #[salsa::invoke(GenerateBlockScope::generate_block_scope_query)]
+    fn generate_block_scope(&self, generate_block_id: GenerateBlockId) -> Arc<GenerateBlockScope>;
 
     #[salsa::invoke(BlockScope::block_scope_query)]
     fn block_scope(&self, block_id: BlockId) -> Arc<BlockScope>;
@@ -97,4 +122,8 @@ fn block(db: &dyn HirDb, block_id: BlockId) -> Arc<Block> {
 
 fn subroutine(db: &dyn HirDb, subroutine_id: SubroutineId) -> Arc<Subroutine> {
     db.subroutine_with_source_map(subroutine_id).0
+}
+
+fn generate_block(db: &dyn HirDb, generate_block_id: GenerateBlockId) -> Arc<GenerateBlock> {
+    db.generate_block_with_source_map(generate_block_id).0
 }

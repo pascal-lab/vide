@@ -1,7 +1,7 @@
 use slang::{
     SyntaxToken,
     ast::{
-        AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration,
+        AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration, GenerateBlock,
         HierarchicalInstance, IdentifierName, ModuleDeclaration, NonAnsiPort, ParamAssignment,
         PortConnection, PortReference, SpecparamDeclarator, Statement, UdpDeclaration,
     },
@@ -32,6 +32,14 @@ impl<'a> HasName<'a> for UdpDeclaration<'a> {
 impl<'a> HasName<'a> for BlockStatement<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
         self.block_name()?.name()
+    }
+}
+
+impl<'a> HasName<'a> for GenerateBlock<'a> {
+    fn name(&self) -> Option<SyntaxToken<'a>> {
+        self.label()
+            .and_then(|label| label.name())
+            .or_else(|| self.begin_name().and_then(|name| name.name()))
     }
 }
 

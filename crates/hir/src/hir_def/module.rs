@@ -4,9 +4,8 @@ use continuous_assgin::{
 use defparam::{DefParam, DefParamId, DefParamSrc, LowerDefParam, impl_lower_defparam};
 use generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc};
 use instantiation::{
-    Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
-    LowerInstantiation, ParamAssign, ParamAssignSrc, PortConn, PortConnSrc,
-    impl_lower_instantiation,
+    Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc, LowerInstantiation,
+    ParamAssign, ParamAssignSrc, PortConn, PortConnSrc, impl_lower_instantiation,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use port::{

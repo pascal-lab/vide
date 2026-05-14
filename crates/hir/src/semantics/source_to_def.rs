@@ -13,7 +13,10 @@ use crate::{
     file::HirFileId,
     hir_def::{
         block::{BlockId, BlockSrc, find_local_block_id},
-        module::{ModuleId, ModuleSrc},
+        module::{
+            ModuleId, ModuleSrc,
+            generate::{GenerateBlockLoc, GenerateBlockSrc},
+        },
         subroutine::{SubroutineLoc, SubroutineSrc},
     },
     source_map::ToAstNode,
@@ -74,6 +77,12 @@ impl Source2DefCtx<'_, '_> {
                 let local_block_id = *block_src_map.block_srcs.get(&block_src)?;
                 block.get(local_block_id).block_id
             }
+            ContainerId::GenerateBlockId(generate_block_id) => {
+                let (generate_block, generate_block_src_map) =
+                    self.db.generate_block_with_source_map(generate_block_id);
+                let local_block_id = generate_block_src_map.get(block_src);
+                generate_block.get(local_block_id).block_id
+            }
             ContainerId::SubroutineId(subroutine_id) => {
                 let (subroutine, subroutine_src_map) =
                     self.db.subroutine_with_source_map(subroutine_id);
@@ -94,6 +103,21 @@ impl Source2DefCtx<'_, '_> {
            ast::BlockStatement[block] => {
                let block_src = BlockSrc::from(block);
                self.block_to_def_inner(file_id, block, block_src)?.into()
+           },
+           ast::GenerateBlock[block] => {
+               let src = GenerateBlockSrc::from_generate_block(block);
+               let anchor = match src {
+                   GenerateBlockSrc::GenerateBlock { .. } => block.syntax(),
+                   GenerateBlockSrc::LoopGenerate { .. } => block.syntax().parent()?,
+               };
+               let parent = SyntaxAncestors::start_from(anchor)
+                   .skip(1)
+                   .find_map(|node| self.container_to_def(file_id, node))
+                   .unwrap_or(file_id.into());
+               self.db.intern_generate_block(GenerateBlockLoc {
+                   cont_id: parent,
+                   src: InFile::new(file_id, src),
+               }).into()
            },
            ast::FunctionDeclaration[func] => {
                let mut ancestors = SyntaxAncestors::start_from(node).skip(1);

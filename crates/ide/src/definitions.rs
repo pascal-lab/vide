@@ -6,7 +6,12 @@ use hir::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, udp::UdpDeclId},
-        module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
+        module::{
+            ModuleId,
+            generate::{GenerateBlockId, GenerateBlockLoc},
+            instantiation::InstanceId,
+            port::NonAnsiPortId,
+        },
         opaque::OpaqueItemId,
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
@@ -37,6 +42,7 @@ pub enum DefinitionOrigin {
     Config(InFile<ConfigDeclId>),
     Udp(InFile<UdpDeclId>),
     BlockId(BlockId),
+    GenerateBlockId(GenerateBlockId),
     SubroutineId(SubroutineId),
     SubroutinePort(InSubroutine<SubroutinePortId>),
 
@@ -53,6 +59,7 @@ impl_from! { DefinitionOrigin =>
     Config(InFile<ConfigDeclId>),
     Udp(InFile<UdpDeclId>),
     BlockId,
+    GenerateBlockId,
     SubroutineId,
     SubroutinePort(InSubroutine<SubroutinePortId>),
     NonAnsiPort(InModule<NonAnsiPortId>),
@@ -71,6 +78,9 @@ impl DefinitionOrigin {
             DefinitionOrigin::Config(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::Udp(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
+            DefinitionOrigin::GenerateBlockId(generate_block_id) => {
+                generate_block_id.lookup(db).cont_id
+            }
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id,
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, .. }) => {
                 ContainerId::SubroutineId(subroutine)
@@ -99,6 +109,9 @@ impl DefinitionOrigin {
                 let BlockLoc { cont_id, src: InFile { value, file_id: _ } } = block_id.lookup(db);
                 let cont = cont_id.to_container(db);
                 value.hir(&cont, &cont_id.to_container_src_map(db)).name.clone().unwrap()
+            }
+            DefinitionOrigin::GenerateBlockId(generate_block_id) => {
+                db.generate_block(generate_block_id).name.clone().unwrap()
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 db.subroutine(subroutine_id).name.clone().unwrap()
@@ -143,6 +156,12 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
+                let range = value.name_range().unwrap();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::GenerateBlockId(generate_block_id) => {
+                let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
+                    generate_block_id.lookup(db);
                 let range = value.name_range().unwrap();
                 InFile::new(file_id, range)
             }
@@ -211,6 +230,12 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
+                let range = value.range();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::GenerateBlockId(generate_block_id) => {
+                let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
+                    generate_block_id.lookup(db);
                 let range = value.range();
                 InFile::new(file_id, range)
             }
@@ -354,6 +379,7 @@ impl Definition {
             PathResolution::Instance(instance_id) => instance_id.into(),
             PathResolution::Stmt(stmt_id) => stmt_id.into(),
             PathResolution::Block(blk_id) => blk_id.into(),
+            PathResolution::GenerateBlock(generate_block_id) => generate_block_id.into(),
             PathResolution::Subroutine(subroutine_id) => subroutine_id.into(),
             PathResolution::SubroutinePort(port_id) => port_id.into(),
             PathResolution::ParamDecl(decl_id) | PathResolution::AnsiPort(decl_id) => {

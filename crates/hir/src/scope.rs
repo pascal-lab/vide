@@ -1,6 +1,9 @@
 use rustc_hash::FxHashMap;
 use triomphe::Arc;
-use utils::{define_enum_deriving_from, get::Get};
+use utils::{
+    define_enum_deriving_from,
+    get::{Get, GetRef},
+};
 
 use crate::{
     container::InFile,
@@ -13,6 +16,7 @@ use crate::{
         file::{config::ConfigDeclId, udp::UdpDeclId},
         module::{
             ModuleId,
+            generate::GenerateBlockId,
             instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
@@ -46,9 +50,23 @@ define_enum_deriving_from! {
 pub enum ModuleEntry {
         DeclId,
         TypedefId,
+        GenerateBlockId,
         NonAnsiPortEntry,
         AnsiPortEntry,
         InstanceId,
+        StmtId,
+        BlockId,
+        SubroutineId,
+        OpaqueItemId,
+    }
+}
+
+define_enum_deriving_from! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+    pub enum GenerateBlockEntry {
+        DeclId,
+        TypedefId,
+        GenerateBlockId,
         StmtId,
         BlockId,
         SubroutineId,
@@ -125,6 +143,7 @@ impl<Entry: Copy> Scope<Entry> {
 
 pub type UnitScope = Scope<UnitEntry>;
 pub type ModuleScope = Scope<ModuleEntry>;
+pub type GenerateBlockScope = Scope<GenerateBlockEntry>;
 pub type BlockScope = Scope<BlockEntry>;
 pub type SubroutineScope = Scope<SubroutineEntry>;
 
@@ -241,7 +260,75 @@ impl ModuleScope {
             scope.insert_opt(&instance.name, instance_id.into());
         }
 
+        for item in &module_src_map.items {
+            if let crate::hir_def::module::ModuleItem::GenerateRegionId(generate_region_id) = item {
+                let generate_region = module.get(*generate_region_id);
+                for item in &generate_region.items {
+                    if let crate::hir_def::module::generate::GenerateItem::GenerateBlockId(
+                        generate_block_id,
+                    ) = *item
+                    {
+                        let generate_block = db.generate_block(generate_block_id);
+                        scope.insert_opt(&generate_block.name, generate_block_id.into());
+                    }
+                }
+            }
+        }
+
         for (stmt_id, stmt) in module.stmts.iter() {
+            scope.insert_opt(&stmt.label, stmt_id.into());
+
+            if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {
+                scope.insert_opt(name, (*block_id).into());
+            }
+        }
+
+        Arc::new(scope)
+    }
+}
+
+impl GenerateBlockScope {
+    pub fn generate_block_scope_query(
+        db: &dyn HirDb,
+        generate_block_id: GenerateBlockId,
+    ) -> Arc<Self> {
+        let mut scope = Scope::default();
+        let (generate_block, source_map) = db.generate_block_with_source_map(generate_block_id);
+        let file_id = HirFileId(generate_block_id.file_id(db));
+
+        scope.insert_opt(&generate_block.name, generate_block_id.into());
+
+        for (local_subroutine_id, subroutine) in generate_block.subroutines.iter() {
+            let src: SubroutineSrc = source_map.get(local_subroutine_id);
+            let subroutine_id = db.intern_subroutine(SubroutineLoc {
+                cont_id: generate_block_id.into(),
+                src: InFile::new(file_id, src),
+            });
+            scope.insert_opt(&subroutine.name, subroutine_id.into());
+        }
+
+        for (decl_id, decl) in generate_block.decls.iter() {
+            scope.insert_opt(&decl.name, decl_id.into());
+        }
+
+        for (typedef_id, typedef) in generate_block.typedefs.iter() {
+            scope.insert_opt(&typedef.name, typedef_id.into());
+        }
+
+        for item in &generate_block.items {
+            if let crate::hir_def::module::generate::GenerateBlockItem::GenerateBlockId(child_id) =
+                *item
+            {
+                let child = db.generate_block(child_id);
+                scope.insert_opt(&child.name, child_id.into());
+            }
+        }
+
+        for (opaque_id, opaque) in generate_block.opaque_items.iter() {
+            scope.insert_opt(&opaque.name, opaque_id.into());
+        }
+
+        for (stmt_id, stmt) in generate_block.stmts.iter() {
             scope.insert_opt(&stmt.label, stmt_id.into());
 
             if let StmtKind::Block(BlockInfo { name, block_id }) = &stmt.kind {

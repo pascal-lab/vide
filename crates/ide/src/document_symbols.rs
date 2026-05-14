@@ -1,6 +1,8 @@
 use std::iter::Peekable;
 
+use base_db::intern::Lookup;
 use hir::{
+    container::InFile,
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -15,7 +17,10 @@ use hir::{
         },
         module::{
             ModuleId, ModuleItem, ModuleSrc,
-            generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc},
+            generate::{
+                GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
+                GenerateRegionId, GenerateRegionSrc,
+            },
             port::Ports,
             specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
         },
@@ -294,7 +299,7 @@ fn collect_module_items(
             ModuleItem::ContAssignId(_) => {}
             ModuleItem::DefParamId(_) => {}
             ModuleItem::GenerateRegionId(generate_region_id) => {
-                build_generate_region(collector, generate_region_id, module, src_map)
+                build_generate_region(db, collector, generate_region_id, module, src_map)
             }
             ModuleItem::SpecifyBlockId(specify_block_id) => {
                 build_specify_block(collector, specify_block_id, module, src_map)
@@ -447,6 +452,7 @@ fn build_declaration<Arn, SrcMap>(
 
 #[inline]
 fn build_generate_region<Arn, SrcMap>(
+    db: &RootDb,
     collector: &mut SymbolCollecter,
     generate_region_id: GenerateRegionId,
     arena: &Arn,
@@ -467,13 +473,64 @@ fn build_generate_region<Arn, SrcMap>(
     collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
     for item in hir.items.iter() {
         match *item {
-            ModuleItem::DeclarationId(declaration_id) => {
+            GenerateItem::DeclarationId(declaration_id) => {
                 build_declaration(collector, declaration_id, arena, src_map);
             }
-            ModuleItem::OpaqueItemId(opaque_id) => {
+            GenerateItem::GenerateBlockId(generate_block_id) => {
+                build_generate_block(db, collector, generate_block_id);
+            }
+            GenerateItem::OpaqueItemId(opaque_id) => {
                 build_opaque(collector, opaque_id, arena, src_map);
             }
-            _ => {}
+        }
+    }
+    collector.pop();
+}
+
+fn build_generate_block(
+    db: &RootDb,
+    collector: &mut SymbolCollecter,
+    generate_block_id: GenerateBlockId,
+) {
+    let GenerateBlockLoc { src: InFile { value: generate_block_src, .. }, .. } =
+        generate_block_id.lookup(db);
+    let (generate_block, src_map) = db.generate_block_with_source_map(generate_block_id);
+    let (generate_block, src_map) = (generate_block.as_ref(), src_map.as_ref());
+    let name = generate_block.name.clone();
+
+    collector.push_symbol_with_kind(&name, generate_block_src, SymbolKind::Generate);
+    for item in &generate_block.items {
+        match *item {
+            GenerateBlockItem::DeclarationId(declaration_id) => {
+                build_declaration(collector, declaration_id, generate_block, src_map);
+            }
+            GenerateBlockItem::GenerateBlockId(child_id) => {
+                build_generate_block(db, collector, child_id);
+            }
+            GenerateBlockItem::TypedefId(typedef_id) => {
+                build_typedef(collector, typedef_id, generate_block, src_map);
+            }
+            GenerateBlockItem::OpaqueItemId(opaque_id) => {
+                build_opaque(collector, opaque_id, generate_block, src_map);
+            }
+            GenerateBlockItem::SubroutineId(subroutine_id) => {
+                build_subroutine(collector, subroutine_id, generate_block, src_map);
+            }
+            GenerateBlockItem::ProcId(proc_id) => {
+                let proc = generate_block.get(proc_id);
+                build_stmt(db, collector, proc.stmt, generate_block, src_map);
+            }
+            GenerateBlockItem::InstantiationId(instantiation_id) => {
+                for &instance_id in generate_block.get(instantiation_id).instances.iter() {
+                    let hir = generate_block.get(instance_id);
+                    let src = src_map.get(instance_id);
+                    collector.push_symbol(&hir.name, src);
+                    collector.pop();
+                }
+            }
+            GenerateBlockItem::ContAssignId(_)
+            | GenerateBlockItem::DefParamId(_)
+            | GenerateBlockItem::StructId(_) => {}
         }
     }
     collector.pop();

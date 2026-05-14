@@ -17,6 +17,7 @@ top Module container=None
   generate Generate container=Some("top")
     i Genvar container=Some("generate")
     g_loop Generate container=Some("generate")
+      lane NetDecl container=Some("g_loop")
   specify Specify container=Some("top")
     T_SETUP Specparam container=Some("specify")
   blk Block container=Some("top")

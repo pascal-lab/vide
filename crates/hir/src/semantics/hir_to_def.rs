@@ -3,12 +3,14 @@ use utils::get::GetRef;
 
 use super::{Source2DefCtx, pathres::PathResolution};
 use crate::{
-    container::{ContainerId, ContainerParent, InBlock, InContainer, InModule, InSubroutine},
+    container::{
+        ContainerId, ContainerParent, InBlock, InContainer, InGenerateBlock, InModule, InSubroutine,
+    },
     hir_def::{
         Ident,
         block::BlockId,
         expr::{Expr, ExprId},
-        module::{ModuleId, instantiation::InstanceId},
+        module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId},
     },
     scope::UnitEntry,
 };
@@ -60,6 +62,10 @@ impl Source2DefCtx<'_, '_> {
                 let block = db.block(block_id);
                 resolve(block.get(expr_id))
             }
+            ContainerId::GenerateBlockId(generate_block_id) => {
+                let generate_block = db.generate_block(generate_block_id);
+                resolve(generate_block.get(expr_id))
+            }
             ContainerId::SubroutineId(subroutine_id) => {
                 let subroutine = db.subroutine(subroutine_id);
                 resolve(subroutine.get(expr_id))
@@ -88,6 +94,11 @@ impl Source2DefCtx<'_, '_> {
                 let entry = scope.get(&ident)?;
                 Some(InBlock::new(block_id, entry).into())
             }
+            ContainerId::GenerateBlockId(generate_block_id) => {
+                let scope = db.generate_block_scope(generate_block_id);
+                let entry = scope.get(&ident)?;
+                Some(InGenerateBlock::new(generate_block_id, entry).into())
+            }
             ContainerId::SubroutineId(subroutine_id) => {
                 let scope = db.subroutine_scope(subroutine_id);
                 let entry = scope.get(&ident)?;
@@ -111,6 +122,9 @@ impl Source2DefCtx<'_, '_> {
                 self.resolve_member_in_module(target_module, field)
             }
             PathResolution::Block(block_id) => self.resolve_member_in_block(block_id, field),
+            PathResolution::GenerateBlock(generate_block_id) => {
+                self.resolve_member_in_generate_block(generate_block_id, field)
+            }
             _ => None,
         }
     }
@@ -133,6 +147,16 @@ impl Source2DefCtx<'_, '_> {
         let scope = self.db.block_scope(block_id);
         let entry = scope.get(field)?;
         Some(InBlock::new(block_id, entry).into())
+    }
+
+    fn resolve_member_in_generate_block(
+        &mut self,
+        generate_block_id: GenerateBlockId,
+        field: &Ident,
+    ) -> Option<PathResolution> {
+        let scope = self.db.generate_block_scope(generate_block_id);
+        let entry = scope.get(field)?;
+        Some(InGenerateBlock::new(generate_block_id, entry).into())
     }
 
     fn instance_target_module_id(

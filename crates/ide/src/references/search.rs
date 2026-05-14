@@ -87,6 +87,10 @@ impl SearchScope {
                 let range = block_id.lookup(db).src.value.range();
                 Self::single_range(block_id.file_id(db), range)
             }
+            ContainerId::GenerateBlockId(generate_block_id) => {
+                let src = generate_block_id.lookup(db).src;
+                Self::single_range(src.file_id.file_id(), src.value.range())
+            }
             ContainerId::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
                 Self::single_range(src.file_id.file_id(), src.value.range())
