@@ -43,6 +43,7 @@ pub enum FoldKind {
     Declaration,
     ContAssign,
     DefParam,
+    Generate,
     Specify,
     Instance,
     Stmt,
@@ -281,6 +282,7 @@ fn collect_module(
 
     folds.collect_folds(&src_map.assign_srcs, FoldKind::ContAssign, line_index);
     folds.collect_folds(&src_map.defparam_srcs, FoldKind::DefParam, line_index);
+    folds.collect_folds(&src_map.generate_region_srcs, FoldKind::Generate, line_index);
     folds.collect_folds(&src_map.specify_block_srcs, FoldKind::Specify, line_index);
     folds.collect_folds(&src_map.specify_item_srcs, FoldKind::Specify, line_index);
     folds.collect_folds(&src_map.declaration_srcs, FoldKind::Declaration, line_index);
