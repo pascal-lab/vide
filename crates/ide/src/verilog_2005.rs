@@ -523,6 +523,43 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_event_trigger_statement_resolves_event_name() {
+    let text = r#"
+module event_ctx;
+  event /*marker:event_def*/ev;
+  initial begin
+    -> /*marker:event_ref*/ev;
+  end
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "event_ref"))
+        .unwrap()
+        .expect("event definition expected");
+    assert!(
+        nav.info.iter().any(|nav| nav.name.as_deref() == Some("ev")),
+        "event trigger should resolve to event declaration: {nav:?}"
+    );
+
+    let rename = analysis
+        .rename(
+            position(file_id, &markers, "event_ref"),
+            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            "renamed_ev",
+        )
+        .unwrap()
+        .expect("event rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit fixture file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("event renamed_ev;"));
+    assert!(renamed.contains("-> renamed_ev;"));
+}
+
+#[test]
 fn verilog_2005_lsp_snapshots() {
     let (host, file_id, clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();
