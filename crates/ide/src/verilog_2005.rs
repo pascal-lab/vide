@@ -581,12 +581,12 @@ endmodule
 
 module generate_region_direct_ctx(input wire a, output wire y);
   generate
-    specparam /*marker:spec_def*/T_DLY = 1;
+    localparam /*marker:param_def*/P_DLY = 1;
     wire /*marker:wire_def*/direct_wire;
     assign direct_wire = a;
     child /*marker:inst_def*/u_direct(.a(/*marker:wire_ref*/direct_wire), .y());
     initial begin
-      $display(/*marker:spec_ref*/T_DLY);
+      $display(/*marker:param_ref*/P_DLY);
     end
   endgenerate
 
@@ -596,6 +596,12 @@ endmodule
     let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
 
+    let parse_diagnostics = analysis.parse_diagnostics(file_id).unwrap();
+    assert!(
+        parse_diagnostics.is_empty(),
+        "fixture should be valid Verilog-2005: {parse_diagnostics:?}"
+    );
+
     let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
     assert!(
         diagnostics.is_empty(),
@@ -603,7 +609,7 @@ endmodule
     );
 
     for (marker, expected) in
-        [("wire_ref", "direct_wire"), ("spec_ref", "T_DLY"), ("inst_ref", "u_direct")]
+        [("wire_ref", "direct_wire"), ("param_ref", "P_DLY"), ("inst_ref", "u_direct")]
     {
         let nav = analysis
             .goto_definition(position(file_id, &markers, marker))
@@ -618,7 +624,7 @@ endmodule
     let symbols = analysis.document_symbol(file_id).unwrap();
     let mut names = Vec::new();
     flatten_symbols(&symbols, &mut names);
-    for expected in ["T_DLY", "direct_wire", "u_direct"] {
+    for expected in ["P_DLY", "direct_wire", "u_direct"] {
         assert!(
             names.iter().any(|name| name == expected),
             "missing document symbol {expected:?}; got {names:?}"
@@ -627,14 +633,14 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_generate_block_specparam_is_not_model_limited() {
+fn verilog_2005_generate_block_parameter_is_not_model_limited() {
     let text = r#"
-module generate_block_specparam_ctx(output wire y);
+module generate_block_parameter_ctx(output wire y);
   generate
     if (1) begin : g_spec
-      specparam /*marker:spec_def*/T_LOCAL = 1;
+      localparam /*marker:param_def*/P_LOCAL = 1;
       wire lane;
-      assign lane = /*marker:spec_ref*/T_LOCAL;
+      assign lane = /*marker:param_ref*/P_LOCAL;
     end
   endgenerate
 
@@ -644,19 +650,25 @@ endmodule
     let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
 
+    let parse_diagnostics = analysis.parse_diagnostics(file_id).unwrap();
+    assert!(
+        parse_diagnostics.is_empty(),
+        "fixture should be valid Verilog-2005: {parse_diagnostics:?}"
+    );
+
     let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
     assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("SPECPARAM_DECLARATION")),
-        "specparam inside generate block should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+        diagnostics.iter().all(|diag| !diag.message.contains("PARAMETER_DECLARATION_STATEMENT")),
+        "localparam inside generate block should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
     );
 
     let nav = analysis
-        .goto_definition(position(file_id, &markers, "spec_ref"))
+        .goto_definition(position(file_id, &markers, "param_ref"))
         .unwrap()
-        .expect("generate block specparam definition expected");
+        .expect("generate block localparam definition expected");
     assert!(
-        nav.info.iter().any(|nav| nav.name.as_deref() == Some("T_LOCAL")),
-        "generate block specparam should resolve locally: {nav:?}"
+        nav.info.iter().any(|nav| nav.name.as_deref() == Some("P_LOCAL")),
+        "generate block localparam should resolve locally: {nav:?}"
     );
 }
 
