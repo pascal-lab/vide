@@ -627,6 +627,40 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_generate_block_specparam_is_not_model_limited() {
+    let text = r#"
+module generate_block_specparam_ctx(output wire y);
+  generate
+    if (1) begin : g_spec
+      specparam /*marker:spec_def*/T_LOCAL = 1;
+      wire lane;
+      assign lane = /*marker:spec_ref*/T_LOCAL;
+    end
+  endgenerate
+
+  assign y = g_spec.lane;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("SPECPARAM_DECLARATION")),
+        "specparam inside generate block should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+    );
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "spec_ref"))
+        .unwrap()
+        .expect("generate block specparam definition expected");
+    assert!(
+        nav.info.iter().any(|nav| nav.name.as_deref() == Some("T_LOCAL")),
+        "generate block specparam should resolve locally: {nav:?}"
+    );
+}
+
+#[test]
 fn verilog_2005_block_parameter_declarations_are_not_model_limited() {
     let text = r#"
 module block_param_ctx;

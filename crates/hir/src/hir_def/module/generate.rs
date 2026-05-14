@@ -634,6 +634,9 @@ impl LowerGenerateBlockCtx<'_> {
                 return None;
             }
             DefParam(defparam) => self.defparam_ctx().lower_defparam(defparam).into(),
+            SpecparamDeclaration(specparam_decl) => {
+                self.declaration_ctx().lower_specparam_decl(specparam_decl).into()
+            }
             EmptyMember(_) => return None,
             item => self.lower_opaque_member(item).into(),
         };
