@@ -617,6 +617,56 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_subroutine_port_declarations_resolve_locally() {
+    let text = r#"
+module subroutine_port_ctx(output reg [3:0] y);
+  task drive;
+    input [3:0] /*marker:task_value_def*/value;
+    begin
+      y = /*marker:task_value_ref*/value;
+    end
+  endtask
+
+  function [3:0] add1;
+    input [3:0] /*marker:func_value_def*/value;
+    begin
+      add1 = /*marker:func_value_ref*/value + 1'b1;
+    end
+  endfunction
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    for marker in ["task_value_ref", "func_value_ref"] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some("value")),
+            "{marker} should resolve to its local subroutine port declaration: {nav:?}"
+        );
+    }
+
+    let rename = analysis
+        .rename(
+            position(file_id, &markers, "task_value_ref"),
+            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            "drive_value",
+        )
+        .unwrap()
+        .expect("task port rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit fixture file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("input [3:0] drive_value;"));
+    assert!(renamed.contains("y = drive_value;"));
+    assert!(renamed.contains("input [3:0] value;"));
+    assert!(renamed.contains("add1 = value + 1'b1;"));
+}
+
+#[test]
 fn verilog_2005_specparam_declaration_is_not_model_limited() {
     let text = r#"
 module specparam_ctx(input wire a, output wire y);
