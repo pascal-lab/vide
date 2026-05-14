@@ -507,6 +507,64 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_direct_generate_is_not_model_limited() {
+    let text = r#"
+module direct_generate_ctx;
+  parameter P = 1;
+  genvar /*marker:genvar_def*/i;
+  wire use_if, use_loop, use_case;
+
+  if (P) begin : /*marker:if_scope_def*/dg_if
+    wire /*marker:lane_if_def*/lane_if;
+  end
+
+  for (/*marker:genvar_ref*/i = 0; i < 1; i = i + 1) begin : /*marker:loop_scope_def*/dg_loop
+    wire /*marker:lane_loop_def*/lane_loop;
+  end
+
+  case (P)
+    1: begin : /*marker:case_scope_def*/dg_case
+      wire /*marker:lane_case_def*/lane_case;
+    end
+  endcase
+
+  assign use_if = /*marker:if_scope_ref*/dg_if./*marker:lane_if_ref*/lane_if;
+  assign use_loop = /*marker:loop_scope_ref*/dg_loop[0]./*marker:lane_loop_ref*/lane_loop;
+  assign use_case = /*marker:case_scope_ref*/dg_case./*marker:lane_case_ref*/lane_case;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
+    for syntax_kind in ["IF_GENERATE", "CASE_GENERATE", "LOOP_GENERATE", "GENERATE_BLOCK"] {
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains(syntax_kind)),
+            "{syntax_kind} should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+        );
+    }
+
+    for (marker, expected) in [
+        ("genvar_ref", "i"),
+        ("if_scope_ref", "dg_if"),
+        ("lane_if_ref", "lane_if"),
+        ("loop_scope_ref", "dg_loop"),
+        ("lane_loop_ref", "lane_loop"),
+        ("case_scope_ref", "dg_case"),
+        ("lane_case_ref", "lane_case"),
+    ] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some(expected)),
+            "{marker} should resolve to {expected:?}: {nav:?}"
+        );
+    }
+}
+
+#[test]
 fn verilog_2005_specparam_declaration_is_not_model_limited() {
     let text = r#"
 module specparam_ctx(input wire a, output wire y);

@@ -500,9 +500,8 @@ fn verilog_diagnostic_mode_reports_model_limited_constructs() {
     };
     let file_text = "\
 module top;
-  if (1) begin : g_if
-    wire lane;
-  end
+  class c;
+  endclass
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =

@@ -183,7 +183,7 @@ impl ModuleSourceMap {
         match item {
             ModuleItem::ContAssignId(idx) => self.get(*idx).0,
             ModuleItem::DefParamId(idx) => self.get(*idx).0,
-            ModuleItem::GenerateRegionId(idx) => self.get(*idx).0,
+            ModuleItem::GenerateRegionId(idx) => self.get(*idx).into(),
             ModuleItem::SpecifyBlockId(idx) => self.get(*idx).0,
             ModuleItem::SpecifyItemId(idx) => self.get(*idx).into(),
             ModuleItem::DeclarationId(idx) => self.get(*idx).ptr(),
@@ -441,7 +441,7 @@ impl LowerModuleCtx<'_> {
                 gen_item @ GenerateBlock(_)
                 | gen_item @ IfGenerate(_)
                 | gen_item @ CaseGenerate(_)
-                | gen_item @ LoopGenerate(_) => self.lower_opaque_member(gen_item).into(),
+                | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
                 // Timing and clocking
                 timing @ TimeUnitsDeclaration(_)

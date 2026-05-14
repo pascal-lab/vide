@@ -26,7 +26,6 @@ use super::{
 use crate::{
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src,
     file::HirFileId,
     hir_def::{
         Ident,
@@ -64,7 +63,34 @@ pub struct GenerateRegion {
 }
 
 pub type GenerateRegionId = Idx<GenerateRegion>;
-define_src!(GenerateRegionSrc(ast::GenerateRegion));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum GenerateRegionSrc {
+    GenerateRegion(SyntaxNodePtr),
+    DirectItem(SyntaxNodePtr),
+}
+
+impl GenerateRegionSrc {
+    pub fn from_direct_member(member: &ast::Member<'_>) -> Self {
+        Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(member))
+    }
+
+    fn ptr(&self) -> SyntaxNodePtr {
+        match self {
+            GenerateRegionSrc::GenerateRegion(ptr) | GenerateRegionSrc::DirectItem(ptr) => *ptr,
+        }
+    }
+}
+
+impl IsSrc for GenerateRegionSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        self.ptr().kind()
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        self.ptr().range()
+    }
+}
 
 impl IsNamedSrc for GenerateRegionSrc {
     fn name_kind(&self) -> Option<TokenKind> {
@@ -73,6 +99,33 @@ impl IsNamedSrc for GenerateRegionSrc {
 
     fn name_range(&self) -> Option<utils::text_edit::TextRange> {
         None
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::GenerateRegion<'a>> {
+        match self {
+            GenerateRegionSrc::GenerateRegion(ptr) => {
+                let mut node = ptr.to_node(tree)?;
+                while !ast::GenerateRegion::can_cast(node.kind()) && node.child_count() == 1 {
+                    node = node.child_node(0).unwrap();
+                }
+                ast::GenerateRegion::cast(node)
+            }
+            GenerateRegionSrc::DirectItem(_) => None,
+        }
+    }
+}
+
+impl From<ast::GenerateRegion<'_>> for GenerateRegionSrc {
+    fn from(region: ast::GenerateRegion<'_>) -> Self {
+        Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region))
+    }
+}
+
+impl From<GenerateRegionSrc> for SyntaxNodePtr {
+    fn from(src: GenerateRegionSrc) -> Self {
+        src.ptr()
     }
 }
 
@@ -716,6 +769,35 @@ impl LowerModuleCtx<'_> {
         items
     }
 
+    fn lower_generate_region_member(
+        &mut self,
+        item: ast::Member,
+        items: &mut SmallVec<[GenerateItem; 4]>,
+    ) {
+        use ast::Member::*;
+        match item {
+            EmptyMember(_) => {}
+            GenvarDeclaration(genvar_decl) => {
+                items.push(self.declaration_ctx().lower_genvar_decl(genvar_decl).into());
+            }
+            GenerateBlock(block) => {
+                items.push(
+                    self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into(),
+                );
+            }
+            LoopGenerate(loop_generate) => {
+                items.push(self.intern_generate_block(loop_generate.into()).into());
+            }
+            IfGenerate(if_generate) => {
+                items.extend(self.lower_if_generate_items(if_generate));
+            }
+            CaseGenerate(case_generate) => {
+                items.extend(self.lower_case_generate_items(case_generate));
+            }
+            item => items.push(self.lower_opaque_member(item).into()),
+        }
+    }
+
     pub(crate) fn lower_generate_region(
         &mut self,
         region: ast::GenerateRegion,
@@ -723,34 +805,23 @@ impl LowerModuleCtx<'_> {
         let mut items = SmallVec::new();
 
         for item in region.members().children() {
-            use ast::Member::*;
-            match item {
-                EmptyMember(_) => {}
-                GenvarDeclaration(genvar_decl) => {
-                    items.push(self.declaration_ctx().lower_genvar_decl(genvar_decl).into());
-                }
-                GenerateBlock(block) => {
-                    items.push(
-                        self.intern_generate_block(GenerateBlockSrc::from_generate_block(block))
-                            .into(),
-                    );
-                }
-                LoopGenerate(loop_generate) => {
-                    items.push(self.intern_generate_block(loop_generate.into()).into());
-                }
-                IfGenerate(if_generate) => {
-                    items.extend(self.lower_if_generate_items(if_generate));
-                }
-                CaseGenerate(case_generate) => {
-                    items.extend(self.lower_case_generate_items(case_generate));
-                }
-                item => items.push(self.lower_opaque_member(item).into()),
-            }
+            self.lower_generate_region_member(item, &mut items);
         }
 
         alloc_idx_and_src! {
             GenerateRegion { items } => self.module.generate_regions,
             region => self.module_source_map.generate_region_srcs,
+        }
+    }
+
+    pub(crate) fn lower_direct_generate_region(&mut self, item: ast::Member) -> GenerateRegionId {
+        let src = GenerateRegionSrc::from_direct_member(&item);
+        let mut items = SmallVec::new();
+        self.lower_generate_region_member(item, &mut items);
+
+        alloc_idx_and_src! {
+            GenerateRegion { items } => self.module.generate_regions,
+            src => self.module_source_map.generate_region_srcs,
         }
     }
 }
