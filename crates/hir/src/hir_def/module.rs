@@ -1,9 +1,12 @@
-use continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc};
-use defparam::{DefParam, DefParamId, DefParamSrc};
+use continuous_assgin::{
+    ContAssign, ContAssignId, ContAssignSrc, LowerContAssign, impl_lower_cont_assign,
+};
+use defparam::{DefParam, DefParamId, DefParamSrc, LowerDefParam, impl_lower_defparam};
 use generate::{GenerateRegion, GenerateRegionId, GenerateRegionSrc};
 use instantiation::{
-    Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc, ParamAssign,
-    ParamAssignSrc, PortConn, PortConnSrc,
+    Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc,
+    LowerInstantiation, ParamAssign, ParamAssignSrc, PortConn, PortConnSrc,
+    impl_lower_instantiation,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
 use port::{
@@ -239,6 +242,9 @@ impl_lower_decl!(LowerModuleCtx<'_>, module, module_source_map);
 impl_lower_event_expr!(LowerModuleCtx<'_>, module, module_source_map);
 impl_lower_stmt!(LowerModuleCtx<'_>, module_id, module, module_source_map);
 impl_lower_declaration!(LowerModuleCtx<'_>, module, module_source_map);
+impl_lower_cont_assign!(LowerModuleCtx<'_>, module, module_source_map);
+impl_lower_defparam!(LowerModuleCtx<'_>, module, module_source_map);
+impl_lower_instantiation!(LowerModuleCtx<'_>, module, module_source_map);
 
 impl LowerProc for LowerModuleCtx<'_> {
     fn proc_ctx(&mut self) -> LowerProcCtx<'_> {
@@ -371,7 +377,9 @@ impl LowerModuleCtx<'_> {
             use ast::Member::*;
             let idx = match member {
                 // Assignments
-                ContinuousAssign(assign) => self.lower_continuous_assign(assign).into(),
+                ContinuousAssign(assign) => {
+                    self.cont_assign_ctx().lower_continuous_assign(assign).into()
+                }
 
                 // Declarations
                 DataDeclaration(data_decl) => {
@@ -396,10 +404,10 @@ impl LowerModuleCtx<'_> {
 
                 // Instantiations
                 HierarchyInstantiation(instantiation) => {
-                    self.lower_instantiation(instantiation).into()
+                    self.instantiation_ctx().lower_instantiation(instantiation).into()
                 }
                 PrimitiveInstantiation(instantiation) => {
-                    self.lower_primitive_instantiation(instantiation).into()
+                    self.instantiation_ctx().lower_primitive_instantiation(instantiation).into()
                 }
                 checker_inst @ CheckerInstantiation(_) => {
                     self.lower_opaque_member(checker_inst).into()
@@ -483,7 +491,7 @@ impl LowerModuleCtx<'_> {
                 udp_decl @ UdpDeclaration(_) => self.lower_opaque_member(udp_decl).into(),
 
                 // Defparam
-                DefParam(defparam) => self.lower_defparam(defparam).into(),
+                DefParam(defparam) => self.defparam_ctx().lower_defparam(defparam).into(),
 
                 // Net alias
                 net_alias @ NetAlias(_) => self.lower_opaque_member(net_alias).into(),

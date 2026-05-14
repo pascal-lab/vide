@@ -1,15 +1,16 @@
-use la_arena::Idx;
+use la_arena::{Arena, Idx};
 use smallvec::SmallVec;
 use syntax::ast;
 
-use super::LowerModuleCtx;
 use crate::{
+    db::InternDb,
     define_src, define_src_with_name,
     hir_def::{
         HirData, Ident, alloc_idx_and_src,
-        expr::{ExprId, LowerExpr, data_ty::Dimension},
+        expr::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr},
         lower_ident_opt,
     },
+    source_map::SourceMap,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -66,7 +67,54 @@ pub type PortConnId = Idx<PortConn>;
 
 define_src_with_name!(PortConnSrc(ast::PortConnection));
 
-impl LowerModuleCtx<'_> {
+pub(crate) struct LowerInstantiationCtx<'a> {
+    pub(crate) db: &'a dyn InternDb,
+
+    pub(crate) instantiations: &'a mut Arena<Instantiation>,
+    pub(crate) instantiation_srcs: &'a mut SourceMap<InstantiationSrc, Instantiation>,
+
+    pub(crate) inst_param_assigns: &'a mut Arena<ParamAssign>,
+    pub(crate) inst_param_assign_srcs: &'a mut SourceMap<ParamAssignSrc, ParamAssign>,
+
+    pub(crate) instances: &'a mut Arena<Instance>,
+    pub(crate) instance_srcs: &'a mut SourceMap<InstanceSrc, Instance>,
+
+    pub(crate) inst_port_conns: &'a mut Arena<PortConn>,
+    pub(crate) inst_port_conn_srcs: &'a mut SourceMap<PortConnSrc, PortConn>,
+
+    pub(crate) exprs: &'a mut Arena<Expr>,
+    pub(crate) expr_srcs: &'a mut SourceMap<ExprSrc, Expr>,
+}
+
+pub(crate) trait LowerInstantiation: LowerExpr {
+    fn instantiation_ctx(&mut self) -> LowerInstantiationCtx<'_>;
+}
+
+pub(in crate::hir_def) macro impl_lower_instantiation($ctx:ty, $data:ident, $src_map:ident) {
+    impl $crate::hir_def::module::instantiation::LowerInstantiation for $ctx {
+        fn instantiation_ctx(
+            &mut self,
+        ) -> $crate::hir_def::module::instantiation::LowerInstantiationCtx<'_> {
+            $crate::hir_def::module::instantiation::LowerInstantiationCtx {
+                db: self.db,
+                instantiations: &mut self.$data.instantiations,
+                instantiation_srcs: &mut self.$src_map.instantiation_srcs,
+                inst_param_assigns: &mut self.$data.inst_param_assigns,
+                inst_param_assign_srcs: &mut self.$src_map.inst_param_assign_srcs,
+                instances: &mut self.$data.instances,
+                instance_srcs: &mut self.$src_map.instance_srcs,
+                inst_port_conns: &mut self.$data.inst_port_conns,
+                inst_port_conn_srcs: &mut self.$src_map.inst_port_conn_srcs,
+                exprs: &mut self.$data.exprs,
+                expr_srcs: &mut self.$src_map.expr_srcs,
+            }
+        }
+    }
+}
+
+impl_lower_expr!(LowerInstantiationCtx<'_>);
+
+impl LowerInstantiationCtx<'_> {
     pub(crate) fn lower_instantiation(
         &mut self,
         instance: ast::HierarchyInstantiation,
@@ -74,15 +122,15 @@ impl LowerModuleCtx<'_> {
         let module_name = lower_ident_opt(instance.type_());
         let param_assigns = self.lower_param_assign(instance.parameters());
 
-        let next_instantiation_id = self.module.instantiations.nxt_idx();
+        let next_instantiation_id = self.instantiations.nxt_idx();
         let instances = instance
             .instances()
             .children()
             .map(|inst| self.lower_instance(inst, next_instantiation_id))
             .collect();
         alloc_idx_and_src! {
-            Instantiation { module_name, param_assigns, instances } => self.module.instantiations,
-            instance => self.module_source_map.instantiation_srcs,
+            Instantiation { module_name, param_assigns, instances } => self.instantiations,
+            instance => self.instantiation_srcs,
         }
     }
 
@@ -93,7 +141,7 @@ impl LowerModuleCtx<'_> {
         let module_name = lower_ident_opt(inst.type_());
         let param_assigns = SmallVec::new();
 
-        let next_instantiation_id = self.module.instantiations.nxt_idx();
+        let next_instantiation_id = self.instantiations.nxt_idx();
         let instances = inst
             .instances()
             .children()
@@ -101,8 +149,8 @@ impl LowerModuleCtx<'_> {
             .collect();
 
         alloc_idx_and_src! {
-            Instantiation { module_name, param_assigns, instances } => self.module.instantiations,
-            inst => self.module_source_map.instantiation_srcs,
+            Instantiation { module_name, param_assigns, instances } => self.instantiations,
+            inst => self.instantiation_srcs,
         }
     }
 
@@ -130,8 +178,8 @@ impl LowerModuleCtx<'_> {
                 };
 
                 alloc_idx_and_src! {
-                    hir_assign => self.module.inst_param_assigns,
-                    assign => self.module_source_map.inst_param_assign_srcs,
+                    hir_assign => self.inst_param_assigns,
+                    assign => self.inst_param_assign_srcs,
                 }
             })
             .collect()
@@ -162,8 +210,8 @@ impl LowerModuleCtx<'_> {
                     WildcardPortConnection(_) => PortConn::Wildcard,
                 };
                 alloc_idx_and_src! {
-                    hir_conn => self.module.inst_port_conns,
-                    conn => self.module_source_map.inst_port_conn_srcs,
+                    hir_conn => self.inst_port_conns,
+                    conn => self.inst_port_conn_srcs,
                 }
             })
             .collect();
@@ -182,8 +230,8 @@ impl LowerModuleCtx<'_> {
             .unwrap_or_default();
 
         alloc_idx_and_src! {
-            Instance { name, dimensions, connections, parent } => self.module.instances,
-            instance => self.module_source_map.instance_srcs,
+            Instance { name, dimensions, connections, parent } => self.instances,
+            instance => self.instance_srcs,
         }
     }
 }
