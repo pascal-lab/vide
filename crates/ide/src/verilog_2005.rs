@@ -573,6 +573,60 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_generate_region_direct_items_are_not_model_limited() {
+    let text = r#"
+module child(input wire a, output wire y);
+  assign y = a;
+endmodule
+
+module generate_region_direct_ctx(input wire a, output wire y);
+  generate
+    specparam /*marker:spec_def*/T_DLY = 1;
+    wire /*marker:wire_def*/direct_wire;
+    assign direct_wire = a;
+    child /*marker:inst_def*/u_direct(.a(/*marker:wire_ref*/direct_wire), .y());
+    initial begin
+      $display(/*marker:spec_ref*/T_DLY);
+    end
+  endgenerate
+
+  assign y = /*marker:inst_ref*/u_direct.y | direct_wire;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.is_empty(),
+        "direct items inside generate/endgenerate should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+    );
+
+    for (marker, expected) in
+        [("wire_ref", "direct_wire"), ("spec_ref", "T_DLY"), ("inst_ref", "u_direct")]
+    {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some(expected)),
+            "{marker} should resolve to {expected:?}: {nav:?}"
+        );
+    }
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut names = Vec::new();
+    flatten_symbols(&symbols, &mut names);
+    for expected in ["T_DLY", "direct_wire", "u_direct"] {
+        assert!(
+            names.iter().any(|name| name == expected),
+            "missing document symbol {expected:?}; got {names:?}"
+        );
+    }
+}
+
+#[test]
 fn verilog_2005_block_parameter_declarations_are_not_model_limited() {
     let text = r#"
 module block_param_ctx;

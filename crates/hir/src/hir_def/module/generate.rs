@@ -340,9 +340,16 @@ define_container! {
 define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum GenerateItem {
+        ContAssignId(ContAssignId),
+        DefParamId(DefParamId),
         GenerateBlockId(GenerateBlockId),
         DeclarationId(DeclarationId),
+        StructId(StructId),
+        InstantiationId(InstantiationId),
+        ProcId(ProcId),
+        TypedefId(TypedefId),
         OpaqueItemId(OpaqueItemId),
+        SubroutineId(LocalSubroutineId),
     }
 }
 
@@ -776,9 +783,42 @@ impl LowerModuleCtx<'_> {
     ) {
         use ast::Member::*;
         match item {
+            ContinuousAssign(assign) => {
+                items.push(self.cont_assign_ctx().lower_continuous_assign(assign).into());
+            }
+            DataDeclaration(data_decl) => {
+                items.push(self.declaration_ctx().lower_data_decl(data_decl).into());
+            }
+            NetDeclaration(net_decl) => {
+                items.push(self.declaration_ctx().lower_net_decl(net_decl).into());
+            }
             EmptyMember(_) => {}
             GenvarDeclaration(genvar_decl) => {
                 items.push(self.declaration_ctx().lower_genvar_decl(genvar_decl).into());
+            }
+            ParameterDeclarationStatement(param_decl) => {
+                items.push(
+                    self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into(),
+                );
+            }
+            TypedefDeclaration(typedef_decl) => {
+                items.push(self.lower_typedef(typedef_decl).into());
+            }
+            HierarchyInstantiation(instantiation) => {
+                items.push(self.instantiation_ctx().lower_instantiation(instantiation).into());
+            }
+            PrimitiveInstantiation(instantiation) => {
+                items.push(
+                    self.instantiation_ctx().lower_primitive_instantiation(instantiation).into(),
+                );
+            }
+            FunctionDeclaration(fn_decl) => {
+                if let Some(sub_id) = self.lower_subroutine_decl(fn_decl) {
+                    items.push(sub_id.into());
+                }
+            }
+            ProceduralBlock(proc) => {
+                items.push(self.proc_ctx().lower_proc(proc).into());
             }
             GenerateBlock(block) => {
                 items.push(
@@ -793,6 +833,12 @@ impl LowerModuleCtx<'_> {
             }
             CaseGenerate(case_generate) => {
                 items.extend(self.lower_case_generate_items(case_generate));
+            }
+            DefParam(defparam) => {
+                items.push(self.defparam_ctx().lower_defparam(defparam).into());
+            }
+            SpecparamDeclaration(specparam_decl) => {
+                items.push(self.declaration_ctx().lower_specparam_decl(specparam_decl).into());
             }
             item => items.push(self.lower_opaque_member(item).into()),
         }

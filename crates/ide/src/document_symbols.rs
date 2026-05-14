@@ -21,10 +21,12 @@ use hir::{
                 GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
                 GenerateRegionId, GenerateRegionSrc,
             },
+            instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
             port::Ports,
             specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
         },
         opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
+        proc::{Proc, ProcId},
         stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
         subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
         typedef::{Typedef, TypedefId, TypedefSrc},
@@ -461,11 +463,23 @@ fn build_generate_region<Arn, SrcMap>(
     Arn: GetRef<GenerateRegionId, Output = GenerateRegion>
         + GetRef<DeclarationId, Output = Declaration>
         + GetRef<DeclId, Output = Declarator>
-        + GetRef<OpaqueItemId, Output = OpaqueItem>,
+        + GetRef<InstanceId, Output = Instance>
+        + GetRef<InstantiationId, Output = Instantiation>
+        + GetRef<LocalBlockId, Output = BlockInfo>
+        + GetRef<LocalSubroutineId, Output = Subroutine>
+        + GetRef<OpaqueItemId, Output = OpaqueItem>
+        + GetRef<ProcId, Output = Proc>
+        + GetRef<StmtId, Output = Stmt>
+        + GetRef<TypedefId, Output = Typedef>,
     SrcMap: Get<GenerateRegionId, Output = GenerateRegionSrc>
         + Get<DeclarationId, Output = DeclarationSrc>
         + Get<DeclId, Output = DeclaratorSrc>
-        + Get<OpaqueItemId, Output = OpaqueItemSrc>,
+        + Get<InstanceId, Output = hir::hir_def::module::instantiation::InstanceSrc>
+        + Get<LocalBlockId, Output = BlockSrc>
+        + Get<LocalSubroutineId, Output = SubroutineSrc>
+        + Get<OpaqueItemId, Output = OpaqueItemSrc>
+        + Get<StmtId, Output = StmtSrc>
+        + Get<TypedefId, Output = TypedefSrc>,
 {
     let hir = arena.get(generate_region_id);
     let src = src_map.get(generate_region_id);
@@ -473,14 +487,34 @@ fn build_generate_region<Arn, SrcMap>(
     collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
     for item in hir.items.iter() {
         match *item {
+            GenerateItem::ContAssignId(_) | GenerateItem::DefParamId(_) => {}
             GenerateItem::DeclarationId(declaration_id) => {
                 build_declaration(collector, declaration_id, arena, src_map);
             }
             GenerateItem::GenerateBlockId(generate_block_id) => {
                 build_generate_block(db, collector, generate_block_id);
             }
+            GenerateItem::InstantiationId(instantiation_id) => {
+                for &instance_id in arena.get(instantiation_id).instances.iter() {
+                    let hir = arena.get(instance_id);
+                    let src = src_map.get(instance_id);
+                    collector.push_symbol(&hir.name, src);
+                    collector.pop();
+                }
+            }
             GenerateItem::OpaqueItemId(opaque_id) => {
                 build_opaque(collector, opaque_id, arena, src_map);
+            }
+            GenerateItem::ProcId(proc_id) => {
+                let proc = arena.get(proc_id);
+                build_stmt(db, collector, proc.stmt, arena, src_map);
+            }
+            GenerateItem::StructId(_) => {}
+            GenerateItem::SubroutineId(subroutine_id) => {
+                build_subroutine(collector, subroutine_id, arena, src_map);
+            }
+            GenerateItem::TypedefId(typedef_id) => {
+                build_typedef(collector, typedef_id, arena, src_map);
             }
         }
     }
