@@ -8,7 +8,7 @@ use hir::{
 };
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
-use syntax::{SVInt, SyntaxCursorExt, ast::AstNode, trivia::TriviaExt};
+use syntax::{SVInt, SyntaxCursorExt, trivia::TriviaExt};
 use utils::{get::GetRef, text_edit::TextSize};
 
 use crate::{
@@ -172,8 +172,8 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin)
         return None;
     };
 
-    let root = sema.parse(file_id.file_id());
-    let mut cursor = root.syntax().walk();
+    let root = sema.parse_root(file_id.file_id());
+    let mut cursor = root.walk();
     cursor.goto_first_tok_after_or_last(end + TextSize::new(relative_start));
     cursor
         .to_token()?

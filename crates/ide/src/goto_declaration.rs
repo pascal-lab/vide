@@ -2,7 +2,7 @@ use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use span::{FilePosition, RangeInfo};
-use syntax::{SyntaxNodeExt, ast::AstNode, has_text_range::HasTextRange};
+use syntax::{SyntaxNodeExt, has_text_range::HasTextRange};
 
 use crate::{
     definitions::DefinitionClass,
@@ -15,9 +15,8 @@ pub(crate) fn goto_declaration(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let token =
-        file.syntax().token_at_offset(offset).pick_bext_token(goto_definition::token_precedence)?;
+    let root = sema.parse_root(file_id);
+    let token = root.token_at_offset(offset).pick_bext_token(goto_definition::token_precedence)?;
 
     let origins = match DefinitionClass::resolve(&sema, token)? {
         DefinitionClass::Definition(definition) => definition.declaration_origins(),

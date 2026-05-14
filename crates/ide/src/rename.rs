@@ -46,8 +46,8 @@ pub(crate) fn prepare_rename(
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let token = pick_token(file.syntax(), offset)?;
+    let root = sema.parse_root(file_id);
+    let token = pick_token(root, offset)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
     DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)?;
     Ok(text_range)
@@ -60,8 +60,8 @@ pub(crate) fn rename(
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let token = pick_token(file.syntax(), offset)?;
+    let root = sema.parse_root(file_id);
+    let token = pick_token(root, offset)?;
     let def = match DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)? {
         DefinitionClass::Definition(def) => def,
         DefinitionClass::PortConnShorthand { local, .. } => local,

@@ -4,7 +4,6 @@ use itertools::Itertools;
 use span::FilePosition;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind,
-    ast::AstNode,
     has_text_range::HasTextRange,
     token::{SyntaxTokenExt, TokenKindExt},
 };
@@ -15,7 +14,7 @@ pub(crate) fn selection_ranges(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Vec<TextRange> {
     let sema = Semantics::new(db);
-    let root = sema.parse(file_id).syntax();
+    let root = sema.parse_root(file_id);
 
     let mut res = Vec::new();
 

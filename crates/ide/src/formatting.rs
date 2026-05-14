@@ -13,8 +13,8 @@ use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use span::FilePosition;
 use syntax::{
-    SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, ast::AstNode,
-    has_text_range::HasTextRange, token::SyntaxTokenExt, trivia::TriviaKindExt,
+    SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
+    token::SyntaxTokenExt, trivia::TriviaKindExt,
 };
 use utils::{
     line_index::{TextRange, TextSize},
@@ -133,7 +133,7 @@ pub fn format_on_type(
     config: FmtConfig,
 ) -> anyhow::Result<Option<TextEdit>> {
     let sema = Semantics::new(db);
-    let root = sema.parse(file_id).syntax();
+    let root = sema.parse_root(file_id);
 
     if ch.as_str() != "\n" {
         panic!("format_on_type: invalid character: {}", ch);

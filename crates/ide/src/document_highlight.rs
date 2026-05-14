@@ -1,7 +1,7 @@
 use hir::{container::InFile, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use span::FilePosition;
-use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, ast::AstNode, token::TokenKindExt};
+use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -31,9 +31,8 @@ pub(crate) fn document_highlight(
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-
-    let token = file.syntax().token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let root = sema.parse_root(file_id);
+    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     handle_ctrl_flow_kw(&sema, token).or_else(|| {
         let def = match DefinitionClass::resolve(&sema, token)? {
@@ -85,7 +84,8 @@ fn highlight_refs<'a>(
         ReferencesConfig::new(scope_visibility, Some(SearchScope::single_file(file_id)));
     let refs = ReferencesCtx::new(sema, &def, ref_config)
         .search()
-        .remove(&file_id)?
+        .remove(&file_id)
+        .unwrap_or_default()
         .into_iter()
         .map(|tok| DocumentHighlight { range: tok.range(), category: tok.category() });
 

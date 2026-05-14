@@ -6,7 +6,6 @@ use search::{ReferencesCtx, SearchScope};
 use span::FilePosition;
 use syntax::{
     SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent, TokenKind,
-    ast::AstNode,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
@@ -60,9 +59,8 @@ pub(crate) fn references(
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-
-    let token = file.syntax().token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let root = sema.parse_root(file_id);
+    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     handle_ctrl_flow_kw(&sema, token).or_else(|| {
         let def = match DefinitionClass::resolve(&sema, token)? {

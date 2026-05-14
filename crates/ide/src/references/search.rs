@@ -13,7 +13,7 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, ast::AstNode, has_text_range::HasTextRange,
+    SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, has_text_range::HasTextRange,
     token::TokenKindExt,
 };
 use triomphe::Arc;
@@ -172,7 +172,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         for (text, file_id, range) in self.scope_files() {
             self.sema.db.unwind_if_cancelled();
 
-            let root = LazyCell::new(|| sema.parse(file_id).syntax());
+            let root = LazyCell::new(|| sema.parse_root(file_id));
             Self::match_text(&text, finder, range)
                 .filter_map(|offset| Self::filter_token(*root, file_id, &def_ranges, offset))
                 .filter(|tp| self.classify_and_filter(sema, tp))

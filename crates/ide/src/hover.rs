@@ -28,8 +28,8 @@ pub(crate) fn hover(
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let token = file.syntax().token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let root = sema.parse_root(file_id);
+    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     let res = handle_literal(&sema, token).or_else(|| handle_definition(&sema, token))?;
     Some(RangeInfo::new(token.text_range()?, res))

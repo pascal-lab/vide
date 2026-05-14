@@ -18,8 +18,10 @@ use crate::{
     ScopeVisibility,
     analysis_host::AnalysisHost,
     completion::CompletionItem,
+    document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
     folding_ranges::FoldingConfig,
+    hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
     rename::RenameConfig,
     semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
@@ -709,6 +711,60 @@ include "vendor.map";
     assert!(
         nav.info.iter().any(|nav| nav.name.as_deref() == Some("work")),
         "library declaration should resolve as a real definition: {nav:?}"
+    );
+
+    let declaration = analysis
+        .goto_declaration(position(file_id, &markers, "library_def"))
+        .unwrap()
+        .expect("library declaration expected");
+    assert!(
+        declaration.info.iter().any(|nav| nav.name.as_deref() == Some("work")),
+        "library declaration should navigate without opaque fallback: {declaration:?}"
+    );
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "library_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap();
+    assert!(hover.is_some(), "library declaration hover should not panic or disappear");
+
+    let highlights = analysis
+        .document_highlight(
+            position(file_id, &markers, "library_def"),
+            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Private },
+        )
+        .unwrap()
+        .expect("library declaration highlights expected");
+    assert!(!highlights.is_empty(), "library declaration should highlight its definition");
+
+    let refs = analysis
+        .references(
+            position(file_id, &markers, "library_def"),
+            ReferencesConfig::new(
+                ScopeVisibility::Private,
+                Some(SearchScope::single_file(file_id)),
+            ),
+        )
+        .unwrap()
+        .expect("library references expected");
+    assert!(!refs.is_empty(), "library declaration should participate in references");
+
+    let rename = analysis
+        .rename(
+            position(file_id, &markers, "library_def"),
+            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            "renamed_work",
+        )
+        .unwrap()
+        .expect("library rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit library map");
+    let mut renamed = _clean_text.clone();
+    edit.apply(&mut renamed);
+    assert!(
+        renamed.contains("library renamed_work"),
+        "library rename should rewrite declaration: {renamed}"
     );
 }
 
