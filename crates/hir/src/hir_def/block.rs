@@ -287,6 +287,9 @@ impl LowerBlockCtx<'_> {
                     stmt_id.into()
                 },
                 ast::DataDeclaration[it] => self.declaration_ctx().lower_data_decl(it).into(),
+                ast::ParameterDeclarationStatement[it] => {
+                    self.declaration_ctx().lower_param_decl_base(it.parameter()).into()
+                },
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
                 _ => {
                     let (opaque, src) =

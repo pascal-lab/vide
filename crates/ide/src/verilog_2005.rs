@@ -565,6 +565,50 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_block_parameter_declarations_are_not_model_limited() {
+    let text = r#"
+module block_param_ctx;
+  initial begin : blk
+    parameter /*marker:block_width_def*/WIDTH = 1;
+    localparam DEPTH = /*marker:block_width_ref*/WIDTH + 1;
+    reg [WIDTH:0] value;
+    value = /*marker:block_depth_ref*/DEPTH;
+  end
+
+  function integer calc;
+    parameter /*marker:func_base_def*/BASE = 1;
+    integer tmp;
+    begin
+      tmp = /*marker:func_base_ref*/BASE;
+      calc = tmp;
+    end
+  endfunction
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("PARAMETER_DECLARATION_STATEMENT")),
+        "block/subroutine parameter declarations should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+    );
+
+    for (marker, expected) in
+        [("block_width_ref", "WIDTH"), ("block_depth_ref", "DEPTH"), ("func_base_ref", "BASE")]
+    {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some(expected)),
+            "{marker} should resolve to {expected:?}: {nav:?}"
+        );
+    }
+}
+
+#[test]
 fn verilog_2005_specparam_declaration_is_not_model_limited() {
     let text = r#"
 module specparam_ctx(input wire a, output wire y);
