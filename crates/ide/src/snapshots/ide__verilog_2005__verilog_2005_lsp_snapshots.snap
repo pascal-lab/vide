@@ -12,6 +12,7 @@ top Module container=None
   clk PortDecl container=Some("top")
   sig NetDecl container=Some("top")
   u_child Instance container=Some("top")
+  u_udp Instance container=Some("top")
   do_task Fn container=Some("top")
   i DataDecl container=Some("top")
   g_loop Generate container=Some("top")
@@ -26,36 +27,46 @@ cfg_top Module container=None
 40..41 Port(Others) SemaTokenModifier(WRITE)
 193..196 Port(Clk) SemaTokenModifier(READ)
 219..226 Instance SemaTokenModifier(0x0)
-552..559 Instance SemaTokenModifier(0x0)
+253..258 Instance SemaTokenModifier(0x0)
+264..267 Port(Clk) SemaTokenModifier(READ)
+579..586 Instance SemaTokenModifier(0x0)
 
 # navigation
 module_ref: ["Some(\"child\"):Some(Module)"]
+udp_ref: ["Some(\"udp_and\"):Some(Module)"]
 port_ref: ["Some(\"a\"):Some(PortDecl)"]
 sig_ref: ["Some(\"sig\"):Some(NetDecl)"]
 task_ref: ["Some(\"do_task\"):Some(Fn)"]
 instance_ref: ["Some(\"u_child\"):Some(Instance)"]
 generate_ref: ["Some(\"g_loop\"):Some(Generate)"]
 block_ref: ["Some(\"blk\"):Some(Block)"]
+config_def: ["Some(\"cfg_top\"):Some(Module)"]
 
 # references
 module_ref: defs=1 refs=1
+udp_ref: defs=1 refs=1
 port_ref: defs=1 refs=1
-sig_ref: defs=1 refs=5
+sig_ref: defs=1 refs=6
 task_ref: defs=1 refs=1
 instance_ref: defs=1 refs=1
 generate_ref: defs=1 refs=1
 block_ref: defs=1 refs=1
+config_def: defs=1 refs=0
 
 # rename
 module_ref -> renamed_child
   module renamed_child(input wire a, output wire y);
   renamed_child u_child(.a(sig), .y());
+udp_ref -> renamed_udp
+  primitive renamed_udp(out, in);
+  renamed_udp u_udp(sig, clk);
 port_ref -> renamed_a
   module child(input wire renamed_a, output wire y);
   child u_child(.renamed_a(sig), .y());
 sig_ref -> renamed_sig
   wire renamed_sig;
   child u_child(.a(renamed_sig), .y());
+  udp_and u_udp(renamed_sig, clk);
   renamed_sig = t_in;
   do_task(renamed_sig);
   renamed_sig = u_child.y;
@@ -72,6 +83,8 @@ generate_ref -> renamed_g_loop
 block_ref -> renamed_blk
   initial begin : renamed_blk
   disable renamed_blk;
+config_def -> renamed_cfg
+  config renamed_cfg;
 
 # completion
 config: ["config Keyword", "config Snippet"]

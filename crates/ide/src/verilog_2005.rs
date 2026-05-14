@@ -32,7 +32,7 @@ module child(input wire a, output wire y);
   wire child_net;
 endmodule
 
-primitive udp_and(out, in);
+primitive /*marker:udp_def*/udp_and(out, in);
   output out;
   input in;
   table
@@ -43,6 +43,7 @@ endprimitive
 module top(input wire clk);
   wire /*marker:sig_def*/sig;
   /*marker:module_ref*/child u_child(./*marker:port_ref*/a(/*marker:sig_ref*/sig), .y());
+  /*marker:udp_ref*/udp_and u_udp(sig, clk);
 
   task automatic /*marker:task_def*/do_task;
     input reg t_in;
@@ -421,12 +422,14 @@ fn verilog_2005_lsp_snapshots() {
     writeln!(&mut report, "\n# navigation").unwrap();
     for marker in [
         "module_ref",
+        "udp_ref",
         "port_ref",
         "sig_ref",
         "task_ref",
         "instance_ref",
         "generate_ref",
         "block_ref",
+        "config_def",
     ] {
         let nav = analysis
             .goto_definition(position(file_id, &markers, marker))
@@ -444,12 +447,14 @@ fn verilog_2005_lsp_snapshots() {
     writeln!(&mut report, "\n# references").unwrap();
     for marker in [
         "module_ref",
+        "udp_ref",
         "port_ref",
         "sig_ref",
         "task_ref",
         "instance_ref",
         "generate_ref",
         "block_ref",
+        "config_def",
     ] {
         let refs = analysis
             .references(
@@ -469,12 +474,14 @@ fn verilog_2005_lsp_snapshots() {
     writeln!(&mut report, "\n# rename").unwrap();
     for (marker, new_name) in [
         ("module_ref", "renamed_child"),
+        ("udp_ref", "renamed_udp"),
         ("port_ref", "renamed_a"),
         ("sig_ref", "renamed_sig"),
         ("task_ref", "renamed_task"),
         ("instance_ref", "renamed_u_child"),
         ("generate_ref", "renamed_g_loop"),
         ("block_ref", "renamed_blk"),
+        ("config_def", "renamed_cfg"),
     ] {
         let rename = analysis
             .rename(
