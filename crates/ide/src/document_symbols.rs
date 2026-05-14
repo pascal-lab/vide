@@ -11,6 +11,7 @@ use hir::{
         file::{
             FileItem,
             config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
+            udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
         },
         module::{ModuleId, ModuleItem, ModuleSrc, port::Ports},
         opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
@@ -212,6 +213,7 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::ConfigDeclId(config_id) => {
                 build_config_decl(&mut collector, config_id, file, src_map)
             }
+            FileItem::UdpDeclId(udp_id) => build_udp_decl(&mut collector, udp_id, file, src_map),
         }
     }
 
@@ -508,6 +510,22 @@ fn build_config_decl<Arn, SrcMap>(
     let hir = arena.get(config_id);
     let src = src_map.get(config_id);
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Config);
+    collector.pop();
+}
+
+#[inline]
+fn build_udp_decl<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    udp_id: UdpDeclId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<UdpDeclId, Output = UdpDecl>,
+    SrcMap: Get<UdpDeclId, Output = UdpDeclSrc>,
+{
+    let hir = arena.get(udp_id);
+    let src = src_map.get(udp_id);
+    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Primitive);
     collector.pop();
 }
 

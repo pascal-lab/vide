@@ -6,7 +6,7 @@ use hir::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
-        file::config::ConfigDeclId,
+        file::{config::ConfigDeclId, udp::UdpDeclId},
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         opaque::OpaqueItemId,
         stmt::StmtId,
@@ -54,6 +54,7 @@ impl ToNav for DefinitionOrigin {
         match self {
             DefinitionOrigin::ModuleId(module_id) => module_id.to_nav(db),
             DefinitionOrigin::Config(config_id) => config_id.to_nav(db),
+            DefinitionOrigin::Udp(udp_id) => udp_id.to_nav(db),
             DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
             DefinitionOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
@@ -85,6 +86,16 @@ impl ToNav for InFile<ConfigDeclId> {
         let name = file_id.to_container(db).get(config_id).name.clone();
 
         build(file_id.file_id(), src.name_range(), src.range(), name, SymbolKind::Config, None)
+    }
+}
+
+impl ToNav for InFile<UdpDeclId> {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let InFile { value: udp_id, file_id } = *self;
+        let src = file_id.to_container_src_map(db).get(udp_id);
+        let name = file_id.to_container(db).get(udp_id).name.clone();
+
+        build(file_id.file_id(), src.name_range(), src.range(), name, SymbolKind::Primitive, None)
     }
 }
 

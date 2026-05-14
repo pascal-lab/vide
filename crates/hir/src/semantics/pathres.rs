@@ -11,7 +11,7 @@ use crate::{
         block::BlockId,
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
-        file::config::ConfigDeclId,
+        file::{config::ConfigDeclId, udp::UdpDeclId},
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         opaque::OpaqueItemId,
@@ -89,6 +89,7 @@ impl SemanticsImpl<'_> {
         match self.db.unit_scope().get(&module_name)? {
             UnitEntry::ModuleId(module_id) => Some(module_id),
             UnitEntry::FiledConfigDeclId(_)
+            | UnitEntry::FiledUdpDeclId(_)
             | UnitEntry::FiledDeclId(_)
             | UnitEntry::FiledTypedefId(_)
             | UnitEntry::FiledOpaqueItemId(_) => None,
@@ -104,6 +105,7 @@ impl SemanticsImpl<'_> {
 pub enum PathResolution {
     Module(ModuleId),
     Config(InFile<ConfigDeclId>),
+    Udp(InFile<UdpDeclId>),
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
     ParamDecl(InModule<DeclId>),
@@ -129,6 +131,7 @@ impl From<UnitEntry> for PathResolution {
         match entry {
             ModuleId(idx) => Self::Module(idx),
             FiledConfigDeclId(idx) => Self::Config(idx),
+            FiledUdpDeclId(idx) => Self::Udp(idx),
             FiledDeclId(idx) => Self::Decl(idx.into()),
             FiledTypedefId(idx) => Self::Typedef(idx.into()),
             FiledOpaqueItemId(idx) => Self::Opaque(idx.into()),

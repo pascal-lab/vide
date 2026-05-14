@@ -8,6 +8,7 @@ use syntax::{
     ptr::SyntaxNodePtr,
 };
 use triomphe::Arc;
+use udp::{UdpDecl, UdpDeclId, UdpDeclSrc};
 use utils::{define_enum_deriving_from, get::Get};
 
 use super::{
@@ -43,6 +44,7 @@ use crate::{
 };
 
 pub mod config;
+pub mod udp;
 
 define_container! {
     #[derive(Default, Debug, PartialEq, Eq)]
@@ -53,6 +55,7 @@ define_container! {
         typedefs: [Typedef],
         structs: [StructDef],
         config_decls: [ConfigDecl],
+        udp_decls: [UdpDecl],
         opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
@@ -81,6 +84,7 @@ define_container! {
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
         config_decl_srcs: [ConfigDecl | ConfigDeclSrc],
+        udp_decl_srcs: [UdpDecl | UdpDeclSrc],
         opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
@@ -102,6 +106,7 @@ define_enum_deriving_from! {
         TypedefId(TypedefId),
         StructId(StructId),
         ConfigDeclId(ConfigDeclId),
+        UdpDeclId(UdpDeclId),
         OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
@@ -116,6 +121,7 @@ impl FileSourceMap {
             FileItem::TypedefId(idx) => self.get(*idx).ptr(),
             FileItem::StructId(idx) => self.get(*idx).node,
             FileItem::ConfigDeclId(idx) => self.get(*idx).node,
+            FileItem::UdpDeclId(idx) => self.get(*idx).node,
             FileItem::OpaqueItemId(idx) => self.get(*idx).node,
             FileItem::SubroutineId(idx) => self.get(*idx).node,
         }
@@ -241,6 +247,15 @@ impl LowerFileCtx<'_> {
         }
     }
 
+    fn lower_udp_decl(&mut self, udp_decl: ast::UdpDeclaration) -> UdpDeclId {
+        let name = lower_ident_opt(udp_decl.name());
+
+        alloc_idx_and_src! {
+            UdpDecl { name } => self.file.udp_decls,
+            udp_decl => self.file_source_map.udp_decl_srcs,
+        }
+    }
+
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {
         for member in root.members().children() {
             use ast::Member::*;
@@ -265,6 +280,7 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
                 _ => {
                     let (opaque, src) = lower_opaque_member(member);

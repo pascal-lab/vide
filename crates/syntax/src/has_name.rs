@@ -3,7 +3,7 @@ use slang::{
     ast::{
         AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration,
         HierarchicalInstance, IdentifierName, ModuleDeclaration, NonAnsiPort, ParamAssignment,
-        PortConnection, PortReference, SpecparamDeclarator, Statement,
+        PortConnection, PortReference, SpecparamDeclarator, Statement, UdpDeclaration,
     },
 };
 
@@ -18,6 +18,12 @@ impl<'a> HasName<'a> for ModuleDeclaration<'a> {
 }
 
 impl<'a> HasName<'a> for ConfigDeclaration<'a> {
+    fn name(&self) -> Option<SyntaxToken<'a>> {
+        self.name()
+    }
+}
+
+impl<'a> HasName<'a> for UdpDeclaration<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
         self.name()
     }

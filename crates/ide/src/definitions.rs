@@ -5,7 +5,7 @@ use hir::{
     hir_def::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
-        file::config::ConfigDeclId,
+        file::{config::ConfigDeclId, udp::UdpDeclId},
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         opaque::OpaqueItemId,
         stmt::StmtId,
@@ -35,6 +35,7 @@ use utils::{
 pub enum DefinitionOrigin {
     ModuleId(ModuleId),
     Config(InFile<ConfigDeclId>),
+    Udp(InFile<UdpDeclId>),
     BlockId(BlockId),
     SubroutineId(SubroutineId),
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -50,6 +51,7 @@ pub enum DefinitionOrigin {
 impl_from! { DefinitionOrigin =>
     ModuleId,
     Config(InFile<ConfigDeclId>),
+    Udp(InFile<UdpDeclId>),
     BlockId,
     SubroutineId,
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -67,6 +69,7 @@ impl DefinitionOrigin {
         match *self {
             DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::Config(InFile { file_id, .. }) => file_id.into(),
+            DefinitionOrigin::Udp(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id,
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, .. }) => {
@@ -87,6 +90,9 @@ impl DefinitionOrigin {
                 file_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
+                file_id.to_container(db).get(value).name.clone().unwrap()
+            }
+            DefinitionOrigin::Udp(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::BlockId(block_id) => {
@@ -128,6 +134,10 @@ impl DefinitionOrigin {
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::Udp(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(file_id, range)
             }
@@ -192,6 +202,10 @@ impl DefinitionOrigin {
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).range();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::Udp(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).range();
                 InFile::new(file_id, range)
             }
@@ -333,6 +347,7 @@ impl Definition {
         match self.0 {
             PathResolution::Module(module_id) => module_id.into(),
             PathResolution::Config(config_id) => config_id.into(),
+            PathResolution::Udp(udp_id) => udp_id.into(),
             PathResolution::Decl(decl_id) => decl_id.into(),
             PathResolution::Typedef(typedef_id) => typedef_id.into(),
             PathResolution::Opaque(opaque_id) => opaque_id.into(),
