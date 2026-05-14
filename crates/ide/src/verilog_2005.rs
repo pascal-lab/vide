@@ -1,9 +1,11 @@
 use std::{
     collections::HashMap,
+    fmt::Write,
     path::{Path, PathBuf},
 };
 
 use base_db::{change::Change, source_root::SourceRoot};
+use insta::assert_snapshot;
 use span::FilePosition;
 use triomphe::Arc;
 use utils::{
@@ -15,6 +17,7 @@ use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 use crate::{
     ScopeVisibility,
     analysis_host::AnalysisHost,
+    completion::CompletionItem,
     document_symbols::DocumentSymbol,
     folding_ranges::FoldingConfig,
     hover::{HoverConfig, HoverFormat},
@@ -23,6 +26,54 @@ use crate::{
     semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
     test_utils::normalize_fixture_text,
 };
+
+const VERILOG_2005_NAV_TEXT: &str = r#"
+module child(input wire a, output wire y);
+  wire child_net;
+endmodule
+
+primitive udp_and(out, in);
+  output out;
+  input in;
+  table
+    1 : 1;
+  endtable
+endprimitive
+
+module top(input wire clk);
+  wire /*marker:sig_def*/sig;
+  /*marker:module_ref*/child u_child(./*marker:port_ref*/a(/*marker:sig_ref*/sig), .y());
+
+  task automatic /*marker:task_def*/do_task;
+    input reg t_in;
+    begin
+      sig = t_in;
+    end
+  endtask
+
+  generate
+    genvar i;
+    for (i = 0; i < 1; i = i + 1) begin : /*marker:gen_label*/g_loop
+      wire lane;
+    end
+  endgenerate
+
+  specify
+    specparam /*marker:specparam_def*/T_SETUP = 1;
+  endspecify
+
+  initial begin : blk
+    /*marker:task_ref*/do_task(sig);
+    sig = /*marker:instance_ref*/u_child.y;
+    sig = /*marker:generate_ref*/g_loop[0].lane;
+    disable /*marker:block_ref*/blk;
+  end
+endmodule
+
+config /*marker:config_def*/cfg_top;
+  design work.top;
+endconfig
+"#;
 
 fn setup(text: &str) -> (AnalysisHost, FileId) {
     let text = normalize_fixture_text(text);
@@ -109,6 +160,31 @@ fn flatten_symbols(symbols: &[DocumentSymbol], out: &mut Vec<String>) {
         out.push(symbol.name.clone());
         flatten_symbols(&symbol.children, out);
     }
+}
+
+fn collect_symbol_lines(symbols: &[DocumentSymbol], indent: usize, out: &mut Vec<String>) {
+    for symbol in symbols {
+        out.push(format!(
+            "{}{} {:?} container={:?}",
+            "  ".repeat(indent),
+            symbol.name,
+            symbol.kind,
+            symbol.container_name
+        ));
+        collect_symbol_lines(&symbol.children, indent + 1, out);
+    }
+}
+
+fn completion_labels(items: Vec<CompletionItem>) -> Vec<String> {
+    items.into_iter().map(|item| format!("{} {:?}", item.label, item.kind)).collect()
+}
+
+fn completion_labels_for(text: &str, marker: &str) -> Vec<String> {
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    host.make_analysis()
+        .completions_with_trigger(position(file_id, &markers, marker), None)
+        .map(completion_labels)
+        .unwrap()
 }
 
 #[test]
@@ -311,4 +387,157 @@ endmodule
 
     let task_body = labels("task_body");
     assert!(task_body.iter().any(|label| label == "case"), "{task_body:?}");
+}
+
+#[test]
+fn verilog_2005_lsp_snapshots() {
+    let (host, file_id, clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
+    let analysis = host.make_analysis();
+    let full_range = TextRange::up_to(TextSize::of(clean_text.as_str()));
+    let mut report = String::new();
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut symbol_lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut symbol_lines);
+    writeln!(&mut report, "# document symbols").unwrap();
+    for line in symbol_lines {
+        writeln!(&mut report, "{line}").unwrap();
+    }
+
+    let tokens = analysis
+        .semantic_tokens(
+            file_id,
+            SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: true, io: true } },
+            Some(full_range),
+        )
+        .unwrap();
+    writeln!(&mut report, "\n# semantic token classes").unwrap();
+    for token in tokens {
+        if !token.is_empty() {
+            writeln!(&mut report, "{:?} {:?} {:?}", token.range, token.tag, token.mods).unwrap();
+        }
+    }
+
+    writeln!(&mut report, "\n# navigation").unwrap();
+    for marker in [
+        "module_ref",
+        "port_ref",
+        "sig_ref",
+        "task_ref",
+        "instance_ref",
+        "generate_ref",
+        "block_ref",
+    ] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .map(|nav| {
+                nav.info
+                    .into_iter()
+                    .map(|target| format!("{:?}:{:?}", target.name, target.kind))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        writeln!(&mut report, "{marker}: {nav:?}").unwrap();
+    }
+
+    writeln!(&mut report, "\n# references").unwrap();
+    for marker in [
+        "module_ref",
+        "port_ref",
+        "sig_ref",
+        "task_ref",
+        "instance_ref",
+        "generate_ref",
+        "block_ref",
+    ] {
+        let refs = analysis
+            .references(
+                position(file_id, &markers, marker),
+                ReferencesConfig::new(
+                    ScopeVisibility::Private,
+                    Some(SearchScope::single_file(file_id)),
+                ),
+            )
+            .unwrap()
+            .unwrap_or_default();
+        let def_count: usize = refs.iter().map(|refs| refs.def.as_ref().map_or(0, Vec::len)).sum();
+        let ref_count: usize = refs.iter().flat_map(|refs| refs.refs.values()).map(Vec::len).sum();
+        writeln!(&mut report, "{marker}: defs={def_count} refs={ref_count}").unwrap();
+    }
+
+    writeln!(&mut report, "\n# rename").unwrap();
+    for (marker, new_name) in [
+        ("module_ref", "renamed_child"),
+        ("port_ref", "renamed_a"),
+        ("sig_ref", "renamed_sig"),
+        ("task_ref", "renamed_task"),
+        ("instance_ref", "renamed_u_child"),
+        ("generate_ref", "renamed_g_loop"),
+        ("block_ref", "renamed_blk"),
+    ] {
+        let rename = analysis
+            .rename(
+                position(file_id, &markers, marker),
+                RenameConfig { scope_visibility: ScopeVisibility::Private },
+                new_name,
+            )
+            .unwrap()
+            .unwrap_or_else(|err| panic!("{marker} rename expected: {err}"));
+        let mut renamed = clean_text.clone();
+        rename.text_edits.get(&file_id).unwrap().apply(&mut renamed);
+        writeln!(&mut report, "{marker} -> {new_name}").unwrap();
+        for line in renamed.lines().filter(|line| line.contains(new_name)) {
+            writeln!(&mut report, "  {}", line.trim()).unwrap();
+        }
+    }
+
+    writeln!(&mut report, "\n# completion").unwrap();
+    writeln!(
+        &mut report,
+        "config: {:?}",
+        completion_labels_for("con/*marker:config*/\n", "config")
+    )
+    .unwrap();
+    writeln!(
+        &mut report,
+        "primitive_udp: {:?}",
+        completion_labels_for("pri/*marker:primitive*/\n", "primitive")
+    )
+    .unwrap();
+    writeln!(
+        &mut report,
+        "library: {:?}",
+        completion_labels_for("lib/*marker:library*/\n", "library")
+    )
+    .unwrap();
+    writeln!(
+        &mut report,
+        "generate: {:?}",
+        completion_labels_for(
+            "module completion_ctx; gen/*marker:generate*/ endmodule\n",
+            "generate"
+        )
+    )
+    .unwrap();
+    writeln!(
+        &mut report,
+        "specify: {:?}",
+        completion_labels_for(
+            "module completion_ctx; spe/*marker:specify*/ endmodule\n",
+            "specify"
+        )
+    )
+    .unwrap();
+    writeln!(
+        &mut report,
+        "task_body: {:?}",
+        completion_labels_for(
+            "module completion_ctx; task automatic worker; begin ca/*marker:task_body*/ end endtask endmodule\n",
+            "task_body",
+        )
+    )
+    .unwrap();
+
+    assert_snapshot!("verilog_2005_lsp_snapshots", report);
 }
