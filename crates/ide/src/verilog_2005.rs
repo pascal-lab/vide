@@ -208,6 +208,14 @@ fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
             .parse_diagnostics(file_id)
             .unwrap_or_else(|_| panic!("parse diagnostics cancelled for {path:?}"));
 
+        let diagnostics = analysis
+            .model_limit_diagnostics(file_id)
+            .unwrap_or_else(|_| panic!("model-limit diagnostics cancelled for {path:?}"));
+        assert!(
+            diagnostics.is_empty(),
+            "Verilog-2005 fixture should not produce model-limited diagnostics for {path:?}: {diagnostics:?}"
+        );
+
         let symbols = analysis
             .document_symbol(file_id)
             .unwrap_or_else(|_| panic!("document symbols cancelled for {path:?}"));

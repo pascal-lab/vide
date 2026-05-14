@@ -40,6 +40,7 @@ pub type DeclarationId = Idx<Declaration>;
 define_src!(DeclarationSrc(
     ast::DataDeclaration,
     ast::NetDeclaration,
+    ast::PortDeclaration,
     ast::ParameterDeclaration,
     ast::TypeParameterDeclaration,
     ast::LocalVariableDeclaration,
@@ -52,6 +53,7 @@ impl DeclarationSrc {
         match self {
             DeclarationSrc::DataDeclaration(ptr)
             | DeclarationSrc::NetDeclaration(ptr)
+            | DeclarationSrc::PortDeclaration(ptr)
             | DeclarationSrc::ParameterDeclaration(ptr)
             | DeclarationSrc::TypeParameterDeclaration(ptr)
             | DeclarationSrc::LocalVariableDeclaration(ptr)
@@ -219,6 +221,26 @@ impl LowerDeclarationCtx<'_> {
             NetDecl { ty, net_kind, delay, strength, decls } => self.declarations,
             net_decl => self.declaration_srcs,
         }
+    }
+
+    pub(crate) fn lower_port_decl_as_data_decl(
+        &mut self,
+        port_decl: ast::PortDeclaration,
+    ) -> Option<DeclarationId> {
+        use ast::PortHeader::*;
+        let ty = match port_decl.header() {
+            VariablePortHeader(header) => self.expr_ctx().lower_data_ty(header.data_type()),
+            NetPortHeader(header) => self.expr_ctx().lower_data_ty(header.data_type()),
+            InterfacePortHeader(_) => return None,
+        };
+
+        let parent = self.declarations.nxt_idx().into();
+        let decls = self.decl_ctx().lower_declarators(port_decl.declarators(), parent);
+
+        Some(alloc_idx_and_src! {
+            DataDecl { ty, const_kw: false, var_kw: false, decls } => self.declarations,
+            port_decl => self.declaration_srcs,
+        })
     }
 
     pub(crate) fn lower_param_decl_base(

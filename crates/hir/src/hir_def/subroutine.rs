@@ -303,6 +303,19 @@ impl LowerSubroutineBodyCtx<'_> {
                     let decl_id = self.declaration_ctx().lower_data_decl(it);
                     self.subroutine_source_map.items.push(BlockItem::DeclarationId(decl_id));
                 },
+                ast::PortDeclaration[it] => {
+                    if let Some(decl_id) =
+                        self.declaration_ctx().lower_port_decl_as_data_decl(it.clone())
+                    {
+                        self.subroutine_source_map.items.push(BlockItem::DeclarationId(decl_id));
+                    } else {
+                        let (opaque, src) =
+                            lower_opaque_node(it.syntax(), None, OpaqueKind::BlockItem);
+                        let opaque_id = self.subroutine.opaque_items.alloc(opaque);
+                        self.subroutine_source_map.opaque_srcs.insert(src, opaque_id);
+                        self.subroutine_source_map.items.push(BlockItem::OpaqueItemId(opaque_id));
+                    }
+                },
                 ast::LocalVariableDeclaration[it] => {
                     let decl_id = self.lower_local_variable_decl(it);
                     self.subroutine_source_map.items.push(BlockItem::DeclarationId(decl_id));
