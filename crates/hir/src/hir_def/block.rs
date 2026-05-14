@@ -29,7 +29,6 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
-    opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind, lower_opaque_node},
     stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -51,7 +50,6 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
-        opaque_items: [OpaqueItem],
         exprs: [Expr],
         event_exprs: [EventExpr],
         decls: [Declarator],
@@ -71,7 +69,6 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
-        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
         decl_srcs: [Declarator | DeclaratorSrc],
@@ -89,7 +86,6 @@ impl BlockSourceMap {
             BlockItem::DeclarationId(idx) => self.get(*idx).ptr(),
             BlockItem::TypedefId(idx) => self.get(*idx).ptr(),
             BlockItem::StructId(idx) => self.get(*idx).node,
-            BlockItem::OpaqueItemId(idx) => self.get(*idx).node,
             BlockItem::StmtId(idx) => self.get(*idx).node,
         }
     }
@@ -191,7 +187,6 @@ define_enum_deriving_from! {
         DeclarationId,
         TypedefId,
         StructId,
-        OpaqueItemId,
         StmtId,
     }
 }
@@ -291,13 +286,7 @@ impl LowerBlockCtx<'_> {
                     self.declaration_ctx().lower_param_decl_base(it.parameter()).into()
                 },
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
-                _ => {
-                    let (opaque, src) =
-                        lower_opaque_node(node.syntax(), None, OpaqueKind::BlockItem);
-                    let opaque_id = self.block.opaque_items.alloc(opaque);
-                    self.block_source_map.opaque_srcs.insert(src, opaque_id);
-                    opaque_id.into()
-                },
+                _ => continue,
             };
             self.block_source_map.items.push(idx);
             self.region_tree.handle_node(node.syntax());

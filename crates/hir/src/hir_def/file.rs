@@ -28,7 +28,6 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
-    opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind, lower_opaque_member},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -62,7 +61,6 @@ define_container! {
         udp_decls: [UdpDecl],
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
-        opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
@@ -93,7 +91,6 @@ define_container! {
         udp_decl_srcs: [UdpDecl | UdpDeclSrc],
         library_decl_srcs: [LibraryDecl | LibraryDeclSrc],
         library_include_srcs: [LibraryInclude | LibraryIncludeSrc],
-        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
@@ -117,7 +114,6 @@ define_enum_deriving_from! {
         UdpDeclId(UdpDeclId),
         LibraryDeclId(LibraryDeclId),
         LibraryIncludeId(LibraryIncludeId),
-        OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -134,7 +130,6 @@ impl FileSourceMap {
             FileItem::UdpDeclId(idx) => self.get(*idx).node,
             FileItem::LibraryDeclId(idx) => self.get(*idx).node,
             FileItem::LibraryIncludeId(idx) => self.get(*idx).0,
-            FileItem::OpaqueItemId(idx) => self.get(*idx).node,
             FileItem::SubroutineId(idx) => self.get(*idx).node,
         }
     }
@@ -313,12 +308,7 @@ impl LowerFileCtx<'_> {
                 },
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
-                _ => {
-                    let (opaque, src) = lower_opaque_member(member, OpaqueKind::FileItem);
-                    let idx = self.file.opaque_items.alloc(opaque);
-                    self.file_source_map.opaque_srcs.insert(src, idx);
-                    idx.into()
-                }
+                _ => continue,
             };
             self.file_source_map.items.push(idx);
             self.region_tree.handle_node(member.syntax());
@@ -337,12 +327,7 @@ impl LowerFileCtx<'_> {
                     self.lower_library_include(library_include).into()
                 }
                 EmptyMember(_) => continue,
-                _ => {
-                    let (opaque, src) = lower_opaque_member(member, OpaqueKind::FileItem);
-                    let idx = self.file.opaque_items.alloc(opaque);
-                    self.file_source_map.opaque_srcs.insert(src, idx);
-                    idx.into()
-                }
+                _ => continue,
             };
             self.file_source_map.items.push(idx);
             self.region_tree.handle_node(member.syntax());

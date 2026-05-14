@@ -26,7 +26,6 @@ use hir::{
             port::Ports,
             specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
         },
-        opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
         proc::{Proc, ProcId},
         stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
         subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
@@ -214,9 +213,6 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::TypedefId(typedef_id) => {
                 build_typedef(&mut collector, typedef_id, file, src_map)
             }
-            FileItem::OpaqueItemId(opaque_id) => {
-                build_opaque(&mut collector, opaque_id, file, src_map)
-            }
             FileItem::SubroutineId(subroutine_id) => {
                 build_subroutine(&mut collector, subroutine_id, file, src_map)
             }
@@ -315,9 +311,6 @@ fn collect_module_items(
             ModuleItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, module, src_map)
             }
-            ModuleItem::OpaqueItemId(opaque_id) => {
-                build_opaque(collector, opaque_id, module, src_map)
-            }
             ModuleItem::SubroutineId(subroutine_id) => {
                 build_subroutine(collector, subroutine_id, module, src_map)
             }
@@ -355,9 +348,6 @@ fn collect_block_items(
             BlockItem::StmtId(stmt_id) => build_stmt(db, collector, stmt_id, block, src_map),
             BlockItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, block, src_map)
-            }
-            BlockItem::OpaqueItemId(opaque_id) => {
-                build_opaque(collector, opaque_id, block, src_map)
             }
             BlockItem::StructId(_) => {
                 // TODO: implement document symbols for these items
@@ -429,8 +419,7 @@ fn build_stmt<Arn, SrcMap>(
         | StmtKind::Jump(_)
         | StmtKind::EventTrigger(_)
         | StmtKind::ProcAssign(_)
-        | StmtKind::Disable(_)
-        | StmtKind::Opaque => {}
+        | StmtKind::Disable(_) => {}
 
         StmtKind::Block(_) => unreachable!(),
     }
@@ -473,7 +462,6 @@ fn build_generate_region<Arn, SrcMap>(
         + GetRef<InstantiationId, Output = Instantiation>
         + GetRef<LocalBlockId, Output = BlockInfo>
         + GetRef<LocalSubroutineId, Output = Subroutine>
-        + GetRef<OpaqueItemId, Output = OpaqueItem>
         + GetRef<ProcId, Output = Proc>
         + GetRef<StmtId, Output = Stmt>
         + GetRef<TypedefId, Output = Typedef>,
@@ -483,7 +471,6 @@ fn build_generate_region<Arn, SrcMap>(
         + Get<InstanceId, Output = hir::hir_def::module::instantiation::InstanceSrc>
         + Get<LocalBlockId, Output = BlockSrc>
         + Get<LocalSubroutineId, Output = SubroutineSrc>
-        + Get<OpaqueItemId, Output = OpaqueItemSrc>
         + Get<StmtId, Output = StmtSrc>
         + Get<TypedefId, Output = TypedefSrc>,
 {
@@ -507,9 +494,6 @@ fn build_generate_region<Arn, SrcMap>(
                     collector.push_symbol(&hir.name, src);
                     collector.pop();
                 }
-            }
-            GenerateItem::OpaqueItemId(opaque_id) => {
-                build_opaque(collector, opaque_id, arena, src_map);
             }
             GenerateItem::ProcId(proc_id) => {
                 let proc = arena.get(proc_id);
@@ -550,9 +534,6 @@ fn build_generate_block(
             GenerateBlockItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, generate_block, src_map);
             }
-            GenerateBlockItem::OpaqueItemId(opaque_id) => {
-                build_opaque(collector, opaque_id, generate_block, src_map);
-            }
             GenerateBlockItem::SubroutineId(subroutine_id) => {
                 build_subroutine(collector, subroutine_id, generate_block, src_map);
             }
@@ -585,12 +566,10 @@ fn build_specify_block<Arn, SrcMap>(
 ) where
     Arn: GetRef<SpecifyBlockId, Output = SpecifyBlock>
         + GetRef<DeclarationId, Output = Declaration>
-        + GetRef<DeclId, Output = Declarator>
-        + GetRef<OpaqueItemId, Output = OpaqueItem>,
+        + GetRef<DeclId, Output = Declarator>,
     SrcMap: Get<SpecifyBlockId, Output = SpecifyBlockSrc>
         + Get<DeclarationId, Output = DeclarationSrc>
-        + Get<DeclId, Output = DeclaratorSrc>
-        + Get<OpaqueItemId, Output = OpaqueItemSrc>,
+        + Get<DeclId, Output = DeclaratorSrc>,
 {
     let hir = arena.get(specify_block_id);
     let src = src_map.get(specify_block_id);
@@ -602,9 +581,6 @@ fn build_specify_block<Arn, SrcMap>(
                 build_declaration(collector, declaration_id, arena, src_map);
             }
             SpecifyBlockItem::SpecifyItemId(_) => {}
-            SpecifyBlockItem::OpaqueItemId(opaque_id) => {
-                build_opaque(collector, opaque_id, arena, src_map);
-            }
         }
     }
     collector.pop();
@@ -720,22 +696,5 @@ fn build_library_decl<Arn, SrcMap>(
     let hir = arena.get(library_id);
     let src = src_map.get(library_id);
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Library);
-    collector.pop();
-}
-
-#[inline]
-fn build_opaque<Arn, SrcMap>(
-    collector: &mut SymbolCollecter,
-    opaque_id: OpaqueItemId,
-    arena: &Arn,
-    src_map: &SrcMap,
-) where
-    Arn: GetRef<OpaqueItemId, Output = OpaqueItem>,
-    SrcMap: Get<OpaqueItemId, Output = OpaqueItemSrc>,
-{
-    let hir = arena.get(opaque_id);
-    let src = src_map.get(opaque_id);
-    let kind = SymbolKind::from_opaque_kind(hir.kind, src.kind());
-    collector.push_symbol_with_kind(&hir.name, src, kind);
     collector.pop();
 }

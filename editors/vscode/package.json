@@ -218,25 +218,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "vizsla.verilog": {
-          "type": "object",
-          "default": {
-            "modelUnsupportedConstructs": "opaque"
-          },
-          "markdownDescription": "Controls Verilog source modeling behavior for constructs whose full semantics are not implemented by Vizsla.",
-          "properties": {
-            "modelUnsupportedConstructs": {
-              "type": "string",
-              "enum": [
-                "opaque",
-                "diagnostic"
-              ],
-              "default": "opaque",
-              "markdownDescription": "Controls how recognized but partially modeled Verilog constructs are handled. `opaque` keeps them available for LSP navigation surfaces; `diagnostic` is reserved for future model-limit warnings."
-            }
-          },
-          "additionalProperties": false
         }
       }
     },

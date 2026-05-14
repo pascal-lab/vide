@@ -49,7 +49,6 @@ pub enum FoldKind {
     Instance,
     Stmt,
     Block,
-    Opaque,
 }
 
 #[derive(Debug)]
@@ -135,7 +134,6 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId, _config: &FoldingConf
     folds.collect_folds(&src_map.library_include_srcs, FoldKind::Library, line_index);
     folds.collect_folds(&src_map.declaration_srcs, FoldKind::Declaration, line_index);
     folds.collect_folds(&src_map.decl_srcs, FoldKind::Decl, line_index);
-    folds.collect_folds(&src_map.opaque_srcs, FoldKind::Opaque, line_index);
     collect_stmt(db, &mut folds, &file.stmts, &src_map.stmt_srcs, line_index);
 
     folds
@@ -290,8 +288,6 @@ fn collect_module(
     folds.collect_folds(&src_map.specify_item_srcs, FoldKind::Specify, line_index);
     folds.collect_folds(&src_map.declaration_srcs, FoldKind::Declaration, line_index);
     folds.collect_folds(&src_map.decl_srcs, FoldKind::Decl, line_index);
-    folds.collect_folds(&src_map.opaque_srcs, FoldKind::Opaque, line_index);
-
     folds.extend(src_map.instance_srcs.iter().filter_map(|(instance_id, src)| {
         let instantiation_id = module.get(instance_id).parent;
 
@@ -322,7 +318,6 @@ fn collect_block(
     folds.collect_fold(block_src, FoldKind::Block, line_index);
     folds.collect_folds(&src_map.declaration_srcs, FoldKind::Declaration, line_index);
     folds.collect_folds(&src_map.decl_srcs, FoldKind::Decl, line_index);
-    folds.collect_folds(&src_map.opaque_srcs, FoldKind::Opaque, line_index);
     collect_stmt(db, folds, &block.stmts, &src_map.stmt_srcs, line_index)
 }
 

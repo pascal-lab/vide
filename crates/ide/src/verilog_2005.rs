@@ -214,14 +214,6 @@ fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
             "Verilog-2005 fixture should parse cleanly for {path:?}: {parse_diagnostics:?}"
         );
 
-        let diagnostics = analysis
-            .model_limit_diagnostics(file_id)
-            .unwrap_or_else(|_| panic!("model-limit diagnostics cancelled for {path:?}"));
-        assert!(
-            diagnostics.is_empty(),
-            "Verilog-2005 fixture should not produce model-limited diagnostics for {path:?}: {diagnostics:?}"
-        );
-
         let symbols = analysis
             .document_symbol(file_id)
             .unwrap_or_else(|_| panic!("document symbols cancelled for {path:?}"));
@@ -412,7 +404,7 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_genvar_declaration_is_not_model_limited() {
+fn verilog_2005_genvar_declaration_lowers_without_fallback() {
     let text = r#"
 module genvar_ctx;
   generate
@@ -424,27 +416,12 @@ module genvar_ctx;
 endmodule
 "#;
     let (host, file_id) = setup(text);
-    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("GENVAR_DECLARATION")),
-        "genvar declarations should lower as real HIR declarations, not opaque diagnostics: {diagnostics:?}"
-    );
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("GENERATE_REGION")),
-        "generate/endgenerate regions should lower as real HIR wrappers, not opaque diagnostics: {diagnostics:?}"
-    );
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("LOOP_GENERATE")),
-        "loop generate constructs should lower as real HIR scopes, not opaque diagnostics: {diagnostics:?}"
-    );
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("GENERATE_BLOCK")),
-        "generate blocks should lower as real HIR scopes, not opaque diagnostics: {diagnostics:?}"
-    );
+    let diagnostics = host.make_analysis().parse_diagnostics(file_id).unwrap();
+    assert!(diagnostics.is_empty(), "fixture should parse cleanly: {diagnostics:?}");
 }
 
 #[test]
-fn verilog_2005_conditional_generate_is_not_model_limited() {
+fn verilog_2005_conditional_generate_lowers_without_fallback() {
     let text = r#"
 module conditional_generate_ctx;
   parameter /*marker:param_def*/P = 1;
@@ -478,14 +455,6 @@ endmodule
 "#;
     let (host, file_id, clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
-
-    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
-    for syntax_kind in ["IF_GENERATE", "CASE_GENERATE", "GENERATE_BLOCK"] {
-        assert!(
-            diagnostics.iter().all(|diag| !diag.message.contains(syntax_kind)),
-            "{syntax_kind} should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-        );
-    }
 
     for (marker, expected) in [
         ("if_scope_ref", "g_if"),
@@ -521,7 +490,7 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_direct_generate_is_not_model_limited() {
+fn verilog_2005_direct_generate_lowers_without_fallback() {
     let text = r#"
 module direct_generate_ctx;
   parameter P = 1;
@@ -550,14 +519,6 @@ endmodule
     let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
 
-    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
-    for syntax_kind in ["IF_GENERATE", "CASE_GENERATE", "LOOP_GENERATE", "GENERATE_BLOCK"] {
-        assert!(
-            diagnostics.iter().all(|diag| !diag.message.contains(syntax_kind)),
-            "{syntax_kind} should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-        );
-    }
-
     for (marker, expected) in [
         ("genvar_ref", "i"),
         ("if_scope_ref", "dg_if"),
@@ -579,7 +540,7 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_generate_region_direct_items_are_not_model_limited() {
+fn verilog_2005_generate_region_direct_items_lower_without_fallback() {
     let text = r#"
 module child(input wire a, output wire y);
   assign y = a;
@@ -608,12 +569,6 @@ endmodule
         "fixture should be valid Verilog-2005: {parse_diagnostics:?}"
     );
 
-    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.is_empty(),
-        "direct items inside generate/endgenerate should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-    );
-
     for (marker, expected) in
         [("wire_ref", "direct_wire"), ("param_ref", "P_DLY"), ("inst_ref", "u_direct")]
     {
@@ -639,7 +594,7 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_generate_block_parameter_is_not_model_limited() {
+fn verilog_2005_generate_block_parameter_lowers_without_fallback() {
     let text = r#"
 module generate_block_parameter_ctx(output wire y);
   generate
@@ -662,12 +617,6 @@ endmodule
         "fixture should be valid Verilog-2005: {parse_diagnostics:?}"
     );
 
-    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("PARAMETER_DECLARATION_STATEMENT")),
-        "localparam inside generate block should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-    );
-
     let nav = analysis
         .goto_definition(position(file_id, &markers, "param_ref"))
         .unwrap()
@@ -679,7 +628,7 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_library_map_declaration_is_not_model_limited() {
+fn verilog_2005_library_map_declaration_lowers_without_fallback() {
     let text = r#"
 library /*marker:library_def*/work "*.v";
 include "vendor.map";
@@ -691,12 +640,6 @@ include "vendor.map";
     assert!(
         parse_diagnostics.is_empty(),
         "library map fixture should parse cleanly: {parse_diagnostics:?}"
-    );
-
-    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.is_empty(),
-        "library map declarations should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
     );
 
     let symbols = analysis.document_symbol(file_id).unwrap();
@@ -719,7 +662,7 @@ include "vendor.map";
         .expect("library declaration expected");
     assert!(
         declaration.info.iter().any(|nav| nav.name.as_deref() == Some("work")),
-        "library declaration should navigate without opaque fallback: {declaration:?}"
+        "library declaration should navigate without fallback: {declaration:?}"
     );
 
     let hover = analysis
@@ -772,7 +715,7 @@ include "vendor.map";
 }
 
 #[test]
-fn verilog_2005_block_parameter_declarations_are_not_model_limited() {
+fn verilog_2005_block_parameter_declarations_lower_without_fallback() {
     let text = r#"
 module block_param_ctx;
   initial begin : blk
@@ -794,12 +737,6 @@ endmodule
 "#;
     let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
-
-    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("PARAMETER_DECLARATION_STATEMENT")),
-        "block/subroutine parameter declarations should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-    );
 
     for (marker, expected) in
         [("block_width_ref", "WIDTH"), ("block_depth_ref", "DEPTH"), ("func_base_ref", "BASE")]
@@ -866,7 +803,7 @@ endmodule
 }
 
 #[test]
-fn verilog_2005_specparam_declaration_is_not_model_limited() {
+fn verilog_2005_specparam_declaration_lowers_without_fallback() {
     let text = r#"
 module specparam_ctx(input wire a, output wire y);
   specify
@@ -876,15 +813,12 @@ module specparam_ctx(input wire a, output wire y);
 endmodule
 "#;
     let (host, file_id) = setup(text);
-    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("SPECPARAM_DECLARATION")),
-        "specparam declarations should lower as real HIR declarations, not opaque diagnostics: {diagnostics:?}"
-    );
+    let diagnostics = host.make_analysis().parse_diagnostics(file_id).unwrap();
+    assert!(diagnostics.is_empty(), "fixture should parse cleanly: {diagnostics:?}");
 }
 
 #[test]
-fn verilog_2005_specify_items_are_not_model_limited() {
+fn verilog_2005_specify_items_lower_without_fallback() {
     let text = r#"
 module specify_ctx(input wire clk, input wire a, output wire y);
   specify
@@ -898,24 +832,12 @@ module specify_ctx(input wire clk, input wire a, output wire y);
 endmodule
 "#;
     let (host, file_id) = setup(text);
-    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
-    for syntax_kind in [
-        "SPECIFY_BLOCK",
-        "PATH_DECLARATION",
-        "CONDITIONAL_PATH_DECLARATION",
-        "IF_NONE_PATH_DECLARATION",
-        "PULSE_STYLE_DECLARATION",
-        "SYSTEM_TIMING_CHECK",
-    ] {
-        assert!(
-            diagnostics.iter().all(|diag| !diag.message.contains(syntax_kind)),
-            "{syntax_kind} should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-        );
-    }
+    let diagnostics = host.make_analysis().parse_diagnostics(file_id).unwrap();
+    assert!(diagnostics.is_empty(), "fixture should parse cleanly: {diagnostics:?}");
 }
 
 #[test]
-fn verilog_2005_defparam_is_not_model_limited() {
+fn verilog_2005_defparam_lowers_without_fallback() {
     let text = r#"
 module child #(parameter WIDTH = 1) ();
 endmodule
@@ -926,15 +848,12 @@ module defparam_ctx;
 endmodule
 "#;
     let (host, file_id) = setup(text);
-    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("DEF_PARAM")),
-        "defparam should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-    );
+    let diagnostics = host.make_analysis().parse_diagnostics(file_id).unwrap();
+    assert!(diagnostics.is_empty(), "fixture should parse cleanly: {diagnostics:?}");
 }
 
 #[test]
-fn verilog_2005_config_declaration_is_not_model_limited() {
+fn verilog_2005_config_declaration_lowers_without_fallback() {
     let text = r#"
 module top;
 endmodule
@@ -944,15 +863,12 @@ config cfg_top;
 endconfig
 "#;
     let (host, file_id) = setup(text);
-    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("CONFIG_DECLARATION")),
-        "config declarations should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-    );
+    let diagnostics = host.make_analysis().parse_diagnostics(file_id).unwrap();
+    assert!(diagnostics.is_empty(), "fixture should parse cleanly: {diagnostics:?}");
 }
 
 #[test]
-fn verilog_2005_udp_declaration_is_not_model_limited() {
+fn verilog_2005_udp_declaration_lowers_without_fallback() {
     let text = r#"
 primitive udp_and(out, in);
   output out;
@@ -968,11 +884,8 @@ module top(input wire clk);
 endmodule
 "#;
     let (host, file_id) = setup(text);
-    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
-    assert!(
-        diagnostics.iter().all(|diag| !diag.message.contains("UDP_DECLARATION")),
-        "UDP declarations should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
-    );
+    let diagnostics = host.make_analysis().parse_diagnostics(file_id).unwrap();
+    assert!(diagnostics.is_empty(), "fixture should parse cleanly: {diagnostics:?}");
 }
 
 #[test]
@@ -1095,8 +1008,7 @@ endmodule
                 | StmtKind::Jump(_)
                 | StmtKind::EventTrigger(_)
                 | StmtKind::ProcAssign(_)
-                | StmtKind::Disable(_)
-                | StmtKind::Opaque => false,
+                | StmtKind::Disable(_) => false,
             }
         }
 

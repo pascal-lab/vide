@@ -41,10 +41,6 @@ use crate::{
             timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
         },
         lower_ident_opt,
-        opaque::{
-            OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind,
-            lower_opaque_member as lower_opaque_member_data,
-        },
         proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
         stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
         subroutine::{
@@ -285,7 +281,6 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
-        opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
@@ -317,7 +312,6 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
-        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
@@ -348,7 +342,6 @@ define_enum_deriving_from! {
         InstantiationId(InstantiationId),
         ProcId(ProcId),
         TypedefId(TypedefId),
-        OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -364,7 +357,6 @@ define_enum_deriving_from! {
         InstantiationId(InstantiationId),
         ProcId(ProcId),
         TypedefId(TypedefId),
-        OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -511,13 +503,6 @@ impl LowerGenerateBlockCtx<'_> {
         Some(subroutine_id)
     }
 
-    fn lower_opaque_member(&mut self, member: ast::Member) -> OpaqueItemId {
-        let (opaque, src) = lower_opaque_member_data(member, OpaqueKind::GenerateItem);
-        let idx = self.generate_block.opaque_items.alloc(opaque);
-        self.generate_block_source_map.opaque_srcs.insert(src, idx);
-        idx
-    }
-
     fn intern_generate_block(&self, src: GenerateBlockSrc) -> GenerateBlockId {
         self.db.intern_generate_block(GenerateBlockLoc {
             cont_id: self.generate_block_id.into(),
@@ -635,7 +620,7 @@ impl LowerGenerateBlockCtx<'_> {
             }
             DefParam(defparam) => self.defparam_ctx().lower_defparam(defparam).into(),
             EmptyMember(_) => return None,
-            item => self.lower_opaque_member(item).into(),
+            _ => return None,
         };
 
         Some(item)
@@ -837,7 +822,7 @@ impl LowerModuleCtx<'_> {
             DefParam(defparam) => {
                 items.push(self.defparam_ctx().lower_defparam(defparam).into());
             }
-            item => items.push(self.lower_opaque_member(item).into()),
+            _ => {}
         }
     }
 

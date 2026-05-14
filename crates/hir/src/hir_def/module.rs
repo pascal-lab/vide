@@ -42,10 +42,6 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
-    opaque::{
-        OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind,
-        lower_opaque_member as lower_opaque_member_data,
-    },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -91,7 +87,6 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
-        opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
@@ -132,7 +127,6 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
-        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
 
         instantiation_srcs: [Instantiation | InstantiationSrc],
@@ -193,7 +187,6 @@ impl ModuleSourceMap {
             ModuleItem::ProcId(idx) => self.get(*idx).0,
             ModuleItem::PortDeclId(idx) => self.get(*idx).ptr(),
             ModuleItem::TypedefId(idx) => self.get(*idx).ptr(),
-            ModuleItem::OpaqueItemId(idx) => self.get(*idx).node,
             ModuleItem::SubroutineId(idx) => self.get(*idx).node,
         }
     }
@@ -213,7 +206,6 @@ define_enum_deriving_from! {
         ProcId(ProcId),
         PortDeclId(PortDeclId),
         TypedefId(TypedefId),
-        OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
 }
@@ -342,21 +334,6 @@ impl LowerModuleCtx<'_> {
         Some(subroutine_id)
     }
 
-    fn lower_opaque_member(&mut self, member: ast::Member) -> OpaqueItemId {
-        self.lower_opaque_member_with_kind(member, OpaqueKind::ModuleItem)
-    }
-
-    pub(super) fn lower_opaque_member_with_kind(
-        &mut self,
-        member: ast::Member,
-        kind: OpaqueKind,
-    ) -> OpaqueItemId {
-        let (opaque, src) = lower_opaque_member_data(member, kind);
-        let idx = self.module.opaque_items.alloc(opaque);
-        self.module_source_map.opaque_srcs.insert(src, idx);
-        idx
-    }
-
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
         if let Some(param_ports) = header.parameters() {
@@ -394,9 +371,7 @@ impl LowerModuleCtx<'_> {
                     self.declaration_ctx().lower_data_decl(data_decl).into()
                 }
                 NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
-                local_decl @ LocalVariableDeclaration(_) => {
-                    self.lower_opaque_member(local_decl).into()
-                }
+                LocalVariableDeclaration(_) => continue,
                 ParameterDeclarationStatement(param_decl) => {
                     self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into()
                 }
@@ -404,10 +379,10 @@ impl LowerModuleCtx<'_> {
                 GenvarDeclaration(genvar_decl) => {
                     self.declaration_ctx().lower_genvar_decl(genvar_decl).into()
                 }
-                net_type_decl @ NetTypeDeclaration(_)
-                | net_type_decl @ ForwardTypedefDeclaration(_)
-                | net_type_decl @ UserDefinedNetDeclaration(_) => {
-                    self.lower_opaque_member(net_type_decl).into()
+                NetTypeDeclaration(_)
+                | ForwardTypedefDeclaration(_)
+                | UserDefinedNetDeclaration(_) => {
+                    continue;
                 }
 
                 // Instantiations
@@ -417,9 +392,7 @@ impl LowerModuleCtx<'_> {
                 PrimitiveInstantiation(instantiation) => {
                     self.instantiation_ctx().lower_primitive_instantiation(instantiation).into()
                 }
-                checker_inst @ CheckerInstantiation(_) => {
-                    self.lower_opaque_member(checker_inst).into()
-                }
+                CheckerInstantiation(_) => continue,
 
                 // Subroutines
                 FunctionDeclaration(fn_decl) => match self.lower_subroutine_decl(fn_decl) {
@@ -435,15 +408,13 @@ impl LowerModuleCtx<'_> {
                 ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => unreachable!(),
 
                 // Imports
-                import @ PackageImportDeclaration(_) => self.lower_opaque_member(import).into(),
+                PackageImportDeclaration(_) => continue,
 
                 // Aggregates
-                class_decl @ ClassDeclaration(_) => self.lower_opaque_member(class_decl).into(),
+                ClassDeclaration(_) => continue,
 
                 // Nested modules/interfaces/programs
-                nested_module @ ModuleDeclaration(_) => {
-                    self.lower_opaque_member(nested_module).into()
-                }
+                ModuleDeclaration(_) => continue,
 
                 // Generate constructs
                 GenerateRegion(region) => self.lower_generate_region(region).into(),
@@ -453,26 +424,24 @@ impl LowerModuleCtx<'_> {
                 | gen_item @ LoopGenerate(_) => self.lower_direct_generate_region(gen_item).into(),
 
                 // Timing and clocking
-                timing @ TimeUnitsDeclaration(_)
-                | timing @ ClockingDeclaration(_)
-                | timing @ DefaultClockingReference(_)
-                | timing @ ClockingItem(_) => self.lower_opaque_member(timing).into(),
+                TimeUnitsDeclaration(_)
+                | ClockingDeclaration(_)
+                | DefaultClockingReference(_)
+                | ClockingItem(_) => continue,
 
                 // Assertions and properties
-                assertion @ PropertyDeclaration(_)
-                | assertion @ SequenceDeclaration(_)
-                | assertion @ ImmediateAssertionMember(_)
-                | assertion @ ConcurrentAssertionMember(_) => {
-                    self.lower_opaque_member(assertion).into()
-                }
+                PropertyDeclaration(_)
+                | SequenceDeclaration(_)
+                | ImmediateAssertionMember(_)
+                | ConcurrentAssertionMember(_) => continue,
 
                 // Coverage
-                coverage @ CovergroupDeclaration(_)
-                | coverage @ Coverpoint(_)
-                | coverage @ CoverCross(_)
-                | coverage @ CoverageBins(_)
-                | coverage @ BinsSelection(_)
-                | coverage @ CoverageOption(_) => self.lower_opaque_member(coverage).into(),
+                CovergroupDeclaration(_)
+                | Coverpoint(_)
+                | CoverCross(_)
+                | CoverageBins(_)
+                | BinsSelection(_)
+                | CoverageOption(_) => continue,
 
                 // Specify blocks
                 SpecifyBlock(block) => self.lower_specify_block(block).into(),
@@ -483,82 +452,67 @@ impl LowerModuleCtx<'_> {
                 IfNonePathDeclaration(path) => self.lower_ifnone_specify_path_item(path).into(),
                 SystemTimingCheck(timing) => self.lower_system_timing_check_item(timing).into(),
                 PulseStyleDeclaration(pulse) => self.lower_pulse_style_item(pulse).into(),
-                specify @ DefaultSkewItem(_) => self.lower_opaque_member(specify).into(),
+                DefaultSkewItem(_) => continue,
                 SpecparamDeclaration(specparam_decl) => {
                     self.declaration_ctx().lower_specparam_decl(specparam_decl).into()
                 }
 
                 // DPI and external
-                external @ DPIImport(_)
-                | external @ DPIExport(_)
-                | external @ ExternInterfaceMethod(_)
-                | external @ ExternModuleDecl(_)
-                | external @ ExternUdpDecl(_) => self.lower_opaque_member(external).into(),
+                DPIImport(_)
+                | DPIExport(_)
+                | ExternInterfaceMethod(_)
+                | ExternModuleDecl(_)
+                | ExternUdpDecl(_) => continue,
 
                 // UDP
-                udp_decl @ UdpDeclaration(_) => self.lower_opaque_member(udp_decl).into(),
+                UdpDeclaration(_) => continue,
 
                 // Defparam
                 DefParam(defparam) => self.defparam_ctx().lower_defparam(defparam).into(),
 
                 // Net alias
-                net_alias @ NetAlias(_) => self.lower_opaque_member(net_alias).into(),
+                NetAlias(_) => continue,
 
                 // Modport
-                modport @ ModportDeclaration(_)
-                | modport @ ModportClockingPort(_)
-                | modport @ ModportSimplePortList(_)
-                | modport @ ModportSubroutinePortList(_) => {
-                    self.lower_opaque_member(modport).into()
-                }
+                ModportDeclaration(_)
+                | ModportClockingPort(_)
+                | ModportSimplePortList(_)
+                | ModportSubroutinePortList(_) => continue,
 
                 // Class members (shouldn't appear in module but handle anyway)
-                class_member @ ClassPropertyDeclaration(_)
-                | class_member @ ClassMethodDeclaration(_)
-                | class_member @ ClassMethodPrototype(_) => {
-                    self.lower_opaque_member(class_member).into()
-                }
+                ClassPropertyDeclaration(_)
+                | ClassMethodDeclaration(_)
+                | ClassMethodPrototype(_) => continue,
 
                 // Checker
-                checker @ CheckerDeclaration(_) | checker @ CheckerDataDeclaration(_) => {
-                    self.lower_opaque_member(checker).into()
-                }
+                CheckerDeclaration(_) | CheckerDataDeclaration(_) => continue,
 
                 // Constraints
-                constraint @ ConstraintDeclaration(_) | constraint @ ConstraintPrototype(_) => {
-                    self.lower_opaque_member(constraint).into()
-                }
+                ConstraintDeclaration(_) | ConstraintPrototype(_) => continue,
 
                 // Config
-                config_decl @ ConfigDeclaration(_) => self.lower_opaque_member(config_decl).into(),
+                ConfigDeclaration(_) => continue,
 
                 // Bind
-                bind @ BindDirective(_) => self.lower_opaque_member(bind).into(),
+                BindDirective(_) => continue,
 
                 // Package exports
-                pkg_export @ PackageExportDeclaration(_)
-                | pkg_export @ PackageExportAllDeclaration(_) => {
-                    self.lower_opaque_member(pkg_export).into()
-                }
+                PackageExportDeclaration(_) | PackageExportAllDeclaration(_) => continue,
 
                 // Library
-                library @ LibraryDeclaration(_) | library @ LibraryIncludeStatement(_) => {
-                    self.lower_opaque_member(library).into()
-                }
+                LibraryDeclaration(_) | LibraryIncludeStatement(_) => continue,
 
                 // Let declaration
-                let_decl @ LetDeclaration(_) => self.lower_opaque_member(let_decl).into(),
+                LetDeclaration(_) => continue,
 
                 // Default disable
-                default_disable @ DefaultDisableDeclaration(_) => {
-                    self.lower_opaque_member(default_disable).into()
-                }
+                DefaultDisableDeclaration(_) => continue,
 
                 // Elaboration system task
-                elab_task @ ElabSystemTask(_) => self.lower_opaque_member(elab_task).into(),
+                ElabSystemTask(_) => continue,
 
                 // Anonymous program
-                anon_program @ AnonymousProgram(_) => self.lower_opaque_member(anon_program).into(),
+                AnonymousProgram(_) => continue,
 
                 // Empty member - skip
                 EmptyMember(_) => continue,

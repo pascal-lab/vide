@@ -27,7 +27,6 @@ use super::{
         timing_control::{EventExpr, EventExprSrc},
     },
     lower_ident, lower_ident_opt,
-    opaque::{OpaqueItem, OpaqueItemSrc, OpaqueKind, lower_opaque_node},
     stmt::{LowerStmt, Stmt, StmtId, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -55,7 +54,6 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
-        opaque_items: [OpaqueItem],
         exprs: [Expr],
         event_exprs: [EventExpr],
         decls: [Declarator],
@@ -77,7 +75,6 @@ impl Default for Subroutine {
             declarations: Arena::new(),
             typedefs: Arena::new(),
             structs: Arena::new(),
-            opaque_items: Arena::new(),
             exprs: Arena::new(),
             event_exprs: Arena::new(),
             decls: Arena::new(),
@@ -96,7 +93,6 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
-        opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         expr_srcs: [Expr | ExprSrc],
         event_expr_srcs: [EventExpr | EventExprSrc],
         decl_srcs: [Declarator | DeclaratorSrc],
@@ -308,12 +304,6 @@ impl LowerSubroutineBodyCtx<'_> {
                         self.declaration_ctx().lower_port_decl_as_data_decl(it.clone())
                     {
                         self.subroutine_source_map.items.push(BlockItem::DeclarationId(decl_id));
-                    } else {
-                        let (opaque, src) =
-                            lower_opaque_node(it.syntax(), None, OpaqueKind::BlockItem);
-                        let opaque_id = self.subroutine.opaque_items.alloc(opaque);
-                        self.subroutine_source_map.opaque_srcs.insert(src, opaque_id);
-                        self.subroutine_source_map.items.push(BlockItem::OpaqueItemId(opaque_id));
                     }
                 },
                 ast::LocalVariableDeclaration[it] => {
@@ -328,13 +318,7 @@ impl LowerSubroutineBodyCtx<'_> {
                     let typedef_id = self.lower_typedef(it);
                     self.subroutine_source_map.items.push(BlockItem::TypedefId(typedef_id));
                 },
-                _ => {
-                    let (opaque, src) =
-                        lower_opaque_node(item.syntax(), None, OpaqueKind::BlockItem);
-                    let opaque_id = self.subroutine.opaque_items.alloc(opaque);
-                    self.subroutine_source_map.opaque_srcs.insert(src, opaque_id);
-                    self.subroutine_source_map.items.push(BlockItem::OpaqueItemId(opaque_id));
-                },
+                _ => {},
             }
         }
 

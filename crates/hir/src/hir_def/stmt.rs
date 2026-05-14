@@ -74,7 +74,6 @@ pub enum StmtKind {
 
     Wait(WaitKind, StmtId),
     Disable(DisableKind),
-    Opaque,
 }
 
 define_src_with_name!(StmtSrc(ast::Statement));
@@ -234,8 +233,7 @@ impl LowerStmtCtx<'_> {
 
             EmptyStatement(_) => StmtKind::Empty,
 
-            // SystemVerilog-only statement forms remain model-limited. Keep these explicit so
-            // new or accidentally uncovered statement variants cannot silently degrade to opaque.
+            // SystemVerilog-only statement forms are intentionally skipped by the Verilog model.
             ConcurrentAssertionStatement(_)
             | CheckerInstanceStatement(_)
             | DisableForkStatement(_)
@@ -245,7 +243,7 @@ impl LowerStmtCtx<'_> {
             | RandSequenceStatement(_)
             | VoidCastedCallStatement(_)
             | WaitForkStatement(_)
-            | WaitOrderStatement(_) => StmtKind::Opaque,
+            | WaitOrderStatement(_) => StmtKind::Empty,
         };
 
         Stmt { label, kind }

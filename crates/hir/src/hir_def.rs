@@ -5,7 +5,6 @@ pub mod expr;
 pub mod file;
 pub mod literal;
 pub mod module;
-pub mod opaque;
 pub mod proc;
 pub mod stmt;
 pub mod subroutine;

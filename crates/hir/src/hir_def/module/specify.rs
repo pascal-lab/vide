@@ -11,7 +11,6 @@ use crate::{
         declaration::{DeclarationId, LowerDeclaration},
         expr::{ExprId, LowerExpr},
         lower_ident_opt,
-        opaque::{OpaqueItemId, OpaqueKind},
     },
     source_map::IsNamedSrc,
 };
@@ -39,7 +38,6 @@ define_enum_deriving_from! {
     pub enum SpecifyBlockItem {
         DeclarationId(DeclarationId),
         SpecifyItemId(SpecifyItemId),
-        OpaqueItemId(OpaqueItemId),
     }
 }
 
@@ -112,9 +110,7 @@ impl LowerModuleCtx<'_> {
                     SystemTimingCheck(timing) => {
                         Some(self.lower_system_timing_check_item(timing).into())
                     }
-                    item => Some(
-                        self.lower_opaque_member_with_kind(item, OpaqueKind::SpecifyItem).into(),
-                    ),
+                    _ => None,
                 }
             })
             .collect();

@@ -127,8 +127,6 @@ pub(crate) fn document_highlight(
 }
 
 const SLANG_DIAGNOSTIC_SOURCE: &str = "slang";
-const VIZSLA_DIAGNOSTIC_SOURCE: &str = "vizsla";
-
 pub(crate) fn diagnostic(
     line_info: &LineInfo,
     diag: ide_diagnostics::Diagnostic,
@@ -143,7 +141,6 @@ pub(crate) fn diagnostic(
             match diag.source {
                 ide_diagnostics::DiagnosticSource::SlangParse
                 | ide_diagnostics::DiagnosticSource::SlangSemantic => SLANG_DIAGNOSTIC_SOURCE,
-                ide_diagnostics::DiagnosticSource::VizslaModel => VIZSLA_DIAGNOSTIC_SOURCE,
             }
             .to_string(),
         ),
@@ -159,7 +156,6 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "source": match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => "parse",
             ide_diagnostics::DiagnosticSource::SlangSemantic => "semantic",
-            ide_diagnostics::DiagnosticSource::VizslaModel => "model",
         },
         "subsystem": diag.subsystem,
         "code": diag.code,
@@ -183,7 +179,6 @@ fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> 
     selectors.push(match diag.source {
         ide_diagnostics::DiagnosticSource::SlangParse => "source:parse".to_owned(),
         ide_diagnostics::DiagnosticSource::SlangSemantic => "source:semantic".to_owned(),
-        ide_diagnostics::DiagnosticSource::VizslaModel => "source:model".to_owned(),
     });
 
     selectors
@@ -222,7 +217,7 @@ fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::Interface => LspSymbolKind::INTERFACE,
         SymbolKind::Library => LspSymbolKind::NAMESPACE,
         SymbolKind::Region => LspSymbolKind::NAMESPACE,
-        SymbolKind::Opaque => LspSymbolKind::NAMESPACE,
+        SymbolKind::Unknown => LspSymbolKind::NAMESPACE,
     }
 }
 

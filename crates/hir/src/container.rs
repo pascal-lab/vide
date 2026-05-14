@@ -22,7 +22,6 @@ use crate::{
             Module, ModuleId, ModuleSourceMap,
             generate::{GenerateBlock, GenerateBlockId, GenerateBlockSourceMap},
         },
-        opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
         stmt::{Stmt, StmtId, StmtSrc},
         subroutine::{Subroutine, SubroutineId, SubroutineSourceMap},
         typedef::{Typedef, TypedefId, TypedefSrc},
@@ -243,7 +242,6 @@ impl_container! {
         Declarator[DeclId | DeclaratorSrc],
         Stmt[StmtId | StmtSrc],
         BlockInfo[LocalBlockId | BlockSrc],
-        OpaqueItem[OpaqueItemId | OpaqueItemSrc],
     }
 }
 

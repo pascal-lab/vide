@@ -6,7 +6,6 @@ use hir::hir_def::{
     block::BlockId,
     expr::declarator::DeclId,
     module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
-    opaque::OpaqueKind,
     stmt::StmtId,
 };
 use syntax::{SyntaxKind, ast, match_ast_kind};
@@ -63,7 +62,7 @@ pub enum SymbolKind {
     Interface,
     Library,
     Region,
-    Opaque,
+    Unknown,
 }
 
 impl SymbolKind {
@@ -89,17 +88,7 @@ impl SymbolKind {
 
             ast::FunctionDeclaration => SymbolKind::Fn,
             ast::SpecifyBlock => SymbolKind::Specify,
-            _ => SymbolKind::Opaque,
-        }
-    }
-
-    pub fn from_opaque_kind(kind: OpaqueKind, syntax_kind: SyntaxKind) -> Self {
-        match kind {
-            OpaqueKind::BlockItem
-            | OpaqueKind::FileItem
-            | OpaqueKind::GenerateItem
-            | OpaqueKind::ModuleItem
-            | OpaqueKind::SpecifyItem => SymbolKind::from_syntax_kind(syntax_kind),
+            _ => SymbolKind::Unknown,
         }
     }
 }

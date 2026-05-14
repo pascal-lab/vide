@@ -78,21 +78,6 @@ pub(crate) struct SlangDiagnosticsUserConfig {
     pub(crate) rules: Vec<DiagnosticRuleUserConfig>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct VerilogUserConfig {
-    #[serde(default)]
-    pub(crate) model_unsupported_constructs: VerilogModelUnsupportedConstructs,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum VerilogModelUnsupportedConstructs {
-    #[default]
-    Opaque,
-    Diagnostic,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DiagnosticRuleUserConfig {
     pub(crate) selector: String,
@@ -200,8 +185,6 @@ config_data! {
 
         semantic_tokens_port_clk_rst_enable: bool = true,
         semantic_tokens_port_input_output_enable: bool = true,
-
-        verilog: VerilogUserConfig = VerilogUserConfig::default(),
 
         diagnostics: DiagnosticsUserConfig = DiagnosticsUserConfig::default(),
 
@@ -337,22 +320,6 @@ fn check_default() {
     let mut errors = vec![];
     let user_cfg = UserConfig::from_json(json, &mut errors);
     assert_eq!(user_cfg, UserConfig::default());
-}
-
-#[test]
-fn parses_verilog_model_unsupported_constructs() {
-    let json = serde_json::json!({
-        "verilog": {
-            "modelUnsupportedConstructs": "diagnostic"
-        }
-    });
-    let mut errors = vec![];
-    let user_cfg = UserConfig::from_json(json, &mut errors);
-    assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(
-        user_cfg.verilog.model_unsupported_constructs,
-        VerilogModelUnsupportedConstructs::Diagnostic
-    );
 }
 
 #[test]

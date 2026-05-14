@@ -1,33 +1,13 @@
 use base_db::source_db::{SourceDb, SourceRootDb};
-use hir::{
-    db::HirDb,
-    file::HirFileId,
-    hir_def::{
-        block::BlockId,
-        module::{
-            ModuleId,
-            generate::{GenerateBlockId, GenerateBlockItem, GenerateItem},
-        },
-        opaque::{OpaqueItemId, OpaqueItemSrc},
-        stmt::{Stmt, StmtKind},
-        subroutine::SubroutineSourceMap,
-    },
-    source_map::{IsNamedSrc, IsSrc},
-};
 use ide_db::root_db::RootDb;
-use la_arena::Arena;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
-use utils::{
-    get::GetRef,
-    text_edit::{TextRange, TextSize},
-};
+use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
     SlangParse,
     SlangSemantic,
-    VizslaModel,
 }
 
 #[derive(Debug, Clone)]
@@ -115,174 +95,6 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
     let source_root_id = db.source_root_id(file_id);
     db.source_root(source_root_id).iter().collect()
-}
-
-pub(crate) fn model_limit_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    let file_id = HirFileId(file_id);
-    let (hir_file, file_src_map) = db.hir_file_with_source_map(file_id);
-    let mut diagnostics = Vec::new();
-
-    collect_opaque_diagnostics(file_id.file_id(), &file_src_map.opaque_srcs, &mut diagnostics);
-
-    for (local_module_id, _) in hir_file.modules.iter() {
-        let module_id = ModuleId::new(file_id, local_module_id);
-        let (module, module_src_map) = db.module_with_source_map(module_id);
-        collect_opaque_diagnostics(
-            file_id.file_id(),
-            &module_src_map.opaque_srcs,
-            &mut diagnostics,
-        );
-
-        for (_, subroutine_source_map) in module.subroutine_source_maps.iter() {
-            collect_subroutine_opaque_diagnostics(file_id, subroutine_source_map, &mut diagnostics);
-        }
-
-        for (_, proc) in module.procs.iter() {
-            let mut block_ids = Vec::new();
-            collect_stmt_block_ids(&module.stmts, proc.stmt, &mut block_ids);
-            for block_id in block_ids {
-                collect_block_opaque_diagnostics(db, block_id, &mut diagnostics);
-            }
-        }
-
-        for item in &module_src_map.items {
-            if let hir::hir_def::module::ModuleItem::GenerateRegionId(generate_region_id) = *item {
-                let generate_region = module.get(generate_region_id);
-                for item in &generate_region.items {
-                    if let GenerateItem::GenerateBlockId(generate_block_id) = *item {
-                        collect_generate_block_opaque_diagnostics(
-                            db,
-                            generate_block_id,
-                            &mut diagnostics,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    diagnostics
-}
-
-fn collect_subroutine_opaque_diagnostics(
-    file_id: HirFileId,
-    source_map: &SubroutineSourceMap,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    collect_opaque_diagnostics(file_id.file_id(), &source_map.opaque_srcs, diagnostics);
-}
-
-fn collect_block_opaque_diagnostics(
-    db: &RootDb,
-    block_id: BlockId,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let (block, source_map) = db.block_with_source_map(block_id);
-    collect_opaque_diagnostics(block_id.file_id(db), &source_map.opaque_srcs, diagnostics);
-
-    for (_, stmt) in block.stmts.iter() {
-        if let StmtKind::Block(info) = &stmt.kind {
-            collect_block_opaque_diagnostics(db, info.block_id, diagnostics);
-        }
-    }
-}
-
-fn collect_generate_block_opaque_diagnostics(
-    db: &RootDb,
-    generate_block_id: GenerateBlockId,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let (generate_block, source_map) = db.generate_block_with_source_map(generate_block_id);
-    collect_opaque_diagnostics(generate_block_id.file_id(db), &source_map.opaque_srcs, diagnostics);
-
-    for (_, subroutine_source_map) in generate_block.subroutine_source_maps.iter() {
-        collect_subroutine_opaque_diagnostics(
-            HirFileId(generate_block_id.file_id(db)),
-            subroutine_source_map,
-            diagnostics,
-        );
-    }
-
-    for (_, proc) in generate_block.procs.iter() {
-        let mut block_ids = Vec::new();
-        collect_stmt_block_ids(&generate_block.stmts, proc.stmt, &mut block_ids);
-        for block_id in block_ids {
-            collect_block_opaque_diagnostics(db, block_id, diagnostics);
-        }
-    }
-
-    for item in &generate_block.items {
-        if let GenerateBlockItem::GenerateBlockId(child_id) = *item {
-            collect_generate_block_opaque_diagnostics(db, child_id, diagnostics);
-        }
-    }
-}
-
-fn collect_stmt_block_ids(
-    stmts: &Arena<Stmt>,
-    stmt_id: hir::hir_def::stmt::StmtId,
-    out: &mut Vec<BlockId>,
-) {
-    let stmt = stmts.get(stmt_id);
-    match &stmt.kind {
-        StmtKind::Block(info) => out.push(info.block_id),
-        StmtKind::TimingCtrl(_, stmt)
-        | StmtKind::Forever(stmt)
-        | StmtKind::DoWhile(stmt, _)
-        | StmtKind::Repeat(_, stmt)
-        | StmtKind::While(_, stmt)
-        | StmtKind::Wait(_, stmt) => collect_stmt_block_ids(stmts, *stmt, out),
-        StmtKind::For { stmt, .. } => collect_stmt_block_ids(stmts, *stmt, out),
-        StmtKind::Cond { then_stmt, else_stmt, .. } => {
-            collect_stmt_block_ids(stmts, *then_stmt, out);
-            if let Some(else_stmt) = else_stmt {
-                collect_stmt_block_ids(stmts, *else_stmt, out);
-            }
-        }
-        StmtKind::Case { items, .. } => {
-            for item in items {
-                match item {
-                    hir::hir_def::stmt::CaseItem::Case { clause, .. }
-                    | hir::hir_def::stmt::CaseItem::Default(clause) => {
-                        collect_stmt_block_ids(stmts, *clause, out);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_opaque_diagnostics(
-    file_id: FileId,
-    source_map: &hir::source_map::SourceMap<OpaqueItemSrc, hir::hir_def::opaque::OpaqueItem>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for (opaque_id, src) in source_map.iter() {
-        diagnostics.push(model_limit_diagnostic(file_id, opaque_id, *src));
-    }
-}
-
-fn model_limit_diagnostic(
-    file_id: FileId,
-    _opaque_id: OpaqueItemId,
-    src: OpaqueItemSrc,
-) -> Diagnostic {
-    Diagnostic {
-        file_id,
-        code: 1,
-        subsystem: 1,
-        name: "VerilogModelUnsupportedConstruct".to_owned(),
-        option_name: Some("verilog.modelUnsupportedConstructs".to_owned()),
-        groups: vec!["verilog".to_owned(), "model-limitation".to_owned()],
-        source: DiagnosticSource::VizslaModel,
-        range: src.name_range().unwrap_or_else(|| src.range()),
-        severity: DiagnosticSeverity::Warning,
-        message: format!(
-            "recognized Verilog-2005 construct; semantic IDE support is limited (kind: {:?})",
-            src.kind
-        ),
-    }
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
