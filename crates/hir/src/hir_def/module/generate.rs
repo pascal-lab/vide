@@ -159,7 +159,7 @@ impl GenerateBlockSrc {
         }
     }
 
-    fn to_member<'a>(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::Member<'a>> {
+    fn to_member<'a>(self, tree: &'a syntax::SyntaxTree) -> Option<ast::Member<'a>> {
         ast::Member::cast(self.node().to_node(tree)?)
     }
 }
