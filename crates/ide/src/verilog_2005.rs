@@ -564,6 +564,83 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_procedural_statements_lower_references() {
+    let text = r#"
+module stmt_ctx;
+  reg /*marker:sig_def*/sig;
+  event ev;
+  integer i;
+
+  initial begin : blk
+    sig = 0;
+    #1 sig = sig;
+    assign sig = sig;
+    deassign sig;
+    force sig = sig;
+    release sig;
+    wait (sig) sig = sig;
+    -> ev;
+    if (sig) sig = sig; else sig = sig;
+    case (sig)
+      1'b0: sig = sig;
+      default: sig = sig;
+    endcase
+    forever sig = sig;
+    repeat (1) sig = sig;
+    while (sig) sig = sig;
+    for (i = 0; i < 1; i = i + 1) sig = sig;
+    begin
+      sig = /*marker:sig_ref*/sig;
+    end
+    disable blk;
+  end
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "sig_ref"))
+        .unwrap()
+        .expect("signal definition expected");
+    assert!(
+        nav.info.iter().any(|nav| nav.name.as_deref() == Some("sig")),
+        "procedural statement references should resolve to the signal declaration: {nav:?}"
+    );
+
+    let refs = analysis
+        .references(
+            position(file_id, &markers, "sig_ref"),
+            ReferencesConfig::new(
+                ScopeVisibility::Private,
+                Some(SearchScope::single_file(file_id)),
+            ),
+        )
+        .unwrap()
+        .expect("signal references expected");
+    let ref_count: usize = refs.iter().flat_map(|refs| refs.refs.values()).map(Vec::len).sum();
+    assert!(
+        ref_count >= 30,
+        "Verilog-2005 procedural statements should expose lowered expression refs: {refs:?}"
+    );
+
+    let rename = analysis
+        .rename(
+            position(file_id, &markers, "sig_ref"),
+            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            "renamed_sig",
+        )
+        .unwrap()
+        .expect("signal rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit fixture file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("reg renamed_sig;"));
+    assert!(renamed.contains("wait (renamed_sig) renamed_sig = renamed_sig;"));
+    assert!(renamed.contains("for (i = 0; i < 1; i = i + 1) renamed_sig = renamed_sig;"));
+}
+
+#[test]
 fn verilog_2005_lsp_snapshots() {
     let (host, file_id, clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();

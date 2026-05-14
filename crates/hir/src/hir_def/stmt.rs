@@ -232,7 +232,19 @@ impl LowerStmtCtx<'_> {
             BlockStatement(stmt) => self.lower_block_stmt(stmt),
 
             EmptyStatement(_) => StmtKind::Empty,
-            _ => StmtKind::Opaque,
+
+            // SystemVerilog-only statement forms remain model-limited. Keep these explicit so
+            // new or accidentally uncovered statement variants cannot silently degrade to opaque.
+            ConcurrentAssertionStatement(_)
+            | CheckerInstanceStatement(_)
+            | DisableForkStatement(_)
+            | ForeachLoopStatement(_)
+            | ImmediateAssertionStatement(_)
+            | RandCaseStatement(_)
+            | RandSequenceStatement(_)
+            | VoidCastedCallStatement(_)
+            | WaitForkStatement(_)
+            | WaitOrderStatement(_) => StmtKind::Opaque,
         };
 
         Stmt { label, kind }
