@@ -430,6 +430,83 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_conditional_generate_is_not_model_limited() {
+    let text = r#"
+module conditional_generate_ctx;
+  parameter /*marker:param_def*/P = 1;
+  wire use_if, use_case, use_single_if, use_single_case;
+
+  generate
+    if (P) begin : /*marker:if_scope_def*/g_if
+      wire /*marker:lane_if_def*/lane_if;
+    end else begin : g_else
+      wire lane_else;
+    end
+
+    case (P)
+      1: begin : /*marker:case_scope_def*/g_case
+        wire /*marker:lane_case_def*/lane_case;
+      end
+      default: begin : g_default
+        wire lane_default;
+      end
+    endcase
+
+    if (P) assign use_single_if = /*marker:single_if_param_ref*/P;
+    case (P)
+      default: assign use_single_case = /*marker:single_case_param_ref*/P;
+    endcase
+  endgenerate
+
+  assign use_if = /*marker:if_scope_ref*/g_if./*marker:lane_if_ref*/lane_if;
+  assign use_case = /*marker:case_scope_ref*/g_case./*marker:lane_case_ref*/lane_case;
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
+    for syntax_kind in ["IF_GENERATE", "CASE_GENERATE", "GENERATE_BLOCK"] {
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains(syntax_kind)),
+            "{syntax_kind} should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+        );
+    }
+
+    for (marker, expected) in [
+        ("if_scope_ref", "g_if"),
+        ("lane_if_ref", "lane_if"),
+        ("case_scope_ref", "g_case"),
+        ("lane_case_ref", "lane_case"),
+        ("single_if_param_ref", "P"),
+        ("single_case_param_ref", "P"),
+    ] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some(expected)),
+            "{marker} should resolve to {expected:?}: {nav:?}"
+        );
+    }
+
+    let rename = analysis
+        .rename(
+            position(file_id, &markers, "case_scope_ref"),
+            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            "renamed_g_case",
+        )
+        .unwrap()
+        .expect("case generate scope rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit fixture file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("begin : renamed_g_case"));
+    assert!(renamed.contains("assign use_case = renamed_g_case.lane_case;"));
+}
+
+#[test]
 fn verilog_2005_specparam_declaration_is_not_model_limited() {
     let text = r#"
 module specparam_ctx(input wire a, output wire y);
