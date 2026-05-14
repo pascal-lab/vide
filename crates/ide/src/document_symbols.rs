@@ -13,7 +13,11 @@ use hir::{
             config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
             udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
         },
-        module::{ModuleId, ModuleItem, ModuleSrc, port::Ports},
+        module::{
+            ModuleId, ModuleItem, ModuleSrc,
+            port::Ports,
+            specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
+        },
         opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
         stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
         subroutine::{LocalSubroutineId, Subroutine, SubroutineSrc},
@@ -288,6 +292,10 @@ fn collect_module_items(
             }
             ModuleItem::ContAssignId(_) => {}
             ModuleItem::DefParamId(_) => {}
+            ModuleItem::SpecifyBlockId(specify_block_id) => {
+                build_specify_block(collector, specify_block_id, module, src_map)
+            }
+            ModuleItem::SpecifyItemId(_) => {}
             ModuleItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, module, src_map)
             }
@@ -430,6 +438,40 @@ fn build_declaration<Arn, SrcMap>(
         arena,
         src_map,
     );
+}
+
+#[inline]
+fn build_specify_block<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    specify_block_id: SpecifyBlockId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<SpecifyBlockId, Output = SpecifyBlock>
+        + GetRef<DeclarationId, Output = Declaration>
+        + GetRef<DeclId, Output = Declarator>
+        + GetRef<OpaqueItemId, Output = OpaqueItem>,
+    SrcMap: Get<SpecifyBlockId, Output = SpecifyBlockSrc>
+        + Get<DeclarationId, Output = DeclarationSrc>
+        + Get<DeclId, Output = DeclaratorSrc>
+        + Get<OpaqueItemId, Output = OpaqueItemSrc>,
+{
+    let hir = arena.get(specify_block_id);
+    let src = src_map.get(specify_block_id);
+    let name = Some(SmolStr::new_static("specify"));
+    collector.push_symbol_with_kind(&name, src, SymbolKind::Specify);
+    for item in hir.items.iter() {
+        match *item {
+            SpecifyBlockItem::DeclarationId(declaration_id) => {
+                build_declaration(collector, declaration_id, arena, src_map);
+            }
+            SpecifyBlockItem::SpecifyItemId(_) => {}
+            SpecifyBlockItem::OpaqueItemId(opaque_id) => {
+                build_opaque(collector, opaque_id, arena, src_map);
+            }
+        }
+    }
+    collector.pop();
 }
 
 #[inline]

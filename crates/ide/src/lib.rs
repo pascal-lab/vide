@@ -59,6 +59,7 @@ pub enum SymbolKind {
     Stmt,
     Fn,
     Generate,
+    Specify,
     Interface,
     Region,
     Opaque,
@@ -85,6 +86,7 @@ impl SymbolKind {
             ast::Statement => SymbolKind::Stmt, // the order of these two is important
 
             ast::FunctionDeclaration => SymbolKind::Fn,
+            ast::SpecifyBlock => SymbolKind::Specify,
             _ => SymbolKind::Opaque,
         }
     }
@@ -101,7 +103,8 @@ impl SymbolKind {
             OpaqueKind::BlockItem | OpaqueKind::FileItem | OpaqueKind::ModuleItem => {
                 SymbolKind::from_syntax_kind(syntax_kind)
             }
-            OpaqueKind::Specify | OpaqueKind::DefParam => SymbolKind::Opaque,
+            OpaqueKind::Specify => SymbolKind::Specify,
+            OpaqueKind::DefParam => SymbolKind::Opaque,
         }
     }
 }

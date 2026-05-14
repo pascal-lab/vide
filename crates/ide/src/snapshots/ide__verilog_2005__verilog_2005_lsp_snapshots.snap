@@ -17,8 +17,8 @@ top Module container=None
   i Genvar container=Some("top")
   g_loop Generate container=Some("top")
   unnamed Generate container=Some("top")
-  T_SETUP Specparam container=Some("top")
-  unnamed Opaque container=Some("top")
+  specify Specify container=Some("top")
+    T_SETUP Specparam container=Some("specify")
   blk Block container=Some("top")
 cfg_top Config container=None
 
@@ -29,7 +29,8 @@ cfg_top Config container=None
 219..226 Instance SemaTokenModifier(0x0)
 253..258 Instance SemaTokenModifier(0x0)
 264..267 Port(Clk) SemaTokenModifier(READ)
-598..605 Instance SemaTokenModifier(0x0)
+520..523 Port(Clk) SemaTokenModifier(READ)
+626..633 Instance SemaTokenModifier(0x0)
 
 # navigation
 module_ref: ["Some(\"child\"):Some(Module)"]
@@ -48,9 +49,9 @@ config_def: ["Some(\"cfg_top\"):Some(Config)"]
 module_ref: defs=1 refs=1
 udp_ref: defs=1 refs=1
 port_ref: defs=1 refs=1
-sig_ref: defs=1 refs=7
+sig_ref: defs=1 refs=8
 genvar_ref: defs=1 refs=4
-specparam_ref: defs=1 refs=1
+specparam_ref: defs=1 refs=2
 task_ref: defs=1 refs=1
 instance_ref: defs=1 refs=1
 generate_ref: defs=1 refs=1
@@ -72,6 +73,7 @@ sig_ref -> renamed_sig
   child u_child(.a(renamed_sig), .y());
   udp_and u_udp(renamed_sig, clk);
   renamed_sig = t_in;
+  (clk => renamed_sig) = T_SETUP;
   do_task(renamed_sig);
   renamed_sig = T_SETUP;
   renamed_sig = u_child.y;
@@ -81,6 +83,7 @@ genvar_ref -> renamed_i
   for (renamed_i = 0; renamed_i < 1; renamed_i = renamed_i + 1) begin : g_loop
 specparam_ref -> renamed_T_SETUP
   specparam renamed_T_SETUP = 1;
+  (clk => sig) = renamed_T_SETUP;
   sig = renamed_T_SETUP;
 task_ref -> renamed_task
   task automatic renamed_task;

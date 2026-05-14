@@ -61,6 +61,7 @@ module top(input wire clk);
 
   specify
     specparam /*marker:specparam_def*/T_SETUP = 1;
+    (clk => sig) = T_SETUP;
   endspecify
 
   initial begin : blk
@@ -427,6 +428,37 @@ endmodule
         diagnostics.iter().all(|diag| !diag.message.contains("SPECPARAM_DECLARATION")),
         "specparam declarations should lower as real HIR declarations, not opaque diagnostics: {diagnostics:?}"
     );
+}
+
+#[test]
+fn verilog_2005_specify_items_are_not_model_limited() {
+    let text = r#"
+module specify_ctx(input wire clk, input wire a, output wire y);
+  specify
+    specparam T_SETUP = 1;
+    (a => y) = T_SETUP;
+    if (clk) (a => y) = (1, 2, 3);
+    ifnone (a => y) = 1;
+    pulsestyle_onevent a;
+    $setup(a, posedge clk, T_SETUP);
+  endspecify
+endmodule
+"#;
+    let (host, file_id) = setup(text);
+    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
+    for syntax_kind in [
+        "SPECIFY_BLOCK",
+        "PATH_DECLARATION",
+        "CONDITIONAL_PATH_DECLARATION",
+        "IF_NONE_PATH_DECLARATION",
+        "PULSE_STYLE_DECLARATION",
+        "SYSTEM_TIMING_CHECK",
+    ] {
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains(syntax_kind)),
+            "{syntax_kind} should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+        );
+    }
 }
 
 #[test]

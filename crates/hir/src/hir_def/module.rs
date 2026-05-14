@@ -11,6 +11,9 @@ use port::{
 };
 use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
+use specify::{
+    SpecifyBlock, SpecifyBlockId, SpecifyBlockSrc, SpecifyItem, SpecifyItemId, SpecifyItemSrc,
+};
 use syntax::{
     ast::{self, AstNode, PortList},
     ptr::SyntaxNodePtr,
@@ -61,6 +64,7 @@ pub mod continuous_assgin;
 pub mod defparam;
 pub mod instantiation;
 pub mod port;
+pub mod specify;
 
 define_container! {
     #[derive(Default, Debug, PartialEq, Eq)]
@@ -76,6 +80,8 @@ define_container! {
 
         cont_assigns: [ContAssign],
         defparams: [DefParam],
+        specify_blocks: [SpecifyBlock],
+        specify_items: [SpecifyItem],
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
@@ -114,6 +120,8 @@ define_container! {
 
         assign_srcs: [ContAssign | ContAssignSrc],
         defparam_srcs: [DefParam | DefParamSrc],
+        specify_block_srcs: [SpecifyBlock | SpecifyBlockSrc],
+        specify_item_srcs: [SpecifyItem | SpecifyItemSrc],
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
@@ -169,6 +177,8 @@ impl ModuleSourceMap {
         match item {
             ModuleItem::ContAssignId(idx) => self.get(*idx).0,
             ModuleItem::DefParamId(idx) => self.get(*idx).0,
+            ModuleItem::SpecifyBlockId(idx) => self.get(*idx).0,
+            ModuleItem::SpecifyItemId(idx) => self.get(*idx).into(),
             ModuleItem::DeclarationId(idx) => self.get(*idx).ptr(),
             ModuleItem::StructId(idx) => self.get(*idx).node,
             ModuleItem::InstantiationId(idx) => self.get(*idx).into(),
@@ -186,6 +196,8 @@ define_enum_deriving_from! {
     pub enum ModuleItem {
         ContAssignId(ContAssignId),
         DefParamId(DefParamId),
+        SpecifyBlockId(SpecifyBlockId),
+        SpecifyItemId(SpecifyItemId),
         DeclarationId(DeclarationId),
         StructId(StructId),
         InstantiationId(InstantiationId),
@@ -455,28 +467,15 @@ impl LowerModuleCtx<'_> {
                 | coverage @ CoverageOption(_) => self.lower_opaque_member(coverage).into(),
 
                 // Specify blocks
-                specify_block @ SpecifyBlock(block) => {
-                    for item in block.items().children() {
-                        if !matches!(item, EmptyMember(_)) {
-                            let child = match item {
-                                SpecparamDeclaration(specparam_decl) => self
-                                    .declaration_ctx()
-                                    .lower_specparam_decl(specparam_decl)
-                                    .into(),
-                                item => self.lower_opaque_member(item).into(),
-                            };
-                            self.module_source_map.items.push(child);
-                            self.region_tree.handle_node(item.syntax());
-                        }
-                    }
-                    self.lower_opaque_member(specify_block).into()
+                SpecifyBlock(block) => self.lower_specify_block(block).into(),
+                PathDeclaration(path) => self.lower_specify_path_item(path).into(),
+                ConditionalPathDeclaration(path) => {
+                    self.lower_conditional_specify_path_item(path).into()
                 }
-                specify @ PathDeclaration(_)
-                | specify @ ConditionalPathDeclaration(_)
-                | specify @ IfNonePathDeclaration(_)
-                | specify @ SystemTimingCheck(_)
-                | specify @ PulseStyleDeclaration(_)
-                | specify @ DefaultSkewItem(_) => self.lower_opaque_member(specify).into(),
+                IfNonePathDeclaration(path) => self.lower_ifnone_specify_path_item(path).into(),
+                SystemTimingCheck(timing) => self.lower_system_timing_check_item(timing).into(),
+                PulseStyleDeclaration(pulse) => self.lower_pulse_style_item(pulse).into(),
+                specify @ DefaultSkewItem(_) => self.lower_opaque_member(specify).into(),
                 SpecparamDeclaration(specparam_decl) => {
                     self.declaration_ctx().lower_specparam_decl(specparam_decl).into()
                 }

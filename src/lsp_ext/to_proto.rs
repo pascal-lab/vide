@@ -218,6 +218,7 @@ fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::Stmt => LspSymbolKind::NAMESPACE,
         SymbolKind::Fn => LspSymbolKind::FUNCTION,
         SymbolKind::Generate => LspSymbolKind::NAMESPACE,
+        SymbolKind::Specify => LspSymbolKind::NAMESPACE,
         SymbolKind::Interface => LspSymbolKind::INTERFACE,
         SymbolKind::Region => LspSymbolKind::NAMESPACE,
         SymbolKind::Opaque => LspSymbolKind::NAMESPACE,

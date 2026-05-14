@@ -499,18 +499,13 @@ fn verilog_diagnostic_mode_reports_model_limited_constructs() {
         ..UserConfig::default()
     };
     let file_text = "\
-primitive udp_and(out, in);
-  output out;
-  input in;
-  table
-    1 : 1;
-  endtable
-endprimitive
-
 module top;
-  specify
-    specparam T_SETUP = 1;
-  endspecify
+  generate
+    genvar i;
+    for (i = 0; i < 1; i = i + 1) begin : g_loop
+      wire lane;
+    end
+  endgenerate
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
