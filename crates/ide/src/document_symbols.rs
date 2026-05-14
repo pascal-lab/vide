@@ -397,6 +397,7 @@ fn build_stmt<Arn, SrcMap>(
         | StmtKind::TimingCtrl(_, stmt_id)
         | StmtKind::Forever(stmt_id)
         | StmtKind::DoWhile(stmt_id, _)
+        | StmtKind::Repeat(_, stmt_id)
         | StmtKind::While(_, stmt_id) => build_stmt(db, collector, *stmt_id, arena, src_map),
         StmtKind::Cond { then_stmt, else_stmt, .. } => {
             build_stmt(db, collector, *then_stmt, arena, src_map);

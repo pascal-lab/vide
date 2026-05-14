@@ -229,6 +229,7 @@ fn collect_stmt_block_ids(
         StmtKind::TimingCtrl(_, stmt)
         | StmtKind::Forever(stmt)
         | StmtKind::DoWhile(stmt, _)
+        | StmtKind::Repeat(_, stmt)
         | StmtKind::While(_, stmt)
         | StmtKind::Wait(_, stmt) => collect_stmt_block_ids(stmts, *stmt, out),
         StmtKind::For { stmt, .. } => collect_stmt_block_ids(stmts, *stmt, out),

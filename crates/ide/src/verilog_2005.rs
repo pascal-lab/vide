@@ -1048,6 +1048,82 @@ endmodule
     let (host, file_id, clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
 
+    {
+        use hir::{
+            db::HirDb,
+            file::HirFileId,
+            hir_def::{module::ModuleId, stmt::StmtKind},
+        };
+        use la_arena::Arena;
+
+        fn stmt_tree_has(
+            db: &dyn HirDb,
+            stmts: &Arena<hir::hir_def::stmt::Stmt>,
+            stmt_id: hir::hir_def::stmt::StmtId,
+            matches_kind: impl Copy + Fn(&StmtKind) -> bool,
+        ) -> bool {
+            let stmt = &stmts[stmt_id];
+            if matches_kind(&stmt.kind) {
+                return true;
+            }
+
+            match &stmt.kind {
+                StmtKind::Block(info) => {
+                    let block = db.block(info.block_id);
+                    stmt_arena_has(db, &block.stmts, matches_kind)
+                }
+                StmtKind::TimingCtrl(_, stmt_id)
+                | StmtKind::Forever(stmt_id)
+                | StmtKind::DoWhile(stmt_id, _)
+                | StmtKind::Repeat(_, stmt_id)
+                | StmtKind::While(_, stmt_id)
+                | StmtKind::Wait(_, stmt_id) => stmt_tree_has(db, stmts, *stmt_id, matches_kind),
+                StmtKind::For { stmt, .. } => stmt_tree_has(db, stmts, *stmt, matches_kind),
+                StmtKind::Cond { then_stmt, else_stmt, .. } => {
+                    stmt_tree_has(db, stmts, *then_stmt, matches_kind)
+                        || else_stmt
+                            .is_some_and(|stmt_id| stmt_tree_has(db, stmts, stmt_id, matches_kind))
+                }
+                StmtKind::Case { items, .. } => items.iter().any(|item| match item {
+                    hir::hir_def::stmt::CaseItem::Case { clause, .. }
+                    | hir::hir_def::stmt::CaseItem::Default(clause) => {
+                        stmt_tree_has(db, stmts, *clause, matches_kind)
+                    }
+                }),
+                StmtKind::Empty
+                | StmtKind::Expr(_)
+                | StmtKind::Jump(_)
+                | StmtKind::EventTrigger(_)
+                | StmtKind::ProcAssign(_)
+                | StmtKind::Disable(_)
+                | StmtKind::Opaque => false,
+            }
+        }
+
+        fn stmt_arena_has(
+            db: &dyn HirDb,
+            stmts: &Arena<hir::hir_def::stmt::Stmt>,
+            matches_kind: impl Copy + Fn(&StmtKind) -> bool,
+        ) -> bool {
+            stmts.iter().any(|(stmt_id, _)| stmt_tree_has(db, stmts, stmt_id, matches_kind))
+        }
+
+        let db = host.raw_db();
+        let hir_file_id = HirFileId(file_id);
+        let (hir_file, _) = db.hir_file_with_source_map(hir_file_id);
+        let (local_module_id, _) =
+            hir_file.modules.iter().next().expect("fixture should lower one module");
+        let (module, _) = db.module_with_source_map(ModuleId::new(hir_file_id, local_module_id));
+        assert!(
+            stmt_arena_has(db, &module.stmts, |kind| matches!(kind, StmtKind::Repeat(_, _))),
+            "repeat statements should lower distinctly from while statements"
+        );
+        assert!(
+            stmt_arena_has(db, &module.stmts, |kind| matches!(kind, StmtKind::While(_, _))),
+            "while statements should still lower as while statements"
+        );
+    }
+
     let nav = analysis
         .goto_definition(position(file_id, &markers, "sig_ref"))
         .unwrap()

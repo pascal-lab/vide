@@ -62,6 +62,7 @@ pub enum StmtKind {
 
     Forever(StmtId),
     DoWhile(StmtId, ExprId),
+    Repeat(ExprId, StmtId),
     While(ExprId, StmtId),
     For {
         inits: ForInit,
@@ -353,8 +354,12 @@ impl LowerStmtCtx<'_> {
 
     fn lower_loop_stmt(&mut self, stmt: ast::LoopStatement) -> StmtKind {
         let expr = self.expr_ctx().lower_expr(stmt.expr());
-        let stmt = self.lower_stmt(stmt.statement());
-        StmtKind::While(expr, stmt)
+        let body = self.lower_stmt(stmt.statement());
+        match stmt.repeat_or_while().map(|tok| tok.kind()) {
+            Some(TokenKind::REPEAT_KEYWORD) => StmtKind::Repeat(expr, body),
+            Some(TokenKind::WHILE_KEYWORD) | None => StmtKind::While(expr, body),
+            _ => unreachable!(),
+        }
     }
 
     fn lower_wait_stmt(&mut self, stmt: ast::WaitStatement) -> StmtKind {
