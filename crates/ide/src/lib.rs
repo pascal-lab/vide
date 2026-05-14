@@ -44,6 +44,7 @@ mod verilog_2005;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SymbolKind {
     Module,
+    Config,
     NonAnsiPortLabel,
     PortDecl,
     ParamDecl,
@@ -66,6 +67,7 @@ impl SymbolKind {
     pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
         match_ast_kind! { kind,
             ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => SymbolKind::Module,
+            ast::ConfigDeclaration => SymbolKind::Config,
             ast::NonAnsiPort => SymbolKind::NonAnsiPortLabel,
             ast::PortDeclaration => SymbolKind::PortDecl,
             ast::ParameterDeclaration => SymbolKind::ParamDecl,
@@ -89,7 +91,8 @@ impl SymbolKind {
         match kind {
             OpaqueKind::Generate => SymbolKind::Generate,
             OpaqueKind::Udp => SymbolKind::Module,
-            OpaqueKind::Config | OpaqueKind::Library => SymbolKind::Module,
+            OpaqueKind::Config => SymbolKind::Config,
+            OpaqueKind::Library => SymbolKind::Opaque,
             OpaqueKind::Specparam => SymbolKind::Specparam,
             OpaqueKind::Genvar => SymbolKind::Genvar,
             OpaqueKind::Statement => SymbolKind::Stmt,

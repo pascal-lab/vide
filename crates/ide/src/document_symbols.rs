@@ -8,7 +8,10 @@ use hir::{
         block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
-        file::FileItem,
+        file::{
+            FileItem,
+            config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
+        },
         module::{ModuleId, ModuleItem, ModuleSrc, port::Ports},
         opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc},
         stmt::{CaseItem, ForInit, Stmt, StmtId, StmtKind, StmtSrc},
@@ -205,6 +208,9 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             }
             FileItem::StructId(_) => {
                 // TODO: implement document symbols for these items
+            }
+            FileItem::ConfigDeclId(config_id) => {
+                build_config_decl(&mut collector, config_id, file, src_map)
             }
         }
     }
@@ -486,6 +492,22 @@ fn build_subroutine<Arn, SrcMap>(
     let hir = arena.get(subroutine_id);
     let src = src_map.get(subroutine_id);
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);
+    collector.pop();
+}
+
+#[inline]
+fn build_config_decl<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    config_id: ConfigDeclId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<ConfigDeclId, Output = ConfigDecl>,
+    SrcMap: Get<ConfigDeclId, Output = ConfigDeclSrc>,
+{
+    let hir = arena.get(config_id);
+    let src = src_map.get(config_id);
+    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Config);
     collector.pop();
 }
 

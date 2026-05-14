@@ -20,7 +20,7 @@ top Module container=None
   T_SETUP Specparam container=Some("top")
   unnamed Opaque container=Some("top")
   blk Block container=Some("top")
-cfg_top Module container=None
+cfg_top Config container=None
 
 # semantic token classes
 25..26 Port(Others) SemaTokenModifier(READ)
@@ -42,7 +42,7 @@ task_ref: ["Some(\"do_task\"):Some(Fn)"]
 instance_ref: ["Some(\"u_child\"):Some(Instance)"]
 generate_ref: ["Some(\"g_loop\"):Some(Generate)"]
 block_ref: ["Some(\"blk\"):Some(Block)"]
-config_def: ["Some(\"cfg_top\"):Some(Module)"]
+config_def: ["Some(\"cfg_top\"):Some(Config)"]
 
 # references
 module_ref: defs=1 refs=1

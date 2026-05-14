@@ -203,6 +203,7 @@ fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
     use lsp_types::SymbolKind as LspSymbolKind;
     match symbol_kind {
         SymbolKind::Module => LspSymbolKind::MODULE,
+        SymbolKind::Config => LspSymbolKind::NAMESPACE,
         SymbolKind::NonAnsiPortLabel => LspSymbolKind::FIELD,
         SymbolKind::PortDecl => LspSymbolKind::FIELD,
         SymbolKind::ParamDecl => LspSymbolKind::TYPE_PARAMETER,

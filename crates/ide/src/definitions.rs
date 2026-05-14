@@ -5,6 +5,7 @@ use hir::{
     hir_def::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
+        file::config::ConfigDeclId,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         opaque::OpaqueItemId,
         stmt::StmtId,
@@ -33,6 +34,7 @@ use utils::{
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DefinitionOrigin {
     ModuleId(ModuleId),
+    Config(InFile<ConfigDeclId>),
     BlockId(BlockId),
     SubroutineId(SubroutineId),
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -47,6 +49,7 @@ pub enum DefinitionOrigin {
 
 impl_from! { DefinitionOrigin =>
     ModuleId,
+    Config(InFile<ConfigDeclId>),
     BlockId,
     SubroutineId,
     SubroutinePort(InSubroutine<SubroutinePortId>),
@@ -63,6 +66,7 @@ impl DefinitionOrigin {
     pub fn container_id(&self, db: &dyn HirDb) -> ContainerId {
         match *self {
             DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
+            DefinitionOrigin::Config(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.lookup(db).cont_id,
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, .. }) => {
@@ -80,6 +84,9 @@ impl DefinitionOrigin {
     pub fn name(&self, db: &dyn HirDb) -> SmolStr {
         match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
+                file_id.to_container(db).get(value).name.clone().unwrap()
+            }
+            DefinitionOrigin::Config(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::BlockId(block_id) => {
@@ -117,6 +124,10 @@ impl DefinitionOrigin {
     pub fn name_range(&self, db: &dyn HirDb) -> InFile<TextRange> {
         match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::Config(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(file_id, range)
             }
@@ -177,6 +188,10 @@ impl DefinitionOrigin {
     pub fn range(&self, db: &dyn HirDb) -> InFile<TextRange> {
         match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).range();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::Config(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).range();
                 InFile::new(file_id, range)
             }
@@ -317,6 +332,7 @@ impl Definition {
     fn pick(&self) -> DefinitionOrigin {
         match self.0 {
             PathResolution::Module(module_id) => module_id.into(),
+            PathResolution::Config(config_id) => config_id.into(),
             PathResolution::Decl(decl_id) => decl_id.into(),
             PathResolution::Typedef(typedef_id) => typedef_id.into(),
             PathResolution::Opaque(opaque_id) => opaque_id.into(),

@@ -1,3 +1,4 @@
+use config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc};
 use la_arena::Arena;
 use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
@@ -41,6 +42,8 @@ use crate::{
     source_map::SourceMap,
 };
 
+pub mod config;
+
 define_container! {
     #[derive(Default, Debug, PartialEq, Eq)]
     pub struct HirFile {
@@ -49,6 +52,7 @@ define_container! {
 
         typedefs: [Typedef],
         structs: [StructDef],
+        config_decls: [ConfigDecl],
         opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
@@ -76,6 +80,7 @@ define_container! {
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
+        config_decl_srcs: [ConfigDecl | ConfigDeclSrc],
         opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
@@ -96,6 +101,7 @@ define_enum_deriving_from! {
         DeclarationId(DeclarationId),
         TypedefId(TypedefId),
         StructId(StructId),
+        ConfigDeclId(ConfigDeclId),
         OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
@@ -109,6 +115,7 @@ impl FileSourceMap {
             FileItem::DeclarationId(idx) => self.get(*idx).ptr(),
             FileItem::TypedefId(idx) => self.get(*idx).ptr(),
             FileItem::StructId(idx) => self.get(*idx).node,
+            FileItem::ConfigDeclId(idx) => self.get(*idx).node,
             FileItem::OpaqueItemId(idx) => self.get(*idx).node,
             FileItem::SubroutineId(idx) => self.get(*idx).node,
         }
@@ -225,6 +232,15 @@ impl LowerFileCtx<'_> {
         Some(local_subroutine_id)
     }
 
+    fn lower_config_decl(&mut self, config_decl: ast::ConfigDeclaration) -> ConfigDeclId {
+        let name = lower_ident_opt(config_decl.name());
+
+        alloc_idx_and_src! {
+            ConfigDecl { name } => self.file.config_decls,
+            config_decl => self.file_source_map.config_decl_srcs,
+        }
+    }
+
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {
         for member in root.members().children() {
             use ast::Member::*;
@@ -249,6 +265,7 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
                 _ => {
                     let (opaque, src) = lower_opaque_member(member);
                     let idx = self.file.opaque_items.alloc(opaque);

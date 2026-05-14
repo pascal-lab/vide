@@ -11,6 +11,7 @@ use crate::{
         block::BlockId,
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
+        file::config::ConfigDeclId,
         lower_ident_opt,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         opaque::OpaqueItemId,
@@ -87,7 +88,8 @@ impl SemanticsImpl<'_> {
         let module_name = lower_ident_opt(instantiation.type_())?;
         match self.db.unit_scope().get(&module_name)? {
             UnitEntry::ModuleId(module_id) => Some(module_id),
-            UnitEntry::FiledDeclId(_)
+            UnitEntry::FiledConfigDeclId(_)
+            | UnitEntry::FiledDeclId(_)
             | UnitEntry::FiledTypedefId(_)
             | UnitEntry::FiledOpaqueItemId(_) => None,
         }
@@ -101,6 +103,7 @@ impl SemanticsImpl<'_> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PathResolution {
     Module(ModuleId),
+    Config(InFile<ConfigDeclId>),
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
     ParamDecl(InModule<DeclId>),
@@ -125,6 +128,7 @@ impl From<UnitEntry> for PathResolution {
         use UnitEntry::*;
         match entry {
             ModuleId(idx) => Self::Module(idx),
+            FiledConfigDeclId(idx) => Self::Config(idx),
             FiledDeclId(idx) => Self::Decl(idx.into()),
             FiledTypedefId(idx) => Self::Typedef(idx.into()),
             FiledOpaqueItemId(idx) => Self::Opaque(idx.into()),

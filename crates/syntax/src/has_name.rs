@@ -1,9 +1,9 @@
 use slang::{
     SyntaxToken,
     ast::{
-        AstNode, BlockStatement, Declarator, FunctionDeclaration, HierarchicalInstance,
-        IdentifierName, ModuleDeclaration, NonAnsiPort, ParamAssignment, PortConnection,
-        PortReference, SpecparamDeclarator, Statement,
+        AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration,
+        HierarchicalInstance, IdentifierName, ModuleDeclaration, NonAnsiPort, ParamAssignment,
+        PortConnection, PortReference, SpecparamDeclarator, Statement,
     },
 };
 
@@ -14,6 +14,12 @@ pub trait HasName<'a>: AstNode<'a> {
 impl<'a> HasName<'a> for ModuleDeclaration<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
         self.header().name()
+    }
+}
+
+impl<'a> HasName<'a> for ConfigDeclaration<'a> {
+    fn name(&self) -> Option<SyntaxToken<'a>> {
+        self.name()
     }
 }
 

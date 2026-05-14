@@ -10,6 +10,7 @@ use crate::{
         Ident,
         block::{BlockId, BlockInfo},
         expr::declarator::{DeclId, DeclaratorParent},
+        file::config::ConfigDeclId,
         module::{
             ModuleId,
             instantiation::InstanceId,
@@ -26,6 +27,7 @@ define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum UnitEntry {
         ModuleId,
+        FiledConfigDeclId,
         FiledDeclId,
         FiledTypedefId,
         FiledOpaqueItemId,
@@ -33,6 +35,7 @@ pub enum UnitEntry {
 }
 
 pub type FiledDeclId = InFile<DeclId>;
+pub type FiledConfigDeclId = InFile<ConfigDeclId>;
 pub type FiledTypedefId = InFile<TypedefId>;
 pub type FiledOpaqueItemId = InFile<OpaqueItemId>;
 
@@ -148,6 +151,10 @@ impl UnitScope {
 
         for (decl_id, decl) in hir_file.decls.iter() {
             scope.insert_opt(&decl.name, InFile::new(file_id, decl_id).into());
+        }
+
+        for (config_decl_id, config_decl) in hir_file.config_decls.iter() {
+            scope.insert_opt(&config_decl.name, InFile::new(file_id, config_decl_id).into());
         }
 
         for (typedef_id, typedef) in hir_file.typedefs.iter() {

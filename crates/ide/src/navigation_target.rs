@@ -6,6 +6,7 @@ use hir::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
+        file::config::ConfigDeclId,
         module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
         opaque::OpaqueItemId,
         stmt::StmtId,
@@ -52,6 +53,7 @@ impl ToNav for DefinitionOrigin {
     fn to_nav(&self, db: &RootDb) -> NavTarget {
         match self {
             DefinitionOrigin::ModuleId(module_id) => module_id.to_nav(db),
+            DefinitionOrigin::Config(config_id) => config_id.to_nav(db),
             DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
             DefinitionOrigin::SubroutineId(subroutine_id) => subroutine_id.to_nav(db),
             DefinitionOrigin::SubroutinePort(subroutine_port_id) => subroutine_port_id.to_nav(db),
@@ -73,6 +75,16 @@ impl ToNav for ModuleId {
 
         let file_id = file_id.file_id();
         build(file_id, src.name_range(), src.range(), name, SymbolKind::Module, None)
+    }
+}
+
+impl ToNav for InFile<ConfigDeclId> {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let InFile { value: config_id, file_id } = *self;
+        let src = file_id.to_container_src_map(db).get(config_id);
+        let name = file_id.to_container(db).get(config_id).name.clone();
+
+        build(file_id.file_id(), src.name_range(), src.range(), name, SymbolKind::Config, None)
     }
 }
 

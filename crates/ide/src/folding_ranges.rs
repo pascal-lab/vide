@@ -37,6 +37,7 @@ pub enum FoldKind {
     Imports, // TODO: fold macros
     Region,
     Module,
+    Config,
     PortList,
     Decl,
     Declaration,
@@ -126,6 +127,7 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId, _config: &FoldingConf
         collect_module(db, &mut folds, ModuleId::new(file_id, idx), *src, line_index)
     });
 
+    folds.collect_folds(&src_map.config_decl_srcs, FoldKind::Config, line_index);
     folds.collect_folds(&src_map.declaration_srcs, FoldKind::Declaration, line_index);
     folds.collect_folds(&src_map.decl_srcs, FoldKind::Decl, line_index);
     folds.collect_folds(&src_map.opaque_srcs, FoldKind::Opaque, line_index);
