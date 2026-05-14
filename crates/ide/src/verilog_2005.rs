@@ -430,6 +430,25 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_defparam_is_not_model_limited() {
+    let text = r#"
+module child #(parameter WIDTH = 1) ();
+endmodule
+
+module defparam_ctx;
+  child u_child();
+  defparam u_child.WIDTH = 2;
+endmodule
+"#;
+    let (host, file_id) = setup(text);
+    let diagnostics = host.make_analysis().model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("DEF_PARAM")),
+        "defparam should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn verilog_2005_lsp_snapshots() {
     let (host, file_id, clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();

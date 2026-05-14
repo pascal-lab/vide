@@ -41,6 +41,7 @@ pub enum FoldKind {
     Decl,
     Declaration,
     ContAssign,
+    DefParam,
     Instance,
     Stmt,
     Block,
@@ -276,6 +277,7 @@ fn collect_module(
     }
 
     folds.collect_folds(&src_map.assign_srcs, FoldKind::ContAssign, line_index);
+    folds.collect_folds(&src_map.defparam_srcs, FoldKind::DefParam, line_index);
     folds.collect_folds(&src_map.declaration_srcs, FoldKind::Declaration, line_index);
     folds.collect_folds(&src_map.decl_srcs, FoldKind::Decl, line_index);
     folds.collect_folds(&src_map.opaque_srcs, FoldKind::Opaque, line_index);

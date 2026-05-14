@@ -1,4 +1,5 @@
 use continuous_assgin::{ContAssign, ContAssignId, ContAssignSrc};
+use defparam::{DefParam, DefParamId, DefParamSrc};
 use instantiation::{
     Instance, InstanceSrc, Instantiation, InstantiationId, InstantiationSrc, ParamAssign,
     ParamAssignSrc, PortConn, PortConnSrc,
@@ -57,6 +58,7 @@ use crate::{
 };
 
 pub mod continuous_assgin;
+pub mod defparam;
 pub mod instantiation;
 pub mod port;
 
@@ -73,6 +75,7 @@ define_container! {
         },
 
         cont_assigns: [ContAssign],
+        defparams: [DefParam],
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
@@ -110,6 +113,7 @@ define_container! {
         },
 
         assign_srcs: [ContAssign | ContAssignSrc],
+        defparam_srcs: [DefParam | DefParamSrc],
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
@@ -164,6 +168,7 @@ impl ModuleSourceMap {
     pub fn item_to_ptr(&self, item: &ModuleItem) -> SyntaxNodePtr {
         match item {
             ModuleItem::ContAssignId(idx) => self.get(*idx).0,
+            ModuleItem::DefParamId(idx) => self.get(*idx).0,
             ModuleItem::DeclarationId(idx) => self.get(*idx).ptr(),
             ModuleItem::StructId(idx) => self.get(*idx).node,
             ModuleItem::InstantiationId(idx) => self.get(*idx).into(),
@@ -180,6 +185,7 @@ define_enum_deriving_from! {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum ModuleItem {
         ContAssignId(ContAssignId),
+        DefParamId(DefParamId),
         DeclarationId(DeclarationId),
         StructId(StructId),
         InstantiationId(InstantiationId),
@@ -486,7 +492,7 @@ impl LowerModuleCtx<'_> {
                 udp_decl @ UdpDeclaration(_) => self.lower_opaque_member(udp_decl).into(),
 
                 // Defparam
-                defparam @ DefParam(_) => self.lower_opaque_member(defparam).into(),
+                DefParam(defparam) => self.lower_defparam(defparam).into(),
 
                 // Net alias
                 net_alias @ NetAlias(_) => self.lower_opaque_member(net_alias).into(),

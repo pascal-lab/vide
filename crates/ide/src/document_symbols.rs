@@ -279,6 +279,7 @@ fn collect_module_items(
                 build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map)
             }
             ModuleItem::ContAssignId(_) => {}
+            ModuleItem::DefParamId(_) => {}
             ModuleItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, module, src_map)
             }
