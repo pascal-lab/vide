@@ -42,7 +42,7 @@ use crate::{
         },
         lower_ident_opt,
         opaque::{
-            OpaqueItem, OpaqueItemId, OpaqueItemSrc,
+            OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind,
             lower_opaque_member as lower_opaque_member_data,
         },
         proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
@@ -512,7 +512,7 @@ impl LowerGenerateBlockCtx<'_> {
     }
 
     fn lower_opaque_member(&mut self, member: ast::Member) -> OpaqueItemId {
-        let (opaque, src) = lower_opaque_member_data(member);
+        let (opaque, src) = lower_opaque_member_data(member, OpaqueKind::GenerateItem);
         let idx = self.generate_block.opaque_items.alloc(opaque);
         self.generate_block_source_map.opaque_srcs.insert(src, idx);
         idx

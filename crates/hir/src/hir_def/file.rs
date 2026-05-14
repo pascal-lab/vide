@@ -28,7 +28,7 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
-    opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc, lower_opaque_member},
+    opaque::{OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind, lower_opaque_member},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -314,7 +314,7 @@ impl LowerFileCtx<'_> {
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
                 _ => {
-                    let (opaque, src) = lower_opaque_member(member);
+                    let (opaque, src) = lower_opaque_member(member, OpaqueKind::FileItem);
                     let idx = self.file.opaque_items.alloc(opaque);
                     self.file_source_map.opaque_srcs.insert(src, idx);
                     idx.into()
@@ -338,7 +338,7 @@ impl LowerFileCtx<'_> {
                 }
                 EmptyMember(_) => continue,
                 _ => {
-                    let (opaque, src) = lower_opaque_member(member);
+                    let (opaque, src) = lower_opaque_member(member, OpaqueKind::FileItem);
                     let idx = self.file.opaque_items.alloc(opaque);
                     self.file_source_map.opaque_srcs.insert(src, idx);
                     idx.into()

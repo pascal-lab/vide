@@ -95,18 +95,11 @@ impl SymbolKind {
 
     pub fn from_opaque_kind(kind: OpaqueKind, syntax_kind: SyntaxKind) -> Self {
         match kind {
-            OpaqueKind::Generate => SymbolKind::Generate,
-            OpaqueKind::Udp => SymbolKind::Primitive,
-            OpaqueKind::Config => SymbolKind::Config,
-            OpaqueKind::Library => SymbolKind::Library,
-            OpaqueKind::Specparam => SymbolKind::Specparam,
-            OpaqueKind::Genvar => SymbolKind::Genvar,
-            OpaqueKind::Statement => SymbolKind::Stmt,
-            OpaqueKind::BlockItem | OpaqueKind::FileItem | OpaqueKind::ModuleItem => {
-                SymbolKind::from_syntax_kind(syntax_kind)
-            }
-            OpaqueKind::Specify => SymbolKind::Specify,
-            OpaqueKind::DefParam => SymbolKind::Opaque,
+            OpaqueKind::BlockItem
+            | OpaqueKind::FileItem
+            | OpaqueKind::GenerateItem
+            | OpaqueKind::ModuleItem
+            | OpaqueKind::SpecifyItem => SymbolKind::from_syntax_kind(syntax_kind),
         }
     }
 }

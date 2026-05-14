@@ -43,7 +43,8 @@ use super::{
     },
     lower_ident_opt,
     opaque::{
-        OpaqueItem, OpaqueItemId, OpaqueItemSrc, lower_opaque_member as lower_opaque_member_data,
+        OpaqueItem, OpaqueItemId, OpaqueItemSrc, OpaqueKind,
+        lower_opaque_member as lower_opaque_member_data,
     },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
@@ -342,7 +343,15 @@ impl LowerModuleCtx<'_> {
     }
 
     fn lower_opaque_member(&mut self, member: ast::Member) -> OpaqueItemId {
-        let (opaque, src) = lower_opaque_member_data(member);
+        self.lower_opaque_member_with_kind(member, OpaqueKind::ModuleItem)
+    }
+
+    pub(super) fn lower_opaque_member_with_kind(
+        &mut self,
+        member: ast::Member,
+        kind: OpaqueKind,
+    ) -> OpaqueItemId {
+        let (opaque, src) = lower_opaque_member_data(member, kind);
         let idx = self.module.opaque_items.alloc(opaque);
         self.module_source_map.opaque_srcs.insert(src, idx);
         idx

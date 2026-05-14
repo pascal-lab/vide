@@ -11,7 +11,7 @@ use crate::{
         declaration::{DeclarationId, LowerDeclaration},
         expr::{ExprId, LowerExpr},
         lower_ident_opt,
-        opaque::OpaqueItemId,
+        opaque::{OpaqueItemId, OpaqueKind},
     },
     source_map::IsNamedSrc,
 };
@@ -112,7 +112,9 @@ impl LowerModuleCtx<'_> {
                     SystemTimingCheck(timing) => {
                         Some(self.lower_system_timing_check_item(timing).into())
                     }
-                    item => Some(self.lower_opaque_member(item).into()),
+                    item => Some(
+                        self.lower_opaque_member_with_kind(item, OpaqueKind::SpecifyItem).into(),
+                    ),
                 }
             })
             .collect();

@@ -15,15 +15,8 @@ pub enum OpaqueKind {
     FileItem,
     ModuleItem,
     BlockItem,
-    Generate,
-    Udp,
-    Specify,
-    Config,
-    Library,
-    DefParam,
-    Specparam,
-    Genvar,
-    Statement,
+    GenerateItem,
+    SpecifyItem,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -81,32 +74,12 @@ pub(crate) fn lower_opaque_node(
     (OpaqueItem { name, kind }, src)
 }
 
-pub(crate) fn lower_opaque_member(member: ast::Member<'_>) -> (OpaqueItem, OpaqueItemSrc) {
-    let kind = opaque_member_kind(member);
+pub(crate) fn lower_opaque_member(
+    member: ast::Member<'_>,
+    kind: OpaqueKind,
+) -> (OpaqueItem, OpaqueItemSrc) {
     let name = opaque_member_name(member);
     lower_opaque_node(member.syntax(), name, kind)
-}
-
-pub(crate) fn opaque_member_kind(member: ast::Member<'_>) -> OpaqueKind {
-    use ast::Member::*;
-    match member {
-        GenerateRegion(_) | GenerateBlock(_) | IfGenerate(_) | CaseGenerate(_)
-        | LoopGenerate(_) => OpaqueKind::Generate,
-        UdpDeclaration(_) | ExternUdpDecl(_) => OpaqueKind::Udp,
-        SpecifyBlock(_)
-        | PathDeclaration(_)
-        | ConditionalPathDeclaration(_)
-        | IfNonePathDeclaration(_)
-        | SystemTimingCheck(_)
-        | PulseStyleDeclaration(_)
-        | DefaultSkewItem(_) => OpaqueKind::Specify,
-        ConfigDeclaration(_) => OpaqueKind::Config,
-        LibraryDeclaration(_) | LibraryIncludeStatement(_) => OpaqueKind::Library,
-        DefParam(_) => OpaqueKind::DefParam,
-        SpecparamDeclaration(_) => OpaqueKind::Specparam,
-        GenvarDeclaration(_) => OpaqueKind::Genvar,
-        _ => OpaqueKind::ModuleItem,
-    }
 }
 
 pub(crate) fn opaque_member_name(member: ast::Member<'_>) -> Option<SyntaxToken<'_>> {
