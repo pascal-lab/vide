@@ -5,7 +5,7 @@ use hir::{
     hir_def::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
-        file::{config::ConfigDeclId, udp::UdpDeclId},
+        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
             ModuleId,
             generate::{GenerateBlockId, GenerateBlockLoc},
@@ -40,6 +40,7 @@ use utils::{
 pub enum DefinitionOrigin {
     ModuleId(ModuleId),
     Config(InFile<ConfigDeclId>),
+    Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
     BlockId(BlockId),
     GenerateBlockId(GenerateBlockId),
@@ -57,6 +58,7 @@ pub enum DefinitionOrigin {
 impl_from! { DefinitionOrigin =>
     ModuleId,
     Config(InFile<ConfigDeclId>),
+    Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
     BlockId,
     GenerateBlockId,
@@ -76,6 +78,7 @@ impl DefinitionOrigin {
         match *self {
             DefinitionOrigin::ModuleId(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::Config(InFile { file_id, .. }) => file_id.into(),
+            DefinitionOrigin::Library(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::Udp(InFile { file_id, .. }) => file_id.into(),
             DefinitionOrigin::BlockId(block_id) => block_id.lookup(db).cont_id,
             DefinitionOrigin::GenerateBlockId(generate_block_id) => {
@@ -100,6 +103,9 @@ impl DefinitionOrigin {
                 file_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
+                file_id.to_container(db).get(value).name.clone().unwrap()
+            }
+            DefinitionOrigin::Library(InFile { value, file_id }) => {
                 file_id.to_container(db).get(value).name.clone().unwrap()
             }
             DefinitionOrigin::Udp(InFile { value, file_id }) => {
@@ -147,6 +153,10 @@ impl DefinitionOrigin {
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::Library(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).name_range().unwrap();
                 InFile::new(file_id, range)
             }
@@ -221,6 +231,10 @@ impl DefinitionOrigin {
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
+                let range = file_id.to_container_src_map(db).get(value).range();
+                InFile::new(file_id, range)
+            }
+            DefinitionOrigin::Library(InFile { value, file_id }) => {
                 let range = file_id.to_container_src_map(db).get(value).range();
                 InFile::new(file_id, range)
             }
@@ -372,6 +386,7 @@ impl Definition {
         match self.0 {
             PathResolution::Module(module_id) => module_id.into(),
             PathResolution::Config(config_id) => config_id.into(),
+            PathResolution::Library(library_id) => library_id.into(),
             PathResolution::Udp(udp_id) => udp_id.into(),
             PathResolution::Decl(decl_id) => decl_id.into(),
             PathResolution::Typedef(typedef_id) => typedef_id.into(),

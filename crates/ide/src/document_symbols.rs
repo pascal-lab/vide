@@ -13,6 +13,7 @@ use hir::{
         file::{
             FileItem,
             config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc},
+            library::{LibraryDecl, LibraryDeclId, LibraryDeclSrc},
             udp::{UdpDecl, UdpDeclId, UdpDeclSrc},
         },
         module::{
@@ -225,6 +226,10 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
             FileItem::ConfigDeclId(config_id) => {
                 build_config_decl(&mut collector, config_id, file, src_map)
             }
+            FileItem::LibraryDeclId(library_id) => {
+                build_library_decl(&mut collector, library_id, file, src_map)
+            }
+            FileItem::LibraryIncludeId(_) => {}
             FileItem::UdpDeclId(udp_id) => build_udp_decl(&mut collector, udp_id, file, src_map),
         }
     }
@@ -698,6 +703,22 @@ fn build_udp_decl<Arn, SrcMap>(
     let hir = arena.get(udp_id);
     let src = src_map.get(udp_id);
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Primitive);
+    collector.pop();
+}
+
+#[inline]
+fn build_library_decl<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    library_id: LibraryDeclId,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<LibraryDeclId, Output = LibraryDecl>,
+    SrcMap: Get<LibraryDeclId, Output = LibraryDeclSrc>,
+{
+    let hir = arena.get(library_id);
+    let src = src_map.get(library_id);
+    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Library);
     collector.pop();
 }
 

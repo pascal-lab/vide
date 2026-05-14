@@ -204,9 +204,13 @@ fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
         let analysis = host.make_analysis();
         let full_range = TextRange::up_to(utils::text_edit::TextSize::of(text.as_str()));
 
-        analysis
+        let parse_diagnostics = analysis
             .parse_diagnostics(file_id)
             .unwrap_or_else(|_| panic!("parse diagnostics cancelled for {path:?}"));
+        assert!(
+            parse_diagnostics.is_empty(),
+            "Verilog-2005 fixture should parse cleanly for {path:?}: {parse_diagnostics:?}"
+        );
 
         let diagnostics = analysis
             .model_limit_diagnostics(file_id)
@@ -669,6 +673,42 @@ endmodule
     assert!(
         nav.info.iter().any(|nav| nav.name.as_deref() == Some("P_LOCAL")),
         "generate block localparam should resolve locally: {nav:?}"
+    );
+}
+
+#[test]
+fn verilog_2005_library_map_declaration_is_not_model_limited() {
+    let text = r#"
+library /*marker:library_def*/work "*.v";
+include "vendor.map";
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let parse_diagnostics = analysis.parse_diagnostics(file_id).unwrap();
+    assert!(
+        parse_diagnostics.is_empty(),
+        "library map fixture should parse cleanly: {parse_diagnostics:?}"
+    );
+
+    let diagnostics = analysis.model_limit_diagnostics(file_id).unwrap();
+    assert!(
+        diagnostics.is_empty(),
+        "library map declarations should lower as real HIR, not opaque diagnostics: {diagnostics:?}"
+    );
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut names = Vec::new();
+    flatten_symbols(&symbols, &mut names);
+    assert!(names.iter().any(|name| name == "work"), "missing library symbol: {names:?}");
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "library_def"))
+        .unwrap()
+        .expect("library definition expected");
+    assert!(
+        nav.info.iter().any(|nav| nav.name.as_deref() == Some("work")),
+        "library declaration should resolve as a real definition: {nav:?}"
     );
 }
 

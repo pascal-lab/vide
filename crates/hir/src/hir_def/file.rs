@@ -1,5 +1,8 @@
 use config::{ConfigDecl, ConfigDeclId, ConfigDeclSrc};
 use la_arena::Arena;
+use library::{
+    LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
+};
 use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -44,6 +47,7 @@ use crate::{
 };
 
 pub mod config;
+pub mod library;
 pub mod udp;
 
 define_container! {
@@ -56,6 +60,8 @@ define_container! {
         structs: [StructDef],
         config_decls: [ConfigDecl],
         udp_decls: [UdpDecl],
+        library_decls: [LibraryDecl],
+        library_includes: [LibraryInclude],
         opaque_items: [OpaqueItem],
         subroutines: [Subroutine],
         subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
@@ -85,6 +91,8 @@ define_container! {
         struct_srcs: [StructDef | StructSrc],
         config_decl_srcs: [ConfigDecl | ConfigDeclSrc],
         udp_decl_srcs: [UdpDecl | UdpDeclSrc],
+        library_decl_srcs: [LibraryDecl | LibraryDeclSrc],
+        library_include_srcs: [LibraryInclude | LibraryIncludeSrc],
         opaque_srcs: [OpaqueItem | OpaqueItemSrc],
         subroutine_srcs: [Subroutine | SubroutineSrc],
         expr_srcs: [Expr | ExprSrc],
@@ -107,6 +115,8 @@ define_enum_deriving_from! {
         StructId(StructId),
         ConfigDeclId(ConfigDeclId),
         UdpDeclId(UdpDeclId),
+        LibraryDeclId(LibraryDeclId),
+        LibraryIncludeId(LibraryIncludeId),
         OpaqueItemId(OpaqueItemId),
         SubroutineId(LocalSubroutineId),
     }
@@ -122,6 +132,8 @@ impl FileSourceMap {
             FileItem::StructId(idx) => self.get(*idx).node,
             FileItem::ConfigDeclId(idx) => self.get(*idx).node,
             FileItem::UdpDeclId(idx) => self.get(*idx).node,
+            FileItem::LibraryDeclId(idx) => self.get(*idx).node,
+            FileItem::LibraryIncludeId(idx) => self.get(*idx).0,
             FileItem::OpaqueItemId(idx) => self.get(*idx).node,
             FileItem::SubroutineId(idx) => self.get(*idx).node,
         }
@@ -256,6 +268,25 @@ impl LowerFileCtx<'_> {
         }
     }
 
+    fn lower_library_decl(&mut self, library_decl: ast::LibraryDeclaration) -> LibraryDeclId {
+        let name = lower_ident_opt(library_decl.name());
+
+        alloc_idx_and_src! {
+            LibraryDecl { name } => self.file.library_decls,
+            library_decl => self.file_source_map.library_decl_srcs,
+        }
+    }
+
+    fn lower_library_include(
+        &mut self,
+        library_include: ast::LibraryIncludeStatement,
+    ) -> LibraryIncludeId {
+        alloc_idx_and_src! {
+            LibraryInclude => self.file.library_includes,
+            library_include => self.file_source_map.library_include_srcs,
+        }
+    }
+
     pub(crate) fn lower_file(&mut self, root: ast::CompilationUnit) {
         for member in root.members().children() {
             use ast::Member::*;
@@ -296,6 +327,30 @@ impl LowerFileCtx<'_> {
         self.region_tree.stage(root.end_of_file());
         self.file_source_map.region_tree = self.region_tree.finish();
     }
+
+    pub(crate) fn lower_library_map(&mut self, root: ast::LibraryMap) {
+        for member in root.members().children() {
+            use ast::Member::*;
+            let idx = match member {
+                LibraryDeclaration(library_decl) => self.lower_library_decl(library_decl).into(),
+                LibraryIncludeStatement(library_include) => {
+                    self.lower_library_include(library_include).into()
+                }
+                EmptyMember(_) => continue,
+                _ => {
+                    let (opaque, src) = lower_opaque_member(member);
+                    let idx = self.file.opaque_items.alloc(opaque);
+                    self.file_source_map.opaque_srcs.insert(src, idx);
+                    idx.into()
+                }
+            };
+            self.file_source_map.items.push(idx);
+            self.region_tree.handle_node(member.syntax());
+        }
+
+        self.region_tree.stage(root.end_of_file());
+        self.file_source_map.region_tree = self.region_tree.finish();
+    }
 }
 
 pub(crate) fn hir_file_with_source_map_query(
@@ -306,10 +361,6 @@ pub(crate) fn hir_file_with_source_map_query(
     let mut source_map = FileSourceMap::default();
 
     let tree = db.parse(file_id);
-    let Some(root) = tree.root().and_then(ast::CompilationUnit::cast) else {
-        return (Arc::new(hir_file), Arc::new(source_map));
-    };
-
     let mut lower_ctx = LowerFileCtx {
         db,
         file_id,
@@ -317,7 +368,15 @@ pub(crate) fn hir_file_with_source_map_query(
         file_source_map: &mut source_map,
         region_tree: RegionTreeBuilder::new(),
     };
-    lower_ctx.lower_file(root);
+    match tree.root() {
+        Some(root) if ast::CompilationUnit::can_cast(root.kind()) => {
+            lower_ctx.lower_file(ast::CompilationUnit::cast(root).unwrap());
+        }
+        Some(root) if ast::LibraryMap::can_cast(root.kind()) => {
+            lower_ctx.lower_library_map(ast::LibraryMap::cast(root).unwrap());
+        }
+        _ => {}
+    }
 
     hir_file.shrink_to_fit();
     source_map.shrink_to_fit();

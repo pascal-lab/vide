@@ -88,14 +88,18 @@ impl<'db> SemanticsImpl<'db> {
         }
     }
 
-    pub fn parse(&self, file_id: FileId) -> ast::CompilationUnit<'_> {
+    pub fn parse_root(&self, file_id: FileId) -> SyntaxNode<'_> {
         let tree = self.db.parse_src(file_id);
 
         // Unsafe: we garentee that the root node is valid for the lifetime of the db
         let root_node: SyntaxNode<'db> =
             unsafe { std::mem::transmute::<SyntaxNode<'_>, SyntaxNode<'db>>(tree.root().unwrap()) };
         self.cache_node2file(root_node, file_id.into());
-        ast::CompilationUnit::cast(root_node).unwrap()
+        root_node
+    }
+
+    pub fn parse(&self, file_id: FileId) -> ast::CompilationUnit<'_> {
+        ast::CompilationUnit::cast(self.parse_root(file_id)).unwrap()
     }
 
     pub fn find_file(&self, node: SyntaxNode) -> HirFileId {

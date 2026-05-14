@@ -6,7 +6,7 @@ use hir::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
-        file::{config::ConfigDeclId, udp::UdpDeclId},
+        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
             ModuleId,
             generate::{GenerateBlockId, GenerateBlockLoc},
@@ -59,6 +59,7 @@ impl ToNav for DefinitionOrigin {
         match self {
             DefinitionOrigin::ModuleId(module_id) => module_id.to_nav(db),
             DefinitionOrigin::Config(config_id) => config_id.to_nav(db),
+            DefinitionOrigin::Library(library_id) => library_id.to_nav(db),
             DefinitionOrigin::Udp(udp_id) => udp_id.to_nav(db),
             DefinitionOrigin::BlockId(block_id) => block_id.to_nav(db),
             DefinitionOrigin::GenerateBlockId(generate_block_id) => generate_block_id.to_nav(db),
@@ -92,6 +93,16 @@ impl ToNav for InFile<ConfigDeclId> {
         let name = file_id.to_container(db).get(config_id).name.clone();
 
         build(file_id.file_id(), src.name_range(), src.range(), name, SymbolKind::Config, None)
+    }
+}
+
+impl ToNav for InFile<LibraryDeclId> {
+    fn to_nav(&self, db: &RootDb) -> NavTarget {
+        let InFile { value: library_id, file_id } = *self;
+        let src = file_id.to_container_src_map(db).get(library_id);
+        let name = file_id.to_container(db).get(library_id).name.clone();
+
+        build(file_id.file_id(), src.name_range(), src.range(), name, SymbolKind::Library, None)
     }
 }
 

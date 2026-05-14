@@ -4,7 +4,6 @@ use itertools::Itertools;
 use span::{FilePosition, RangeInfo};
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
-    ast::AstNode,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
@@ -19,8 +18,8 @@ pub(crate) fn goto_definition(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let token = file.syntax().token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let root = sema.parse_root(file_id);
+    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     let navs = handle_ctrl_flow_kw(&sema, token).or_else(|| {
         DefinitionClass::resolve(&sema, token)?

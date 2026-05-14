@@ -28,5 +28,3 @@ config cfg_top;
     design work.top;
     default liblist work;
 endconfig
-
-library work "*.v";

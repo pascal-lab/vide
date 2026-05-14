@@ -20,7 +20,7 @@ use hir::{
 };
 use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
-use syntax::{ast::AstNode, has_text_range::HasTextRange};
+use syntax::has_text_range::HasTextRange;
 use utils::{
     get::{Get, GetRef},
     text_edit::TextRange,
@@ -126,9 +126,9 @@ pub(crate) fn semantic_tokens(
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let range = range.unwrap_or_else(|| file.syntax().text_range().unwrap());
+    let root = sema.parse_root(file_id);
     let file_id = HirFileId(file_id);
+    let range = range.unwrap_or_else(|| root.text_range().unwrap_or_default());
 
     let mut collector = SemaTokenCollector::new(config, range);
     collect_file(&sema, file_id, &mut collector);

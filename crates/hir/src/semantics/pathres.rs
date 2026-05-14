@@ -13,7 +13,7 @@ use crate::{
         block::BlockId,
         declaration::Declaration,
         expr::declarator::{DeclId, DeclaratorParent},
-        file::{config::ConfigDeclId, udp::UdpDeclId},
+        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         lower_ident_opt,
         module::{
             ModuleId, generate::GenerateBlockId, instantiation::InstanceId, port::NonAnsiPortId,
@@ -93,6 +93,7 @@ impl SemanticsImpl<'_> {
         match self.db.unit_scope().get(&module_name)? {
             UnitEntry::ModuleId(module_id) => Some(module_id),
             UnitEntry::FiledConfigDeclId(_)
+            | UnitEntry::FiledLibraryDeclId(_)
             | UnitEntry::FiledUdpDeclId(_)
             | UnitEntry::FiledDeclId(_)
             | UnitEntry::FiledTypedefId(_)
@@ -109,6 +110,7 @@ impl SemanticsImpl<'_> {
 pub enum PathResolution {
     Module(ModuleId),
     Config(InFile<ConfigDeclId>),
+    Library(InFile<LibraryDeclId>),
     Udp(InFile<UdpDeclId>),
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
@@ -136,6 +138,7 @@ impl From<UnitEntry> for PathResolution {
         match entry {
             ModuleId(idx) => Self::Module(idx),
             FiledConfigDeclId(idx) => Self::Config(idx),
+            FiledLibraryDeclId(idx) => Self::Library(idx),
             FiledUdpDeclId(idx) => Self::Udp(idx),
             FiledDeclId(idx) => Self::Decl(idx.into()),
             FiledTypedefId(idx) => Self::Typedef(idx.into()),

@@ -34,7 +34,20 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
 fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     let text = db.file_text(file_id);
     // TODO: use meaningful path
-    SyntaxTree::from_text(&text, "", "")
+    let tree = SyntaxTree::from_text(&text, "", "");
+    if tree.diagnostics().is_empty() {
+        return tree;
+    }
+
+    // Library maps are a separate Verilog input grammar. Only switch modes when the
+    // ordinary source parser fails and the library-map parser accepts the file
+    // cleanly.
+    let library_map = SyntaxTree::from_library_map_text(&text, "", "");
+    if library_map.diagnostics().is_empty() {
+        return library_map;
+    }
+
+    tree
 }
 
 fn expected_identifier_offsets(db: &dyn SourceDb, file_id: FileId) -> Arc<Vec<TextSize>> {

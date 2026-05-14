@@ -13,7 +13,7 @@ use crate::{
         Ident,
         block::{BlockId, BlockInfo},
         expr::declarator::{DeclId, DeclaratorParent},
-        file::{config::ConfigDeclId, udp::UdpDeclId},
+        file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         module::{
             ModuleId,
             generate::GenerateBlockId,
@@ -32,6 +32,7 @@ define_enum_deriving_from! {
 pub enum UnitEntry {
         ModuleId,
         FiledConfigDeclId,
+        FiledLibraryDeclId,
         FiledUdpDeclId,
         FiledDeclId,
         FiledTypedefId,
@@ -41,6 +42,7 @@ pub enum UnitEntry {
 
 pub type FiledDeclId = InFile<DeclId>;
 pub type FiledConfigDeclId = InFile<ConfigDeclId>;
+pub type FiledLibraryDeclId = InFile<LibraryDeclId>;
 pub type FiledUdpDeclId = InFile<UdpDeclId>;
 pub type FiledTypedefId = InFile<TypedefId>;
 pub type FiledOpaqueItemId = InFile<OpaqueItemId>;
@@ -180,6 +182,10 @@ impl UnitScope {
 
         for (udp_decl_id, udp_decl) in hir_file.udp_decls.iter() {
             scope.insert_opt(&udp_decl.name, InFile::new(file_id, udp_decl_id).into());
+        }
+
+        for (library_decl_id, library_decl) in hir_file.library_decls.iter() {
+            scope.insert_opt(&library_decl.name, InFile::new(file_id, library_decl_id).into());
         }
 
         for (typedef_id, typedef) in hir_file.typedefs.iter() {
