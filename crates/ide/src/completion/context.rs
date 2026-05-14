@@ -10,7 +10,7 @@ use base_db::source_db::SourceDb;
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use span::FilePosition;
-use syntax::{SyntaxNode, ast::AstNode};
+use syntax::SyntaxNode;
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
@@ -100,11 +100,11 @@ pub(crate) fn completion_context(
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
+    let root = sema.parse_root(file_id);
     let text = db.file_text(file_id);
     let expected_ident_offsets = db.expected_identifier_offsets(file_id);
     detect_completion_context_impl(
-        file.syntax(),
+        root,
         offset,
         trigger,
         Some(&text),

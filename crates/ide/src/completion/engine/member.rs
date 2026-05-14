@@ -33,8 +33,7 @@ pub(super) fn complete_member_access(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let root = file.syntax();
+    let root = sema.parse_root(position.file_id);
 
     let scope = member_access_at_offset(root, position.offset)
         .and_then(|access| resolve_scope_for_expr(db, &sema, access.left()))

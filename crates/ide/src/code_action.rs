@@ -214,9 +214,9 @@ impl<'a> CodeActionCtx<'a> {
         file_id: FileId,
         range: TextRange,
         diagnostics: CodeActionDiagnostics,
-    ) -> Self {
-        let compilation_unit = sema.parse(file_id);
-        Self { sema, file_id, range, diagnostics, compilation_unit }
+    ) -> Option<Self> {
+        let compilation_unit = CompilationUnit::cast(sema.parse_root(file_id))?;
+        Some(Self { sema, file_id, range, diagnostics, compilation_unit })
     }
 
     fn offset(&self) -> TextSize {
@@ -236,7 +236,9 @@ pub(crate) fn code_action(
     resolve_strategy: CodeActionResolveStrategy,
 ) -> Vec<CodeAction> {
     let sema = Semantics::new(db);
-    let ctx = CodeActionCtx::new(&sema, file_id, range, diagnostics);
+    let Some(ctx) = CodeActionCtx::new(&sema, file_id, range, diagnostics) else {
+        return Vec::new();
+    };
 
     let mut collector = CodeActionCollector::new(&ctx, resolve_strategy);
     handlers::all().iter().for_each(|handler| {

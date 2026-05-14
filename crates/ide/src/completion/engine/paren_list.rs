@@ -108,9 +108,8 @@ fn complete_parameter_port_list_with_typedefs(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let Some(module) =
-        sema.find_node_at_offset::<ast::ModuleDeclaration>(file.syntax(), position.offset)
+    let root = sema.parse_root(position.file_id);
+    let Some(module) = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, position.offset)
     else {
         return Vec::new();
     };
@@ -151,8 +150,7 @@ fn complete_port_connections(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let root = file.syntax();
+    let root = sema.parse_root(position.file_id);
 
     let elem = root.covering_element(utils::line_index::TextRange::empty(position.offset));
     let Some(node) = elem.as_node().or_else(|| elem.parent()) else {
@@ -247,8 +245,7 @@ fn complete_param_value_assignment(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let root = file.syntax();
+    let root = sema.parse_root(position.file_id);
 
     let elem = root.covering_element(utils::line_index::TextRange::empty(position.offset));
     let Some(node) = elem.as_node().or_else(|| elem.parent()) else {

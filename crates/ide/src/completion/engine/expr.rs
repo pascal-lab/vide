@@ -56,8 +56,7 @@ fn complete_expression_impl(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let root = file.syntax();
+    let root = sema.parse_root(position.file_id);
 
     let mut names: BTreeMap<String, NameKind> = BTreeMap::new();
 

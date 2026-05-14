@@ -60,8 +60,7 @@ fn complete_ansi_port_list(
 
 fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec<String> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let root = file.syntax();
+    let root = sema.parse_root(position.file_id);
     let module = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, position.offset);
     let Some(module) = module else {
         return Vec::new();
@@ -99,8 +98,7 @@ fn complete_non_ansi_port_list(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let root = file.syntax();
+    let root = sema.parse_root(position.file_id);
     let module = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, position.offset);
     let Some(module) = module else {
         return Vec::new();

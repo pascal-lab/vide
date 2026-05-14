@@ -766,6 +766,9 @@ include "vendor.map";
         renamed.contains("library renamed_work"),
         "library rename should rewrite declaration: {renamed}"
     );
+
+    analysis.selection_ranges(position(file_id, &markers, "library_def")).unwrap();
+    analysis.completions_with_trigger(position(file_id, &markers, "library_def"), None).unwrap();
 }
 
 #[test]

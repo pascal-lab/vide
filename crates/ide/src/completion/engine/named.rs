@@ -38,9 +38,9 @@ pub(super) fn complete_named_port_names(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
+    let root = sema.parse_root(position.file_id);
     let Some(instantiation) =
-        sema.find_node_at_offset::<ast::HierarchyInstantiation>(file.syntax(), position.offset)
+        sema.find_node_at_offset::<ast::HierarchyInstantiation>(root, position.offset)
     else {
         return Vec::new();
     };
@@ -50,7 +50,7 @@ pub(super) fn complete_named_port_names(
 
     let mut used_named_ports = FxHashSet::default();
     if let Some(instance) =
-        sema.find_node_at_offset::<ast::HierarchicalInstance>(file.syntax(), position.offset)
+        sema.find_node_at_offset::<ast::HierarchicalInstance>(root, position.offset)
     {
         for conn in instance.connections().children() {
             if let Some(named) = conn.as_named_port_connection()
@@ -86,9 +86,9 @@ pub(super) fn complete_named_param_names(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
+    let root = sema.parse_root(position.file_id);
     let Some(instantiation) =
-        sema.find_node_at_offset::<ast::HierarchyInstantiation>(file.syntax(), position.offset)
+        sema.find_node_at_offset::<ast::HierarchyInstantiation>(root, position.offset)
     else {
         return Vec::new();
     };
@@ -132,9 +132,8 @@ pub(super) fn complete_named_port_conn_expr(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let Some(conn) =
-        sema.find_node_at_offset::<ast::NamedPortConnection>(file.syntax(), position.offset)
+    let root = sema.parse_root(position.file_id);
+    let Some(conn) = sema.find_node_at_offset::<ast::NamedPortConnection>(root, position.offset)
     else {
         return Vec::new();
     };
@@ -189,9 +188,8 @@ pub(super) fn complete_named_param_assign_expr(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let file = sema.parse(position.file_id);
-    let Some(assign) =
-        sema.find_node_at_offset::<ast::NamedParamAssignment>(file.syntax(), position.offset)
+    let root = sema.parse_root(position.file_id);
+    let Some(assign) = sema.find_node_at_offset::<ast::NamedParamAssignment>(root, position.offset)
     else {
         return Vec::new();
     };

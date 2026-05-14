@@ -66,8 +66,8 @@ pub(crate) fn signature_help(
     config: SignatureHelpConfig,
 ) -> Option<SignatureHelp> {
     let sema = Semantics::new(db);
-    let file = sema.parse(file_id);
-    let token = file.syntax().token_at_offset(offset).left_biased()?;
+    let root = sema.parse_root(file_id);
+    let token = root.token_at_offset(offset).left_biased()?;
 
     for node in SyntaxAncestors::start_from(token.parent) {
         match_ast! { node,
