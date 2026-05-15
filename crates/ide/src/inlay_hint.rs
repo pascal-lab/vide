@@ -328,6 +328,15 @@ fn edits_for_conn(param: &str, conn_src: impl IsSrc) -> Option<TextEdit> {
     Some(builder.finish())
 }
 
+fn should_skip(expr: &Expr, name: &str) -> bool {
+    // TODO: handle more cases
+    #[allow(clippy::match_like_matches_macro)]
+    match expr {
+        Expr::Ident(ident) if ident == name => true,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use base_db::{change::Change, source_root::SourceRoot};
@@ -409,14 +418,5 @@ mod tests {
         let text = "module child #(parameter P = 1) (); endmodule\nmodule top; child #(1, 2) u(); endmodule\n";
 
         assert_eq!(param_hint_labels(text), vec!["P: "]);
-    }
-}
-
-fn should_skip(expr: &Expr, name: &str) -> bool {
-    // TODO: handle more cases
-    #[allow(clippy::match_like_matches_macro)]
-    match expr {
-        Expr::Ident(ident) if ident == name => true,
-        _ => false,
     }
 }

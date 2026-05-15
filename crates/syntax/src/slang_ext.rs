@@ -152,10 +152,10 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         cursor.goto_last_tok_before(offset);
         let left = cursor.to_tok_with_parent();
         let left_range = left.and_then(|left| left.text_range());
-        if left_range.is_some_and(|range| range.contains(offset)) {
-            if let Some(left) = left {
-                return TokenAtOffset::Single(left);
-            }
+        if left_range.is_some_and(|range| range.contains(offset))
+            && let Some(left) = left
+        {
+            return TokenAtOffset::Single(left);
         }
         let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
@@ -329,10 +329,10 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         cursor.goto_last_tok_before(offset);
         let left = cursor.to_tok_with_parent();
         let left_range = left.and_then(|left| left.text_range());
-        if left_range.is_some_and(|range| range.contains(offset)) {
-            if let Some(left) = left {
-                return Either::Left(TokenAtOffset::Single(left));
-            }
+        if left_range.is_some_and(|range| range.contains(offset))
+            && let Some(left) = left
+        {
+            return Either::Left(TokenAtOffset::Single(left));
         }
         let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
