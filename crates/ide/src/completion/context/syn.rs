@@ -219,12 +219,8 @@ fn is_in_sensitivity_list(caret: &CaretSnapshot<'_>) -> bool {
 }
 
 fn statement_keyword_site(caret: &CaretSnapshot<'_>) -> Option<CompletionSite> {
-    let Some(stmt) = caret.root.find_node_at_offset::<ast::Statement<'_>>(caret.offset) else {
-        return None;
-    };
-    let Some(stmt_range) = stmt.syntax().text_range() else {
-        return None;
-    };
+    let stmt = caret.root.find_node_at_offset::<ast::Statement<'_>>(caret.offset)?;
+    let stmt_range = stmt.syntax().text_range()?;
 
     let (replacement, prefix) = caret.replacement_and_prefix();
     if prefix.is_empty()
