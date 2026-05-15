@@ -271,7 +271,9 @@ fn process_instantiation(
 
                 match &target_module.ports {
                     Ports::NonAnsi { .. } => {
-                        let port_id = target_module.non_ansi_port_id_by_idx(id);
+                        let Some(port_id) = target_module.non_ansi_port_id_by_idx(id) else {
+                            continue;
+                        };
                         let Some(port_name) = target_module.get(port_id).label.as_ref() else {
                             continue;
                         };
@@ -287,10 +289,17 @@ fn process_instantiation(
                         collector.collect_port_hint(port_name, conn_src, target_src);
                     }
                     Ports::Ansi(_) => {
-                        let Some(port_id) = target_module.ansi_port_id_by_idx(id) else {
+                        let Some(port_decl_id) = target_module.ansi_port_decl_id_by_idx(id) else {
                             continue;
                         };
-                        let Some(port_name) = target_module.get(port_id).name.as_ref() else {
+                        let port_decl = target_module.get(port_decl_id);
+                        let Some(port_name) = port_decl.name.as_ref().or_else(|| {
+                            port_decl
+                                .decls
+                                .clone()
+                                .next()
+                                .and_then(|decl_id| target_module.get(decl_id).name.as_ref())
+                        }) else {
                             continue;
                         };
 
@@ -298,7 +307,7 @@ fn process_instantiation(
                             continue;
                         }
 
-                        let Some(target_src) = target_src_map.get(port_id) else {
+                        let Some(target_src) = target_src_map.get(port_decl_id) else {
                             continue;
                         };
                         let target_src = InFile::new(target_file, target_src);
@@ -317,6 +326,90 @@ fn edits_for_conn(param: &str, conn_src: impl IsSrc) -> Option<TextEdit> {
     builder.insert(conn_src.range().start(), format!(".{}(", param));
     builder.insert(conn_src.range().end(), String::from(")"));
     Some(builder.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use base_db::{change::Change, source_root::SourceRoot};
+    use ide_db::root_db::RootDb;
+    use triomphe::Arc;
+    use utils::{
+        lines::LineEnding,
+        text_edit::{TextRange, TextSize},
+    };
+    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+
+    use super::{InlayHintConfig, InlayKind, inlay_hint};
+
+    fn db_with_file(text: &str) -> (RootDb, FileId) {
+        let file_id = FileId(0);
+        let path = VfsPath::new_virtual_path("/test.sv".to_owned());
+
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, path);
+        let root = SourceRoot::new_local(file_set);
+
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+        });
+
+        let mut db = RootDb::new(None);
+        change.apply(&mut db);
+        (db, file_id)
+    }
+
+    fn port_config() -> InlayHintConfig {
+        InlayHintConfig { port_connection: true, parameter_assignment: false, end_structure: false }
+    }
+
+    fn parameter_config() -> InlayHintConfig {
+        InlayHintConfig { port_connection: false, parameter_assignment: true, end_structure: false }
+    }
+
+    fn port_hint_labels(text: &str) -> Vec<String> {
+        let (db, file_id) = db_with_file(text);
+        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
+        inlay_hint(&db, file_id, range, port_config())
+            .into_iter()
+            .filter(|hint| matches!(hint.kind, InlayKind::Port))
+            .map(|hint| hint.label)
+            .collect()
+    }
+
+    fn param_hint_labels(text: &str) -> Vec<String> {
+        let (db, file_id) = db_with_file(text);
+        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
+        inlay_hint(&db, file_id, range, parameter_config())
+            .into_iter()
+            .filter(|hint| matches!(hint.kind, InlayKind::ParamAssign))
+            .map(|hint| hint.label)
+            .collect()
+    }
+
+    #[test]
+    fn extra_ordered_connections_do_not_invent_ansi_port_hints() {
+        let text = "module child(input a); endmodule\nmodule top; child u(1'b0, 1'b1); endmodule\n";
+
+        assert_eq!(port_hint_labels(text), vec!["a: "]);
+    }
+
+    #[test]
+    fn extra_ordered_connections_do_not_invent_non_ansi_port_hints() {
+        let text =
+            "module child(a); input a; endmodule\nmodule top; child u(1'b0, 1'b1); endmodule\n";
+
+        assert_eq!(port_hint_labels(text), vec!["a: "]);
+    }
+
+    #[test]
+    fn extra_ordered_parameter_assignments_do_not_invent_param_hints() {
+        let text = "module child #(parameter P = 1) (); endmodule\nmodule top; child #(1, 2) u(); endmodule\n";
+
+        assert_eq!(param_hint_labels(text), vec!["P: "]);
+    }
 }
 
 fn should_skip(expr: &Expr, name: &str) -> bool {

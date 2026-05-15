@@ -67,6 +67,13 @@ impl Vfs {
         self.paths.get_index(file_id.0 as usize)
     }
 
+    pub fn line_ending(&self, file_id: FileId) -> Option<LineEnding> {
+        match self.file_state(file_id)? {
+            FileState::Exists(_, ending) => Some(*ending),
+            FileState::Deleted => None,
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (FileId, &VfsPath)> + '_ {
         (0..self.file_states.len())
             .map(|it| FileId(it as u32))

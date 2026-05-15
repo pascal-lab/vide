@@ -210,6 +210,7 @@ impl ModuleScope {
             let subroutine_id = db.intern_subroutine(SubroutineLoc {
                 cont_id: module_id.into(),
                 src: InFile::new(file_id, src),
+                local_id: local_subroutine_id,
             });
             scope.insert_opt(&subroutine.name, subroutine_id.into());
         }
@@ -298,6 +299,7 @@ impl GenerateBlockScope {
             let subroutine_id = db.intern_subroutine(SubroutineLoc {
                 cont_id: generate_block_id.into(),
                 src: InFile::new(file_id, src),
+                local_id: local_subroutine_id,
             });
             scope.insert_opt(&subroutine.name, subroutine_id.into());
         }

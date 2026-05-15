@@ -4,7 +4,6 @@ use library::{
     LibraryDecl, LibraryDeclId, LibraryDeclSrc, LibraryInclude, LibraryIncludeId, LibraryIncludeSrc,
 };
 use proc_macro_utils::define_container;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
     ast::{self, AstNode},
@@ -31,8 +30,8 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSourceMap,
-        SubroutineSrc, lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
+        lower_subroutine, lower_subroutine_body,
     },
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -62,7 +61,6 @@ define_container! {
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
         subroutines: [Subroutine],
-        subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
         declarations: [Declaration],
         exprs: [Expr],
@@ -212,12 +210,6 @@ impl LowerFileCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
-        let src = SubroutineSrc::from(func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.file_id.into(),
-            src: InFile::new(self.file_id, src),
-        });
-
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_idx_and_src! {
@@ -225,9 +217,16 @@ impl LowerFileCtx<'_> {
             func => self.file_source_map.subroutine_srcs,
         };
 
+        let src = SubroutineSrc::from(func);
+        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
+            cont_id: self.file_id.into(),
+            src: InFile::new(self.file_id, src),
+            local_id: local_subroutine_id,
+        });
+
         if func.end().is_some() {
             let subroutine = &mut self.file.subroutines[local_subroutine_id];
-            let mut subroutine_source_map = SubroutineSourceMap::default();
+            let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
@@ -237,7 +236,8 @@ impl LowerFileCtx<'_> {
                 region_tree: RegionTreeBuilder::new(),
             };
             lower_subroutine_body(&mut ctx, func);
-            self.file.subroutine_source_maps.insert(local_subroutine_id, subroutine_source_map);
+            subroutine.source_map = subroutine_source_map;
+            subroutine.source_map.shrink_to_fit();
         }
 
         self.file.subroutines[local_subroutine_id].shrink_to_fit();

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
@@ -41,11 +42,15 @@ impl GlobalStateSnapshot {
         Ok(file_id)
     }
 
-    pub(crate) fn line_info(&self, file_id: FileId) -> Cancellable<LineInfo> {
-        let ending = self.vfs.read().1.get(&file_id).copied().unwrap_or_else(|| {
-            tracing::debug!(?file_id, "missing line ending metadata; assuming LF");
-            LineEnding::Unix
-        });
+    pub(crate) fn line_info(&self, file_id: FileId) -> anyhow::Result<LineInfo> {
+        let ending = {
+            let vfs = self.vfs.read();
+            vfs.1
+                .get(&file_id)
+                .copied()
+                .or_else(|| vfs.0.line_ending(file_id))
+                .with_context(|| format!("missing line ending metadata for {file_id:?}"))?
+        };
         let index = self.analysis.line_index(file_id)?;
         let encoding = self.config.position_encoding();
         let res = LineInfo { index, ending, encoding };

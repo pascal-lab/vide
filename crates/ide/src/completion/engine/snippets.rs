@@ -28,14 +28,14 @@ pub(super) struct SnippetEntry {
     pub snippet: String,
 }
 
+// The bundled snippet file is static project data; parse failures should
+// surface during startup.
+#[allow(clippy::expect_used)]
 pub(super) fn snippet_config() -> &'static SnippetConfig {
     static SNIPPETS: OnceLock<SnippetConfig> = OnceLock::new();
     SNIPPETS.get_or_init(|| {
         let manual_raw = include_str!("snippets.toml");
-        parse_snippet_config(manual_raw).unwrap_or_else(|err| {
-            tracing::error!(%err, "failed to parse bundled snippet config");
-            SnippetConfig::default()
-        })
+        parse_snippet_config(manual_raw).expect("bundled snippets.toml must parse")
     })
 }
 

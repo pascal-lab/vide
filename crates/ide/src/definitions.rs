@@ -250,20 +250,14 @@ impl DefinitionOrigin {
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
                 let tree = db.parse(src.file_id);
-                let Some(func) = src.value.to_node(&tree) else {
-                    return Some(InFile::new(src.file_id, src.value.range()));
-                };
-                let ports = func
-                    .prototype()
-                    .port_list()
-                    .map(|ports| ports.ports().children().collect::<Vec<_>>())
-                    .unwrap_or_default();
+                let func = src.value.to_node(&tree)?;
+                let ports = func.prototype().port_list()?;
                 let port = ports
-                    .into_iter()
+                    .ports()
+                    .children()
                     .nth(value.0 as usize)
-                    .and_then(|port| port.as_function_port());
-                let range =
-                    port.and_then(|port| port.syntax().text_range()).unwrap_or(src.value.range());
+                    .and_then(|port| port.as_function_port())?;
+                let range = port.syntax().text_range()?;
                 InFile::new(src.file_id, range)
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {

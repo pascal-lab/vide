@@ -24,7 +24,7 @@ use smol_str::SmolStr;
 use syntax::{SyntaxTokenWithParent, ast::AstNode, has_text_range::HasTextRange};
 use utils::{
     get::{Get, GetRef},
-    line_index::{TextRange, TextSize},
+    line_index::TextRange,
 };
 use vfs::FileId;
 
@@ -183,25 +183,20 @@ impl ToNav for InSubroutine<SubroutinePortId> {
         let cont_name = db.subroutine(subroutine).name.clone();
         let subroutine_src = loc.src;
         let tree = db.parse(subroutine_src.file_id);
-        let func = subroutine_src.value.to_node(&tree);
-        let ports = func
-            .as_ref()
-            .and_then(|func| func.prototype().port_list())
-            .map(|ports| ports.ports().children().collect::<Vec<_>>())
-            .unwrap_or_default();
-        let port = ports.into_iter().nth(value.0 as usize).and_then(|port| port.as_function_port());
+        let func = subroutine_src.value.to_node(&tree)?;
+        let ports = func.prototype().port_list()?;
+        let port = ports
+            .ports()
+            .children()
+            .nth(value.0 as usize)
+            .and_then(|port| port.as_function_port())?;
         let name = db
             .subroutine(subroutine)
             .ports
             .get(value.0 as usize)
             .and_then(|port| port.name.clone());
-        let focus_range = port
-            .as_ref()
-            .and_then(|port| port.declarator().name())
-            .and_then(|name| name.text_range());
-        let full_range = port
-            .and_then(|port| port.syntax().text_range())
-            .unwrap_or(subroutine_src.value.range());
+        let focus_range = port.declarator().name().and_then(|name| name.text_range());
+        let full_range = port.syntax().text_range()?;
 
         Some(build(
             subroutine_src.file_id.file_id(),
@@ -321,10 +316,7 @@ impl ToNav for InContainer<StmtId> {
 impl ToNav for InFile<SyntaxTokenWithParent<'_>> {
     fn to_nav(&self, _db: &RootDb) -> Option<NavTarget> {
         let InFile { value: SyntaxTokenWithParent { parent, tok }, file_id } = *self;
-        let full_range = parent
-            .text_range()
-            .or_else(|| tok.text_range())
-            .unwrap_or_else(|| TextRange::empty(TextSize::from(0)));
+        let full_range = parent.text_range().or_else(|| tok.text_range())?;
         Some(NavTarget {
             file_id: file_id.file_id(),
             full_range,
