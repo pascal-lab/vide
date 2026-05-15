@@ -205,20 +205,19 @@ where
     R::Params: DeserializeOwned,
     R::Result: Serialize,
 {
-    if let Ok(res) = result {
-        return Ok(Response::new_ok(id, &res));
-    }
-
-    let e = result.err().unwrap().downcast::<LspError>();
-    if let Ok(lsp_error) = e {
-        return Ok(Response::new_err(id, lsp_error.code, lsp_error.message));
-    }
-
-    match e.err().unwrap().downcast::<Cancelled>() {
-        Ok(cancelled) => Err(cancelled),
-        Err(e) => {
-            Ok(Response::new_err(id, lsp_server::ErrorCode::InternalError as i32, e.to_string()))
-        }
+    match result {
+        Ok(res) => Ok(Response::new_ok(id, &res)),
+        Err(error) => match error.downcast::<LspError>() {
+            Ok(lsp_error) => Ok(Response::new_err(id, lsp_error.code, lsp_error.message)),
+            Err(error) => match error.downcast::<Cancelled>() {
+                Ok(cancelled) => Err(cancelled),
+                Err(error) => Ok(Response::new_err(
+                    id,
+                    lsp_server::ErrorCode::InternalError as i32,
+                    error.to_string(),
+                )),
+            },
+        },
     }
 }
 
@@ -267,9 +266,13 @@ impl NotifDispatcher<'_> {
         N: lsp_types::notification::Notification,
         N::Params: DeserializeOwned + Send,
     {
-        let notif = match &self.notif {
-            Some(notif) if notif.method == N::METHOD => self.notif.take().unwrap(),
-            _ => return self,
+        let notif = match self.notif.take() {
+            Some(notif) if notif.method == N::METHOD => notif,
+            Some(notif) => {
+                self.notif = Some(notif);
+                return self;
+            }
+            None => return self,
         };
 
         let params = match notif.extract::<N::Params>(N::METHOD) {

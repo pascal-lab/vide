@@ -90,7 +90,8 @@ fn setup_diagnostics_test(
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
 
-    let uri = to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref());
+    let uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref()).unwrap();
     let did_open = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
@@ -121,7 +122,10 @@ fn setup_multi_file_diagnostics_test(
     for (path, text) in files {
         let file_path = temp_dir.path().join(path);
         fs::write(&file_path, text).unwrap();
-        uris.push(to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref()));
+        uris.push(
+            to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref())
+                .unwrap(),
+        );
     }
 
     let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
@@ -850,7 +854,8 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri = to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref());
+    let top_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
     client
         .sender
         .send(Message::Notification(Notification::new(

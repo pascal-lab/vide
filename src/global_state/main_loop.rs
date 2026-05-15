@@ -106,7 +106,13 @@ impl GlobalState {
         let registration = lsp_types::Registration {
             id: "textDocument/didSave".into(),
             method: "textDocument/didSave".into(),
-            register_options: Some(serde_json::to_value(save_registration_options).unwrap()),
+            register_options: match serde_json::to_value(save_registration_options) {
+                Ok(options) => Some(options),
+                Err(error) => {
+                    tracing::error!("failed to serialize didSave registration options: {error:#}");
+                    return;
+                }
+            },
         };
         self.send_request::<lsp_types::request::RegisterCapability>(
             lsp_types::RegistrationParams { registrations: vec![registration] },

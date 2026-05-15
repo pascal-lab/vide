@@ -41,7 +41,10 @@ impl GlobalState {
             let mut manifests = self.config.discovered_manifests.clone();
 
             move |sender| {
-                sender.send(FetchWorkspaceProgress::Begin.into()).unwrap();
+                if sender.send(FetchWorkspaceProgress::Begin.into()).is_err() {
+                    tracing::debug!("workspace fetch start dropped because main loop is gone");
+                    return;
+                }
 
                 let mut loaded_manifests = FxHashSet::default();
                 let mut all_workspaces = Vec::new();
@@ -83,9 +86,12 @@ impl GlobalState {
                     tracing::error!("failed to fetch workspaces {:?}", error_sink);
                 }
 
-                sender
+                if sender
                     .send(FetchWorkspaceProgress::End(all_workspaces, error_sink).into())
-                    .unwrap();
+                    .is_err()
+                {
+                    tracing::debug!("workspace fetch result dropped because main loop is gone");
+                }
             }
         })
     }
@@ -137,16 +143,25 @@ impl GlobalState {
                     .collect(),
             };
 
-            let registration = lsp_types::Registration {
-                id: "workspace/didChangeWatchedFiles".to_string(),
-                method: "workspace/didChangeWatchedFiles".to_string(),
-                register_options: Some(serde_json::to_value(registration_options).unwrap()),
-            };
+            match serde_json::to_value(registration_options) {
+                Ok(register_options) => {
+                    let registration = lsp_types::Registration {
+                        id: "workspace/didChangeWatchedFiles".to_string(),
+                        method: "workspace/didChangeWatchedFiles".to_string(),
+                        register_options: Some(register_options),
+                    };
 
-            self.send_request::<lsp_types::request::RegisterCapability>(
-                lsp_types::RegistrationParams { registrations: vec![registration] },
-                DEFAULT_REQ_HANDLER,
-            );
+                    self.send_request::<lsp_types::request::RegisterCapability>(
+                        lsp_types::RegistrationParams { registrations: vec![registration] },
+                        DEFAULT_REQ_HANDLER,
+                    );
+                }
+                Err(error) => {
+                    tracing::error!(
+                        "failed to serialize file watcher registration options: {error:#}"
+                    );
+                }
+            }
         }
 
         let files_config = self.config.files();

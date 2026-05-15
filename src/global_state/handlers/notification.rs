@@ -37,7 +37,7 @@ pub(crate) fn handle_did_open_text_document(
     params: DidOpenTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        let file_id = set_vfs_file_contents(state, &path, params.text_document.text.clone());
+        let file_id = set_vfs_file_contents(state, &path, params.text_document.text.clone())?;
         if state
             .mem_docs
             .insert(file_id, path.clone(), params.text_document.version, params.text_document.text)
@@ -75,7 +75,7 @@ pub(crate) fn handle_did_change_text_document(
 
         if *data != text {
             *data = text.clone();
-            set_vfs_file_contents(state, &path, text);
+            set_vfs_file_contents(state, &path, text)?;
         }
     }
     Ok(())
@@ -196,11 +196,15 @@ pub(crate) fn handle_did_change_watched_files(
     Ok(())
 }
 
-fn set_vfs_file_contents(state: &mut GlobalState, path: &VfsPath, text: String) -> vfs::FileId {
+fn set_vfs_file_contents(
+    state: &mut GlobalState,
+    path: &VfsPath,
+    text: String,
+) -> anyhow::Result<vfs::FileId> {
     let (text, endings) = LineEnding::normalize(text);
     let mut vfs = state.vfs.write();
     vfs.0.set_file_contents(path, LoadResult::Loaded(text, endings));
-    vfs.0.file_id(path).expect("loaded file must have a FileId")
+    vfs.0.file_id(path).ok_or_else(|| anyhow::format_err!("loaded file has no FileId: {path}"))
 }
 
 fn apply_document_changes(
@@ -212,8 +216,11 @@ fn apply_document_changes(
     let (mut text, content_changes) = {
         match content_changes.iter().rposition(|change| change.range.is_none()) {
             Some(idx) => {
-                let (text, rest) = content_changes.split_at(idx + 1);
-                (text[idx].text.clone(), rest)
+                let (full_doc_changes, rest) = content_changes.split_at(idx + 1);
+                match full_doc_changes.last() {
+                    Some(full_doc_change) => (full_doc_change.text.clone(), rest),
+                    None => (file_contents.clone(), rest),
+                }
             }
             None => (file_contents.clone(), &content_changes[..]),
         }
@@ -237,8 +244,12 @@ fn apply_document_changes(
     // set to infinity at first, to avoid rebuilding the index on the first change
     let mut index_valid_until = !0u32;
     for change in content_changes {
-        // The None case can't happen
-        let range = change.range.unwrap();
+        let Some(range) = change.range else {
+            text = change.text.clone();
+            *Arc::make_mut(&mut line_info.index) = LineIndex::new(&text);
+            index_valid_until = !0u32;
+            continue;
+        };
         if index_valid_until <= range.end.line {
             *Arc::make_mut(&mut line_info.index) = LineIndex::new(&text);
         }

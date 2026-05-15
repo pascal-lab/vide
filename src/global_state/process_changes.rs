@@ -152,8 +152,20 @@ impl GlobalState {
                             *change = Modify(new, new_ending);
                             *just_created = true;
                         }
-                        (Delete, _, Modify(_, _)) | (Modify(_, _), _, Create(_, _)) => {
-                            unreachable!()
+                        (change @ Delete, _, Modify(new, new_ending)) => {
+                            tracing::debug!(
+                                ?changed_file.file_id,
+                                "received modify after delete while coalescing VFS changes"
+                            );
+                            *change = Modify(new, new_ending);
+                        }
+                        (Modify(prev, prev_ending), _, Create(new, new_ending)) => {
+                            tracing::debug!(
+                                ?changed_file.file_id,
+                                "received create after modify while coalescing VFS changes"
+                            );
+                            *prev = new;
+                            *prev_ending = new_ending;
                         }
                     }
                 }
@@ -185,7 +197,16 @@ impl GlobalState {
             self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
                 let mut results = Vec::with_capacity(files.len());
                 for file_id in files {
-                    let uri = snapshot.url(file_id);
+                    let uri = match snapshot.url(file_id) {
+                        Ok(uri) => uri,
+                        Err(error) => {
+                            tracing::debug!(
+                                ?file_id,
+                                "skipping push diagnostics for file without URI: {error:#}"
+                            );
+                            continue;
+                        }
+                    };
                     let version = snapshot.file_version(file_id);
 
                     let diagnostics = match snapshot.diagnostics(file_id) {

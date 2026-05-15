@@ -112,7 +112,10 @@ define_semantic_token_kind! {
 
 impl ops::BitOrAssign<lsp_types::SemanticTokenModifier> for SemaTokenModifierSet {
     fn bitor_assign(&mut self, rhs: lsp_types::SemanticTokenModifier) {
-        let idx = SEMA_TOKENS_MODIFIERS.iter().position(|it| it == &rhs).unwrap();
+        let Some(idx) = SEMA_TOKENS_MODIFIERS.iter().position(|it| it == &rhs) else {
+            tracing::debug!(?rhs, "unknown semantic token modifier");
+            return;
+        };
         self.0 |= 1 << idx;
     }
 }

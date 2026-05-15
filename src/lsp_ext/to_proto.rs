@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use hir::container::InFile;
 use ide::{
-    Cancellable, SymbolKind,
+    SymbolKind,
     code_action::{CodeAction, CodeActionKind},
     code_lens::{CodeLens, CodeLensKind},
     diagnostics as ide_diagnostics,
@@ -23,7 +23,7 @@ use itertools::Itertools;
 use span::{FilePosition, FileRange};
 use syntax::DiagnosticSeverity as SlangDiagnosticSeverity;
 use utils::{
-    line_index::{TextRange, TextSize},
+    line_index::{LineCol, LineIndex, TextRange, TextSize},
     lines::{LineEnding, LineInfo, PositionEncoding},
     paths::{
         AbsPath,
@@ -48,7 +48,7 @@ pub(crate) fn goto_definition_response(
     snap: &GlobalStateSnapshot,
     src: Option<FileRange>,
     targets: Vec<NavTarget>,
-) -> Cancellable<lsp_types::GotoDefinitionResponse> {
+) -> anyhow::Result<lsp_types::GotoDefinitionResponse> {
     let res = if snap.config.location_link() {
         let links = targets
             .into_iter()
@@ -56,7 +56,7 @@ pub(crate) fn goto_definition_response(
                 (*file_id, *full_range, *focus_range)
             })
             .map(|nav| location_link(snap, src, nav))
-            .collect::<Cancellable<Vec<_>>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
         links.into()
     } else {
         let locations = targets
@@ -64,7 +64,7 @@ pub(crate) fn goto_definition_response(
             .map(|nav| FileRange { file_id: nav.file_id, range: nav.focus_or_full_range() })
             .unique()
             .map(|file_range| location(snap, file_range))
-            .collect::<Cancellable<Vec<_>>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
         locations.into()
     };
     Ok(res)
@@ -225,7 +225,7 @@ fn location_link(
     snap: &GlobalStateSnapshot,
     src: Option<FileRange>,
     target: NavTarget,
-) -> Cancellable<lsp_types::LocationLink> {
+) -> anyhow::Result<lsp_types::LocationLink> {
     let origin_selection_range = try {
         let FileRange { file_id, range } = src?;
         let line_info = snap.line_info(file_id).ok()?;
@@ -245,33 +245,34 @@ fn location_link(
 fn location_info(
     snap: &GlobalStateSnapshot,
     NavTarget { file_id, full_range, focus_range, .. }: NavTarget,
-) -> Cancellable<(lsp_types::Url, lsp_types::Range, lsp_types::Range)> {
+) -> anyhow::Result<(lsp_types::Url, lsp_types::Range, lsp_types::Range)> {
     let line_info = snap.line_info(file_id)?;
 
-    let target_uri = url(snap, file_id);
+    let target_uri = url(snap, file_id)?;
     let target_range = self::range(&line_info, full_range);
     let target_selection_range =
         focus_range.map(|it| self::range(&line_info, it)).unwrap_or(target_range);
     Ok((target_uri, target_range, target_selection_range))
 }
 
-pub(crate) fn url(snap: &GlobalStateSnapshot, file_id: FileId) -> lsp_types::Url {
+pub(crate) fn url(snap: &GlobalStateSnapshot, file_id: FileId) -> anyhow::Result<lsp_types::Url> {
     snap.url(file_id)
 }
 
-pub(crate) fn url_from_abs_path(path: &AbsPath) -> lsp_types::Url {
-    let url = lsp_types::Url::from_file_path(path).unwrap();
+pub(crate) fn url_from_abs_path(path: &AbsPath) -> anyhow::Result<lsp_types::Url> {
+    let url = lsp_types::Url::from_file_path(path)
+        .map_err(|()| anyhow::format_err!("failed to convert file path to URL: {path}"))?;
 
     let Some(Utf8Component::Prefix(prefix)) = path.components().next() else {
-        return url;
+        return Ok(url);
     };
 
     if !matches!(prefix.kind(), Utf8Prefix::Disk(_) | Utf8Prefix::VerbatimDisk(_)) {
-        return url;
+        return Ok(url);
     }
 
     let Some((scheme, drive_letter, _)) = url.as_str().splitn(3, ':').collect_tuple() else {
-        return url;
+        return Ok(url);
     };
 
     let start = scheme.len() + ':'.len_utf8();
@@ -281,7 +282,7 @@ pub(crate) fn url_from_abs_path(path: &AbsPath) -> lsp_types::Url {
     // also canonicalizes the drive letter.
     let mut url: String = url.into();
     url[driver_letter_range].make_ascii_lowercase();
-    lsp_types::Url::parse(&url).unwrap()
+    lsp_types::Url::parse(&url).with_context(|| format!("failed to parse file URL: {url}"))
 }
 
 pub(crate) fn range(line_info: &LineInfo, range: TextRange) -> lsp_types::Range {
@@ -293,8 +294,8 @@ pub(crate) fn range(line_info: &LineInfo, range: TextRange) -> lsp_types::Range 
 pub(crate) fn location(
     snap: &GlobalStateSnapshot,
     FileRange { file_id, range }: FileRange,
-) -> Cancellable<lsp_types::Location> {
-    let url = url(snap, file_id);
+) -> anyhow::Result<lsp_types::Location> {
+    let url = url(snap, file_id)?;
     let line_info = snap.line_info(file_id)?;
     let range = self::range(&line_info, range);
     Ok(lsp_types::Location::new(url, range))
@@ -304,13 +305,32 @@ pub(crate) fn position(
     LineInfo { index, encoding, .. }: &LineInfo,
     offset: TextSize,
 ) -> lsp_types::Position {
-    let line_col = index.line_col(offset.min(index.text_len()));
+    let line_col = line_col_for_position(index, offset);
     match *encoding {
         PositionEncoding::Utf8 => lsp_types::Position::new(line_col.line, line_col.col),
-        PositionEncoding::Wide(enc) => {
-            let line_col = index.to_wide(enc, line_col).unwrap();
-            lsp_types::Position::new(line_col.line, line_col.col)
+        PositionEncoding::Wide(enc) => match index.to_wide(enc, line_col) {
+            Some(line_col) => lsp_types::Position::new(line_col.line, line_col.col),
+            None => {
+                tracing::debug!(?line_col, "failed to convert UTF-8 position to wide encoding");
+                lsp_types::Position::new(line_col.line, line_col.col)
+            }
+        },
+    }
+}
+
+fn line_col_for_position(index: &LineIndex, offset: TextSize) -> LineCol {
+    let mut offset = u32::from(offset.min(index.text_len()));
+    loop {
+        let text_size = TextSize::from(offset);
+        if let Some(line_col) = index.try_line_col(text_size) {
+            return line_col;
         }
+
+        if offset == 0 {
+            tracing::debug!("failed to map offset to a valid line/column; using start of file");
+            return LineCol { line: 0, col: 0 };
+        }
+        offset -= 1;
     }
 }
 
@@ -330,11 +350,11 @@ pub(crate) fn code_action_resolve_error(err: Error) -> LspError {
 pub(crate) fn workspace_edit(
     snap: &GlobalStateSnapshot,
     source_change: SourceChange,
-) -> Cancellable<lsp_types::WorkspaceEdit> {
+) -> anyhow::Result<lsp_types::WorkspaceEdit> {
     let mut document_changes = Vec::with_capacity(source_change.text_edits.len());
 
     for (file_id, edit) in source_change.text_edits {
-        let text_document = optional_versioned_text_document_identifier(snap, file_id);
+        let text_document = optional_versioned_text_document_identifier(snap, file_id)?;
         let line_info = snap.line_info(file_id)?;
         let edits =
             edit.into_iter().map(|it| lsp_types::OneOf::Left(text_edit(&line_info, it))).collect();
@@ -353,10 +373,10 @@ pub(crate) fn workspace_edit(
 pub(crate) fn optional_versioned_text_document_identifier(
     snap: &GlobalStateSnapshot,
     file_id: FileId,
-) -> lsp_types::OptionalVersionedTextDocumentIdentifier {
-    let url = url(snap, file_id);
+) -> anyhow::Result<lsp_types::OptionalVersionedTextDocumentIdentifier> {
+    let url = url(snap, file_id)?;
     let version = snap.url_file_version(&url);
-    lsp_types::OptionalVersionedTextDocumentIdentifier { uri: url, version }
+    Ok(lsp_types::OptionalVersionedTextDocumentIdentifier { uri: url, version })
 }
 
 pub(crate) fn text_edit(line_info: &LineInfo, item: TextEditItem) -> lsp_types::TextEdit {
@@ -541,7 +561,7 @@ pub(crate) fn code_lens_kind(
     line_info: &LineInfo,
     kind: CodeLensKind,
 ) -> anyhow::Result<(Option<lsp_types::Command>, Option<serde_json::Value>)> {
-    let url = self::url(snap, file_id);
+    let url = self::url(snap, file_id)?;
 
     let command = match kind {
         CodeLensKind::ModuleInstance { data, .. } => data.map(|ranges| {
@@ -559,9 +579,7 @@ pub(crate) fn code_lens_kind(
         CodeLensKind::ModuleInstance { pos: FilePosition { offset, .. }, .. } => {
             snap.url_file_version(&url).and_then(|version| {
                 let file_pos = lsp_types::TextDocumentPositionParams {
-                    text_document: lsp_types::TextDocumentIdentifier {
-                        uri: self::url(snap, file_id),
-                    },
+                    text_document: lsp_types::TextDocumentIdentifier { uri: url.clone() },
                     position: self::position(line_info, offset),
                 };
                 let data =
@@ -596,6 +614,17 @@ impl SemanticTokensBuilder {
         let lsp_types::Position { line: mut push_line, character: mut push_char } = range.start;
 
         if !self.data.is_empty() {
+            if push_line < self.prev_line
+                || (push_line == self.prev_line && push_char < self.prev_char)
+            {
+                tracing::debug!(
+                    ?range,
+                    prev_line = self.prev_line,
+                    prev_char = self.prev_char,
+                    "skipping out-of-order semantic token"
+                );
+                return;
+            }
             push_line -= self.prev_line;
             if push_line == 0 {
                 push_char -= self.prev_char;
@@ -605,7 +634,7 @@ impl SemanticTokensBuilder {
         let token = lsp_types::SemanticToken {
             delta_line: push_line,
             delta_start: push_char,
-            length: range.end.character - range.start.character, // Token can be multiline
+            length: range.end.character.saturating_sub(range.start.character),
             token_type,
             token_modifiers_bitset,
         };
@@ -640,9 +669,15 @@ pub(crate) fn semantic_tokens(
             SemaTokenTag::Type => sema_token_types::TYPE_ALIAS,
             SemaTokenTag::None => sema_token_types::GENERIC,
         };
-        // WORKAROUND: currently we haven't implemented client.
-        let ty = sema_token_types::fallback(ty).unwrap();
-        let ty = SEMA_TOKENS_TYPES.iter().position(|it| it == &ty).unwrap() as u32;
+        // Prefer standard tokens where we have an explicit fallback, otherwise
+        // keep the token from the advertised legend.
+        let legend_ty = sema_token_types::fallback(ty.clone()).unwrap_or(ty);
+        let Some(ty) =
+            SEMA_TOKENS_TYPES.iter().position(|it| it == &legend_ty).map(|idx| idx as u32)
+        else {
+            tracing::debug!(?legend_ty, "skipping semantic token with unknown type");
+            continue;
+        };
 
         let mut mods_set = SemaTokenModifierSet::default();
         for modifier in mods {
@@ -652,10 +687,14 @@ pub(crate) fn semantic_tokens(
                 SemaTokenModifier::READ => sema_token_modifiers::READ,
                 SemaTokenModifier::WRITE => sema_token_modifiers::WRITE,
                 SemaTokenModifier::REF => sema_token_modifiers::REF,
-                _ => unreachable!(),
+                modifier => {
+                    tracing::debug!(?modifier, "skipping unknown semantic token modifier");
+                    continue;
+                }
             };
-            // WORKAROUND: currently we haven't implemented client.
-            mods_set |= sema_token_modifiers::fallback(modifier).unwrap();
+            // Prefer standard modifiers where we have an explicit fallback,
+            // otherwise keep the modifier from the advertised legend.
+            mods_set |= sema_token_modifiers::fallback(modifier.clone()).unwrap_or(modifier);
         }
         let mods = mods_set.finish();
 
@@ -763,7 +802,7 @@ pub(crate) fn code_action(
     CodeAction { id, label, source_change, .. }: CodeAction,
     resolve_data: Option<(usize, lsp_types::CodeActionParams, Option<i32>)>,
     diagnostics: Option<Vec<lsp_types::Diagnostic>>,
-) -> Cancellable<lsp_types::CodeAction> {
+) -> anyhow::Result<lsp_types::CodeAction> {
     let mut res = lsp_types::CodeAction {
         title: label,
         kind: Some(self::code_action_kind(id.kind)),
@@ -783,10 +822,13 @@ pub(crate) fn code_action(
                 code_action_params,
                 version,
             };
-            res.data = Some(serde_json::to_value(data).unwrap());
+            res.data = Some(serde_json::to_value(data)?);
         }
         (None, None) => {
-            unreachable!("code actions should be resolved if client can't resolve lazily")
+            return Err(anyhow::format_err!(
+                "code action '{}' has no edit and no resolve data",
+                id.name
+            ));
         }
     };
     Ok(res)

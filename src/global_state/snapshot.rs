@@ -42,7 +42,10 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn line_info(&self, file_id: FileId) -> Cancellable<LineInfo> {
-        let ending = self.vfs.read().1[&file_id];
+        let ending = self.vfs.read().1.get(&file_id).copied().unwrap_or_else(|| {
+            tracing::debug!(?file_id, "missing line ending metadata; assuming LF");
+            LineEnding::Unix
+        });
         let index = self.analysis.line_index(file_id)?;
         let encoding = self.config.position_encoding();
         let res = LineInfo { index, ending, encoding };
@@ -119,10 +122,12 @@ impl GlobalStateSnapshot {
         vfs.0.iter().map(|(file_id, _)| file_id).collect()
     }
 
-    pub(crate) fn url(&self, id: FileId) -> Url {
+    pub(crate) fn url(&self, id: FileId) -> anyhow::Result<Url> {
         let vfs = &self.vfs_read();
         let path = vfs.file_path(id);
-        let path = path.as_abs_path().unwrap();
+        let path = path
+            .as_abs_path()
+            .ok_or_else(|| anyhow::format_err!("file {id:?} has no file URI: {path}"))?;
         to_proto::url_from_abs_path(path)
     }
 

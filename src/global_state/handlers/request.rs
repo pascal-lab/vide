@@ -131,9 +131,19 @@ pub(crate) fn handle_workspace_diagnostic(
         .previous_result_ids
         .into_iter()
         .map(|prev| {
-            let uri = from_proto::abs_path(&prev.uri)
-                .map(|path| to_proto::url_from_abs_path(path.as_ref()))
-                .unwrap_or(prev.uri);
+            let original_uri = prev.uri;
+            let uri = match from_proto::abs_path(&original_uri)
+                .and_then(|path| to_proto::url_from_abs_path(path.as_ref()))
+            {
+                Ok(uri) => uri,
+                Err(error) => {
+                    tracing::debug!(
+                        uri = %original_uri,
+                        "keeping previous diagnostic URI as-is: {error:#}"
+                    );
+                    original_uri
+                }
+            };
             (uri, prev.value)
         })
         .collect::<HashMap<_, _>>();
@@ -155,7 +165,13 @@ pub(crate) fn handle_workspace_diagnostic(
     }
 
     for file_id in snap.file_ids() {
-        let uri = to_proto::url(&snap, file_id);
+        let uri = match to_proto::url(&snap, file_id) {
+            Ok(uri) => uri,
+            Err(error) => {
+                tracing::debug!(?file_id, "skipping diagnostics for file without URI: {error:#}");
+                continue;
+            }
+        };
         seen.insert(uri.clone());
 
         let diagnostics = diagnostics_by_file.remove(&file_id).unwrap_or_default();
@@ -267,7 +283,7 @@ pub(crate) fn handle_document_symbol(
             .into()
     } else {
         let mut res = Vec::new();
-        let url = to_proto::url(&snap, file_id);
+        let url = to_proto::url(&snap, file_id)?;
         symbols.into_iter().for_each(|symbol| {
             to_proto::document_symbol_information(symbol, url.clone(), &line_info, &mut res);
         });
