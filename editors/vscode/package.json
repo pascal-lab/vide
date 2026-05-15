@@ -56,7 +56,7 @@
       }
     ],
     "configuration": {
-      "title": "Vizsla Language Server",
+      "title": "Vizsla",
       "properties": {
         "vizsla.trace.server": {
           "type": "string",
@@ -100,124 +100,180 @@
           "default": [],
           "description": "Additional arguments appended when launching the Vizsla language server."
         },
-        "vizsla.diagnostics": {
-          "type": "object",
-          "default": {
-            "enable": true,
-            "parse": {
-              "enable": true
-            },
-            "semantic": {
-              "enable": true
-            },
-            "slang": {
-              "warnings": [],
-              "rules": []
-            }
+        "vizsla.files.excludeDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
           },
-          "markdownDescription": "Controls Vizsla diagnostics. Use this object for advanced diagnostic filtering and severity overrides.",
-          "properties": {
-            "enable": {
-              "type": "boolean",
-              "default": true,
-              "description": "Enable all Vizsla diagnostics."
-            },
-            "update": {
-              "type": "string",
-              "enum": [
-                "onSave",
-                "onType"
-              ],
-              "default": "onSave",
-              "markdownDescription": "Controls when diagnostics are refreshed. `onSave` avoids running expensive diagnostics on every edit; `onType` refreshes diagnostics after document changes."
-            },
-            "parse": {
-              "type": "object",
-              "default": {
-                "enable": true
-              },
-              "description": "Controls syntax and parse diagnostics.",
-              "properties": {
-                "enable": {
-                  "type": "boolean",
-                  "default": true,
-                  "description": "Enable syntax and parse diagnostics."
-                }
-              },
-              "additionalProperties": false
-            },
-            "semantic": {
-              "type": "object",
-              "default": {
-                "enable": true
-              },
-              "description": "Controls compilation and semantic diagnostics.",
-              "properties": {
-                "enable": {
-                  "type": "boolean",
-                  "default": true,
-                  "description": "Enable compilation and semantic diagnostics."
-                }
-              },
-              "additionalProperties": false
-            },
-            "slang": {
-              "type": "object",
-              "default": {
-                "warnings": [],
-                "rules": []
-              },
-              "description": "Controls diagnostics produced by slang.",
-              "properties": {
-                "warnings": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "default": [],
-                  "markdownDescription": "slang warning options, equivalent to command-line warning names such as `default`, `everything`, `none`, `error`, `no-<name>`, or `error=<name>`."
-                },
-                "rules": {
-                  "type": "array",
-                  "default": [],
-                  "markdownDescription": "Rules that filter or override diagnostic severities. Supported selectors: `code:<subsystem>:<code>`, `option:<name>`, `group:<name>`, `source:parse`, `source:semantic`.",
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "selector",
-                      "severity"
-                    ],
-                    "properties": {
-                      "selector": {
-                        "type": "string",
-                        "pattern": "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$",
-                        "markdownDescription": "Diagnostic selector. Examples: `code:1:2`, `option:unconnected-port`, `group:default`, `source:semantic`."
-                      },
-                      "severity": {
-                        "type": "string",
-                        "enum": [
-                          "ignore",
-                          "info",
-                          "warning",
-                          "error",
-                          "fatal"
-                        ],
-                        "description": "Severity to apply when this rule matches. Use ignore to hide the diagnostic."
-                      },
-                      "force": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Reserved for future support for overriding in-source diagnostic pragmas."
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                }
-              },
-              "additionalProperties": false
-            }
+          "default": [],
+          "markdownDescription": "Workspace-relative directories ignored by Vizsla. Globs are not supported; add matching patterns to VS Code `files.watcherExclude` if needed."
+        },
+        "vizsla.files.watcher": {
+          "type": "string",
+          "enum": [
+            "client",
+            "notify",
+            "server"
+          ],
+          "default": "client",
+          "enumDescriptions": [
+            "Use VS Code watched-file notifications when supported.",
+            "Use the server-side notify watcher.",
+            "Use the server-side watcher."
+          ],
+          "description": "Controls how Vizsla watches project files."
+        },
+        "vizsla.workspace.auto.reload": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh project information when project manifests change."
+        },
+        "vizsla.scope.visibility": {
+          "type": "string",
+          "enum": [
+            "private",
+            "public"
+          ],
+          "default": "private",
+          "description": "Controls whether symbols inside scopes, except ports, are visible outside those scopes."
+        },
+        "vizsla.formatter.path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Path to an external formatter executable. Leave empty to use the default formatter."
+        },
+        "vizsla.formatter.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
           },
-          "additionalProperties": false
+          "default": [
+            "--indentation_spaces=4",
+            "--failsafe_success=false"
+          ],
+          "description": "Arguments passed to the formatter."
+        },
+        "vizsla.formatting.on.enter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable formatting behavior when pressing Enter."
+        },
+        "vizsla.formatting.in.comments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable formatting inside comments."
+        },
+        "vizsla.formatting.indent.width": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 4,
+          "description": "Number of spaces used for formatting indentation."
+        },
+        "vizsla.inlayHints.port.connection.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inlay hints for port connections."
+        },
+        "vizsla.inlayHints.parameter.assignment.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inlay hints for parameter assignments."
+        },
+        "vizsla.inlayHints.end.structure.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inlay hints for ending structure names."
+        },
+        "vizsla.lens.instantiations.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show code lenses for module instantiations."
+        },
+        "vizsla.semantic.tokens.port.clk.rst.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight clock and reset ports with dedicated semantic token modifiers."
+        },
+        "vizsla.semantic.tokens.port.input.output.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight input and output ports with dedicated semantic token modifiers."
+        },
+        "vizsla.diagnostics.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable all Vizsla diagnostics."
+        },
+        "vizsla.diagnostics.update": {
+          "type": "string",
+          "enum": [
+            "onSave",
+            "onType"
+          ],
+          "default": "onSave",
+          "markdownDescription": "Controls when diagnostics are refreshed. `onSave` avoids running expensive diagnostics on every edit; `onType` refreshes diagnostics after document changes."
+        },
+        "vizsla.diagnostics.parse.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable syntax and parse diagnostics."
+        },
+        "vizsla.diagnostics.semantic.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable compilation and semantic diagnostics."
+        },
+        "vizsla.diagnostics.slang.warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "slang warning options, equivalent to command-line warning names such as `default`, `everything`, `none`, `error`, `no-<name>`, or `error=<name>`."
+        },
+        "vizsla.diagnostics.slang.rules": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Rules that filter or override diagnostic severities. Supported selectors: `code:<subsystem>:<code>`, `option:<name>`, `group:<name>`, `source:parse`, `source:semantic`.",
+          "items": {
+            "type": "object",
+            "required": [
+              "selector",
+              "severity"
+            ],
+            "properties": {
+              "selector": {
+                "type": "string",
+                "pattern": "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$",
+                "markdownDescription": "Diagnostic selector. Examples: `code:1:2`, `option:unconnected-port`, `group:default`, `source:semantic`."
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "ignore",
+                  "info",
+                  "warning",
+                  "error",
+                  "fatal"
+                ],
+                "description": "Severity to apply when this rule matches. Use ignore to hide the diagnostic."
+              },
+              "force": {
+                "type": "boolean",
+                "default": false,
+                "description": "Reserved for future support for overriding in-source diagnostic pragmas."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "vizsla.signature.help.params.only": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show signature help for parameters only."
         }
       }
     },

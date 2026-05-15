@@ -20,4 +20,4 @@ When server launch settings change, the extension prompts you to restart the lan
 
 The extension launches the bundled server by default. Advanced users can override the server command with `vizsla.server.command` and pass additional arguments with `vizsla.server.args` or `vizsla.server.additionalArgs`.
 
-Diagnostics can be configured through `vizsla.diagnostics`, including parse diagnostics, semantic diagnostics, and slang warning or severity rules.
+Most language server behavior can be configured from VS Code Settings under `Vizsla`, including diagnostics, file watching, formatting, inlay hints, code lenses, semantic tokens, and signature help.
