@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, sync::OnceLock};
 
 use hir::db::HirDb;
 use ide_db::root_db::RootDb;
-use serde::Deserialize;
 use span::FilePosition;
+use syntax::{SyntaxFacts, SyntaxKind, TokenKind};
 use utils::text_edit::TextEditItem;
 
 use super::named::{CompletionItem, CompletionItemKind};
@@ -18,14 +18,10 @@ pub(super) fn complete_keywords(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    let all = match ctx.site {
-        CompletionSite::TopLevel => top_level_keywords(),
-        CompletionSite::ModuleHeader => module_header_keywords(),
-        CompletionSite::ModuleItemStart => module_item_keywords(),
-        _ => return Vec::new(),
-    };
-    let mut items: Vec<_> = all
+    let mut items: Vec<_> = keywords_config()
+        .all
         .iter()
+        .filter(|kw| kw.is_allowed_at(ctx.site))
         .filter(|kw| kw.label.starts_with(prefix))
         .map(|kw| kw.to_completion(ctx.replacement))
         .collect();
@@ -35,26 +31,31 @@ pub(super) fn complete_keywords(
     items
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Default)]
 struct KeywordsConfig {
-    #[serde(default)]
-    top_level: Vec<Keyword>,
-    #[serde(default)]
-    module_header: Vec<Keyword>,
-    #[serde(default)]
-    module_item: Vec<Keyword>,
+    all: Vec<Keyword>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 struct Keyword {
     label: String,
     plain: String,
     snippet: Option<String>,
     kind: KeywordKind,
+    roles: Vec<SyntaxRole>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyntaxRole {
+    Site(CompletionSite),
+    TopLevelItem(SyntaxKind),
+    ModuleHeader,
+    ModuleMember(SyntaxKind),
+    BlockDeclaration,
+    Statement(TokenKind),
+}
+
+#[derive(Debug, Clone, Copy)]
 enum KeywordKind {
     Keyword,
     Snippet,
@@ -70,6 +71,10 @@ impl KeywordKind {
 }
 
 impl Keyword {
+    fn is_allowed_at(&self, site: CompletionSite) -> bool {
+        self.roles.iter().any(|role| role.is_allowed_at(site))
+    }
+
     fn to_completion(&self, replace: utils::text_edit::TextRange) -> CompletionItem {
         CompletionItem {
             label: self.label.clone(),
@@ -79,28 +84,194 @@ impl Keyword {
         }
     }
 }
-fn snippets_to_keywords(entries: Vec<snippets::SnippetEntry>) -> Vec<Keyword> {
+
+impl SyntaxRole {
+    fn is_allowed_at(self, site: CompletionSite) -> bool {
+        match self {
+            SyntaxRole::Site(role_site) => site == role_site,
+            SyntaxRole::TopLevelItem(kind) => {
+                site == CompletionSite::TopLevelItemStart
+                    && SyntaxFacts::is_allowed_in_compilation_unit(kind)
+            }
+            SyntaxRole::ModuleHeader => site == CompletionSite::ModuleHeader,
+            SyntaxRole::ModuleMember(kind) => {
+                site == CompletionSite::ModuleMemberStart && SyntaxFacts::is_allowed_in_module(kind)
+            }
+            SyntaxRole::BlockDeclaration => site == CompletionSite::BlockDeclStart,
+            SyntaxRole::Statement(kind) => {
+                matches!(
+                    site,
+                    CompletionSite::BlockDeclStart | CompletionSite::ProceduralStatementStart
+                ) && SyntaxFacts::is_possible_statement(kind)
+            }
+        }
+    }
+}
+
+fn snippets_to_keywords(
+    entries: Vec<snippets::SnippetEntry>,
+    roles_for_label: fn(&str) -> Vec<SyntaxRole>,
+) -> Vec<Keyword> {
     entries
         .into_iter()
-        .map(|entry| Keyword {
-            label: entry.label,
-            plain: entry.plain,
-            snippet: Some(entry.snippet),
-            kind: KeywordKind::Snippet,
+        .filter_map(|entry| {
+            let roles = roles_for_label(&entry.label);
+            (!roles.is_empty()).then_some(Keyword {
+                label: entry.label,
+                plain: entry.plain,
+                snippet: Some(entry.snippet),
+                kind: KeywordKind::Snippet,
+                roles,
+            })
         })
         .collect()
 }
 
-fn top_level_keywords() -> &'static [Keyword] {
-    &keywords_config().top_level
+fn keyword(
+    label: impl Into<String>,
+    plain: impl Into<String>,
+    snippet: Option<String>,
+    kind: KeywordKind,
+    roles: Vec<SyntaxRole>,
+) -> Keyword {
+    Keyword { label: label.into(), plain: plain.into(), snippet, kind, roles }
 }
 
-fn module_header_keywords() -> &'static [Keyword] {
-    &keywords_config().module_header
+fn top_level_snippet_roles(label: &str) -> Vec<SyntaxRole> {
+    match label {
+        "module" | "macromodule" => vec![SyntaxRole::TopLevelItem(SyntaxKind::MODULE_DECLARATION)],
+        "primitive" => vec![SyntaxRole::TopLevelItem(SyntaxKind::UDP_DECLARATION)],
+        "config" => vec![SyntaxRole::TopLevelItem(SyntaxKind::CONFIG_DECLARATION)],
+        "library" => vec![SyntaxRole::Site(CompletionSite::TopLevelItemStart)],
+        _ => Vec::new(),
+    }
 }
 
-fn module_item_keywords() -> &'static [Keyword] {
-    &keywords_config().module_item
+fn module_item_snippet_roles(label: &str) -> Vec<SyntaxRole> {
+    match label {
+        "wire" | "tri" | "tri0" | "tri1" | "trireg" | "triand" | "trior" | "wand" | "wor"
+        | "supply0" | "supply1" => vec![SyntaxRole::ModuleMember(SyntaxKind::NET_DECLARATION)],
+        "reg" | "integer" | "real" | "realtime" | "time" | "event" => vec![
+            SyntaxRole::ModuleMember(SyntaxKind::DATA_DECLARATION),
+            SyntaxRole::BlockDeclaration,
+        ],
+        "parameter" | "localparam" => vec![
+            SyntaxRole::ModuleMember(SyntaxKind::PARAMETER_DECLARATION_STATEMENT),
+            SyntaxRole::BlockDeclaration,
+        ],
+        "specparam" => vec![SyntaxRole::ModuleMember(SyntaxKind::SPECPARAM_DECLARATION)],
+        "defparam" => vec![SyntaxRole::ModuleMember(SyntaxKind::DEF_PARAM)],
+        "genvar" => vec![SyntaxRole::ModuleMember(SyntaxKind::GENVAR_DECLARATION)],
+        "generate" => vec![SyntaxRole::ModuleMember(SyntaxKind::GENERATE_REGION)],
+        "function" => vec![SyntaxRole::ModuleMember(SyntaxKind::FUNCTION_DECLARATION)],
+        "task" => vec![SyntaxRole::ModuleMember(SyntaxKind::TASK_DECLARATION)],
+        "assign" => vec![
+            SyntaxRole::ModuleMember(SyntaxKind::CONTINUOUS_ASSIGN),
+            SyntaxRole::Statement(syntax::Token![assign]),
+        ],
+        "deassign" => vec![SyntaxRole::Statement(syntax::Token![deassign])],
+        "force" => vec![SyntaxRole::Statement(syntax::Token![force])],
+        "release" => vec![SyntaxRole::Statement(syntax::Token![release])],
+        "always" | "always @(*)" => vec![SyntaxRole::ModuleMember(SyntaxKind::ALWAYS_BLOCK)],
+        "initial" => vec![SyntaxRole::ModuleMember(SyntaxKind::INITIAL_BLOCK)],
+        "begin" => vec![SyntaxRole::Statement(syntax::Token![begin])],
+        "fork" => vec![SyntaxRole::Statement(syntax::Token![fork])],
+        "if" | "ifelse" => vec![SyntaxRole::Statement(syntax::Token![if])],
+        "case" => vec![SyntaxRole::Statement(syntax::Token![case])],
+        "casez" => vec![SyntaxRole::Statement(syntax::Token![casez])],
+        "casex" => vec![SyntaxRole::Statement(syntax::Token![casex])],
+        "for" => vec![SyntaxRole::Statement(syntax::Token![for])],
+        "while" => vec![SyntaxRole::Statement(syntax::Token![while])],
+        "repeat" => vec![SyntaxRole::Statement(syntax::Token![repeat])],
+        "forever" => vec![SyntaxRole::Statement(syntax::Token![forever])],
+        "disable" => vec![SyntaxRole::Statement(syntax::Token![disable])],
+        "wait" => vec![SyntaxRole::Statement(syntax::Token![wait])],
+        "specify" => vec![SyntaxRole::ModuleMember(SyntaxKind::SPECIFY_BLOCK)],
+        _ => Vec::new(),
+    }
+}
+
+fn module_header_snippet_roles(_label: &str) -> Vec<SyntaxRole> {
+    Vec::new()
+}
+
+fn generated_keyword_roles(label: &str) -> Option<Vec<SyntaxRole>> {
+    let roles = match label {
+        "module" | "macromodule" => vec![SyntaxRole::TopLevelItem(SyntaxKind::MODULE_DECLARATION)],
+        "primitive" => vec![SyntaxRole::TopLevelItem(SyntaxKind::UDP_DECLARATION)],
+        "config" => vec![SyntaxRole::TopLevelItem(SyntaxKind::CONFIG_DECLARATION)],
+        "library" | "liblist" => vec![SyntaxRole::Site(CompletionSite::TopLevelItemStart)],
+        "input" | "output" | "inout" | "ref" | "signed" | "unsigned" => {
+            vec![SyntaxRole::ModuleHeader]
+        }
+        "wire" | "tri" | "tri0" | "tri1" | "trireg" | "triand" | "trior" | "wand" | "wor"
+        | "supply0" | "supply1" => {
+            vec![SyntaxRole::ModuleHeader, SyntaxRole::ModuleMember(SyntaxKind::NET_DECLARATION)]
+        }
+        "reg" | "integer" | "real" | "realtime" | "time" | "event" => vec![
+            SyntaxRole::ModuleHeader,
+            SyntaxRole::ModuleMember(SyntaxKind::DATA_DECLARATION),
+            SyntaxRole::BlockDeclaration,
+        ],
+        "parameter" | "localparam" => vec![
+            SyntaxRole::ModuleHeader,
+            SyntaxRole::ModuleMember(SyntaxKind::PARAMETER_DECLARATION_STATEMENT),
+            SyntaxRole::BlockDeclaration,
+        ],
+        "specparam" => vec![SyntaxRole::ModuleMember(SyntaxKind::SPECPARAM_DECLARATION)],
+        "defparam" => vec![SyntaxRole::ModuleMember(SyntaxKind::DEF_PARAM)],
+        "genvar" => vec![SyntaxRole::ModuleMember(SyntaxKind::GENVAR_DECLARATION)],
+        "generate" => vec![SyntaxRole::ModuleMember(SyntaxKind::GENERATE_REGION)],
+        "function" => vec![SyntaxRole::ModuleMember(SyntaxKind::FUNCTION_DECLARATION)],
+        "task" => vec![SyntaxRole::ModuleMember(SyntaxKind::TASK_DECLARATION)],
+        "assign" => vec![
+            SyntaxRole::ModuleMember(SyntaxKind::CONTINUOUS_ASSIGN),
+            SyntaxRole::Statement(syntax::Token![assign]),
+        ],
+        "initial" => vec![SyntaxRole::ModuleMember(SyntaxKind::INITIAL_BLOCK)],
+        "final" => vec![SyntaxRole::ModuleMember(SyntaxKind::FINAL_BLOCK)],
+        "always" => vec![SyntaxRole::ModuleMember(SyntaxKind::ALWAYS_BLOCK)],
+        "specify" => vec![SyntaxRole::ModuleMember(SyntaxKind::SPECIFY_BLOCK)],
+        "deassign" => vec![SyntaxRole::Statement(syntax::Token![deassign])],
+        "force" => vec![SyntaxRole::Statement(syntax::Token![force])],
+        "release" => vec![SyntaxRole::Statement(syntax::Token![release])],
+        "begin" => vec![SyntaxRole::Statement(syntax::Token![begin])],
+        "fork" => vec![SyntaxRole::Statement(syntax::Token![fork])],
+        "if" => vec![SyntaxRole::Statement(syntax::Token![if])],
+        "case" => vec![SyntaxRole::Statement(syntax::Token![case])],
+        "casez" => vec![SyntaxRole::Statement(syntax::Token![casez])],
+        "casex" => vec![SyntaxRole::Statement(syntax::Token![casex])],
+        "for" => vec![SyntaxRole::Statement(syntax::Token![for])],
+        "while" => vec![SyntaxRole::Statement(syntax::Token![while])],
+        "repeat" => vec![SyntaxRole::Statement(syntax::Token![repeat])],
+        "forever" => vec![SyntaxRole::Statement(syntax::Token![forever])],
+        "do" => vec![SyntaxRole::Statement(syntax::Token![do])],
+        "foreach" => vec![SyntaxRole::Statement(syntax::Token![foreach])],
+        "disable" => vec![SyntaxRole::Statement(syntax::Token![disable])],
+        "wait" => vec![SyntaxRole::Statement(syntax::Token![wait])],
+        "return" => vec![SyntaxRole::Statement(syntax::Token![return])],
+        "break" => vec![SyntaxRole::Statement(syntax::Token![break])],
+        "continue" => vec![SyntaxRole::Statement(syntax::Token![continue])],
+        "assert" => vec![SyntaxRole::Statement(syntax::Token![assert])],
+        "assume" => vec![SyntaxRole::Statement(syntax::Token![assume])],
+        "cover" => vec![SyntaxRole::Statement(syntax::Token![cover])],
+        _ => return None,
+    };
+
+    Some(roles)
+}
+
+fn generated_keywords() -> Vec<Keyword> {
+    let mut keywords = syntax::SyntaxToken::keyword_table_for_version("1364-2005");
+    keywords.sort();
+    keywords.dedup();
+    keywords
+        .into_iter()
+        .filter_map(|kw| {
+            let roles = generated_keyword_roles(&kw)?;
+            Some(keyword(kw.clone(), kw, None, KeywordKind::Keyword, roles))
+        })
+        .collect()
 }
 
 fn keywords_config() -> &'static KeywordsConfig {
@@ -108,20 +279,20 @@ fn keywords_config() -> &'static KeywordsConfig {
     KEYWORDS.get_or_init(|| {
         let manual = snippets::snippet_config();
 
-        KeywordsConfig {
-            top_level: combine_keywords(
-                generated_keywords(),
-                snippets_to_keywords(snippets::entries(&manual.top_level)),
-            ),
-            module_header: combine_keywords(
-                generated_keywords(),
-                snippets_to_keywords(snippets::entries(&manual.module_header)),
-            ),
-            module_item: combine_keywords(
-                generated_keywords(),
-                snippets_to_keywords(snippets::entries(&manual.module_item)),
-            ),
-        }
+        let snippets =
+            snippets_to_keywords(snippets::entries(&manual.top_level), top_level_snippet_roles)
+                .into_iter()
+                .chain(snippets_to_keywords(
+                    snippets::entries(&manual.module_header),
+                    module_header_snippet_roles,
+                ))
+                .chain(snippets_to_keywords(
+                    snippets::entries(&manual.module_item),
+                    module_item_snippet_roles,
+                ))
+                .collect();
+
+        KeywordsConfig { all: combine_keywords(generated_keywords(), snippets) }
     })
 }
 
@@ -143,21 +314,6 @@ fn combine_keywords(generated: Vec<Keyword>, snippets: Vec<Keyword>) -> Vec<Keyw
     combined
 }
 
-fn generated_keywords() -> Vec<Keyword> {
-    let mut keywords = syntax::SyntaxToken::keyword_table_for_version("1364-2005");
-    keywords.sort();
-    keywords.dedup();
-    keywords
-        .into_iter()
-        .map(|kw| Keyword {
-            label: kw.clone(),
-            plain: kw,
-            snippet: None,
-            kind: KeywordKind::Keyword,
-        })
-        .collect()
-}
-
 fn keyword_sort_key(keyword: &Keyword) -> u8 {
     match keyword.kind {
         KeywordKind::Keyword => 0,
@@ -172,7 +328,7 @@ fn module_instantiation_snippets(
 ) -> Vec<CompletionItem> {
     use hir::scope::UnitEntry;
 
-    if ctx.site != CompletionSite::ModuleItemStart {
+    if ctx.site != CompletionSite::ModuleMemberStart {
         return Vec::new();
     }
 

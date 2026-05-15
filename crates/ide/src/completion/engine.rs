@@ -50,9 +50,11 @@ fn completions_with_context(
 
     match ctx.site {
         CompletionSite::Forbidden | CompletionSite::PreprocDirective => Vec::new(),
-        CompletionSite::TopLevel
+        CompletionSite::TopLevelItemStart
         | CompletionSite::ModuleHeader
-        | CompletionSite::ModuleItemStart => {
+        | CompletionSite::ModuleMemberStart
+        | CompletionSite::BlockDeclStart
+        | CompletionSite::ProceduralStatementStart => {
             keywords::complete_keywords(db, position, &ctx.prefix, ctx)
         }
         CompletionSite::Expr => expr::complete_expression(db, position, &ctx.prefix, ctx),
@@ -121,9 +123,11 @@ fn punctuation_trigger_without_site(ctx: &CompletionContext) -> bool {
     ctx.trigger.is_some()
         && matches!(
             ctx.site,
-            CompletionSite::TopLevel
+            CompletionSite::TopLevelItemStart
                 | CompletionSite::ModuleHeader
-                | CompletionSite::ModuleItemStart
+                | CompletionSite::ModuleMemberStart
+                | CompletionSite::BlockDeclStart
+                | CompletionSite::ProceduralStatementStart
         )
         && ctx.prefix.is_empty()
         && ctx.replacement.is_empty()

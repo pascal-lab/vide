@@ -1,9 +1,10 @@
 use syntax::{
-    SyntaxAncestors, SyntaxNodeExt, SyntaxToken,
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxToken,
     ast::{self, AstNode},
     ast_ext::NamedConnectionDotZoneExt,
     has_text_range::HasTextRange,
 };
+use utils::line_index::{TextRange, TextSize};
 
 use super::{CompletionSite, caret::CaretSnapshot, util::in_parens};
 
@@ -62,23 +63,32 @@ pub(super) fn detect_completion_site(caret: &CaretSnapshot<'_>) -> CompletionSit
         return CompletionSite::ModuleHeader;
     }
 
-    if is_in_module(caret) {
-        if is_statement_keyword_site(caret) {
-            return CompletionSite::ModuleItemStart;
-        }
-
-        return if is_expression_site(caret) {
-            CompletionSite::Expr
-        } else {
-            CompletionSite::ModuleItemStart
-        };
+    if let Some(site) = statement_keyword_site(caret) {
+        return site;
     }
 
-    CompletionSite::TopLevel
+    if is_expression_site(caret) {
+        return CompletionSite::Expr;
+    }
+
+    if let Some(site) = procedural_item_site(caret) {
+        return site;
+    }
+
+    if is_in_module(caret) {
+        return CompletionSite::ModuleMemberStart;
+    }
+
+    CompletionSite::TopLevelItemStart
 }
 
 fn is_in_module(caret: &CaretSnapshot<'_>) -> bool {
-    caret.root.find_node_at_offset::<ast::ModuleDeclaration<'_>>(caret.offset).is_some()
+    let offset = caret.offset;
+    caret
+        .root
+        .find_node_at_offset::<ast::ModuleDeclaration<'_>>(offset)
+        .and_then(|module| module.syntax().text_range())
+        .is_some_and(|range| range.contains(offset))
 }
 
 fn is_in_module_header(caret: &CaretSnapshot<'_>) -> bool {
@@ -208,22 +218,87 @@ fn is_in_sensitivity_list(caret: &CaretSnapshot<'_>) -> bool {
         || caret.root.find_node_at_offset::<ast::RepeatedEventControl<'_>>(offset).is_some()
 }
 
-fn is_statement_keyword_site(caret: &CaretSnapshot<'_>) -> bool {
-    let Some(stmt) = caret.root.find_node_at_offset::<ast::Statement<'_>>(caret.offset) else {
-        return false;
-    };
-    let Some(stmt_range) = stmt.syntax().text_range() else {
-        return false;
-    };
+fn statement_keyword_site(caret: &CaretSnapshot<'_>) -> Option<CompletionSite> {
+    let stmt = caret.root.find_node_at_offset::<ast::Statement<'_>>(caret.offset)?;
+    let stmt_range = stmt.syntax().text_range()?;
 
     let (replacement, prefix) = caret.replacement_and_prefix();
     if prefix.is_empty()
         || !(stmt_range.contains(replacement.start()) || stmt_range.start() == replacement.start())
     {
-        return false;
+        return None;
     }
 
-    stmt.syntax().token_before_offset(replacement.start()).is_none()
+    stmt.syntax()
+        .token_before_offset(replacement.start())
+        .is_none()
+        .then(|| procedural_item_site(caret).unwrap_or(CompletionSite::ProceduralStatementStart))
+}
+
+fn procedural_item_site(caret: &CaretSnapshot<'_>) -> Option<CompletionSite> {
+    let offset = caret.offset;
+
+    if let Some(block) = caret.root.find_node_at_offset::<ast::BlockStatement<'_>>(offset)
+        && let Some(zone) = item_zone(block.begin(), block.end(), block.syntax())
+        && range_touches(zone, offset)
+    {
+        return Some(procedural_item_site_for_decls(block_declarations_allowed_before(
+            block, offset,
+        )));
+    }
+
+    if let Some(func) = caret.root.find_node_at_offset::<ast::FunctionDeclaration<'_>>(offset)
+        && let Some(zone) = item_zone(func.semi(), func.end(), func.syntax())
+        && range_touches(zone, offset)
+    {
+        return Some(procedural_item_site_for_decls(function_declarations_allowed_before(
+            func, offset,
+        )));
+    }
+
+    None
+}
+
+fn procedural_item_site_for_decls(declarations_allowed: bool) -> CompletionSite {
+    if declarations_allowed {
+        CompletionSite::BlockDeclStart
+    } else {
+        CompletionSite::ProceduralStatementStart
+    }
+}
+
+fn item_zone(
+    open: Option<SyntaxToken<'_>>,
+    close: Option<SyntaxToken<'_>>,
+    owner: SyntaxNode<'_>,
+) -> Option<TextRange> {
+    let start = open?.text_range()?.end();
+    let end = close
+        .and_then(|tok| tok.text_range().map(|range| range.start()))
+        .or_else(|| owner.text_range().map(|range| range.end()))?;
+    Some(TextRange::new(start, end))
+}
+
+fn range_touches(range: TextRange, offset: TextSize) -> bool {
+    range.contains(offset) || range.end() == offset
+}
+
+fn block_declarations_allowed_before(block: ast::BlockStatement<'_>, offset: TextSize) -> bool {
+    !block.items().children().any(|item| item_before_statement(item.syntax(), offset))
+}
+
+fn function_declarations_allowed_before(
+    func: ast::FunctionDeclaration<'_>,
+    offset: TextSize,
+) -> bool {
+    !func.items().children().any(|item| item_before_statement(item.syntax(), offset))
+}
+
+fn item_before_statement(item: SyntaxNode<'_>, offset: TextSize) -> bool {
+    let Some(range) = item.text_range() else {
+        return false;
+    };
+    range.end() <= offset && ast::Statement::can_cast(item.kind())
 }
 
 fn is_expression_site(caret: &CaretSnapshot<'_>) -> bool {

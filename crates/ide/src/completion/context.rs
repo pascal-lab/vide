@@ -58,9 +58,11 @@ pub enum TriggerChar {
 pub enum CompletionSite {
     Forbidden,
     PreprocDirective,
-    TopLevel,
+    TopLevelItemStart,
     ModuleHeader,
-    ModuleItemStart,
+    ModuleMemberStart,
+    BlockDeclStart,
+    ProceduralStatementStart,
     Expr,
     NamedPortName,
     NamedParamName,
@@ -102,13 +104,13 @@ pub(crate) fn completion_context(
     let sema = Semantics::new(db);
     let root = sema.parse_root(file_id);
     let text = db.file_text(file_id);
-    let expected_ident_offsets = db.expected_identifier_offsets(file_id);
+    let expected_decl_name_offsets = db.expected_decl_name_offsets(file_id);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         Some(&text),
-        Some(&expected_ident_offsets),
+        Some(&expected_decl_name_offsets),
     )
 }
 
@@ -120,13 +122,13 @@ pub fn detect_completion_context(
     detect_completion_context_impl(root, offset, trigger, None, None)
 }
 
-pub fn detect_completion_context_with_expected_identifier_offsets(
+pub fn detect_completion_context_with_expected_decl_name_offsets(
     root: SyntaxNode<'_>,
     offset: TextSize,
     trigger: Option<TriggerChar>,
-    expected_identifier_offsets: &[TextSize],
+    expected_decl_name_offsets: &[TextSize],
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, Some(expected_identifier_offsets))
+    detect_completion_context_impl(root, offset, trigger, None, Some(expected_decl_name_offsets))
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -134,14 +136,14 @@ pub fn detect_completion_context_with_source_text(
     offset: TextSize,
     trigger: Option<TriggerChar>,
     source_text: &str,
-    expected_identifier_offsets: &[TextSize],
+    expected_decl_name_offsets: &[TextSize],
 ) -> CompletionContext {
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         Some(source_text),
-        Some(expected_identifier_offsets),
+        Some(expected_decl_name_offsets),
     )
 }
 
@@ -150,7 +152,7 @@ fn detect_completion_context_impl(
     offset: TextSize,
     trigger: Option<TriggerChar>,
     source_text: Option<&str>,
-    expected_identifier_offsets: Option<&[TextSize]>,
+    expected_decl_name_offsets: Option<&[TextSize]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
     let (mut replacement, mut prefix) = caret.replacement_and_prefix();
@@ -182,7 +184,7 @@ fn detect_completion_context_impl(
         };
     }
 
-    let in_decl_name = decl_name::is_in_decl_name(&caret, expected_identifier_offsets);
+    let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
     let mut site = syn::detect_completion_site(&caret);
     if in_decl_name {
         site = CompletionSite::Forbidden;
@@ -252,11 +254,15 @@ mod tests {
 
         let mut compilation = Compilation::new();
         compilation.add_syntax_tree(tree.clone());
-        let mut expected_ident_offsets: Vec<TextSize> = compilation
-            .parse_diag_offsets_by_name("ExpectedIdentifier", &[])
-            .into_iter()
-            .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from))
-            .collect();
+        let mut expected_ident_offsets: Vec<TextSize> = Vec::new();
+        for name in ["ExpectedIdentifier", "ExpectedDeclarator", "ExpectedSubroutineName"] {
+            expected_ident_offsets.extend(
+                compilation
+                    .parse_diag_offsets_by_name(name, &[])
+                    .into_iter()
+                    .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from)),
+            );
+        }
         expected_ident_offsets.sort();
         expected_ident_offsets.dedup();
 
@@ -534,6 +540,51 @@ mod tests {
     fn detects_non_ansi_port_list() {
         let c = ctx("module m(a, /*caret*/b); input a; output b; endmodule\n");
         assert_eq!(c.site, CompletionSite::NonAnsiPortList);
+    }
+
+    #[test]
+    fn detects_top_level_item_start() {
+        let c = ctx("module m; endmodule\n/*caret*/\n");
+        assert_eq!(c.site, CompletionSite::TopLevelItemStart);
+    }
+
+    #[test]
+    fn detects_top_level_item_keyword_prefix() {
+        for text in ["con/*caret*/\n", "pri/*caret*/\n", "lib/*caret*/\n"] {
+            let c = ctx(text);
+            assert_eq!(c.site, CompletionSite::TopLevelItemStart, "{text}");
+            assert!(!c.in_decl_name, "{text}");
+        }
+    }
+
+    #[test]
+    fn detects_module_member_start() {
+        let c = ctx("module m;\n  /*caret*/\nendmodule\n");
+        assert_eq!(c.site, CompletionSite::ModuleMemberStart);
+    }
+
+    #[test]
+    fn detects_block_decl_start_before_statement() {
+        let c = ctx("module m; initial begin\n  /*caret*/\nend endmodule\n");
+        assert_eq!(c.site, CompletionSite::BlockDeclStart);
+    }
+
+    #[test]
+    fn detects_procedural_statement_start_after_statement() {
+        let c = ctx("module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n");
+        assert_eq!(c.site, CompletionSite::ProceduralStatementStart);
+    }
+
+    #[test]
+    fn detects_block_decl_keyword_prefix_before_statement() {
+        let c = ctx("module m; initial begin\n  re/*caret*/\nend endmodule\n");
+        assert_eq!(c.site, CompletionSite::BlockDeclStart);
+    }
+
+    #[test]
+    fn detects_procedural_statement_keyword_prefix_after_statement() {
+        let c = ctx("module m; initial begin\n  x = 1;\n  re/*caret*/\nend endmodule\n");
+        assert_eq!(c.site, CompletionSite::ProceduralStatementStart);
     }
 
     #[test]
