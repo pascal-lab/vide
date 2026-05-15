@@ -223,8 +223,16 @@
     },
     "commands": [
       {
+        "command": "vizsla.showOutput",
+        "title": "Vizsla: Show Language Server Output"
+      },
+      {
         "command": "vizsla.restartServer",
         "title": "Vizsla: Restart Language Server"
+      },
+      {
+        "command": "vizsla.showServerVersion",
+        "title": "Vizsla: Show Server Version"
       }
     ]
   },

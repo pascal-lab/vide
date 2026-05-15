@@ -1,4 +1,6 @@
+import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
+import { promisify } from 'node:util';
 
 import * as vscode from 'vscode';
 import {
@@ -9,9 +11,17 @@ import {
 } from 'vscode-languageclient/node';
 
 import { getBundledServerPath, getPlatformFolder } from './platform';
+import { getServerStatusPresentation, type ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
+let statusBarItem: vscode.StatusBarItem | undefined;
+
+const execFileAsync = promisify(execFile);
+const showOutputCommand = 'vizsla.showOutput';
+const restartServerCommand = 'vizsla.restartServer';
+const showServerVersionCommand = 'vizsla.showServerVersion';
+const versionTimeoutMs = 5000;
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
@@ -25,12 +35,41 @@ function requireOutputChannel(): vscode.OutputChannel {
   return outputChannel;
 }
 
+function showOutput(): void {
+  requireOutputChannel().show(true);
+}
+
+function updateServerStatus(status: ServerStatus, detail?: string): void {
+  if (!statusBarItem) {
+    return;
+  }
+
+  const presentation = getServerStatusPresentation(status, detail);
+  statusBarItem.text = presentation.text;
+  statusBarItem.tooltip = `${presentation.tooltip}\n\nClick to show output.`;
+  statusBarItem.command = showOutputCommand;
+  statusBarItem.color = presentation.color
+    ? new vscode.ThemeColor(presentation.color)
+    : undefined;
+  statusBarItem.backgroundColor = presentation.backgroundColor
+    ? new vscode.ThemeColor(presentation.backgroundColor)
+    : undefined;
+  statusBarItem.show();
+}
+
 interface ServerConfiguration {
   command: string | undefined;
   args: string[];
   additionalArgs: string[];
   cwd: string | undefined;
   trace: 'off' | 'messages' | 'verbose';
+}
+
+interface ServerLaunch {
+  command: string;
+  args: string[];
+  additionalArgs: string[];
+  cwd: string;
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -137,11 +176,10 @@ function resolveWorkingDirectory(
   return context.extensionPath;
 }
 
-async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
-  const channel = requireOutputChannel();
-  log('[INFO] Creating language client...');
-
-  const config = readConfiguration();
+function resolveServerLaunch(
+  context: vscode.ExtensionContext,
+  config: ServerConfiguration,
+): ServerLaunch {
   const cwd = resolveWorkingDirectory(context, config.cwd);
 
   let serverCommand = config.command;
@@ -151,40 +189,59 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
       const message =
         'Bundled Vizsla Language Server binary not found. Install the VSIX that matches your platform or configure "vizslaLsp.server.command".';
       log(`[ERROR] ${message}`);
-      vscode.window.showErrorMessage(message);
       throw new Error(message);
     }
   } else {
     log(`[INFO] Using custom server command: ${serverCommand}`);
   }
 
-  const serverArgs = [...config.args, ...config.additionalArgs];
   log(`[INFO] Server command: ${serverCommand}`);
-  log(`[INFO] Server args: ${JSON.stringify(serverArgs)}`);
+  log(`[INFO] Server args: ${JSON.stringify([...config.args, ...config.additionalArgs])}`);
   log(`[INFO] Working directory: ${cwd}`);
 
-  const commonEnv = {
+  return {
+    command: serverCommand,
+    args: config.args,
+    additionalArgs: config.additionalArgs,
+    cwd,
+  };
+}
+
+function createServerEnv(
+  logLevel: 'info' | 'debug' = 'info',
+  backtrace: '1' | 'full' = '1',
+): NodeJS.ProcessEnv {
+  return {
     ...process.env,
-    RUST_BACKTRACE: '1',
-    RUST_LOG: 'info',
+    RUST_BACKTRACE: backtrace,
+    RUST_LOG: logLevel,
+  };
+}
+
+async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
+  const channel = requireOutputChannel();
+  log('[INFO] Creating language client...');
+
+  const config = readConfiguration();
+  const launch = resolveServerLaunch(context, config);
+  const serverArgs = [...launch.args, ...launch.additionalArgs];
+
+  const commonEnv = {
+    ...createServerEnv(),
   };
 
   const serverOptions: ServerOptions = {
     run: {
-      command: serverCommand,
+      command: launch.command,
       args: serverArgs,
-      options: { cwd, env: commonEnv },
+      options: { cwd: launch.cwd, env: commonEnv },
     },
     debug: {
-      command: serverCommand,
+      command: launch.command,
       args: serverArgs,
       options: {
-        cwd,
-        env: {
-          ...commonEnv,
-          RUST_BACKTRACE: 'full',
-          RUST_LOG: 'debug',
-        },
+        cwd: launch.cwd,
+        env: createServerEnv('debug', 'full'),
       },
     },
   };
@@ -217,33 +274,41 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
 
 async function startClient(context: vscode.ExtensionContext): Promise<void> {
   try {
+    updateServerStatus('starting');
     log('[INFO] Starting language server...');
     client = await createClient(context);
     await client.start();
     log('[INFO] Language server started successfully');
-    vscode.window.showInformationMessage('Vizsla Language Server started');
+    updateServerStatus('ready');
   } catch (error) {
-    log(`[ERROR] Failed to start language server: ${(error as Error).message}`);
+    const message = (error as Error).message;
+    client = undefined;
+    log(`[ERROR] Failed to start language server: ${message}`);
     log(`[ERROR] ${(error as Error).stack}`);
+    updateServerStatus('error', message);
     vscode.window.showErrorMessage(
-      `Failed to start Vizsla Language Server: ${(error as Error).message}`,
+      `Failed to start Vizsla Language Server: ${message}`,
     );
   }
 }
 
 async function stopClient(): Promise<void> {
   if (!client) {
+    updateServerStatus('stopped');
     return;
   }
 
+  updateServerStatus('stopping');
   log('[INFO] Stopping language server...');
   try {
     await client.stop();
     log('[INFO] Language server stopped');
   } catch (error) {
     log(`[ERROR] Error stopping language server: ${(error as Error).message}`);
+  } finally {
+    client = undefined;
+    updateServerStatus('stopped');
   }
-  client = undefined;
 }
 
 async function restartClient(context: vscode.ExtensionContext): Promise<void> {
@@ -252,20 +317,90 @@ async function restartClient(context: vscode.ExtensionContext): Promise<void> {
   await startClient(context);
 }
 
+async function showServerVersion(context: vscode.ExtensionContext): Promise<void> {
+  try {
+    const config = readConfiguration();
+    const launch = resolveServerLaunch(context, config);
+    const versionArgs = [...launch.args, '--version'];
+    log(`[INFO] Checking server version: ${launch.command} ${versionArgs.join(' ')}`);
+    const { stdout, stderr } = await execFileAsync(launch.command, versionArgs, {
+      cwd: launch.cwd,
+      env: createServerEnv(),
+      timeout: versionTimeoutMs,
+    });
+    const output = `${stdout}${stderr}`.trim() || 'No version output';
+    const firstLine = output.split(/\r?\n/, 1)[0] ?? output;
+    log(`[INFO] Server version output:\n${output}`);
+    vscode.window.showInformationMessage(`Vizsla server: ${firstLine}`);
+  } catch (error) {
+    const message = `Failed to query Vizsla server version: ${(error as Error).message}`;
+    log(`[ERROR] ${message}`);
+    const selection = await vscode.window.showErrorMessage(message, 'Show Output');
+    if (selection === 'Show Output') {
+      showOutput();
+    }
+  }
+}
+
+function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
+  return (
+    event.affectsConfiguration('vizslaLsp.server.command') ||
+    event.affectsConfiguration('vizslaLsp.server.args') ||
+    event.affectsConfiguration('vizslaLsp.server.additionalArgs') ||
+    event.affectsConfiguration('vizslaLsp.server.cwd') ||
+    event.affectsConfiguration('vizslaLsp.trace.server')
+  );
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Vizsla Language Server');
   context.subscriptions.push(outputChannel);
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  context.subscriptions.push(statusBarItem);
+  updateServerStatus('stopped');
 
   log('[INFO] Vizsla extension activating...');
   log(`[INFO] Extension path: ${context.extensionPath}`);
   log(`[INFO] Platform: ${process.platform}-${process.arch}`);
   log(`[INFO] VS Code version: ${vscode.version}`);
 
-  const restartCommand = vscode.commands.registerCommand('vizsla.restartServer', async () => {
+  const showOutputRegistration = vscode.commands.registerCommand(showOutputCommand, () => {
+    showOutput();
+  });
+  context.subscriptions.push(showOutputRegistration);
+
+  const restartCommandRegistration = vscode.commands.registerCommand(restartServerCommand, async () => {
     log('[INFO] Restart command triggered');
     await restartClient(context);
   });
-  context.subscriptions.push(restartCommand);
+  context.subscriptions.push(restartCommandRegistration);
+
+  const showVersionRegistration = vscode.commands.registerCommand(
+    showServerVersionCommand,
+    async () => {
+      log('[INFO] Server version command triggered');
+      await showServerVersion(context);
+    },
+  );
+  context.subscriptions.push(showVersionRegistration);
+
+  const configurationRegistration = vscode.workspace.onDidChangeConfiguration(
+    async (event) => {
+      if (!affectsServerLaunchConfiguration(event)) {
+        return;
+      }
+
+      log('[INFO] Server launch configuration changed');
+      const selection = await vscode.window.showInformationMessage(
+        'Vizsla server configuration changed. Restart the language server to apply it.',
+        'Restart',
+      );
+      if (selection === 'Restart') {
+        await restartClient(context);
+      }
+    },
+  );
+  context.subscriptions.push(configurationRegistration);
 
   await startClient(context);
 
