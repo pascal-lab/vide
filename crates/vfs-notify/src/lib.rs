@@ -132,12 +132,8 @@ impl NotifyActor {
 
                         config.to_load.into_par_iter().enumerate().for_each(|(i, entry)| {
                             let do_watch = config.to_watch.contains(&i);
-                            if do_watch {
-                                if entry_tx.send(entry.clone()).is_err() {
-                                    tracing::debug!(
-                                        "watched entry dropped because receiver is closed"
-                                    );
-                                }
+                            if do_watch && entry_tx.send(entry.clone()).is_err() {
+                                tracing::debug!("watched entry dropped because receiver is closed");
                             }
                             let files = Self::load_entry(&watch_tx, entry, do_watch);
                             self.send(loader::Message::Loaded { files });
@@ -184,8 +180,9 @@ impl NotifyActor {
                         .filter_map(|path| AbsPathBuf::try_from(path).ok())
                         .filter_map(|path| {
                             let meta = fs::metadata(&path).ok()?;
-                            let is_file = meta.file_type().is_dir();
-                            let is_dir = meta.file_type().is_file();
+                            let file_type = meta.file_type();
+                            let is_file = file_type.is_file();
+                            let is_dir = file_type.is_dir();
 
                             if is_dir && self.watched_dirs.iter().any(|dir| dir.contains_dir(&path))
                             {
@@ -224,10 +221,8 @@ impl NotifyActor {
             loader::Entry::Files(files) => files
                 .into_iter()
                 .map(|file| {
-                    if watch {
-                        if watch_tx.send(file.to_owned()).is_err() {
-                            tracing::debug!("watched file path dropped because receiver is closed");
-                        }
+                    if watch && watch_tx.send(file.to_owned()).is_err() {
+                        tracing::debug!("watched file path dropped because receiver is closed");
                     }
                     let contents = read(file.as_path());
                     (file, contents)
@@ -255,12 +250,10 @@ impl NotifyActor {
                         let is_file = entry.file_type().is_file();
                         let abs_path = AbsPathBuf::try_from(entry.into_path()).ok()?;
 
-                        if is_dir && watch {
-                            if watch_tx.send(abs_path.to_owned()).is_err() {
-                                tracing::debug!(
-                                    "watched directory path dropped because receiver is closed"
-                                );
-                            }
+                        if is_dir && watch && watch_tx.send(abs_path.to_owned()).is_err() {
+                            tracing::debug!(
+                                "watched directory path dropped because receiver is closed"
+                            );
                         }
 
                         if !is_file {
