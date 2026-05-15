@@ -46,7 +46,11 @@ impl<T> TaskPool<T> {
     {
         self.pool.spawn(intent, {
             let sender = self.sender.clone();
-            move || sender.send(task()).unwrap()
+            move || {
+                if sender.send(task()).is_err() {
+                    tracing::debug!("task result dropped because main loop receiver is closed");
+                }
+            }
         })
     }
 

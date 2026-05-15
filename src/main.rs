@@ -124,7 +124,11 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
                 ShowMessage::METHOD.to_string(),
                 ShowMessageParams { typ: MessageType::WARNING, message: errors.to_string() },
             );
-            connection.sender.send(lsp_server::Message::Notification(noti)).unwrap();
+            if connection.sender.send(lsp_server::Message::Notification(noti)).is_err() {
+                tracing::debug!(
+                    "configuration warning dropped because client connection is closed"
+                );
+            }
         }
         (user_config, snippets)
     } else {

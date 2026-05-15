@@ -12,12 +12,15 @@ use crate::global_state::snapshot::GlobalStateSnapshot;
 
 pub(crate) fn vfs_path(url: &lsp_types::Url) -> anyhow::Result<vfs::VfsPath> {
     let path = url.to_file_path().map_err(|()| anyhow::format_err!("url is not a file"))?;
-    Ok(VfsPath::from(AbsPathBuf::try_from(path).unwrap()))
+    let path = AbsPathBuf::try_from(path)
+        .map_err(|path| anyhow::format_err!("file url path is not absolute UTF-8: {path:?}"))?;
+    Ok(VfsPath::from(path))
 }
 
 pub(crate) fn abs_path(url: &lsp_types::Url) -> anyhow::Result<AbsPathBuf> {
     let path = url.to_file_path().map_err(|()| anyhow::format_err!("url is not a file"))?;
-    Ok(AbsPathBuf::try_from(path).unwrap())
+    AbsPathBuf::try_from(path)
+        .map_err(|path| anyhow::format_err!("file url path is not absolute UTF-8: {path:?}"))
 }
 
 // convert position (line, col) to Offset

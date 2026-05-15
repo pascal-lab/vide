@@ -262,30 +262,34 @@ type FnNotifSynMut<N> = fn(
 ) -> anyhow::Result<()>;
 
 impl NotifDispatcher<'_> {
-    pub(crate) fn on_sync_mut<N>(&mut self, f: FnNotifSynMut<N>) -> anyhow::Result<&mut Self>
+    pub(crate) fn on_sync_mut<N>(&mut self, f: FnNotifSynMut<N>) -> &mut Self
     where
         N: lsp_types::notification::Notification,
         N::Params: DeserializeOwned + Send,
     {
         let notif = match &self.notif {
             Some(notif) if notif.method == N::METHOD => self.notif.take().unwrap(),
-            _ => return Ok(self),
+            _ => return self,
         };
 
-        // extract
         let params = match notif.extract::<N::Params>(N::METHOD) {
             Ok(it) => it,
             Err(ExtractError::JsonError { method, error }) => {
-                panic!("Invalid request\nMethod: {method}\n error: {error}",)
+                tracing::error!("invalid notification params for {method}: {error}");
+                return self;
             }
-            // We have checked it
-            Err(ExtractError::MethodMismatch(_)) => unreachable!(),
+            Err(ExtractError::MethodMismatch(notif)) => {
+                self.notif = Some(notif);
+                return self;
+            }
         };
 
         let _pctx = utils::panic_context::enter(format!("\nnotification: {}", N::METHOD));
-        f(self.global_state, params)?;
+        if let Err(error) = f(self.global_state, params) {
+            tracing::error!("notification handler failed for {}: {error:#}", N::METHOD);
+        }
 
-        Ok(self)
+        self
     }
 
     pub(crate) fn finish(&self) {

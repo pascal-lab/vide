@@ -38,11 +38,15 @@ impl loader::Handle for NotifyHandle {
     }
 
     fn set_config(&mut self, config: loader::Config) {
-        self.sender.send(ServerMsg::Config(config)).unwrap();
+        if self.sender.send(ServerMsg::Config(config)).is_err() {
+            tracing::error!("failed to send VFS config to loader thread");
+        }
     }
 
     fn invalidate(&mut self, path: AbsPathBuf) {
-        self.sender.send(ServerMsg::Invalidate(path)).unwrap();
+        if self.sender.send(ServerMsg::Invalidate(path)).is_err() {
+            tracing::error!("failed to send VFS invalidation to loader thread");
+        }
     }
 
     fn load_sync(&mut self, path: &AbsPath) -> LoadResult {
@@ -83,7 +87,7 @@ impl NotifyActor {
 
         select! {
             recv(receiver) -> it => it.ok().map(Event::ServerMsg),
-            recv(watcher_receiver) -> it => Some(Event::NotifyEvent(it.unwrap())),
+            recv(watcher_receiver) -> it => it.ok().map(Event::NotifyEvent),
         }
     }
 
@@ -98,7 +102,11 @@ impl NotifyActor {
                             let (watcher_sender, watcher_receiver) = unbounded();
                             let watcher = log_notify_error(RecommendedWatcher::new(
                                 move |event| {
-                                    _ = watcher_sender.send(event);
+                                    if watcher_sender.send(event).is_err() {
+                                        tracing::debug!(
+                                            "notify event dropped because watcher receiver is closed"
+                                        );
+                                    }
                                 },
                                 Config::default(),
                             ));
@@ -119,7 +127,11 @@ impl NotifyActor {
                         config.to_load.into_par_iter().enumerate().for_each(|(i, entry)| {
                             let do_watch = config.to_watch.contains(&i);
                             if do_watch {
-                                _ = entry_tx.send(entry.clone());
+                                if entry_tx.send(entry.clone()).is_err() {
+                                    tracing::debug!(
+                                        "watched entry dropped because receiver is closed"
+                                    );
+                                }
                             }
                             let files = Self::load_entry(&watch_tx, entry, do_watch);
                             self.send(loader::Message::Loaded { files });
@@ -207,7 +219,9 @@ impl NotifyActor {
                 .into_iter()
                 .map(|file| {
                     if watch {
-                        _ = watch_tx.send(file.to_owned());
+                        if watch_tx.send(file.to_owned()).is_err() {
+                            tracing::debug!("watched file path dropped because receiver is closed");
+                        }
                     }
                     let contents = read(file.as_path());
                     (file, contents)
@@ -234,7 +248,11 @@ impl NotifyActor {
                         let abs_path = AbsPathBuf::try_from(entry.into_path()).ok()?;
 
                         if is_dir && watch {
-                            _ = watch_tx.send(abs_path.to_owned());
+                            if watch_tx.send(abs_path.to_owned()).is_err() {
+                                tracing::debug!(
+                                    "watched directory path dropped because receiver is closed"
+                                );
+                            }
                         }
 
                         if !is_file {
@@ -267,7 +285,9 @@ impl NotifyActor {
 
     fn send(&self, msg: loader::Message) {
         // Call self.sender with msg
-        self.sender.send(msg).unwrap();
+        if self.sender.send(msg).is_err() {
+            tracing::error!("failed to send VFS loader message to main loop");
+        }
     }
 }
 

@@ -117,8 +117,8 @@ impl GlobalState {
     fn next_event(&self, cli_inbox: &Receiver<Message>) -> Option<Event> {
         select! {
             recv(cli_inbox) -> cli_msg => cli_msg.ok().map(Event::Lsp),
-            recv(self.task_pool.receiver) -> task => Some(Event::Task(task.unwrap())),
-            recv(self.vfs_loader.receiver) -> vfs_task => Some(Event::Vfs(vfs_task.unwrap())),
+            recv(self.task_pool.receiver) -> task => task.ok().map(Event::Task),
+            recv(self.vfs_loader.receiver) -> vfs_task => vfs_task.ok().map(Event::Vfs),
         }
     }
 
@@ -136,7 +136,7 @@ impl GlobalState {
                     self.register_request(loop_start, &req);
                     self.handle_request(req);
                 }
-                Message::Notification(notif) => self.handle_notification(notif)?,
+                Message::Notification(notif) => self.handle_notification(notif),
                 Message::Response(res) => self.handle_response(res),
             },
             Event::Task(task) => self.handle_task(task),
@@ -244,30 +244,28 @@ impl GlobalState {
             .finish();
     }
 
-    fn handle_notification(&mut self, notif: Notification) -> anyhow::Result<()> {
+    fn handle_notification(&mut self, notif: Notification) {
         use handlers::notification::*;
         use lsp_types::notification::*;
 
-        NotifDispatcher { notif: Some(notif), global_state: self }
-            .on_sync_mut::<Cancel>(handle_cancel)?
-            .on_sync_mut::<DidOpenTextDocument>(handle_did_open_text_document)?
-            .on_sync_mut::<DidChangeTextDocument>(handle_did_change_text_document)?
-            .on_sync_mut::<DidCloseTextDocument>(handle_did_close_text_document)?
-            .on_sync_mut::<DidSaveTextDocument>(handle_did_save_text_document)?
-            .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)?
-            .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)?
-            .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)?
+        let mut dispatcher = NotifDispatcher { notif: Some(notif), global_state: self };
+        dispatcher
+            .on_sync_mut::<Cancel>(handle_cancel)
+            .on_sync_mut::<DidOpenTextDocument>(handle_did_open_text_document)
+            .on_sync_mut::<DidChangeTextDocument>(handle_did_change_text_document)
+            .on_sync_mut::<DidCloseTextDocument>(handle_did_close_text_document)
+            .on_sync_mut::<DidSaveTextDocument>(handle_did_save_text_document)
+            .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)
+            .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)
+            .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)
             .finish();
-
-        Ok(())
     }
 
     fn handle_response(&mut self, res: Response) {
-        let handler = self
-            .req_queue
-            .outgoing
-            .complete(res.id.clone())
-            .expect("Received response for unknown request");
+        let Some(handler) = self.req_queue.outgoing.complete(res.id.clone()) else {
+            tracing::error!("received response for unknown request: {:?}", res);
+            return;
+        };
         handler(self, res)
     }
 
