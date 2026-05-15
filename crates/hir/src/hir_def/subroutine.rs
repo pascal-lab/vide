@@ -9,7 +9,6 @@ use syntax::{
     match_ast,
 };
 use triomphe::Arc;
-use utils::get::Get;
 
 use super::{
     Ident,
@@ -143,6 +142,7 @@ pub struct SubroutineId(pub salsa::InternId);
 pub struct SubroutineLoc {
     pub cont_id: SubroutineContainerId,
     pub src: InFile<SubroutineSrc>,
+    pub local_id: LocalSubroutineId,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -384,40 +384,25 @@ pub(crate) fn subroutine_with_source_map_query(
     db: &dyn HirDb,
     subroutine_id: SubroutineId,
 ) -> (Arc<Subroutine>, Arc<SubroutineSourceMap>) {
-    let SubroutineLoc { cont_id, src } = subroutine_id.lookup(db);
+    let SubroutineLoc { cont_id, local_id, .. } = subroutine_id.lookup(db);
 
     match cont_id {
         SubroutineContainerId::HirFileId(file_id) => {
             let file = db.hir_file(file_id);
-            let (_, file_src_map) = db.hir_file_with_source_map(file_id);
-            let Some(local_id) = file_src_map.get(src.value) else {
-                return (Arc::new(Subroutine::default()), Arc::new(SubroutineSourceMap::default()));
-            };
             let subroutine = file.subroutines[local_id].clone();
-            let source_map =
-                file.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
+            let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
         }
         SubroutineContainerId::ModuleId(module_id) => {
             let module = db.module(module_id);
-            let (_, module_src_map) = db.module_with_source_map(module_id);
-            let Some(local_id) = module_src_map.get(src.value) else {
-                return (Arc::new(Subroutine::default()), Arc::new(SubroutineSourceMap::default()));
-            };
             let subroutine = module.subroutines[local_id].clone();
-            let source_map =
-                module.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
+            let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
         }
         SubroutineContainerId::GenerateBlockId(generate_block_id) => {
             let generate_block = db.generate_block(generate_block_id);
-            let (_, generate_block_src_map) = db.generate_block_with_source_map(generate_block_id);
-            let Some(local_id) = generate_block_src_map.get(src.value) else {
-                return (Arc::new(Subroutine::default()), Arc::new(SubroutineSourceMap::default()));
-            };
             let subroutine = generate_block.subroutines[local_id].clone();
-            let source_map =
-                generate_block.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
+            let source_map = subroutine.source_map.clone();
             (Arc::new(subroutine), Arc::new(source_map))
         }
     }

@@ -134,9 +134,25 @@ impl Source2DefCtx<'_, '_> {
                let cont_id = SubroutineContainerId::try_from(parent).ok()?;
 
                let src = SubroutineSrc::from(func);
+               let local_id = match cont_id {
+                   SubroutineContainerId::HirFileId(file_id) => {
+                       let (_, source_map) = self.db.hir_file_with_source_map(file_id);
+                       source_map.get(src)?
+                   }
+                   SubroutineContainerId::ModuleId(module_id) => {
+                       let (_, source_map) = self.db.module_with_source_map(module_id);
+                       source_map.get(src)?
+                   }
+                   SubroutineContainerId::GenerateBlockId(generate_block_id) => {
+                       let (_, source_map) =
+                           self.db.generate_block_with_source_map(generate_block_id);
+                       source_map.get(src)?
+                   }
+               };
                let subroutine_id = self.db.intern_subroutine(SubroutineLoc {
                    cont_id,
                    src: InFile::new(file_id, src),
+                   local_id,
                });
                subroutine_id.into()
            },

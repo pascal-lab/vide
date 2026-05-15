@@ -1,7 +1,6 @@
 use base_db::intern::Lookup;
 use la_arena::{Arena, Idx};
 use proc_macro_utils::define_container;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
     SyntaxToken, TokenKind,
@@ -44,8 +43,8 @@ use crate::{
         proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
         stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
         subroutine::{
-            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc,
-            SubroutineSourceMap, SubroutineSrc, lower_subroutine, lower_subroutine_body,
+            LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
+            lower_subroutine, lower_subroutine_body,
         },
         typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
     },
@@ -282,7 +281,6 @@ define_container! {
         typedefs: [Typedef],
         structs: [StructDef],
         subroutines: [Subroutine],
-        subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
         instantiations: [Instantiation],
         inst_param_assigns: [ParamAssign],
@@ -470,12 +468,6 @@ impl LowerGenerateBlockCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
-        let src = SubroutineSrc::from(func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.generate_block_id.into(),
-            src: InFile::new(self.file_id, src),
-        });
-
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let subroutine_id = alloc_idx_and_src! {
@@ -483,9 +475,16 @@ impl LowerGenerateBlockCtx<'_> {
             func => self.generate_block_source_map.subroutine_srcs,
         };
 
+        let src = SubroutineSrc::from(func);
+        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
+            cont_id: self.generate_block_id.into(),
+            src: InFile::new(self.file_id, src),
+            local_id: subroutine_id,
+        });
+
         if func.end().is_some() {
             let subroutine = &mut self.generate_block.subroutines[subroutine_id];
-            let mut subroutine_source_map = SubroutineSourceMap::default();
+            let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
@@ -495,7 +494,8 @@ impl LowerGenerateBlockCtx<'_> {
                 region_tree: RegionTreeBuilder::new(),
             };
             lower_subroutine_body(&mut ctx, func);
-            self.generate_block.subroutine_source_maps.insert(subroutine_id, subroutine_source_map);
+            subroutine.source_map = subroutine_source_map;
+            subroutine.source_map.shrink_to_fit();
         }
 
         self.generate_block.subroutines[subroutine_id].shrink_to_fit();
@@ -891,7 +891,6 @@ pub(crate) fn generate_block_with_source_map_query(
         }
     }
 
-    generate_block.subroutine_source_maps.shrink_to_fit();
     generate_block.shrink_to_fit();
     generate_block_source_map.shrink_to_fit();
     (Arc::new(generate_block), Arc::new(generate_block_source_map))

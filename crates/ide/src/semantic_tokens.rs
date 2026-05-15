@@ -130,7 +130,15 @@ pub(crate) fn semantic_tokens(
         return Vec::new();
     };
     let file_id = HirFileId(file_id);
-    let range = range.unwrap_or_else(|| root.text_range().unwrap_or_default());
+    let range = match range {
+        Some(range) => range,
+        None => {
+            let Some(root_range) = root.text_range() else {
+                return Vec::new();
+            };
+            root_range
+        }
+    };
 
     let mut collector = SemaTokenCollector::new(config, range);
     collect_file(&sema, file_id, &mut collector);

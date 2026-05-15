@@ -13,7 +13,6 @@ use port::{
     PortRefId, PortRefSrc, PortSrcs, Ports,
 };
 use proc_macro_utils::define_container;
-use rustc_hash::FxHashMap;
 use specify::{
     SpecifyBlock, SpecifyBlockId, SpecifyBlockSrc, SpecifyItem, SpecifyItemId, SpecifyItemSrc,
 };
@@ -45,8 +44,8 @@ use super::{
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
-        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSourceMap,
-        SubroutineSrc, lower_subroutine, lower_subroutine_body,
+        LocalSubroutineId, LowerSubroutineBodyCtx, Subroutine, SubroutineLoc, SubroutineSrc,
+        lower_subroutine, lower_subroutine_body,
     },
     ty::NetKind,
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
@@ -88,7 +87,6 @@ define_container! {
         typedefs: [Typedef],
         structs: [StructDef],
         subroutines: [Subroutine],
-        subroutine_source_maps: FxHashMap<LocalSubroutineId, SubroutineSourceMap>,
 
         instantiations: [Instantiation],
         inst_param_assigns: [ParamAssign],
@@ -150,26 +148,32 @@ define_src_with_name!(ModuleSrc(ast::ModuleDeclaration));
 
 impl Module {
     pub fn param_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
-        let start = self.param_ports.as_ref()?.start();
-        let raw_idx = (start.into_raw().into_u32() as usize) + idx;
-        Some(Idx::from_raw(RawIdx::from_u32(raw_idx as u32)))
+        self.param_ports.clone()?.nth(idx)
     }
 
-    pub fn non_ansi_port_id_by_idx(&self, idx: usize) -> NonAnsiPortId {
-        Idx::from_raw(RawIdx::from_u32(idx as u32))
-    }
-
-    pub fn ansi_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
-        let Ports::Ansi(decls) = &self.ports else {
+    pub fn non_ansi_port_id_by_idx(&self, idx: usize) -> Option<NonAnsiPortId> {
+        let Ports::NonAnsi { ports, .. } = &self.ports else {
             return None;
         };
-
-        let start = decls.values().next()?.decls.start();
-        let raw_idx = (start.into_raw().into_u32() as usize) + idx;
-        if raw_idx > decls.len() {
+        if idx >= ports.len() {
             return None;
         }
-        Some(Idx::from_raw(RawIdx::from_u32(raw_idx as u32)))
+        let raw_idx = u32::try_from(idx).ok()?;
+        let port_id = Idx::from_raw(RawIdx::from_u32(raw_idx));
+        Some(port_id)
+    }
+
+    pub fn ansi_port_decl_id_by_idx(&self, idx: usize) -> Option<PortDeclId> {
+        let Ports::Ansi(port_decls) = &self.ports else {
+            return None;
+        };
+        if idx >= port_decls.len() {
+            return None;
+        }
+
+        let raw_idx = u32::try_from(idx).ok()?;
+        let port_decl_id = Idx::from_raw(RawIdx::from_u32(raw_idx));
+        Some(port_decl_id)
     }
 }
 
@@ -301,12 +305,6 @@ impl LowerModuleCtx<'_> {
         &mut self,
         func: ast::FunctionDeclaration,
     ) -> Option<LocalSubroutineId> {
-        let src = SubroutineSrc::from(func);
-        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
-            cont_id: self.module_id.into(),
-            src: InFile::new(self.file_id, src),
-        });
-
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let subroutine_id = alloc_idx_and_src! {
@@ -314,9 +312,16 @@ impl LowerModuleCtx<'_> {
             func => self.module_source_map.subroutine_srcs,
         };
 
+        let src = SubroutineSrc::from(func);
+        let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
+            cont_id: self.module_id.into(),
+            src: InFile::new(self.file_id, src),
+            local_id: subroutine_id,
+        });
+
         if func.end().is_some() {
             let subroutine = &mut self.module.subroutines[subroutine_id];
-            let mut subroutine_source_map = SubroutineSourceMap::default();
+            let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
@@ -326,7 +331,8 @@ impl LowerModuleCtx<'_> {
                 region_tree: RegionTreeBuilder::new(),
             };
             lower_subroutine_body(&mut ctx, func);
-            self.module.subroutine_source_maps.insert(subroutine_id, subroutine_source_map);
+            subroutine.source_map = subroutine_source_map;
+            subroutine.source_map.shrink_to_fit();
         }
 
         self.module.subroutines[subroutine_id].shrink_to_fit();
@@ -551,7 +557,6 @@ pub(crate) fn module_with_source_map_query(
     };
     lower_ctx.lower_module_decl(ast_module);
 
-    module.subroutine_source_maps.shrink_to_fit();
     module.shrink_to_fit();
     module_source_map.shrink_to_fit();
     (Arc::new(module), Arc::new(module_source_map))

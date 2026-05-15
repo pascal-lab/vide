@@ -6,7 +6,7 @@ use hir::{
     hir_def::{
         block::BlockId,
         module::{ModuleId, ModuleSrc},
-        subroutine::{SubroutineId, SubroutineLoc, SubroutineSrc},
+        subroutine::{SubroutineContainerId, SubroutineId, SubroutineLoc, SubroutineSrc},
     },
     scope::{BlockEntry, ModuleEntry},
     semantics::Semantics,
@@ -127,9 +127,16 @@ fn subroutine_id_at_offset(
 ) -> Option<SubroutineId> {
     let func = sema.find_node_at_offset::<ast::FunctionDeclaration>(root, offset)?;
     let file_id = sema.find_file(func.syntax())?;
-    let cont_id = module_id_at_offset(db, sema, root, offset).map_or(file_id.into(), Into::into);
     let src = SubroutineSrc::from(func);
-    Some(db.intern_subroutine(SubroutineLoc { cont_id, src: InFile::new(file_id, src) }))
+    let (cont_id, local_id): (SubroutineContainerId, _) =
+        if let Some(module_id) = module_id_at_offset(db, sema, root, offset) {
+            let (_, source_map) = db.module_with_source_map(module_id);
+            (module_id.into(), source_map.get(src)?)
+        } else {
+            let (_, source_map) = db.hir_file_with_source_map(file_id);
+            (file_id.into(), source_map.get(src)?)
+        };
+    Some(db.intern_subroutine(SubroutineLoc { cont_id, src: InFile::new(file_id, src), local_id }))
 }
 
 fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeMap<String, NameKind>) {
