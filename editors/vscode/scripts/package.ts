@@ -84,7 +84,8 @@ function sanitizedVsceEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function buildServer(target: PlatformFolder, serverOutDir: string, binFile: string): void {
+function ensureTargetServerBinary(target: PlatformFolder, binFile: string): string {
+  const serverOutDir = path.join(vscodeDir, 'server', target);
   const hostTarget = hostPlatformFolder();
   if (target !== hostTarget) {
     const serverPath = path.join(serverOutDir, binFile);
@@ -95,16 +96,38 @@ function buildServer(target: PlatformFolder, serverOutDir: string, binFile: stri
       );
     }
 
-    return;
+    return serverPath;
   }
 
   run('cargo', ['build', '--release'], repoRoot);
 
   const sourcePath = path.join(repoRoot, 'target', 'release', binFile);
   const destPath = path.join(serverOutDir, binFile);
+  fs.mkdirSync(serverOutDir, { recursive: true });
   fs.copyFileSync(sourcePath, destPath);
   if (!target.startsWith('win32-')) {
     fs.chmodSync(destPath, 0o755);
+  }
+
+  return destPath;
+}
+
+function stageRuntimeServer(sourcePath: string, target: PlatformFolder, binFile: string): string {
+  const runtimeServerDir = path.join(vscodeDir, 'server');
+  const runtimeServerPath = path.join(runtimeServerDir, binFile);
+
+  fs.mkdirSync(runtimeServerDir, { recursive: true });
+  fs.copyFileSync(sourcePath, runtimeServerPath);
+  if (!target.startsWith('win32-')) {
+    fs.chmodSync(runtimeServerPath, 0o755);
+  }
+
+  return runtimeServerPath;
+}
+
+function cleanRuntimeServerFiles(): void {
+  for (const binFile of [`${binName}.exe`, binName]) {
+    fs.rmSync(path.join(vscodeDir, 'server', binFile), { force: true });
   }
 }
 
@@ -112,27 +135,29 @@ function packageExtension(target: string): string {
   if (!isPlatformFolder(target)) {
     throw new Error(
       `unsupported target platform: ${target}\n` +
-        `supported targets: ${SUPPORTED_PLATFORM_FOLDERS.join(', ')}`,
+      `supported targets: ${SUPPORTED_PLATFORM_FOLDERS.join(', ')}`,
     );
   }
 
-  const serverOutDir = path.join(vscodeDir, 'server', target);
-  fs.mkdirSync(serverOutDir, { recursive: true });
-
   const binFile = binaryFileForTarget(target);
-  buildServer(target, serverOutDir, binFile);
+  const targetServerPath = ensureTargetServerBinary(target, binFile);
+  cleanRuntimeServerFiles();
+  const runtimeServerPath = stageRuntimeServer(targetServerPath, target, binFile);
 
   const vsixOut = `vizsla-vscode-${target}.vsix`;
   const vsceBin = path.join(vscodeDir, 'node_modules', '@vscode', 'vsce', 'vsce');
-  run(process.execPath, [
-    vsceBin,
-    'package',
-    '--target',
-    target,
-    '--ignore-other-target-folders',
-    '--out',
-    vsixOut,
-  ], vscodeDir, sanitizedVsceEnv());
+  try {
+    run(process.execPath, [
+      vsceBin,
+      'package',
+      '--target',
+      target,
+      '--out',
+      vsixOut,
+    ], vscodeDir, sanitizedVsceEnv());
+  } finally {
+    fs.rmSync(runtimeServerPath, { force: true });
+  }
 
   return path.join(vscodeDir, vsixOut);
 }

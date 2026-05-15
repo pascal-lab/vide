@@ -39,5 +39,5 @@ export function getBundledServerPath(
     return undefined;
   }
 
-  return path.join(extensionPath, 'server', platformFolder, getServerBinaryName(platform));
+  return path.join(extensionPath, 'server', getServerBinaryName(platform));
 }

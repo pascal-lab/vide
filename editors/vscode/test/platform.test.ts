@@ -43,7 +43,7 @@ test('resolves bundled server paths for every packaged target', () => {
     const binaryName = platform === 'win32' ? 'vizsla.exe' : 'vizsla';
     assert.equal(
       getBundledServerPath(extensionPath, platform, arch),
-      path.join(extensionPath, 'server', target, binaryName),
+      path.join(extensionPath, 'server', binaryName),
     );
   }
 });
