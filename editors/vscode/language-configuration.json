@@ -9,25 +9,31 @@
     ["(", ")"],
     ["begin", "end"],
     ["case", "endcase"],
+    ["casez", "endcase"],
+    ["casex", "endcase"],
+    ["fork", "join"],
+    ["generate", "endgenerate"],
     ["function", "endfunction"],
     ["task", "endtask"],
     ["module", "endmodule"],
-    ["class", "endclass"],
-    ["package", "endpackage"]
+    ["macromodule", "endmodule"],
+    ["primitive", "endprimitive"],
+    ["config", "endconfig"],
+    ["specify", "endspecify"],
+    ["table", "endtable"]
   ],
   "autoClosingPairs": [
     { "open": "{", "close": "}" },
     { "open": "[", "close": "]" },
     { "open": "(", "close": ")" },
-    { "open": "\"", "close": "\"", "notIn": ["string"] },
-    { "open": "'", "close": "'", "notIn": ["string", "comment"] }
+    { "open": "/*", "close": " */", "notIn": ["string"] },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] }
   ],
   "surroundingPairs": [
     ["{", "}"],
     ["[", "]"],
     ["(", ")"],
-    ["\"", "\""],
-    ["'", "'"]
+    ["\"", "\""]
   ],
   "folding": {
     "markers": {
@@ -35,9 +41,29 @@
       "end": "^\\s*//\\s*#?endregion\\b"
     }
   },
-  "wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\?\\s]+)",
+  "wordPattern": "(`?[a-zA-Z_][a-zA-Z0-9_$]*|\\$[a-zA-Z_][a-zA-Z0-9_$]*|\\\\\\S+|(?:\\d+)?'[sS]?[bBoOdDhH][a-fA-F0-9_xXzZ?]+|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d[\\d_]*)?)",
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(module|class|function|task|begin|case|fork)\\b.*$",
-    "decreaseIndentPattern": "^\\s*(endmodule|endclass|endfunction|endtask|end|endcase|join|join_any|join_none)\\b.*$"
-  }
+    "increaseIndentPattern": "^\\s*(?!//)(?:.*\\b(?:begin|fork)\\b|(?:case|casez|casex)\\b.*|(?:module|macromodule|primitive|config|specify|generate|function|task|table)\\b.*)$",
+    "decreaseIndentPattern": "^\\s*(?:end|endcase|join|endmodule|endprimitive|endconfig|endspecify|endgenerate|endfunction|endtask|endtable|else)\\b.*$",
+    "indentNextLinePattern": "^\\s*(?!//)(?:if|else|for|while|repeat|forever|initial|always|wait)\\b(?!.*\\bbegin\\b)(?!.*;\\s*(?://.*)?$).*$"
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "^\\s*/\\*\\*(?!/)(?:[^*]|\\*(?!/))*$",
+      "afterText": "^\\s*\\*/$",
+      "action": { "indentAction": "IndentOutdent", "appendText": " * " }
+    },
+    {
+      "beforeText": "^\\s*/\\*\\*(?!/)(?:[^*]|\\*(?!/))*$",
+      "action": { "indentAction": "None", "appendText": " * " }
+    },
+    {
+      "beforeText": "^(\\t|[ ])* \\*(?:[^/]|/(?!\\*))*$",
+      "action": { "indentAction": "None", "appendText": "* " }
+    },
+    {
+      "beforeText": "^(\\t|[ ])* \\*/\\s*$",
+      "action": { "indentAction": "None", "removeText": 1 }
+    }
+  ]
 }

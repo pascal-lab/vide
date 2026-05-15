@@ -106,6 +106,7 @@ salsa.opt-level = 3
 [profile.release]
 incremental = true
 debug = 0
+strip = "symbols"
 
 [profile.release-lto]
 inherits = "release"

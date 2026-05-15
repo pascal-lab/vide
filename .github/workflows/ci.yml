@@ -60,14 +60,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
+        run: npm ci
+      - name: Test extension
+        run: npm test
+      - name: Package extension
+        run: npm run package:linux-x64
