@@ -155,25 +155,14 @@ impl Module {
         let Ports::NonAnsi { ports, .. } = &self.ports else {
             return None;
         };
-        if idx >= ports.len() {
-            return None;
-        }
-        let raw_idx = u32::try_from(idx).ok()?;
-        let port_id = Idx::from_raw(RawIdx::from_u32(raw_idx));
-        Some(port_id)
+        ports.iter().nth(idx).map(|(port_id, _)| port_id)
     }
 
     pub fn ansi_port_decl_id_by_idx(&self, idx: usize) -> Option<PortDeclId> {
         let Ports::Ansi(port_decls) = &self.ports else {
             return None;
         };
-        if idx >= port_decls.len() {
-            return None;
-        }
-
-        let raw_idx = u32::try_from(idx).ok()?;
-        let port_decl_id = Idx::from_raw(RawIdx::from_u32(raw_idx));
-        Some(port_decl_id)
+        port_decls.iter().nth(idx).map(|(port_decl_id, _)| port_decl_id)
     }
 }
 

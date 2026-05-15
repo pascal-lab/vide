@@ -17,7 +17,9 @@ use crate::{
             ModuleId, ModuleSrc,
             generate::{GenerateBlockLoc, GenerateBlockSrc},
         },
-        subroutine::{SubroutineContainerId, SubroutineLoc, SubroutineSrc},
+        subroutine::{
+            LocalSubroutineId, SubroutineContainerId, SubroutineId, SubroutineLoc, SubroutineSrc,
+        },
     },
     source_map::ToAstNode,
 };
@@ -49,6 +51,15 @@ impl Source2DefCtx<'_, '_> {
         let tree = self.db.parse(file_id);
         let node = block_src.to_node(&tree)?;
         self.block_to_def_inner(file_id, node, block_src)
+    }
+
+    pub(super) fn subroutine_to_def(
+        &mut self,
+        InFile { file_id, value: subroutine_src }: InFile<SubroutineSrc>,
+    ) -> Option<SubroutineId> {
+        let tree = self.db.parse(file_id);
+        let node = subroutine_src.to_node(&tree)?;
+        self.subroutine_to_def_inner(file_id, node, subroutine_src)
     }
 
     // This is a faster version of block_to_def that doesn't require a [`to_node`]
@@ -127,40 +138,54 @@ impl Source2DefCtx<'_, '_> {
                }).into()
            },
            ast::FunctionDeclaration[func] => {
-               let parent = SyntaxAncestors::start_from(node)
-                   .skip(1)
-                   .find_map(|node| self.container_to_def(file_id, node))
-                   .unwrap_or(file_id.into());
-               let cont_id = SubroutineContainerId::try_from(parent).ok()?;
-
                let src = SubroutineSrc::from(func);
-               let local_id = match cont_id {
-                   SubroutineContainerId::HirFileId(file_id) => {
-                       let (_, source_map) = self.db.hir_file_with_source_map(file_id);
-                       source_map.get(src)?
-                   }
-                   SubroutineContainerId::ModuleId(module_id) => {
-                       let (_, source_map) = self.db.module_with_source_map(module_id);
-                       source_map.get(src)?
-                   }
-                   SubroutineContainerId::GenerateBlockId(generate_block_id) => {
-                       let (_, source_map) =
-                           self.db.generate_block_with_source_map(generate_block_id);
-                       source_map.get(src)?
-                   }
-               };
-               let subroutine_id = self.db.intern_subroutine(SubroutineLoc {
-                   cont_id,
-                   src: InFile::new(file_id, src),
-                   local_id,
-               });
-               subroutine_id.into()
+               self.subroutine_to_def_inner(file_id, func, src)?.into()
            },
            ast::CompilationUnit => file_id.into(),
            _ => return None,
         };
 
         Some(cont_id)
+    }
+
+    fn subroutine_to_def_inner(
+        &mut self,
+        file_id: HirFileId,
+        node: ast::FunctionDeclaration,
+        src: SubroutineSrc,
+    ) -> Option<SubroutineId> {
+        let parent = SyntaxAncestors::start_from(node.syntax())
+            .skip(1)
+            .find_map(|node| self.container_to_def(file_id, node))
+            .unwrap_or(file_id.into());
+        let cont_id = SubroutineContainerId::try_from(parent).ok()?;
+        let local_id = self.local_subroutine_id(cont_id, src)?;
+        Some(self.db.intern_subroutine(SubroutineLoc {
+            cont_id,
+            src: InFile::new(file_id, src),
+            local_id,
+        }))
+    }
+
+    fn local_subroutine_id(
+        &self,
+        cont_id: SubroutineContainerId,
+        src: SubroutineSrc,
+    ) -> Option<LocalSubroutineId> {
+        match cont_id {
+            SubroutineContainerId::HirFileId(file_id) => {
+                let (_, source_map) = self.db.hir_file_with_source_map(file_id);
+                source_map.get(src)
+            }
+            SubroutineContainerId::ModuleId(module_id) => {
+                let (_, source_map) = self.db.module_with_source_map(module_id);
+                source_map.get(src)
+            }
+            SubroutineContainerId::GenerateBlockId(generate_block_id) => {
+                let (_, source_map) = self.db.generate_block_with_source_map(generate_block_id);
+                source_map.get(src)
+            }
+        }
     }
 
     fn single_member_generate_block_to_def(

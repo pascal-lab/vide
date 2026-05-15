@@ -110,14 +110,10 @@ pub(crate) fn handle_document_diagnostic(
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
 
-    let diagnostics = snap.diagnostics(file_id).unwrap_or_default();
-
-    let items = match snap.line_info(file_id) {
-        Ok(line_info) => {
-            diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
-        }
-        Err(_) => Vec::new(),
-    };
+    let diagnostics = snap.diagnostics(file_id)?;
+    let line_info = snap.line_info(file_id)?;
+    let items =
+        diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect();
 
     let result_id = snap.diagnostic_result_id(file_id);
     Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
@@ -159,7 +155,7 @@ pub(crate) fn handle_workspace_diagnostic(
             continue;
         }
 
-        for diag in snap.source_root_diagnostics(file_id).unwrap_or_default() {
+        for diag in snap.source_root_diagnostics(file_id)? {
             diagnostics_by_file.entry(diag.file_id).or_insert_with(Vec::new).push(diag);
         }
     }
@@ -176,12 +172,9 @@ pub(crate) fn handle_workspace_diagnostic(
 
         let diagnostics = diagnostics_by_file.remove(&file_id).unwrap_or_default();
 
-        let diag_items = match snap.line_info(file_id) {
-            Ok(line_info) => {
-                diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
-            }
-            Err(_) => Vec::new(),
-        };
+        let line_info = snap.line_info(file_id)?;
+        let diag_items =
+            diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect();
 
         let result_id = snap.diagnostic_result_id(file_id);
         let version = snap.file_version(file_id).map(|version| version as i64);

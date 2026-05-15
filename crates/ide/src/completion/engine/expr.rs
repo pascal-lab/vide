@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
 
 use hir::{
-    container::InFile,
-    db::{HirDb, InternDb},
+    db::HirDb,
     hir_def::{
         block::BlockId,
         module::{ModuleId, ModuleSrc},
-        subroutine::{SubroutineContainerId, SubroutineId, SubroutineLoc, SubroutineSrc},
+        subroutine::SubroutineId,
     },
     scope::{BlockEntry, ModuleEntry},
     semantics::Semantics,
@@ -66,7 +65,7 @@ fn complete_expression_impl(
         collect_block_names(db, block_id, &mut names);
     }
 
-    if let Some(subroutine_id) = subroutine_id_at_offset(db, &sema, root, position.offset) {
+    if let Some(subroutine_id) = subroutine_id_at_offset(&sema, root, position.offset) {
         collect_subroutine_names(db, subroutine_id, &mut names);
     }
 
@@ -120,23 +119,12 @@ fn block_id_at_offset(
 }
 
 fn subroutine_id_at_offset(
-    db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     root: SyntaxNode<'_>,
     offset: TextSize,
 ) -> Option<SubroutineId> {
     let func = sema.find_node_at_offset::<ast::FunctionDeclaration>(root, offset)?;
-    let file_id = sema.find_file(func.syntax())?;
-    let src = SubroutineSrc::from(func);
-    let (cont_id, local_id): (SubroutineContainerId, _) =
-        if let Some(module_id) = module_id_at_offset(db, sema, root, offset) {
-            let (_, source_map) = db.module_with_source_map(module_id);
-            (module_id.into(), source_map.get(src)?)
-        } else {
-            let (_, source_map) = db.hir_file_with_source_map(file_id);
-            (file_id.into(), source_map.get(src)?)
-        };
-    Some(db.intern_subroutine(SubroutineLoc { cont_id, src: InFile::new(file_id, src), local_id }))
+    sema.subroutine_to_def(func)
 }
 
 fn collect_block_names(db: &RootDb, block_id: BlockId, names: &mut BTreeMap<String, NameKind>) {

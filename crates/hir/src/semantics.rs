@@ -20,6 +20,7 @@ use crate::{
         Ident,
         block::{BlockId, BlockSrc},
         expr::ExprId,
+        subroutine::{SubroutineId, SubroutineSrc},
     },
 };
 
@@ -135,6 +136,12 @@ impl SemanticsImpl<'_> {
         let file_id = self.find_file(block.syntax())?;
         let block_src = BlockSrc::from(block);
         self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))
+    }
+
+    pub fn subroutine_to_def(&self, subroutine: ast::FunctionDeclaration) -> Option<SubroutineId> {
+        let file_id = self.find_file(subroutine.syntax())?;
+        let subroutine_src = SubroutineSrc::from(subroutine);
+        self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }
 
     pub fn expr_to_def(&self, in_cont: InContainer<ExprId>) -> Option<PathResolution> {

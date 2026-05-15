@@ -212,14 +212,30 @@ impl GlobalState {
                     let version = snapshot.file_version(file_id);
 
                     let diagnostics = match snapshot.diagnostics(file_id) {
-                        Ok(diags) if !diags.is_empty() => match snapshot.line_info(file_id) {
-                            Ok(line_info) => diags
+                        Ok(diags) if !diags.is_empty() => {
+                            let line_info = match snapshot.line_info(file_id) {
+                                Ok(line_info) => line_info,
+                                Err(error) => {
+                                    tracing::debug!(
+                                        ?file_id,
+                                        "skipping push diagnostics without line info: {error:#}"
+                                    );
+                                    continue;
+                                }
+                            };
+                            diags
                                 .into_iter()
                                 .map(|diag| to_proto::diagnostic(&line_info, diag))
-                                .collect(),
-                            Err(_) => Vec::new(),
-                        },
-                        Ok(_) | Err(_) => Vec::new(),
+                                .collect()
+                        }
+                        Ok(_) => Vec::new(),
+                        Err(error) => {
+                            tracing::debug!(
+                                ?file_id,
+                                "skipping push diagnostics after diagnostic error: {error:#}"
+                            );
+                            continue;
+                        }
                     };
 
                     results.push(PublishDiagnosticsTask { file_id, uri, version, diagnostics });
