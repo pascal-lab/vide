@@ -814,6 +814,40 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_direct_generate_subroutine_resolves_locally() {
+    let text = r#"
+module direct_generate_subroutine_ctx;
+  generate
+    if (1)
+      function integer f;
+        input integer /*marker:arg_def*/arg;
+        integer /*marker:local_def*/local_value;
+        begin
+          local_value = /*marker:arg_ref*/arg + /*marker:local_ref*/local_value;
+        end
+      endfunction
+  endgenerate
+endmodule
+"#;
+    let (host, file_id, _clean, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let parse_diagnostics = analysis.parse_diagnostics(file_id).unwrap();
+    assert!(parse_diagnostics.is_empty(), "{parse_diagnostics:?}");
+
+    for (marker, expected) in [("arg_ref", "arg"), ("local_ref", "local_value")] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|target| target.name.as_deref() == Some(expected)),
+            "{marker} should resolve to {expected}: {nav:?}"
+        );
+    }
+}
+
+#[test]
 fn verilog_2005_specparam_declaration_lowers_without_fallback() {
     let text = r#"
 module specparam_ctx(input wire a, output wire y);

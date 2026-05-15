@@ -251,6 +251,55 @@ fn initializer_expression_completion_excludes_module_item_keywords() {
 }
 
 #[test]
+fn subroutine_completion_resolves_named_generate_block_container() {
+    let items = completions_in_text(
+        r#"
+module top;
+  generate
+    if (1) begin : g
+      function integer f;
+        input integer arg;
+        integer local_value;
+        begin
+          local_value = arg + /*caret*/local_value;
+        end
+      endfunction
+    end
+  endgenerate
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"arg"), "subroutine port expected: {items:?}");
+    assert!(labels.contains(&"local_value"), "subroutine local expected: {items:?}");
+}
+
+#[test]
+fn subroutine_completion_resolves_single_member_generate_container() {
+    let text = r#"
+module top;
+  generate
+    if (1)
+      function integer f;
+        input integer arg;
+        integer local_value;
+        begin
+          local_value = arg + /*caret*/local_value;
+        end
+      endfunction
+  endgenerate
+endmodule
+"#;
+    let items = completions_in_text(text, None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"arg"), "subroutine port expected: {items:?}");
+    assert!(labels.contains(&"local_value"), "subroutine local expected: {items:?}");
+}
+
+#[test]
 fn module_item_identifier_prefix_stays_module_item_start() {
     let items =
         completions_in_text("module Foo; endmodule\nmodule top; Fo/*caret*/\nendmodule\n", None);

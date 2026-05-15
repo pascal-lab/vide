@@ -106,12 +106,6 @@ impl Source2DefCtx<'_, '_> {
     }
 
     fn container_to_def(&mut self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {
-        if let Some(member) = ast::Member::cast(node)
-            && let Some(cont_id) = self.single_member_generate_block_to_def(file_id, member)
-        {
-            return Some(cont_id);
-        }
-
         let cont_id = match_ast! { node,
            ast::ModuleDeclaration[module] => {
                let src = module.into();
@@ -142,7 +136,10 @@ impl Source2DefCtx<'_, '_> {
                self.subroutine_to_def_inner(file_id, func, src)?.into()
            },
            ast::CompilationUnit => file_id.into(),
-           _ => return None,
+           _ => {
+               let member = ast::Member::cast(node)?;
+               self.single_member_generate_block_to_def(file_id, member)?
+           },
         };
 
         Some(cont_id)
@@ -154,9 +151,13 @@ impl Source2DefCtx<'_, '_> {
         node: ast::FunctionDeclaration,
         src: SubroutineSrc,
     ) -> Option<SubroutineId> {
-        let parent = SyntaxAncestors::start_from(node.syntax())
-            .skip(1)
-            .find_map(|node| self.container_to_def(file_id, node))
+        let parent = ast::Member::cast(node.syntax())
+            .and_then(|member| self.single_member_generate_block_to_def(file_id, member))
+            .or_else(|| {
+                SyntaxAncestors::start_from(node.syntax())
+                    .skip(1)
+                    .find_map(|node| self.container_to_def(file_id, node))
+            })
             .unwrap_or(file_id.into());
         let cont_id = SubroutineContainerId::try_from(parent).ok()?;
         let local_id = self.local_subroutine_id(cont_id, src)?;
