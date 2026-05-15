@@ -80,7 +80,9 @@ pub(crate) fn handle_ctrl_flow_kw(
 
     let mut refs = vec![];
     let mut add_ref = |tok: SyntaxToken| {
-        refs.push((tok.text_range().unwrap(), ReferenceCategory::empty()));
+        if let Some(range) = tok.text_range() {
+            refs.push((range, ReferenceCategory::empty()));
+        }
     };
 
     match kind {
@@ -104,7 +106,10 @@ fn search_refs<'a>(
         .search()
         .into_iter()
         .map(|(file_id, tokens)| {
-            let res = tokens.into_iter().map(|token| (token.range(), token.category())).collect();
+            let res = tokens
+                .into_iter()
+                .filter_map(|token| Some((token.range()?, token.category())))
+                .collect();
             (file_id, res)
         })
         .collect();

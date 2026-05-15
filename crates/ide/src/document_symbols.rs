@@ -89,7 +89,9 @@ impl SymbolCollecter {
         kind: SymbolKind,
     ) {
         self.push_symbol(name, src);
-        self.stack.last_mut().unwrap().kind = kind;
+        if let Some(symbol) = self.stack.last_mut() {
+            symbol.kind = kind;
+        }
     }
 
     pub fn push_symbol_with_children(
@@ -123,7 +125,9 @@ impl SymbolCollecter {
 
     #[inline]
     pub fn pop(&mut self) {
-        let mut sym = self.stack.pop().unwrap();
+        let Some(mut sym) = self.stack.pop() else {
+            return;
+        };
 
         if (sym.kind == SymbolKind::Block
             || sym.kind == SymbolKind::Stmt
@@ -143,8 +147,10 @@ impl SymbolCollecter {
         }
     }
 
-    pub fn finish(self) -> Vec<DocumentSymbol> {
-        assert!(self.stack.is_empty(), "{:?}", self.stack);
+    pub fn finish(mut self) -> Vec<DocumentSymbol> {
+        while !self.stack.is_empty() {
+            self.pop();
+        }
         self.res
     }
 }
@@ -167,7 +173,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
                 }
                 _ => break,
             }
-            self.next().unwrap();
+            let _ = self.next();
         }
     }
 
@@ -376,8 +382,10 @@ fn build_stmt<Arn, SrcMap>(
 
     if let StmtKind::Block(block_info) = &stmt.kind {
         let block_id = block_info.block_id;
-        let block_src = src_map.get(stmt_id).try_into().unwrap();
-        collect_block_items(db, collector, block_id, block_src);
+        let stmt_src = src_map.get(stmt_id);
+        if let Ok(block_src) = stmt_src.try_into() {
+            collect_block_items(db, collector, block_id, block_src);
+        }
         return;
     }
 
@@ -421,7 +429,7 @@ fn build_stmt<Arn, SrcMap>(
         | StmtKind::ProcAssign(_)
         | StmtKind::Disable(_) => {}
 
-        StmtKind::Block(_) => unreachable!(),
+        StmtKind::Block(_) => {}
     }
     collector.pop();
 }

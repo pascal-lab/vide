@@ -48,7 +48,10 @@ impl SearchScope {
         match scope_visibility {
             ScopeVisibility::Public => search_scope.unwrap_or_else(|| Self::all(db)),
             ScopeVisibility::Private => {
-                let container_id = match def.container_id(db) {
+                let Some(container_id) = def.container_id(db) else {
+                    return search_scope.unwrap_or_default();
+                };
+                let container_id = match container_id {
                     ContainerId::ModuleId(InFile { file_id, .. }) if def.is_port() => {
                         file_id.into()
                     }
@@ -133,8 +136,8 @@ pub(crate) struct ReferenceToken<'a> {
 }
 
 impl ReferenceToken<'_> {
-    pub fn range(&self) -> TextRange {
-        self.token.text_range().unwrap()
+    pub fn range(&self) -> Option<TextRange> {
+        self.token.text_range()
     }
 
     pub fn category(&self) -> ReferenceCategory {
@@ -159,14 +162,21 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         let db = sema.db;
         let mut res: IntMap<_, Vec<_>> = IntMap::default();
 
-        let name = self.def.origins().into_iter().map(|def| def.name(db)).next().unwrap();
+        let Some(name) = self.def.origins().into_iter().find_map(|def| def.name(db)) else {
+            return res;
+        };
         debug_assert! {{
-            let names = self.def.origins().into_iter().map(|def| def.name(sema.db)).collect_vec();
+            let names = self
+                .def
+                .origins()
+                .into_iter()
+                .filter_map(|def| def.name(sema.db))
+                .collect_vec();
             !names.is_empty() && names.iter().all(|namei| namei == &name)
         }};
 
         let def_ranges: SmallVec<[_; 6]> =
-            self.def.origins().into_iter().map(|def| def.name_range(db)).collect();
+            self.def.origins().into_iter().filter_map(|def| def.name_range(db)).collect();
 
         let finder = &Finder::new(&name);
         for (text, file_id, range) in self.scope_files() {
@@ -226,10 +236,11 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         offset: TextSize,
     ) -> Option<SyntaxTokenWithParent<'a>> {
         let tok = node.token_at_offset(offset).find(|tok| tok.kind().name_like())?;
+        let tok_range = tok.text_range()?;
 
         // filter out definitions
         if names.iter().any(|InFile { value: range, file_id: name_file_id }| {
-            &tok.text_range().unwrap() == range && *name_file_id == file_id.into()
+            &tok_range == range && *name_file_id == file_id.into()
         }) {
             None
         } else {

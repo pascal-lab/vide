@@ -65,7 +65,7 @@ fn render_svint(svint: &SVInt, base: usize) -> String {
             2 => 1,
             8 => 3,
             16 => 4,
-            _ => unreachable!(),
+            _ => return s,
         };
         s.insert_str(0, &"0".repeat(width.div_ceil(log) - len));
         len += width.div_ceil(log) - len;
@@ -76,7 +76,7 @@ fn render_svint(svint: &SVInt, base: usize) -> String {
         8 => 3,
         10 => 3,
         16 => 4,
-        _ => unreachable!("unexpected base: {base}"),
+        _ => return s,
     };
 
     let mut result = String::with_capacity(len + len / interval + len / 4);
@@ -102,7 +102,7 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
         return None;
     }
 
-    let word = svint.get_single_word().unwrap();
+    let word = svint.get_single_word()?;
     if width == 32 {
         let f = f32::from_bits(word as u32);
         Some(format!("{:?}", f))
