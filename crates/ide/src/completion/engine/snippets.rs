@@ -32,12 +32,19 @@ pub(super) fn snippet_config() -> &'static SnippetConfig {
     static SNIPPETS: OnceLock<SnippetConfig> = OnceLock::new();
     SNIPPETS.get_or_init(|| {
         let manual_raw = include_str!("snippets.toml");
-        toml::from_str(manual_raw).expect("snippets.toml must be valid")
+        parse_snippet_config(manual_raw).unwrap_or_else(|err| {
+            tracing::error!(%err, "failed to parse bundled snippet config");
+            SnippetConfig::default()
+        })
     })
 }
 
 pub(super) fn entries(map: &BTreeMap<String, SnippetDef>) -> Vec<SnippetEntry> {
     map.iter().map(|(label, def)| def.to_entry(label)).collect()
+}
+
+fn parse_snippet_config(raw: &str) -> Result<SnippetConfig, toml::de::Error> {
+    toml::from_str(raw)
 }
 
 impl SnippetDef {
@@ -54,5 +61,16 @@ impl SnippetDef {
                 snippet: snippet.clone(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_snippets_parse() {
+        let parsed = parse_snippet_config(include_str!("snippets.toml"));
+        assert!(parsed.is_ok(), "snippets.toml failed to parse: {:?}", parsed.err());
     }
 }

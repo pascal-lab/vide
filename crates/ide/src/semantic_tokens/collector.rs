@@ -37,7 +37,9 @@ impl Node {
     }
 
     fn add(&mut self, tok: SemaToken) {
-        assert!(self.tok.range.contains_range(tok.range));
+        if !self.tok.range.contains_range(tok.range) {
+            return;
+        }
 
         if let Some(last) = self.nested.last_mut() {
             if last.tok.range.contains_range(tok.range) {
@@ -51,19 +53,24 @@ impl Node {
 
         let overlapping = {
             let start = self.nested.partition_point(|it| it.tok.range.end() <= tok.range.start());
-            let len = self.nested[start..]
-                .partition_point(|it| it.tok.range.intersect(tok.range).is_some());
+            let Some(rest) = self.nested.get(start..) else {
+                return;
+            };
+            let len = rest.partition_point(|it| it.tok.range.intersect(tok.range).is_some());
             start..start + len
         };
 
         if overlapping.len() == 1
-            && self.nested[overlapping.start].tok.range.contains_range(tok.range)
+            && let Some(node) = self.nested.get_mut(overlapping.start)
+            && node.tok.range.contains_range(tok.range)
         {
-            return self.nested[overlapping.start].add(tok);
+            return node.add(tok);
         }
 
         let nested = self.nested.splice(overlapping.clone(), iter::once(Node::new(tok))).collect();
-        self.nested[overlapping.start].nested = nested;
+        if let Some(node) = self.nested.get_mut(overlapping.start) {
+            node.nested = nested;
+        }
     }
 
     fn flatten(&self, acc: &mut Vec<SemaToken>) {

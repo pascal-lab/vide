@@ -201,16 +201,16 @@ fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Opti
 
     let bytes = source_text.as_bytes();
     let mut start = offset;
-    while start > 0 && is_directive_name_byte(bytes[start - 1]) {
+    while start > 0 && bytes.get(start - 1).is_some_and(|byte| is_directive_name_byte(*byte)) {
         start -= 1;
     }
 
-    if start == 0 || bytes[start - 1] != b'`' {
+    if start == 0 || bytes.get(start - 1) != Some(&b'`') {
         return None;
     }
 
     let mut end = offset;
-    while end < bytes.len() && is_directive_name_byte(bytes[end]) {
+    while bytes.get(end).is_some_and(|byte| is_directive_name_byte(*byte)) {
         end += 1;
     }
 

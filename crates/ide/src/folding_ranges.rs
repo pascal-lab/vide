@@ -346,8 +346,9 @@ fn collect_stmt(
 ) {
     src_map.iter().for_each(|(stmt_id, &stmt_src)| match &arena.get(stmt_id).kind {
         StmtKind::Block(block_info) => {
-            let block_src = stmt_src.try_into().unwrap();
-            collect_block(db, folds, block_info.block_id, block_src, line_index);
+            if let Ok(block_src) = stmt_src.try_into() {
+                collect_block(db, folds, block_info.block_id, block_src, line_index);
+            }
         }
         _ => {
             folds.collect_fold(stmt_src, FoldKind::Stmt, line_index);

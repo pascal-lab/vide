@@ -25,6 +25,7 @@ span.workspace = true
 syntax.workspace = true
 thiserror.workspace = true
 toml = "0.9.8"
+tracing.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 which = "7.0.0"

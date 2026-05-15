@@ -151,10 +151,10 @@ pub fn format_on_type(
     // region: inside comments
     if config.in_comments {
         if let Some(idx) = idx
-            && let (_, trivia) = trivias[idx]
+            && let Some((range, trivia)) = trivias.get(idx)
             && trivia.kind().is_bc()
         {
-            return format_in_bc(trivia, trivias[idx].0.start(), offset);
+            return format_in_bc(*trivia, range.start(), offset);
         }
 
         if let Some(edits) = format_in_lc(&trivias, idx.unwrap_or(trivias.len()), offset) {
@@ -167,7 +167,7 @@ pub fn format_on_type(
 
     // region: formatting
     if config.on_enter
-        && let trivias = &trivias[..idx.unwrap_or(trivias.len())]
+        && let Some(trivias) = trivias.get(..idx.unwrap_or(trivias.len()))
         && let Some(edits) = format_previous(db, file_id, trivias, &mut cursor, line_info, config)
     {
         res.union(edits)
