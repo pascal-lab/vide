@@ -305,7 +305,7 @@
     "package:linux-arm64": "npm run compile && tsx scripts/package.ts linux-arm64",
     "package:win32-x64": "npm run compile && tsx scripts/package.ts win32-x64",
     "package:win32-arm64": "npm run compile && tsx scripts/package.ts win32-arm64",
-    "install-extension": "code --install-extension vizsla-vscode-*.vsix"
+    "install-extension": "tsx scripts/install-extension.ts"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
