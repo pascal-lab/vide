@@ -392,7 +392,7 @@ module completion_ctx(input wire clk);
   endtask
 endmodule
 "#;
-    let (host, file_id, _clean_text, markers) = setup_marked_with_path(text, "/feature.map");
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
     let labels = |marker: &str| {
         analysis
@@ -644,7 +644,7 @@ fn verilog_2005_library_map_declaration_lowers_without_fallback() {
 library /*marker:library_def*/work "*.v";
 include "vendor.map";
 "#;
-    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let (host, file_id, _clean_text, markers) = setup_marked_with_path(text, "/feature.map");
     let analysis = host.make_analysis();
 
     let parse_diagnostics = analysis.parse_diagnostics(file_id).unwrap();
