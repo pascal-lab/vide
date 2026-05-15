@@ -64,7 +64,7 @@ pub fn get_workspace_folder(
 
         let entry = {
             let mut dirs = vfs::loader::Directories {
-                extensions: ["v", "sv"].map(String::from).into(),
+                extensions: ["v", "sv", "map"].map(String::from).into(),
                 include: root.include,
                 exclude: root.exclude,
             };

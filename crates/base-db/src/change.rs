@@ -3,7 +3,7 @@ use triomphe::Arc;
 use vfs::ChangedFile;
 
 use crate::{
-    source_db::SourceRootDb,
+    source_db::{SourceFileKind, SourceRootDb},
     source_root::{SourceRoot, SourceRootId},
 };
 
@@ -32,7 +32,12 @@ impl Change {
                 let root_id = SourceRootId(idx as u32);
                 let durability = durability(&root);
                 for file_id in root.iter() {
+                    let kind = root
+                        .path_for_file(&file_id)
+                        .map(SourceFileKind::from_path)
+                        .unwrap_or_default();
                     db.set_source_root_id_with_durability(file_id, root_id, durability);
+                    db.set_file_kind_with_durability(file_id, kind, durability);
                 }
                 db.set_source_root_with_durability(root_id, Arc::new(root), durability);
             }
@@ -44,6 +49,10 @@ impl Change {
             let file_id = changed_file.file_id;
             let source_root = db.source_root(db.source_root_id(file_id));
             let durability = durability(&source_root);
+            let kind = source_root
+                .path_for_file(&file_id)
+                .map(SourceFileKind::from_path)
+                .unwrap_or_default();
 
             match changed_file.change_kind {
                 vfs::ChangeKind::Create(_, _) => {
@@ -57,6 +66,7 @@ impl Change {
             }
 
             let text = changed_file.text().unwrap_or_else(|| Arc::from(""));
+            db.set_file_kind_with_durability(file_id, kind, durability);
             db.set_file_text_with_durability(file_id, text, durability);
         }
 

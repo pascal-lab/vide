@@ -80,9 +80,13 @@ endconfig
 "#;
 
 fn setup(text: &str) -> (AnalysisHost, FileId) {
+    setup_with_path(text, "/feature.v")
+}
+
+fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
     let text = normalize_fixture_text(text);
     let file_id = FileId(0);
-    let path = VfsPath::new_virtual_path("/feature.v".to_string());
+    let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
     file_set.insert(file_id, path);
@@ -101,6 +105,13 @@ fn setup(text: &str) -> (AnalysisHost, FileId) {
 }
 
 fn setup_marked(text: &str) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
+    setup_marked_with_path(text, "/feature.v")
+}
+
+fn setup_marked_with_path(
+    text: &str,
+    path: &str,
+) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
     let mut text = normalize_fixture_text(text);
     let mut markers = HashMap::new();
     let mut cursor = 0;
@@ -120,7 +131,7 @@ fn setup_marked(text: &str) -> (AnalysisHost, FileId, String, HashMap<String, Te
         cursor = start;
     }
 
-    let (host, file_id) = setup(&text);
+    let (host, file_id) = setup_with_path(&text, path);
     (host, file_id, text, markers)
 }
 
@@ -381,7 +392,7 @@ module completion_ctx(input wire clk);
   endtask
 endmodule
 "#;
-    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let (host, file_id, _clean_text, markers) = setup_marked_with_path(text, "/feature.map");
     let analysis = host.make_analysis();
     let labels = |marker: &str| {
         analysis
