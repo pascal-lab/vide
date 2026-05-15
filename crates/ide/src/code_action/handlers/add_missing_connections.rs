@@ -32,7 +32,7 @@ pub(super) fn add_missing_connections(
     let db = sema.db;
 
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
-    let InModule { value: instance_id, module_id } = sema.resolve_instance(ast_instance);
+    let InModule { value: instance_id, module_id } = sema.resolve_instance(ast_instance)?;
     let module = db.module(module_id);
     let instance = module.get(instance_id);
     let insert_offset = ast_instance.close_paren()?.text_range()?.start();

@@ -31,7 +31,7 @@ pub(super) fn add_missing_parameters(
 
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let InModule { value: instantiation_id, module_id } =
-        sema.resolve_instantiation(ast_instantiation);
+        sema.resolve_instantiation(ast_instantiation)?;
     let module = db.module(module_id);
     let instantiation = module.get(instantiation_id);
 

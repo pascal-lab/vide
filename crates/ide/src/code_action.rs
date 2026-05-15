@@ -215,7 +215,7 @@ impl<'a> CodeActionCtx<'a> {
         range: TextRange,
         diagnostics: CodeActionDiagnostics,
     ) -> Option<Self> {
-        let compilation_unit = CompilationUnit::cast(sema.parse_root(file_id))?;
+        let compilation_unit = CompilationUnit::cast(sema.parse_root(file_id)?)?;
         Some(Self { sema, file_id, range, diagnostics, compilation_unit })
     }
 

@@ -133,7 +133,7 @@ pub fn define_container(input: TokenStream) -> TokenStream {
             (HirFieldType::SourceMap { hir, src }, None) => {
                 Either::Right(Either::Left(iter::once(quote! {
                     impl utils::get::Get<#src> for #container_name {
-                        type Output = la_arena::Idx<#hir>;
+                        type Output = Option<la_arena::Idx<#hir>>;
 
                         fn get(&self, src: #src) -> Self::Output {
                             self.#name.get(src)
@@ -141,7 +141,7 @@ pub fn define_container(input: TokenStream) -> TokenStream {
                     }
 
                     impl utils::get::Get<la_arena::Idx<#hir>> for #container_name {
-                        type Output = #src;
+                        type Output = Option<#src>;
 
                         fn get(&self, idx: la_arena::Idx<#hir>) -> Self::Output {
                             self.#name.get(idx)
@@ -173,7 +173,7 @@ pub fn define_container(input: TokenStream) -> TokenStream {
             } else {
                 quote! {
                     impl utils::get::Get<#src> for #container_name {
-                        type Output = #id;
+                        type Output = Option<#id>;
 
                         fn get(&self, src: #src) -> Self::Output {
                             self.#name.get(src)
@@ -181,7 +181,7 @@ pub fn define_container(input: TokenStream) -> TokenStream {
                     }
 
                     impl utils::get::Get<#id> for #container_name {
-                        type Output = #src;
+                        type Output = Option<#src>;
 
                         fn get(&self, idx: #id) -> Self::Output {
                             self.#name.get(idx)
@@ -296,7 +296,7 @@ pub fn impl_container(input: TokenStream) -> TokenStream {
             }
 
             impl utils::get::Get<#src_ty> for ContainerSrcMap {
-                type Output = #data_id_ty;
+                type Output = Option<#data_id_ty>;
 
                 fn get(&self, src: #src_ty) -> Self::Output {
                     match self {
@@ -306,7 +306,7 @@ pub fn impl_container(input: TokenStream) -> TokenStream {
             }
 
             impl utils::get::Get<#data_id_ty> for ContainerSrcMap {
-                type Output = #src_ty;
+                type Output = Option<#src_ty>;
 
                 fn get(&self, idx: #data_id_ty) -> Self::Output {
                     match self {

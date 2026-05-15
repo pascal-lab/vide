@@ -119,19 +119,19 @@ define_enum_deriving_from! {
 }
 
 impl FileSourceMap {
-    pub fn item_to_ptr(&self, item: &FileItem) -> SyntaxNodePtr {
-        match item {
-            FileItem::LocalModuleId(idx) => self.get(*idx).node,
-            FileItem::ProcId(idx) => self.get(*idx).0,
-            FileItem::DeclarationId(idx) => self.get(*idx).ptr(),
-            FileItem::TypedefId(idx) => self.get(*idx).ptr(),
-            FileItem::StructId(idx) => self.get(*idx).node,
-            FileItem::ConfigDeclId(idx) => self.get(*idx).node,
-            FileItem::UdpDeclId(idx) => self.get(*idx).node,
-            FileItem::LibraryDeclId(idx) => self.get(*idx).node,
-            FileItem::LibraryIncludeId(idx) => self.get(*idx).0,
-            FileItem::SubroutineId(idx) => self.get(*idx).node,
-        }
+    pub fn item_to_ptr(&self, item: &FileItem) -> Option<SyntaxNodePtr> {
+        Some(match item {
+            FileItem::LocalModuleId(idx) => self.get(*idx)?.node,
+            FileItem::ProcId(idx) => self.get(*idx)?.0,
+            FileItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
+            FileItem::TypedefId(idx) => self.get(*idx)?.ptr(),
+            FileItem::StructId(idx) => self.get(*idx)?.node,
+            FileItem::ConfigDeclId(idx) => self.get(*idx)?.node,
+            FileItem::UdpDeclId(idx) => self.get(*idx)?.node,
+            FileItem::LibraryDeclId(idx) => self.get(*idx)?.node,
+            FileItem::LibraryIncludeId(idx) => self.get(*idx)?.0,
+            FileItem::SubroutineId(idx) => self.get(*idx)?.node,
+        })
     }
 }
 
@@ -355,10 +355,14 @@ pub(crate) fn hir_file_with_source_map_query(
     };
     match tree.root() {
         Some(root) if ast::CompilationUnit::can_cast(root.kind()) => {
-            lower_ctx.lower_file(ast::CompilationUnit::cast(root).unwrap());
+            if let Some(root) = ast::CompilationUnit::cast(root) {
+                lower_ctx.lower_file(root);
+            }
         }
         Some(root) if ast::LibraryMap::can_cast(root.kind()) => {
-            lower_ctx.lower_library_map(ast::LibraryMap::cast(root).unwrap());
+            if let Some(root) = ast::LibraryMap::cast(root) {
+                lower_ctx.lower_library_map(root);
+            }
         }
         _ => {}
     }

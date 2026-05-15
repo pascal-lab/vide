@@ -174,21 +174,21 @@ impl Module {
 }
 
 impl ModuleSourceMap {
-    pub fn item_to_ptr(&self, item: &ModuleItem) -> SyntaxNodePtr {
-        match item {
-            ModuleItem::ContAssignId(idx) => self.get(*idx).0,
-            ModuleItem::DefParamId(idx) => self.get(*idx).0,
-            ModuleItem::GenerateRegionId(idx) => self.get(*idx).into(),
-            ModuleItem::SpecifyBlockId(idx) => self.get(*idx).0,
-            ModuleItem::SpecifyItemId(idx) => self.get(*idx).into(),
-            ModuleItem::DeclarationId(idx) => self.get(*idx).ptr(),
-            ModuleItem::StructId(idx) => self.get(*idx).node,
-            ModuleItem::InstantiationId(idx) => self.get(*idx).into(),
-            ModuleItem::ProcId(idx) => self.get(*idx).0,
-            ModuleItem::PortDeclId(idx) => self.get(*idx).ptr(),
-            ModuleItem::TypedefId(idx) => self.get(*idx).ptr(),
-            ModuleItem::SubroutineId(idx) => self.get(*idx).node,
-        }
+    pub fn item_to_ptr(&self, item: &ModuleItem) -> Option<SyntaxNodePtr> {
+        Some(match item {
+            ModuleItem::ContAssignId(idx) => self.get(*idx)?.0,
+            ModuleItem::DefParamId(idx) => self.get(*idx)?.0,
+            ModuleItem::GenerateRegionId(idx) => self.get(*idx)?.into(),
+            ModuleItem::SpecifyBlockId(idx) => self.get(*idx)?.0,
+            ModuleItem::SpecifyItemId(idx) => self.get(*idx)?.into(),
+            ModuleItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
+            ModuleItem::StructId(idx) => self.get(*idx)?.node,
+            ModuleItem::InstantiationId(idx) => self.get(*idx)?.into(),
+            ModuleItem::ProcId(idx) => self.get(*idx)?.0,
+            ModuleItem::PortDeclId(idx) => self.get(*idx)?.ptr(),
+            ModuleItem::TypedefId(idx) => self.get(*idx)?.ptr(),
+            ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
+        })
     }
 }
 
@@ -222,7 +222,7 @@ pub(crate) struct LowerModuleCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
     pub(crate) file_id: HirFileId,
     pub(crate) module_id: ModuleId,
-    pub(crate) default_net_type: Option<NetKind>,
+    pub(crate) default_net_type: NetKind,
 
     pub(crate) module: &'a mut Module,
     pub(crate) module_source_map: &'a mut ModuleSourceMap,
@@ -405,7 +405,7 @@ impl LowerModuleCtx<'_> {
 
                 // Ports
                 PortDeclaration(port) => self.lower_port_decl(port).into(),
-                ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => unreachable!(),
+                ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => continue,
 
                 // Imports
                 PackageImportDeclaration(_) => continue,
@@ -535,13 +535,14 @@ pub(crate) fn module_with_source_map_query(
     let mut module = Module { name: file.get(local_module_id).name.clone(), ..Default::default() };
     let mut module_source_map = ModuleSourceMap::default();
 
-    let Some(ast_module) = file_source_map.get(local_module_id).to_node(&tree) else {
+    let Some(ast_module) = file_source_map.get(local_module_id).and_then(|src| src.to_node(&tree))
+    else {
         return (Arc::new(module), Arc::new(module_source_map));
     };
 
     let mut lower_ctx = LowerModuleCtx {
         db,
-        default_net_type: Some(NetKind::Wire),
+        default_net_type: NetKind::Wire,
         file_id,
         module_id,
         module: &mut module,

@@ -38,7 +38,9 @@ pub(super) fn complete_named_port_names(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(position.file_id);
+    let Some(root) = sema.parse_root(position.file_id) else {
+        return Vec::new();
+    };
     let Some(instantiation) =
         sema.find_node_at_offset::<ast::HierarchyInstantiation>(root, position.offset)
     else {
@@ -86,7 +88,9 @@ pub(super) fn complete_named_param_names(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(position.file_id);
+    let Some(root) = sema.parse_root(position.file_id) else {
+        return Vec::new();
+    };
     let Some(instantiation) =
         sema.find_node_at_offset::<ast::HierarchyInstantiation>(root, position.offset)
     else {
@@ -132,7 +136,9 @@ pub(super) fn complete_named_port_conn_expr(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(position.file_id);
+    let Some(root) = sema.parse_root(position.file_id) else {
+        return Vec::new();
+    };
     let Some(conn) = sema.find_node_at_offset::<ast::NamedPortConnection>(root, position.offset)
     else {
         return Vec::new();
@@ -146,7 +152,10 @@ pub(super) fn complete_named_port_conn_expr(
         return Vec::new();
     };
 
-    let current_module_id = sema.resolve_instantiation(instantiation).module_id;
+    let Some(current_module_id) = sema.resolve_instantiation(instantiation).map(|it| it.module_id)
+    else {
+        return Vec::new();
+    };
     let Some(target_module_id) = sema.nameres_instantiation(instantiation) else {
         return Vec::new();
     };
@@ -188,7 +197,9 @@ pub(super) fn complete_named_param_assign_expr(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(position.file_id);
+    let Some(root) = sema.parse_root(position.file_id) else {
+        return Vec::new();
+    };
     let Some(assign) = sema.find_node_at_offset::<ast::NamedParamAssignment>(root, position.offset)
     else {
         return Vec::new();
@@ -202,7 +213,10 @@ pub(super) fn complete_named_param_assign_expr(
         return Vec::new();
     };
 
-    let current_module_id = sema.resolve_instantiation(instantiation).module_id;
+    let Some(current_module_id) = sema.resolve_instantiation(instantiation).map(|it| it.module_id)
+    else {
+        return Vec::new();
+    };
     let Some(target_module_id) = sema.nameres_instantiation(instantiation) else {
         return Vec::new();
     };

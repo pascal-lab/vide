@@ -106,13 +106,15 @@ impl LowerExprCtx<'_> {
     }
 
     fn lower_named_ty(&mut self, ty: ast::NamedType) -> NamedDataTy {
-        let expr_id = self.lower_expr(ast::Expression::cast(ty.name().syntax()).unwrap());
+        let expr_id = ast::Expression::cast(ty.name().syntax())
+            .map(|expr| self.lower_expr(expr))
+            .unwrap_or_else(|| self.alloc_missing());
 
         use ast::Name::*;
         match ty.name() {
             IdentifierName(_) => NamedDataTy::Ident(expr_id),
             ScopedName(_) => NamedDataTy::Field(expr_id),
-            _ => unreachable!("{:?}", ty.syntax().kind()),
+            _ => NamedDataTy::Ident(expr_id),
         }
     }
 
@@ -164,7 +166,7 @@ impl LowerExprCtx<'_> {
             TokenKind::SIGNED_KEYWORD => Some(true),
             TokenKind::UNSIGNED_KEYWORD => Some(false),
             TokenKind::UNKNOWN => None,
-            _ => unreachable!(),
+            _ => None,
         }
     }
 
@@ -174,7 +176,7 @@ impl LowerExprCtx<'_> {
             RangeDimensionSpecifier(spec) => match self.lower_selector(spec.selector()) {
                 Selector::Bit(idx) => Some(Dimension::Size(idx)),
                 Selector::Range(left, right) => Some(Dimension::Range(left, right)),
-                _ => unreachable!("{:?}", spec.syntax().kind()),
+                _ => None,
             },
             _ => None,
         }

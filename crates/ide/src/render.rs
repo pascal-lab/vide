@@ -148,7 +148,7 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opti
 
 fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin) -> Option<Markup> {
     let db = sema.db;
-    let InFile { value: range, file_id } = origin.range(db);
+    let InFile { value: range, file_id } = origin.range(db)?;
     let end = range.end();
 
     let text = db.file_text(file_id.file_id());
@@ -164,7 +164,7 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin)
         return None;
     };
 
-    let root = sema.parse_root(file_id.file_id());
+    let root = sema.parse_root(file_id.file_id())?;
     let mut cursor = root.walk();
     cursor.goto_first_tok_after_or_last(end + TextSize::new(relative_start));
     cursor
@@ -177,7 +177,9 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin)
 fn render_containers(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {
     // elaboration?
     let db = sema.db;
-    let InFile { value: range, .. } = origin.range(db);
+    let Some(InFile { value: range, .. }) = origin.range(db) else {
+        return Markup::new();
+    };
     let cont_id = origin.container_id(db);
 
     let mut containers = Vec::new();

@@ -33,7 +33,9 @@ pub(super) fn complete_member_access(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(position.file_id);
+    let Some(root) = sema.parse_root(position.file_id) else {
+        return Vec::new();
+    };
 
     let scope = member_access_at_offset(root, position.offset)
         .and_then(|access| resolve_scope_for_expr(db, &sema, access.left()))
@@ -101,7 +103,7 @@ fn resolve_scope_for_expr(
     sema: &Semantics<'_, RootDb>,
     expr: ast::Expression<'_>,
 ) -> Option<MemberScope> {
-    let res = sema.expr_to_def(sema.resolve_expr(expr))?;
+    let res = sema.expr_to_def(sema.resolve_expr(expr)?)?;
     resolve_scope_from_resolution(db, res)
 }
 

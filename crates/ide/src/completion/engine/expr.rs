@@ -56,7 +56,9 @@ fn complete_expression_impl(
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(position.file_id);
+    let Some(root) = sema.parse_root(position.file_id) else {
+        return Vec::new();
+    };
 
     let mut names: BTreeMap<String, NameKind> = BTreeMap::new();
 
@@ -102,10 +104,10 @@ fn module_id_at_offset(
     offset: TextSize,
 ) -> Option<ModuleId> {
     let module = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, offset)?;
-    let file_id = sema.find_file(module.syntax());
+    let file_id = sema.find_file(module.syntax())?;
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
     let module_src = ModuleSrc::from(module);
-    Some(ModuleId::new(file_id, file_src_map.get(module_src)))
+    Some(ModuleId::new(file_id, file_src_map.get(module_src)?))
 }
 
 fn block_id_at_offset(
@@ -124,7 +126,7 @@ fn subroutine_id_at_offset(
     offset: TextSize,
 ) -> Option<SubroutineId> {
     let func = sema.find_node_at_offset::<ast::FunctionDeclaration>(root, offset)?;
-    let file_id = sema.find_file(func.syntax());
+    let file_id = sema.find_file(func.syntax())?;
     let cont_id = module_id_at_offset(db, sema, root, offset).map_or(file_id.into(), Into::into);
     let src = SubroutineSrc::from(func);
     Some(db.intern_subroutine(SubroutineLoc { cont_id, src: InFile::new(file_id, src) }))

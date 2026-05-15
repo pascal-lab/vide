@@ -73,9 +73,9 @@ pub enum PortHeader {
 }
 
 impl PortHeader {
-    pub fn dir(&self) -> Option<PortDirection> {
+    pub fn dir(&self) -> PortDirection {
         match self {
-            PortHeader::Var { dir, .. } | PortHeader::Net { dir, .. } => Some(*dir),
+            PortHeader::Var { dir, .. } | PortHeader::Net { dir, .. } => *dir,
         }
     }
 
@@ -200,51 +200,51 @@ impl Default for PortSrcs {
 }
 
 impl Get<NonAnsiPortId> for PortSrcs {
-    type Output = NonAnsiPortSrc;
+    type Output = Option<NonAnsiPortSrc>;
 
     fn get(&self, port_id: NonAnsiPortId) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { ports, .. } => ports.get(port_id),
-            PortSrcs::Ansi { .. } => unreachable!(),
+            PortSrcs::Ansi { .. } => None,
         }
     }
 }
 
 impl Get<NonAnsiPortSrc> for PortSrcs {
-    type Output = NonAnsiPortId;
+    type Output = Option<NonAnsiPortId>;
 
     fn get(&self, src: NonAnsiPortSrc) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { ports, .. } => ports.get(src),
-            PortSrcs::Ansi { .. } => unreachable!(),
+            PortSrcs::Ansi { .. } => None,
         }
     }
 }
 
 impl Get<PortRefId> for PortSrcs {
-    type Output = PortRefSrc;
+    type Output = Option<PortRefSrc>;
 
     fn get(&self, port_ref_id: PortRefId) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { refs, .. } => refs.get(port_ref_id),
-            PortSrcs::Ansi { .. } => unreachable!(),
+            PortSrcs::Ansi { .. } => None,
         }
     }
 }
 
 impl Get<PortRefSrc> for PortSrcs {
-    type Output = PortRefId;
+    type Output = Option<PortRefId>;
 
     fn get(&self, src: PortRefSrc) -> Self::Output {
         match self {
             PortSrcs::NonAnsi { refs, .. } => refs.get(src),
-            PortSrcs::Ansi { .. } => unreachable!(),
+            PortSrcs::Ansi { .. } => None,
         }
     }
 }
 
 impl Get<PortDeclId> for PortSrcs {
-    type Output = PortDeclSrc;
+    type Output = Option<PortDeclSrc>;
 
     fn get(&self, port_id: PortDeclId) -> Self::Output {
         match self {
@@ -255,7 +255,7 @@ impl Get<PortDeclId> for PortSrcs {
 }
 
 impl Get<PortDeclSrc> for PortSrcs {
-    type Output = PortDeclId;
+    type Output = Option<PortDeclId>;
 
     fn get(&self, src: PortDeclSrc) -> Self::Output {
         match self {
@@ -294,9 +294,11 @@ impl LowerModuleCtx<'_> {
                     let decl_id = self.decl_ctx().lower_declarator(port.declarator(), parent);
                     let end = self.module.decls.nxt_idx();
 
+                    let current_header = header.unwrap_or_else(|| self.default_port_header());
+                    header = Some(current_header);
                     alloc_idx_and_src! {
                         PortDecl {
-                            header: header.unwrap(),
+                            header: current_header,
                             decls: IdxRange::new(decl_id..end),
                             name: None,
                         } => ports,
@@ -309,8 +311,10 @@ impl LowerModuleCtx<'_> {
                         self.expr_ctx().lower_expr(expr);
                     }
 
+                    let current_header = header.unwrap_or_else(|| self.default_port_header());
+                    header = Some(current_header);
                     let idx = ports.alloc(PortDecl {
-                        header: header.unwrap(),
+                        header: current_header,
                         decls: IdxRange::new(
                             self.module.decls.nxt_idx()..self.module.decls.nxt_idx(),
                         ),
@@ -318,7 +322,7 @@ impl LowerModuleCtx<'_> {
                     });
                     decls.insert(port.into(), idx);
                 }
-                _ => unreachable!(),
+                _ => continue,
             };
             self.region_tree.handle_node(port.syntax());
         }
@@ -386,9 +390,18 @@ impl LowerModuleCtx<'_> {
                     let sub_refs = lower_port_exprs(Some(port.expr()));
                     debug_assert!(sub_refs.as_ref().is_none_or(|refs| refs.len() == 1));
 
-                    let port_ref_id = sub_refs.as_ref().unwrap().start();
-                    let label = refs[port_ref_id].ident.clone();
-                    let src_name = ref_srcs.get(port_ref_id).name;
+                    let (label, src_name) = sub_refs
+                        .as_ref()
+                        .map(|sub_refs| {
+                            let port_ref_id = sub_refs.start();
+                            let label = refs.get(port_ref_id).ident.clone();
+                            let src_name = ref_srcs
+                                .iter()
+                                .find_map(|(id, src)| (id == port_ref_id).then_some(src.name))
+                                .flatten();
+                            (label, src_name)
+                        })
+                        .unwrap_or((None, None));
                     (NonAnsiPort { label, refs: sub_refs }, src_name)
                 }
                 EmptyNonAnsiPort(_) => (NonAnsiPort { label: None, refs: None }, None),
@@ -399,9 +412,10 @@ impl LowerModuleCtx<'_> {
                 hir_port => ports,
                 port => port_srcs,
             };
-            if src_name.is_some() {
-                port_srcs
-                    .insert(NonAnsiPortSrc { name: src_name, ..port_srcs.get(port_id) }, port_id);
+            if src_name.is_some()
+                && let Some(src) = port_srcs.get(port_id)
+            {
+                port_srcs.insert(NonAnsiPortSrc { name: src_name, ..src }, port_id);
             }
         }
 
@@ -433,7 +447,9 @@ impl LowerModuleCtx<'_> {
                     decl => srcs,
                 }
             }
-            _ => unreachable!(),
+            (Ports::NonAnsi { decls: port_decls, .. }, _) | (Ports::Ansi(port_decls), _) => {
+                port_decls.alloc(PortDecl { header, decls, name: None })
+            }
         }
     }
 
@@ -445,59 +461,48 @@ impl LowerModuleCtx<'_> {
         prev_header: Option<PortHeader>,
     ) -> PortHeader {
         let default_data_ty = DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()));
-        let default_net_kind = self.default_net_type.unwrap();
+        let default_net_kind = self.default_net_type;
         let prev_header = prev_header.unwrap_or_else(|| self.default_port_header());
 
         use ast::PortHeader::*;
-        match header {
-            VariablePortHeader(_) | NetPortHeader(_) => {
-                // Extract information from the AST
-                let (ast_dir, port_kind, ast_ty) = match &header {
-                    VariablePortHeader(header) => {
-                        let var_kw = header.var_keyword().map(|_| Either::Left(()));
-                        (header.direction(), var_kw, header.data_type())
-                    }
-                    NetPortHeader(header) => (
-                        header.direction(),
-                        lower_net_kind(header.net_type()).map(Either::Right),
-                        header.data_type(),
-                    ),
-                    _ => unreachable!(),
-                };
+        let (ast_dir, port_kind, ast_ty) = match header {
+            VariablePortHeader(header) => {
+                let var_kw = header.var_keyword().map(|_| Either::Left(()));
+                (header.direction(), var_kw, header.data_type())
+            }
+            NetPortHeader(header) => (
+                header.direction(),
+                lower_net_kind(header.net_type()).map(Either::Right),
+                header.data_type(),
+            ),
+            InterfacePortHeader(_header) => return prev_header,
+        };
 
-                // Check if omitted
-                let ty_omitted = DataTy::is_ast_missing(ast_ty);
-                let all_omitted = ast_dir.is_none() && port_kind.is_none() && ty_omitted;
+        let ty_omitted = DataTy::is_ast_missing(ast_ty);
+        let all_omitted = ast_dir.is_none() && port_kind.is_none() && ty_omitted;
+        let dir = Self::lower_dir(ast_dir).unwrap_or_else(|| prev_header.dir());
 
-                // Generate the header
-                let dir = Self::lower_dir(ast_dir).or(prev_header.dir()).unwrap();
+        let ty = if !ty_omitted {
+            self.expr_ctx().lower_data_ty(ast_ty)
+        } else if all_omitted {
+            prev_header.ty()
+        } else {
+            default_data_ty
+        };
 
-                let ty = if !ty_omitted {
-                    self.expr_ctx().lower_data_ty(ast_ty)
-                } else if all_omitted {
-                    prev_header.ty()
+        match port_kind {
+            Some(Either::Left(())) => PortHeader::Var { dir, var_kw: true, ty },
+            Some(Either::Right(kind)) => PortHeader::Net { dir, net_ty: NetType { kind, ty } },
+            None => {
+                if matches!(dir, PortDirection::Input | PortDirection::Inout)
+                    || (matches!(dir, PortDirection::Output)
+                        && matches!(ast_ty, ast::DataType::ImplicitType(_)))
+                {
+                    PortHeader::Net { dir, net_ty: NetType { kind: default_net_kind, ty } }
                 } else {
-                    default_data_ty
-                };
-
-                match port_kind {
-                    Some(Either::Left(())) => PortHeader::Var { dir, var_kw: true, ty },
-                    Some(Either::Right(kind)) => {
-                        PortHeader::Net { dir, net_ty: NetType { kind, ty } }
-                    }
-                    None => {
-                        if matches!(dir, PortDirection::Input | PortDirection::Inout)
-                            || (matches!(dir, PortDirection::Output)
-                                && matches!(ast_ty, ast::DataType::ImplicitType(_)))
-                        {
-                            PortHeader::Net { dir, net_ty: NetType { kind: default_net_kind, ty } }
-                        } else {
-                            PortHeader::Var { dir, var_kw: false, ty }
-                        }
-                    }
+                    PortHeader::Var { dir, var_kw: false, ty }
                 }
             }
-            InterfacePortHeader(_header) => prev_header,
         }
     }
 
@@ -520,7 +525,7 @@ impl LowerModuleCtx<'_> {
 
     fn default_port_header(&mut self) -> PortHeader {
         let default_data_ty = DataTy::Builtin(self.db.intern_ty(BuiltinDataTy::default()));
-        let default_net_kind = self.default_net_type.unwrap();
+        let default_net_kind = self.default_net_type;
         PortHeader::Net {
             dir: PortDirection::default(),
             net_ty: NetType { kind: default_net_kind, ty: default_data_ty },
@@ -528,12 +533,12 @@ impl LowerModuleCtx<'_> {
     }
 
     fn lower_dir(tok: Option<SyntaxToken>) -> Option<PortDirection> {
-        tok.map(|tok| match tok.kind() {
-            TokenKind::INPUT_KEYWORD => PortDirection::Input,
-            TokenKind::OUTPUT_KEYWORD => PortDirection::Output,
-            TokenKind::IN_OUT_KEYWORD => PortDirection::Inout,
-            TokenKind::REF_KEYWORD => PortDirection::Ref,
-            _ => unreachable!(),
+        tok.and_then(|tok| match tok.kind() {
+            TokenKind::INPUT_KEYWORD => Some(PortDirection::Input),
+            TokenKind::OUTPUT_KEYWORD => Some(PortDirection::Output),
+            TokenKind::IN_OUT_KEYWORD => Some(PortDirection::Inout),
+            TokenKind::REF_KEYWORD => Some(PortDirection::Ref),
+            _ => None,
         })
     }
 }

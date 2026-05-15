@@ -81,13 +81,13 @@ define_container! {
 }
 
 impl BlockSourceMap {
-    pub fn item_to_ptr(&self, item: &BlockItem) -> SyntaxNodePtr {
-        match item {
-            BlockItem::DeclarationId(idx) => self.get(*idx).ptr(),
-            BlockItem::TypedefId(idx) => self.get(*idx).ptr(),
-            BlockItem::StructId(idx) => self.get(*idx).node,
-            BlockItem::StmtId(idx) => self.get(*idx).node,
-        }
+    pub fn item_to_ptr(&self, item: &BlockItem) -> Option<SyntaxNodePtr> {
+        Some(match item {
+            BlockItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
+            BlockItem::TypedefId(idx) => self.get(*idx)?.ptr(),
+            BlockItem::StructId(idx) => self.get(*idx)?.node,
+            BlockItem::StmtId(idx) => self.get(*idx)?.node,
+        })
     }
 }
 
@@ -126,19 +126,19 @@ impl TryFrom<StmtSrc> for BlockSrc {
 }
 
 impl Get<LocalBlockId> for SourceMap<StmtSrc, Stmt> {
-    type Output = BlockSrc;
+    type Output = Option<BlockSrc>;
 
     fn get(&self, block_id: LocalBlockId) -> Self::Output {
         let stmt_id = block_id.0;
-        self.get(stmt_id).try_into().unwrap()
+        self.hir_to_src(stmt_id)?.try_into().ok()
     }
 }
 
 impl Get<BlockSrc> for SourceMap<StmtSrc, Stmt> {
-    type Output = LocalBlockId;
+    type Output = Option<LocalBlockId>;
 
     fn get(&self, block_src: BlockSrc) -> Self::Output {
-        find_local_block_id(self, block_src).unwrap()
+        find_local_block_id(self, block_src)
     }
 }
 

@@ -14,23 +14,23 @@ use crate::{
 pub trait HasSource {
     type AstPtr: IsSrc;
 
-    fn source(&self, db: &dyn HirDb) -> InFile<Self::AstPtr>;
+    fn source(&self, db: &dyn HirDb) -> Option<InFile<Self::AstPtr>>;
 }
 
 impl HasSource for ModuleId {
     type AstPtr = ModuleSrc;
 
-    fn source(&self, db: &dyn HirDb) -> InFile<ModuleSrc> {
+    fn source(&self, db: &dyn HirDb) -> Option<InFile<ModuleSrc>> {
         let InFile { file_id, value } = *self;
         let (_, file_source_map) = db.hir_file_with_source_map(file_id);
-        self.with_value(file_source_map.get(value))
+        Some(self.with_value(file_source_map.get(value)?))
     }
 }
 
 impl HasSource for BlockId {
     type AstPtr = BlockSrc;
 
-    fn source(&self, db: &dyn HirDb) -> InFile<BlockSrc> {
-        self.lookup(db).src
+    fn source(&self, db: &dyn HirDb) -> Option<InFile<BlockSrc>> {
+        Some(self.lookup(db).src)
     }
 }

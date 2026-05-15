@@ -30,7 +30,7 @@ impl SemanticsImpl<'_> {
         &self,
         SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
     ) -> Option<PathResolution> {
-        let file_id = self.find_file(parent);
+        let file_id = self.find_file(parent)?;
         let ident = lower_ident_opt(Some(tok))?;
         self.with_ctx(|ctx| {
             let container = ctx.find_container(InFile::new(file_id, parent));

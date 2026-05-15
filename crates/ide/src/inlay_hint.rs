@@ -154,7 +154,9 @@ pub(crate) fn inlay_hint(
         match item {
             FileItem::LocalModuleId(idx) => {
                 let module_id = ModuleId::new(file_id, idx);
-                let module_src = src_map.get(idx);
+                let Some(module_src) = src_map.get(idx) else {
+                    continue;
+                };
 
                 if collector.intersect(module_src.range()) {
                     collect_module_items(db, module_id, module_src, &mut collector);
@@ -178,7 +180,9 @@ fn collect_module_items(
 
     if collector.config.instantiation() {
         for (instantiation_id, instantiation) in module.instantiations.iter() {
-            let instantiation_src = src_map.get(instantiation_id);
+            let Some(instantiation_src) = src_map.get(instantiation_id) else {
+                continue;
+            };
             if collector.intersect(instantiation_src.range()) {
                 process_instantiation(db, module, src_map, instantiation, collector);
             }
@@ -214,7 +218,9 @@ fn process_instantiation(
             let ParamAssign::Ordered(assign_expr) = module.get(assign_id) else {
                 continue;
             };
-            let assign_src = src_map.get(assign_id);
+            let Some(assign_src) = src_map.get(assign_id) else {
+                continue;
+            };
             if !collector.intersect(assign_src.range()) {
                 break;
             }
@@ -230,7 +236,10 @@ fn process_instantiation(
                 continue;
             }
 
-            let target_src = InFile::new(target_file, target_src_map.get(param_id));
+            let Some(target_src) = target_src_map.get(param_id) else {
+                continue;
+            };
+            let target_src = InFile::new(target_file, target_src);
             collector.collect_port_hint(param_name, assign_src, target_src);
         }
     }
@@ -239,7 +248,9 @@ fn process_instantiation(
     if collector.config.port_connection {
         for instance_id in instantiation.instances.iter() {
             let instance = module.get(*instance_id);
-            let instance_src = src_map.get(*instance_id);
+            let Some(instance_src) = src_map.get(*instance_id) else {
+                continue;
+            };
             if !collector.intersect(instance_src.range()) {
                 break;
             }
@@ -251,7 +262,9 @@ fn process_instantiation(
                     PortConn::Named(..) | PortConn::Wildcard => continue,
                 };
 
-                let conn_src = src_map.get(conn_id);
+                let Some(conn_src) = src_map.get(conn_id) else {
+                    continue;
+                };
                 if !collector.intersect(conn_src.range()) {
                     break;
                 }
@@ -267,7 +280,10 @@ fn process_instantiation(
                             continue;
                         }
 
-                        let target_src = InFile::new(target_file, target_src_map.get(port_id));
+                        let Some(target_src) = target_src_map.get(port_id) else {
+                            continue;
+                        };
+                        let target_src = InFile::new(target_file, target_src);
                         collector.collect_port_hint(port_name, conn_src, target_src);
                     }
                     Ports::Ansi(_) => {
@@ -282,7 +298,10 @@ fn process_instantiation(
                             continue;
                         }
 
-                        let target_src = InFile::new(target_file, target_src_map.get(port_id));
+                        let Some(target_src) = target_src_map.get(port_id) else {
+                            continue;
+                        };
+                        let target_src = InFile::new(target_file, target_src);
                         collector.collect_port_hint(port_name, conn_src, target_src);
                     }
                 }

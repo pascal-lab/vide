@@ -48,7 +48,7 @@ pub(crate) fn prepare_rename(
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let root = sema.parse_root(file_id).ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
     DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)?;
@@ -62,7 +62,7 @@ pub(crate) fn rename(
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let root = sema.parse_root(file_id).ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let def = match DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)? {
         DefinitionClass::Definition(def) => def,
@@ -128,10 +128,10 @@ fn edits_from_refs(
                     }
                     (None, None) => {
                         if let Some(port_conn) = ast::PortConnection::cast(it.syntax()) {
-                            let ref_container = sema.resolve_named_port_conn(port_conn);
-                            if def
-                                .container_id(sema.db)
-                                .is_some_and(|id| id == ref_container.module_id.into())
+                            if let Some(ref_container) = sema.resolve_named_port_conn(port_conn)
+                                && def
+                                    .container_id(sema.db)
+                                    .is_some_and(|id| id == ref_container.module_id.into())
                             {
                                 // .old => .old(new)
                                 text_edit.replace(range, format!("{old_name}({new_name})"));

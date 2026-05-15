@@ -309,7 +309,9 @@ impl Iterator for ContainerParent<'_> {
                 Some(generate_block_id.lookup(self.db).cont_id)
             }
             ContainerId::BlockId(block_id) => Some(block_id.lookup(self.db).cont_id),
-            ContainerId::SubroutineId(subroutine_id) => Some(subroutine_id.lookup(self.db).cont_id),
+            ContainerId::SubroutineId(subroutine_id) => {
+                Some(subroutine_id.lookup(self.db).cont_id.into())
+            }
         };
         next
     }

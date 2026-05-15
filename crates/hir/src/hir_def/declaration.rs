@@ -176,7 +176,7 @@ impl LowerDeclarationCtx<'_> {
             TokenKind::CONST_KEYWORD => const_kw = true,
             TokenKind::VAR_KEYWORD => var_kw = true,
             TokenKind::UNKNOWN => {}
-            _ => unreachable!(),
+            _ => {}
         });
 
         let ty = self.expr_ctx().lower_data_ty(data_decl.type_());
@@ -193,11 +193,11 @@ impl LowerDeclarationCtx<'_> {
     pub(crate) fn lower_net_decl(&mut self, net_decl: ast::NetDeclaration) -> DeclarationId {
         let net_kind = lower_net_kind(net_decl.net_type());
         let ty = self.expr_ctx().lower_data_ty(net_decl.type_());
-        let delay = net_decl.delay().map(|delay| {
+        let delay = net_decl.delay().and_then(|delay| {
             use crate::hir_def::expr::timing_control::TimingControl::*;
             match self.event_expr_ctx().lower_timing_control(delay) {
-                DelayControl(delay) => delay,
-                _ => unreachable!(),
+                DelayControl(delay) => Some(delay),
+                _ => None,
             }
         });
 
@@ -208,11 +208,11 @@ impl LowerDeclarationCtx<'_> {
             use ast::NetStrength::*;
             match strength {
                 PullStrength(strength) => {
-                    strength.strength().map(lower_strength).map(NetStrength::Pull)
+                    strength.strength().and_then(lower_strength).map(NetStrength::Pull)
                 }
                 DriveStrength(strength) => Some(NetStrength::Drive(lower_drive_strength(strength))),
                 ChargeStrength(strength) => {
-                    strength.strength().map(lower_strength).map(NetStrength::Charge)
+                    strength.strength().and_then(lower_strength).map(NetStrength::Charge)
                 }
             }
         });

@@ -104,7 +104,7 @@ impl<'a> ToAstNode<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
             GenerateRegionSrc::GenerateRegion(ptr) => {
                 let mut node = ptr.to_node(tree)?;
                 while !ast::GenerateRegion::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0).unwrap();
+                    node = node.child_node(0)?;
                 }
                 ast::GenerateRegion::cast(node)
             }
@@ -190,14 +190,14 @@ impl<'a> ToAstNode<'a, ast::GenerateBlock<'a>> for GenerateBlockSrc {
             GenerateBlockSrc::GenerateBlock { node, .. } => {
                 let mut node = node.to_node(tree)?;
                 while !ast::GenerateBlock::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0).unwrap();
+                    node = node.child_node(0)?;
                 }
                 ast::GenerateBlock::cast(node)
             }
             GenerateBlockSrc::LoopGenerate { node, .. } => {
                 let mut node = node.to_node(tree)?;
                 while !ast::LoopGenerate::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0).unwrap();
+                    node = node.child_node(0)?;
                 }
                 let loop_generate = ast::LoopGenerate::cast(node)?;
                 loop_generate.block().as_generate_block()
@@ -213,7 +213,7 @@ impl<'a> ToAstNode<'a, ast::LoopGenerate<'a>> for GenerateBlockSrc {
             GenerateBlockSrc::LoopGenerate { node, .. } => {
                 let mut node = node.to_node(tree)?;
                 while !ast::LoopGenerate::can_cast(node.kind()) && node.child_count() == 1 {
-                    node = node.child_node(0).unwrap();
+                    node = node.child_node(0)?;
                 }
                 ast::LoopGenerate::cast(node)
             }

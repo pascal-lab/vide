@@ -64,7 +64,9 @@ fn process_instantiations(
             continue;
         };
 
-        let range = src_map.get(local_module_id).range();
+        let Some(range) = src_map.get(local_module_id).map(|src| src.range()) else {
+            continue;
+        };
         let pos = FilePosition { file_id: file_id.file_id(), offset: range.start() };
 
         res.push(CodeLens { range, kind: CodeLensKind::ModuleInstance { pos, data: None } });

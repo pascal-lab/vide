@@ -13,62 +13,68 @@ use crate::{
 };
 
 impl SemanticsImpl<'_> {
-    pub fn resolve_instance(&self, instance: ast::HierarchicalInstance) -> InModule<InstanceId> {
+    pub fn resolve_instance(
+        &self,
+        instance: ast::HierarchicalInstance,
+    ) -> Option<InModule<InstanceId>> {
         let db = self.db;
-        let file_id = self.find_file(instance.syntax());
+        let file_id = self.find_file(instance.syntax())?;
         let ContainerId::ModuleId(module_id) =
             self.find_container(InFile::new(file_id, instance.syntax()))
         else {
-            unreachable!();
+            return None;
         };
 
         let src = InstanceSrc::from(instance);
         let (_, module_src_map) = db.module_with_source_map(module_id);
-        let instance_id = module_src_map.get(src);
-        InModule::new(module_id, instance_id)
+        let instance_id = module_src_map.get(src)?;
+        Some(InModule::new(module_id, instance_id))
     }
 
     pub fn resolve_instantiation(
         &self,
         instantiation: ast::HierarchyInstantiation,
-    ) -> InModule<InstantiationId> {
+    ) -> Option<InModule<InstantiationId>> {
         let db = self.db;
-        let file_id = self.find_file(instantiation.syntax());
+        let file_id = self.find_file(instantiation.syntax())?;
         let ContainerId::ModuleId(module_id) =
             self.find_container(InFile::new(file_id, instantiation.syntax()))
         else {
-            unreachable!();
+            return None;
         };
 
         let src = InstantiationSrc::from(instantiation);
         let (_, module_src_map) = db.module_with_source_map(module_id);
-        let instantiation_id = module_src_map.get(src);
-        InModule::new(module_id, instantiation_id)
+        let instantiation_id = module_src_map.get(src)?;
+        Some(InModule::new(module_id, instantiation_id))
     }
 
-    pub fn resolve_named_port_conn(&self, conn: ast::PortConnection) -> InModule<PortConnId> {
+    pub fn resolve_named_port_conn(
+        &self,
+        conn: ast::PortConnection,
+    ) -> Option<InModule<PortConnId>> {
         let db = self.db;
-        let file_id = self.find_file(conn.syntax());
+        let file_id = self.find_file(conn.syntax())?;
         let ContainerId::ModuleId(module_id) =
             self.find_container(InFile::new(file_id, conn.syntax()))
         else {
-            unreachable!("NamedPortConnection should be in a module");
+            return None;
         };
 
         let src = PortConnSrc::from(conn);
         let (_, module_src_map) = db.module_with_source_map(module_id);
-        let conn_id = module_src_map.get(src);
-        InModule::new(module_id, conn_id)
+        let conn_id = module_src_map.get(src)?;
+        Some(InModule::new(module_id, conn_id))
     }
 
-    pub fn resolve_expr(&self, expr: ast::Expression) -> InContainer<ExprId> {
+    pub fn resolve_expr(&self, expr: ast::Expression) -> Option<InContainer<ExprId>> {
         let db = self.db;
-        let file_id = self.find_file(expr.syntax());
+        let file_id = self.find_file(expr.syntax())?;
         let container_id = self.find_container(InFile::new(file_id, expr.syntax()));
         let src_map = container_id.to_container_src_map(db);
 
         let expr_src = ExprSrc::from(expr);
-        let expr_id = src_map.get(expr_src);
-        InContainer::new(container_id, expr_id)
+        let expr_id = src_map.get(expr_src)?;
+        Some(InContainer::new(container_id, expr_id))
     }
 }

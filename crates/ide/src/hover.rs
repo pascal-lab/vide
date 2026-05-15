@@ -28,7 +28,7 @@ pub(crate) fn hover(
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let root = sema.parse_root(file_id)?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     let res = handle_literal(&sema, token).or_else(|| handle_definition(&sema, token))?;
@@ -52,7 +52,7 @@ fn handle_literal(
     }
 
     let expr = ast::Expression::cast(parent)?;
-    let InContainer { value: expr_id, cont_id } = sema.resolve_expr(expr);
+    let InContainer { value: expr_id, cont_id } = sema.resolve_expr(expr)?;
     let container = cont_id.to_container(sema.db);
     let Expr::Literal(literal) = container.get(expr_id) else {
         return None;

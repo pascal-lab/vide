@@ -27,6 +27,7 @@ use super::{
         timing_control::{EventExpr, EventExprSrc},
     },
     lower_ident, lower_ident_opt,
+    module::{ModuleId, generate::GenerateBlockId},
     stmt::{LowerStmt, Stmt, StmtId, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -140,8 +141,56 @@ pub struct SubroutineId(pub salsa::InternId);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct SubroutineLoc {
-    pub cont_id: ContainerId,
+    pub cont_id: SubroutineContainerId,
     pub src: InFile<SubroutineSrc>,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SubroutineContainerId {
+    HirFileId(HirFileId),
+    ModuleId(ModuleId),
+    GenerateBlockId(GenerateBlockId),
+}
+
+impl From<HirFileId> for SubroutineContainerId {
+    fn from(file_id: HirFileId) -> Self {
+        Self::HirFileId(file_id)
+    }
+}
+
+impl From<ModuleId> for SubroutineContainerId {
+    fn from(module_id: ModuleId) -> Self {
+        Self::ModuleId(module_id)
+    }
+}
+
+impl From<GenerateBlockId> for SubroutineContainerId {
+    fn from(generate_block_id: GenerateBlockId) -> Self {
+        Self::GenerateBlockId(generate_block_id)
+    }
+}
+
+impl From<SubroutineContainerId> for ContainerId {
+    fn from(cont_id: SubroutineContainerId) -> Self {
+        match cont_id {
+            SubroutineContainerId::HirFileId(file_id) => file_id.into(),
+            SubroutineContainerId::ModuleId(module_id) => module_id.into(),
+            SubroutineContainerId::GenerateBlockId(generate_block_id) => generate_block_id.into(),
+        }
+    }
+}
+
+impl TryFrom<ContainerId> for SubroutineContainerId {
+    type Error = ();
+
+    fn try_from(cont_id: ContainerId) -> Result<Self, Self::Error> {
+        match cont_id {
+            ContainerId::HirFileId(file_id) => Ok(file_id.into()),
+            ContainerId::ModuleId(module_id) => Ok(module_id.into()),
+            ContainerId::GenerateBlockId(generate_block_id) => Ok(generate_block_id.into()),
+            ContainerId::BlockId(_) | ContainerId::SubroutineId(_) => Err(()),
+        }
+    }
 }
 
 pub fn lower_subroutine<F>(func: &ast::FunctionDeclaration, mut lower_ty: F) -> Option<Subroutine>
@@ -338,24 +387,38 @@ pub(crate) fn subroutine_with_source_map_query(
     let SubroutineLoc { cont_id, src } = subroutine_id.lookup(db);
 
     match cont_id {
-        ContainerId::HirFileId(file_id) => {
+        SubroutineContainerId::HirFileId(file_id) => {
             let file = db.hir_file(file_id);
             let (_, file_src_map) = db.hir_file_with_source_map(file_id);
-            let local_id = file_src_map.get(src.value);
+            let Some(local_id) = file_src_map.get(src.value) else {
+                return (Arc::new(Subroutine::default()), Arc::new(SubroutineSourceMap::default()));
+            };
             let subroutine = file.subroutines[local_id].clone();
             let source_map =
                 file.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
             (Arc::new(subroutine), Arc::new(source_map))
         }
-        ContainerId::ModuleId(module_id) => {
+        SubroutineContainerId::ModuleId(module_id) => {
             let module = db.module(module_id);
             let (_, module_src_map) = db.module_with_source_map(module_id);
-            let local_id = module_src_map.get(src.value);
+            let Some(local_id) = module_src_map.get(src.value) else {
+                return (Arc::new(Subroutine::default()), Arc::new(SubroutineSourceMap::default()));
+            };
             let subroutine = module.subroutines[local_id].clone();
             let source_map =
                 module.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
             (Arc::new(subroutine), Arc::new(source_map))
         }
-        _ => unreachable!("subroutine parent must be file or module"),
+        SubroutineContainerId::GenerateBlockId(generate_block_id) => {
+            let generate_block = db.generate_block(generate_block_id);
+            let (_, generate_block_src_map) = db.generate_block_with_source_map(generate_block_id);
+            let Some(local_id) = generate_block_src_map.get(src.value) else {
+                return (Arc::new(Subroutine::default()), Arc::new(SubroutineSourceMap::default()));
+            };
+            let subroutine = generate_block.subroutines[local_id].clone();
+            let source_map =
+                generate_block.subroutine_source_maps.get(&local_id).cloned().unwrap_or_default();
+            (Arc::new(subroutine), Arc::new(source_map))
+        }
     }
 }

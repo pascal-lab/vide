@@ -21,7 +21,7 @@ use crate::{
             port::{NonAnsiPortId, Ports},
         },
         stmt::{StmtId, StmtKind},
-        subroutine::{SubroutineId, SubroutineLoc, SubroutinePortId, SubroutineSrc},
+        subroutine::{SubroutineId, SubroutineLoc, SubroutinePortId},
         typedef::TypedefId,
     },
 };
@@ -204,7 +204,9 @@ impl ModuleScope {
         }
 
         for (local_subroutine_id, subroutine) in module.subroutines.iter() {
-            let src: SubroutineSrc = module_src_map.get(local_subroutine_id);
+            let Some(src) = module_src_map.get(local_subroutine_id) else {
+                continue;
+            };
             let subroutine_id = db.intern_subroutine(SubroutineLoc {
                 cont_id: module_id.into(),
                 src: InFile::new(file_id, src),
@@ -290,7 +292,9 @@ impl GenerateBlockScope {
         scope.insert_opt(&generate_block.name, generate_block_id.into());
 
         for (local_subroutine_id, subroutine) in generate_block.subroutines.iter() {
-            let src: SubroutineSrc = source_map.get(local_subroutine_id);
+            let Some(src) = source_map.get(local_subroutine_id) else {
+                continue;
+            };
             let subroutine_id = db.intern_subroutine(SubroutineLoc {
                 cont_id: generate_block_id.into(),
                 src: InFile::new(file_id, src),

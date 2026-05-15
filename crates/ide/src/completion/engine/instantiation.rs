@@ -72,8 +72,9 @@ pub(super) fn overridable_params_of_module_in_order(
             continue;
         };
 
-        let src = module_src_map.get(declaration_id);
-        let hir::hir_def::declaration::DeclarationSrc::ParameterDeclaration(ptr) = src else {
+        let Some(hir::hir_def::declaration::DeclarationSrc::ParameterDeclaration(ptr)) =
+            module_src_map.get(declaration_id)
+        else {
             continue;
         };
         let Some(ast_decl) = ptr.to_node(&tree).and_then(ast::ParameterDeclaration::cast) else {
