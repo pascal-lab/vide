@@ -1,6 +1,9 @@
 .vscode/**
 .vscode-test/**
+node_modules/**
+out/**
 src/**
+test/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
@@ -8,7 +11,7 @@ vsc-extension-quickstart.md
 **/.eslintrc.json
 **/*.map
 **/*.ts
-pnpm-lock.yaml
 package-lock.json
+pnpm-lock.yaml
 bun.lock
 scripts/**

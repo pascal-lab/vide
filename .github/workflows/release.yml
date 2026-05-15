@@ -6,84 +6,97 @@ on:
       - "v*"
       - "nightly"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to package and publish, for example v0.1.0 or nightly"
+        required: true
+        type: string
+      prerelease:
+        description: "Publish as a prerelease"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-package:
-    name: Build & Package VS Code Extension
+    name: Package ${{ matrix.target }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: linux-x64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             target: linux-arm64
           - os: windows-latest
             target: win32-x64
-          - os: windows-latest
+          - os: windows-11-arm
             target: win32-arm64
-          - os: macos-latest
+          - os: macos-15-intel
             target: darwin-x64
-          - os: macos-latest
+          - os: macos-14
             target: darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           submodules: recursive
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@nightly
-        with:
-          targets: ${{ matrix.target == 'linux-arm64' && 'aarch64-unknown-linux-gnu' || matrix.target == 'darwin-arm64' && 'aarch64-apple-darwin' || matrix.target == 'win32-arm64' && 'aarch64-pc-windows-msvc' || '' }}
-      
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
 
       - name: Install JS dependencies
         working-directory: editors/vscode
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
-      - name: Package Extension
+      - name: Build VSIX
         working-directory: editors/vscode
-        run: pnpm run package:${{ matrix.target }}
-        shell: bash
+        run: npm run package:${{ matrix.target }}
 
-      - name: Upload Artifact
+      - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: vizsla-${{ matrix.target }}.vsix
-          path: editors/vscode/*.vsix
+          name: vizsla-vscode-${{ matrix.target }}
+          path: editors/vscode/vizsla-vscode-${{ matrix.target }}.vsix
+          if-no-files-found: error
 
   publish:
-    name: Publish Release
+    name: Publish GitHub Release
     needs: [build-and-package]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_PRERELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.prerelease) || github.ref_name == 'nightly' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Download Artifacts
+      - name: Download VSIX artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Create GitHub Release
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          prerelease: ${{ github.ref_name == 'nightly' }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: artifacts/**/*.vsix
-

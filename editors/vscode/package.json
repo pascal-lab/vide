@@ -7,16 +7,16 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hongjr03/vizsla"
+    "url": "https://github.com/roife/vizsla"
   },
   "engines": {
-    "vscode": "^1.86.0"
+    "vscode": "^1.101.0"
   },
   "categories": [
     "Programming Languages"
   ],
   "activationEvents": [],
-  "main": "./extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -229,21 +229,29 @@
     ]
   },
   "scripts": {
-    "package": "bash scripts/package.sh",
-    "package:darwin-arm64": "bash scripts/package.sh darwin-arm64",
-    "package:darwin-x64": "bash scripts/package.sh darwin-x64",
-    "package:linux-x64": "bash scripts/package.sh linux-x64",
-    "package:linux-arm64": "bash scripts/package.sh linux-arm64",
-    "package:win32-x64": "bash scripts/package.sh win32-x64",
-    "package:win32-arm64": "bash scripts/package.sh win32-arm64",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js",
+    "clean": "tsx scripts/clean.ts",
+    "typecheck": "tsc -p . --noEmit",
+    "compile": "npm run clean && npm run typecheck && npm run bundle",
+    "test": "npm run compile && node --import tsx --test \"test/**/*.test.ts\"",
+    "package": "npm run compile && tsx scripts/package.ts",
+    "package:darwin-arm64": "npm run compile && tsx scripts/package.ts darwin-arm64",
+    "package:darwin-x64": "npm run compile && tsx scripts/package.ts darwin-x64",
+    "package:linux-x64": "npm run compile && tsx scripts/package.ts linux-x64",
+    "package:linux-arm64": "npm run compile && tsx scripts/package.ts linux-arm64",
+    "package:win32-x64": "npm run compile && tsx scripts/package.ts win32-x64",
+    "package:win32-arm64": "npm run compile && tsx scripts/package.ts win32-arm64",
     "install-extension": "code --install-extension vizsla-vscode-*.vsix"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@types/node": "^24.7.2",
-    "@types/vscode": "^1.86.0",
-    "@vscode/vsce": "^3.6.2"
+    "@types/node": "22.15.1",
+    "@types/vscode": "1.101.0",
+    "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.22.0",
+    "typescript": "^5.9.3"
   }
 }
