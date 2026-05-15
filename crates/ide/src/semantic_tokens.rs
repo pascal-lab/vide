@@ -373,7 +373,7 @@ fn collect_ident_like(
 
             let DeclaratorParent::PortDeclId(port_declaration_id) = module.get(decl_id).parent
             else {
-                unreachable!();
+                return None;
             };
             let port_decl = module.get(port_declaration_id);
             let header = &port_decl.header;

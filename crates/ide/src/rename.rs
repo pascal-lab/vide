@@ -39,6 +39,8 @@ pub enum RenameError {
     NoRefFound,
     #[error("No definitions found for the token")]
     NoDefFound,
+    #[error("Generated overlapping edits")]
+    OverlappingEdits,
 }
 
 pub(crate) fn prepare_rename(
@@ -67,22 +69,30 @@ pub(crate) fn rename(
         DefinitionClass::PortConnShorthand { local, .. } => local,
     };
 
-    let old_name = lower_ident(Some(token.tok)).unwrap();
+    let old_name = lower_ident(Some(token.tok)).ok_or(RenameError::NoRefFound)?;
     let mut source_changes = SourceChange::default();
     ReferencesCtx::new(&sema, &def, ReferencesConfig::new(scope_visibility, None))
         .search()
         .into_iter()
         .map(|file_toks| edits_from_refs(&sema, file_toks, &def, &old_name, new_name))
-        .for_each(|(file_id, edit)| source_changes.insert_text_edit(file_id, edit));
+        .try_for_each(|(file_id, edit)| {
+            source_changes
+                .insert_text_edit(file_id, edit)
+                .map_err(|_| RenameError::OverlappingEdits)
+        })?;
 
-    def.origins().into_iter().for_each(|def| {
+    for def in def.origins() {
         let mut text_edit = TextEdit::builder();
 
-        let InFile { value: focus_range, file_id } = def.name_range(db);
+        let Some(InFile { value: focus_range, file_id }) = def.name_range(db) else {
+            continue;
+        };
         text_edit.replace(focus_range, new_name.to_owned());
 
-        source_changes.insert_text_edit(file_id.file_id(), text_edit.finish());
-    });
+        source_changes
+            .insert_text_edit(file_id.file_id(), text_edit.finish())
+            .map_err(|_| RenameError::OverlappingEdits)?;
+    }
 
     Ok(source_changes)
 }
@@ -98,7 +108,9 @@ fn edits_from_refs(
     let text = sema.db.file_text(file_id);
 
     for ReferenceToken { token: SyntaxTokenWithParent { parent, tok } } in toks.into_iter() {
-        let range = tok.text_range().unwrap();
+        let Some(range) = tok.text_range() else {
+            continue;
+        };
 
         let conn_data_range = |it: ast::NamedPortConnection| it.expr()?.syntax().text_range();
 
@@ -108,17 +120,27 @@ fn edits_from_refs(
                 match (it.open_paren(), it.close_paren()) {
                     (Some(_), Some(cp)) if conn_data_range(it).is_some_and(|r| &text[r] == new_name) => {
                         // .port(new),  => .new,
-                        let end = cp.text_range().unwrap().end();
-                        text_edit.replace(TextRange::new(range.start(), end), new_name.to_owned());
+                        if let Some(end) = cp.text_range().map(|range| range.end()) {
+                            text_edit.replace(TextRange::new(range.start(), end), new_name.to_owned());
+                        } else {
+                            text_edit.replace(range, new_name.to_owned());
+                        }
                     }
                     (None, None) => {
-                        let ref_container = sema.resolve_named_port_conn(ast::PortConnection::cast(it.syntax()).unwrap());
-                        if def.container_id(sema.db) == ref_container.module_id.into() {
-                            // .old => .old(new)
-                            text_edit.replace(range, format!("{old_name}({new_name})"));
+                        if let Some(port_conn) = ast::PortConnection::cast(it.syntax()) {
+                            let ref_container = sema.resolve_named_port_conn(port_conn);
+                            if def
+                                .container_id(sema.db)
+                                .is_some_and(|id| id == ref_container.module_id.into())
+                            {
+                                // .old => .old(new)
+                                text_edit.replace(range, format!("{old_name}({new_name})"));
+                            } else {
+                                // .old => .new(old)
+                                text_edit.replace(range, format!("{new_name}({old_name})"));
+                            }
                         } else {
-                            // .old => .new(old)
-                            text_edit.replace(range, format!("{new_name}({old_name})"));
+                            text_edit.replace(range, new_name.to_owned());
                         }
                     }
                     _ => text_edit.replace(range, new_name.to_owned()),
@@ -128,11 +150,16 @@ fn edits_from_refs(
                 if let Some(node) = SyntaxAncestors::start_from(parent).nth(3)
                 && let Some(port_conn) = ast::NamedPortConnection::cast(node)
                 && conn_data_range(port_conn).is_some_and(|r| r == range)
-                && let Some(port_name) = port_conn.name().filter(|n| lower_ident(Some(*n)).unwrap() == new_name) {
+                && let Some(port_name) = port_conn
+                    .name()
+                    .filter(|n| lower_ident(Some(*n)).is_some_and(|name| name == new_name)) {
                     // .new(data) => .new
-                    let start = port_name.text_range().unwrap().start();
+                    let Some(start) = port_name.text_range().map(|range| range.start()) else {
+                        text_edit.replace(range, new_name.to_owned());
+                        continue;
+                    };
                     let end = if let Some(cp) = port_conn.close_paren() {
-                        cp.text_range().unwrap().end()
+                        cp.text_range().map(|range| range.end()).unwrap_or(range.end())
                     }else {
                         range.end()
                     };

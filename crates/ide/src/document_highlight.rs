@@ -72,7 +72,7 @@ fn highlight_refs<'a>(
     DocumentHighlightConfig { scope_visibility }: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     let defs = def.origins().into_iter().filter_map(|def| {
-        let InFile { value: range, file_id: def_file_id } = def.name_range(sema.db);
+        let InFile { value: range, file_id: def_file_id } = def.name_range(sema.db)?;
         if file_id == def_file_id.file_id() {
             Some(DocumentHighlight { range, category: ReferenceCategory::empty() })
         } else {
@@ -87,7 +87,9 @@ fn highlight_refs<'a>(
         .remove(&file_id)
         .unwrap_or_default()
         .into_iter()
-        .map(|tok| DocumentHighlight { range: tok.range(), category: tok.category() });
+        .filter_map(|tok| {
+            Some(DocumentHighlight { range: tok.range()?, category: tok.category() })
+        });
 
     Some(defs.chain(refs).collect())
 }

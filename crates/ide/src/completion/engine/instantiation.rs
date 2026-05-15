@@ -87,7 +87,9 @@ pub(super) fn overridable_params_of_module_in_order(
             continue;
         }
 
-        names.push(decl.name.as_ref().unwrap().clone());
+        if let Some(name) = decl.name.as_ref() {
+            names.push(name.clone());
+        }
     }
 
     names

@@ -78,8 +78,12 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
         CodeLensKind::ModuleInstance { pos: FilePosition { file_id, offset }, ref mut data } => {
             let hir_file_id = HirFileId(file_id);
             let (_, src_map) = sema.db.hir_file_with_source_map(hir_file_id);
-            let (local_module_id, _) =
-                src_map.module_srcs.iter().find(|(_, src)| src.range().start() == offset).unwrap();
+            let Some((local_module_id, _)) =
+                src_map.module_srcs.iter().find(|(_, src)| src.range().start() == offset)
+            else {
+                *data = Some(Vec::new());
+                return kind;
+            };
             let module_id = ModuleId::new(hir_file_id, local_module_id);
 
             let def = Definition(PathResolution::Module(module_id));

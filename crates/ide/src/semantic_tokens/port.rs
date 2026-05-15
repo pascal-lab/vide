@@ -116,7 +116,7 @@ pub(super) fn resolve_non_ansi_port(
     let port_decl = module.get(port_decl_id);
     let port_declaration = match port_decl.parent {
         DeclaratorParent::PortDeclId(port_declaration_id) => module.get(port_declaration_id),
-        _ => unreachable!(),
+        _ => return None,
     };
     let header = &port_declaration.header;
     let dir = header.dir();
@@ -127,7 +127,7 @@ pub(super) fn resolve_non_ansi_port(
                 let declaration = module.get(declaration_id);
                 declaration.ty()
             }
-            _ => unreachable!(),
+            _ => return None,
         }
     } else {
         header.ty()
@@ -170,17 +170,17 @@ fn port_tag(
     name: &str,
     collector: &mut SemaTokenCollector,
 ) -> Option<SemaTokenTag> {
-    static CLK_RE: LazyLock<Regex> = LazyLock::new(|| {
-        RegexBuilder::new(r"(clock|clk|tck)\d*$").case_insensitive(true).build().unwrap()
+    static CLK_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+        RegexBuilder::new(r"(clock|clk|tck)\d*$").case_insensitive(true).build().ok()
     });
 
-    static RST_RE: LazyLock<Regex> = LazyLock::new(|| {
-        // RegexBuilder::new(r"reset|(?<![aeiou])rst(?!ore|art)")
-        // .case_insensitive(true).build().unwrap()
+    static RST_RE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+        // Rust regex does not support look-around; keep this approximation in sync with
+        // tests.
         RegexBuilder::new(r"reset|(^rst|[^aeiou]rst)($|[^o]|o[^r]|or[^e]|[^a]|a[^r]|ar[^t])")
             .case_insensitive(true)
             .build()
-            .unwrap()
+            .ok()
     });
 
     if !collector.config.port.clk_rst {
@@ -199,9 +199,12 @@ fn port_tag(
     }
 
     let segments = split_name(name);
-    if segments.iter().any(|segment| CLK_RE.is_match(segment)) {
+    if segments.iter().any(|segment| CLK_RE.as_ref().is_some_and(|regex| regex.is_match(segment))) {
         Some(SemaTokenTag::Port(SemaTokenPort::Clk))
-    } else if segments.iter().any(|segment| RST_RE.is_match(segment)) {
+    } else if segments
+        .iter()
+        .any(|segment| RST_RE.as_ref().is_some_and(|regex| regex.is_match(segment)))
+    {
         Some(SemaTokenTag::Port(SemaTokenPort::Rst))
     } else {
         Some(SemaTokenTag::Port(SemaTokenPort::Others))

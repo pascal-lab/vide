@@ -10,11 +10,12 @@ pub struct SourceChange {
 }
 
 impl SourceChange {
-    pub fn insert_text_edit(&mut self, file_id: FileId, edit: TextEdit) {
+    pub fn insert_text_edit(&mut self, file_id: FileId, edit: TextEdit) -> Result<(), TextEdit> {
         match self.text_edits.entry(file_id) {
-            Entry::Occupied(mut e) => e.get_mut().union(edit).unwrap(),
+            Entry::Occupied(mut e) => e.get_mut().union(edit),
             Entry::Vacant(e) => {
                 e.insert(edit);
+                Ok(())
             }
         }
     }
@@ -54,7 +55,7 @@ impl SourceChangeBuilder {
 
     fn commit(&mut self) {
         let edit = mem::replace(&mut self.edit, TextEdit::builder());
-        self.source_change.insert_text_edit(self.file_id, edit.finish());
+        let _ = self.source_change.insert_text_edit(self.file_id, edit.finish());
     }
 
     pub fn finish(mut self) -> SourceChange {
