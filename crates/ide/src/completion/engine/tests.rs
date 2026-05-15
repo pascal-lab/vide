@@ -264,6 +264,72 @@ fn module_item_identifier_prefix_stays_module_item_start() {
 }
 
 #[test]
+fn top_level_completion_keeps_top_level_keyword_prefixes() {
+    for (text, expected) in [
+        ("con/*caret*/\n", "config"),
+        ("pri/*caret*/\n", "primitive"),
+        ("lib/*caret*/\n", "library"),
+        ("lib/*caret*/\n", "liblist"),
+    ] {
+        let items = completions_in_text(text, None);
+        assert!(labels(&items).contains(&expected), "{expected} missing from {items:?}");
+    }
+}
+
+#[test]
+fn module_member_completion_excludes_procedural_statement_snippets() {
+    let items = completions_in_text("module m;\n  /*caret*/\nendmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"always"), "module procedural block expected: {items:?}");
+    assert!(labels.contains(&"wire"), "module declarations expected: {items:?}");
+    assert!(!labels.contains(&"while"), "statement snippet leaked into module member: {items:?}");
+    assert!(!labels.contains(&"return"), "jump statement leaked into module member: {items:?}");
+    assert!(!labels.contains(&"begin"), "block statement leaked into module member: {items:?}");
+}
+
+#[test]
+fn block_decl_completion_allows_decls_and_statements() {
+    let items = completions_in_text("module m; initial begin\n  /*caret*/\nend endmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"integer"), "block declaration expected: {items:?}");
+    assert!(labels.contains(&"if"), "statement keyword expected: {items:?}");
+    assert!(!labels.contains(&"wire"), "net declaration leaked into procedural block: {items:?}");
+    assert!(!labels.contains(&"always"), "module item leaked into procedural block: {items:?}");
+}
+
+#[test]
+fn block_decl_prefix_completion_allows_decls_and_statements() {
+    let items =
+        completions_in_text("module m; initial begin\n  re/*caret*/\nend endmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"reg"), "block declaration prefix expected: {items:?}");
+    assert!(labels.contains(&"repeat"), "statement prefix expected: {items:?}");
+}
+
+#[test]
+fn statement_completion_after_statement_excludes_decls_and_module_items() {
+    let items = completions_in_text(
+        "module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n",
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"if"), "statement keyword expected: {items:?}");
+    assert!(!labels.contains(&"integer"), "declaration leaked after statement: {items:?}");
+    assert!(!labels.contains(&"always"), "module item leaked into statement list: {items:?}");
+}
+
+#[test]
+fn no_completion_in_block_decl_name_gap() {
+    let items =
+        completions_in_text("module m; initial begin\n  integer /*caret*/;\nend endmodule\n", None);
+    assert!(items.is_empty(), "declaration name gap should not complete keywords: {items:?}");
+}
+
+#[test]
 fn incomplete_member_access_uses_structural_left_expression() {
     let items = completions_in_text(
         "module sub; wire inner; endmodule\nmodule top; sub u0(); initial u0./*caret*/ endmodule\n",

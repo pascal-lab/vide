@@ -21,7 +21,7 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_text(&self, file_id: FileId) -> Arc<str>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
-    fn expected_identifier_offsets(&self, file_id: FileId) -> Arc<Vec<TextSize>>;
+    fn expected_decl_name_offsets(&self, file_id: FileId) -> Arc<Vec<TextSize>>;
     fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
 
     #[salsa::input]
@@ -50,16 +50,20 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     tree
 }
 
-fn expected_identifier_offsets(db: &dyn SourceDb, file_id: FileId) -> Arc<Vec<TextSize>> {
+fn expected_decl_name_offsets(db: &dyn SourceDb, file_id: FileId) -> Arc<Vec<TextSize>> {
     let tree = db.parse_src(file_id);
     let mut compilation = Compilation::new();
     compilation.add_syntax_tree(tree.clone());
     let config = db.diagnostics_config();
-    let mut out: Vec<TextSize> = compilation
-        .parse_diag_offsets_by_name("ExpectedIdentifier", &config.slang.warnings)
-        .into_iter()
-        .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from))
-        .collect();
+    let mut out = Vec::new();
+    for name in ["ExpectedIdentifier", "ExpectedDeclarator", "ExpectedSubroutineName"] {
+        out.extend(
+            compilation
+                .parse_diag_offsets_by_name(name, &config.slang.warnings)
+                .into_iter()
+                .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from)),
+        );
+    }
     out.sort();
     out.dedup();
     Arc::new(out)
