@@ -2,7 +2,7 @@ use rustc_hash::FxHashSet;
 use syntax::{Compilation, SyntaxDiagnostic, SyntaxTree};
 use triomphe::Arc;
 use utils::line_index::TextSize;
-use vfs::{FileId, anchored_path::AnchoredPath};
+use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
@@ -20,6 +20,9 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     #[salsa::input]
     fn file_text(&self, file_id: FileId) -> Arc<str>;
 
+    #[salsa::input]
+    fn file_kind(&self, file_id: FileId) -> SourceFileKind;
+
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
     fn expected_decl_name_offsets(&self, file_id: FileId) -> Arc<Vec<TextSize>>;
     fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
@@ -31,23 +34,29 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn diagnostics_config(&self) -> Arc<DiagnosticsConfig>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SourceFileKind {
+    #[default]
+    SystemVerilog,
+    LibraryMap,
+}
+
+impl SourceFileKind {
+    pub fn from_path(path: &VfsPath) -> Self {
+        match path.name_and_extension().and_then(|(_, ext)| ext) {
+            Some(ext) if ext.eq_ignore_ascii_case("map") => Self::LibraryMap,
+            _ => Self::SystemVerilog,
+        }
+    }
+}
+
 fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     let text = db.file_text(file_id);
     // TODO: use meaningful path
-    let tree = SyntaxTree::from_text(&text, "", "");
-    if tree.diagnostics().is_empty() {
-        return tree;
+    match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog => SyntaxTree::from_text(&text, "", ""),
+        SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
     }
-
-    // Library maps are a separate Verilog input grammar. Only switch modes when the
-    // ordinary source parser fails and the library-map parser accepts the file
-    // cleanly.
-    let library_map = SyntaxTree::from_library_map_text(&text, "", "");
-    if library_map.diagnostics().is_empty() {
-        return library_map;
-    }
-
-    tree
 }
 
 fn expected_decl_name_offsets(db: &dyn SourceDb, file_id: FileId) -> Arc<Vec<TextSize>> {
