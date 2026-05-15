@@ -58,7 +58,7 @@
     "configuration": {
       "title": "Vizsla Language Server",
       "properties": {
-        "vizslaLsp.trace.server": {
+        "vizsla.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -68,7 +68,7 @@
           "default": "off",
           "description": "Traces the communication between VS Code and the language server."
         },
-        "vizslaLsp.server.command": {
+        "vizsla.server.command": {
           "type": [
             "string",
             "null"
@@ -76,7 +76,7 @@
           "default": null,
           "description": "Override command used to launch the Vizsla language server. Leave empty to use the bundled binary."
         },
-        "vizslaLsp.server.args": {
+        "vizsla.server.args": {
           "type": "array",
           "items": {
             "type": "string"
@@ -84,7 +84,7 @@
           "default": [],
           "description": "Arguments passed before any additional arguments when a custom command is provided."
         },
-        "vizslaLsp.server.cwd": {
+        "vizsla.server.cwd": {
           "type": [
             "string",
             "null"
@@ -92,7 +92,7 @@
           "default": null,
           "description": "Working directory for the Vizsla language server process. Defaults to the first workspace folder."
         },
-        "vizslaLsp.server.additionalArgs": {
+        "vizsla.server.additionalArgs": {
           "type": "array",
           "items": {
             "type": "string"

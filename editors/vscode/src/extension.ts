@@ -129,7 +129,7 @@ function getServerPath(context: vscode.ExtensionContext): string | undefined {
 }
 
 function readConfiguration(): ServerConfiguration {
-  const config = vscode.workspace.getConfiguration('vizslaLsp');
+  const config = vscode.workspace.getConfiguration('vizsla');
   const command = config.get<string | null>('server.command');
   const args = asStringArray(config.get<unknown>('server.args'));
   const additionalArgs = asStringArray(config.get<unknown>('server.additionalArgs'));
@@ -137,7 +137,7 @@ function readConfiguration(): ServerConfiguration {
   const trace = config.get<'off' | 'messages' | 'verbose'>('trace.server') ?? 'off';
 
   if (!args || !additionalArgs) {
-    vscode.window.showErrorMessage('vizslaLsp server arguments settings must be arrays of strings.');
+    vscode.window.showErrorMessage('vizsla server arguments settings must be arrays of strings.');
     return {
       command: undefined,
       args: [],
@@ -187,7 +187,7 @@ function resolveServerLaunch(
     serverCommand = getServerPath(context);
     if (!serverCommand) {
       const message =
-        'Bundled Vizsla Language Server binary not found. Install the VSIX that matches your platform or configure "vizslaLsp.server.command".';
+        'Bundled Vizsla Language Server binary not found. Install the VSIX that matches your platform or configure "vizsla.server.command".';
       log(`[ERROR] ${message}`);
       throw new Error(message);
     }
@@ -252,7 +252,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
       { scheme: 'file', language: 'systemverilog' },
     ],
     synchronize: {
-      configurationSection: ['vizslaLsp', 'vizsla'],
+      configurationSection: ['vizsla'],
       fileEvents: [
         vscode.workspace.createFileSystemWatcher('**/*.v'),
         vscode.workspace.createFileSystemWatcher('**/*.vh'),
@@ -269,7 +269,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
   };
 
   log('[INFO] Creating LanguageClient instance...');
-  return new LanguageClient('vizslaLsp', 'Vizsla Language Server', serverOptions, clientOptions);
+  return new LanguageClient('vizsla', 'Vizsla Language Server', serverOptions, clientOptions);
 }
 
 async function startClient(context: vscode.ExtensionContext): Promise<void> {
@@ -344,11 +344,11 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
 
 function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
   return (
-    event.affectsConfiguration('vizslaLsp.server.command') ||
-    event.affectsConfiguration('vizslaLsp.server.args') ||
-    event.affectsConfiguration('vizslaLsp.server.additionalArgs') ||
-    event.affectsConfiguration('vizslaLsp.server.cwd') ||
-    event.affectsConfiguration('vizslaLsp.trace.server')
+    event.affectsConfiguration('vizsla.server.command') ||
+    event.affectsConfiguration('vizsla.server.args') ||
+    event.affectsConfiguration('vizsla.server.additionalArgs') ||
+    event.affectsConfiguration('vizsla.server.cwd') ||
+    event.affectsConfiguration('vizsla.trace.server')
   );
 }
 
