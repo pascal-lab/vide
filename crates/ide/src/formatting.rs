@@ -132,17 +132,19 @@ pub fn format_on_type(
     line_info: &LineInfo,
     config: FmtConfig,
 ) -> anyhow::Result<Option<TextEdit>> {
+    if ch.as_str() != "\n" {
+        return Ok(None);
+    }
+
     let sema = Semantics::new(db);
     let root = sema.parse_root(file_id);
-
-    if ch.as_str() != "\n" {
-        panic!("format_on_type: invalid character: {}", ch);
-    }
 
     let mut cursor = root.walk();
 
     cursor.goto_first_tok_after_or_last(offset);
-    let right = cursor.to_token().unwrap();
+    let Some(right) = cursor.to_token() else {
+        return Ok(None);
+    };
     let trivias = right.trivias_with_range().collect_vec();
     let idx = trivias.iter().position(|(range, _)| range.contains(offset));
 
@@ -168,7 +170,8 @@ pub fn format_on_type(
         && let trivias = &trivias[..idx.unwrap_or(trivias.len())]
         && let Some(edits) = format_previous(db, file_id, trivias, &mut cursor, line_info, config)
     {
-        res.union(edits).unwrap();
+        res.union(edits)
+            .map_err(|_| anyhow::format_err!("on-type formatting produced overlapping edits"))?;
     }
     // endregion
 
@@ -231,18 +234,21 @@ fn format_in_bc(
 ) -> anyhow::Result<Option<TextEdit>> {
     let text = str::from_utf8(comment.get_raw_text().as_bytes())?;
 
-    let (prev, line_start) = text
+    let Some((prev, line_start)) = text
         .lines()
         .try_fold((block_start, None), |(line_start, prev), line| {
             let end = line_start + TextSize::from(line.len() as u32) + TextSize::from(1);
             if offset < end {
-                ControlFlow::Break((prev.unwrap(), line_start))
+                ControlFlow::Break(prev.map(|prev| (prev, line_start)))
             } else {
                 ControlFlow::Continue((end, Some(line)))
             }
         })
         .break_value()
-        .unwrap();
+        .flatten()
+    else {
+        return Ok(None);
+    };
 
     if prev.trim().starts_with("/*") {
         return Ok(None);
@@ -270,25 +276,25 @@ fn format_previous<'a>(
 ) -> Option<TextEdit> {
     check!(trivias.iter().filter(|(_, t)| t.kind().is_eol()).count() == 1);
 
-    let offset = trivias.last().unwrap().0.end();
+    let offset = trivias.last()?.0.end();
     cursor.reset_to_root();
     check!(cursor.goto_last_tok_before(offset));
 
     let list_range = loop {
         check!(cursor.goto_parent());
 
-        let node = cursor.to_node().unwrap();
+        let node = cursor.to_node()?;
         if matches!(node.kind(), SyntaxKind::SYNTAX_LIST | SyntaxKind::SEPARATED_LIST) {
             check!(cursor.goto_last_child_before_pos(offset.into()));
 
             if let Some(last_child) = cursor.to_node()
-                && last_child.text_range().unwrap().contains(offset)
+                && last_child.text_range().is_some_and(|range| range.contains(offset))
             {
                 // Inside the element
                 return None;
             }
 
-            break node.text_range().unwrap();
+            break node.text_range()?;
         }
     };
 
@@ -301,10 +307,10 @@ fn format_previous<'a>(
     // Otherwise, the formatter will not work correctly
     if let Some(token) = cursor.to_token()
         && let Some(token_range) = token.text_range()
+        && let Some(idx) = cursor.idx()
     {
-        let idx = cursor.idx().unwrap();
         cursor.goto_parent();
-        if cursor.to_node().unwrap().child_count() == idx + 1 {
+        if cursor.to_node().is_some_and(|node| node.child_count() == idx + 1) {
             text.replace_range(Range::<usize>::from(token_range), "");
         }
     }
@@ -316,4 +322,82 @@ fn format_previous<'a>(
     let edits = edits.into_iter().filter(|edit| edit.del.end() <= offset).collect();
 
     Some(edits)
+}
+
+#[cfg(test)]
+mod tests {
+    use base_db::{change::Change, source_root::SourceRoot};
+    use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
+    use span::FilePosition;
+    use triomphe::Arc;
+    use utils::{
+        lines::{LineEnding, LineInfo, PositionEncoding},
+        text_edit::TextSize,
+    };
+    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+
+    use super::{FmtConfig, format_on_type};
+
+    fn db_with_file(text: &str) -> (RootDb, FileId) {
+        let file_id = FileId(0);
+        let path = VfsPath::new_virtual_path("/test.sv".to_owned());
+
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, path);
+        let root = SourceRoot::new_local(file_set);
+
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+        });
+
+        let mut db = RootDb::new(None);
+        change.apply(&mut db);
+        (db, file_id)
+    }
+
+    fn line_info(db: &RootDb, file_id: FileId) -> LineInfo {
+        LineInfo {
+            index: db.line_index(file_id),
+            ending: LineEnding::Unix,
+            encoding: PositionEncoding::Utf8,
+        }
+    }
+
+    fn config() -> FmtConfig {
+        FmtConfig { executable: None, args: Vec::new(), on_enter: false, in_comments: true }
+    }
+
+    #[test]
+    fn unsupported_on_type_trigger_is_no_edit() {
+        let (db, file_id) = db_with_file("module A;\nendmodule");
+        let edit = format_on_type(
+            &db,
+            FilePosition { file_id, offset: TextSize::from(0) },
+            ".".to_owned(),
+            &line_info(&db, file_id),
+            config(),
+        )
+        .unwrap();
+
+        assert!(edit.is_none());
+    }
+
+    #[test]
+    fn first_line_inside_block_comment_is_no_edit() {
+        let text = "/*\n*/";
+        let (db, file_id) = db_with_file(text);
+        let edit = format_on_type(
+            &db,
+            FilePosition { file_id, offset: TextSize::from(3) },
+            "\n".to_owned(),
+            &line_info(&db, file_id),
+            config(),
+        )
+        .unwrap();
+
+        assert!(edit.is_none());
+    }
 }

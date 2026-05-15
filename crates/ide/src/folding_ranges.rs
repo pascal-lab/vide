@@ -174,9 +174,16 @@ fn collect_line_comments(
         }
 
         cursor.reset_to_root();
-        cursor.goto_first_tok_after_or_last(TextSize::from(start as u32));
-        let tok = cursor.to_token().unwrap();
-        visited_ranges.insert(tok.range().unwrap().start());
+        if !cursor.goto_first_tok_after_or_last(TextSize::from(start as u32)) {
+            continue;
+        }
+        let Some(tok) = cursor.to_token() else {
+            continue;
+        };
+        let Some(tok_range) = tok.range() else {
+            continue;
+        };
+        visited_ranges.insert(tok_range.start());
         let mut trivias = tok.trivias_with_range().peekable();
 
         let check_lc = |t: &SyntaxTrivia| {
@@ -201,17 +208,19 @@ fn collect_line_comments(
 
                 if let Some(comment_end) = comment_end {
                     let range = TextRange::new(comment_start, comment_end);
-                    let fold = Fold::try_build(range, FoldKind::Comment, line_index).unwrap();
-                    folds.push(fold);
+                    if let Some(fold) = Fold::try_build(range, FoldKind::Comment, line_index) {
+                        folds.push(fold);
+                    }
                 }
             } else if t.kind().is_bc() {
                 let range = TextRange::new(range.start(), range.end());
-                let fold = Fold::try_build(range, FoldKind::Comment, line_index).unwrap();
-                folds.push(fold);
+                if let Some(fold) = Fold::try_build(range, FoldKind::Comment, line_index) {
+                    folds.push(fold);
+                }
             }
         }
 
-        last_pos = tok.range().unwrap().start();
+        last_pos = tok_range.start();
     }
 
     visited_ranges
@@ -234,8 +243,15 @@ fn collect_block_comments(
         }
 
         cursor.reset_to_root();
-        cursor.goto_first_tok_after_or_last(TextSize::from(start as u32));
-        let tok = cursor.to_token().unwrap();
+        if !cursor.goto_first_tok_after_or_last(TextSize::from(start as u32)) {
+            continue;
+        }
+        let Some(tok) = cursor.to_token() else {
+            continue;
+        };
+        let Some(tok_range) = tok.range() else {
+            continue;
+        };
 
         let trivias = tok.trivias_with_range();
         for (range, trivia) in trivias {
@@ -248,7 +264,7 @@ fn collect_block_comments(
             }
         }
 
-        last_pos = tok.range().unwrap().start();
+        last_pos = tok_range.start();
     }
 }
 

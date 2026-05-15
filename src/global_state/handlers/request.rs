@@ -417,7 +417,12 @@ pub(crate) fn handle_selection_range(
         .map(|pos| {
             let offset = from_proto::offset(&line_info, pos)?;
             let ranges = snap.analysis.selection_ranges(FilePosition { file_id, offset })?;
-            Ok(to_proto::selection_ranges(&line_info, ranges))
+            Ok(to_proto::selection_ranges(&line_info, ranges).unwrap_or_else(|| {
+                lsp_types::SelectionRange {
+                    range: to_proto::range(&line_info, TextRange::empty(offset)),
+                    parent: None,
+                }
+            }))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
