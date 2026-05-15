@@ -83,7 +83,7 @@ impl RegionTree {
                 }
             })
             .ok()?;
-        Some(children[idx])
+        children.get(idx).copied()
     }
 }
 
@@ -138,12 +138,13 @@ impl RegionTreeBuilder {
     }
 
     pub(crate) fn stage(&mut self, end_tok: Option<SyntaxToken>) {
-        let end = end_tok.unwrap().text_range().unwrap().end();
-        while let Some(last) = self.stack.last() {
-            let node = &mut self.tree.nodes[*last];
-            let start = node.range.start();
-            node.range = TextRange::new(start, end);
-            self.stack.pop();
+        if let Some(end) = end_tok.as_ref().and_then(|tok| tok.text_range()).map(|r| r.end()) {
+            while let Some(last) = self.stack.last() {
+                let node = &mut self.tree.nodes[*last];
+                let start = node.range.start();
+                node.range = TextRange::new(start, end);
+                self.stack.pop();
+            }
         }
         self.handle_tok(end_tok);
     }
@@ -194,8 +195,12 @@ impl RegionTreeBuilder {
             let first_eol = trivias.next();
             let second_eol = trivias.find(|t| t.kind().is_eol());
             if first_eol.is_none_or(|t| t.kind().is_eol()) && second_eol.is_none() {
+                let Some(node_range) = node.text_range() else {
+                    self.finish_pseudo_region();
+                    return;
+                };
                 *cnt += 1;
-                *range = range.cover(node.text_range().unwrap());
+                *range = range.cover(node_range);
                 return;
             } else {
                 self.finish_pseudo_region();
@@ -220,9 +225,10 @@ impl RegionTreeBuilder {
             }
         }
 
-        if let Some(comment) = last_comment {
-            let description = comment.as_comment().unwrap().to_smolstr();
-            let range = node.text_range().unwrap();
+        if let Some(description) =
+            last_comment.and_then(|comment| comment.as_comment().map(|text| text.to_smolstr()))
+            && let Some(range) = node.text_range()
+        {
             self.pseudo_region = Some((1, range, description));
         }
     }

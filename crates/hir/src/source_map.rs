@@ -12,13 +12,13 @@ pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
         self,
         arena: &'a impl AsRef<Arn>,
         src_map: &'a impl AsRef<SrcMap>,
-    ) -> &'a Hir
+    ) -> Option<&'a Hir>
     where
         Arn: GetRef<HirIdx, Output = Hir> + 'a,
-        SrcMap: Get<Self, Output = HirIdx> + 'a,
+        SrcMap: Get<Self, Output = Option<HirIdx>> + 'a,
     {
-        let idx = src_map.as_ref().get(self);
-        arena.as_ref().get(idx)
+        let idx = src_map.as_ref().get(self)?;
+        Some(arena.as_ref().get(idx))
     }
 
     fn kind(&self) -> SyntaxKind;
@@ -56,21 +56,31 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     pub fn iter(&self) -> impl Iterator<Item = (Idx<Hir>, &Src)> {
         self.hir2src.iter()
     }
+
+    #[inline]
+    pub fn src_to_hir(&self, src: Src) -> Option<Idx<Hir>> {
+        self.src2hir.get(&src).copied()
+    }
+
+    #[inline]
+    pub fn hir_to_src(&self, idx: Idx<Hir>) -> Option<Src> {
+        self.hir2src.get(idx).copied()
+    }
 }
 
 impl<Src: IsSrc, Hir> Get<Src> for SourceMap<Src, Hir> {
-    type Output = Idx<Hir>;
+    type Output = Option<Idx<Hir>>;
 
     fn get(&self, src: Src) -> Self::Output {
-        *self.src2hir.get(&src).unwrap()
+        self.src_to_hir(src)
     }
 }
 
 impl<Src: IsSrc, Hir> Get<Idx<Hir>> for SourceMap<Src, Hir> {
-    type Output = Src;
+    type Output = Option<Src>;
 
     fn get(&self, idx: Idx<Hir>) -> Self::Output {
-        *self.hir2src.get(idx).unwrap()
+        self.hir_to_src(idx)
     }
 }
 
@@ -107,7 +117,7 @@ macro_rules! define_src {
             fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
                 let mut node = self.0.to_node(tree)?;
                 while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) {
-                    node = node.children().find_map(|elem| elem.as_node()).unwrap();
+                    node = node.children().find_map(|elem| elem.as_node())?;
                 }
                 <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
             }
@@ -209,7 +219,7 @@ macro_rules! define_src_with_name {
             fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
                 let mut node = self.node.to_node(tree)?;
                 while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) {
-                    node = node.children().find_map(|elem| elem.as_node()).unwrap();
+                    node = node.children().find_map(|elem| elem.as_node())?;
                 }
                 <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
             }
@@ -292,7 +302,7 @@ macro_rules! define_src_with_name {
                         $name::$ty { node, .. } => {
                             let mut node = node.to_node(tree)?;
                             while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) && node.child_count() == 1 {
-                                node = node.child_node(0).unwrap();
+                                node = node.child_node(0)?;
                             }
                             <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
                         }

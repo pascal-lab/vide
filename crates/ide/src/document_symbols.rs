@@ -200,13 +200,16 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
     );
 
     for &item in src_map.items.iter() {
-        regions.add_region_symbol(src_map.item_to_ptr(&item).range(), &mut collector);
+        if let Some(ptr) = src_map.item_to_ptr(&item) {
+            regions.add_region_symbol(ptr.range(), &mut collector);
+        }
 
         match item {
             FileItem::LocalModuleId(idx) => {
                 let module_id = ModuleId::new(file_id, idx);
-                let module_src = src_map.get(idx);
-                collect_module_items(db, module_id, module_src, &mut collector);
+                if let Some(module_src) = src_map.get(idx) {
+                    collect_module_items(db, module_id, module_src, &mut collector);
+                }
             }
             FileItem::ProcId(proc_id) => {
                 let proc = file.get(proc_id);
@@ -258,8 +261,9 @@ fn collect_module_items(
 
     if let Some(params) = &module.param_ports {
         for decl_id in params.clone() {
-            let src = src_map.get(decl_id);
-            regions.add_region_symbol(src.range(), collector);
+            if let Some(src) = src_map.get(decl_id) {
+                regions.add_region_symbol(src.range(), collector);
+            }
             build_decl(collector, decl_id, SymbolKind::ParamDecl, module, src_map);
         }
     }
@@ -267,23 +271,27 @@ fn collect_module_items(
     match &module.ports {
         Ports::NonAnsi { ports, .. } => {
             for (port_id, port) in ports.iter() {
-                let src = src_map.get(port_id);
-                regions.add_region_symbol(src.range(), collector);
-                collector.push_symbol(&port.label, src);
-                collector.pop();
+                if let Some(src) = src_map.get(port_id) {
+                    regions.add_region_symbol(src.range(), collector);
+                    collector.push_symbol(&port.label, src);
+                    collector.pop();
+                }
             }
         }
         Ports::Ansi(port_decls) => {
             for (port_id, port_decl) in port_decls.iter() {
-                let src = src_map.get(port_id);
-                regions.add_region_symbol(src.range(), collector);
+                if let Some(src) = src_map.get(port_id) {
+                    regions.add_region_symbol(src.range(), collector);
+                }
                 build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map);
             }
         }
     }
 
     for item in src_map.items.iter() {
-        regions.add_region_symbol(src_map.item_to_ptr(item).range(), collector);
+        if let Some(ptr) = src_map.item_to_ptr(item) {
+            regions.add_region_symbol(ptr.range(), collector);
+        }
         match *item {
             ModuleItem::DeclarationId(declaration_id) => {
                 build_declaration(collector, declaration_id, module, src_map)
@@ -291,9 +299,10 @@ fn collect_module_items(
             ModuleItem::InstantiationId(instantiation_id) => {
                 for &instance_id in module.get(instantiation_id).instances.iter() {
                     let hir = module.get(instance_id);
-                    let src = src_map.get(instance_id);
-                    collector.push_symbol(&hir.name, src);
-                    collector.pop();
+                    if let Some(src) = src_map.get(instance_id) {
+                        collector.push_symbol(&hir.name, src);
+                        collector.pop();
+                    }
                 }
             }
             ModuleItem::ProcId(proc_id) => {
@@ -346,7 +355,9 @@ fn collect_block_items(
     );
 
     for item in src_map.items.iter() {
-        regions.add_region_symbol(src_map.item_to_ptr(item).range(), collector);
+        if let Some(ptr) = src_map.item_to_ptr(item) {
+            regions.add_region_symbol(ptr.range(), collector);
+        }
         match *item {
             BlockItem::DeclarationId(declaration_id) => {
                 build_declaration(collector, declaration_id, block, src_map)
@@ -374,22 +385,27 @@ fn build_stmt<Arn, SrcMap>(
     Arn: GetRef<StmtId, Output = Stmt>
         + GetRef<DeclId, Output = Declarator>
         + GetRef<LocalBlockId, Output = BlockInfo>,
-    SrcMap: Get<StmtId, Output = StmtSrc>
-        + Get<DeclId, Output = DeclaratorSrc>
-        + Get<LocalBlockId, Output = BlockSrc>,
+    SrcMap: Get<StmtId, Output = Option<StmtSrc>>
+        + Get<DeclId, Output = Option<DeclaratorSrc>>
+        + Get<LocalBlockId, Output = Option<BlockSrc>>,
 {
     let stmt = arena.get(stmt_id);
 
     if let StmtKind::Block(block_info) = &stmt.kind {
         let block_id = block_info.block_id;
-        let stmt_src = src_map.get(stmt_id);
+        let Some(stmt_src) = src_map.get(stmt_id) else {
+            return;
+        };
         if let Ok(block_src) = stmt_src.try_into() {
             collect_block_items(db, collector, block_id, block_src);
         }
         return;
     }
 
-    collector.push_symbol(&stmt.label, src_map.get(stmt_id));
+    let Some(stmt_src) = src_map.get(stmt_id) else {
+        return;
+    };
+    collector.push_symbol(&stmt.label, stmt_src);
     match &stmt.kind {
         StmtKind::Wait(_, stmt_id)
         | StmtKind::TimingCtrl(_, stmt_id)
@@ -412,15 +428,14 @@ fn build_stmt<Arn, SrcMap>(
                 build_stmt(db, collector, *stmt_id, arena, src_map);
             }
         }
-        StmtKind::For { inits, stmt, .. } => match inits {
-            ForInit::Init(inits) => {
+        StmtKind::For { inits, stmt, .. } => {
+            if let ForInit::Init(inits) = inits {
                 for (_, decl_id) in inits {
                     build_decl(collector, *decl_id, SymbolKind::DataDecl, arena, src_map);
                 }
-                build_stmt(db, collector, *stmt, arena, src_map);
             }
-            ForInit::Assign(_) => {}
-        },
+            build_stmt(db, collector, *stmt, arena, src_map);
+        }
 
         StmtKind::Empty
         | StmtKind::Expr(_)
@@ -442,10 +457,13 @@ fn build_declaration<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<DeclId, Output = Declarator> + GetRef<DeclarationId, Output = Declaration>,
-    SrcMap: Get<DeclId, Output = DeclaratorSrc> + Get<DeclarationId, Output = DeclarationSrc>,
+    SrcMap: Get<DeclId, Output = Option<DeclaratorSrc>>
+        + Get<DeclarationId, Output = Option<DeclarationSrc>>,
 {
     let declaration = arena.get(declaration_id);
-    let src = src_map.get(declaration_id);
+    let Some(src) = src_map.get(declaration_id) else {
+        return;
+    };
     build_decls(
         collector,
         &declaration.decls(),
@@ -473,17 +491,19 @@ fn build_generate_region<Arn, SrcMap>(
         + GetRef<ProcId, Output = Proc>
         + GetRef<StmtId, Output = Stmt>
         + GetRef<TypedefId, Output = Typedef>,
-    SrcMap: Get<GenerateRegionId, Output = GenerateRegionSrc>
-        + Get<DeclarationId, Output = DeclarationSrc>
-        + Get<DeclId, Output = DeclaratorSrc>
-        + Get<InstanceId, Output = hir::hir_def::module::instantiation::InstanceSrc>
-        + Get<LocalBlockId, Output = BlockSrc>
-        + Get<LocalSubroutineId, Output = SubroutineSrc>
-        + Get<StmtId, Output = StmtSrc>
-        + Get<TypedefId, Output = TypedefSrc>,
+    SrcMap: Get<GenerateRegionId, Output = Option<GenerateRegionSrc>>
+        + Get<DeclarationId, Output = Option<DeclarationSrc>>
+        + Get<DeclId, Output = Option<DeclaratorSrc>>
+        + Get<InstanceId, Output = Option<hir::hir_def::module::instantiation::InstanceSrc>>
+        + Get<LocalBlockId, Output = Option<BlockSrc>>
+        + Get<LocalSubroutineId, Output = Option<SubroutineSrc>>
+        + Get<StmtId, Output = Option<StmtSrc>>
+        + Get<TypedefId, Output = Option<TypedefSrc>>,
 {
     let hir = arena.get(generate_region_id);
-    let src = src_map.get(generate_region_id);
+    let Some(src) = src_map.get(generate_region_id) else {
+        return;
+    };
     let name = Some(SmolStr::new_static("generate"));
     collector.push_symbol_with_kind(&name, src, SymbolKind::Generate);
     for item in hir.items.iter() {
@@ -498,9 +518,10 @@ fn build_generate_region<Arn, SrcMap>(
             GenerateItem::InstantiationId(instantiation_id) => {
                 for &instance_id in arena.get(instantiation_id).instances.iter() {
                     let hir = arena.get(instance_id);
-                    let src = src_map.get(instance_id);
-                    collector.push_symbol(&hir.name, src);
-                    collector.pop();
+                    if let Some(src) = src_map.get(instance_id) {
+                        collector.push_symbol(&hir.name, src);
+                        collector.pop();
+                    }
                 }
             }
             GenerateItem::ProcId(proc_id) => {
@@ -552,9 +573,10 @@ fn build_generate_block(
             GenerateBlockItem::InstantiationId(instantiation_id) => {
                 for &instance_id in generate_block.get(instantiation_id).instances.iter() {
                     let hir = generate_block.get(instance_id);
-                    let src = src_map.get(instance_id);
-                    collector.push_symbol(&hir.name, src);
-                    collector.pop();
+                    if let Some(src) = src_map.get(instance_id) {
+                        collector.push_symbol(&hir.name, src);
+                        collector.pop();
+                    }
                 }
             }
             GenerateBlockItem::ContAssignId(_)
@@ -575,12 +597,14 @@ fn build_specify_block<Arn, SrcMap>(
     Arn: GetRef<SpecifyBlockId, Output = SpecifyBlock>
         + GetRef<DeclarationId, Output = Declaration>
         + GetRef<DeclId, Output = Declarator>,
-    SrcMap: Get<SpecifyBlockId, Output = SpecifyBlockSrc>
-        + Get<DeclarationId, Output = DeclarationSrc>
-        + Get<DeclId, Output = DeclaratorSrc>,
+    SrcMap: Get<SpecifyBlockId, Output = Option<SpecifyBlockSrc>>
+        + Get<DeclarationId, Output = Option<DeclarationSrc>>
+        + Get<DeclId, Output = Option<DeclaratorSrc>>,
 {
     let hir = arena.get(specify_block_id);
-    let src = src_map.get(specify_block_id);
+    let Some(src) = src_map.get(specify_block_id) else {
+        return;
+    };
     let name = Some(SmolStr::new_static("specify"));
     collector.push_symbol_with_kind(&name, src, SymbolKind::Specify);
     for item in hir.items.iter() {
@@ -603,7 +627,7 @@ fn build_decls<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<DeclId, Output = Declarator>,
-    SrcMap: Get<DeclId, Output = DeclaratorSrc>,
+    SrcMap: Get<DeclId, Output = Option<DeclaratorSrc>>,
 {
     for decl in decls.clone() {
         build_decl(collector, decl, kind, arena, src_map);
@@ -619,10 +643,12 @@ fn build_decl<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<DeclId, Output = Declarator>,
-    SrcMap: Get<DeclId, Output = DeclaratorSrc>,
+    SrcMap: Get<DeclId, Output = Option<DeclaratorSrc>>,
 {
     let hir = arena.get(decl);
-    let src = src_map.get(decl);
+    let Some(src) = src_map.get(decl) else {
+        return;
+    };
     collector.push_symbol_with_kind(&hir.name, src, kind);
     collector.pop();
 }
@@ -635,10 +661,12 @@ fn build_typedef<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<TypedefId, Output = Typedef>,
-    SrcMap: Get<TypedefId, Output = TypedefSrc>,
+    SrcMap: Get<TypedefId, Output = Option<TypedefSrc>>,
 {
     let hir = arena.get(typedef_id);
-    let src = src_map.get(typedef_id);
+    let Some(src) = src_map.get(typedef_id) else {
+        return;
+    };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Typedef);
     collector.pop();
 }
@@ -651,10 +679,12 @@ fn build_subroutine<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<LocalSubroutineId, Output = Subroutine>,
-    SrcMap: Get<LocalSubroutineId, Output = SubroutineSrc>,
+    SrcMap: Get<LocalSubroutineId, Output = Option<SubroutineSrc>>,
 {
     let hir = arena.get(subroutine_id);
-    let src = src_map.get(subroutine_id);
+    let Some(src) = src_map.get(subroutine_id) else {
+        return;
+    };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Fn);
     collector.pop();
 }
@@ -667,10 +697,12 @@ fn build_config_decl<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<ConfigDeclId, Output = ConfigDecl>,
-    SrcMap: Get<ConfigDeclId, Output = ConfigDeclSrc>,
+    SrcMap: Get<ConfigDeclId, Output = Option<ConfigDeclSrc>>,
 {
     let hir = arena.get(config_id);
-    let src = src_map.get(config_id);
+    let Some(src) = src_map.get(config_id) else {
+        return;
+    };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Config);
     collector.pop();
 }
@@ -683,10 +715,12 @@ fn build_udp_decl<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<UdpDeclId, Output = UdpDecl>,
-    SrcMap: Get<UdpDeclId, Output = UdpDeclSrc>,
+    SrcMap: Get<UdpDeclId, Output = Option<UdpDeclSrc>>,
 {
     let hir = arena.get(udp_id);
-    let src = src_map.get(udp_id);
+    let Some(src) = src_map.get(udp_id) else {
+        return;
+    };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Primitive);
     collector.pop();
 }
@@ -699,10 +733,12 @@ fn build_library_decl<Arn, SrcMap>(
     src_map: &SrcMap,
 ) where
     Arn: GetRef<LibraryDeclId, Output = LibraryDecl>,
-    SrcMap: Get<LibraryDeclId, Output = LibraryDeclSrc>,
+    SrcMap: Get<LibraryDeclId, Output = Option<LibraryDeclSrc>>,
 {
     let hir = arena.get(library_id);
-    let src = src_map.get(library_id);
+    let Some(src) = src_map.get(library_id) else {
+        return;
+    };
     collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Library);
     collector.pop();
 }

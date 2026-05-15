@@ -73,11 +73,11 @@ impl LowerContAssignCtx<'_> {
         assign: ast::ContinuousAssign,
     ) -> ContAssignId {
         let strength = assign.strength().map(lower_drive_strength);
-        let delay = assign.delay().map(|control| {
+        let delay = assign.delay().and_then(|control| {
             let control = self.event_expr_ctx().lower_timing_control(control);
             match control {
-                TimingControl::DelayControl(control) => control,
-                _ => unreachable!(),
+                TimingControl::DelayControl(control) => Some(control),
+                _ => None,
             }
         });
         let assigns = assign

@@ -93,7 +93,7 @@ impl<'a> ToAstNode<'a, ast::StructUnionType<'a>> for StructSrc {
     fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::StructUnionType<'a>> {
         let mut node = self.node.to_node(tree)?;
         while !ast::StructUnionType::can_cast(node.kind()) {
-            node = node.children().find_map(|elem| elem.as_node()).unwrap();
+            node = node.children().find_map(|elem| elem.as_node())?;
         }
         ast::StructUnionType::cast(node)
     }
@@ -163,7 +163,7 @@ impl<'a> ToAstNode<'a, ast::ClassDeclaration<'a>> for ClassSrc {
     fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ClassDeclaration<'a>> {
         let mut node = self.node.to_node(tree)?;
         while !ast::ClassDeclaration::can_cast(node.kind()) {
-            node = node.children().find_map(|elem| elem.as_node()).unwrap();
+            node = node.children().find_map(|elem| elem.as_node())?;
         }
         ast::ClassDeclaration::cast(node)
     }

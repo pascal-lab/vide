@@ -354,12 +354,7 @@ impl LowerExprCtx<'_> {
             None => StreamOp::None,
             Some(TokenKind::LEFT_SHIFT) => StreamOp::Left,
             Some(TokenKind::RIGHT_SHIFT) => StreamOp::Right,
-            Some(_) => {
-                unreachable!(
-                    "lower_stream_concat_expr: {:?}",
-                    expr.operator_token().unwrap().kind()
-                )
-            }
+            Some(_) => return None,
         };
         let slice = expr.slice_size().map(|size| self.lower_expr(size));
 
@@ -385,7 +380,9 @@ impl LowerExprCtx<'_> {
                 .into_iter()
                 .peekable();
 
-            let src = ast::Expression::cast(ident_select.syntax()).unwrap().into();
+            let Some(src) = ast::Expression::cast(ident_select.syntax()).map(ExprSrc::from) else {
+                return Some(expr);
+            };
             loop {
                 match selectors.next() {
                     select @ Some(_) => {
@@ -408,8 +405,9 @@ impl LowerExprCtx<'_> {
                 Some(lower_ident_opt(ident.identifier()).map_or(Expr::Missing, Expr::Ident))
             }
             ast::Name::ScopedName(scoped) => {
-                let left = ast::Expression::cast(scoped.left().syntax()).unwrap();
-                let receiver = self.lower_expr(left);
+                let receiver = ast::Expression::cast(scoped.left().syntax())
+                    .map(|left| self.lower_expr(left))
+                    .unwrap_or_else(|| self.alloc_missing());
 
                 match scoped.right() {
                     IdentifierName(ident) => {
@@ -417,7 +415,7 @@ impl LowerExprCtx<'_> {
                         Some(Expr::Field { receiver, field })
                     }
                     IdentifierSelectName(ident_select) => lower_ident_select(self, ident_select),
-                    _ => unreachable!("lower_name: {:?}", scoped.right().syntax().kind()),
+                    _ => Some(Expr::Missing),
                 }
             }
             ast::Name::KeywordName(keyword) => {
@@ -434,7 +432,7 @@ impl LowerExprCtx<'_> {
 
     fn lower_binary_expr(&mut self, expr: ast::BinaryExpression) -> Option<Expr> {
         let left = self.lower_expr(expr.left());
-        let op = match expr.operator_token().unwrap().kind() {
+        let op = match expr.operator_token()?.kind() {
             TokenKind::PLUS => BinaryOp::Add,
             TokenKind::MINUS => BinaryOp::Sub,
             TokenKind::STAR => BinaryOp::Mul,
@@ -553,20 +551,22 @@ impl LowerExprCtx<'_> {
     fn lower_cast_expr(&mut self, expr: ast::CastExpression) -> Option<Expr> {
         let ty = self.lower_data_ty(expr.left().as_data_type()?);
 
-        let right = ast::Expression::cast(expr.right().syntax()).unwrap();
-        let expr = self.lower_expr(right);
+        let expr = ast::Expression::cast(expr.right().syntax())
+            .map(|right| self.lower_expr(right))
+            .unwrap_or_else(|| self.alloc_missing());
         Some(Expr::Cast { ty, expr })
     }
 
     fn lower_cast_signed_expr(&mut self, expr: ast::SignedCastExpression) -> Option<Expr> {
-        let signed = match expr.signing().unwrap().kind() {
+        let signed = match expr.signing()?.kind() {
             TokenKind::SIGNED_KEYWORD => true,
             TokenKind::UNSIGNED_KEYWORD => false,
-            _ => unreachable!(),
+            _ => return None,
         };
 
-        let inner = ast::Expression::cast(expr.inner().syntax()).unwrap();
-        let expr = self.lower_expr(inner);
+        let expr = ast::Expression::cast(expr.inner().syntax())
+            .map(|inner| self.lower_expr(inner))
+            .unwrap_or_else(|| self.alloc_missing());
         Some(Expr::SignedCast { signed, expr })
     }
 

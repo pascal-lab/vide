@@ -59,7 +59,7 @@ pub(crate) fn references(
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let root = sema.parse_root(file_id)?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     handle_ctrl_flow_kw(&sema, token).or_else(|| {
@@ -75,7 +75,7 @@ pub(crate) fn handle_ctrl_flow_kw(
     sema: &Semantics<'_, RootDb>,
     tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Vec<References>> {
-    let file_id = sema.find_file(parent);
+    let file_id = sema.find_file(parent)?;
     let kind = tok.kind();
 
     let mut refs = vec![];
@@ -113,7 +113,7 @@ fn search_refs<'a>(
             (file_id, res)
         })
         .collect();
-    let def = def.origins().into_iter().map(|def| def.to_nav(sema.db)).collect_vec().into();
+    let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
     References { def, refs }
 }
 

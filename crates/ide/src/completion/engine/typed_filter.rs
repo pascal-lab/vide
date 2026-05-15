@@ -183,8 +183,9 @@ fn is_overridable_parameter_decl(
 ) -> bool {
     let (_, module_src_map) = db.module_with_source_map(module_id);
     let tree = db.parse(module_id.file_id);
-    let src = module_src_map.get(declaration_id);
-    let hir::hir_def::declaration::DeclarationSrc::ParameterDeclaration(ptr) = src else {
+    let Some(hir::hir_def::declaration::DeclarationSrc::ParameterDeclaration(ptr)) =
+        module_src_map.get(declaration_id)
+    else {
         return false;
     };
     let Some(node) = ptr.to_node(&tree) else {

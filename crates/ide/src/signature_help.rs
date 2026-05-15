@@ -66,7 +66,7 @@ pub(crate) fn signature_help(
     config: SignatureHelpConfig,
 ) -> Option<SignatureHelp> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let root = sema.parse_root(file_id)?;
     let token = root.token_at_offset(offset).left_biased()?;
 
     for node in SyntaxAncestors::start_from(token.parent) {
@@ -102,16 +102,16 @@ fn sig_help_for_instance(
     let db = sema.db;
 
     let active_param = 'blk: {
-        let InModule { value: instance_id, module_id } = sema.resolve_instance(instance);
+        let Some(InModule { value: instance_id, module_id }) = sema.resolve_instance(instance)
+        else {
+            break 'blk None;
+        };
         let (module, module_src_map) = db.module_with_source_map(module_id);
         let instance = module.get(instance_id);
 
-        let Some((idx, conn_id)) = instance
-            .connections
-            .iter()
-            .enumerate()
-            .find(|(_, conn_id)| module_src_map.get(**conn_id).node.range().end() >= offset)
-        else {
+        let Some((idx, conn_id)) = instance.connections.iter().enumerate().find(|(_, conn_id)| {
+            module_src_map.get(**conn_id).is_some_and(|src| src.node.range().end() >= offset)
+        }) else {
             break 'blk None;
         };
 
@@ -218,16 +218,18 @@ fn sig_help_for_instantiation(
     let db = sema.db;
 
     let active_param = 'blk: {
-        let InModule { value: instantiation_id, module_id } =
-            sema.resolve_instantiation(instantiation);
+        let Some(InModule { value: instantiation_id, module_id }) =
+            sema.resolve_instantiation(instantiation)
+        else {
+            break 'blk None;
+        };
         let (module, module_src_map) = db.module_with_source_map(module_id);
         let instantiation = module.get(instantiation_id);
 
-        let Some((idx, conn_id)) = instantiation
-            .param_assigns
-            .iter()
-            .enumerate()
-            .find(|(_, conn_id)| module_src_map.get(**conn_id).node.range().end() >= offset)
+        let Some((idx, conn_id)) =
+            instantiation.param_assigns.iter().enumerate().find(|(_, conn_id)| {
+                module_src_map.get(**conn_id).is_some_and(|src| src.node.range().end() >= offset)
+            })
         else {
             break 'blk None;
         };

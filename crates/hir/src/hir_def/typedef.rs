@@ -55,7 +55,7 @@ impl<'a> ToAstNode<'a, ast::TypedefDeclaration<'a>> for TypedefSrc {
     fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::TypedefDeclaration<'a>> {
         let mut node = self.node.to_node(tree)?;
         while !ast::TypedefDeclaration::can_cast(node.kind()) {
-            node = node.children().find_map(|elem| elem.as_node()).unwrap();
+            node = node.children().find_map(|elem| elem.as_node())?;
         }
         ast::TypedefDeclaration::cast(node)
     }

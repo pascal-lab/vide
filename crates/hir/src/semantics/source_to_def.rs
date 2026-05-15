@@ -17,7 +17,7 @@ use crate::{
             ModuleId, ModuleSrc,
             generate::{GenerateBlockLoc, GenerateBlockSrc},
         },
-        subroutine::{SubroutineLoc, SubroutineSrc},
+        subroutine::{SubroutineContainerId, SubroutineLoc, SubroutineSrc},
     },
     source_map::ToAstNode,
 };
@@ -39,7 +39,7 @@ impl Source2DefCtx<'_, '_> {
         InFile { file_id, value: src }: InFile<ModuleSrc>,
     ) -> Option<ModuleId> {
         let (_, file_source_map) = self.db.hir_file_with_source_map(file_id);
-        Some(ModuleId::new(file_id, file_source_map.get(src)))
+        Some(ModuleId::new(file_id, file_source_map.get(src)?))
     }
 
     pub(super) fn block_to_def(
@@ -80,7 +80,7 @@ impl Source2DefCtx<'_, '_> {
             ContainerId::GenerateBlockId(generate_block_id) => {
                 let (generate_block, generate_block_src_map) =
                     self.db.generate_block_with_source_map(generate_block_id);
-                let local_block_id = generate_block_src_map.get(block_src);
+                let local_block_id = generate_block_src_map.get(block_src)?;
                 generate_block.get(local_block_id).block_id
             }
             ContainerId::SubroutineId(subroutine_id) => {
@@ -127,19 +127,11 @@ impl Source2DefCtx<'_, '_> {
                }).into()
            },
            ast::FunctionDeclaration[func] => {
-               let mut ancestors = SyntaxAncestors::start_from(node).skip(1);
-               let module_id = ancestors.find_map(|ancestor| match_ast! { ancestor,
-                   ast::ModuleDeclaration[module] => {
-                       let src = ModuleSrc::from(module);
-                       self.module_to_def(InFile::new(file_id, src))
-                   },
-                   _ => None,
-               });
-
-               let cont_id: ContainerId = match module_id {
-                   Some(module_id) => module_id.into(),
-                   None => file_id.into(),
-               };
+               let parent = SyntaxAncestors::start_from(node)
+                   .skip(1)
+                   .find_map(|node| self.container_to_def(file_id, node))
+                   .unwrap_or(file_id.into());
+               let cont_id = SubroutineContainerId::try_from(parent).ok()?;
 
                let src = SubroutineSrc::from(func);
                let subroutine_id = self.db.intern_subroutine(SubroutineLoc {

@@ -108,8 +108,9 @@ pub enum JumpKind {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ForInit {
-    Init(SmallVec<[(DataTy, DeclId); 1]>),
+    Init(SmallVec<[(Option<DataTy>, DeclId); 1]>),
     Assign(SmallVec<[ExprId; 1]>),
+    Missing,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -316,26 +317,28 @@ impl LowerStmtCtx<'_> {
                 let mut inits = SmallVec::new();
                 let next_stmt_id = self.stmts.nxt_idx().into();
                 for init in initializers {
-                    let init = ast::ForVariableDeclaration::cast(init.syntax()).unwrap();
+                    let Some(init) = ast::ForVariableDeclaration::cast(init.syntax()) else {
+                        continue;
+                    };
                     if let Some(ast_ty) = init.type_() {
                         ty = Some(self.expr_ctx().lower_data_ty(ast_ty));
                     }
                     let decl = self.decl_ctx().lower_declarator(init.declarator(), next_stmt_id);
-                    inits.push((ty.unwrap(), decl));
+                    inits.push((ty, decl));
                 }
                 ForInit::Init(inits)
             }
             Some(SyntaxKind::ASSIGNMENT_EXPRESSION) => {
                 let inits = initializers
-                    .map(|init| {
-                        let expr = ast::Expression::cast(init.syntax()).unwrap();
-                        self.expr_ctx().lower_expr(expr)
+                    .filter_map(|init| {
+                        ast::Expression::cast(init.syntax())
+                            .map(|expr| self.expr_ctx().lower_expr(expr))
                     })
                     .collect();
                 ForInit::Assign(inits)
             }
             None => ForInit::Assign(SmallVec::new()),
-            _ => unreachable!(),
+            _ => ForInit::Missing,
         };
 
         let stop = self.expr_ctx().lower_expr_opt(stmt.stop_expr());
@@ -356,7 +359,7 @@ impl LowerStmtCtx<'_> {
         match stmt.repeat_or_while().map(|tok| tok.kind()) {
             Some(TokenKind::REPEAT_KEYWORD) => StmtKind::Repeat(expr, body),
             Some(TokenKind::WHILE_KEYWORD) | None => StmtKind::While(expr, body),
-            _ => unreachable!(),
+            _ => StmtKind::Empty,
         }
     }
 
@@ -367,16 +370,19 @@ impl LowerStmtCtx<'_> {
     }
 
     fn lower_disable_stmt(&mut self, stmt: ast::DisableStatement) -> StmtKind {
-        let name = ast::Expression::cast(stmt.name().syntax()).unwrap();
-        let name = self.expr_ctx().lower_expr(name);
+        let name = ast::Expression::cast(stmt.name().syntax())
+            .map(|name| self.expr_ctx().lower_expr(name))
+            .unwrap_or_else(|| self.expr_ctx().lower_expr_opt(None));
         StmtKind::Disable(DisableKind::Disable(name))
     }
 
     fn lower_jump_stmt(&mut self, stmt: ast::JumpStatement) -> StmtKind {
-        let kind = match stmt.break_or_continue().unwrap().kind() {
-            TokenKind::BREAK_KEYWORD => JumpKind::Break,
-            TokenKind::CONTINUE_KEYWORD => JumpKind::Continue,
-            _ => unreachable!(),
+        let Some(kind) = stmt.break_or_continue().and_then(|tok| match tok.kind() {
+            TokenKind::BREAK_KEYWORD => Some(JumpKind::Break),
+            TokenKind::CONTINUE_KEYWORD => Some(JumpKind::Continue),
+            _ => None,
+        }) else {
+            return StmtKind::Empty;
         };
         StmtKind::Jump(kind)
     }
@@ -406,11 +412,11 @@ impl LowerStmtCtx<'_> {
     fn lower_case_stmt(&mut self, stmt: ast::CaseStatement) -> StmtKind {
         let unique_priority = lower_unique_or_priority(stmt.unique_or_priority());
 
-        let case = stmt.case_keyword().map(|case| match case.kind() {
-            TokenKind::CASE_KEYWORD => CaseKeyword::Case,
-            TokenKind::CASE_Z_KEYWORD => CaseKeyword::Casez,
-            TokenKind::CASE_X_KEYWORD => CaseKeyword::Casex,
-            _ => unreachable!(),
+        let case = stmt.case_keyword().and_then(|case| match case.kind() {
+            TokenKind::CASE_KEYWORD => Some(CaseKeyword::Case),
+            TokenKind::CASE_Z_KEYWORD => Some(CaseKeyword::Casez),
+            TokenKind::CASE_X_KEYWORD => Some(CaseKeyword::Casex),
+            _ => None,
         });
 
         let expr = self.expr_ctx().lower_expr(stmt.expr());
@@ -469,6 +475,6 @@ fn lower_unique_or_priority(up: Option<SyntaxToken>) -> Option<UniquePriority> {
         TokenKind::UNIQUE_0_KEYWORD => Some(UniquePriority::Unique0),
         TokenKind::PRIORITY_KEYWORD => Some(UniquePriority::Priority),
         TokenKind::UNKNOWN => None,
-        _ => unreachable!(),
+        _ => None,
     }
 }

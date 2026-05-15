@@ -14,7 +14,9 @@ pub(crate) fn selection_ranges(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Vec<TextRange> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let Some(root) = sema.parse_root(file_id) else {
+        return vec![TextRange::empty(offset)];
+    };
 
     // LSP expects one selection tree per requested position. Start with the
     // cursor range, then add slang trivia/token/node ranges when they exist.

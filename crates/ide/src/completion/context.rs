@@ -102,7 +102,16 @@ pub(crate) fn completion_context(
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let Some(root) = sema.parse_root(file_id) else {
+        return CompletionContext {
+            replacement: TextRange::empty(offset),
+            prefix: String::new(),
+            trigger,
+            lex: LexContext::Code,
+            site: CompletionSite::Forbidden,
+            in_decl_name: false,
+        };
+    };
     let text = db.file_text(file_id);
     let expected_decl_name_offsets = db.expected_decl_name_offsets(file_id);
     detect_completion_context_impl(

@@ -35,6 +35,7 @@ define_src!(EventExprSrc(ast::EventExpression));
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EventExpr {
+    Missing,
     Atom { sensitivity: Option<Sensitivity>, expr: ExprId, iff: Option<ExprId> },
     Or(EventExprId, EventExprId),
     And(EventExprId, EventExprId),
@@ -102,19 +103,19 @@ impl LowerEventExprCtx<'_> {
     fn lower_binary_event_expr(&mut self, event_expr: ast::BinaryEventExpression) -> EventExpr {
         let left = self.lower_event_expr(event_expr.left());
         let right = self.lower_event_expr(event_expr.right());
-        match event_expr.operator_token().unwrap().kind() {
-            TokenKind::OR_KEYWORD => EventExpr::Or(left, right),
-            TokenKind::COMMA => EventExpr::And(left, right),
-            _ => unreachable!(),
+        match event_expr.operator_token().map(|tok| tok.kind()) {
+            Some(TokenKind::OR_KEYWORD) => EventExpr::Or(left, right),
+            Some(TokenKind::COMMA) => EventExpr::And(left, right),
+            _ => EventExpr::Missing,
         }
     }
 
     fn lower_signal_event_expr(&mut self, event_expr: ast::SignalEventExpression) -> EventExpr {
-        let sensitivity = event_expr.edge().map(|tok| match tok.kind() {
-            TokenKind::POS_EDGE_KEYWORD => Sensitivity::Posedge,
-            TokenKind::NEG_EDGE_KEYWORD => Sensitivity::Negedge,
-            TokenKind::EDGE_KEYWORD => Sensitivity::Edge,
-            _ => unreachable!(),
+        let sensitivity = event_expr.edge().and_then(|tok| match tok.kind() {
+            TokenKind::POS_EDGE_KEYWORD => Some(Sensitivity::Posedge),
+            TokenKind::NEG_EDGE_KEYWORD => Some(Sensitivity::Negedge),
+            TokenKind::EDGE_KEYWORD => Some(Sensitivity::Edge),
+            _ => None,
         });
         let expr = self.expr_ctx().lower_expr(event_expr.expr());
         let iff = event_expr.iff_clause().map(|iff| self.expr_ctx().lower_expr(iff.expr()));

@@ -36,7 +36,9 @@ fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> 
     let mut best: Option<(TextSize, ModuleId)> = None;
 
     for (local_module_id, _) in hir_file.modules.iter() {
-        let range = file_src_map.get(local_module_id).range();
+        let Some(range) = file_src_map.get(local_module_id).map(|src| src.range()) else {
+            continue;
+        };
         if !range.contains(position.offset) && range.end() != position.offset {
             continue;
         }

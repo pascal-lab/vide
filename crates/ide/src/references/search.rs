@@ -83,8 +83,13 @@ impl SearchScope {
         match cont {
             ContainerId::HirFileId(_) => Self::all(db),
             ContainerId::ModuleId(InFile { value: local_module_id, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(local_module_id).range();
-                Self::single_range(file_id.file_id(), range)
+                if let Some(range) =
+                    file_id.to_container_src_map(db).get(local_module_id).map(|src| src.range())
+                {
+                    Self::single_range(file_id.file_id(), range)
+                } else {
+                    Self::all(db)
+                }
             }
             ContainerId::BlockId(block_id) => {
                 let range = block_id.lookup(db).src.value.range();
@@ -184,7 +189,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
 
             let root = LazyCell::new(|| sema.parse_root(file_id));
             Self::match_text(&text, finder, range)
-                .filter_map(|offset| Self::filter_token(*root, file_id, &def_ranges, offset))
+                .filter_map(|offset| Self::filter_token((*root)?, file_id, &def_ranges, offset))
                 .filter(|tp| self.classify_and_filter(sema, tp))
                 .for_each(|token| {
                     res.entry(file_id)

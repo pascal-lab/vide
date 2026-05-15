@@ -315,7 +315,7 @@ fn collect_module(
             let start = src.name_range().map_or(range.start(), |r| r.end());
             Fold::try_build(TextRange::new(start, range.end()), FoldKind::Instance, line_index)
         } else {
-            let instantiation_src = src_map.get(instantiation_id);
+            let instantiation_src = src_map.get(instantiation_id)?;
             Fold::try_build(instantiation_src.range(), FoldKind::Instance, line_index)
         }
     }));

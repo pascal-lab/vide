@@ -137,7 +137,9 @@ pub fn format_on_type(
     }
 
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let Some(root) = sema.parse_root(file_id) else {
+        return Ok(None);
+    };
 
     let mut cursor = root.walk();
 

@@ -126,7 +126,9 @@ pub(crate) fn semantic_tokens(
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let Some(root) = sema.parse_root(file_id) else {
+        return Vec::new();
+    };
     let file_id = HirFileId(file_id);
     let range = range.unwrap_or_else(|| root.text_range().unwrap_or_default());
 
@@ -144,7 +146,9 @@ fn collect_file(
     let (hir_file, file_src_map) = sema.db.hir_file_with_source_map(file_id);
 
     for (local_module_id, _) in hir_file.modules.iter() {
-        let range = file_src_map.get(local_module_id).range();
+        let Some(range) = file_src_map.get(local_module_id).map(|src| src.range()) else {
+            continue;
+        };
         check_range!(collector, range);
         collect_module(sema, ModuleId::new(file_id, local_module_id), collector);
     }
@@ -159,7 +163,9 @@ fn collect_file(
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
-                let range = file_src_map.get(expr_id).range();
+                let Some(range) = file_src_map.get(expr_id).map(|src| src.range()) else {
+                    continue;
+                };
                 check_range!(collector, range);
                 collect_ident_like(name, range, collector);
             }
@@ -170,7 +176,7 @@ fn collect_file(
     for (decl_id, decl) in hir_file.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = file_src_map.get(decl_id).name_range()?;
+            let range = file_src_map.get(decl_id)?.name_range()?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
         };
@@ -179,7 +185,7 @@ fn collect_file(
     for (typedef_id, typedef) in hir_file.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = file_src_map.get(typedef_id).name_range()?;
+            let range = file_src_map.get(typedef_id)?.name_range()?;
             check_range!(collector, range);
             collector.tokens.add(SemaToken {
                 range,
@@ -191,7 +197,9 @@ fn collect_file(
 
     for (stmt_id, stmt) in hir_file.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let range = file_src_map.get(stmt_id).range();
+            let Some(range) = file_src_map.get(stmt_id).map(|src| src.range()) else {
+                continue;
+            };
             check_range!(collector, range);
             collect_block(sema, block_id, collector);
         }
@@ -215,7 +223,7 @@ fn collect_module(
         };
 
     for (instance_id, _) in module.instances.iter() {
-        if let Some(range) = module_src_map.get(instance_id).name_range() {
+        if let Some(range) = module_src_map.get(instance_id).and_then(|src| src.name_range()) {
             check_range!(collector, range);
             let sema_token =
                 SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
@@ -224,7 +232,8 @@ fn collect_module(
     }
 
     for (param_assign_id, param_assign) in module.inst_param_assigns.iter() {
-        let Some(range) = module_src_map.get(param_assign_id).name_range() else {
+        let Some(range) = module_src_map.get(param_assign_id).and_then(|src| src.name_range())
+        else {
             continue;
         };
         check_range!(collector, range);
@@ -241,7 +250,9 @@ fn collect_module(
     for (conn_id, conn) in module.inst_port_conns.iter() {
         match conn {
             PortConn::Named(Some(name), _) => {
-                let range = module_src_map.get(conn_id).range();
+                let Some(range) = module_src_map.get(conn_id).map(|src| src.range()) else {
+                    continue;
+                };
                 check_range!(collector, range);
                 collect_ident_like(name, range, collector);
             }
@@ -253,7 +264,9 @@ fn collect_module(
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
-                let range = module_src_map.get(expr_id).range();
+                let Some(range) = module_src_map.get(expr_id).map(|src| src.range()) else {
+                    continue;
+                };
                 check_range!(collector, range);
                 collect_ident_like(name, range, collector);
             }
@@ -264,7 +277,7 @@ fn collect_module(
     for (decl_id, decl) in module.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = module_src_map.get(decl_id).name_range()?;
+            let range = module_src_map.get(decl_id)?.name_range()?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
         };
@@ -273,7 +286,7 @@ fn collect_module(
     for (typedef_id, typedef) in module.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = module_src_map.get(typedef_id).name_range()?;
+            let range = module_src_map.get(typedef_id)?.name_range()?;
             check_range!(collector, range);
             collector.tokens.add(SemaToken {
                 range,
@@ -285,7 +298,9 @@ fn collect_module(
 
     for (stmt_id, stmt) in module.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let range = module_src_map.get(stmt_id).range();
+            let Some(range) = module_src_map.get(stmt_id).map(|src| src.range()) else {
+                continue;
+            };
             check_range!(collector, range);
             collect_block(sema, block_id, collector);
         }
@@ -311,7 +326,9 @@ fn collect_block(
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
-                let range = block_src_map.get(expr_id).range();
+                let Some(range) = block_src_map.get(expr_id).map(|src| src.range()) else {
+                    continue;
+                };
                 check_range!(collector, range);
                 collect_ident_like(name, range, collector);
             }
@@ -322,7 +339,7 @@ fn collect_block(
     for (decl_id, decl) in block.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = block_src_map.get(decl_id).name_range()?;
+            let range = block_src_map.get(decl_id)?.name_range()?;
             check_range!(collector, range);
             collect_ident_like(name, range, collector);
         };
@@ -331,7 +348,7 @@ fn collect_block(
     for (typedef_id, typedef) in block.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = block_src_map.get(typedef_id).name_range()?;
+            let range = block_src_map.get(typedef_id)?.name_range()?;
             check_range!(collector, range);
             collector.tokens.add(SemaToken {
                 range,
@@ -343,7 +360,9 @@ fn collect_block(
 
     for (stmt_id, stmt) in block.stmts.iter() {
         if let StmtKind::Block(BlockInfo { block_id, .. }) = stmt.kind {
-            let range = block_src_map.get(stmt_id).range();
+            let Some(range) = block_src_map.get(stmt_id).map(|src| src.range()) else {
+                continue;
+            };
             check_range!(collector, range);
             collect_block(sema, block_id, collector);
         }
@@ -377,7 +396,7 @@ fn collect_ident_like(
             };
             let port_decl = module.get(port_declaration_id);
             let header = &port_decl.header;
-            let (dir, ty) = (header.dir(), header.ty());
+            let (dir, ty) = (Some(header.dir()), header.ty());
             port::add_port_token(db, name, dir, ty, range, collector);
         }
         PathResolution::Instance(_) => {

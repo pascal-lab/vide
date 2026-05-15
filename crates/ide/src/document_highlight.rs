@@ -31,7 +31,7 @@ pub(crate) fn document_highlight(
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id);
+    let root = sema.parse_root(file_id)?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     handle_ctrl_flow_kw(&sema, token).or_else(|| {
@@ -55,7 +55,7 @@ fn handle_ctrl_flow_kw(
     sema: &Semantics<'_, RootDb>,
     tp: SyntaxTokenWithParent,
 ) -> Option<Vec<DocumentHighlight>> {
-    let cur_file_id = sema.find_file(tp.parent).file_id();
+    let cur_file_id = sema.find_file(tp.parent)?.file_id();
     let highlights = references::handle_ctrl_flow_kw(sema, tp)?
         .into_iter()
         .filter_map(|mut r| r.refs.remove(&cur_file_id))

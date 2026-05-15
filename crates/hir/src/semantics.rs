@@ -88,30 +88,24 @@ impl<'db> SemanticsImpl<'db> {
         }
     }
 
-    pub fn parse_root(&self, file_id: FileId) -> SyntaxNode<'_> {
+    pub fn parse_root(&self, file_id: FileId) -> Option<SyntaxNode<'_>> {
         let tree = self.db.parse_src(file_id);
 
         // Unsafe: we garentee that the root node is valid for the lifetime of the db
+        let root = tree.root()?;
         let root_node: SyntaxNode<'db> =
-            unsafe { std::mem::transmute::<SyntaxNode<'_>, SyntaxNode<'db>>(tree.root().unwrap()) };
+            unsafe { std::mem::transmute::<SyntaxNode<'_>, SyntaxNode<'db>>(root) };
         self.cache_node2file(root_node, file_id.into());
-        root_node
+        Some(root_node)
     }
 
-    pub fn parse(&self, file_id: FileId) -> ast::CompilationUnit<'_> {
-        ast::CompilationUnit::cast(self.parse_root(file_id)).unwrap()
+    pub fn parse(&self, file_id: FileId) -> Option<ast::CompilationUnit<'_>> {
+        ast::CompilationUnit::cast(self.parse_root(file_id)?)
     }
 
-    pub fn find_file(&self, node: SyntaxNode) -> HirFileId {
+    pub fn find_file(&self, node: SyntaxNode) -> Option<HirFileId> {
         let root_node = node.find_root();
-        self.lookup_file_id(root_node).unwrap_or_else(|| {
-            panic!(
-                "\n\nFailed to lookup {:?}.\nroot node:   {:?}\nknown nodes: {}\n\n",
-                node,
-                root_node,
-                self.root2file_cache.borrow().keys().map(|it| format!("{it:?}")).join(", ")
-            )
-        })
+        self.lookup_file_id(root_node)
     }
 
     fn cache_node2file(&self, root_node: SyntaxNode<'db>, file_id: HirFileId) {
@@ -138,7 +132,7 @@ impl<'db> SemanticsImpl<'db> {
 
 impl SemanticsImpl<'_> {
     pub fn block_to_def(&self, block: ast::BlockStatement) -> Option<BlockId> {
-        let file_id = self.find_file(block.syntax());
+        let file_id = self.find_file(block.syntax())?;
         let block_src = BlockSrc::from(block);
         self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))
     }

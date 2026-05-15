@@ -45,14 +45,17 @@ pub(super) fn collect_port(
     match &module.ports {
         Ports::NonAnsi { ports, decls, .. } => {
             for (port_id, NonAnsiPort { refs, .. }) in ports.iter() {
-                check_range!(collector, module_src_map.get(port_id).range());
+                let Some(port_src) = module_src_map.get(port_id) else {
+                    continue;
+                };
+                check_range!(collector, port_src.range());
                 let Some(refs) = refs.clone() else {
                     continue;
                 };
 
                 for ref_id in refs {
                     let _: Option<()> = try {
-                        let name_range = module_src_map.get(ref_id).name_range()?;
+                        let name_range = module_src_map.get(ref_id)?.name_range()?;
                         check_range!(collector, name_range);
 
                         let name = module.get(ref_id).ident.as_ref()?;
@@ -63,12 +66,15 @@ pub(super) fn collect_port(
                 }
 
                 for (port_decl_id, port_decl) in decls.iter() {
-                    check_range!(collector, module_src_map.get(port_decl_id).range());
+                    let Some(port_decl_src) = module_src_map.get(port_decl_id) else {
+                        continue;
+                    };
+                    check_range!(collector, port_decl_src.range());
 
                     for decl_id in port_decl.decls.clone() {
                         let _: Option<()> = try {
                             let decl = module.get(decl_id);
-                            let name_range = module_src_map.get(decl_id).name_range()?;
+                            let name_range = module_src_map.get(decl_id)?.name_range()?;
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
@@ -82,17 +88,20 @@ pub(super) fn collect_port(
         }
         Ports::Ansi(port_decls) => {
             for (port_decl_id, port_decl) in port_decls.iter() {
-                check_range!(collector, module_src_map.get(port_decl_id).range());
+                let Some(port_decl_src) = module_src_map.get(port_decl_id) else {
+                    continue;
+                };
+                check_range!(collector, port_decl_src.range());
 
                 for decl_id in port_decl.decls.clone() {
                     let _: Option<()> = try {
                         let decl = module.get(decl_id);
-                        let name_range = module_src_map.get(decl_id).name_range()?;
+                        let name_range = module_src_map.get(decl_id)?.name_range()?;
                         check_range!(collector, name_range);
 
                         let name = decl.name.as_ref()?;
                         let header = &port_decl.header;
-                        let (dir, ty) = (header.dir(), header.ty());
+                        let (dir, ty) = (Some(header.dir()), header.ty());
                         add_port_token(db, name, dir, ty, name_range, collector);
                     };
                 }
@@ -119,7 +128,7 @@ pub(super) fn resolve_non_ansi_port(
         _ => return None,
     };
     let header = &port_declaration.header;
-    let dir = header.dir();
+    let dir = Some(header.dir());
     let ty = if let Some(data_decl_id) = data_decl_id {
         let data_decl = module.get(data_decl_id);
         match data_decl.parent {
