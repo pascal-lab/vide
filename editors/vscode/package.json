@@ -145,6 +145,15 @@
           "default": null,
           "description": "Path to an external formatter executable. Leave empty to use the default formatter."
         },
+        "vizsla.formatter.backend": {
+          "type": "string",
+          "enum": [
+            "verible",
+            "vuff"
+          ],
+          "default": "verible",
+          "description": "Choose which formatter backend to use. vuff keeps formatting in-process and is usually faster than Verible."
+        },
         "vizsla.formatter.args": {
           "type": "array",
           "items": {
@@ -165,6 +174,17 @@
           "type": "boolean",
           "default": true,
           "description": "Enable formatting inside comments."
+        },
+        "vizsla.formatter.line.width": {
+          "type": "integer",
+          "minimum": 20,
+          "default": 100,
+          "description": "Line width used by the vuff formatter."
+        },
+        "vizsla.formatter.wrap_default_nettype": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable wrapping modules with `default_nettype none`/`wire` in vuff."
         },
         "vizsla.formatting.indent.width": {
           "type": "integer",

@@ -16,6 +16,8 @@ use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
     token::SyntaxTokenExt, trivia::TriviaKindExt,
 };
+use vuff_config::{FormatOptions, IndentStyle};
+use vuff_sv_formatter::format_source;
 use utils::{
     line_index::{TextRange, TextSize},
     lines::{LineEnding, LineInfo},
@@ -30,6 +32,17 @@ pub struct FmtConfig {
     pub args: Vec<String>,
     pub on_enter: bool,
     pub in_comments: bool,
+    pub backend: FormatterBackend,
+    pub vuff_line_width: u16,
+    pub vuff_indent_width: u8,
+    pub vuff_wrap_default_nettype: bool,
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatterBackend {
+    Verible,
+    Vuff,
 }
 
 pub(crate) fn format(
@@ -44,6 +57,22 @@ pub(crate) fn format(
 }
 
 fn format_inner(
+    text: &str,
+    line_range: Option<Range<usize>>,
+    ending: &LineEnding,
+    config: FmtConfig,
+) -> Result<Option<TextEdit>, anyhow::Error> {
+    let backend = config.backend;
+    if matches!(backend, FormatterBackend::Vuff) {
+        if line_range.is_none() {
+            return format_with_vuff(text, ending, &config);
+        }
+        tracing::debug!("vuff requested but range formatting is requested; using verible fallback");
+    }
+    format_with_verible(text, line_range, ending, config)
+}
+
+fn format_with_verible(
     text: &str,
     line_range: Option<Range<usize>>,
     ending: &LineEnding,
@@ -84,6 +113,40 @@ fn format_inner(
         Ok(None)
     } else {
         Ok(Some(diff(text, &new_text)))
+    }
+}
+
+fn format_with_vuff(
+    text: &str,
+    ending: &LineEnding,
+    config: &FmtConfig,
+) -> Result<Option<TextEdit>, anyhow::Error> {
+    let options = vuff_options(config);
+    let new_text = format_source(text, &options).map_err(|error| {
+        anyhow::format_err!("vuff_sv_formatter failed: {error}")
+    })?;
+    let (new_text, new_line_endings) = LineEnding::normalize(new_text);
+
+    if *ending != new_line_endings {
+        let range = TextRange::up_to(TextSize::of(text));
+        Ok(Some(TextEdit::replace(range, new_text)))
+    } else if *text == new_text {
+        Ok(None)
+    } else {
+        Ok(Some(diff(text, &new_text)))
+    }
+}
+
+fn vuff_options(config: &FmtConfig) -> FormatOptions {
+    let line_width = (config.vuff_line_width.max(1)) as u16;
+    let indent_width = config.vuff_indent_width.max(1);
+
+    FormatOptions {
+        line_width,
+        indent_width,
+        indent_style: IndentStyle::Spaces,
+        begin_style: vuff_config::BeginStyle::KAndR,
+        wrap_default_nettype: config.vuff_wrap_default_nettype,
     }
 }
 
@@ -334,11 +397,12 @@ mod tests {
     use triomphe::Arc;
     use utils::{
         lines::{LineEnding, LineInfo, PositionEncoding},
+        paths::Utf8PathBuf,
         text_edit::TextSize,
     };
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use super::{FmtConfig, format_on_type};
+    use super::{format_inner, format_on_type, FmtConfig, FormatterBackend};
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId(0);
@@ -369,7 +433,29 @@ mod tests {
     }
 
     fn config() -> FmtConfig {
-        FmtConfig { executable: None, args: Vec::new(), on_enter: false, in_comments: true }
+        FmtConfig {
+            executable: None,
+            args: Vec::new(),
+            on_enter: false,
+            in_comments: true,
+            backend: FormatterBackend::Verible,
+            vuff_line_width: 100,
+            vuff_indent_width: 4,
+            vuff_wrap_default_nettype: false,
+        }
+    }
+
+    fn vuff_config() -> FmtConfig {
+        FmtConfig {
+            executable: None,
+            args: Vec::new(),
+            on_enter: false,
+            in_comments: true,
+            backend: FormatterBackend::Vuff,
+            vuff_line_width: 100,
+            vuff_indent_width: 2,
+            vuff_wrap_default_nettype: false,
+        }
     }
 
     #[test]
@@ -401,5 +487,23 @@ mod tests {
         .unwrap();
 
         assert!(edit.is_none());
+    }
+
+    #[test]
+    fn vuff_backend_is_used_for_full_doc_formatting() {
+        let text = "module m;\ninitial begin\nx=1;\nend\nendmodule\n";
+        let config = vuff_config();
+        let edit = format_inner(text, None, &LineEnding::Unix, config).unwrap();
+        assert!(edit.is_some());
+    }
+
+    #[test]
+    fn vuff_backend_falls_back_to_verible_for_range_formatting() {
+        let mut config = vuff_config();
+        config.backend = FormatterBackend::Vuff;
+        config.executable = Some(Utf8PathBuf::from("C:/does-not-exist/verible-verilog-format"));
+
+        let edit = format_inner("module m;\nendmodule\n", Some(0..1), &LineEnding::Unix, config);
+        assert!(edit.is_err());
     }
 }

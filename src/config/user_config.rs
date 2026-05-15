@@ -5,7 +5,7 @@ use base_db::diagnostics_config::{
 use ide::{
     code_lens::CodeLensConfig,
     document_highlight::DocumentHighlightConfig,
-    formatting::FmtConfig,
+    formatting::{FmtConfig, FormatterBackend},
     hover::HoverConfig,
     inlay_hint::InlayHintConfig,
     references::ReferencesConfig,
@@ -118,6 +118,22 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FormatterBackendUserConfig {
+    Verible,
+    Vuff,
+}
+
+impl From<FormatterBackendUserConfig> for FormatterBackend {
+    fn from(value: FormatterBackendUserConfig) -> Self {
+        match value {
+            FormatterBackendUserConfig::Verible => FormatterBackend::Verible,
+            FormatterBackendUserConfig::Vuff => FormatterBackend::Vuff,
+        }
+    }
+}
+
 macro_rules! config_data {
     ($sv:vis struct $name:ident {
          $($(#[doc=$_:literal])*
@@ -162,9 +178,12 @@ config_data! {
         scope_visibility: ScopeVisibility = ScopeVisibility::Private,
 
         formatter_path: Option<Utf8PathBuf> = None,
+        formatter_backend: FormatterBackendUserConfig = FormatterBackendUserConfig::Verible,
         formatting_on_enter: bool = true,
         formatting_in_comments: bool = true,
         formatting_indent_width: usize = 4,
+        formatter_line_width: usize = 100,
+        formatter_wrap_default_nettype: bool = false,
         formatter_args: Vec<String> = vec![
             "--indentation_spaces=4",
             "--failsafe_success=false",
@@ -269,11 +288,16 @@ impl Config {
     pub(crate) fn fmt(&self) -> FmtConfig {
         let mut args = self.user_config.formatter_args.clone();
         args.push(format!("--indentation_spaces={}", self.user_config.formatting_indent_width));
+        let vuff_indent_width = u8::try_from(self.user_config.formatting_indent_width).unwrap_or(4);
         FmtConfig {
             executable: self.user_config.formatter_path.clone(),
             args,
             on_enter: self.user_config.formatting_on_enter,
             in_comments: self.user_config.formatting_in_comments,
+            backend: self.user_config.formatter_backend.into(),
+            vuff_line_width: u16::try_from(self.user_config.formatter_line_width).unwrap_or(100),
+            vuff_indent_width,
+            vuff_wrap_default_nettype: self.user_config.formatter_wrap_default_nettype,
         }
     }
 
@@ -340,4 +364,26 @@ fn parses_nested_diagnostics_config() {
     assert!(!config.semantic.enabled);
     assert_eq!(config.slang.warnings, ["default", "no-unused"]);
     assert_eq!(config.slang.rules.len(), 2);
+}
+
+#[test]
+fn parses_formatter_backend_and_nested_fields() {
+    let json = serde_json::json!({
+        "formatter": {
+            "backend": "vuff",
+            "line": { "width": 88 },
+            "wrap_default_nettype": true
+        },
+        "formatting": {
+            "indent": { "width": 2 }
+        }
+    });
+    let mut errors = vec![];
+    let user_cfg = UserConfig::from_json(json, &mut errors);
+
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(user_cfg.formatter_backend, FormatterBackendUserConfig::Vuff);
+    assert_eq!(user_cfg.formatter_line_width, 88);
+    assert!(user_cfg.formatter_wrap_default_nettype);
+    assert_eq!(user_cfg.formatting_indent_width, 2);
 }
