@@ -118,13 +118,6 @@ fn default_true() -> bool {
     true
 }
 
-macro_rules! default_value {
-    ($default:expr, $ty:ty) => {{
-        let default_: $ty = $default;
-        serde_json::to_string_pretty(&default_).unwrap()
-    }};
-}
-
 macro_rules! config_data {
     ($sv:vis struct $name:ident {
          $($(#[doc=$_:literal])*
@@ -139,7 +132,7 @@ macro_rules! config_data {
         impl $name {
             $sv fn from_json(mut json: serde_json::Value, error_sink: &mut Vec<(String, serde_json::Error)>) -> $name {
                 $name {
-                    $( $field: get_field(&mut json, error_sink, stringify!($field), default_value!($default, $ty)), )*
+                    $( $field: get_field(&mut json, error_sink, stringify!($field), || $default), )*
                 }
             }
         }

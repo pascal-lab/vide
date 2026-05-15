@@ -28,7 +28,7 @@ impl Pool {
 
         let mut handles = Vec::with_capacity(threads);
         for _ in 0..threads {
-            let handle = Builder::new(INITIAL_INTENT)
+            let handle = match Builder::new(INITIAL_INTENT)
                 .stack_size(STACK_SIZE)
                 .name("Worker".into())
                 .spawn({
@@ -43,8 +43,13 @@ impl Pool {
                             (job.f)();
                         }
                     }
-                })
-                .expect("failed to spawn thread");
+                }) {
+                Ok(handle) => handle,
+                Err(err) => {
+                    tracing::error!(%err, "failed to spawn worker thread");
+                    continue;
+                }
+            };
 
             handles.push(handle);
         }
@@ -64,10 +69,15 @@ impl Pool {
         });
 
         let job = Job { requested_intent: intent, f };
-        self.job_sender.send(job).unwrap();
+        if let Err(err) = self.job_sender.send(job) {
+            let job = err.into_inner();
+            tracing::debug!("worker pool is closed; executing job inline");
+            (job.f)();
+        }
     }
 }
 
+#[allow(clippy::expect_used)]
 pub fn spawn<F, T>(intent: ThreadIntent, f: F) -> JoinHandle<T>
 where
     F: FnOnce() -> T,
@@ -121,6 +131,7 @@ pub struct JoinHandle<T = ()> {
 }
 
 impl<T> JoinHandle<T> {
+    #[allow(clippy::unwrap_used)]
     pub fn join(mut self) -> T {
         self.inner.take().unwrap().join()
     }

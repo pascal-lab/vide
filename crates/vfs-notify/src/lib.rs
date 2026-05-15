@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 pub struct NotifyHandle {
     // Relative order of fields below is significant.
     sender: Sender<ServerMsg>,
-    _handler: thread::JoinHandle,
+    _handler: Option<thread::JoinHandle>,
 }
 
 #[derive(Debug)]
@@ -30,10 +30,16 @@ impl loader::Handle for NotifyHandle {
     fn spawn(sender: loader::Sender) -> NotifyHandle {
         let actor = NotifyActor::new(sender);
         let (sender, receiver) = unbounded::<ServerMsg>();
-        let thread = thread::Builder::new(thread::ThreadIntent::Worker)
+        let thread = match thread::Builder::new(thread::ThreadIntent::Worker)
             .name("VfsLoader".to_owned())
             .spawn(move || actor.run(receiver))
-            .expect("failed to spawn thread");
+        {
+            Ok(thread) => Some(thread),
+            Err(err) => {
+                tracing::error!(%err, "failed to spawn VFS loader thread");
+                None
+            }
+        };
         NotifyHandle { sender, _handler: thread }
     }
 
@@ -238,8 +244,10 @@ impl NotifyActor {
                             if !entry.file_type().is_dir() {
                                 return true;
                             }
-                            let path = &AbsPathBuf::assert_utf8(entry.path().to_path_buf());
-                            root == path || !dir_set.contains(path)
+                            let Ok(path) = AbsPathBuf::try_from(entry.path().to_path_buf()) else {
+                                return false;
+                            };
+                            root == &path || !dir_set.contains(&path)
                         });
 
                     let files = walkdir.filter_map(|it| it.ok()).filter_map(|entry| {

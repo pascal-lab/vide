@@ -63,38 +63,43 @@ impl Vfs {
         self.paths.get_index_of(path).map(|id| FileId(id as u32)).filter(|id| self.exists(*id))
     }
 
-    pub fn file_path(&self, file_id: FileId) -> &VfsPath {
-        self.paths.get_index(file_id.0 as usize).unwrap()
+    pub fn file_path(&self, file_id: FileId) -> Option<&VfsPath> {
+        self.paths.get_index(file_id.0 as usize)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (FileId, &VfsPath)> + '_ {
         (0..self.file_states.len())
             .map(|it| FileId(it as u32))
             .filter(move |&file_id| self.exists(file_id))
-            .map(move |file_id| (file_id, self.file_path(file_id)))
+            .filter_map(move |file_id| self.file_path(file_id).map(|path| (file_id, path)))
     }
 
     pub fn set_file_contents(&mut self, path: &VfsPath, contents: LoadResult) {
         let file_id = self.file_id_or_alloc(path);
         use FileState::*;
         use LoadResult::*;
-        let change_kind = match (self.file_state(file_id), contents) {
-            (Exists(old, _), Loaded(new, new_ending)) => {
-                if *old == new {
-                    return;
+        let Some(state) = self.file_states.get_mut(file_id.0 as usize) else {
+            return;
+        };
+        let change_kind = match contents {
+            Loaded(new, new_ending) => match state {
+                Exists(old, _) if *old == new => return,
+                Exists(_, _) => {
+                    let change_kind = ChangeKind::Modify(Arc::from(new.as_str()), new_ending);
+                    *state = Exists(new, new_ending);
+                    change_kind
                 }
-
-                let change_kind = ChangeKind::Modify(Arc::from(new.as_str()), new_ending);
-                self.file_states[file_id.0 as usize] = Exists(new, new_ending);
-                change_kind
-            }
-            (Deleted, Loaded(new, new_ending)) => {
-                let change_kind = ChangeKind::Create(Arc::from(new.as_str()), new_ending);
-                self.file_states[file_id.0 as usize] = Exists(new, new_ending);
-                change_kind
-            }
-            (Exists(_, _), LoadError) => ChangeKind::Delete,
-            (Exists(_, _), DecodeError) | (Deleted, LoadError | DecodeError) => return,
+                Deleted => {
+                    let change_kind = ChangeKind::Create(Arc::from(new.as_str()), new_ending);
+                    *state = Exists(new, new_ending);
+                    change_kind
+                }
+            },
+            LoadError => match state {
+                Exists(_, _) => ChangeKind::Delete,
+                Deleted => return,
+            },
+            DecodeError => return,
         };
 
         let changed_file = ChangedFile { file_id, change_kind };
@@ -110,7 +115,7 @@ impl Vfs {
     }
 
     pub fn exists(&self, file_id: FileId) -> bool {
-        matches!(self.file_state(file_id), FileState::Exists(_, _))
+        matches!(self.file_state(file_id), Some(FileState::Exists(_, _)))
     }
 
     fn file_id_or_alloc(&mut self, path: &VfsPath) -> FileId {
@@ -128,8 +133,8 @@ impl Vfs {
         FileId(id as u32)
     }
 
-    fn file_state(&self, file_id: FileId) -> &FileState {
-        &self.file_states[file_id.0 as usize]
+    fn file_state(&self, file_id: FileId) -> Option<&FileState> {
+        self.file_states.get(file_id.0 as usize)
     }
 }
 

@@ -101,7 +101,12 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         .and_then(|path| AbsPathBuf::try_from(path).ok())
     {
         Some(path) => path,
-        None => AbsPathBuf::assert_utf8(env::current_dir()?),
+        None => AbsPathBuf::try_from(env::current_dir()?).map_err(|path| {
+            anyhow::format_err!(
+                "current directory is not an absolute UTF-8 path: {}",
+                path.display()
+            )
+        })?,
     };
 
     let workspace_roots = workspace_folders

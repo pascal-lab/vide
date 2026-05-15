@@ -92,15 +92,6 @@ impl LineIndex {
 
     /// Transforms the `TextSize` into a `LineCol`.
     ///
-    /// # Panics
-    ///
-    /// If the offset is invalid. See [`Self::try_line_col`].
-    pub fn line_col(&self, offset: TextSize) -> LineCol {
-        self.try_line_col(offset).expect("invalid offset")
-    }
-
-    /// Transforms the `TextSize` into a `LineCol`.
-    ///
     /// Returns `None` if the `offset` was invalid, e.g. if it extends past the
     /// end of the text or points to the middle of a multi-byte character.
     pub fn try_line_col(&self, offset: TextSize) -> Option<LineCol> {
@@ -190,8 +181,9 @@ impl LineIndex {
     pub fn lines(&self, range: TextRange) -> impl Iterator<Item = TextRange> + '_ {
         let lo = self.newlines.partition_point(|&it| it < range.start());
         let hi = self.newlines.partition_point(|&it| it <= range.end());
+        let newlines = self.newlines.get(lo..hi).unwrap_or_default();
         let all = std::iter::once(range.start())
-            .chain(self.newlines[lo..hi].iter().copied())
+            .chain(newlines.iter().copied())
             .chain(std::iter::once(range.end()));
 
         all.clone()
@@ -211,12 +203,10 @@ impl LineIndex {
     }
 
     /// Returns the line and column of the given range.
-    ///
-    /// # Panics
-    pub fn line_ranges(&self, range: TextRange) -> Range<usize> {
-        let start = self.line_for_offset(range.start()).unwrap();
-        let end = self.line_for_offset(range.end().min(self.len)).unwrap();
-        (start as usize)..(end as usize) + 1
+    pub fn line_ranges(&self, range: TextRange) -> Option<Range<usize>> {
+        let start = self.line_for_offset(range.start())?;
+        let end = self.line_for_offset(range.end().min(self.len))?;
+        Some((start as usize)..(end as usize) + 1)
     }
 }
 
@@ -501,7 +491,9 @@ fn analyze_source_file_generic(
             lines.push(TextSize::from(i as u32 + 1) + output_offset);
         } else if byte >= 127 {
             // The slow path: Just decode to `char`.
-            let c = src[i..].chars().next().unwrap();
+            let Some(c) = src.get(i..).and_then(|text| text.chars().next()) else {
+                break;
+            };
             char_len = c.len_utf8();
 
             // The last element of `lines` represents the offset of the start of

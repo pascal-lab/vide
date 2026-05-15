@@ -94,11 +94,13 @@ impl PartialEq<AbsPath> for AbsPathBuf {
 }
 
 impl AbsPathBuf {
+    #[allow(clippy::panic)]
     pub fn assert(path: Utf8PathBuf) -> AbsPathBuf {
         AbsPathBuf::try_from(path)
             .unwrap_or_else(|path| panic!("expected absolute path, got {}", path))
     }
 
+    #[allow(clippy::panic)]
     pub fn assert_utf8(path: PathBuf) -> AbsPathBuf {
         let utf8_path = Utf8PathBuf::from_path_buf(path)
             .unwrap_or_else(|path| panic!("expected utf8 path, got {}", path.display()));
@@ -106,7 +108,8 @@ impl AbsPathBuf {
     }
 
     pub fn as_path(&self) -> &AbsPath {
-        AbsPath::assert(self.0.as_path())
+        // SAFETY: AbsPathBuf is only constructed from absolute UTF-8 paths.
+        unsafe { &*(self.0.as_path() as *const Utf8Path as *const AbsPath) }
     }
 
     pub fn pop(&mut self) -> bool {
@@ -157,18 +160,20 @@ impl<'a> TryFrom<&'a Utf8Path> for &'a AbsPath {
         if !path.is_absolute() {
             return Err(path);
         }
-        Ok(AbsPath::assert(path))
+        // SAFETY: checked above.
+        Ok(unsafe { &*(path as *const Utf8Path as *const AbsPath) })
     }
 }
 
 impl AbsPath {
+    #[allow(clippy::panic)]
     pub fn assert(path: &Utf8Path) -> &AbsPath {
         assert!(path.is_absolute());
         unsafe { &*(path as *const Utf8Path as *const AbsPath) }
     }
 
     pub fn parent(&self) -> Option<&AbsPath> {
-        self.0.parent().map(AbsPath::assert)
+        self.0.parent().and_then(|path| <&AbsPath>::try_from(path).ok())
     }
 
     pub fn absolutize(&self, path: impl AsRef<Utf8Path>) -> AbsPathBuf {
@@ -176,7 +181,7 @@ impl AbsPath {
     }
 
     pub fn join(&self, path: impl AsRef<Utf8Path>) -> AbsPathBuf {
-        Utf8Path::join(self.as_ref(), path).try_into().unwrap()
+        AbsPathBuf(Utf8Path::join(self.as_ref(), path))
     }
 
     pub fn normalize(&self) -> AbsPathBuf {
@@ -184,7 +189,7 @@ impl AbsPath {
     }
 
     pub fn to_path_buf(&self) -> AbsPathBuf {
-        AbsPathBuf::try_from(self.0.to_path_buf()).unwrap()
+        AbsPathBuf(self.0.to_path_buf())
     }
 
     pub fn strip_prefix(&self, base: &AbsPath) -> Option<&RelPath> {
@@ -311,7 +316,10 @@ fn normalize(path: &Utf8Path) -> Utf8PathBuf {
 
     for component in components {
         match component {
-            Utf8Component::Prefix(..) => unreachable!(),
+            Utf8Component::Prefix(prefix) => {
+                ret.clear();
+                ret.push(prefix.as_str());
+            }
             Utf8Component::RootDir => {
                 ret.push(component.as_str());
             }

@@ -53,7 +53,7 @@ impl TriviaExt for SyntaxTrivia<'_> {
         debug_assert!(str::from_utf8(bytes).is_ok());
 
         let text = unsafe { str::from_utf8_unchecked(bytes) };
-        let text = text.strip_prefix("//").unwrap().trim().strip_prefix(REGION_BEGIN)?;
+        let text = text.strip_prefix("//")?.trim().strip_prefix(REGION_BEGIN)?;
         if text.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return None;
         }
@@ -76,7 +76,7 @@ impl TriviaExt for SyntaxTrivia<'_> {
         debug_assert!(str::from_utf8(bytes).is_ok());
 
         let text = unsafe { str::from_utf8_unchecked(bytes) };
-        text.strip_prefix("//").unwrap().trim_start().starts_with(REGION_END)
+        text.strip_prefix("//").is_some_and(|text| text.trim_start().starts_with(REGION_END))
     }
 
     #[inline]
@@ -87,8 +87,8 @@ impl TriviaExt for SyntaxTrivia<'_> {
         let s = unsafe { str::from_utf8_unchecked(s) };
 
         match self.kind() {
-            Trivia![lc] => Some(s.strip_prefix("//").unwrap().trim()),
-            Trivia![bc] => Some(s.strip_prefix("/*").unwrap().strip_suffix("*/").unwrap().trim()),
+            Trivia![lc] => Some(s.strip_prefix("//")?.trim()),
+            Trivia![bc] => Some(s.strip_prefix("/*")?.strip_suffix("*/")?.trim()),
             _ => None,
         }
     }

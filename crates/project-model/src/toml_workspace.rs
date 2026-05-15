@@ -13,10 +13,10 @@ use crate::macro_def::{MacroAtom, MacroDef};
 
 const DEFAULT_TOP_MODULE: &str = "main";
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
-static IDENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")).unwrap());
-static KV_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})=(.*)$")).unwrap());
+static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
+static KV_RE: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})=(.*)$")));
 
 #[derive(Debug, Deserialize)]
 struct TomlManifestSchema {
@@ -39,17 +39,39 @@ where
     D: serde::Deserializer<'de>,
 {
     let res = Vec::<SmolStr>::deserialize(deserializer)?;
+    let ident_re = IDENT_RE.as_ref().map_err(|err| {
+        serde::de::Error::custom(format!("invalid macro identifier regex: {err}"))
+    })?;
+    let kv_re = KV_RE
+        .as_ref()
+        .map_err(|err| serde::de::Error::custom(format!("invalid macro key-value regex: {err}")))?;
     let macros = res
         .into_iter()
         .map(|macr: SmolStr| {
-            if IDENT_RE.is_match(&macr) {
+            if ident_re.is_match(&macr) {
                 Ok(MacroAtom::Flag(macr))
-            } else if let Some(caps) = KV_RE.captures(&macr) {
-                let mut key: SmolStr = caps.get(1).unwrap().as_str().into();
-                let value = caps.get(2).unwrap().as_str().into();
+            } else if let Some(caps) = kv_re.captures(&macr) {
+                let Some(key_match) = caps.get(1) else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid macro definition: {macr}"
+                    )));
+                };
+                let Some(value_match) = caps.get(2) else {
+                    return Err(serde::de::Error::custom(format!(
+                        "Invalid macro definition: {macr}"
+                    )));
+                };
+                let mut key: SmolStr = key_match.as_str().into();
+                let value = value_match.as_str().into();
                 if key.starts_with('\\') {
-                    assert!(key.ends_with(' '));
-                    key = key[1..key.len() - 1].into();
+                    let Some(stripped) =
+                        key.strip_prefix('\\').and_then(|key| key.strip_suffix(' '))
+                    else {
+                        return Err(serde::de::Error::custom(format!(
+                            "Invalid escaped macro name: {macr}"
+                        )));
+                    };
+                    key = stripped.into();
                 }
                 Ok(MacroAtom::KeyValue { key, value })
             } else {
@@ -82,7 +104,10 @@ impl TomlWorkspace {
             toml::from_str(&toml_file).with_context(|| format!("failed to parse {:?}", toml))?;
 
         let top_module = toml_schema.top_module;
-        let workspace_root = toml.parent().unwrap().to_path_buf();
+        let workspace_root = toml
+            .parent()
+            .with_context(|| format!("manifest path has no parent: {toml}"))?
+            .to_path_buf();
 
         let mut exclude = toml_schema
             .exclude

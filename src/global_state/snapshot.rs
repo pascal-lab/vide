@@ -124,7 +124,8 @@ impl GlobalStateSnapshot {
 
     pub(crate) fn url(&self, id: FileId) -> anyhow::Result<Url> {
         let vfs = &self.vfs_read();
-        let path = vfs.file_path(id);
+        let path =
+            vfs.file_path(id).ok_or_else(|| anyhow::format_err!("unknown file id: {id:?}"))?;
         let path = path
             .as_abs_path()
             .ok_or_else(|| anyhow::format_err!("file {id:?} has no file URI: {path}"))?;

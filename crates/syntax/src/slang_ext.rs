@@ -141,7 +141,9 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 
     fn token_at_offset(&self, offset: TextSize) -> TokenAtOffset<'a> {
-        let range = self.text_range().unwrap();
+        let Some(range) = self.text_range() else {
+            return TokenAtOffset::None;
+        };
         if range.is_empty() || !(range.contains(offset)) {
             return TokenAtOffset::None;
         }
@@ -151,7 +153,9 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         let left = cursor.to_tok_with_parent();
         let left_range = left.and_then(|left| left.text_range());
         if left_range.is_some_and(|range| range.contains(offset)) {
-            return TokenAtOffset::Single(left.unwrap());
+            if let Some(left) = left {
+                return TokenAtOffset::Single(left);
+            }
         }
         let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
@@ -162,9 +166,12 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
 
         match (left_ok, right_ok) {
-            (true, true) => TokenAtOffset::Between(left.unwrap(), right.unwrap()),
-            (true, false) => TokenAtOffset::Single(left.unwrap()),
-            (false, true) => TokenAtOffset::Single(right.unwrap()),
+            (true, true) => match (left, right) {
+                (Some(left), Some(right)) => TokenAtOffset::Between(left, right),
+                _ => TokenAtOffset::None,
+            },
+            (true, false) => left.map_or(TokenAtOffset::None, TokenAtOffset::Single),
+            (false, true) => right.map_or(TokenAtOffset::None, TokenAtOffset::Single),
             (false, false) => TokenAtOffset::None,
         }
     }
@@ -311,7 +318,9 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         &self,
         offset: TextSize,
     ) -> Either<TokenAtOffset<'a>, SyntaxNode<'a>> {
-        let range = self.text_range().unwrap();
+        let Some(range) = self.text_range() else {
+            return Either::Left(TokenAtOffset::None);
+        };
         if range.is_empty() || !(range.contains(offset)) {
             return Either::Left(TokenAtOffset::None);
         }
@@ -321,7 +330,9 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         let left = cursor.to_tok_with_parent();
         let left_range = left.and_then(|left| left.text_range());
         if left_range.is_some_and(|range| range.contains(offset)) {
-            return Either::Left(TokenAtOffset::Single(left.unwrap()));
+            if let Some(left) = left {
+                return Either::Left(TokenAtOffset::Single(left));
+            }
         }
         let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
@@ -332,21 +343,30 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
 
         match (left_ok, right_ok) {
-            (true, true) => Either::Left(TokenAtOffset::Between(left.unwrap(), right.unwrap())),
-            (true, false) => Either::Left(TokenAtOffset::Single(left.unwrap())),
-            (false, true) => Either::Left(TokenAtOffset::Single(right.unwrap())),
+            (true, true) => match (left, right) {
+                (Some(left), Some(right)) => Either::Left(TokenAtOffset::Between(left, right)),
+                _ => Either::Left(TokenAtOffset::None),
+            },
+            (true, false) => Either::Left(left.map_or(TokenAtOffset::None, TokenAtOffset::Single)),
+            (false, true) => Either::Left(right.map_or(TokenAtOffset::None, TokenAtOffset::Single)),
             (false, false) => {
                 while !cursor.to_elem().text_range().is_some_and(|range| range.contains(offset)) {
-                    cursor.goto_parent();
+                    if !cursor.goto_parent() {
+                        return Either::Left(TokenAtOffset::None);
+                    }
                 }
-                Either::Right(cursor.to_node().unwrap())
+                if let Some(node) = cursor.to_node() {
+                    Either::Right(node)
+                } else {
+                    Either::Left(TokenAtOffset::None)
+                }
             }
         }
     }
 
     #[inline]
     fn find_root(&self) -> SyntaxNode<'a> {
-        SyntaxAncestors::start_from(*self).last().unwrap()
+        SyntaxAncestors::start_from(*self).last().unwrap_or(*self)
     }
 
     #[inline]

@@ -78,7 +78,9 @@ impl TextEdit {
         match self.len() {
             0 => return,
             1 => {
-                self.changes[0].apply_on(text);
+                if let Some(change) = self.changes.first() {
+                    change.apply_on(text);
+                }
                 return;
             }
             _ => (),

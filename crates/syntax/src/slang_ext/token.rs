@@ -113,12 +113,12 @@ pub fn pair_token(
     let res = match kind {
         Token![module] => {
             // move from header to declaration
-            let parent = ast::ModuleDeclaration::cast(parent.parent().unwrap()).unwrap();
+            let parent = ast::ModuleDeclaration::cast(parent.parent()?)?;
             Either::Right(parent.endmodule()?)
         }
         Token![endmodule] => {
             // move from declaration to header
-            let parent = ast::ModuleDeclaration::cast(parent).unwrap();
+            let parent = ast::ModuleDeclaration::cast(parent)?;
             Either::Left(parent.header().module_keyword()?)
         }
         _ => {

@@ -32,7 +32,7 @@ impl FileSet {
     }
 
     pub fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
-        let mut base = self.paths[&path.anchor_id].clone();
+        let mut base = self.paths.get(&path.anchor_id)?.clone();
         base.pop();
         let path = base.join(path.path)?;
         self.files.get(&path).copied()
@@ -73,7 +73,9 @@ impl FileSetConfig {
         let mut set = vec![FileSet::default(); self.len];
         for (file_id, path) in vfs.iter() {
             let root = self.classify(path, &mut scratch_space);
-            set[root].insert(file_id, path.clone());
+            if let Some(file_set) = set.get_mut(root) {
+                file_set.insert(file_id, path.clone());
+            }
         }
         set
     }
@@ -125,7 +127,7 @@ impl FileSetConfigBuilder {
         entries.sort();
         entries.dedup_by(|(a, _), (b, _)| a == b);
 
-        FileSetConfig { len, map: fst::Map::from_iter(entries).unwrap() }
+        FileSetConfig { len, map: fst::Map::from_iter(entries).unwrap_or_default() }
     }
 }
 

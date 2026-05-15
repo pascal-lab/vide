@@ -47,7 +47,8 @@ impl ProjectManifest {
             .filter_map(Result::ok)
             .map(|it| it.path().join(MANIFEST_FILE_NAME))
             .filter(|it| it.exists())
-            .filter_map(|it| Self::from_toml(&AbsPathBuf::assert_utf8(it)).ok())
+            .filter_map(|it| AbsPathBuf::try_from(it).ok())
+            .filter_map(|it| Self::from_toml(&it).ok())
             .collect_vec();
 
         if entities.is_empty() {

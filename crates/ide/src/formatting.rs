@@ -298,7 +298,7 @@ fn format_previous<'a>(
         }
     };
 
-    let line_range = Some(index.line_ranges(list_range));
+    let line_range = index.line_ranges(list_range);
 
     let mut text = db.file_text(file_id).to_string();
     text.insert_str(offset.into(), PLACEHOLDER);

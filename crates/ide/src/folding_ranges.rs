@@ -65,7 +65,10 @@ impl Fold {
 
     #[inline]
     fn try_build(range: TextRange, kind: FoldKind, line_index: &LineIndex) -> Option<Self> {
-        (line_index.line_ranges(range).len() > 1).then(|| Self::new(range, kind))
+        line_index
+            .line_ranges(range)
+            .is_some_and(|line_ranges| line_ranges.len() > 1)
+            .then(|| Self::new(range, kind))
     }
 }
 
@@ -284,7 +287,7 @@ fn collect_module(
         let module_body_start = port_list_fold
             .as_ref()
             .and_then(|port_list| {
-                let line = line_index.line_col(port_list.range.end()).line + 1;
+                let line = line_index.try_line_col(port_list.range.end())?.line + 1;
                 line_index.range_for_line(line.min(line_index.lines_len().saturating_sub(1)))
             })
             .unwrap_or(module_src.range());

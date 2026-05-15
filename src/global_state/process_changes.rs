@@ -42,7 +42,9 @@ impl GlobalState {
         let mut changed_file_ids = FxHashSet::default();
         for changed_file in changed_files {
             let path = vfs.file_path(changed_file.file_id);
-            if let Some(path) = path.as_abs_path().map(|apath| apath.to_path_buf()) {
+            if let Some(path) =
+                path.and_then(|path| path.as_abs_path()).map(|apath| apath.to_path_buf())
+            {
                 let created_or_deleted = changed_file.is_created_or_deleted();
                 has_structure_changes |= created_or_deleted;
                 if created_or_deleted || should_refresh_for_change(&path, created_or_deleted) {
