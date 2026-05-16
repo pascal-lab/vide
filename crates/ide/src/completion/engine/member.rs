@@ -15,9 +15,9 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::{get::GetRef, text_edit::TextEditItem};
+use utils::get::GetRef;
 
-use super::{CompletionItem, CompletionItemKind};
+use super::candidate::CompletionCandidate;
 use crate::completion::context::CompletionContext;
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +31,7 @@ pub(super) fn complete_member_access(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -49,12 +49,7 @@ pub(super) fn complete_member_access(
         .filter(|name| name.as_str().starts_with(prefix))
         .map(|name| {
             let label = name.to_string();
-            CompletionItem {
-                label: label.clone(),
-                kind: CompletionItemKind::Text,
-                edit: Some(TextEditItem::replace(ctx.replacement, label)),
-                snippet_edit: None,
-            }
+            CompletionCandidate::text(label, ctx.replacement)
         })
         .collect()
 }

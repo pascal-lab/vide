@@ -16,12 +16,9 @@ use syntax::{
     SyntaxNode,
     ast::{self, AstNode},
 };
-use utils::{
-    get::Get,
-    text_edit::{TextEditItem, TextSize},
-};
+use utils::{get::Get, text_edit::TextSize};
 
-use super::{CompletionItem, CompletionItemKind};
+use super::candidate::CompletionCandidate;
 use crate::completion::context::CompletionContext;
 
 #[derive(Clone, Copy, Debug)]
@@ -35,7 +32,7 @@ pub(super) fn complete_expression(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     complete_expression_impl(db, position, prefix, ctx)
 }
 
@@ -44,7 +41,7 @@ pub(super) fn complete_argument_exprs(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     complete_expression_impl(db, position, prefix, ctx)
 }
 
@@ -53,7 +50,7 @@ fn complete_expression_impl(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -77,21 +74,13 @@ fn complete_expression_impl(
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .map(|(name, kind)| match kind {
-            NameKind::Value => CompletionItem {
-                label: name.clone(),
-                kind: CompletionItemKind::Text,
-                edit: Some(TextEditItem::replace(ctx.replacement, name)),
-                snippet_edit: None,
-            },
-            NameKind::SubroutineCall => CompletionItem {
-                label: name.clone(),
-                kind: CompletionItemKind::Snippet,
-                edit: Some(TextEditItem::replace(ctx.replacement, format!("{name}()"))),
-                snippet_edit: Some(TextEditItem::replace(
-                    ctx.replacement,
-                    format!("{name}(${{1:args}})"),
-                )),
-            },
+            NameKind::Value => CompletionCandidate::text(name, ctx.replacement),
+            NameKind::SubroutineCall => CompletionCandidate::semantic_snippet(
+                name.clone(),
+                ctx.replacement,
+                format!("{name}()"),
+                format!("{name}(${{1:args}})"),
+            ),
         })
         .collect()
 }

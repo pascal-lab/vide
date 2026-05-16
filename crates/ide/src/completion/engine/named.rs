@@ -3,10 +3,9 @@ use ide_db::root_db::RootDb;
 use rustc_hash::FxHashSet;
 use span::FilePosition;
 use syntax::ast::{self, AstNode};
-use utils::text_edit::TextEditItem;
 
 use super::{
-    CompletionItem, CompletionItemKind,
+    candidate::CompletionCandidate,
     instantiation::{
         enclosing_instantiation, overridable_params_of_module_sorted, ports_of_module_sorted,
     },
@@ -22,7 +21,7 @@ pub(super) fn complete_named_port_names(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -57,12 +56,7 @@ pub(super) fn complete_named_port_names(
             let label = name.to_string();
             let plain = format!("{label}()");
             let snippet = format!("{label}(${{1:expr}})");
-            CompletionItem {
-                label: label.clone(),
-                kind: CompletionItemKind::Text,
-                edit: Some(TextEditItem::replace(ctx.replacement, plain)),
-                snippet_edit: Some(TextEditItem::replace(ctx.replacement, snippet)),
-            }
+            CompletionCandidate::text_snippet(label, ctx.replacement, plain, snippet)
         })
         .collect()
 }
@@ -72,7 +66,7 @@ pub(super) fn complete_named_param_names(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -105,12 +99,7 @@ pub(super) fn complete_named_param_names(
             let label = name.to_string();
             let plain = format!("{label}()");
             let snippet = format!("{label}(${{1:expr}})");
-            CompletionItem {
-                label: label.clone(),
-                kind: CompletionItemKind::Text,
-                edit: Some(TextEditItem::replace(ctx.replacement, plain)),
-                snippet_edit: Some(TextEditItem::replace(ctx.replacement, snippet)),
-            }
+            CompletionCandidate::text_snippet(label, ctx.replacement, plain, snippet)
         })
         .collect()
 }
@@ -120,7 +109,7 @@ pub(super) fn complete_named_port_conn_expr(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -167,12 +156,7 @@ pub(super) fn complete_named_port_conn_expr(
                 *candidate_ty,
             )
         })
-        .map(|(name, _)| CompletionItem {
-            label: name.clone(),
-            kind: CompletionItemKind::Text,
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
-            snippet_edit: None,
-        })
+        .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }
 
@@ -181,7 +165,7 @@ pub(super) fn complete_named_param_assign_expr(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -228,11 +212,6 @@ pub(super) fn complete_named_param_assign_expr(
                 *candidate_ty,
             )
         })
-        .map(|(name, _)| CompletionItem {
-            label: name.clone(),
-            kind: CompletionItemKind::Text,
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
-            snippet_edit: None,
-        })
+        .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }

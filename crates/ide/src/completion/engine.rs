@@ -1,3 +1,4 @@
+mod candidate;
 mod expr;
 mod instantiation;
 mod item;

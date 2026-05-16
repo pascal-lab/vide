@@ -1,12 +1,9 @@
 use hir::{db::HirDb, file::HirFileId, hir_def::module::ModuleId, source_map::IsSrc};
 use ide_db::root_db::RootDb;
 use span::FilePosition;
-use utils::{
-    get::Get,
-    text_edit::{TextEditItem, TextSize},
-};
+use utils::{get::Get, text_edit::TextSize};
 
-use super::{CompletionItem, CompletionItemKind, typed_filter::value_candidates_in_module};
+use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};
 use crate::completion::{
     context::{CompletionContext, ExpectedSyntax},
     syntax_keywords,
@@ -17,7 +14,7 @@ pub(super) fn complete_sensitivity_list(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let wrap_in_parens = matches!(
         ctx.expectation.map(|expectation| expectation.syntax),
         Some(ExpectedSyntax::EventControl { wrap_in_parens: true })
@@ -60,7 +57,7 @@ fn module_id_at_offset(db: &RootDb, position: FilePosition) -> Option<ModuleId> 
 }
 
 fn push_star_item(
-    items: &mut Vec<CompletionItem>,
+    items: &mut Vec<CompletionCandidate>,
     ctx: &CompletionContext,
     wrap_in_parens: bool,
     prefix: &str,
@@ -71,16 +68,11 @@ fn push_star_item(
     }
 
     let plain = if wrap_in_parens { "(*)".to_string() } else { "*".to_string() };
-    items.push(CompletionItem {
-        label: label.to_string(),
-        kind: CompletionItemKind::Snippet,
-        edit: Some(TextEditItem::replace(ctx.replacement, plain.clone())),
-        snippet_edit: Some(TextEditItem::replace(ctx.replacement, plain)),
-    });
+    items.push(CompletionCandidate::snippet(label, ctx.replacement, plain.clone(), plain));
 }
 
 fn push_event_keywords(
-    items: &mut Vec<CompletionItem>,
+    items: &mut Vec<CompletionCandidate>,
     ctx: &CompletionContext,
     wrap_in_parens: bool,
     prefix: &str,
@@ -96,12 +88,7 @@ fn push_event_keywords(
             (format!("{keyword} "), format!("{keyword} ${{1:signal}}"))
         };
 
-        items.push(CompletionItem {
-            label: keyword.to_string(),
-            kind: CompletionItemKind::Snippet,
-            edit: Some(TextEditItem::replace(ctx.replacement, plain)),
-            snippet_edit: Some(TextEditItem::replace(ctx.replacement, snippet)),
-        });
+        items.push(CompletionCandidate::snippet(keyword.clone(), ctx.replacement, plain, snippet));
     }
 }
 
@@ -111,18 +98,13 @@ fn signal_candidates(
     prefix: &str,
     ctx: &CompletionContext,
     wrap_in_parens: bool,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     value_candidates_in_module(db, module_id)
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
         .map(|(name, _)| {
             let plain = if wrap_in_parens { format!("({name})") } else { name.clone() };
-            CompletionItem {
-                label: name.clone(),
-                kind: CompletionItemKind::Text,
-                edit: Some(TextEditItem::replace(ctx.replacement, plain)),
-                snippet_edit: None,
-            }
+            CompletionCandidate::text_edit(name, ctx.replacement, plain)
         })
         .collect()
 }

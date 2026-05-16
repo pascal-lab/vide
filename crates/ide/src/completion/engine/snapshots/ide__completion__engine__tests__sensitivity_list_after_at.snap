@@ -1,9 +1,41 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
-assertion_line: 489
 expression: items
 ---
 [
+    CompletionItem {
+        label: "clk",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "(clk)",
+                del: 53..53,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "en",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "(en)",
+                del: 53..53,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rst",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "(rst)",
+                del: 53..53,
+            },
+        ),
+        snippet_edit: None,
+    },
     CompletionItem {
         label: "*",
         kind: Snippet,
@@ -67,38 +99,5 @@ expression: items
                 del: 53..53,
             },
         ),
-    },
-    CompletionItem {
-        label: "clk",
-        kind: Text,
-        edit: Some(
-            TextEditItem {
-                ins: "(clk)",
-                del: 53..53,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "en",
-        kind: Text,
-        edit: Some(
-            TextEditItem {
-                ins: "(en)",
-                del: 53..53,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "rst",
-        kind: Text,
-        edit: Some(
-            TextEditItem {
-                ins: "(rst)",
-                del: 53..53,
-            },
-        ),
-        snippet_edit: None,
     },
 ]
