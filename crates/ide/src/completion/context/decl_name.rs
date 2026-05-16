@@ -61,7 +61,7 @@ pub(super) fn potential_ansi_port_item_start(
         return None;
     }
 
-    Some(CompletionExpectation { syntax, source: ExpectationSource::SyntaxPrediction })
+    Some(CompletionExpectation { syntax, source: ExpectationSource::RecoveredSyntax })
 }
 
 fn expected_decl_name_hit(caret: &CaretSnapshot<'_>, offsets: &[TextSize]) -> bool {

@@ -151,7 +151,7 @@ mod tests {
             lex,
             expectation: syntax.map(|syntax| CompletionExpectation {
                 syntax,
-                source: ExpectationSource::SyntaxPrediction,
+                source: ExpectationSource::RecoveredSyntax,
             }),
             in_decl_name: false,
         }

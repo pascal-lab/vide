@@ -52,18 +52,6 @@ pub(crate) fn keyword_candidates(
     }
 }
 
-pub(crate) fn predicts_source_expected_keyword(
-    expected: ExpectedSyntax,
-    source_text: &str,
-    replacement: TextRange,
-    prefix: &str,
-) -> bool {
-    token_prediction_supported(expected)
-        && all_keywords().iter().filter(|keyword| keyword.starts_with(prefix)).any(|keyword| {
-            token_prediction_accepts_keyword(expected, source_text, replacement, keyword)
-        })
-}
-
 #[cfg(test)]
 fn gate_type_keywords() -> &'static [String] {
     static GATE_TYPE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();

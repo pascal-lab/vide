@@ -71,7 +71,7 @@ pub enum ExpectationSource {
     DeclarationName,
     Ast(syntax::SyntaxKind),
     Token(syntax::TokenKind),
-    SyntaxPrediction,
+    RecoveredSyntax,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,7 +222,7 @@ fn detect_completion_context_impl(
                 source: ExpectationSource::DeclarationName,
             })
         } else {
-            expected::detect_completion_expectation(&caret, source_text, replacement)
+            expected::detect_completion_expectation(&caret)
         };
     CompletionContext { replacement, prefix, trigger, lex, expectation, in_decl_name }
 }
@@ -711,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn token_prediction_recovery_uses_identifier_replacement_start() {
+    fn item_context_recovery_uses_identifier_replacement_start() {
         let c = ctx("module m; specify\n  sp/*caret*/\nendspecify endmodule\n");
 
         assert_eq!(c.replacement, TextRange::new(TextSize::from(20), TextSize::from(22)));
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
         assert_eq!(
             c.expectation.map(|expectation| expectation.source),
-            Some(ExpectationSource::SyntaxPrediction)
+            Some(ExpectationSource::Ast(syntax::SyntaxKind::SPECIFY_BLOCK))
         );
     }
 

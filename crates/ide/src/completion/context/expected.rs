@@ -9,7 +9,6 @@ use utils::line_index::{TextRange, TextSize};
 use super::{
     CompletionExpectation, ExpectationSource, ExpectedSyntax, caret::CaretSnapshot, util::in_parens,
 };
-use crate::completion::syntax_prediction;
 
 trait AstParens<'a>: AstNode<'a> {
     fn open_paren(&self) -> Option<SyntaxToken<'a>>;
@@ -46,25 +45,47 @@ impl_ast_parens!(
 
 pub(super) fn detect_completion_expectation(
     caret: &CaretSnapshot<'_>,
-    source_text: Option<&str>,
-    replacement: TextRange,
 ) -> Option<CompletionExpectation> {
-    punctuated_expectation(caret)
-        .or_else(|| sensitivity_list_expectation(caret))
-        .or_else(|| module_header_expectation(caret))
-        .or_else(|| statement_keyword_expectation(caret))
-        .or_else(|| expression_expectation(caret))
-        .or_else(|| procedural_item_expectation(caret))
-        .or_else(|| {
-            source_text.and_then(|source_text| {
-                source_prediction_item_expectation(caret, source_text, replacement)
-            })
-        })
-        .or_else(|| generate_item_expectation(caret))
-        .or_else(|| specify_item_expectation(caret))
-        .or_else(|| module_item_expectation(caret))
-        .or_else(|| config_item_expectation(caret))
-        .or_else(|| compilation_unit_item_expectation(caret))
+    ExpectationEngine { caret }.detect()
+}
+
+struct ExpectationEngine<'a, 'tree> {
+    caret: &'a CaretSnapshot<'tree>,
+}
+
+impl ExpectationEngine<'_, '_> {
+    fn detect(&self) -> Option<CompletionExpectation> {
+        self.structural_expectation()
+            .or_else(|| self.item_expectation())
+            .or_else(|| self.statement_keyword_expectation())
+            .or_else(|| self.expression_expectation())
+            .or_else(|| self.procedural_item_expectation())
+    }
+
+    fn structural_expectation(&self) -> Option<CompletionExpectation> {
+        punctuated_expectation(self.caret).or_else(|| sensitivity_list_expectation(self.caret))
+    }
+
+    fn item_expectation(&self) -> Option<CompletionExpectation> {
+        module_header_expectation(self.caret)
+            .or_else(|| generate_item_expectation(self.caret))
+            .or_else(|| specify_item_expectation(self.caret))
+            .or_else(|| config_item_expectation(self.caret))
+            .or_else(|| module_item_expectation(self.caret))
+            .or_else(|| compilation_unit_item_expectation(self.caret))
+    }
+
+    fn statement_keyword_expectation(&self) -> Option<CompletionExpectation> {
+        statement_keyword_expectation(self.caret)
+    }
+
+    fn expression_expectation(&self) -> Option<CompletionExpectation> {
+        expression_expectation(self.caret)
+    }
+
+    fn procedural_item_expectation(&self) -> Option<CompletionExpectation> {
+        procedural_item_expectation(self.caret)
+    }
 }
 
 fn expectation(syntax: ExpectedSyntax, source: ExpectationSource) -> CompletionExpectation {
@@ -293,28 +314,19 @@ fn procedural_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionEx
     None
 }
 
-fn source_prediction_item_expectation(
-    caret: &CaretSnapshot<'_>,
-    source_text: &str,
-    replacement: TextRange,
-) -> Option<CompletionExpectation> {
-    syntax_prediction::expected_item_syntax_from_source(source_text, replacement, caret.offset)
-        .map(|expected| expectation(expected, ExpectationSource::SyntaxPrediction))
-}
-
 fn generate_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     let offset = caret.offset;
 
     if let Some(region) = caret.root.find_node_at_offset::<ast::GenerateRegion<'_>>(offset)
         && let Some(zone) = item_zone(region.keyword(), region.endgenerate(), region.syntax())
-        && range_touches(zone, offset)
+        && item_start_in_owner(region.syntax(), zone, caret)
     {
         return Some(node_expectation(ExpectedSyntax::GenerateItem, region.syntax()));
     }
 
     if let Some(block) = caret.root.find_node_at_offset::<ast::GenerateBlock<'_>>(offset)
         && let Some(zone) = item_zone(block.begin(), block.end(), block.syntax())
-        && range_touches(zone, offset)
+        && item_start_in_owner(block.syntax(), zone, caret)
     {
         return Some(node_expectation(ExpectedSyntax::GenerateItem, block.syntax()));
     }
@@ -326,7 +338,7 @@ fn specify_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpec
     let offset = caret.offset;
     let block = caret.root.find_node_at_offset::<ast::SpecifyBlock<'_>>(offset)?;
     let zone = item_zone(block.specify(), block.endspecify(), block.syntax())?;
-    range_touches(zone, offset)
+    item_start_in_owner(block.syntax(), zone, caret)
         .then_some(node_expectation(ExpectedSyntax::SpecifyItem, block.syntax()))
 }
 
@@ -341,7 +353,8 @@ fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
         .map(|range| range.start())
         .or_else(|| module.syntax().text_range().map(|range| range.end()))?;
 
-    range_touches(TextRange::new(start, end), offset)
+    let zone = TextRange::new(start, end);
+    item_start_in_owner(module.syntax(), zone, caret)
         .then_some(node_expectation(ExpectedSyntax::ModuleItem, module.syntax()))
 }
 
@@ -349,20 +362,17 @@ fn config_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
     let offset = caret.offset;
     let config = caret.root.find_node_at_offset::<ast::ConfigDeclaration<'_>>(offset)?;
     let start = config.semi_1().and_then(|semi| semi.text_range()).map(|range| range.end())?;
-    let end = config
-        .endconfig()
-        .and_then(|tok| tok.text_range())
-        .map(|range| range.start())
-        .or_else(|| config.syntax().text_range().map(|range| range.end()))?;
+    let end = config.syntax().text_range().map(|range| range.end())?;
 
     if !range_touches(TextRange::new(start, end), offset) {
         return None;
     }
 
+    let replacement_start = caret.replacement_and_prefix().0.start();
     let rules_allowed = config
         .semi_2()
         .and_then(|semi| semi.text_range())
-        .is_some_and(|range| range.end() <= offset);
+        .is_some_and(|range| range.end() <= replacement_start);
     Some(node_expectation(ExpectedSyntax::ConfigItem { rules_allowed }, config.syntax()))
 }
 
@@ -376,7 +386,7 @@ fn compilation_unit_item_expectation(caret: &CaretSnapshot<'_>) -> Option<Comple
         .or_else(|| unit.syntax().text_range().map(|range| range.end()))?;
 
     let range = TextRange::new(TextSize::new(0), end);
-    range_touches(range, offset)
+    item_start_in_owner(unit.syntax(), range, caret)
         .then_some(node_expectation(ExpectedSyntax::CompilationUnitItem, unit.syntax()))
 }
 
@@ -411,6 +421,42 @@ fn item_zone(
 
 fn range_touches(range: TextRange, offset: TextSize) -> bool {
     range.contains(offset) || range.end() == offset
+}
+
+fn item_start_in_owner(owner: SyntaxNode<'_>, zone: TextRange, caret: &CaretSnapshot<'_>) -> bool {
+    let (replacement, _) = caret.replacement_and_prefix();
+    let replacement_start = replacement.start();
+    if !range_touches(zone, replacement_start) && !range_touches(zone, caret.offset) {
+        return false;
+    }
+
+    let Some(item) = direct_list_item_at(owner, zone, replacement_start, caret.offset) else {
+        return true;
+    };
+    item.text_range().is_some_and(|range| range.start() == replacement_start || range.is_empty())
+}
+
+fn direct_list_item_at(
+    owner: SyntaxNode<'_>,
+    zone: TextRange,
+    replacement_start: TextSize,
+    offset: TextSize,
+) -> Option<SyntaxNode<'_>> {
+    owner
+        .children()
+        .filter_map(|elem| elem.as_node())
+        .filter(|node| node.kind().is_list())
+        .filter(|node| node.text_range().is_none_or(|range| ranges_overlap(range, zone)))
+        .flat_map(|list| list.children().filter_map(|elem| elem.as_node()))
+        .find(|node| {
+            node.text_range().is_some_and(|range| {
+                range_touches(range, replacement_start) || range_touches(range, offset)
+            })
+        })
+}
+
+fn ranges_overlap(left: TextRange, right: TextRange) -> bool {
+    left.start() <= right.end() && right.start() <= left.end()
 }
 
 fn block_declarations_allowed_before(block: ast::BlockStatement<'_>, offset: TextSize) -> bool {
