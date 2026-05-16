@@ -18,7 +18,7 @@ use span::FilePosition;
 
 pub use self::named::{CompletionItem, CompletionItemKind};
 use crate::completion::context::{
-    CompletionContext, CompletionSite, HashKind, LexContext, ParenListKind, PortListKind,
+    CompletionContext, ExpectedSyntax, HashKind, LexContext, ParenListKind, PortListKind,
     TriggerChar, completion_context,
 };
 
@@ -36,99 +36,123 @@ fn completions_with_context(
     position: FilePosition,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    if ctx.site == CompletionSite::PreprocDirective {
+    if matches!(
+        ctx.expectation.map(|expectation| expectation.syntax),
+        Some(ExpectedSyntax::DirectiveName)
+    ) {
         return preproc::complete_directives(ctx);
     }
 
-    if ctx.lex != LexContext::Code || ctx.site == CompletionSite::Forbidden {
+    if ctx.lex != LexContext::Code {
         return Vec::new();
     }
 
-    if punctuation_trigger_without_site(ctx) {
+    let Some(expectation) = ctx.expectation else {
+        return Vec::new();
+    };
+
+    if newline_trigger_outside_port_list(ctx) {
         return Vec::new();
     }
 
-    match ctx.site {
-        CompletionSite::Forbidden | CompletionSite::PreprocDirective => Vec::new(),
-        CompletionSite::TopLevelItemStart
-        | CompletionSite::ModuleHeader
-        | CompletionSite::ModuleMemberStart
-        | CompletionSite::BlockDeclStart
-        | CompletionSite::ProceduralStatementStart => {
-            keywords::complete_keywords(db, position, &ctx.prefix, ctx)
-        }
-        CompletionSite::Expr => expr::complete_expression(db, position, &ctx.prefix, ctx),
-        CompletionSite::NamedPortName => {
+    if punctuation_trigger_without_specific_expectation(ctx) {
+        return Vec::new();
+    }
+
+    match expectation.syntax {
+        ExpectedSyntax::DirectiveName | ExpectedSyntax::DeclName => Vec::new(),
+        ExpectedSyntax::CompilationUnitItem
+        | ExpectedSyntax::ModuleHeaderItem
+        | ExpectedSyntax::ModuleItem
+        | ExpectedSyntax::BlockItem { .. }
+        | ExpectedSyntax::Statement => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
+        ExpectedSyntax::Expression => expr::complete_expression(db, position, &ctx.prefix, ctx),
+        ExpectedSyntax::PortConnectionName => {
             named::complete_named_port_names(db, position, &ctx.prefix, ctx)
         }
-        CompletionSite::NamedParamName => {
+        ExpectedSyntax::ParameterAssignmentName => {
             named::complete_named_param_names(db, position, &ctx.prefix, ctx)
         }
-        CompletionSite::MemberAccess => {
+        ExpectedSyntax::MemberName => {
             member::complete_member_access(db, position, &ctx.prefix, ctx)
         }
-        CompletionSite::NamedPortConnExpr => {
+        ExpectedSyntax::PortConnectionExpr => {
             named::complete_named_port_conn_expr(db, position, &ctx.prefix, ctx)
         }
-        CompletionSite::NamedParamAssignExpr => {
+        ExpectedSyntax::ParameterAssignmentExpr => {
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
-        CompletionSite::AfterParamValueAssignmentHash => {
+        ExpectedSyntax::AfterParamValueAssignmentHash => {
             paren_list::complete_after_hash(&ctx.prefix, ctx, HashKind::ParamValueAssignment)
         }
-        CompletionSite::AfterParameterPortListHash => {
+        ExpectedSyntax::AfterParameterPortListHash => {
             paren_list::complete_after_hash(&ctx.prefix, ctx, HashKind::ParameterPortList)
         }
-        CompletionSite::ParamValueAssignment => paren_list::complete_in_paren_list(
+        ExpectedSyntax::ParamValueAssignment => paren_list::complete_in_paren_list(
             db,
             position,
             &ctx.prefix,
             ctx,
             ParenListKind::ParamValueAssignment,
         ),
-        CompletionSite::ParameterPortList => paren_list::complete_in_paren_list(
+        ExpectedSyntax::ParameterPortListItem => paren_list::complete_in_paren_list(
             db,
             position,
             &ctx.prefix,
             ctx,
             ParenListKind::ParameterPortList,
         ),
-        CompletionSite::PortConnections => paren_list::complete_in_paren_list(
+        ExpectedSyntax::PortConnection => paren_list::complete_in_paren_list(
             db,
             position,
             &ctx.prefix,
             ctx,
             ParenListKind::PortConnections,
         ),
-        CompletionSite::Arguments => paren_list::complete_in_paren_list(
+        ExpectedSyntax::ArgumentExpr => paren_list::complete_in_paren_list(
             db,
             position,
             &ctx.prefix,
             ctx,
             ParenListKind::Arguments,
         ),
-        CompletionSite::AnsiPortList => {
+        ExpectedSyntax::AnsiPortItem => {
             port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, PortListKind::Ansi)
         }
-        CompletionSite::NonAnsiPortList => {
+        ExpectedSyntax::FunctionPortItem => {
+            port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, PortListKind::Function)
+        }
+        ExpectedSyntax::NonAnsiPortName => {
             port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, PortListKind::NonAnsi)
         }
-        CompletionSite::AfterAtEventControl | CompletionSite::SensitivityList => {
+        ExpectedSyntax::EventControl { .. } => {
             sensitivity_list::complete_sensitivity_list(db, position, &ctx.prefix, ctx)
         }
     }
 }
 
-fn punctuation_trigger_without_site(ctx: &CompletionContext) -> bool {
+fn newline_trigger_outside_port_list(ctx: &CompletionContext) -> bool {
+    ctx.trigger == Some(TriggerChar::Newline)
+        && ctx.expectation.is_none_or(|expectation| {
+            !matches!(
+                expectation.syntax,
+                ExpectedSyntax::AnsiPortItem | ExpectedSyntax::FunctionPortItem
+            )
+        })
+}
+
+fn punctuation_trigger_without_specific_expectation(ctx: &CompletionContext) -> bool {
     ctx.trigger.is_some()
-        && matches!(
-            ctx.site,
-            CompletionSite::TopLevelItemStart
-                | CompletionSite::ModuleHeader
-                | CompletionSite::ModuleMemberStart
-                | CompletionSite::BlockDeclStart
-                | CompletionSite::ProceduralStatementStart
-        )
+        && ctx.expectation.is_some_and(|expectation| {
+            matches!(
+                expectation.syntax,
+                ExpectedSyntax::CompilationUnitItem
+                    | ExpectedSyntax::ModuleHeaderItem
+                    | ExpectedSyntax::ModuleItem
+                    | ExpectedSyntax::BlockItem { .. }
+                    | ExpectedSyntax::Statement
+            )
+        })
         && ctx.prefix.is_empty()
         && ctx.replacement.is_empty()
 }

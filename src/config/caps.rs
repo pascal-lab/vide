@@ -245,6 +245,7 @@ impl Config {
                     "@".into(),
                     "#".into(),
                     "`".into(),
+                    "\n".into(),
                 ]),
                 ..Default::default()
             }),

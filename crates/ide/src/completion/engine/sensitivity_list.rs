@@ -7,7 +7,7 @@ use utils::{
 };
 
 use super::{CompletionItem, CompletionItemKind, typed_filter::value_candidates_in_module};
-use crate::completion::context::{CompletionContext, CompletionSite};
+use crate::completion::context::{CompletionContext, ExpectedSyntax};
 
 const EVENT_KEYWORDS: [&str; 3] = ["posedge", "negedge", "edge"];
 
@@ -17,7 +17,10 @@ pub(super) fn complete_sensitivity_list(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    let wrap_in_parens = ctx.site == CompletionSite::AfterAtEventControl;
+    let wrap_in_parens = matches!(
+        ctx.expectation.map(|expectation| expectation.syntax),
+        Some(ExpectedSyntax::EventControl { wrap_in_parens: true })
+    );
     let mut items = Vec::new();
 
     push_star_item(&mut items, ctx, wrap_in_parens, prefix);

@@ -8,7 +8,7 @@ use utils::text_edit::TextEditItem;
 
 use super::named::{CompletionItem, CompletionItemKind};
 use crate::completion::{
-    context::{CompletionContext, CompletionSite},
+    context::{CompletionContext, ExpectedSyntax},
     engine::snippets,
 };
 
@@ -21,7 +21,7 @@ pub(super) fn complete_keywords(
     let mut items: Vec<_> = keywords_config()
         .all
         .iter()
-        .filter(|kw| kw.is_allowed_at(ctx.site))
+        .filter(|kw| ctx.expectation.is_some_and(|exp| kw.is_allowed_at(exp.syntax)))
         .filter(|kw| kw.label.starts_with(prefix))
         .map(|kw| kw.to_completion(ctx.replacement))
         .collect();
@@ -47,7 +47,7 @@ struct Keyword {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SyntaxRole {
-    Site(CompletionSite),
+    Expected(ExpectedSyntax),
     TopLevelItem(SyntaxKind),
     ModuleHeader,
     ModuleMember(SyntaxKind),
@@ -71,8 +71,8 @@ impl KeywordKind {
 }
 
 impl Keyword {
-    fn is_allowed_at(&self, site: CompletionSite) -> bool {
-        self.roles.iter().any(|role| role.is_allowed_at(site))
+    fn is_allowed_at(&self, expected: ExpectedSyntax) -> bool {
+        self.roles.iter().any(|role| role.is_allowed_at(expected))
     }
 
     fn to_completion(&self, replace: utils::text_edit::TextRange) -> CompletionItem {
@@ -86,23 +86,24 @@ impl Keyword {
 }
 
 impl SyntaxRole {
-    fn is_allowed_at(self, site: CompletionSite) -> bool {
+    fn is_allowed_at(self, expected: ExpectedSyntax) -> bool {
         match self {
-            SyntaxRole::Site(role_site) => site == role_site,
+            SyntaxRole::Expected(role_expected) => expected == role_expected,
             SyntaxRole::TopLevelItem(kind) => {
-                site == CompletionSite::TopLevelItemStart
+                expected == ExpectedSyntax::CompilationUnitItem
                     && SyntaxFacts::is_allowed_in_compilation_unit(kind)
             }
-            SyntaxRole::ModuleHeader => site == CompletionSite::ModuleHeader,
+            SyntaxRole::ModuleHeader => expected == ExpectedSyntax::ModuleHeaderItem,
             SyntaxRole::ModuleMember(kind) => {
-                site == CompletionSite::ModuleMemberStart && SyntaxFacts::is_allowed_in_module(kind)
+                expected == ExpectedSyntax::ModuleItem && SyntaxFacts::is_allowed_in_module(kind)
             }
-            SyntaxRole::BlockDeclaration => site == CompletionSite::BlockDeclStart,
+            SyntaxRole::BlockDeclaration => match expected {
+                ExpectedSyntax::BlockItem { declarations_allowed } => declarations_allowed,
+                _ => false,
+            },
             SyntaxRole::Statement(kind) => {
-                matches!(
-                    site,
-                    CompletionSite::BlockDeclStart | CompletionSite::ProceduralStatementStart
-                ) && SyntaxFacts::is_possible_statement(kind)
+                matches!(expected, ExpectedSyntax::BlockItem { .. } | ExpectedSyntax::Statement)
+                    && SyntaxFacts::is_possible_statement(kind)
             }
         }
     }
@@ -142,7 +143,7 @@ fn top_level_snippet_roles(label: &str) -> Vec<SyntaxRole> {
         "module" | "macromodule" => vec![SyntaxRole::TopLevelItem(SyntaxKind::MODULE_DECLARATION)],
         "primitive" => vec![SyntaxRole::TopLevelItem(SyntaxKind::UDP_DECLARATION)],
         "config" => vec![SyntaxRole::TopLevelItem(SyntaxKind::CONFIG_DECLARATION)],
-        "library" => vec![SyntaxRole::Site(CompletionSite::TopLevelItemStart)],
+        "library" => vec![SyntaxRole::Expected(ExpectedSyntax::CompilationUnitItem)],
         _ => Vec::new(),
     }
 }
@@ -200,7 +201,7 @@ fn generated_keyword_roles(label: &str) -> Option<Vec<SyntaxRole>> {
         "module" | "macromodule" => vec![SyntaxRole::TopLevelItem(SyntaxKind::MODULE_DECLARATION)],
         "primitive" => vec![SyntaxRole::TopLevelItem(SyntaxKind::UDP_DECLARATION)],
         "config" => vec![SyntaxRole::TopLevelItem(SyntaxKind::CONFIG_DECLARATION)],
-        "library" | "liblist" => vec![SyntaxRole::Site(CompletionSite::TopLevelItemStart)],
+        "library" | "liblist" => vec![SyntaxRole::Expected(ExpectedSyntax::CompilationUnitItem)],
         "input" | "output" | "inout" | "ref" | "signed" | "unsigned" => {
             vec![SyntaxRole::ModuleHeader]
         }
@@ -328,7 +329,8 @@ fn module_instantiation_snippets(
 ) -> Vec<CompletionItem> {
     use hir::scope::UnitEntry;
 
-    if ctx.site != CompletionSite::ModuleMemberStart {
+    if !ctx.expectation.is_some_and(|expectation| expectation.syntax == ExpectedSyntax::ModuleItem)
+    {
         return Vec::new();
     }
 

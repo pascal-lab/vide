@@ -4,22 +4,11 @@ expression: items
 ---
 [
     CompletionItem {
-        label: "input",
+        label: "event",
         kind: Keyword,
         edit: Some(
             TextEditItem {
-                ins: "input",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "output",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "output",
+                ins: "event",
                 del: 23..23,
             },
         ),
@@ -37,11 +26,55 @@ expression: items
         snippet_edit: None,
     },
     CompletionItem {
-        label: "wire",
+        label: "input",
         kind: Keyword,
         edit: Some(
             TextEditItem {
-                ins: "wire",
+                ins: "input",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "output",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "output",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "real",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
                 del: 23..23,
             },
         ),
@@ -53,6 +86,50 @@ expression: items
         edit: Some(
             TextEditItem {
                 ins: "reg",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "signed",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "signed",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply0",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply1",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "time",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
                 del: 23..23,
             },
         ),
@@ -92,17 +169,6 @@ expression: items
         snippet_edit: None,
     },
     CompletionItem {
-        label: "trireg",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "trireg",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
         label: "triand",
         kind: Keyword,
         edit: Some(
@@ -125,99 +191,11 @@ expression: items
         snippet_edit: None,
     },
     CompletionItem {
-        label: "wand",
+        label: "trireg",
         kind: Keyword,
         edit: Some(
             TextEditItem {
-                ins: "wand",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "wor",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "wor",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "supply0",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "supply0",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "supply1",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "supply1",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "integer",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "integer",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "real",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "real",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "realtime",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "realtime",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "time",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "time",
-                del: 23..23,
-            },
-        ),
-        snippet_edit: None,
-    },
-    CompletionItem {
-        label: "signed",
-        kind: Keyword,
-        edit: Some(
-            TextEditItem {
-                ins: "signed",
+                ins: "trireg",
                 del: 23..23,
             },
         ),
@@ -229,6 +207,50 @@ expression: items
         edit: Some(
             TextEditItem {
                 ins: "unsigned",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "uwire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "uwire",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wand",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 23..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wor",
                 del: 23..23,
             },
         ),

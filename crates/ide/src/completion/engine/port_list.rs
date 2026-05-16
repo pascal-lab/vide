@@ -10,7 +10,10 @@ use syntax::ast::{self, AstNode};
 use utils::{get::Get, text_edit::TextEditItem};
 
 use super::{CompletionItem, CompletionItemKind};
-use crate::completion::context::{CompletionContext, PortListKind};
+use crate::completion::{
+    context::{CompletionContext, PortListKind},
+    port_keywords::port_item_keywords,
+};
 
 pub(super) fn complete_in_port_list(
     db: &RootDb,
@@ -21,6 +24,7 @@ pub(super) fn complete_in_port_list(
 ) -> Vec<CompletionItem> {
     match kind {
         PortListKind::Ansi => complete_ansi_port_list(db, position, prefix, ctx),
+        PortListKind::Function => complete_function_port_list(db, position, prefix, ctx),
         PortListKind::NonAnsi => complete_non_ansi_port_list(db, position, prefix, ctx),
     }
 }
@@ -31,12 +35,6 @@ fn complete_ansi_port_list(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    let keywords = [
-        "input", "output", "inout", "wire", "reg", "tri", "tri0", "tri1", "trireg", "triand",
-        "trior", "wand", "wor", "supply0", "supply1", "integer", "real", "realtime", "time",
-        "signed", "unsigned",
-    ];
-
     let mut items = visible_typedefs_in_module_header(db, position)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
@@ -48,12 +46,47 @@ fn complete_ansi_port_list(
         })
         .collect::<Vec<_>>();
 
-    items.extend(keywords.iter().filter(|kw| kw.starts_with(prefix)).map(|kw| CompletionItem {
-        label: (*kw).to_string(),
-        kind: CompletionItemKind::Keyword,
-        edit: Some(TextEditItem::replace(ctx.replacement, (*kw).to_string())),
-        snippet_edit: None,
-    }));
+    items.extend(
+        port_item_keywords(PortListKind::Ansi).iter().filter(|kw| kw.starts_with(prefix)).map(
+            |kw| CompletionItem {
+                label: kw.clone(),
+                kind: CompletionItemKind::Keyword,
+                edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
+                snippet_edit: None,
+            },
+        ),
+    );
+
+    items
+}
+
+fn complete_function_port_list(
+    db: &RootDb,
+    position: FilePosition,
+    prefix: &str,
+    ctx: &CompletionContext,
+) -> Vec<CompletionItem> {
+    let mut items = visible_typedefs_in_module_header(db, position)
+        .into_iter()
+        .filter(|name| name.starts_with(prefix))
+        .map(|name| CompletionItem {
+            label: name.clone(),
+            kind: CompletionItemKind::Text,
+            edit: Some(TextEditItem::replace(ctx.replacement, name)),
+            snippet_edit: None,
+        })
+        .collect::<Vec<_>>();
+
+    items.extend(
+        port_item_keywords(PortListKind::Function).iter().filter(|kw| kw.starts_with(prefix)).map(
+            |kw| CompletionItem {
+                label: kw.clone(),
+                kind: CompletionItemKind::Keyword,
+                edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
+                snippet_edit: None,
+            },
+        ),
+    );
 
     items
 }

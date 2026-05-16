@@ -54,6 +54,7 @@ pub(crate) fn handle_completion(
             '@' => Some(TriggerChar::At),
             '#' => Some(TriggerChar::Hash),
             '`' => Some(TriggerChar::Backtick),
+            '\n' | '\r' => Some(TriggerChar::Newline),
             _ => None,
         });
 

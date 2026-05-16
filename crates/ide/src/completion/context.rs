@@ -2,8 +2,8 @@
 
 mod caret;
 mod decl_name;
+mod expected;
 mod lex;
-mod syn;
 mod util;
 
 use base_db::source_db::{SourceDb, SourceRootDb};
@@ -41,6 +41,7 @@ pub enum ParenListKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PortListKind {
     Ansi,
+    Function,
     NonAnsi,
 }
 
@@ -52,33 +53,49 @@ pub enum TriggerChar {
     At,
     Hash,
     Backtick,
+    Newline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompletionSite {
-    Forbidden,
-    PreprocDirective,
-    TopLevelItemStart,
-    ModuleHeader,
-    ModuleMemberStart,
-    BlockDeclStart,
-    ProceduralStatementStart,
-    Expr,
-    NamedPortName,
-    NamedParamName,
-    MemberAccess,
-    NamedPortConnExpr,
-    NamedParamAssignExpr,
+pub enum ExpectedSyntax {
+    DirectiveName,
+    CompilationUnitItem,
+    ModuleHeaderItem,
+    ModuleItem,
+    BlockItem { declarations_allowed: bool },
+    Statement,
+    Expression,
+    PortConnectionName,
+    ParameterAssignmentName,
+    MemberName,
+    PortConnectionExpr,
+    ParameterAssignmentExpr,
     AfterParamValueAssignmentHash,
     AfterParameterPortListHash,
     ParamValueAssignment,
-    ParameterPortList,
-    PortConnections,
-    Arguments,
-    AnsiPortList,
-    NonAnsiPortList,
-    AfterAtEventControl,
-    SensitivityList,
+    ParameterPortListItem,
+    PortConnection,
+    ArgumentExpr,
+    AnsiPortItem,
+    FunctionPortItem,
+    NonAnsiPortName,
+    EventControl { wrap_in_parens: bool },
+    DeclName,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectationSource {
+    DirectiveWord,
+    DeclarationName,
+    Ast(syntax::SyntaxKind),
+    Token(syntax::TokenKind),
+    ParserRecovery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompletionExpectation {
+    pub syntax: ExpectedSyntax,
+    pub source: ExpectationSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +104,7 @@ pub struct CompletionContext {
     pub prefix: String,
     pub trigger: Option<TriggerChar>,
     pub lex: LexContext,
-    pub site: CompletionSite,
+    pub expectation: Option<CompletionExpectation>,
     pub in_decl_name: bool,
 }
 
@@ -108,7 +125,7 @@ pub(crate) fn completion_context(
             prefix: String::new(),
             trigger,
             lex: LexContext::Code,
-            site: CompletionSite::Forbidden,
+            expectation: None,
             in_decl_name: false,
         };
     };
@@ -168,16 +185,26 @@ fn detect_completion_context_impl(
 
     let lex = lex::detect_lex_context(&caret);
     if lex != LexContext::Code {
-        let site = if lex == LexContext::PreprocDirective
+        let expectation = if lex == LexContext::PreprocDirective
             && let Some(word) = directive_word_at_offset(source_text, offset)
         {
             replacement = word.replacement;
             prefix = word.prefix;
-            CompletionSite::PreprocDirective
+            Some(CompletionExpectation {
+                syntax: ExpectedSyntax::DirectiveName,
+                source: ExpectationSource::DirectiveWord,
+            })
         } else {
-            CompletionSite::Forbidden
+            None
         };
-        return CompletionContext { replacement, prefix, trigger, lex, site, in_decl_name: false };
+        return CompletionContext {
+            replacement,
+            prefix,
+            trigger,
+            lex,
+            expectation,
+            in_decl_name: false,
+        };
     }
 
     if let Some(word) = directive_word_at_offset(source_text, offset) {
@@ -188,17 +215,27 @@ fn detect_completion_context_impl(
             prefix,
             trigger,
             lex,
-            site: CompletionSite::PreprocDirective,
+            expectation: Some(CompletionExpectation {
+                syntax: ExpectedSyntax::DirectiveName,
+                source: ExpectationSource::DirectiveWord,
+            }),
             in_decl_name: false,
         };
     }
 
     let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
-    let mut site = syn::detect_completion_site(&caret);
-    if in_decl_name {
-        site = CompletionSite::Forbidden;
-    }
-    CompletionContext { replacement, prefix, trigger, lex, site, in_decl_name }
+    let expectation =
+        if let Some(expectation) = decl_name::potential_ansi_port_item_start(&caret, trigger) {
+            Some(expectation)
+        } else if in_decl_name {
+            Some(CompletionExpectation {
+                syntax: ExpectedSyntax::DeclName,
+                source: ExpectationSource::DeclarationName,
+            })
+        } else {
+            expected::detect_completion_expectation(&caret)
+        };
+    CompletionContext { replacement, prefix, trigger, lex, expectation, in_decl_name }
 }
 
 fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {
@@ -285,6 +322,10 @@ mod tests {
         )
     }
 
+    fn expected(c: &CompletionContext) -> Option<ExpectedSyntax> {
+        c.expectation.map(|expectation| expectation.syntax)
+    }
+
     #[test]
     fn detects_line_comment() {
         let c = ctx("module m; // hello /*caret*/world\nendmodule\n");
@@ -358,21 +399,21 @@ mod tests {
     fn detects_preproc_directive() {
         let c = ctx("`define /*caret*/FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::PreprocDirective);
-        assert_eq!(c.site, CompletionSite::Forbidden);
+        assert_eq!(expected(&c), None);
     }
 
     #[test]
     fn detects_preproc_directive_at_boundary() {
         let c = ctx("`define FOO/*caret*/\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::PreprocDirective);
-        assert_eq!(c.site, CompletionSite::Forbidden);
+        assert_eq!(expected(&c), None);
     }
 
     #[test]
     fn detects_preproc_directive_keyword() {
         let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(c.site, CompletionSite::PreprocDirective);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
         assert_eq!(c.prefix, "de");
     }
 
@@ -380,7 +421,7 @@ mod tests {
     fn normalizes_preproc_directive_word_replacement() {
         let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(c.site, CompletionSite::PreprocDirective);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
         assert_eq!(c.prefix, "de");
         assert_eq!(c.replacement, TextRange::new(TextSize::from(1), TextSize::from(7)));
     }
@@ -389,7 +430,7 @@ mod tests {
     fn detects_inline_preproc_directive_word() {
         let c = ctx("module m; initial `de/*caret*/; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(c.site, CompletionSite::PreprocDirective);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
         assert_eq!(c.prefix, "de");
     }
 
@@ -429,13 +470,13 @@ mod tests {
     #[test]
     fn detects_named_port_after_dot() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(./*caret*/a()); endmodule\n");
-        assert_eq!(c.site, CompletionSite::NamedPortName);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnectionName));
     }
 
     #[test]
     fn detects_named_port_after_dot_without_name() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(./*caret*/); endmodule\n");
-        assert_eq!(c.site, CompletionSite::NamedPortName);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnectionName));
     }
 
     #[test]
@@ -443,7 +484,7 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/W(1)) u0(); endmodule\n",
         );
-        assert_eq!(c.site, CompletionSite::NamedParamName);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ParameterAssignmentName));
     }
 
     #[test]
@@ -451,19 +492,19 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(./*caret*/) u0(); endmodule\n",
         );
-        assert_eq!(c.site, CompletionSite::NamedParamName);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ParameterAssignmentName));
     }
 
     #[test]
     fn detects_named_port_conn_expr_after_name() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(.a(/*caret*/)); endmodule\n");
-        assert_eq!(c.site, CompletionSite::NamedPortConnExpr);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnectionExpr));
     }
 
     #[test]
     fn detects_named_port_conn_expr_after_name_without_close_paren() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(.a(/*caret*/\nendmodule\n");
-        assert_eq!(c.site, CompletionSite::NamedPortConnExpr);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnectionExpr));
     }
 
     #[test]
@@ -471,13 +512,13 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(.W(/*caret*/)) u0(); endmodule\n",
         );
-        assert_eq!(c.site, CompletionSite::NamedParamAssignExpr);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ParameterAssignmentExpr));
     }
 
     #[test]
     fn detects_hier_member_after_dot() {
         let c = ctx("module m; wire a; initial top.sub./*caret*/a; endmodule\n");
-        assert_eq!(c.site, CompletionSite::MemberAccess);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::MemberName));
     }
 
     #[test]
@@ -485,25 +526,25 @@ mod tests {
         let c = ctx(
             "module m #(parameter W=1) (); endmodule\nmodule top; m #(/*caret*/1) u0(); endmodule\n",
         );
-        assert_eq!(c.site, CompletionSite::ParamValueAssignment);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ParamValueAssignment));
     }
 
     #[test]
     fn detects_parameter_port_list() {
         let c = ctx("module m #(/*caret*/parameter W=1) (); endmodule\n");
-        assert_eq!(c.site, CompletionSite::ParameterPortList);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ParameterPortListItem));
     }
 
     #[test]
     fn detects_port_connection_list() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/); endmodule\n");
-        assert_eq!(c.site, CompletionSite::PortConnections);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnection));
     }
 
     #[test]
     fn detects_port_connection_list_without_close_paren() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/\nendmodule\n");
-        assert_eq!(c.site, CompletionSite::PortConnections);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnection));
     }
 
     #[test]
@@ -512,13 +553,13 @@ mod tests {
             "module m(input a); endmodule\nmodule top; m u0(/*caret*/\nendmodule\n",
             Some(TriggerChar::OpenParen),
         );
-        assert_eq!(c.site, CompletionSite::PortConnections);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnection));
     }
 
     #[test]
     fn detects_argument_list() {
         let c = ctx("module m; initial f(/*caret*/); endmodule\n");
-        assert_eq!(c.site, CompletionSite::Arguments);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ArgumentExpr));
     }
 
     #[test]
@@ -527,13 +568,13 @@ mod tests {
             "module m; initial f(/*caret*/\nendmodule\n",
             Some(TriggerChar::OpenParen),
         );
-        assert_eq!(c.site, CompletionSite::Arguments);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ArgumentExpr));
     }
 
     #[test]
     fn detects_ansi_port_list() {
         let c = ctx("module m(input /*caret*/a); endmodule\n");
-        assert_eq!(c.site, CompletionSite::Forbidden);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DeclName));
     }
 
     #[test]
@@ -542,26 +583,71 @@ mod tests {
             "module m(input a, /*caret*/b); endmodule\n",
             Some(TriggerChar::Comma),
         );
-        assert_eq!(c.site, CompletionSite::Forbidden);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DeclName));
+    }
+
+    #[test]
+    fn detects_ansi_port_keyword_prefix_at_first_port() {
+        let c = ctx("module top\n(\n  in/*caret*/\n);\nendmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::AnsiPortItem));
+        assert_eq!(c.prefix, "in");
+    }
+
+    #[test]
+    fn detects_ansi_port_keyword_prefix_after_comma() {
+        let c = ctx("module m(input a, o/*caret*/); endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::AnsiPortItem));
+        assert_eq!(c.prefix, "o");
+    }
+
+    #[test]
+    fn detects_ansi_port_list_after_newline_trigger() {
+        let c = ctx_with_trigger(
+            "module top\n(\n  /*caret*/\n);\nendmodule\n",
+            Some(TriggerChar::Newline),
+        );
+        assert_eq!(expected(&c), Some(ExpectedSyntax::AnsiPortItem));
+    }
+
+    #[test]
+    fn detects_function_port_keyword_prefix() {
+        let c = ctx("module m; task t(in/*caret*/); endtask endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::FunctionPortItem));
+        assert_eq!(c.prefix, "in");
+    }
+
+    #[test]
+    fn detects_function_port_list_after_newline_trigger() {
+        let c = ctx_with_trigger(
+            "module m;\ntask t(\n  /*caret*/\n);\nendtask\nendmodule\n",
+            Some(TriggerChar::Newline),
+        );
+        assert_eq!(expected(&c), Some(ExpectedSyntax::FunctionPortItem));
+    }
+
+    #[test]
+    fn keeps_non_keyword_ansi_port_decl_name_forbidden() {
+        let c = ctx("module m(input a, b/*caret*/); endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DeclName));
     }
 
     #[test]
     fn detects_non_ansi_port_list() {
         let c = ctx("module m(a, /*caret*/b); input a; output b; endmodule\n");
-        assert_eq!(c.site, CompletionSite::NonAnsiPortList);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::NonAnsiPortName));
     }
 
     #[test]
     fn detects_top_level_item_start() {
         let c = ctx("module m; endmodule\n/*caret*/\n");
-        assert_eq!(c.site, CompletionSite::TopLevelItemStart);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::CompilationUnitItem));
     }
 
     #[test]
     fn detects_top_level_item_keyword_prefix() {
         for text in ["con/*caret*/\n", "pri/*caret*/\n", "lib/*caret*/\n"] {
             let c = ctx(text);
-            assert_eq!(c.site, CompletionSite::TopLevelItemStart, "{text}");
+            assert_eq!(expected(&c), Some(ExpectedSyntax::CompilationUnitItem), "{text}");
             assert!(!c.in_decl_name, "{text}");
         }
     }
@@ -569,31 +655,31 @@ mod tests {
     #[test]
     fn detects_module_member_start() {
         let c = ctx("module m;\n  /*caret*/\nendmodule\n");
-        assert_eq!(c.site, CompletionSite::ModuleMemberStart);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ModuleItem));
     }
 
     #[test]
     fn detects_block_decl_start_before_statement() {
         let c = ctx("module m; initial begin\n  /*caret*/\nend endmodule\n");
-        assert_eq!(c.site, CompletionSite::BlockDeclStart);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: true }));
     }
 
     #[test]
     fn detects_procedural_statement_start_after_statement() {
         let c = ctx("module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n");
-        assert_eq!(c.site, CompletionSite::ProceduralStatementStart);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: false }));
     }
 
     #[test]
     fn detects_block_decl_keyword_prefix_before_statement() {
         let c = ctx("module m; initial begin\n  re/*caret*/\nend endmodule\n");
-        assert_eq!(c.site, CompletionSite::BlockDeclStart);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: true }));
     }
 
     #[test]
     fn detects_procedural_statement_keyword_prefix_after_statement() {
         let c = ctx("module m; initial begin\n  x = 1;\n  re/*caret*/\nend endmodule\n");
-        assert_eq!(c.site, CompletionSite::ProceduralStatementStart);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: false }));
     }
 
     #[test]
@@ -602,7 +688,7 @@ mod tests {
             "module m; always @/*caret*/(posedge clk) begin end endmodule\n",
             Some(TriggerChar::At),
         );
-        assert_eq!(c.site, CompletionSite::AfterAtEventControl);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::EventControl { wrap_in_parens: true }));
     }
 
     #[test]
@@ -611,15 +697,15 @@ mod tests {
             "module m; initial `/*caret*/FOO; endmodule\n",
             Some(TriggerChar::Backtick),
         );
-        assert_eq!(c.site, CompletionSite::PreprocDirective);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
     }
 
     #[test]
-    fn manual_and_triggered_backtick_use_same_site() {
+    fn manual_and_triggered_backtick_use_same_expectation() {
         let text = "module m; initial `/*caret*/FOO; endmodule\n";
         let manual = ctx(text);
         let triggered = ctx_with_trigger(text, Some(TriggerChar::Backtick));
-        assert_eq!(manual.site, triggered.site);
+        assert_eq!(expected(&manual), expected(&triggered));
     }
 
     #[test]

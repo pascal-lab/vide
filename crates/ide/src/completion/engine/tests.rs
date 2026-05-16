@@ -66,6 +66,7 @@ fn parse_trigger(line: &str) -> Option<TriggerChar> {
         "@" => Some(TriggerChar::At),
         "#" => Some(TriggerChar::Hash),
         "`" => Some(TriggerChar::Backtick),
+        "\\n" => Some(TriggerChar::Newline),
         _ => None,
     }
 }
@@ -418,7 +419,7 @@ fn incomplete_array_member_access_uses_structural_left_expression() {
 }
 
 #[test]
-fn manual_and_triggered_at_use_same_sensitivity_site_behavior() {
+fn manual_and_triggered_at_use_same_sensitivity_expectation_behavior() {
     let text = "module m; wire clk; always @/*caret*/(posedge clk) begin end endmodule\n";
     let manual = completions_in_text(text, None);
     let triggered = completions_in_text(text, Some(TriggerChar::At));
