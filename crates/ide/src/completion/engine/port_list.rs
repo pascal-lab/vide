@@ -8,9 +8,9 @@ use hir::{
 use ide_db::root_db::RootDb;
 use span::FilePosition;
 use syntax::ast::{self, AstNode};
-use utils::{get::Get, text_edit::TextEditItem};
+use utils::get::Get;
 
-use super::{CompletionItem, CompletionItemKind};
+use super::candidate::CompletionCandidate;
 use crate::completion::{
     context::{CompletionContext, ExpectedSyntax, PortListKind},
     syntax_keywords,
@@ -22,7 +22,7 @@ pub(super) fn complete_in_port_list(
     prefix: &str,
     ctx: &CompletionContext,
     kind: PortListKind,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     match kind {
         PortListKind::Ansi => complete_ansi_port_list(db, position, prefix, ctx),
         PortListKind::Function => complete_function_port_list(db, position, prefix, ctx),
@@ -35,16 +35,11 @@ fn complete_ansi_port_list(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let mut items = visible_typedefs_in_module_header(db, position)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            kind: CompletionItemKind::Text,
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
-            snippet_edit: None,
-        })
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect::<Vec<_>>();
 
     let source_text = db.file_text(position.file_id);
@@ -57,12 +52,7 @@ fn complete_ansi_port_list(
         )
         .into_labels()
         .into_iter()
-        .map(|kw| CompletionItem {
-            label: kw.clone(),
-            kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, kw)),
-            snippet_edit: None,
-        }),
+        .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
     );
 
     items
@@ -73,16 +63,11 @@ fn complete_function_port_list(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let mut items = visible_typedefs_in_module_header(db, position)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            kind: CompletionItemKind::Text,
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
-            snippet_edit: None,
-        })
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect::<Vec<_>>();
 
     let source_text = db.file_text(position.file_id);
@@ -95,12 +80,7 @@ fn complete_function_port_list(
         )
         .into_labels()
         .into_iter()
-        .map(|kw| CompletionItem {
-            label: kw.clone(),
-            kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, kw)),
-            snippet_edit: None,
-        }),
+        .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
     );
 
     items
@@ -150,7 +130,7 @@ fn complete_non_ansi_port_list(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
@@ -180,11 +160,6 @@ fn complete_non_ansi_port_list(
             .then_some(ident.to_string())
         })
         .filter(|name| name.starts_with(prefix))
-        .map(|name| CompletionItem {
-            label: name.clone(),
-            kind: CompletionItemKind::Text,
-            edit: Some(TextEditItem::replace(ctx.replacement, name)),
-            snippet_edit: None,
-        })
+        .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }

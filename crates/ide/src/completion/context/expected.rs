@@ -9,7 +9,7 @@ use utils::line_index::{TextRange, TextSize};
 use super::{
     CompletionExpectation, ExpectationSource, ExpectedSyntax, caret::CaretSnapshot, util::in_parens,
 };
-use crate::completion::syntax_keywords;
+use crate::completion::syntax_prediction;
 
 trait AstParens<'a>: AstNode<'a> {
     fn open_paren(&self) -> Option<SyntaxToken<'a>>;
@@ -57,7 +57,7 @@ pub(super) fn detect_completion_expectation(
         .or_else(|| procedural_item_expectation(caret))
         .or_else(|| {
             source_text.and_then(|source_text| {
-                token_prediction_item_expectation(caret, source_text, replacement)
+                source_prediction_item_expectation(caret, source_text, replacement)
             })
         })
         .or_else(|| generate_item_expectation(caret))
@@ -293,29 +293,13 @@ fn procedural_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionEx
     None
 }
 
-fn token_prediction_item_expectation(
+fn source_prediction_item_expectation(
     caret: &CaretSnapshot<'_>,
     source_text: &str,
     replacement: TextRange,
 ) -> Option<CompletionExpectation> {
-    let prefix =
-        source_text.get(usize::from(replacement.start())..usize::from(caret.offset)).unwrap_or("");
-    [
-        ExpectedSyntax::ConfigItem { rules_allowed: false },
-        ExpectedSyntax::ConfigItem { rules_allowed: true },
-        ExpectedSyntax::SpecifyItem,
-        ExpectedSyntax::GenerateItem,
-    ]
-    .into_iter()
-    .find(|expected| {
-        syntax_keywords::predicts_source_expected_keyword(
-            *expected,
-            source_text,
-            replacement,
-            prefix,
-        )
-    })
-    .map(|expected| expectation(expected, ExpectationSource::SyntaxPrediction))
+    syntax_prediction::expected_item_syntax_from_source(source_text, replacement, caret.offset)
+        .map(|expected| expectation(expected, ExpectationSource::SyntaxPrediction))
 }
 
 fn generate_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

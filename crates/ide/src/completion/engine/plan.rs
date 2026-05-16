@@ -2,7 +2,8 @@ use ide_db::root_db::RootDb;
 use span::FilePosition;
 
 use super::{
-    CompletionItem, expr, keywords, member, named, paren_list, port_list, preproc, sensitivity_list,
+    CompletionItem, candidate, expr, keywords, member, named, paren_list, port_list, preproc,
+    sensitivity_list,
 };
 use crate::completion::context::{
     CompletionContext, ExpectedSyntax, HashKind, LexContext, ParenListKind, PortListKind,
@@ -92,7 +93,7 @@ impl CompletionPlan {
         position: FilePosition,
         ctx: &CompletionContext,
     ) -> Vec<CompletionItem> {
-        match self {
+        let candidates = match self {
             Self::None => Vec::new(),
             Self::Directives => preproc::complete_directives(ctx),
             Self::Keywords => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
@@ -164,7 +165,9 @@ impl CompletionPlan {
             Self::EventControl => {
                 sensitivity_list::complete_sensitivity_list(db, position, &ctx.prefix, ctx)
             }
-        }
+        };
+
+        candidate::finalize_candidates(candidates, &ctx.prefix)
     }
 }
 

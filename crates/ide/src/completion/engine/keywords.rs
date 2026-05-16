@@ -2,9 +2,8 @@ use base_db::source_db::SourceDb;
 use hir::db::HirDb;
 use ide_db::root_db::RootDb;
 use span::FilePosition;
-use utils::text_edit::TextEditItem;
 
-use super::{CompletionItem, CompletionItemKind};
+use super::candidate::CompletionCandidate;
 use crate::completion::{
     context::{CompletionContext, ExpectedSyntax},
     engine::snippets,
@@ -16,7 +15,7 @@ pub(super) fn complete_keywords(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let Some(expectation) = ctx.expectation.map(|expectation| expectation.syntax) else {
         return Vec::new();
     };
@@ -27,12 +26,7 @@ pub(super) fn complete_keywords(
     let mut items: Vec<_> = candidates
         .labels()
         .iter()
-        .map(|label| CompletionItem {
-            label: label.clone(),
-            kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, label.clone())),
-            snippet_edit: None,
-        })
+        .map(|label| CompletionCandidate::keyword(label.clone(), ctx.replacement))
         .collect();
 
     items.extend(snippet_completions(&candidates, prefix, ctx));
@@ -45,7 +39,7 @@ fn module_instantiation_snippets(
     db: &RootDb,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     use hir::scope::UnitEntry;
 
     if !ctx.expectation.is_some_and(|expectation| expectation.syntax == ExpectedSyntax::ModuleItem)
@@ -79,18 +73,13 @@ fn module_instantiation_snippets(
             let snippet_with_params = format!("{name} #(${{1:params}}) ${{2:u0}}(${{3:ports}});");
 
             [
-                CompletionItem {
-                    label: name.clone(),
-                    kind: CompletionItemKind::Snippet,
-                    edit: Some(TextEditItem::replace(replace, plain)),
-                    snippet_edit: Some(TextEditItem::replace(replace, snippet)),
-                },
-                CompletionItem {
-                    label: format!("{name} #(...)"),
-                    kind: CompletionItemKind::Snippet,
-                    edit: Some(TextEditItem::replace(replace, plain_with_params)),
-                    snippet_edit: Some(TextEditItem::replace(replace, snippet_with_params)),
-                },
+                CompletionCandidate::semantic_snippet(name.clone(), replace, plain, snippet),
+                CompletionCandidate::semantic_snippet(
+                    format!("{name} #(...)"),
+                    replace,
+                    plain_with_params,
+                    snippet_with_params,
+                ),
             ]
         })
         .collect()
@@ -100,18 +89,15 @@ fn snippet_completions(
     candidates: &syntax_keywords::KeywordCandidates,
     prefix: &str,
     ctx: &CompletionContext,
-) -> Vec<CompletionItem> {
+) -> Vec<CompletionCandidate> {
     let snippets = snippets::snippet_config();
     snippets::entries(&snippets.top_level)
         .into_iter()
         .chain(snippets::entries(&snippets.module_item))
         .filter(|entry| entry.label.starts_with(prefix))
         .filter(|entry| candidates.contains_plain(&entry.plain))
-        .map(|entry| CompletionItem {
-            label: entry.label,
-            kind: CompletionItemKind::Snippet,
-            edit: Some(TextEditItem::replace(ctx.replacement, entry.plain)),
-            snippet_edit: Some(TextEditItem::replace(ctx.replacement, entry.snippet)),
+        .map(|entry| {
+            CompletionCandidate::snippet(entry.label, ctx.replacement, entry.plain, entry.snippet)
         })
         .collect()
 }
