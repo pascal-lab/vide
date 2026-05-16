@@ -315,7 +315,7 @@ fn token_prediction_item_expectation(
             prefix,
         )
     })
-    .map(|expected| expectation(expected, ExpectationSource::ParserRecovery))
+    .map(|expected| expectation(expected, ExpectationSource::SyntaxPrediction))
 }
 
 fn generate_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

@@ -116,7 +116,7 @@ pub enum ExpectationSource {
     DeclarationName,
     Ast(syntax::SyntaxKind),
     Token(syntax::TokenKind),
-    ParserRecovery,
+    SyntaxPrediction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -764,7 +764,7 @@ mod tests {
         assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
         assert_eq!(
             c.expectation.map(|expectation| expectation.source),
-            Some(ExpectationSource::ParserRecovery)
+            Some(ExpectationSource::SyntaxPrediction)
         );
     }
 

@@ -63,6 +63,7 @@ pub(crate) fn handle_completion(
     let items = items
         .into_iter()
         .filter_map(|item| {
+            let sort_text = item.sort_text();
             let (edit, insert_text_format) = if snippet_support {
                 match (item.snippet_edit, item.edit) {
                     (Some(edit), _) => Some((edit, Some(lsp_types::InsertTextFormat::SNIPPET))),
@@ -82,6 +83,7 @@ pub(crate) fn handle_completion(
             Some(lsp_types::CompletionItem {
                 label: item.label,
                 kind: Some(kind),
+                sort_text: Some(sort_text),
                 insert_text_format,
                 text_edit: Some(CompletionTextEdit::Edit(to_proto::text_edit(&line_info, edit))),
                 ..Default::default()
