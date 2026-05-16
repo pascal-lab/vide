@@ -1,4 +1,3 @@
-use base_db::source_db::SourceDb;
 use hir::{
     db::HirDb,
     hir_def::module::{ModuleId, ModuleSrc},
@@ -43,17 +42,11 @@ fn complete_ansi_port_list(
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect::<Vec<_>>();
 
-    let source_text = db.file_text(position.file_id);
     items.extend(
-        syntax_keywords::keyword_candidates(
-            ExpectedSyntax::AnsiPortItem,
-            &source_text,
-            ctx.replacement,
-            prefix,
-        )
-        .into_labels()
-        .into_iter()
-        .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
+        syntax_keywords::keyword_candidates(ExpectedSyntax::AnsiPortItem, prefix)
+            .into_labels()
+            .into_iter()
+            .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
     );
 
     items
@@ -71,17 +64,11 @@ fn complete_function_port_list(
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
         .collect::<Vec<_>>();
 
-    let source_text = db.file_text(position.file_id);
     items.extend(
-        syntax_keywords::keyword_candidates(
-            ExpectedSyntax::FunctionPortItem,
-            &source_text,
-            ctx.replacement,
-            prefix,
-        )
-        .into_labels()
-        .into_iter()
-        .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
+        syntax_keywords::keyword_candidates(ExpectedSyntax::FunctionPortItem, prefix)
+            .into_labels()
+            .into_iter()
+            .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
     );
 
     items

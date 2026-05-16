@@ -1,4 +1,3 @@
-use base_db::source_db::SourceDb;
 use hir::{db::HirDb, hir_def::lower_ident_opt, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use rustc_hash::FxHashSet;
@@ -66,12 +65,7 @@ pub(super) fn complete_after_hash(
     )]
 }
 
-fn complete_parameter_port_list(
-    db: &RootDb,
-    position: FilePosition,
-    prefix: &str,
-    ctx: &CompletionContext,
-) -> Vec<CompletionCandidate> {
+fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<CompletionCandidate> {
     let mut items = Vec::new();
 
     let snippet_entries = snippets::entries(&snippets::snippet_config().module_item);
@@ -90,14 +84,8 @@ fn complete_parameter_port_list(
         ));
     }
 
-    let source_text = db.file_text(position.file_id);
-    for kw in syntax_keywords::keyword_candidates(
-        ExpectedSyntax::ParameterPortListItem,
-        &source_text,
-        ctx.replacement,
-        prefix,
-    )
-    .into_labels()
+    for kw in syntax_keywords::keyword_candidates(ExpectedSyntax::ParameterPortListItem, prefix)
+        .into_labels()
     {
         items.push(CompletionCandidate::keyword(kw, ctx.replacement));
     }
@@ -146,7 +134,7 @@ fn complete_parameter_port_list_with_typedefs(
 
     items.sort_by(|a, b| a.label().cmp(b.label()));
     items.dedup_by(|a, b| a.label() == b.label());
-    items.extend(complete_parameter_port_list(db, position, prefix, ctx));
+    items.extend(complete_parameter_port_list(prefix, ctx));
     items
 }
 

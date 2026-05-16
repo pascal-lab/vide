@@ -1,4 +1,3 @@
-use base_db::source_db::SourceDb;
 use hir::db::HirDb;
 use ide_db::root_db::RootDb;
 use span::FilePosition;
@@ -12,14 +11,12 @@ use crate::completion::{
 
 pub(super) fn complete_keywords(
     db: &RootDb,
-    position: FilePosition,
+    _position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
     expected: ExpectedSyntax,
 ) -> Vec<CompletionCandidate> {
-    let source_text = db.file_text(position.file_id);
-    let candidates =
-        syntax_keywords::keyword_candidates(expected, &source_text, ctx.replacement, prefix);
+    let candidates = syntax_keywords::keyword_candidates(expected, prefix);
 
     let mut items: Vec<_> = candidates
         .labels()
