@@ -4,7 +4,7 @@ use ide_db::root_db::RootDb;
 use span::FilePosition;
 use utils::text_edit::TextEditItem;
 
-use super::named::{CompletionItem, CompletionItemKind};
+use super::{CompletionItem, CompletionItemKind};
 use crate::completion::{
     context::{CompletionContext, ExpectedSyntax},
     engine::snippets,

@@ -64,11 +64,63 @@ impl SnippetDef {
 
 #[cfg(test)]
 mod tests {
+    use syntax::SyntaxToken;
+    use utils::line_index::{TextRange, TextSize};
+
     use super::*;
+    use crate::completion::{context::ExpectedSyntax, syntax_keywords};
 
     #[test]
     fn bundled_snippets_parse() {
         let parsed = parse_snippet_config(include_str!("snippets.toml"));
         assert!(parsed.is_ok(), "snippets.toml failed to parse: {:?}", parsed.err());
+    }
+
+    #[test]
+    fn bundled_snippets_are_gated_by_token_prediction_contexts() {
+        let snippets = parse_snippet_config(include_str!("snippets.toml")).unwrap();
+
+        for entry in entries(&snippets.top_level) {
+            assert!(
+                predicted_in(ExpectedSyntax::CompilationUnitItem, "/*caret*/\n", &entry.plain),
+                "top-level snippet `{}` uses plain `{}` which is not source-predicted",
+                entry.label,
+                entry.plain
+            );
+        }
+
+        let source_contexts = [
+            (ExpectedSyntax::ModuleItem, "module m;\n  /*caret*/\nendmodule\n"),
+            (
+                ExpectedSyntax::GenerateItem,
+                "module m; generate\n  /*caret*/\nendgenerate endmodule\n",
+            ),
+            (ExpectedSyntax::SpecifyItem, "module m; specify\n  /*caret*/\nendspecify endmodule\n"),
+            (
+                ExpectedSyntax::BlockItem { declarations_allowed: true },
+                "module m; initial begin\n  /*caret*/\nend endmodule\n",
+            ),
+            (ExpectedSyntax::Statement, "module m; initial begin\n  /*caret*/\nend endmodule\n"),
+        ];
+
+        for entry in entries(&snippets.module_item) {
+            assert!(
+                source_contexts
+                    .iter()
+                    .any(|(expected, text)| { predicted_in(*expected, text, &entry.plain) }),
+                "module snippet `{}` uses plain `{}` which is not source-predicted; keyword kind: {:?}",
+                entry.label,
+                entry.plain,
+                SyntaxToken::keyword_kind_for_version("1364-2005", &entry.plain)
+            );
+        }
+    }
+
+    fn predicted_in(expected: ExpectedSyntax, text: &str, plain: &str) -> bool {
+        let caret = text.find("/*caret*/").unwrap();
+        let source = text.replace("/*caret*/", "");
+        let offset = TextSize::from(caret as u32);
+        syntax_keywords::keyword_candidates(expected, &source, TextRange::empty(offset), plain)
+            .contains_plain(plain)
     }
 }

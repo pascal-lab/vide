@@ -401,6 +401,14 @@ fn module_member_completion_includes_gate_primitives() {
 }
 
 #[test]
+fn module_member_completion_includes_parameter_declaration_snippets() {
+    let items = completions_in_text("module m;\n  lo/*caret*/\nendmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"localparam"), "localparam keyword expected: {items:?}");
+}
+
+#[test]
 fn gate_primitives_do_not_leak_into_statement_completion() {
     let items = completions_in_text("module m; initial begin\n  a/*caret*/\nend endmodule\n", None);
     let item_labels = labels(&items);

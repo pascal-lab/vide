@@ -6,6 +6,7 @@ use syntax::ast::{self, AstNode};
 use utils::text_edit::TextEditItem;
 
 use super::{
+    CompletionItem, CompletionItemKind,
     instantiation::{
         enclosing_instantiation, overridable_params_of_module_sorted, ports_of_module_sorted,
     },
@@ -15,21 +16,6 @@ use super::{
     },
 };
 use crate::completion::context::CompletionContext;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CompletionItem {
-    pub label: String,
-    pub kind: CompletionItemKind,
-    pub edit: Option<TextEditItem>,
-    pub snippet_edit: Option<TextEditItem>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompletionItemKind {
-    Text,
-    Keyword,
-    Snippet,
-}
 
 pub(super) fn complete_named_port_names(
     db: &RootDb,

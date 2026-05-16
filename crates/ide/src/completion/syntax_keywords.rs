@@ -250,19 +250,27 @@ fn token_prediction_accepts_keyword(
     let Some(kind) = keyword_kind(keyword) else {
         return false;
     };
-    let Some(source) = source_with_replacement(
-        source_text,
-        replacement,
-        &token_prediction_text(expected, keyword),
-    ) else {
-        return false;
-    };
-    let start = replacement.start();
+
+    token_prediction_texts(expected, keyword).into_iter().any(|replacement_text| {
+        let Some(source) = source_with_replacement(source_text, replacement, &replacement_text)
+        else {
+            return false;
+        };
+        token_prediction_accepts_source(expected, &source, replacement.start(), kind)
+    })
+}
+
+fn token_prediction_accepts_source(
+    expected: ExpectedSyntax,
+    source: &str,
+    start: TextSize,
+    kind: TokenKind,
+) -> bool {
     if expected == ExpectedSyntax::CompilationUnitItem {
-        return token_prediction_compilation_unit_accepts(&source, start);
+        return token_prediction_compilation_unit_accepts(source, start);
     }
 
-    let tree = syntax::SyntaxTree::from_text(&source, "completion-source-probe", "");
+    let tree = syntax::SyntaxTree::from_text(source, "completion-source-probe", "");
     let Some(root) = tree.root() else {
         return false;
     };
@@ -336,8 +344,39 @@ fn token_prediction_accepts_keyword(
     }
 }
 
-fn token_prediction_text(_expected: ExpectedSyntax, keyword: &str) -> String {
-    format!("{keyword} ")
+fn token_prediction_texts(expected: ExpectedSyntax, keyword: &str) -> Vec<String> {
+    let mut texts = vec![format!("{keyword} ")];
+    if token_prediction_accepts_trailing_name(expected) {
+        texts.push(format!("{keyword} __vizsla;"));
+        texts.push(format!("{keyword} __vizsla = 1;"));
+    }
+    if token_prediction_accepts_bare_name(expected) {
+        texts.push(format!("{keyword} __vizsla"));
+    }
+    texts
+}
+
+fn token_prediction_accepts_trailing_name(expected: ExpectedSyntax) -> bool {
+    matches!(
+        expected,
+        ExpectedSyntax::CompilationUnitItem
+            | ExpectedSyntax::ModuleItem
+            | ExpectedSyntax::GenerateItem
+            | ExpectedSyntax::SpecifyItem
+            | ExpectedSyntax::ConfigItem { .. }
+            | ExpectedSyntax::BlockItem { .. }
+            | ExpectedSyntax::Statement
+    )
+}
+
+fn token_prediction_accepts_bare_name(expected: ExpectedSyntax) -> bool {
+    matches!(
+        expected,
+        ExpectedSyntax::ModuleHeaderItem
+            | ExpectedSyntax::ParameterPortListItem
+            | ExpectedSyntax::AnsiPortItem
+            | ExpectedSyntax::FunctionPortItem
+    )
 }
 
 fn source_with_replacement(
@@ -533,9 +572,15 @@ fn first_started_member_kind_at<'a>(
     mut nodes: impl Iterator<Item = SyntaxNode<'a>>,
     start: TextSize,
 ) -> Option<SyntaxKind> {
-    nodes
-        .find(|node| node_text_range(*node).is_some_and(|range| range.start() == start))
-        .map(|node| node.kind())
+    nodes.find(|node| node_starts_at(*node, start)).map(|node| node.kind())
+}
+
+fn node_starts_at(node: SyntaxNode<'_>, start: TextSize) -> bool {
+    node_text_range(node).is_some_and(|range| range.start() == start)
+        || node
+            .first_token()
+            .and_then(|token| token_text_range(*token))
+            .is_some_and(|range| range.start() == start)
 }
 
 fn started_token_kind_at(root: SyntaxNode<'_>, start: TextSize, kind: TokenKind) -> bool {
@@ -632,6 +677,7 @@ mod tests {
         assert!(keywords.iter().any(|keyword| keyword == "assign"));
         assert!(keywords.iter().any(|keyword| keyword == "always"));
         assert!(keywords.iter().any(|keyword| keyword == "wire"));
+        assert!(keywords.iter().any(|keyword| keyword == "localparam"));
         assert!(keywords.iter().any(|keyword| keyword == "buf"));
         assert!(!keywords.iter().any(|keyword| keyword == "while"));
         assert!(!keywords.iter().any(|keyword| keyword == "return"));
@@ -686,6 +732,7 @@ mod tests {
             "module m; initial begin\n  /*caret*/\nend endmodule\n",
         );
         assert!(block_keywords.iter().any(|keyword| keyword == "integer"));
+        assert!(block_keywords.iter().any(|keyword| keyword == "localparam"));
         assert!(block_keywords.iter().any(|keyword| keyword == "for"));
         assert!(!block_keywords.iter().any(|keyword| keyword == "wire"));
         assert!(!block_keywords.iter().any(|keyword| keyword == "module"));

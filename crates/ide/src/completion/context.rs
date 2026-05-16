@@ -86,6 +86,30 @@ pub enum ExpectedSyntax {
     DeclName,
 }
 
+impl ExpectedSyntax {
+    pub(crate) fn is_keyword_completion_context(self) -> bool {
+        matches!(
+            self,
+            ExpectedSyntax::CompilationUnitItem
+                | ExpectedSyntax::ModuleHeaderItem
+                | ExpectedSyntax::ModuleItem
+                | ExpectedSyntax::GenerateItem
+                | ExpectedSyntax::SpecifyItem
+                | ExpectedSyntax::ConfigItem { .. }
+                | ExpectedSyntax::BlockItem { .. }
+                | ExpectedSyntax::Statement
+        )
+    }
+
+    pub(crate) fn accepts_newline_trigger(self) -> bool {
+        matches!(self, ExpectedSyntax::AnsiPortItem | ExpectedSyntax::FunctionPortItem)
+    }
+
+    pub(crate) fn is_punctuation_trigger_suppressed_context(self) -> bool {
+        self.is_keyword_completion_context()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpectationSource {
     DirectiveWord,
