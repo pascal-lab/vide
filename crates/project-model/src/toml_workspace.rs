@@ -11,7 +11,6 @@ use utils::paths::{AbsPathBuf, Utf8PathBuf, sort_and_remove_subfolders};
 
 use crate::macro_def::{MacroAtom, MacroDef};
 
-const DEFAULT_TOP_MODULE: &str = "main";
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
 static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
@@ -19,19 +18,20 @@ static KV_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})=(.*)$")));
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TomlManifestSchema {
-    #[serde(default = "default_top_module")]
-    pub top_module: String,
-    #[serde(deserialize_with = "de_macros", default)]
-    pub macros: MacroDef,
     #[serde(default)]
-    pub include: Option<Vec<Utf8PathBuf>>,
+    pub top_modules: Vec<String>,
+    #[serde(deserialize_with = "de_macros", default)]
+    pub defines: MacroDef,
+    #[serde(default)]
+    pub sources: Option<Vec<Utf8PathBuf>>,
+    #[serde(default)]
+    pub include_dirs: Option<Vec<Utf8PathBuf>>,
+    #[serde(default)]
+    pub libraries: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub exclude: Vec<Utf8PathBuf>,
-}
-
-fn default_top_module() -> String {
-    DEFAULT_TOP_MODULE.to_owned()
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
@@ -86,10 +86,11 @@ where
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TomlWorkspace {
-    pub top_module: String,
+    pub top_modules: Vec<String>,
     pub workspace_root: AbsPathBuf,
     pub macro_defs: MacroDef,
-    pub include: Vec<AbsPathBuf>,
+    pub sources: Vec<AbsPathBuf>,
+    pub include_dirs: Vec<AbsPathBuf>,
     pub exclude: Vec<AbsPathBuf>,
     pub package: Vec<AbsPathBuf>,
     pub is_lib: bool,
@@ -103,11 +104,12 @@ impl TomlWorkspace {
         let toml_schema: TomlManifestSchema =
             toml::from_str(&toml_file).with_context(|| format!("failed to parse {:?}", toml))?;
 
-        let top_module = toml_schema.top_module;
+        let top_modules = toml_schema.top_modules;
         let workspace_root = toml
             .parent()
             .with_context(|| format!("manifest path has no parent: {toml}"))?
             .to_path_buf();
+        let macro_defs = toml_schema.defines;
 
         let mut exclude = toml_schema
             .exclude
@@ -116,44 +118,70 @@ impl TomlWorkspace {
             .collect_vec();
         sort_and_remove_subfolders(&mut exclude);
 
-        let mut include = Vec::new();
+        let sources_was_configured = toml_schema.sources.is_some();
+        let include_dirs_was_configured = toml_schema.include_dirs.is_some();
+        let mut sources = Vec::new();
+        let mut include_dirs = Vec::new();
         let mut package = Vec::new();
-        for path in toml_schema.include.unwrap_or_default().into_iter() {
+
+        for path in toml_schema.sources.unwrap_or_default() {
             let path = workspace_root.absolutize(path);
             if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
                 if path.starts_with(&workspace_root) {
-                    include.push(path);
+                    sources.push(path);
                 } else {
                     package.push(path);
                 }
             }
         }
-        sort_and_remove_subfolders(&mut include);
 
-        if include.is_empty() {
-            include.push(workspace_root.clone());
+        for path in toml_schema.include_dirs.unwrap_or_default() {
+            let path = workspace_root.absolutize(path);
+            if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
+                include_dirs.push(path);
+            }
+        }
+
+        for path in toml_schema.libraries {
+            let path = workspace_root.absolutize(path);
+            if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
+                package.push(path);
+            }
+        }
+
+        sort_and_remove_subfolders(&mut sources);
+        sort_and_remove_subfolders(&mut include_dirs);
+        sort_and_remove_subfolders(&mut package);
+
+        if sources.is_empty() && !sources_was_configured {
+            sources.push(workspace_root.clone());
+        }
+        if include_dirs.is_empty() && !include_dirs_was_configured {
+            include_dirs = sources.clone();
         }
 
         Ok(TomlWorkspace {
-            top_module,
+            top_modules,
             workspace_root,
-            macro_defs: toml_schema.macros,
-            include,
+            macro_defs,
+            sources,
+            include_dirs,
             exclude,
             package,
             is_lib,
         })
     }
 
-    pub fn default_from_path(path: &AbsPathBuf) -> Self {
+    pub fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
         Self {
-            top_module: String::from(DEFAULT_TOP_MODULE),
+            top_modules: Vec::new(),
             workspace_root: path.clone(),
             macro_defs: MacroDef::default(),
-            include: vec![path.clone()],
+            sources: vec![path.clone()],
+            include_dirs: vec![path.clone()],
             exclude: vec![],
             package: vec![],
-            is_lib: false,
+            is_lib,
         }
     }
 }
@@ -162,11 +190,21 @@ impl TomlWorkspace {
 mod tests {
     use super::*;
 
+    fn temp_dir(name: &str) -> AbsPathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        AbsPathBuf::assert_utf8(
+            std::env::temp_dir().join(format!("vizsla-{name}-{}-{stamp}", std::process::id())),
+        )
+    }
+
     #[test]
     fn test_de_macros() {
         let toml = r#"
-top_module = "main"
-macros = [
+top_modules = ["main"]
+defines = [
     "foo",
     "bar",
     "FOO=bar",
@@ -176,7 +214,7 @@ macros = [
 ]
         "#;
         let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
-        assert_eq!(toml_schema.top_module, DEFAULT_TOP_MODULE);
+        assert_eq!(toml_schema.top_modules, ["main"]);
         let mut macros = FxHashSet::default();
         macros.insert(MacroAtom::Flag("foo".into()));
         macros.insert(MacroAtom::Flag("bar".into()));
@@ -184,6 +222,65 @@ macros = [
         macros.insert(MacroAtom::KeyValue { key: "BAR".into(), value: "foo".into() });
         macros.insert(MacroAtom::KeyValue { key: "BAZ".into(), value: "foo bar".into() });
         macros.insert(MacroAtom::KeyValue { key: "eqwe".into(), value: "123".into() });
-        assert_eq!(toml_schema.macros, MacroDef { macros });
+        assert_eq!(toml_schema.defines, MacroDef { macros });
+    }
+
+    #[test]
+    fn macro_predefines_are_stable() {
+        let toml = r#"
+defines = [
+    "BAR=foo",
+    "FOO",
+]
+        "#;
+        let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
+        assert_eq!(toml_schema.defines.to_predefine_strings(), ["BAR=foo", "FOO"]);
+    }
+
+    #[test]
+    fn old_fields_are_rejected() {
+        for field in [r#"top_module = "top""#, r#"include = ["rtl"]"#, r#"macros = ["SYNTHESIS"]"#]
+        {
+            assert!(toml::from_str::<TomlManifestSchema>(field).is_err());
+        }
+    }
+
+    #[test]
+    fn configured_empty_sources_do_not_default_to_workspace_root() {
+        let root = temp_dir("empty-sources");
+        let manifest = root.join("vizsla_config.toml");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(&manifest, "sources = []\n").unwrap();
+
+        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(workspace.sources.is_empty());
+    }
+
+    #[test]
+    fn excluded_configured_sources_do_not_default_to_workspace_root() {
+        let root = temp_dir("excluded-sources");
+        let manifest = root.join("vizsla_config.toml");
+        std::fs::create_dir_all(root.join("rtl")).unwrap();
+        std::fs::write(&manifest, "sources = [\"rtl\"]\nexclude = [\"rtl\"]\n").unwrap();
+
+        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(workspace.sources.is_empty());
+    }
+
+    #[test]
+    fn configured_empty_include_dirs_do_not_default_to_sources() {
+        let root = temp_dir("empty-include-dirs");
+        let manifest = root.join("vizsla_config.toml");
+        std::fs::create_dir_all(root.join("rtl")).unwrap();
+        std::fs::write(&manifest, "sources = [\"rtl\"]\ninclude_dirs = []\n").unwrap();
+
+        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(workspace.include_dirs.is_empty());
     }
 }

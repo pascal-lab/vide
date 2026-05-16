@@ -2,6 +2,7 @@ use std::{fmt, mem::ManuallyDrop};
 
 use base_db::{
     diagnostics_config::DiagnosticsConfig,
+    project::ProjectConfig,
     salsa::{self, Durability},
     source_db::{FileLoader, SourceDb, SourceRootDb},
 };
@@ -55,6 +56,7 @@ impl RootDb {
             Arc::new(DiagnosticsConfig::default()),
             Durability::HIGH,
         );
+        db.set_project_config_with_durability(Arc::new(ProjectConfig::default()), Durability::HIGH);
         db.update_parse_query_lru_capacity(lru_capacity);
         db
     }
@@ -62,6 +64,9 @@ impl RootDb {
     pub fn update_parse_query_lru_capacity(&mut self, lru_capacity: Option<usize>) {
         let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
         base_db::source_db::ParseSrcQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        base_db::source_db::ParseSrcForCompilationQuery
+            .in_db_mut(self)
+            .set_lru_capacity(lru_capacity);
         base_db::source_db::ExpectedDeclNameOffsetsQuery
             .in_db_mut(self)
             .set_lru_capacity(lru_capacity);

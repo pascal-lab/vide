@@ -1,10 +1,8 @@
-use base_db::source_db::SourceDb;
+use base_db::{change::Change, source_db::SourceDb};
 use itertools::Itertools;
 use project_model::{
-    Workspace, get_workspace_folder,
-    project_manifest::{MANIFEST_FILE_NAME, ProjectManifest},
+    ProjectModel, Workspace, get_workspace_folder, project_manifest::MANIFEST_FILE_NAME,
 };
-use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::{paths::AbsPath, thread::ThreadIntent};
 
@@ -38,7 +36,7 @@ impl GlobalState {
         tracing::info!(%cause, "will fetch workspaces");
 
         self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, {
-            let mut manifests = self.config.discovered_manifests.clone();
+            let manifests = self.config.project_manifests.clone();
 
             move |sender| {
                 if sender.send(FetchWorkspaceProgress::Begin.into()).is_err() {
@@ -46,39 +44,8 @@ impl GlobalState {
                     return;
                 }
 
-                let mut loaded_manifests = FxHashSet::default();
-                let mut all_workspaces = Vec::new();
-                let mut error_sink = Vec::new();
-                let mut is_lib = false;
-
-                while !manifests.is_empty() {
-                    // Load workspaces
-                    let (workspaces, errors): (Vec<_>, Vec<_>) = manifests
-                        .iter()
-                        .map(|mani| Workspace::load(mani, is_lib))
-                        .partition_result();
-
-                    error_sink.extend(errors);
-                    loaded_manifests.extend(manifests);
-
-                    // Get libraries from loaded workspaces
-                    let (lib_manifests, errors): (Vec<_>, Vec<_>) = workspaces
-                        .iter()
-                        .flat_map(|it| &it.0.package)
-                        .map(ProjectManifest::discover)
-                        .partition_result();
-
-                    all_workspaces.extend(workspaces);
-                    error_sink.extend(errors);
-
-                    manifests = lib_manifests
-                        .into_iter()
-                        .flatten()
-                        .filter(|mani| loaded_manifests.contains(mani))
-                        .collect_vec();
-
-                    is_lib = true;
-                }
+                let (project_model, error_sink) = ProjectModel::load(manifests);
+                let all_workspaces = project_model.workspaces;
 
                 tracing::info!("did fetch workspaces {:?}", all_workspaces);
 
@@ -128,10 +95,13 @@ impl GlobalState {
                     .flat_map(|ws| ws.to_roots())
                     .filter(|it| !it.is_lib)
                     .flat_map(|root| {
-                        root.include.clone().into_iter().flat_map(|it| {
+                        root.load_paths().into_iter().flat_map(|it| {
                             [
                                 format!("{it}/**/*.v"),
                                 format!("{it}/**/*.sv"),
+                                format!("{it}/**/*.vh"),
+                                format!("{it}/**/*.svh"),
+                                format!("{it}/**/*.svi"),
                                 format!("{it}/**/{}", MANIFEST_FILE_NAME),
                             ]
                         })
@@ -165,8 +135,16 @@ impl GlobalState {
         }
 
         let files_config = self.config.files();
-        let (to_load, to_watch, source_root_config) =
+        let (to_load, to_watch, source_root_config, project_config) =
             get_workspace_folder(&self.workspaces, &files_config.exclude);
+        let mut change = Change::new();
+        {
+            let vfs = self.vfs.read();
+            change.set_roots(source_root_config.partition(&vfs.0));
+        }
+        self.project_config = project_config.clone();
+        change.set_project_config(project_config);
+        self.analysis_host.apply_change(change);
 
         let to_watch = match files_config.watcher {
             FilesWatcher::Client => vec![],

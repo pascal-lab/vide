@@ -9,7 +9,11 @@ pub(crate) mod snapshot;
 
 use std::time::Instant;
 
-use base_db::{source_db::SourceDb, source_root::SourceRootConfig};
+use base_db::{
+    project::{ProjectConfig, SharedProjectConfig},
+    source_db::SourceDb,
+    source_root::SourceRootConfig,
+};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use ide::analysis_host::AnalysisHost;
 use lsp_server::{Message, ReqQueue, Request};
@@ -97,6 +101,7 @@ pub(crate) struct GlobalState {
     pub(crate) config: Arc<Config>,
     pub(crate) config_errors: Option<ConfigError>,
     pub(crate) source_root_config: SourceRootConfig,
+    pub(crate) project_config: SharedProjectConfig,
 
     pub(crate) analysis_host: AnalysisHost,
     pub(crate) mem_docs: MemDocs,
@@ -148,6 +153,7 @@ impl GlobalState {
             mem_docs: MemDocs::default(),
             shutdown_requested: false,
             source_root_config: SourceRootConfig::default(),
+            project_config: Arc::new(ProjectConfig::default()),
 
             semantic_tokens_cache: Arc::new(Default::default()),
             diagnostics: FxHashMap::default(),

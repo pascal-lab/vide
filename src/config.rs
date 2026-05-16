@@ -62,7 +62,7 @@ pub struct Config {
     pub(crate) client_caps: lsp_types::ClientCapabilities,
     pub(crate) root_path: AbsPathBuf,
     pub(crate) user_config: UserConfig,
-    pub(crate) discovered_manifests: Vec<ProjectManifest>,
+    pub(crate) project_manifests: Vec<ProjectManifest>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +77,8 @@ impl Config {
         user_config: UserConfig,
         _snippets: Vec<Snippet>,
     ) -> Self {
-        let discovered_manifests = Self::discover_manifest(&workspace_roots);
-        Config { opt, workspace_roots, client_caps, root_path, user_config, discovered_manifests }
+        let project_manifests = Self::project_manifests(&workspace_roots);
+        Config { opt, workspace_roots, client_caps, root_path, user_config, project_manifests }
     }
 
     pub(crate) fn update(&mut self, json: serde_json::Value) -> Result<(), ConfigError> {
@@ -110,11 +110,14 @@ impl Config {
         (user_config, snippets, ConfigError { errors })
     }
 
-    fn discover_manifest(roots: &[AbsPathBuf]) -> Vec<ProjectManifest> {
-        let manifests = ProjectManifest::discover_all(roots);
-        tracing::info!("discovered manifests: {manifests:?}");
+    fn project_manifests(roots: &[AbsPathBuf]) -> Vec<ProjectManifest> {
+        let (manifests, errors) = ProjectManifest::from_paths(roots);
+        for error in errors {
+            tracing::error!("failed to resolve project path: {error:#}");
+        }
+        tracing::info!("project manifests: {manifests:?}");
         if manifests.is_empty() {
-            tracing::info!("no manifests discovered in {:?}", &roots);
+            tracing::info!("no project paths resolved in {:?}", &roots);
         }
         manifests
     }
@@ -154,7 +157,7 @@ impl Config {
         self.workspace_roots.extend(paths);
     }
 
-    pub fn rediscover_manifest(&mut self) {
-        self.discovered_manifests = Self::discover_manifest(&self.workspace_roots);
+    pub fn refresh_project_manifests(&mut self) {
+        self.project_manifests = Self::project_manifests(&self.workspace_roots);
     }
 }

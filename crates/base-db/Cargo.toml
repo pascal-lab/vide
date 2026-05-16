@@ -12,6 +12,7 @@ rustc-hash.workspace = true
 salsa.workspace = true
 smol_str.workspace = true
 syntax.workspace = true
+tracing.workspace = true
 triomphe.workspace = true
 utils.workspace = true
 vfs.workspace = true

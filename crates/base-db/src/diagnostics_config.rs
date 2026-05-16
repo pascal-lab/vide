@@ -143,6 +143,7 @@ mod tests {
             primary_range: None,
             location: None,
             buffer_id: None,
+            file_name: None,
         };
 
         assert!(config.apply_rules(DiagnosticSource::Parse, diag.clone()).is_none());

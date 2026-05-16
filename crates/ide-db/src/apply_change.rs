@@ -23,7 +23,7 @@ impl RootDb {
             let (_lib_roots, _local_roots): (FxHashSet<_>, FxHashSet<_>) =
                 roots.iter().enumerate().partition_map(|(idx, root)| {
                     let source_root_id = SourceRootId(idx as u32);
-                    if root.is_lib {
+                    if root.is_library() {
                         Either::Left(source_root_id)
                     } else {
                         Either::Right(source_root_id)

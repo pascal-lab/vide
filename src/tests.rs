@@ -8,15 +8,17 @@ use std::{
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
     ClientCapabilities, DiagnosticClientCapabilities, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentDiagnosticReportResult, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position,
-    ProgressParams, PublishDiagnosticsParams, SemanticTokensParams, SemanticTokensResult,
-    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
-    WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
-    WorkspaceDiagnosticReportResult,
-    notification::{DidChangeTextDocument, DidOpenTextDocument, Exit, Notification as _},
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams, PublishDiagnosticsParams,
+    SemanticTokensParams, SemanticTokensResult, TextDocumentClientCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    WorkspaceClientCapabilities, WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
+    notification::{
+        DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit, Notification as _,
+    },
     request::{
         DocumentDiagnosticRequest, DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition,
         HoverRequest, Request as _, SemanticTokensFullRequest, Shutdown,
@@ -813,6 +815,560 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
     }
 
     panic!("workspaceDiagnostic response not received");
+}
+
+#[test]
+fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new();
+    let rtl_dir = temp_dir.path().join("rtl");
+    let include_dir = temp_dir.path().join("include");
+    fs::create_dir_all(&rtl_dir).unwrap();
+    fs::create_dir_all(&include_dir).unwrap();
+    fs::write(
+        temp_dir.path().join("vizsla_config.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"include\"]\n",
+    )
+    .unwrap();
+    fs::write(include_dir.join("common_defs.svh"), "`define ENABLE_COUNTER 1\n").unwrap();
+    let top_text = "`include \"common_defs.svh\"\n`ifndef ENABLE_COUNTER\nmodule broken(;\nendmodule\n`endif\nmodule top;\nendmodule\n";
+    let top_path = rtl_dir.join("top.sv");
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let top_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: top_uri.clone(),
+                    language_id: "systemverilog".to_string(),
+                    version: 1,
+                    text: top_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("ENABLE_COUNTER")
+            && !diag.message.contains("unknown macro")),
+        "configured include_dirs should resolve include-defined macros: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new();
+    let app_dir = temp_dir.path().join("app");
+    let app_rtl_dir = app_dir.join("rtl");
+    let package_dir = temp_dir.path().join("pkg");
+    let package_include_dir = package_dir.join("include");
+    fs::create_dir_all(&app_rtl_dir).unwrap();
+    fs::create_dir_all(&package_include_dir).unwrap();
+    fs::write(
+        app_dir.join("vizsla_config.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"../pkg/include\"]\nlibraries = [\"../pkg\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        package_dir.join("vizsla_config.toml"),
+        "sources = []\ninclude_dirs = [\"include\"]\n",
+    )
+    .unwrap();
+
+    let header_path = package_include_dir.join("defs.svh");
+    fs::write(&header_path, "`define ENABLE_COUNTER 1\n").unwrap();
+    let top_text = "`include \"defs.svh\"\nmodule top;\n  logic enable;\n  always_comb enable = `ENABLE_COUNTER;\nendmodule\n";
+    let top_path = app_rtl_dir.join("top.sv");
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let top_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    let header_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(header_path.clone()).as_ref()).unwrap();
+
+    let first_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            first_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let (_, initial_diagnostics) = recv_document_diagnostics(&client, first_id);
+    assert!(
+        initial_diagnostics.is_empty(),
+        "saved library include header should define ENABLE_COUNTER: {initial_diagnostics:?}"
+    );
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: header_uri,
+                    language_id: "systemverilog".to_string(),
+                    version: 1,
+                    text: String::new(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let second_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            second_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let (_, diagnostics_after_unsaved_header) = recv_document_diagnostics(&client, second_id);
+    assert!(
+        !diagnostics_after_unsaved_header.is_empty(),
+        "unsaved library include header should affect dependent diagnostics: {diagnostics_after_unsaved_header:?}"
+    );
+    let macro_use_line =
+        top_text.lines().position(|line| line.contains("ENABLE_COUNTER")).unwrap() as u32;
+    assert!(
+        diagnostics_after_unsaved_header.iter().any(|diag| diag.range.start.line == macro_use_line),
+        "dependent diagnostic should be reported on top.sv macro use line: {diagnostics_after_unsaved_header:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new();
+    let rtl_dir = temp_dir.path().join("rtl");
+    let include_dir = temp_dir.path().join("include");
+    fs::create_dir_all(&rtl_dir).unwrap();
+    fs::create_dir_all(&include_dir).unwrap();
+    fs::write(
+        temp_dir.path().join("vizsla_config.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"include\"]\n",
+    )
+    .unwrap();
+    let header_path = include_dir.join("common_defs.svh");
+    let header_text = "`define ENABLE_COUNTER 1\n";
+    fs::write(&header_path, header_text).unwrap();
+    let top_text = "`include \"common_defs.svh\"\nmodule top;\n  logic enable;\n  always_comb enable = `ENABLE_COUNTER;\nendmodule\n";
+    let top_path = rtl_dir.join("top.sv");
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let top_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    let header_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(header_path.clone()).as_ref()).unwrap();
+
+    let first_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            first_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let (_, initial_diagnostics) = recv_document_diagnostics(&client, first_id);
+    assert!(
+        initial_diagnostics.is_empty(),
+        "saved include header should define ENABLE_COUNTER: {initial_diagnostics:?}"
+    );
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: header_uri.clone(),
+                    language_id: "systemverilog".to_string(),
+                    version: 1,
+                    text: String::new(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message.contains("expected")),
+        "dependent diagnostics should use unsaved include header text: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn project_manifest_is_not_diagnosed_as_systemverilog() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new();
+    let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla_config.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+    fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
+
+    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(manifest_path.clone()).as_ref())
+            .unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidChangeTextDocument::METHOD.to_string(),
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: manifest_uri.clone(),
+                    version: 2,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: String::new(),
+                }],
+            },
+        )))
+        .unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidChangeTextDocument::METHOD.to_string(),
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: manifest_uri.clone(),
+                    version: 3,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: manifest_text.to_string(),
+                }],
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: manifest_uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(diagnostics.is_empty(), "manifest must not receive slang diagnostics: {diagnostics:?}");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new();
+    let manifest_path = temp_dir.path().join("vizsla_config.toml");
+    let ignored_dir = temp_dir.path().join("ignored");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&ignored_dir).unwrap();
+    fs::create_dir_all(&rtl_dir).unwrap();
+    fs::write(&manifest_path, "").unwrap();
+    fs::write(ignored_dir.join("ignored.sv"), "module ignored(;\nendmodule\n").unwrap();
+    fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
+
+    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let ignored_uri = to_proto::url_from_abs_path(
+        AbsPathBuf::assert_utf8(ignored_dir.join("ignored.sv")).as_ref(),
+    )
+    .unwrap();
+    let manifest_uri =
+        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(manifest_path.clone()).as_ref())
+            .unwrap();
+
+    let first_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            first_id.clone(),
+            WorkspaceDiagnosticRequest::METHOD.to_string(),
+            WorkspaceDiagnosticParams {
+                identifier: None,
+                previous_result_ids: Vec::new(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let first: WorkspaceDiagnosticReportResult =
+        recv_response(&client, first_id, "workspaceDiagnostic");
+    let first_report = match first {
+        WorkspaceDiagnosticReportResult::Report(report) => report,
+        other => panic!("unexpected workspace diagnostic response: {other:?}"),
+    };
+    let mut saw_ignored_diagnostic = false;
+    for item in first_report.items {
+        if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
+            && full.uri == ignored_uri
+        {
+            saw_ignored_diagnostic = full
+                .full_document_diagnostic_report
+                .items
+                .iter()
+                .any(|diag| diag.message.contains("expected"));
+        }
+    }
+    assert!(saw_ignored_diagnostic, "empty config should diagnose ignored.sv");
+
+    fs::write(
+        &manifest_path,
+        "top_modules = [\"top\"]\nsources = [\"rtl\"]\nexclude = [\"ignored\"]\n",
+    )
+    .unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidSaveTextDocument::METHOD.to_string(),
+            DidSaveTextDocumentParams {
+                text_document: TextDocumentIdentifier { uri: manifest_uri },
+                text: None,
+            },
+        )))
+        .unwrap();
+
+    let second_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            second_id.clone(),
+            WorkspaceDiagnosticRequest::METHOD.to_string(),
+            WorkspaceDiagnosticParams {
+                identifier: None,
+                previous_result_ids: Vec::new(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let second: WorkspaceDiagnosticReportResult =
+        recv_response(&client, second_id, "workspaceDiagnostic");
+    let second_report = match second {
+        WorkspaceDiagnosticReportResult::Report(report) => report,
+        other => panic!("unexpected workspace diagnostic response: {other:?}"),
+    };
+    for item in second_report.items {
+        if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
+            && full.uri == ignored_uri
+        {
+            assert!(
+                full.full_document_diagnostic_report.items.is_empty(),
+                "restored config should clear diagnostics for excluded file: {:?}",
+                full.full_document_diagnostic_report.items
+            );
+            shutdown_test_server(&client, server_thread);
+            return;
+        }
+    }
+
+    panic!("workspace diagnostics should include an empty report for previously loaded ignored.sv");
 }
 
 #[test]

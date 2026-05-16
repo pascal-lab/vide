@@ -6,7 +6,7 @@ mod lex;
 mod syn;
 mod util;
 
-use base_db::source_db::SourceDb;
+use base_db::source_db::{SourceDb, SourceRootDb};
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use span::FilePosition;

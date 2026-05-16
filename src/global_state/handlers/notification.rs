@@ -177,7 +177,7 @@ pub(crate) fn handle_did_change_workspace_folders(
     config.add_workspaces(added);
 
     // TODO: ??
-    config.rediscover_manifest();
+    config.refresh_project_manifests();
     state.fetch_workspaces_task.request("client workspaces changed".to_string());
 
     Ok(())

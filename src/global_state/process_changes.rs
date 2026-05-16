@@ -118,6 +118,7 @@ impl GlobalState {
         if has_structure_changes {
             let roots = self.source_root_config.partition(vfs);
             change.set_roots(roots);
+            change.set_project_config(self.project_config.clone());
         }
         change
     }

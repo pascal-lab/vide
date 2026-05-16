@@ -1,4 +1,4 @@
-use base_db::source_db::{SourceDb, SourceRootDb};
+use base_db::source_db::SourceRootDb;
 use ide_db::root_db::RootDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
@@ -68,6 +68,9 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
+    if source_root.is_ignored() {
+        return Vec::new();
+    }
     let mut diagnostics = Vec::new();
 
     for file_id in source_root.iter() {
@@ -94,7 +97,8 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
     let source_root_id = db.source_root_id(file_id);
-    db.source_root(source_root_id).iter().collect()
+    let source_root = db.source_root(source_root_id);
+    if source_root.is_ignored() { vec![file_id] } else { source_root.iter().collect() }
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {

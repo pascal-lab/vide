@@ -89,7 +89,7 @@ impl GlobalState {
                     lsp_types::DocumentFilter {
                         language: None,
                         scheme: None,
-                        pattern: Some("**/*.{v,sv}".into()),
+                        pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
                     },
                     lsp_types::DocumentFilter {
                         language: None,
