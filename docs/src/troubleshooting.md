@@ -125,6 +125,8 @@ sources = ["rtl"]
 libraries = ["ip/vendor"]
 ```
 
+如果库本身也是一个已经打开的工作区，请确认当前工程的 `libraries` 指向那个工作区目录。Vizsla 只会使用显式声明的依赖关系，不会自动猜测并列目录之间的关系。
+
 如果库里有不希望分析的目录，用 `exclude` 排掉：
 
 ```toml
@@ -187,4 +189,3 @@ exclude = ["ip/vendor/examples", "ip/vendor/doc"]
 ```
 
 4. 大工程保持 `vizsla.diagnostics.update` 为 `onSave`。
-

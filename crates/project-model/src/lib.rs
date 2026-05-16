@@ -264,7 +264,6 @@ fn collect_dependency_roots(
     for package_path in workspaces[workspace_idx].library_paths() {
         for (candidate_idx, candidate) in workspaces.iter().enumerate() {
             if candidate_idx == workspace_idx
-                || !candidate.0.is_lib
                 || !candidate.root().starts_with(package_path)
                 || !seen.insert(candidate_idx)
             {
@@ -502,5 +501,48 @@ libraries = ["../common"]
             app_profile.source_roots.iter().filter(|root_id| **root_id == SourceRootId(3)).count(),
             1
         );
+    }
+
+    #[test]
+    fn workspace_profile_includes_explicit_dependency_even_when_dependency_is_local() {
+        let base = temp_project_dir("project-model-local-dependency");
+        let app = base.join("app");
+        let pkg = base.join("pkg");
+        fs::create_dir_all(app.join("rtl")).unwrap();
+        fs::create_dir_all(pkg.join("rtl")).unwrap();
+        fs::write(
+            app.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl"]
+libraries = ["../pkg"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            pkg.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl"]
+"#,
+        )
+        .unwrap();
+
+        let (model, errors) = ProjectModel::load(vec![
+            ProjectManifest::Toml(
+                AbsPathBuf::try_from(app.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
+            ),
+            ProjectManifest::Toml(
+                AbsPathBuf::try_from(pkg.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
+            ),
+        ]);
+        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        let _ = fs::remove_dir_all(base);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 2);
+        assert!(!model.workspaces[0].0.is_lib);
+        assert!(!model.workspaces[1].0.is_lib);
+
+        let app_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
+        let app_profile = project_config.profile(app_profile_id).unwrap();
+        assert_eq!(app_profile.source_roots, vec![SourceRootId(0), SourceRootId(1)]);
     }
 }

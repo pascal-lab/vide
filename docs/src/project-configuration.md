@@ -54,7 +54,7 @@ exclude = ["build", "target", "sim/out"]
 - `defines`：预定义宏。可以写成 `FOO`，也可以写成 `FOO=bar`。
 - `sources`：源码目录或源码文件。路径相对于 `vizsla_config.toml` 所在目录。
 - `include_dirs`：查找 `` `include`` 文件时使用的目录。
-- `libraries`：库文件或库目录。适合放第三方 IP、标准库或外部设计文件。
+- `libraries`：库文件或库目录。适合放第三方 IP、标准库或外部设计文件。如果路径指向另一个已经打开的工作区，Vizsla 会按显式依赖把那个工作区纳入当前工程分析。
 - `exclude`：排除目录或文件。被排除的路径不会作为源码、include 或库参与分析。
 
 ## 路径规则
@@ -171,6 +171,30 @@ include_dirs = ["include", "ip/include"]
 libraries = ["ip/vendor"]
 exclude = ["ip/vendor/doc", "ip/vendor/examples", "build"]
 ```
+
+### 多工作区依赖
+
+如果 app 和 pkg 是并列工程，请在 VS Code 里同时打开这两个文件夹，并在 app 的配置里显式写出依赖：
+
+```text
+repo/
+  app/
+    vizsla_config.toml
+    rtl/
+  pkg/
+    vizsla_config.toml
+    include/
+```
+
+```toml
+# app/vizsla_config.toml
+top_modules = ["top"]
+sources = ["rtl"]
+include_dirs = ["../pkg/include"]
+libraries = ["../pkg"]
+```
+
+`pkg` 仍然使用自己的 `vizsla_config.toml` 描述源码和 include 目录；`app` 通过 `libraries = ["../pkg"]` 明确声明依赖关系。
 
 ## 配置文件放在哪里
 

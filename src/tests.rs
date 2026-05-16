@@ -935,6 +935,8 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::write(&top_path, top_text).unwrap();
 
     let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let app_root = AbsPathBuf::assert_utf8(app_dir.clone());
+    let package_root = AbsPathBuf::assert_utf8(package_dir.clone());
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -944,7 +946,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
         opt,
         root_path.clone(),
         pull_caps,
-        vec![root_path],
+        vec![app_root, package_root],
         UserConfig::default(),
         Vec::new(),
     );
