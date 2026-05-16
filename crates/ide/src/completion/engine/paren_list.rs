@@ -92,14 +92,14 @@ fn complete_parameter_port_list(
     }
 
     let source_text = db.file_text(position.file_id);
-    for kw in syntax_keywords::keywords_for_source_expected(
+    for kw in syntax_keywords::keyword_candidates(
         ExpectedSyntax::ParameterPortListItem,
         &source_text,
         ctx.replacement,
-    ) {
-        if !kw.starts_with(prefix) {
-            continue;
-        }
+        prefix,
+    )
+    .into_labels()
+    {
         items.push(CompletionItem {
             label: kw.clone(),
             kind: CompletionItemKind::Keyword,

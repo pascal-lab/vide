@@ -11,42 +11,61 @@ use crate::completion::context::{ExpectedSyntax, PortListKind};
 
 const KEYWORD_VERSION: &str = "1364-2005";
 
-pub(crate) fn keywords_for_expected(expected: ExpectedSyntax) -> &'static [String] {
-    match expected {
-        ExpectedSyntax::CompilationUnitItem => compilation_unit_keywords(),
-        ExpectedSyntax::ModuleHeaderItem => module_header_keywords(),
-        ExpectedSyntax::ModuleItem => module_member_keywords(),
-        ExpectedSyntax::GenerateItem => generate_member_keywords(),
-        ExpectedSyntax::SpecifyItem => specify_item_keywords(),
-        ExpectedSyntax::ConfigItem { rules_allowed: false } => config_header_keywords(),
-        ExpectedSyntax::ConfigItem { rules_allowed: true } => config_rule_keywords(),
-        ExpectedSyntax::BlockItem { declarations_allowed: true } => block_item_keywords(),
-        ExpectedSyntax::BlockItem { declarations_allowed: false } | ExpectedSyntax::Statement => {
-            statement_keywords()
-        }
-        _ => &[],
+#[derive(Debug, Clone)]
+pub(crate) struct KeywordCandidates {
+    labels: Vec<String>,
+}
+
+impl KeywordCandidates {
+    pub(crate) fn labels(&self) -> &[String] {
+        &self.labels
+    }
+
+    pub(crate) fn contains_plain(&self, plain: &str) -> bool {
+        self.labels.iter().any(|label| label == plain)
+    }
+
+    pub(crate) fn into_labels(self) -> Vec<String> {
+        self.labels
     }
 }
 
-pub(crate) fn keywords_for_source_expected(
+pub(crate) fn keyword_candidates(
     expected: ExpectedSyntax,
     source_text: &str,
     replacement: TextRange,
-) -> Vec<String> {
+    prefix: &str,
+) -> KeywordCandidates {
     if !token_prediction_supported(expected) {
-        return keywords_for_expected(expected).to_vec();
+        return KeywordCandidates { labels: Vec::new() };
     }
 
-    all_keywords()
-        .iter()
-        .filter(|keyword| {
-            token_prediction_accepts_keyword(expected, source_text, replacement, keyword)
-        })
-        .cloned()
-        .collect()
+    KeywordCandidates {
+        labels: all_keywords()
+            .iter()
+            .filter(|keyword| keyword.starts_with(prefix))
+            .filter(|keyword| {
+                token_prediction_accepts_keyword(expected, source_text, replacement, keyword)
+            })
+            .cloned()
+            .collect(),
+    }
 }
 
-pub(crate) fn gate_type_keywords() -> &'static [String] {
+pub(crate) fn predicts_source_expected_keyword(
+    expected: ExpectedSyntax,
+    source_text: &str,
+    replacement: TextRange,
+    prefix: &str,
+) -> bool {
+    token_prediction_supported(expected)
+        && all_keywords().iter().filter(|keyword| keyword.starts_with(prefix)).any(|keyword| {
+            token_prediction_accepts_keyword(expected, source_text, replacement, keyword)
+        })
+}
+
+#[cfg(test)]
+fn gate_type_keywords() -> &'static [String] {
     static GATE_TYPE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     GATE_TYPE_KEYWORDS.get_or_init(|| keywords_matching(SyntaxFacts::is_gate_type)).as_slice()
 }
@@ -56,26 +75,7 @@ pub(crate) fn edge_keywords() -> &'static [String] {
     EDGE_KEYWORDS.get_or_init(|| keywords_matching(SemanticFacts::is_edge_kind)).as_slice()
 }
 
-fn compilation_unit_keywords() -> &'static [String] {
-    static COMPILATION_UNIT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    COMPILATION_UNIT_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, _| {
-                compilation_unit_keyword_kind(keyword)
-                    .is_some_and(SyntaxFacts::is_allowed_in_compilation_unit)
-                    || library_map_keyword_kind(keyword).is_some()
-            })
-        })
-        .as_slice()
-}
-
-fn module_header_keywords() -> &'static [String] {
-    static MODULE_HEADER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    MODULE_HEADER_KEYWORDS
-        .get_or_init(|| keywords_matching(SyntaxFacts::is_possible_ansi_port))
-        .as_slice()
-}
-
+#[cfg(test)]
 fn module_member_keywords() -> &'static [String] {
     static MODULE_MEMBER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     MODULE_MEMBER_KEYWORDS
@@ -91,6 +91,7 @@ fn module_member_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn generate_member_keywords() -> &'static [String] {
     static GENERATE_MEMBER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     GENERATE_MEMBER_KEYWORDS
@@ -107,6 +108,7 @@ fn generate_member_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn specify_item_keywords() -> &'static [String] {
     static SPECIFY_ITEM_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     SPECIFY_ITEM_KEYWORDS
@@ -116,6 +118,7 @@ fn specify_item_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn config_header_keywords() -> &'static [String] {
     static CONFIG_HEADER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     CONFIG_HEADER_KEYWORDS
@@ -125,6 +128,7 @@ fn config_header_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn config_rule_keywords() -> &'static [String] {
     static CONFIG_RULE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     CONFIG_RULE_KEYWORDS
@@ -134,6 +138,7 @@ fn config_rule_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn block_item_keywords() -> &'static [String] {
     static BLOCK_ITEM_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     BLOCK_ITEM_KEYWORDS
@@ -150,6 +155,7 @@ fn block_item_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn block_declaration_keywords() -> &'static [String] {
     static BLOCK_DECLARATION_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     BLOCK_DECLARATION_KEYWORDS
@@ -161,6 +167,7 @@ fn block_declaration_keywords() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(test)]
 fn statement_keywords() -> &'static [String] {
     static STATEMENT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     STATEMENT_KEYWORDS.get_or_init(|| keywords_matching(SyntaxFacts::is_possible_statement))
@@ -325,7 +332,7 @@ fn token_prediction_accepts_keyword(
                     && SyntaxFacts::is_possible_function_port(kind)
             })
         }
-        _ => true,
+        _ => false,
     }
 }
 
@@ -435,22 +442,7 @@ fn token_prediction_config_header_accepts(root: SyntaxNode<'_>, start: TextSize)
         || config.design().and_then(token_text_range).is_some_and(|range| range.start() == start)
 }
 
-fn compilation_unit_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
-    let source = format!("{keyword} __vizsla;\n");
-    let tree = syntax::SyntaxTree::from_text(&source, "completion-probe", "");
-    let root = tree.root()?;
-    let unit = ast::CompilationUnit::cast(root)?;
-    first_started_member_kind(unit.members().children().map(|member| member.syntax()), 0)
-}
-
-fn library_map_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
-    let source = format!("{keyword} __vizsla;\n");
-    let tree = syntax::SyntaxTree::from_library_map_text(&source, "completion-probe", "");
-    let root = tree.root()?;
-    let map = ast::LibraryMap::cast(root)?;
-    first_started_member_kind(map.members().children().map(|member| member.syntax()), 0)
-}
-
+#[cfg(test)]
 fn module_member_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     let prefix = "module m;\n";
     let source = format!("{prefix}{keyword} __vizsla;\nendmodule\n");
@@ -463,6 +455,7 @@ fn module_member_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     )
 }
 
+#[cfg(test)]
 fn generate_member_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     let prefix = "module m; generate\n";
     let source = format!("{prefix}{keyword} __vizsla;\nendgenerate endmodule\n");
@@ -475,6 +468,7 @@ fn generate_member_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     )
 }
 
+#[cfg(test)]
 fn specify_item_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     let prefix = "module m; specify\n";
     let source = format!("{prefix}{keyword} __vizsla;\nendspecify endmodule\n");
@@ -484,6 +478,7 @@ fn specify_item_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     first_started_member_kind(specify.items().children().map(|item| item.syntax()), prefix.len())
 }
 
+#[cfg(test)]
 fn config_header_keyword_is_accepted(keyword: &str) -> bool {
     let prefix = "config cfg;\n";
     let source = format!("{prefix}{keyword} __vizsla = 1;\ndesign work.top;\nendconfig\n");
@@ -506,6 +501,7 @@ fn config_header_keyword_is_accepted(keyword: &str) -> bool {
             .is_some_and(|range| range.start() == TextSize::from(prefix.len() as u32))
 }
 
+#[cfg(test)]
 fn config_rule_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     let prefix = "config cfg;\ndesign work.top;\n";
     let source = format!("{prefix}{keyword} __vizsla;\nendconfig\n");
@@ -515,6 +511,7 @@ fn config_rule_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     first_started_member_kind(config.rules().children().map(|rule| rule.syntax()), prefix.len())
 }
 
+#[cfg(test)]
 fn block_item_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     let prefix = "module m; initial begin\n";
     let source = format!("{prefix}{keyword} __vizsla;\nend endmodule\n");
@@ -524,6 +521,7 @@ fn block_item_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
     first_started_member_kind(block.items().children().map(|item| item.syntax()), prefix.len())
 }
 
+#[cfg(test)]
 fn first_started_member_kind<'a>(
     nodes: impl Iterator<Item = SyntaxNode<'a>>,
     start: usize,
@@ -622,7 +620,7 @@ mod tests {
             TextSize::from((start + "sp".len()) as u32),
         );
         let keywords =
-            keywords_for_source_expected(ExpectedSyntax::SpecifyItem, source, replacement);
+            keyword_candidates(ExpectedSyntax::SpecifyItem, source, replacement, "").into_labels();
         assert!(keywords.iter().any(|keyword| keyword == "specparam"));
     }
 
@@ -638,6 +636,20 @@ mod tests {
         assert!(!keywords.iter().any(|keyword| keyword == "while"));
         assert!(!keywords.iter().any(|keyword| keyword == "return"));
         assert!(!keywords.iter().any(|keyword| keyword == "endmodule"));
+    }
+
+    #[test]
+    fn keyword_candidates_filter_prefix_before_prediction() {
+        let source = "module m;\n  al\nendmodule\n";
+        let start = source.find("al\n").unwrap();
+        let replacement = TextRange::new(
+            TextSize::from(start as u32),
+            TextSize::from((start + "al".len()) as u32),
+        );
+        let candidates = keyword_candidates(ExpectedSyntax::ModuleItem, source, replacement, "al");
+
+        assert!(candidates.contains_plain("always"));
+        assert!(candidates.labels().iter().all(|keyword| keyword.starts_with("al")));
     }
 
     #[test]
@@ -776,6 +788,6 @@ mod tests {
         let caret = text.find("/*caret*/").unwrap();
         let source = text.replace("/*caret*/", "");
         let offset = TextSize::from(caret as u32);
-        keywords_for_source_expected(expected, &source, TextRange::empty(offset))
+        keyword_candidates(expected, &source, TextRange::empty(offset), "").into_labels()
     }
 }

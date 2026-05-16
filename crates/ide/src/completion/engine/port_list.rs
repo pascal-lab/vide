@@ -49,13 +49,14 @@ fn complete_ansi_port_list(
 
     let source_text = db.file_text(position.file_id);
     items.extend(
-        syntax_keywords::keywords_for_source_expected(
+        syntax_keywords::keyword_candidates(
             ExpectedSyntax::AnsiPortItem,
             &source_text,
             ctx.replacement,
+            prefix,
         )
+        .into_labels()
         .into_iter()
-        .filter(|kw| kw.starts_with(prefix))
         .map(|kw| CompletionItem {
             label: kw.clone(),
             kind: CompletionItemKind::Keyword,
@@ -86,13 +87,14 @@ fn complete_function_port_list(
 
     let source_text = db.file_text(position.file_id);
     items.extend(
-        syntax_keywords::keywords_for_source_expected(
+        syntax_keywords::keyword_candidates(
             ExpectedSyntax::FunctionPortItem,
             &source_text,
             ctx.replacement,
+            prefix,
         )
+        .into_labels()
         .into_iter()
-        .filter(|kw| kw.starts_with(prefix))
         .map(|kw| CompletionItem {
             label: kw.clone(),
             kind: CompletionItemKind::Keyword,
