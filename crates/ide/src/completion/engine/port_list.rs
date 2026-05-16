@@ -1,3 +1,4 @@
+use base_db::source_db::SourceDb;
 use hir::{
     db::HirDb,
     hir_def::module::{ModuleId, ModuleSrc},
@@ -11,8 +12,8 @@ use utils::{get::Get, text_edit::TextEditItem};
 
 use super::{CompletionItem, CompletionItemKind};
 use crate::completion::{
-    context::{CompletionContext, PortListKind},
-    syntax_keywords::port_item_keywords,
+    context::{CompletionContext, ExpectedSyntax, PortListKind},
+    syntax_keywords,
 };
 
 pub(super) fn complete_in_port_list(
@@ -46,15 +47,21 @@ fn complete_ansi_port_list(
         })
         .collect::<Vec<_>>();
 
+    let source_text = db.file_text(position.file_id);
     items.extend(
-        port_item_keywords(PortListKind::Ansi).iter().filter(|kw| kw.starts_with(prefix)).map(
-            |kw| CompletionItem {
-                label: kw.clone(),
-                kind: CompletionItemKind::Keyword,
-                edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
-                snippet_edit: None,
-            },
-        ),
+        syntax_keywords::keywords_for_source_expected(
+            ExpectedSyntax::AnsiPortItem,
+            &source_text,
+            ctx.replacement,
+        )
+        .into_iter()
+        .filter(|kw| kw.starts_with(prefix))
+        .map(|kw| CompletionItem {
+            label: kw.clone(),
+            kind: CompletionItemKind::Keyword,
+            edit: Some(TextEditItem::replace(ctx.replacement, kw)),
+            snippet_edit: None,
+        }),
     );
 
     items
@@ -77,15 +84,21 @@ fn complete_function_port_list(
         })
         .collect::<Vec<_>>();
 
+    let source_text = db.file_text(position.file_id);
     items.extend(
-        port_item_keywords(PortListKind::Function).iter().filter(|kw| kw.starts_with(prefix)).map(
-            |kw| CompletionItem {
-                label: kw.clone(),
-                kind: CompletionItemKind::Keyword,
-                edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
-                snippet_edit: None,
-            },
-        ),
+        syntax_keywords::keywords_for_source_expected(
+            ExpectedSyntax::FunctionPortItem,
+            &source_text,
+            ctx.replacement,
+        )
+        .into_iter()
+        .filter(|kw| kw.starts_with(prefix))
+        .map(|kw| CompletionItem {
+            label: kw.clone(),
+            kind: CompletionItemKind::Keyword,
+            edit: Some(TextEditItem::replace(ctx.replacement, kw)),
+            snippet_edit: None,
+        }),
     );
 
     items

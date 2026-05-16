@@ -341,10 +341,15 @@ fn module_member_completion_excludes_procedural_statement_snippets() {
 fn generate_completion_uses_generate_member_keywords() {
     let items =
         completions_in_text("module m; generate\n  wi/*caret*/\nendgenerate endmodule\n", None);
-    let labels = labels(&items);
+    let item_labels = labels(&items);
 
-    assert!(labels.contains(&"wire"), "generate declaration expected: {items:?}");
-    assert!(!labels.contains(&"while"), "statement leaked into generate item: {items:?}");
+    assert!(item_labels.contains(&"wire"), "generate declaration expected: {items:?}");
+    assert!(!item_labels.contains(&"while"), "statement leaked into generate item: {items:?}");
+
+    let items =
+        completions_in_text("module m; generate\n  as/*caret*/\nendgenerate endmodule\n", None);
+    let item_labels = labels(&items);
+    assert!(item_labels.contains(&"assign"), "generate continuous assign expected: {items:?}");
 }
 
 #[test]
@@ -389,6 +394,10 @@ fn module_member_completion_includes_gate_primitives() {
     let items = completions_in_text("module m;\n  a/*caret*/\nendmodule\n", None);
     let item_labels = labels(&items);
     assert!(item_labels.contains(&"and"), "and primitive expected: {items:?}");
+
+    let items = completions_in_text("module m;\n  as/*caret*/\nendmodule\n", None);
+    let item_labels = labels(&items);
+    assert!(item_labels.contains(&"assign"), "continuous assign expected: {items:?}");
 }
 
 #[test]

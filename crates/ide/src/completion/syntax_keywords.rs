@@ -1,10 +1,9 @@
 use std::sync::OnceLock;
 
 use syntax::{
-    SemanticFacts, SyntaxFacts, SyntaxKind, SyntaxNode, SyntaxNodeExt, SyntaxNodePreorder,
-    SyntaxToken, TokenKind, WalkEvent,
+    SemanticFacts, SyntaxElemPreorder, SyntaxFacts, SyntaxKind, SyntaxNode, SyntaxNodeExt,
+    SyntaxNodePreorder, SyntaxToken, TokenKind, WalkEvent,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -34,14 +33,15 @@ pub(crate) fn keywords_for_source_expected(
     source_text: &str,
     replacement: TextRange,
 ) -> Vec<String> {
-    let keywords = keywords_for_expected(expected);
-    if !source_probe_supported(expected) {
-        return keywords.to_vec();
+    if !token_prediction_supported(expected) {
+        return keywords_for_expected(expected).to_vec();
     }
 
-    keywords
+    all_keywords()
         .iter()
-        .filter(|keyword| source_probe_accepts_keyword(expected, source_text, replacement, keyword))
+        .filter(|keyword| {
+            token_prediction_accepts_keyword(expected, source_text, replacement, keyword)
+        })
         .cloned()
         .collect()
 }
@@ -54,13 +54,6 @@ pub(crate) fn gate_type_keywords() -> &'static [String] {
 pub(crate) fn edge_keywords() -> &'static [String] {
     static EDGE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     EDGE_KEYWORDS.get_or_init(|| keywords_matching(SemanticFacts::is_edge_kind)).as_slice()
-}
-
-pub(crate) fn parameter_port_keywords() -> &'static [String] {
-    static PARAMETER_PORT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    PARAMETER_PORT_KEYWORDS
-        .get_or_init(|| keywords_matching(SyntaxFacts::is_possible_parameter))
-        .as_slice()
 }
 
 fn compilation_unit_keywords() -> &'static [String] {
@@ -197,13 +190,26 @@ fn keywords_matching(predicate: fn(TokenKind) -> bool) -> Vec<String> {
 }
 
 fn keywords_matching_label(predicate: impl Fn(&str, TokenKind) -> bool) -> Vec<String> {
-    let mut keywords = SyntaxToken::keyword_table_for_version(KEYWORD_VERSION)
-        .into_iter()
+    let mut keywords = all_keywords()
+        .iter()
         .filter(|keyword| keyword_kind(keyword).is_some_and(|kind| predicate(keyword, kind)))
+        .cloned()
         .collect::<Vec<_>>();
     keywords.sort();
     keywords.dedup();
     keywords
+}
+
+fn all_keywords() -> &'static [String] {
+    static ALL_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
+    ALL_KEYWORDS
+        .get_or_init(|| {
+            let mut keywords = SyntaxToken::keyword_table_for_version(KEYWORD_VERSION);
+            keywords.sort();
+            keywords.dedup();
+            keywords
+        })
+        .as_slice()
 }
 
 fn keyword_kind(keyword: &str) -> Option<TokenKind> {
@@ -211,33 +217,42 @@ fn keyword_kind(keyword: &str) -> Option<TokenKind> {
     (kind != TokenKind::UNKNOWN).then_some(kind)
 }
 
-fn source_probe_supported(expected: ExpectedSyntax) -> bool {
+fn token_prediction_supported(expected: ExpectedSyntax) -> bool {
     matches!(
         expected,
         ExpectedSyntax::CompilationUnitItem
+            | ExpectedSyntax::ModuleHeaderItem
             | ExpectedSyntax::ModuleItem
             | ExpectedSyntax::GenerateItem
             | ExpectedSyntax::SpecifyItem
             | ExpectedSyntax::ConfigItem { .. }
             | ExpectedSyntax::BlockItem { .. }
             | ExpectedSyntax::Statement
+            | ExpectedSyntax::ParameterPortListItem
+            | ExpectedSyntax::AnsiPortItem
+            | ExpectedSyntax::FunctionPortItem
     )
 }
 
-fn source_probe_accepts_keyword(
+fn token_prediction_accepts_keyword(
     expected: ExpectedSyntax,
     source_text: &str,
     replacement: TextRange,
     keyword: &str,
 ) -> bool {
-    let Some(source) =
-        source_with_replacement(source_text, replacement, &source_probe_text(expected, keyword))
-    else {
+    let Some(kind) = keyword_kind(keyword) else {
+        return false;
+    };
+    let Some(source) = source_with_replacement(
+        source_text,
+        replacement,
+        &token_prediction_text(expected, keyword),
+    ) else {
         return false;
     };
     let start = replacement.start();
     if expected == ExpectedSyntax::CompilationUnitItem {
-        return source_probe_compilation_unit_accepts(&source, start);
+        return token_prediction_compilation_unit_accepts(&source, start);
     }
 
     let tree = syntax::SyntaxTree::from_text(&source, "completion-source-probe", "");
@@ -247,6 +262,11 @@ fn source_probe_accepts_keyword(
 
     match expected {
         ExpectedSyntax::CompilationUnitItem => unreachable!(),
+        ExpectedSyntax::ModuleHeaderItem => {
+            root.find_node_at_offset::<ast::ModuleHeader<'_>>(start).is_some_and(|_| {
+                started_token_kind_at(root, start, kind) && SyntaxFacts::is_possible_ansi_port(kind)
+            })
+        }
         ExpectedSyntax::ModuleItem => root
             .find_node_at_offset::<ast::ModuleDeclaration<'_>>(start)
             .and_then(|module| {
@@ -256,13 +276,11 @@ fn source_probe_accepts_keyword(
                 )
             })
             .is_some_and(SyntaxFacts::is_allowed_in_module),
-        ExpectedSyntax::GenerateItem => source_probe_generate_member_kind(root, start)
+        ExpectedSyntax::GenerateItem => token_prediction_generate_member_kind(root, start)
             .is_some_and(SyntaxFacts::is_allowed_in_generate),
         ExpectedSyntax::SpecifyItem => first_node::<ast::SpecifyBlock<'_>>(root)
             .filter(|specify| {
-                specify
-                    .syntax()
-                    .text_range()
+                node_text_range(specify.syntax())
                     .is_some_and(|range| range.contains(start) || range.start() == start)
             })
             .and_then(|specify| {
@@ -273,7 +291,7 @@ fn source_probe_accepts_keyword(
             })
             .is_some(),
         ExpectedSyntax::ConfigItem { rules_allowed: false } => {
-            source_probe_config_header_accepts(root, start)
+            token_prediction_config_header_accepts(root, start)
         }
         ExpectedSyntax::ConfigItem { rules_allowed: true } => root
             .find_node_at_offset::<ast::ConfigDeclaration<'_>>(start)
@@ -285,21 +303,34 @@ fn source_probe_accepts_keyword(
             })
             .is_some(),
         ExpectedSyntax::BlockItem { declarations_allowed } => {
-            source_probe_block_item_kind(root, start)
+            token_prediction_block_item_kind(root, start)
                 .is_some_and(|kind| declarations_allowed || ast::Statement::can_cast(kind))
         }
         ExpectedSyntax::Statement => {
-            source_probe_block_item_kind(root, start).is_some_and(ast::Statement::can_cast)
+            token_prediction_block_item_kind(root, start).is_some_and(ast::Statement::can_cast)
+        }
+        ExpectedSyntax::ParameterPortListItem => {
+            root.find_node_at_offset::<ast::ParameterPortList<'_>>(start).is_some_and(|_| {
+                started_token_kind_at(root, start, kind) && SyntaxFacts::is_possible_parameter(kind)
+            })
+        }
+        ExpectedSyntax::AnsiPortItem => {
+            root.find_node_at_offset::<ast::AnsiPortList<'_>>(start).is_some_and(|_| {
+                started_token_kind_at(root, start, kind) && SyntaxFacts::is_possible_ansi_port(kind)
+            })
+        }
+        ExpectedSyntax::FunctionPortItem => {
+            root.find_node_at_offset::<ast::FunctionPortList<'_>>(start).is_some_and(|_| {
+                started_token_kind_at(root, start, kind)
+                    && SyntaxFacts::is_possible_function_port(kind)
+            })
         }
         _ => true,
     }
 }
 
-fn source_probe_text(expected: ExpectedSyntax, keyword: &str) -> String {
-    match expected {
-        ExpectedSyntax::SpecifyItem => format!("{keyword} __vizsla = 1;\n"),
-        _ => format!("{keyword} __vizsla;\n"),
-    }
+fn token_prediction_text(_expected: ExpectedSyntax, keyword: &str) -> String {
+    format!("{keyword} ")
 }
 
 fn source_with_replacement(
@@ -325,7 +356,7 @@ fn source_with_replacement(
     Some(source)
 }
 
-fn source_probe_compilation_unit_accepts(source: &str, start: TextSize) -> bool {
+fn token_prediction_compilation_unit_accepts(source: &str, start: TextSize) -> bool {
     let tree = syntax::SyntaxTree::from_text(source, "completion-source-probe", "");
     if let Some(root) = tree.root()
         && let Some(unit) = ast::CompilationUnit::cast(root)
@@ -349,7 +380,10 @@ fn source_probe_compilation_unit_accepts(source: &str, start: TextSize) -> bool 
         .is_some()
 }
 
-fn source_probe_generate_member_kind(root: SyntaxNode<'_>, start: TextSize) -> Option<SyntaxKind> {
+fn token_prediction_generate_member_kind(
+    root: SyntaxNode<'_>,
+    start: TextSize,
+) -> Option<SyntaxKind> {
     if let Some(region) = root.find_node_at_offset::<ast::GenerateRegion<'_>>(start)
         && let Some(kind) = first_started_member_kind_at(
             region.members().children().map(|member| member.syntax()),
@@ -369,12 +403,16 @@ fn source_probe_generate_member_kind(root: SyntaxNode<'_>, start: TextSize) -> O
     None
 }
 
-fn source_probe_block_item_kind(root: SyntaxNode<'_>, start: TextSize) -> Option<SyntaxKind> {
-    if let Some(block) = root.find_node_at_offset::<ast::BlockStatement<'_>>(start)
-        && let Some(kind) =
+fn token_prediction_block_item_kind(root: SyntaxNode<'_>, start: TextSize) -> Option<SyntaxKind> {
+    if let Some(block) = root.find_node_at_offset::<ast::BlockStatement<'_>>(start) {
+        if node_text_range(block.syntax()).is_some_and(|range| range.start() == start) {
+            return Some(block.syntax().kind());
+        }
+        if let Some(kind) =
             first_started_member_kind_at(block.items().children().map(|item| item.syntax()), start)
-    {
-        return Some(kind);
+        {
+            return Some(kind);
+        }
     }
 
     if let Some(func) = root.find_node_at_offset::<ast::FunctionDeclaration<'_>>(start) {
@@ -387,17 +425,14 @@ fn source_probe_block_item_kind(root: SyntaxNode<'_>, start: TextSize) -> Option
     None
 }
 
-fn source_probe_config_header_accepts(root: SyntaxNode<'_>, start: TextSize) -> bool {
+fn token_prediction_config_header_accepts(root: SyntaxNode<'_>, start: TextSize) -> bool {
     let Some(config) = root.find_node_at_offset::<ast::ConfigDeclaration<'_>>(start) else {
         return false;
     };
 
     first_started_member_kind_at(config.localparams().children().map(|param| param.syntax()), start)
         .is_some()
-        || config
-            .design()
-            .and_then(|token| token.text_range())
-            .is_some_and(|range| range.start() == start)
+        || config.design().and_then(token_text_range).is_some_and(|range| range.start() == start)
 }
 
 fn compilation_unit_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
@@ -467,7 +502,7 @@ fn config_header_keyword_is_accepted(keyword: &str) -> bool {
     .is_some()
         || config
             .design()
-            .and_then(|token| token.text_range())
+            .and_then(token_text_range)
             .is_some_and(|range| range.start() == TextSize::from(prefix.len() as u32))
 }
 
@@ -501,8 +536,37 @@ fn first_started_member_kind_at<'a>(
     start: TextSize,
 ) -> Option<SyntaxKind> {
     nodes
-        .find(|node| node.text_range().is_some_and(|range| range.start() == start))
+        .find(|node| node_text_range(*node).is_some_and(|range| range.start() == start))
         .map(|node| node.kind())
+}
+
+fn started_token_kind_at(root: SyntaxNode<'_>, start: TextSize, kind: TokenKind) -> bool {
+    SyntaxElemPreorder::new(root).any(|event| match event {
+        WalkEvent::Enter(elem) => elem.as_token().is_some_and(|token| {
+            token.kind() == kind
+                && token_text_range(token).is_some_and(|range| range.start() == start)
+        }),
+        WalkEvent::Leave(_) => false,
+    })
+}
+
+fn node_text_range(node: SyntaxNode<'_>) -> Option<TextRange> {
+    let range = node.range()?;
+    source_range_to_text_range(range)
+}
+
+fn token_text_range(token: SyntaxToken<'_>) -> Option<TextRange> {
+    let range = token.range()?;
+    source_range_to_text_range(range)
+}
+
+fn source_range_to_text_range(range: syntax::SourceRange) -> Option<TextRange> {
+    let start = range.start();
+    let end = range.end();
+    if start > end || end > u32::MAX as usize {
+        return None;
+    }
+    Some(TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32)))
 }
 
 fn first_node<'a, N: AstNode<'a>>(root: SyntaxNode<'a>) -> Option<N> {
@@ -515,11 +579,6 @@ fn first_node<'a, N: AstNode<'a>>(root: SyntaxNode<'a>) -> Option<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parameter_port_keywords_include_slang_parameter_facts() {
-        assert!(parameter_port_keywords().iter().any(|keyword| keyword == "reg"));
-    }
 
     #[test]
     fn gate_type_keywords_include_slang_gate_facts() {
@@ -555,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn source_probe_keeps_specify_item_keywords() {
+    fn token_prediction_keeps_specify_item_keywords() {
         let source = "module m; specify\n  sp\nendspecify endmodule\n";
         let start = source.find("sp\n").unwrap();
         let replacement = TextRange::new(
@@ -565,6 +624,135 @@ mod tests {
         let keywords =
             keywords_for_source_expected(ExpectedSyntax::SpecifyItem, source, replacement);
         assert!(keywords.iter().any(|keyword| keyword == "specparam"));
+    }
+
+    #[test]
+    fn token_prediction_predicts_module_item_tokens() {
+        let keywords =
+            source_keywords_at(ExpectedSyntax::ModuleItem, "module m;\n  /*caret*/\nendmodule\n");
+
+        assert!(keywords.iter().any(|keyword| keyword == "assign"));
+        assert!(keywords.iter().any(|keyword| keyword == "always"));
+        assert!(keywords.iter().any(|keyword| keyword == "wire"));
+        assert!(keywords.iter().any(|keyword| keyword == "buf"));
+        assert!(!keywords.iter().any(|keyword| keyword == "while"));
+        assert!(!keywords.iter().any(|keyword| keyword == "return"));
+        assert!(!keywords.iter().any(|keyword| keyword == "endmodule"));
+    }
+
+    #[test]
+    fn token_prediction_predicts_module_header_tokens() {
+        let keywords = source_keywords_at(
+            ExpectedSyntax::ModuleHeaderItem,
+            "module m /*caret*/;\nendmodule\n",
+        );
+
+        assert!(keywords.iter().any(|keyword| keyword == "input"));
+        assert!(keywords.iter().any(|keyword| keyword == "output"));
+        assert!(!keywords.iter().any(|keyword| keyword == "always"));
+    }
+
+    #[test]
+    fn token_prediction_predicts_generate_item_tokens() {
+        let keywords = source_keywords_at(
+            ExpectedSyntax::GenerateItem,
+            "module m; generate\n  /*caret*/\nendgenerate endmodule\n",
+        );
+
+        assert!(keywords.iter().any(|keyword| keyword == "assign"));
+        assert!(keywords.iter().any(|keyword| keyword == "begin"));
+        assert!(keywords.iter().any(|keyword| keyword == "wire"));
+        assert!(keywords.iter().any(|keyword| keyword == "buf"));
+        assert!(!keywords.iter().any(|keyword| keyword == "while"));
+        assert!(!keywords.iter().any(|keyword| keyword == "return"));
+    }
+
+    #[test]
+    fn token_prediction_predicts_block_and_statement_tokens() {
+        let block_keywords = source_keywords_at(
+            ExpectedSyntax::BlockItem { declarations_allowed: true },
+            "module m; initial begin\n  /*caret*/\nend endmodule\n",
+        );
+        assert!(block_keywords.iter().any(|keyword| keyword == "integer"));
+        assert!(block_keywords.iter().any(|keyword| keyword == "for"));
+        assert!(!block_keywords.iter().any(|keyword| keyword == "wire"));
+        assert!(!block_keywords.iter().any(|keyword| keyword == "module"));
+
+        let statement_keywords = source_keywords_at(
+            ExpectedSyntax::Statement,
+            "module m; initial begin\n  /*caret*/\nend endmodule\n",
+        );
+        assert!(statement_keywords.iter().any(|keyword| keyword == "for"));
+        assert!(statement_keywords.iter().any(|keyword| keyword == "if"));
+        assert!(statement_keywords.iter().any(|keyword| keyword == "begin"));
+        assert!(!statement_keywords.iter().any(|keyword| keyword == "integer"));
+        assert!(!statement_keywords.iter().any(|keyword| keyword == "wire"));
+        assert!(!statement_keywords.iter().any(|keyword| keyword == "always"));
+    }
+
+    #[test]
+    fn token_prediction_predicts_port_and_parameter_tokens() {
+        let ansi_keywords =
+            source_keywords_at(ExpectedSyntax::AnsiPortItem, "module m(/*caret*/);\nendmodule\n");
+        assert!(ansi_keywords.iter().any(|keyword| keyword == "input"));
+        assert!(ansi_keywords.iter().any(|keyword| keyword == "output"));
+        assert!(!ansi_keywords.iter().any(|keyword| keyword == "always"));
+
+        let function_keywords = source_keywords_at(
+            ExpectedSyntax::FunctionPortItem,
+            "module m; function integer f(/*caret*/); endfunction endmodule\n",
+        );
+        assert!(function_keywords.iter().any(|keyword| keyword == "input"));
+        assert!(function_keywords.iter().any(|keyword| keyword == "output"));
+        assert!(!function_keywords.iter().any(|keyword| keyword == "always"));
+
+        let parameter_keywords = source_keywords_at(
+            ExpectedSyntax::ParameterPortListItem,
+            "module m #(/*caret*/)(); endmodule\n",
+        );
+        assert!(
+            parameter_keywords.iter().any(|keyword| keyword == "parameter"),
+            "parameter predictions: {parameter_keywords:?}"
+        );
+        assert!(!parameter_keywords.iter().any(|keyword| keyword == "always"));
+    }
+
+    #[test]
+    fn token_prediction_handles_all_keywords_in_core_contexts() {
+        let cases = [
+            (ExpectedSyntax::CompilationUnitItem, "/*caret*/\n"),
+            (ExpectedSyntax::ModuleHeaderItem, "module m /*caret*/;\nendmodule\n"),
+            (ExpectedSyntax::ModuleItem, "module m;\n  /*caret*/\nendmodule\n"),
+            (
+                ExpectedSyntax::GenerateItem,
+                "module m; generate\n  /*caret*/\nendgenerate endmodule\n",
+            ),
+            (ExpectedSyntax::SpecifyItem, "module m; specify\n  /*caret*/\nendspecify endmodule\n"),
+            (
+                ExpectedSyntax::ConfigItem { rules_allowed: false },
+                "config cfg;\n  /*caret*/\n  design work.top;\nendconfig\n",
+            ),
+            (
+                ExpectedSyntax::ConfigItem { rules_allowed: true },
+                "config cfg;\n  design work.top;\n  /*caret*/\nendconfig\n",
+            ),
+            (
+                ExpectedSyntax::BlockItem { declarations_allowed: true },
+                "module m; initial begin\n  /*caret*/\nend endmodule\n",
+            ),
+            (ExpectedSyntax::Statement, "module m; initial begin\n  /*caret*/\nend endmodule\n"),
+            (ExpectedSyntax::AnsiPortItem, "module m(/*caret*/);\nendmodule\n"),
+            (
+                ExpectedSyntax::FunctionPortItem,
+                "module m; function integer f(/*caret*/); endfunction endmodule\n",
+            ),
+            (ExpectedSyntax::ParameterPortListItem, "module m #(/*caret*/)(); endmodule\n"),
+        ];
+
+        for (expected, text) in cases {
+            let keywords = source_keywords_at(expected, text);
+            assert!(!keywords.is_empty(), "{expected:?} produced no token predictions");
+        }
     }
 
     #[test]
@@ -582,5 +770,12 @@ mod tests {
         assert!(block_item_keywords().iter().any(|keyword| keyword == "integer"));
         assert!(block_item_keywords().iter().any(|keyword| keyword == "while"));
         assert!(!block_item_keywords().iter().any(|keyword| keyword == "wire"));
+    }
+
+    fn source_keywords_at(expected: ExpectedSyntax, text: &str) -> Vec<String> {
+        let caret = text.find("/*caret*/").unwrap();
+        let source = text.replace("/*caret*/", "");
+        let offset = TextSize::from(caret as u32);
+        keywords_for_source_expected(expected, &source, TextRange::empty(offset))
     }
 }
