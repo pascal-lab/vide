@@ -224,7 +224,7 @@ fn detect_completion_context_impl(
     let ast_expectation = expected::detect_completion_expectation(&caret);
     if let Some(expectation) = decl_name::potential_ansi_port_item_start(&caret, trigger) {
         push_expectation(&mut expectations, expectation);
-    } else if ast_expectation.is_some_and(|expectation| ast_expectation_refines_parser(expectation))
+    } else if ast_expectation.is_some_and(ast_expectation_refines_parser)
     {
         push_expectation(&mut expectations, ast_expectation.unwrap());
     } else if in_decl_name {

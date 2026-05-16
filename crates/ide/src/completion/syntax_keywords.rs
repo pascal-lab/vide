@@ -104,7 +104,7 @@ fn keyword_context_candidates(context: SyntaxKeywordContext) -> Vec<String> {
 fn keywords_matching(predicate: impl Fn(TokenKind) -> bool) -> Vec<String> {
     let mut keywords = all_keywords()
         .iter()
-        .filter(|keyword| keyword_kind(keyword).is_some_and(|kind| predicate(kind)))
+        .filter(|keyword| keyword_kind(keyword).is_some_and(&predicate))
         .cloned()
         .collect::<Vec<_>>();
     keywords.sort();
