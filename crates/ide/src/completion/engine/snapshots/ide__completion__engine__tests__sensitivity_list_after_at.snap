@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 489
 expression: items
 ---
 [
@@ -20,17 +21,17 @@ expression: items
         ),
     },
     CompletionItem {
-        label: "posedge",
+        label: "edge",
         kind: Snippet,
         edit: Some(
             TextEditItem {
-                ins: "(posedge )",
+                ins: "(edge )",
                 del: 53..53,
             },
         ),
         snippet_edit: Some(
             TextEditItem {
-                ins: "(posedge ${1:signal})",
+                ins: "(edge ${1:signal})",
                 del: 53..53,
             },
         ),
@@ -52,17 +53,17 @@ expression: items
         ),
     },
     CompletionItem {
-        label: "edge",
+        label: "posedge",
         kind: Snippet,
         edit: Some(
             TextEditItem {
-                ins: "(edge )",
+                ins: "(posedge )",
                 del: 53..53,
             },
         ),
         snippet_edit: Some(
             TextEditItem {
-                ins: "(edge ${1:signal})",
+                ins: "(posedge ${1:signal})",
                 del: 53..53,
             },
         ),

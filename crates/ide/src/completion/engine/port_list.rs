@@ -12,7 +12,7 @@ use utils::{get::Get, text_edit::TextEditItem};
 use super::{CompletionItem, CompletionItemKind};
 use crate::completion::{
     context::{CompletionContext, PortListKind},
-    port_keywords::port_item_keywords,
+    syntax_keywords::port_item_keywords,
 };
 
 pub(super) fn complete_in_port_list(

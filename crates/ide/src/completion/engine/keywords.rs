@@ -10,6 +10,7 @@ use super::named::{CompletionItem, CompletionItemKind};
 use crate::completion::{
     context::{CompletionContext, ExpectedSyntax},
     engine::snippets,
+    syntax_keywords,
 };
 
 pub(super) fn complete_keywords(
@@ -198,6 +199,9 @@ fn module_header_snippet_roles(_label: &str) -> Vec<SyntaxRole> {
 
 fn generated_keyword_roles(label: &str) -> Option<Vec<SyntaxRole>> {
     let roles = match label {
+        label if syntax_keywords::is_gate_type_keyword(label) => {
+            vec![SyntaxRole::ModuleMember(SyntaxKind::PRIMITIVE_INSTANTIATION)]
+        }
         "module" | "macromodule" => vec![SyntaxRole::TopLevelItem(SyntaxKind::MODULE_DECLARATION)],
         "primitive" => vec![SyntaxRole::TopLevelItem(SyntaxKind::UDP_DECLARATION)],
         "config" => vec![SyntaxRole::TopLevelItem(SyntaxKind::CONFIG_DECLARATION)],

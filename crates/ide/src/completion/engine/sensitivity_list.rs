@@ -7,9 +7,10 @@ use utils::{
 };
 
 use super::{CompletionItem, CompletionItemKind, typed_filter::value_candidates_in_module};
-use crate::completion::context::{CompletionContext, ExpectedSyntax};
-
-const EVENT_KEYWORDS: [&str; 3] = ["posedge", "negedge", "edge"];
+use crate::completion::{
+    context::{CompletionContext, ExpectedSyntax},
+    syntax_keywords,
+};
 
 pub(super) fn complete_sensitivity_list(
     db: &RootDb,
@@ -84,7 +85,7 @@ fn push_event_keywords(
     wrap_in_parens: bool,
     prefix: &str,
 ) {
-    for keyword in EVENT_KEYWORDS {
+    for keyword in syntax_keywords::edge_keywords() {
         if !keyword.starts_with(prefix) {
             continue;
         }

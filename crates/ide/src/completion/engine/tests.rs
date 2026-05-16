@@ -339,6 +339,27 @@ fn module_member_completion_excludes_procedural_statement_snippets() {
 }
 
 #[test]
+fn module_member_completion_includes_gate_primitives() {
+    let items = completions_in_text("module m;\n  bu/*caret*/\nendmodule\n", None);
+    let item_labels = labels(&items);
+    assert!(item_labels.contains(&"buf"), "buf primitive expected: {items:?}");
+    assert!(item_labels.contains(&"bufif0"), "bufif0 primitive expected: {items:?}");
+    assert!(item_labels.contains(&"bufif1"), "bufif1 primitive expected: {items:?}");
+
+    let items = completions_in_text("module m;\n  a/*caret*/\nendmodule\n", None);
+    let item_labels = labels(&items);
+    assert!(item_labels.contains(&"and"), "and primitive expected: {items:?}");
+}
+
+#[test]
+fn gate_primitives_do_not_leak_into_statement_completion() {
+    let items = completions_in_text("module m; initial begin\n  a/*caret*/\nend endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(!item_labels.contains(&"and"), "gate primitive leaked into statement list: {items:?}");
+}
+
+#[test]
 fn block_decl_completion_allows_decls_and_statements() {
     let items = completions_in_text("module m; initial begin\n  /*caret*/\nend endmodule\n", None);
     let labels = labels(&items);

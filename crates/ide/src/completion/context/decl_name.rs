@@ -6,7 +6,7 @@ use crate::completion::{
         CompletionExpectation, ExpectationSource, ExpectedSyntax, PortListKind, TriggerChar,
         caret::CaretSnapshot,
     },
-    port_keywords,
+    syntax_keywords,
 };
 
 pub(super) fn is_in_decl_name(
@@ -54,7 +54,7 @@ pub(super) fn potential_ansi_port_item_start(
         trigger == Some(TriggerChar::Newline)
     } else {
         port_keyword_kind(syntax)
-            .is_some_and(|kind| port_keywords::has_port_item_keyword_prefix(&prefix, kind))
+            .is_some_and(|kind| syntax_keywords::has_port_item_keyword_prefix(&prefix, kind))
     };
 
     if !is_expected {

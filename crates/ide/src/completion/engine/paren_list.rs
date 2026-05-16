@@ -23,6 +23,7 @@ use super::{
 use crate::completion::{
     context::{CompletionContext, HashKind, ParenListKind},
     engine::snippets,
+    syntax_keywords,
 };
 
 pub(super) fn complete_in_paren_list(
@@ -84,16 +85,14 @@ fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<Co
         });
     }
 
-    let extra_keywords =
-        ["parameter", "localparam", "integer", "real", "realtime", "time", "signed", "unsigned"];
-    for kw in extra_keywords {
+    for kw in syntax_keywords::parameter_port_keywords() {
         if !kw.starts_with(prefix) {
             continue;
         }
         items.push(CompletionItem {
-            label: kw.to_string(),
+            label: kw.clone(),
             kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, kw.to_string())),
+            edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
             snippet_edit: None,
         });
     }
