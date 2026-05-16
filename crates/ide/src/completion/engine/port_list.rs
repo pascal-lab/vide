@@ -12,7 +12,8 @@ use utils::get::Get;
 
 use super::candidate::CompletionCandidate;
 use crate::completion::{
-    context::{CompletionContext, ExpectedSyntax, PortListKind},
+    context::{CompletionContext, ExpectedSyntax},
+    request::PortListKind,
     syntax_keywords,
 };
 

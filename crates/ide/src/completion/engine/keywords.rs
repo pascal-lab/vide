@@ -15,13 +15,11 @@ pub(super) fn complete_keywords(
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
+    expected: ExpectedSyntax,
 ) -> Vec<CompletionCandidate> {
-    let Some(expectation) = ctx.expectation.map(|expectation| expectation.syntax) else {
-        return Vec::new();
-    };
     let source_text = db.file_text(position.file_id);
     let candidates =
-        syntax_keywords::keyword_candidates(expectation, &source_text, ctx.replacement, prefix);
+        syntax_keywords::keyword_candidates(expected, &source_text, ctx.replacement, prefix);
 
     let mut items: Vec<_> = candidates
         .labels()
@@ -30,7 +28,7 @@ pub(super) fn complete_keywords(
         .collect();
 
     items.extend(snippet_completions(&candidates, prefix, ctx));
-    items.extend(module_instantiation_snippets(db, prefix, ctx));
+    items.extend(module_instantiation_snippets(db, prefix, ctx, expected));
 
     items
 }
@@ -39,11 +37,11 @@ fn module_instantiation_snippets(
     db: &RootDb,
     prefix: &str,
     ctx: &CompletionContext,
+    expected: ExpectedSyntax,
 ) -> Vec<CompletionCandidate> {
     use hir::scope::UnitEntry;
 
-    if !ctx.expectation.is_some_and(|expectation| expectation.syntax == ExpectedSyntax::ModuleItem)
-    {
+    if expected != ExpectedSyntax::ModuleItem {
         return Vec::new();
     }
 

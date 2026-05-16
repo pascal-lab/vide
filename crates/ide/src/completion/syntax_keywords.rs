@@ -7,7 +7,7 @@ use syntax::{
 };
 use utils::line_index::{TextRange, TextSize};
 
-use crate::completion::context::{ExpectedSyntax, PortListKind};
+use crate::completion::{context::ExpectedSyntax, request::PortListKind};
 
 const KEYWORD_VERSION: &str = "1364-2005";
 

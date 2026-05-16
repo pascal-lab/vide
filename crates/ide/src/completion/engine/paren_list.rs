@@ -23,8 +23,9 @@ use super::{
     },
 };
 use crate::completion::{
-    context::{CompletionContext, ExpectedSyntax, HashKind, ParenListKind},
+    context::{CompletionContext, ExpectedSyntax},
     engine::snippets,
+    request::{HashKind, ParenListKind},
     syntax_keywords,
 };
 

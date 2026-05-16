@@ -20,7 +20,10 @@ use ide_db::root_db::RootDb;
 use span::FilePosition;
 
 pub use self::item::{CompletionItem, CompletionItemKind};
-use crate::completion::context::{CompletionContext, TriggerChar, completion_context};
+use crate::completion::{
+    context::{CompletionContext, TriggerChar, completion_context},
+    request::CompletionRequest,
+};
 
 pub fn completions(
     db: &RootDb,
@@ -36,5 +39,9 @@ fn completions_with_context(
     position: FilePosition,
     ctx: &CompletionContext,
 ) -> Vec<CompletionItem> {
-    plan::CompletionPlan::from_context(ctx).complete(db, position, ctx)
+    let Some(request) = CompletionRequest::from_context(ctx) else {
+        return Vec::new();
+    };
+
+    plan::complete_request(db, position, ctx, request)
 }
