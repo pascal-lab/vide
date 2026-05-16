@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/completion/engine/tests.rs
+assertion_line: 488
 expression: items
 ---
 [

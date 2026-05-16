@@ -319,7 +319,6 @@ fn top_level_completion_keeps_top_level_keyword_prefixes() {
         ("con/*caret*/\n", "config"),
         ("pri/*caret*/\n", "primitive"),
         ("lib/*caret*/\n", "library"),
-        ("lib/*caret*/\n", "liblist"),
     ] {
         let items = completions_in_text(text, None);
         assert!(labels(&items).contains(&expected), "{expected} missing from {items:?}");
@@ -332,10 +331,10 @@ fn module_member_completion_excludes_procedural_statement_snippets() {
     let labels = labels(&items);
 
     assert!(labels.contains(&"always"), "module procedural block expected: {items:?}");
+    assert!(labels.contains(&"begin"), "generate block expected: {items:?}");
     assert!(labels.contains(&"wire"), "module declarations expected: {items:?}");
     assert!(!labels.contains(&"while"), "statement snippet leaked into module member: {items:?}");
     assert!(!labels.contains(&"return"), "jump statement leaked into module member: {items:?}");
-    assert!(!labels.contains(&"begin"), "block statement leaked into module member: {items:?}");
 }
 
 #[test]

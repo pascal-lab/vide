@@ -7,8 +7,6 @@ pub(super) struct SnippetConfig {
     #[serde(default)]
     pub(super) top_level: BTreeMap<String, SnippetDef>,
     #[serde(default)]
-    pub(super) module_header: BTreeMap<String, SnippetDef>,
-    #[serde(default)]
     pub(super) module_item: BTreeMap<String, SnippetDef>,
     #[serde(default)]
     pub(super) directives: BTreeMap<String, SnippetDef>,

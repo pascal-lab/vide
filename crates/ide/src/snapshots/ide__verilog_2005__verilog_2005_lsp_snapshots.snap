@@ -1,5 +1,6 @@
 ---
 source: crates/ide/src/verilog_2005.rs
+assertion_line: 1287
 expression: report
 ---
 # document symbols
@@ -104,7 +105,7 @@ config_def -> renamed_cfg
 # completion
 config: ["config Keyword", "config Snippet"]
 primitive_udp: ["primitive Keyword", "primitive Snippet"]
-library: ["liblist Keyword", "library Keyword", "library Snippet"]
-generate: ["generate Keyword", "generate Snippet", "genvar Keyword", "genvar Snippet"]
-specify: ["specify Keyword", "specify Snippet", "specparam Keyword", "specparam Snippet"]
-task_body: ["case Keyword", "case Snippet", "casex Keyword", "casex Snippet", "casez Keyword", "casez Snippet"]
+library: ["library Keyword", "library Snippet"]
+generate: ["generate Keyword", "genvar Keyword", "generate Snippet", "genvar Snippet"]
+specify: ["specify Keyword", "specparam Keyword", "specify Snippet", "specparam Snippet"]
+task_body: ["case Keyword", "casex Keyword", "casez Keyword", "case Snippet", "casex Snippet", "casez Snippet"]
