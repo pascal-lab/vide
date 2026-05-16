@@ -338,6 +338,47 @@ fn module_member_completion_excludes_procedural_statement_snippets() {
 }
 
 #[test]
+fn generate_completion_uses_generate_member_keywords() {
+    let items =
+        completions_in_text("module m; generate\n  wi/*caret*/\nendgenerate endmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"wire"), "generate declaration expected: {items:?}");
+    assert!(!labels.contains(&"while"), "statement leaked into generate item: {items:?}");
+}
+
+#[test]
+fn specify_completion_uses_specify_item_keywords() {
+    let items =
+        completions_in_text("module m; specify\n  sp/*caret*/\nendspecify endmodule\n", None);
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"specparam"), "specify declaration expected: {items:?}");
+    assert!(
+        !labels.contains(&"specify"),
+        "module specify block leaked into specify item: {items:?}"
+    );
+}
+
+#[test]
+fn config_completion_uses_config_phase_keywords() {
+    let items =
+        completions_in_text("config cfg;\n  de/*caret*/\n  design work.top;\nendconfig\n", None);
+    let header_labels = labels(&items);
+    assert!(header_labels.contains(&"design"), "config design keyword expected: {items:?}");
+    assert!(
+        !header_labels.contains(&"default"),
+        "config rule keyword leaked before design clause: {items:?}"
+    );
+
+    let items =
+        completions_in_text("config cfg;\n  design work.top;\n  de/*caret*/\nendconfig\n", None);
+    let rule_labels = labels(&items);
+    assert!(rule_labels.contains(&"default"), "config rule keyword expected: {items:?}");
+    assert!(!rule_labels.contains(&"design"), "config design keyword leaked into rules: {items:?}");
+}
+
+#[test]
 fn module_member_completion_includes_gate_primitives() {
     let items = completions_in_text("module m;\n  bu/*caret*/\nendmodule\n", None);
     let item_labels = labels(&items);

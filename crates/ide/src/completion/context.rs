@@ -62,6 +62,9 @@ pub enum ExpectedSyntax {
     CompilationUnitItem,
     ModuleHeaderItem,
     ModuleItem,
+    GenerateItem,
+    SpecifyItem,
+    ConfigItem { rules_allowed: bool },
     BlockItem { declarations_allowed: bool },
     Statement,
     Expression,
@@ -223,6 +226,13 @@ fn detect_completion_context_impl(
         };
     }
 
+    if prefix.is_empty()
+        && let Some(word) = identifier_word_at_offset(source_text, offset)
+    {
+        replacement = word.replacement;
+        prefix = word.prefix;
+    }
+
     let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
     let expectation =
         if let Some(expectation) = decl_name::potential_ansi_port_item_start(&caret, trigger) {
@@ -233,7 +243,7 @@ fn detect_completion_context_impl(
                 source: ExpectationSource::DeclarationName,
             })
         } else {
-            expected::detect_completion_expectation(&caret)
+            expected::detect_completion_expectation(&caret, source_text)
         };
     CompletionContext { replacement, prefix, trigger, lex, expectation, in_decl_name }
 }
@@ -247,7 +257,7 @@ fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Opti
 
     let bytes = source_text.as_bytes();
     let mut start = offset;
-    while start > 0 && bytes.get(start - 1).is_some_and(|byte| is_directive_name_byte(*byte)) {
+    while start > 0 && bytes.get(start - 1).is_some_and(|byte| is_identifier_name_byte(*byte)) {
         start -= 1;
     }
 
@@ -256,7 +266,7 @@ fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Opti
     }
 
     let mut end = offset;
-    while bytes.get(end).is_some_and(|byte| is_directive_name_byte(*byte)) {
+    while bytes.get(end).is_some_and(|byte| is_identifier_name_byte(*byte)) {
         end += 1;
     }
 
@@ -265,7 +275,34 @@ fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Opti
     Some(DirectiveWord { replacement, prefix })
 }
 
-fn is_directive_name_byte(byte: u8) -> bool {
+fn identifier_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {
+    let source_text = source_text?;
+    let offset = usize::from(offset);
+    if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
+        return None;
+    }
+
+    let bytes = source_text.as_bytes();
+    let mut start = offset;
+    while start > 0 && bytes.get(start - 1).is_some_and(|byte| is_identifier_name_byte(*byte)) {
+        start -= 1;
+    }
+
+    if start == offset {
+        return None;
+    }
+
+    let mut end = offset;
+    while bytes.get(end).is_some_and(|byte| is_identifier_name_byte(*byte)) {
+        end += 1;
+    }
+
+    let prefix = source_text[start..offset].to_string();
+    let replacement = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
+    Some(DirectiveWord { replacement, prefix })
+}
+
+fn is_identifier_name_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
 
@@ -656,6 +693,42 @@ mod tests {
     fn detects_module_member_start() {
         let c = ctx("module m;\n  /*caret*/\nendmodule\n");
         assert_eq!(expected(&c), Some(ExpectedSyntax::ModuleItem));
+    }
+
+    #[test]
+    fn detects_generate_region_item_start() {
+        let c = ctx("module m; generate\n  /*caret*/\nendgenerate endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::GenerateItem));
+    }
+
+    #[test]
+    fn detects_generate_block_item_start() {
+        let c = ctx("module m; begin : g\n  /*caret*/\nend endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::GenerateItem));
+    }
+
+    #[test]
+    fn detects_specify_item_start() {
+        let c = ctx("module m; specify\n  /*caret*/\nendspecify endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
+    }
+
+    #[test]
+    fn detects_specify_item_keyword_prefix() {
+        let c = ctx("module m; specify\n  sp/*caret*/\nendspecify endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
+    }
+
+    #[test]
+    fn detects_config_header_item_start() {
+        let c = ctx("config cfg;\n  de/*caret*/\n  design work.top;\nendconfig\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ConfigItem { rules_allowed: false }));
+    }
+
+    #[test]
+    fn detects_config_rule_item_start() {
+        let c = ctx("config cfg;\n  design work.top;\n  de/*caret*/\nendconfig\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ConfigItem { rules_allowed: true }));
     }
 
     #[test]

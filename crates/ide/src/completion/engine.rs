@@ -64,6 +64,9 @@ fn completions_with_context(
         ExpectedSyntax::CompilationUnitItem
         | ExpectedSyntax::ModuleHeaderItem
         | ExpectedSyntax::ModuleItem
+        | ExpectedSyntax::GenerateItem
+        | ExpectedSyntax::SpecifyItem
+        | ExpectedSyntax::ConfigItem { .. }
         | ExpectedSyntax::BlockItem { .. }
         | ExpectedSyntax::Statement => keywords::complete_keywords(db, position, &ctx.prefix, ctx),
         ExpectedSyntax::Expression => expr::complete_expression(db, position, &ctx.prefix, ctx),
@@ -149,6 +152,9 @@ fn punctuation_trigger_without_specific_expectation(ctx: &CompletionContext) -> 
                 ExpectedSyntax::CompilationUnitItem
                     | ExpectedSyntax::ModuleHeaderItem
                     | ExpectedSyntax::ModuleItem
+                    | ExpectedSyntax::GenerateItem
+                    | ExpectedSyntax::SpecifyItem
+                    | ExpectedSyntax::ConfigItem { .. }
                     | ExpectedSyntax::BlockItem { .. }
                     | ExpectedSyntax::Statement
             )

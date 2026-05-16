@@ -45,6 +45,7 @@ impl_ast_parens!(
 
 pub(super) fn detect_completion_expectation(
     caret: &CaretSnapshot<'_>,
+    source_text: Option<&str>,
 ) -> Option<CompletionExpectation> {
     punctuated_expectation(caret)
         .or_else(|| sensitivity_list_expectation(caret))
@@ -52,7 +53,13 @@ pub(super) fn detect_completion_expectation(
         .or_else(|| statement_keyword_expectation(caret))
         .or_else(|| expression_expectation(caret))
         .or_else(|| procedural_item_expectation(caret))
+        .or_else(|| {
+            source_text.and_then(|source_text| parser_probe_item_expectation(caret, source_text))
+        })
+        .or_else(|| generate_item_expectation(caret))
+        .or_else(|| specify_item_expectation(caret))
         .or_else(|| module_item_expectation(caret))
+        .or_else(|| config_item_expectation(caret))
         .or_else(|| compilation_unit_item_expectation(caret))
 }
 
@@ -282,6 +289,137 @@ fn procedural_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionEx
     None
 }
 
+fn parser_probe_item_expectation(
+    caret: &CaretSnapshot<'_>,
+    source_text: &str,
+) -> Option<CompletionExpectation> {
+    parser_probe_config_header_expectation(caret, source_text)
+        .or_else(|| parser_probe_config_rule_expectation(caret, source_text))
+        .or_else(|| parser_probe_specify_item_expectation(caret, source_text))
+        .or_else(|| parser_probe_generate_item_expectation(caret, source_text))
+}
+
+fn parser_probe_config_rule_expectation(
+    caret: &CaretSnapshot<'_>,
+    source_text: &str,
+) -> Option<CompletionExpectation> {
+    let start = caret.replacement_and_prefix().0.start();
+    let source = parser_probe_source(caret, source_text, "default liblist __vizsla;\n")?;
+    let tree = syntax::SyntaxTree::from_text(&source, "completion-context-probe", "");
+    let root = tree.root()?;
+    let config = root.find_node_at_offset::<ast::ConfigDeclaration<'_>>(start)?;
+    first_started_member_kind_at(config.rules().children().map(|rule| rule.syntax()), start).map(
+        |_| node_expectation(ExpectedSyntax::ConfigItem { rules_allowed: true }, config.syntax()),
+    )
+}
+
+fn parser_probe_config_header_expectation(
+    caret: &CaretSnapshot<'_>,
+    source_text: &str,
+) -> Option<CompletionExpectation> {
+    let start = caret.replacement_and_prefix().0.start();
+    let source = parser_probe_source(caret, source_text, "design work.top;\n")?;
+    let tree = syntax::SyntaxTree::from_text(&source, "completion-context-probe", "");
+    let root = tree.root()?;
+    let config = root.find_node_at_offset::<ast::ConfigDeclaration<'_>>(start)?;
+    config
+        .design()
+        .and_then(|token| token.text_range())
+        .is_some_and(|range| range.start() == start)
+        .then_some(node_expectation(
+            ExpectedSyntax::ConfigItem { rules_allowed: false },
+            config.syntax(),
+        ))
+}
+
+fn parser_probe_specify_item_expectation(
+    caret: &CaretSnapshot<'_>,
+    source_text: &str,
+) -> Option<CompletionExpectation> {
+    let start = caret.replacement_and_prefix().0.start();
+    let source = parser_probe_source(caret, source_text, "specparam __vizsla = 1;\n")?;
+    let tree = syntax::SyntaxTree::from_text(&source, "completion-context-probe", "");
+    let root = tree.root()?;
+    let block = root.find_node_at_offset::<ast::SpecifyBlock<'_>>(start)?;
+    first_started_member_kind_at(block.items().children().map(|item| item.syntax()), start)
+        .map(|_| node_expectation(ExpectedSyntax::SpecifyItem, block.syntax()))
+}
+
+fn parser_probe_generate_item_expectation(
+    caret: &CaretSnapshot<'_>,
+    source_text: &str,
+) -> Option<CompletionExpectation> {
+    let start = caret.replacement_and_prefix().0.start();
+    let source = parser_probe_source(caret, source_text, "wire __vizsla;\n")?;
+    let tree = syntax::SyntaxTree::from_text(&source, "completion-context-probe", "");
+    let root = tree.root()?;
+
+    if let Some(region) = root.find_node_at_offset::<ast::GenerateRegion<'_>>(start)
+        && first_started_member_kind_at(
+            region.members().children().map(|member| member.syntax()),
+            start,
+        )
+        .is_some()
+    {
+        return Some(node_expectation(ExpectedSyntax::GenerateItem, region.syntax()));
+    }
+
+    let block = root.find_node_at_offset::<ast::GenerateBlock<'_>>(start)?;
+    first_started_member_kind_at(block.members().children().map(|member| member.syntax()), start)
+        .map(|_| node_expectation(ExpectedSyntax::GenerateItem, block.syntax()))
+}
+
+fn parser_probe_source(
+    caret: &CaretSnapshot<'_>,
+    source_text: &str,
+    probe_text: &str,
+) -> Option<String> {
+    let replacement = caret.replacement_and_prefix().0;
+    let start = usize::from(replacement.start());
+    let end = usize::from(replacement.end());
+    if start > end
+        || end > source_text.len()
+        || !source_text.is_char_boundary(start)
+        || !source_text.is_char_boundary(end)
+    {
+        return None;
+    }
+
+    let mut source = String::with_capacity(source_text.len() - (end - start) + probe_text.len());
+    source.push_str(&source_text[..start]);
+    source.push_str(probe_text);
+    source.push_str(&source_text[end..]);
+    Some(source)
+}
+
+fn generate_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    let offset = caret.offset;
+
+    if let Some(region) = caret.root.find_node_at_offset::<ast::GenerateRegion<'_>>(offset)
+        && let Some(zone) = item_zone(region.keyword(), region.endgenerate(), region.syntax())
+        && range_touches(zone, offset)
+    {
+        return Some(node_expectation(ExpectedSyntax::GenerateItem, region.syntax()));
+    }
+
+    if let Some(block) = caret.root.find_node_at_offset::<ast::GenerateBlock<'_>>(offset)
+        && let Some(zone) = item_zone(block.begin(), block.end(), block.syntax())
+        && range_touches(zone, offset)
+    {
+        return Some(node_expectation(ExpectedSyntax::GenerateItem, block.syntax()));
+    }
+
+    None
+}
+
+fn specify_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    let offset = caret.offset;
+    let block = caret.root.find_node_at_offset::<ast::SpecifyBlock<'_>>(offset)?;
+    let zone = item_zone(block.specify(), block.endspecify(), block.syntax())?;
+    range_touches(zone, offset)
+        .then_some(node_expectation(ExpectedSyntax::SpecifyItem, block.syntax()))
+}
+
 fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     let offset = caret.offset;
     let module = caret.root.find_node_at_offset::<ast::ModuleDeclaration<'_>>(offset)?;
@@ -295,6 +433,27 @@ fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
 
     range_touches(TextRange::new(start, end), offset)
         .then_some(node_expectation(ExpectedSyntax::ModuleItem, module.syntax()))
+}
+
+fn config_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    let offset = caret.offset;
+    let config = caret.root.find_node_at_offset::<ast::ConfigDeclaration<'_>>(offset)?;
+    let start = config.semi_1().and_then(|semi| semi.text_range()).map(|range| range.end())?;
+    let end = config
+        .endconfig()
+        .and_then(|tok| tok.text_range())
+        .map(|range| range.start())
+        .or_else(|| config.syntax().text_range().map(|range| range.end()))?;
+
+    if !range_touches(TextRange::new(start, end), offset) {
+        return None;
+    }
+
+    let rules_allowed = config
+        .semi_2()
+        .and_then(|semi| semi.text_range())
+        .is_some_and(|range| range.end() <= offset);
+    Some(node_expectation(ExpectedSyntax::ConfigItem { rules_allowed }, config.syntax()))
 }
 
 fn compilation_unit_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -360,4 +519,13 @@ fn item_before_statement(item: SyntaxNode<'_>, offset: TextSize) -> bool {
         return false;
     };
     range.end() <= offset && ast::Statement::can_cast(item.kind())
+}
+
+fn first_started_member_kind_at<'a>(
+    mut nodes: impl Iterator<Item = SyntaxNode<'a>>,
+    start: TextSize,
+) -> Option<syntax::SyntaxKind> {
+    nodes
+        .find(|node| node.text_range().is_some_and(|range| range.start() == start))
+        .map(|node| node.kind())
 }
