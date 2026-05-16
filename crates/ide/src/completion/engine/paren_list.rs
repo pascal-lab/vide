@@ -1,3 +1,4 @@
+use base_db::source_db::SourceDb;
 use hir::{db::HirDb, hir_def::lower_ident_opt, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use rustc_hash::FxHashSet;
@@ -21,7 +22,7 @@ use super::{
     },
 };
 use crate::completion::{
-    context::{CompletionContext, HashKind, ParenListKind},
+    context::{CompletionContext, ExpectedSyntax, HashKind, ParenListKind},
     engine::snippets,
     syntax_keywords,
 };
@@ -66,7 +67,12 @@ pub(super) fn complete_after_hash(
     }]
 }
 
-fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<CompletionItem> {
+fn complete_parameter_port_list(
+    db: &RootDb,
+    position: FilePosition,
+    prefix: &str,
+    ctx: &CompletionContext,
+) -> Vec<CompletionItem> {
     let mut items = Vec::new();
 
     let snippet_entries = snippets::entries(&snippets::snippet_config().module_item);
@@ -85,14 +91,19 @@ fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<Co
         });
     }
 
-    for kw in syntax_keywords::parameter_port_keywords() {
+    let source_text = db.file_text(position.file_id);
+    for kw in syntax_keywords::keywords_for_source_expected(
+        ExpectedSyntax::ParameterPortListItem,
+        &source_text,
+        ctx.replacement,
+    ) {
         if !kw.starts_with(prefix) {
             continue;
         }
         items.push(CompletionItem {
             label: kw.clone(),
             kind: CompletionItemKind::Keyword,
-            edit: Some(TextEditItem::replace(ctx.replacement, kw.clone())),
+            edit: Some(TextEditItem::replace(ctx.replacement, kw)),
             snippet_edit: None,
         });
     }
@@ -146,7 +157,7 @@ fn complete_parameter_port_list_with_typedefs(
 
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items.dedup_by(|a, b| a.label == b.label);
-    items.extend(complete_parameter_port_list(prefix, ctx));
+    items.extend(complete_parameter_port_list(db, position, prefix, ctx));
     items
 }
 
