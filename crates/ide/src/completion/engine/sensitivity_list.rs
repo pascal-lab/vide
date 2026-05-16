@@ -4,21 +4,15 @@ use span::FilePosition;
 use utils::{get::Get, text_edit::TextSize};
 
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};
-use crate::completion::{
-    context::{CompletionContext, ExpectedSyntax},
-    syntax_keywords,
-};
+use crate::completion::{context::CompletionContext, syntax_keywords};
 
 pub(super) fn complete_sensitivity_list(
     db: &RootDb,
     position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
+    wrap_in_parens: bool,
 ) -> Vec<CompletionCandidate> {
-    let wrap_in_parens = matches!(
-        ctx.expectation.map(|expectation| expectation.syntax),
-        Some(ExpectedSyntax::EventControl { wrap_in_parens: true })
-    );
     let mut items = Vec::new();
 
     push_star_item(&mut items, ctx, wrap_in_parens, prefix);

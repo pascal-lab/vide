@@ -25,27 +25,6 @@ pub enum LexContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HashKind {
-    ParamValueAssignment,
-    ParameterPortList,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParenListKind {
-    ParamValueAssignment,
-    ParameterPortList,
-    PortConnections,
-    Arguments,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PortListKind {
-    Ansi,
-    Function,
-    NonAnsi,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerChar {
     Dot,
     OpenParen,
@@ -84,30 +63,6 @@ pub enum ExpectedSyntax {
     NonAnsiPortName,
     EventControl { wrap_in_parens: bool },
     DeclName,
-}
-
-impl ExpectedSyntax {
-    pub(crate) fn is_keyword_completion_context(self) -> bool {
-        matches!(
-            self,
-            ExpectedSyntax::CompilationUnitItem
-                | ExpectedSyntax::ModuleHeaderItem
-                | ExpectedSyntax::ModuleItem
-                | ExpectedSyntax::GenerateItem
-                | ExpectedSyntax::SpecifyItem
-                | ExpectedSyntax::ConfigItem { .. }
-                | ExpectedSyntax::BlockItem { .. }
-                | ExpectedSyntax::Statement
-        )
-    }
-
-    pub(crate) fn accepts_newline_trigger(self) -> bool {
-        matches!(self, ExpectedSyntax::AnsiPortItem | ExpectedSyntax::FunctionPortItem)
-    }
-
-    pub(crate) fn is_punctuation_trigger_suppressed_context(self) -> bool {
-        self.is_keyword_completion_context()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

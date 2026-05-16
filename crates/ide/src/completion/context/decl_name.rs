@@ -3,9 +3,9 @@ use utils::line_index::TextSize;
 
 use crate::completion::{
     context::{
-        CompletionExpectation, ExpectationSource, ExpectedSyntax, PortListKind, TriggerChar,
-        caret::CaretSnapshot,
+        CompletionExpectation, ExpectationSource, ExpectedSyntax, TriggerChar, caret::CaretSnapshot,
     },
+    request::PortListKind,
     syntax_keywords,
 };
 
