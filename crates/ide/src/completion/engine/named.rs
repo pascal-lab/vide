@@ -1,4 +1,4 @@
-use hir::{db::HirDb, hir_def::lower_ident_opt, semantics::Semantics};
+use hir::{hir_def::lower_ident_opt, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use rustc_hash::FxHashSet;
 use span::FilePosition;
@@ -135,27 +135,16 @@ pub(super) fn complete_named_port_conn_expr(
         return Vec::new();
     };
 
-    let target_module = db.module(target_module_id);
-    let Some(expected_ty) = expected_port_ty(db, &target_module, target_module_id, &port_name)
-    else {
+    let Some(expected_ty) = expected_port_ty(db, target_module_id, &port_name) else {
         return Vec::new();
     };
 
-    let current_module = db.module(current_module_id);
     let candidates = value_candidates_in_module(db, current_module_id);
 
     candidates
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| {
-            is_compatible_typed_value(
-                db,
-                &target_module,
-                expected_ty,
-                &current_module,
-                *candidate_ty,
-            )
-        })
+        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
         .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }
@@ -191,27 +180,16 @@ pub(super) fn complete_named_param_assign_expr(
         return Vec::new();
     };
 
-    let target_module = db.module(target_module_id);
-    let Some(expected_ty) = expected_param_ty(db, &target_module, target_module_id, &param_name)
-    else {
+    let Some(expected_ty) = expected_param_ty(db, target_module_id, &param_name) else {
         return Vec::new();
     };
 
-    let current_module = db.module(current_module_id);
     let candidates = const_candidates_in_module(db, current_module_id);
 
     candidates
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| {
-            is_compatible_typed_value(
-                db,
-                &target_module,
-                expected_ty,
-                &current_module,
-                *candidate_ty,
-            )
-        })
+        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
         .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }

@@ -13,7 +13,7 @@ use utils::text_edit::TextSize;
 use vfs::FileId;
 
 use crate::{
-    container::{InContainer, InFile},
+    container::{ContainerId, InContainer, InFile},
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -107,6 +107,11 @@ impl<'db> SemanticsImpl<'db> {
     pub fn find_file(&self, node: SyntaxNode) -> Option<HirFileId> {
         let root_node = node.find_root();
         self.lookup_file_id(root_node)
+    }
+
+    pub fn container_for_node(&self, node: SyntaxNode) -> Option<ContainerId> {
+        let file_id = self.find_file(node)?;
+        self.with_ctx(|ctx| Some(ctx.find_container(InFile::new(file_id, node))))
     }
 
     fn cache_node2file(&self, root_node: SyntaxNode<'db>, file_id: HirFileId) {

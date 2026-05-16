@@ -22,10 +22,8 @@ use super::{
     },
 };
 use crate::completion::{
-    context::{CompletionContext, ExpectedSyntax},
-    engine::snippets,
+    context::CompletionContext,
     request::{HashKind, ParenListKind},
-    syntax_keywords,
 };
 
 pub(super) fn complete_in_paren_list(
@@ -63,34 +61,6 @@ pub(super) fn complete_after_hash(
         "()",
         format!("(${{1:{snippet_label}}})"),
     )]
-}
-
-fn complete_parameter_port_list(prefix: &str, ctx: &CompletionContext) -> Vec<CompletionCandidate> {
-    let mut items = Vec::new();
-
-    let snippet_entries = snippets::entries(&snippets::snippet_config().module_item);
-    for entry in snippet_entries {
-        if !matches!(entry.label.as_str(), "parameter" | "localparam") {
-            continue;
-        }
-        if !entry.label.starts_with(prefix) {
-            continue;
-        }
-        items.push(CompletionCandidate::snippet(
-            entry.label,
-            ctx.replacement,
-            entry.plain,
-            entry.snippet,
-        ));
-    }
-
-    for kw in syntax_keywords::keyword_candidates(ExpectedSyntax::ParameterPortListItem, prefix)
-        .into_labels()
-    {
-        items.push(CompletionCandidate::keyword(kw, ctx.replacement));
-    }
-
-    items
 }
 
 fn complete_parameter_port_list_with_typedefs(
@@ -134,7 +104,6 @@ fn complete_parameter_port_list_with_typedefs(
 
     items.sort_by(|a, b| a.label().cmp(b.label()));
     items.dedup_by(|a, b| a.label() == b.label());
-    items.extend(complete_parameter_port_list(prefix, ctx));
     items
 }
 
@@ -204,26 +173,15 @@ fn complete_port_connections(
         return Vec::new();
     };
 
-    let target_module = db.module(target_module_id);
-    let Some(expected_ty) = expected_port_ty(db, &target_module, target_module_id, port_name)
-    else {
+    let Some(expected_ty) = expected_port_ty(db, target_module_id, port_name) else {
         return Vec::new();
     };
 
-    let current_module = db.module(current_module_id);
     let candidates = value_candidates_in_module(db, current_module_id);
     candidates
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| {
-            is_compatible_typed_value(
-                db,
-                &target_module,
-                expected_ty,
-                &current_module,
-                *candidate_ty,
-            )
-        })
+        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
         .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }
@@ -294,26 +252,15 @@ fn complete_param_value_assignment(
         return Vec::new();
     };
 
-    let target_module = db.module(target_module_id);
-    let Some(expected_ty) = expected_param_ty(db, &target_module, target_module_id, param_name)
-    else {
+    let Some(expected_ty) = expected_param_ty(db, target_module_id, param_name) else {
         return Vec::new();
     };
 
-    let current_module = db.module(current_module_id);
     let candidates = const_candidates_in_module(db, current_module_id);
     candidates
         .into_iter()
         .filter(|(name, _)| name.starts_with(prefix))
-        .filter(|(_, candidate_ty)| {
-            is_compatible_typed_value(
-                db,
-                &target_module,
-                expected_ty,
-                &current_module,
-                *candidate_ty,
-            )
-        })
+        .filter(|(_, candidate_ty)| is_compatible_typed_value(db, &expected_ty, candidate_ty))
         .map(|(name, _)| CompletionCandidate::text(name, ctx.replacement))
         .collect()
 }

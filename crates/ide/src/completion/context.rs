@@ -9,8 +9,9 @@ mod util;
 use base_db::source_db::{SourceDb, SourceRootDb};
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
+use smallvec::{SmallVec, smallvec};
 use span::FilePosition;
-use syntax::SyntaxNode;
+use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree};
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
@@ -38,14 +39,7 @@ pub enum TriggerChar {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpectedSyntax {
     DirectiveName,
-    CompilationUnitItem,
-    ModuleHeaderItem,
-    ModuleItem,
-    GenerateItem,
-    SpecifyItem,
-    ConfigItem { rules_allowed: bool },
-    BlockItem { declarations_allowed: bool },
-    Statement,
+    Keyword(SyntaxKeywordContext),
     Expression,
     PortConnectionName,
     ParameterAssignmentName,
@@ -68,6 +62,7 @@ pub enum ExpectedSyntax {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpectationSource {
     DirectiveWord,
+    Parser,
     DeclarationName,
     Ast(syntax::SyntaxKind),
     Token(syntax::TokenKind),
@@ -86,7 +81,7 @@ pub struct CompletionContext {
     pub prefix: String,
     pub trigger: Option<TriggerChar>,
     pub lex: LexContext,
-    pub expectation: Option<CompletionExpectation>,
+    pub expectations: SmallVec<[CompletionExpectation; 4]>,
     pub in_decl_name: bool,
 }
 
@@ -107,18 +102,20 @@ pub(crate) fn completion_context(
             prefix: String::new(),
             trigger,
             lex: LexContext::Code,
-            expectation: None,
+            expectations: SmallVec::new(),
             in_decl_name: false,
         };
     };
     let text = db.file_text(file_id);
     let expected_decl_name_offsets = db.expected_decl_name_offsets(file_id);
+    let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         Some(&text),
         Some(&expected_decl_name_offsets),
+        Some(&parser_expected_syntax),
     )
 }
 
@@ -127,7 +124,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, None)
+    detect_completion_context_impl(root, offset, trigger, None, None, None)
 }
 
 pub fn detect_completion_context_with_expected_decl_name_offsets(
@@ -136,7 +133,14 @@ pub fn detect_completion_context_with_expected_decl_name_offsets(
     trigger: Option<TriggerChar>,
     expected_decl_name_offsets: &[TextSize],
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, Some(expected_decl_name_offsets))
+    detect_completion_context_impl(
+        root,
+        offset,
+        trigger,
+        None,
+        Some(expected_decl_name_offsets),
+        None,
+    )
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -146,12 +150,14 @@ pub fn detect_completion_context_with_source_text(
     source_text: &str,
     expected_decl_name_offsets: &[TextSize],
 ) -> CompletionContext {
+    let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         Some(source_text),
         Some(expected_decl_name_offsets),
+        Some(&parser_expected_syntax),
     )
 }
 
@@ -161,6 +167,7 @@ fn detect_completion_context_impl(
     trigger: Option<TriggerChar>,
     source_text: Option<&str>,
     expected_decl_name_offsets: Option<&[TextSize]>,
+    parser_expected_syntax: Option<&[ParserExpectedSyntax]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
     let (mut replacement, mut prefix) = caret.replacement_and_prefix();
@@ -184,7 +191,7 @@ fn detect_completion_context_impl(
             prefix,
             trigger,
             lex,
-            expectation,
+            expectations: expectation.into_iter().collect(),
             in_decl_name: false,
         };
     }
@@ -197,10 +204,10 @@ fn detect_completion_context_impl(
             prefix,
             trigger,
             lex,
-            expectation: Some(CompletionExpectation {
+            expectations: smallvec![CompletionExpectation {
                 syntax: ExpectedSyntax::DirectiveName,
                 source: ExpectationSource::DirectiveWord,
-            }),
+            }],
             in_decl_name: false,
         };
     }
@@ -213,18 +220,132 @@ fn detect_completion_context_impl(
     }
 
     let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
-    let expectation =
-        if let Some(expectation) = decl_name::potential_ansi_port_item_start(&caret, trigger) {
-            Some(expectation)
-        } else if in_decl_name {
-            Some(CompletionExpectation {
+    let mut expectations = SmallVec::new();
+    let ast_expectation = expected::detect_completion_expectation(&caret);
+    if let Some(expectation) = decl_name::potential_ansi_port_item_start(&caret, trigger) {
+        push_expectation(&mut expectations, expectation);
+    } else if ast_expectation.is_some_and(|expectation| ast_expectation_refines_parser(expectation))
+    {
+        push_expectation(&mut expectations, ast_expectation.unwrap());
+    } else if in_decl_name {
+        push_expectation(
+            &mut expectations,
+            CompletionExpectation {
                 syntax: ExpectedSyntax::DeclName,
                 source: ExpectationSource::DeclarationName,
+            },
+        );
+    } else {
+        if let Some(parser_expected_syntax) = parser_expected_syntax {
+            for item in parser_expected_syntax {
+                for expectation in completion_expectations_for_parser_item(item) {
+                    push_expectation(&mut expectations, expectation);
+                }
+            }
+        }
+
+        if let Some(expectation) = ast_expectation {
+            push_expectation(&mut expectations, expectation);
+        }
+    }
+    CompletionContext { replacement, prefix, trigger, lex, expectations, in_decl_name }
+}
+
+fn parser_expected_syntax_for_text(
+    root: SyntaxNode<'_>,
+    source_text: &str,
+    offset: TextSize,
+) -> Vec<ParserExpectedSyntax> {
+    let offset = usize::from(offset);
+    if root.kind() == syntax::SyntaxKind::LIBRARY_MAP {
+        SyntaxTree::library_map_expected_syntax_at_offset(source_text, "source", "", offset)
+    } else {
+        SyntaxTree::expected_syntax_at_offset(source_text, "source", "", offset)
+    }
+}
+
+fn completion_expectations_for_parser_item(
+    item: &ParserExpectedSyntax,
+) -> SmallVec<[CompletionExpectation; 3]> {
+    let source = ExpectationSource::Parser;
+    match item.name.as_str() {
+        "ExpectedParameterPort" => smallvec![CompletionExpectation {
+            syntax: ExpectedSyntax::ParameterPortListItem,
+            source,
+        }],
+        "ExpectedAnsiPort" => {
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::AnsiPortItem, source }]
+        }
+        "ExpectedFunctionPort" => {
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::FunctionPortItem, source }]
+        }
+        "ExpectedPortConnection" => {
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::PortConnection, source }]
+        }
+        "ExpectedArgument" => {
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::ArgumentExpr, source }]
+        }
+        "ExpectedExpression" => {
+            smallvec![CompletionExpectation { syntax: ExpectedSyntax::Expression, source }]
+        }
+        "ExpectedStatement" => {
+            let mut expectations = SmallVec::new();
+            if let Some(context) = item.keyword_context {
+                expectations.push(CompletionExpectation {
+                    syntax: ExpectedSyntax::Keyword(context),
+                    source,
+                });
+            }
+            expectations.push(CompletionExpectation { syntax: ExpectedSyntax::Expression, source });
+            expectations
+        }
+        _ => item
+            .keyword_context
+            .map(|context| {
+                smallvec![CompletionExpectation {
+                    syntax: ExpectedSyntax::Keyword(context),
+                    source,
+                }]
             })
-        } else {
-            expected::detect_completion_expectation(&caret)
-        };
-    CompletionContext { replacement, prefix, trigger, lex, expectation, in_decl_name }
+            .unwrap_or_default(),
+    }
+}
+
+fn push_expectation(
+    expectations: &mut SmallVec<[CompletionExpectation; 4]>,
+    expectation: CompletionExpectation,
+) {
+    if !expectations.iter().any(|existing| existing.syntax == expectation.syntax) {
+        expectations.push(expectation);
+    }
+}
+
+fn ast_expectation_refines_parser(expectation: CompletionExpectation) -> bool {
+    match expectation.syntax {
+        ExpectedSyntax::Keyword(context) => matches!(
+            context,
+            SyntaxKeywordContext::ModuleHeaderItem
+                | SyntaxKeywordContext::ConfigHeaderItem
+                | SyntaxKeywordContext::ConfigRule
+        ),
+        ExpectedSyntax::Expression => false,
+        ExpectedSyntax::DirectiveName | ExpectedSyntax::DeclName => false,
+        ExpectedSyntax::ParameterPortListItem
+        | ExpectedSyntax::AnsiPortItem
+        | ExpectedSyntax::FunctionPortItem
+        | ExpectedSyntax::PortConnection
+        | ExpectedSyntax::ArgumentExpr => false,
+        ExpectedSyntax::PortConnectionName
+        | ExpectedSyntax::ParameterAssignmentName
+        | ExpectedSyntax::MemberName
+        | ExpectedSyntax::PortConnectionExpr
+        | ExpectedSyntax::ParameterAssignmentExpr
+        | ExpectedSyntax::AfterParamValueAssignmentHash
+        | ExpectedSyntax::AfterParameterPortListHash
+        | ExpectedSyntax::ParamValueAssignment
+        | ExpectedSyntax::NonAnsiPortName
+        | ExpectedSyntax::EventControl { .. } => true,
+    }
 }
 
 fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {
@@ -303,6 +424,21 @@ mod tests {
         ctx_with_trigger(text, None)
     }
 
+    fn library_map_ctx(text: &str) -> CompletionContext {
+        let marker = "/*caret*/";
+        let off = text.find(marker).expect("missing /*caret*/");
+        let owned = text.replace(marker, "");
+        let tree = SyntaxTree::from_library_map_text(&owned, "test", "test.map");
+        let root = tree.root().unwrap();
+        detect_completion_context_with_source_text(
+            root,
+            TextSize::from(off as u32),
+            None,
+            &owned,
+            &[],
+        )
+    }
+
     fn ctx_with_trigger(text: &str, trigger: Option<TriggerChar>) -> CompletionContext {
         let _guard = PARSE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
@@ -339,7 +475,11 @@ mod tests {
     }
 
     fn expected(c: &CompletionContext) -> Option<ExpectedSyntax> {
-        c.expectation.map(|expectation| expectation.syntax)
+        c.expectations.first().map(|expectation| expectation.syntax)
+    }
+
+    fn keyword(context: SyntaxKeywordContext) -> ExpectedSyntax {
+        ExpectedSyntax::Keyword(context)
     }
 
     #[test]
@@ -656,58 +796,69 @@ mod tests {
     #[test]
     fn detects_top_level_item_start() {
         let c = ctx("module m; endmodule\n/*caret*/\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::CompilationUnitItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::CompilationUnitMember)));
     }
 
     #[test]
     fn detects_top_level_item_keyword_prefix() {
-        for text in ["con/*caret*/\n", "pri/*caret*/\n", "lib/*caret*/\n"] {
+        for text in ["con/*caret*/\n", "pri/*caret*/\n"] {
             let c = ctx(text);
-            assert_eq!(expected(&c), Some(ExpectedSyntax::CompilationUnitItem), "{text}");
+            assert_eq!(
+                expected(&c),
+                Some(keyword(SyntaxKeywordContext::CompilationUnitMember)),
+                "{text}"
+            );
             assert!(!c.in_decl_name, "{text}");
         }
     }
 
     #[test]
+    fn detects_library_map_item_keyword_prefix() {
+        let c = library_map_ctx("lib/*caret*/\n");
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::LibraryMapMember)));
+        assert_eq!(c.prefix, "lib");
+    }
+
+    #[test]
     fn detects_module_member_start() {
         let c = ctx("module m;\n  /*caret*/\nendmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::ModuleItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ModuleMember)));
     }
 
     #[test]
     fn detects_generate_region_item_start() {
         let c = ctx("module m; generate\n  /*caret*/\nendgenerate endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::GenerateItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::GenerateMember)));
     }
 
     #[test]
     fn detects_generate_block_item_start() {
         let c = ctx("module m; begin : g\n  /*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::GenerateItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::GenerateMember)));
     }
 
     #[test]
     fn detects_specify_item_start() {
         let c = ctx("module m; specify\n  /*caret*/\nendspecify endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
     }
 
     #[test]
     fn detects_specify_item_keyword_prefix() {
         let c = ctx("module m; specify\n  sp/*caret*/\nendspecify endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
     }
 
     #[test]
     fn detects_config_header_item_start() {
         let c = ctx("config cfg;\n  de/*caret*/\n  design work.top;\nendconfig\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::ConfigItem { rules_allowed: false }));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ConfigHeaderItem)));
     }
 
     #[test]
     fn detects_config_rule_item_start() {
         let c = ctx("config cfg;\n  design work.top;\n  de/*caret*/\nendconfig\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::ConfigItem { rules_allowed: true }));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ConfigRule)));
     }
 
     #[test]
@@ -716,35 +867,35 @@ mod tests {
 
         assert_eq!(c.replacement, TextRange::new(TextSize::from(20), TextSize::from(22)));
         assert_eq!(c.prefix, "sp");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::SpecifyItem));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
         assert_eq!(
-            c.expectation.map(|expectation| expectation.source),
-            Some(ExpectationSource::Ast(syntax::SyntaxKind::SPECIFY_BLOCK))
+            c.expectations.first().map(|expectation| expectation.source),
+            Some(ExpectationSource::Parser)
         );
     }
 
     #[test]
     fn detects_block_decl_start_before_statement() {
         let c = ctx("module m; initial begin\n  /*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: true }));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::BlockItem)));
     }
 
     #[test]
     fn detects_procedural_statement_start_after_statement() {
         let c = ctx("module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: false }));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::Statement)));
     }
 
     #[test]
     fn detects_block_decl_keyword_prefix_before_statement() {
         let c = ctx("module m; initial begin\n  re/*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: true }));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::BlockItem)));
     }
 
     #[test]
     fn detects_procedural_statement_keyword_prefix_after_statement() {
         let c = ctx("module m; initial begin\n  x = 1;\n  re/*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(ExpectedSyntax::BlockItem { declarations_allowed: false }));
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::Statement)));
     }
 
     #[test]

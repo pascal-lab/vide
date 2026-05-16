@@ -3,7 +3,14 @@ module = "module ${1:name} (${2:ports});\n\t${0}\nendmodule"
 primitive = "primitive ${1:name} (${2:ports});\n\t${0}\nendprimitive"
 macromodule = "macromodule ${1:name} (${2:ports});\n\t${0}\nendmodule"
 config = "config ${1:name};\n\tdesign ${2:work.top};\nendconfig"
+
+[library_map]
 library = "library ${1:name} ${2:\"*.v\"};"
+include = "include ${1:path};"
+
+[parameter_port_list]
+parameter = "parameter ${1:NAME} = ${2:VALUE}"
+localparam = "localparam ${1:NAME} = ${2:VALUE}"
 
 [module_item]
 wire = "wire ${1:name};"

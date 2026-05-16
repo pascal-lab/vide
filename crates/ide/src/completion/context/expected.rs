@@ -1,5 +1,5 @@
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxToken,
+    SyntaxAncestors, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt, SyntaxToken,
     ast::{self, AstNode},
     ast_ext::NamedConnectionDotZoneExt,
     has_text_range::HasTextRange,
@@ -73,6 +73,7 @@ impl ExpectationEngine<'_, '_> {
             .or_else(|| config_item_expectation(self.caret))
             .or_else(|| module_item_expectation(self.caret))
             .or_else(|| compilation_unit_item_expectation(self.caret))
+            .or_else(|| library_map_item_expectation(self.caret))
     }
 
     fn statement_keyword_expectation(&self) -> Option<CompletionExpectation> {
@@ -90,6 +91,20 @@ impl ExpectationEngine<'_, '_> {
 
 fn expectation(syntax: ExpectedSyntax, source: ExpectationSource) -> CompletionExpectation {
     CompletionExpectation { syntax, source }
+}
+
+fn keyword_expectation(
+    context: SyntaxKeywordContext,
+    source: ExpectationSource,
+) -> CompletionExpectation {
+    expectation(ExpectedSyntax::Keyword(context), source)
+}
+
+fn node_keyword_expectation(
+    context: SyntaxKeywordContext,
+    node: SyntaxNode<'_>,
+) -> CompletionExpectation {
+    keyword_expectation(context, ExpectationSource::Ast(node.kind()))
 }
 
 fn node_expectation(syntax: ExpectedSyntax, node: SyntaxNode<'_>) -> CompletionExpectation {
@@ -111,6 +126,7 @@ where
 
 fn punctuated_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     expectation_after_dot(caret)
+        .or_else(|| expectation_after_scope_resolution(caret))
         .or_else(|| expectation_after_hash(caret))
         .or_else(|| expectation_after_at(caret))
         .or_else(|| expectation_in_named_conn_expr(caret))
@@ -136,6 +152,30 @@ fn expectation_after_dot(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectat
     let prev = caret.root.token_before_offset(offset)?;
     (prev.kind() == syntax::Token![.])
         .then_some(token_expectation(ExpectedSyntax::MemberName, *prev))
+}
+
+fn expectation_after_scope_resolution(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    let offset = caret.offset;
+    let prev = caret.root.token_before_offset(offset)?;
+    if prev.kind() == syntax::Token![::] {
+        return Some(token_expectation(ExpectedSyntax::MemberName, *prev));
+    }
+
+    let replacement_start = caret.replacement_and_prefix().0.start();
+    let scoped = SyntaxAncestors::start_from(prev.parent).find_map(ast::ScopedName::cast)?;
+    let right = scoped_right_token(scoped)?;
+    let range = right.text_range()?;
+    (range.contains(replacement_start) || range.contains(offset) || range.end() == offset)
+        .then_some(node_expectation(ExpectedSyntax::MemberName, scoped.syntax()))
+}
+
+fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
+    use ast::Name::*;
+    match scoped.right() {
+        IdentifierName(ident) => ident.identifier(),
+        IdentifierSelectName(ident) => ident.identifier(),
+        _ => None,
+    }
 }
 
 fn expectation_after_hash(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -260,11 +300,9 @@ fn module_header_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpe
     let offset = caret.offset;
     let module = caret.root.find_node_at_offset::<ast::ModuleDeclaration<'_>>(offset)?;
     let header = module.header();
-    header
-        .syntax()
-        .text_range()
-        .is_some_and(|r| r.contains(offset) || r.end() == offset)
-        .then_some(node_expectation(ExpectedSyntax::ModuleHeaderItem, header.syntax()))
+    header.syntax().text_range().is_some_and(|r| r.contains(offset) || r.end() == offset).then_some(
+        node_keyword_expectation(SyntaxKeywordContext::ModuleHeaderItem, header.syntax()),
+    )
 }
 
 fn statement_keyword_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -279,8 +317,9 @@ fn statement_keyword_expectation(caret: &CaretSnapshot<'_>) -> Option<Completion
     }
 
     stmt.syntax().token_before_offset(replacement.start()).is_none().then(|| {
-        procedural_item_expectation(caret)
-            .unwrap_or_else(|| node_expectation(ExpectedSyntax::Statement, stmt.syntax()))
+        procedural_item_expectation(caret).unwrap_or_else(|| {
+            node_keyword_expectation(SyntaxKeywordContext::Statement, stmt.syntax())
+        })
     })
 }
 
@@ -291,24 +330,24 @@ fn procedural_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionEx
         && let Some(zone) = item_zone(block.begin(), block.end(), block.syntax())
         && range_touches(zone, offset)
     {
-        return Some(node_expectation(
-            ExpectedSyntax::BlockItem {
-                declarations_allowed: block_declarations_allowed_before(block, offset),
-            },
-            block.syntax(),
-        ));
+        let context = if block_declarations_allowed_before(block, offset) {
+            SyntaxKeywordContext::BlockItem
+        } else {
+            SyntaxKeywordContext::Statement
+        };
+        return Some(node_keyword_expectation(context, block.syntax()));
     }
 
     if let Some(func) = caret.root.find_node_at_offset::<ast::FunctionDeclaration<'_>>(offset)
         && let Some(zone) = item_zone(func.semi(), func.end(), func.syntax())
         && range_touches(zone, offset)
     {
-        return Some(node_expectation(
-            ExpectedSyntax::BlockItem {
-                declarations_allowed: function_declarations_allowed_before(func, offset),
-            },
-            func.syntax(),
-        ));
+        let context = if function_declarations_allowed_before(func, offset) {
+            SyntaxKeywordContext::BlockItem
+        } else {
+            SyntaxKeywordContext::Statement
+        };
+        return Some(node_keyword_expectation(context, func.syntax()));
     }
 
     None
@@ -321,14 +360,20 @@ fn generate_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpe
         && let Some(zone) = item_zone(region.keyword(), region.endgenerate(), region.syntax())
         && item_start_in_owner(region.syntax(), zone, caret)
     {
-        return Some(node_expectation(ExpectedSyntax::GenerateItem, region.syntax()));
+        return Some(node_keyword_expectation(
+            SyntaxKeywordContext::GenerateMember,
+            region.syntax(),
+        ));
     }
 
     if let Some(block) = caret.root.find_node_at_offset::<ast::GenerateBlock<'_>>(offset)
         && let Some(zone) = item_zone(block.begin(), block.end(), block.syntax())
         && item_start_in_owner(block.syntax(), zone, caret)
     {
-        return Some(node_expectation(ExpectedSyntax::GenerateItem, block.syntax()));
+        return Some(node_keyword_expectation(
+            SyntaxKeywordContext::GenerateMember,
+            block.syntax(),
+        ));
     }
 
     None
@@ -339,7 +384,7 @@ fn specify_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpec
     let block = caret.root.find_node_at_offset::<ast::SpecifyBlock<'_>>(offset)?;
     let zone = item_zone(block.specify(), block.endspecify(), block.syntax())?;
     item_start_in_owner(block.syntax(), zone, caret)
-        .then_some(node_expectation(ExpectedSyntax::SpecifyItem, block.syntax()))
+        .then_some(node_keyword_expectation(SyntaxKeywordContext::SpecifyItem, block.syntax()))
 }
 
 fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -355,7 +400,7 @@ fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
 
     let zone = TextRange::new(start, end);
     item_start_in_owner(module.syntax(), zone, caret)
-        .then_some(node_expectation(ExpectedSyntax::ModuleItem, module.syntax()))
+        .then_some(node_keyword_expectation(SyntaxKeywordContext::ModuleMember, module.syntax()))
 }
 
 fn config_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -373,7 +418,14 @@ fn config_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
         .semi_2()
         .and_then(|semi| semi.text_range())
         .is_some_and(|range| range.end() <= replacement_start);
-    Some(node_expectation(ExpectedSyntax::ConfigItem { rules_allowed }, config.syntax()))
+    Some(node_keyword_expectation(
+        if rules_allowed {
+            SyntaxKeywordContext::ConfigRule
+        } else {
+            SyntaxKeywordContext::ConfigHeaderItem
+        },
+        config.syntax(),
+    ))
 }
 
 fn compilation_unit_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -386,8 +438,19 @@ fn compilation_unit_item_expectation(caret: &CaretSnapshot<'_>) -> Option<Comple
         .or_else(|| unit.syntax().text_range().map(|range| range.end()))?;
 
     let range = TextRange::new(TextSize::new(0), end);
-    item_start_in_owner(unit.syntax(), range, caret)
-        .then_some(node_expectation(ExpectedSyntax::CompilationUnitItem, unit.syntax()))
+    item_start_in_owner(unit.syntax(), range, caret).then_some(node_keyword_expectation(
+        SyntaxKeywordContext::CompilationUnitMember,
+        unit.syntax(),
+    ))
+}
+
+fn library_map_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    (caret.root.kind() == syntax::SyntaxKind::LIBRARY_MAP).then_some(())?;
+
+    let end = caret.root.text_range()?.end();
+    let range = TextRange::new(TextSize::new(0), end);
+    item_start_in_owner(caret.root, range, caret)
+        .then_some(node_keyword_expectation(SyntaxKeywordContext::LibraryMapMember, caret.root))
 }
 
 fn expression_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

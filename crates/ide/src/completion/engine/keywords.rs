@@ -4,8 +4,9 @@ use span::FilePosition;
 
 use super::candidate::CompletionCandidate;
 use crate::completion::{
-    context::{CompletionContext, ExpectedSyntax},
+    context::CompletionContext,
     engine::snippets,
+    request::{KeywordProvider, KeywordSnippetScope},
     syntax_keywords,
 };
 
@@ -14,9 +15,9 @@ pub(super) fn complete_keywords(
     _position: FilePosition,
     prefix: &str,
     ctx: &CompletionContext,
-    expected: ExpectedSyntax,
+    provider: KeywordProvider,
 ) -> Vec<CompletionCandidate> {
-    let candidates = syntax_keywords::keyword_candidates(expected, prefix);
+    let candidates = syntax_keywords::keyword_candidates_for_context(provider.context, prefix);
 
     let mut items: Vec<_> = candidates
         .labels()
@@ -24,8 +25,8 @@ pub(super) fn complete_keywords(
         .map(|label| CompletionCandidate::keyword(label.clone(), ctx.replacement))
         .collect();
 
-    items.extend(snippet_completions(&candidates, prefix, ctx));
-    items.extend(module_instantiation_snippets(db, prefix, ctx, expected));
+    items.extend(snippet_completions(&candidates, prefix, ctx, provider.snippets));
+    items.extend(module_instantiation_snippets(db, prefix, ctx, provider.module_instantiations));
 
     items
 }
@@ -34,15 +35,11 @@ fn module_instantiation_snippets(
     db: &RootDb,
     prefix: &str,
     ctx: &CompletionContext,
-    expected: ExpectedSyntax,
+    enabled: bool,
 ) -> Vec<CompletionCandidate> {
     use hir::scope::UnitEntry;
 
-    if expected != ExpectedSyntax::ModuleItem {
-        return Vec::new();
-    }
-
-    if prefix.is_empty() {
+    if !enabled || prefix.is_empty() {
         return Vec::new();
     }
 
@@ -84,11 +81,19 @@ fn snippet_completions(
     candidates: &syntax_keywords::KeywordCandidates,
     prefix: &str,
     ctx: &CompletionContext,
+    scope: KeywordSnippetScope,
 ) -> Vec<CompletionCandidate> {
     let snippets = snippets::snippet_config();
-    snippets::entries(&snippets.top_level)
+    let entries = match scope {
+        KeywordSnippetScope::None => Vec::new(),
+        KeywordSnippetScope::CompilationUnit => snippets::entries(&snippets.top_level),
+        KeywordSnippetScope::LibraryMap => snippets::entries(&snippets.library_map),
+        KeywordSnippetScope::DesignItem => snippets::entries(&snippets.module_item),
+        KeywordSnippetScope::ParameterPortList => snippets::entries(&snippets.parameter_port_list),
+    };
+
+    entries
         .into_iter()
-        .chain(snippets::entries(&snippets.module_item))
         .filter(|entry| entry.label.starts_with(prefix))
         .filter(|entry| candidates.contains_plain(&entry.plain))
         .map(|entry| {

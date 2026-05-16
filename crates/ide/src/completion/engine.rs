@@ -11,6 +11,7 @@ mod port_list;
 mod preproc;
 mod sensitivity_list;
 mod snippets;
+mod system;
 mod typed_filter;
 
 #[cfg(test)]

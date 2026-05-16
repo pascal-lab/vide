@@ -1,5 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use syntax::{Compilation, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer};
+use syntax::{Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer};
 use triomphe::Arc;
 use utils::line_index::TextSize;
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
@@ -187,6 +187,40 @@ fn expected_decl_name_offsets(db: &dyn SourceRootDb, file_id: FileId) -> Arc<Vec
     Arc::new(out)
 }
 
+fn parser_expected_syntax(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Arc<[ParserExpectedSyntax]> {
+    if matches!(db.file_kind(file_id), SourceFileKind::ProjectManifest) {
+        return Arc::from(Vec::<ParserExpectedSyntax>::new());
+    }
+
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    let offset = usize::from(offset);
+    let expected = match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            let options = syntax_tree_options_for_file(db, file_id);
+            SyntaxTree::expected_syntax_at_offset_with_options(
+                &text,
+                &identity.name,
+                &identity.path,
+                offset,
+                &options,
+            )
+        }
+        SourceFileKind::LibraryMap => SyntaxTree::library_map_expected_syntax_at_offset(
+            &text,
+            &identity.name,
+            &identity.path,
+            offset,
+        ),
+        SourceFileKind::ProjectManifest => Vec::new(),
+    };
+    Arc::from(expected)
+}
+
 fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
     let config = db.diagnostics_config();
     if !config.enabled || !config.parse.enabled || !db.file_kind(file_id).is_slang_parse_unit() {
@@ -220,6 +254,11 @@ pub trait SourceRootDb: SourceDb {
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<Vec<SyntaxTreeBuffer>>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
+    fn parser_expected_syntax(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Arc<[ParserExpectedSyntax]>;
     fn expected_decl_name_offsets(&self, file_id: FileId) -> Arc<Vec<TextSize>>;
     fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
     fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;

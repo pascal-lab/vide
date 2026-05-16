@@ -3,9 +3,12 @@ use span::FilePosition;
 
 use super::{
     CompletionItem, candidate, expr, keywords, member, named, paren_list, port_list, preproc,
-    sensitivity_list,
+    sensitivity_list, system,
 };
-use crate::completion::{context::CompletionContext, request::CompletionRequest};
+use crate::completion::{
+    context::CompletionContext,
+    request::{CompletionProvider, CompletionRequest},
+};
 
 pub(super) fn complete_request(
     db: &RootDb,
@@ -13,37 +16,50 @@ pub(super) fn complete_request(
     ctx: &CompletionContext,
     request: CompletionRequest,
 ) -> Vec<CompletionItem> {
-    let candidates = match request {
-        CompletionRequest::Directives => preproc::complete_directives(ctx),
-        CompletionRequest::Keywords(expected) => {
-            keywords::complete_keywords(db, position, &ctx.prefix, ctx, expected)
+    let candidates =
+        request.providers().flat_map(|provider| complete_provider(db, position, ctx, provider));
+
+    candidate::finalize_candidates(candidates, &ctx.prefix)
+}
+
+fn complete_provider(
+    db: &RootDb,
+    position: FilePosition,
+    ctx: &CompletionContext,
+    provider: CompletionProvider,
+) -> Vec<candidate::CompletionCandidate> {
+    match provider {
+        CompletionProvider::Directives => preproc::complete_directives(ctx),
+        CompletionProvider::Keywords(provider) => {
+            keywords::complete_keywords(db, position, &ctx.prefix, ctx, provider)
         }
-        CompletionRequest::Expression => expr::complete_expression(db, position, &ctx.prefix, ctx),
-        CompletionRequest::PortConnectionName => {
+        CompletionProvider::SystemTasks => system::complete_system_tasks(&ctx.prefix, ctx),
+        CompletionProvider::Expression => expr::complete_expression(db, position, &ctx.prefix, ctx),
+        CompletionProvider::PortConnectionName => {
             named::complete_named_port_names(db, position, &ctx.prefix, ctx)
         }
-        CompletionRequest::ParameterAssignmentName => {
+        CompletionProvider::ParameterAssignmentName => {
             named::complete_named_param_names(db, position, &ctx.prefix, ctx)
         }
-        CompletionRequest::MemberName => {
+        CompletionProvider::MemberName => {
             member::complete_member_access(db, position, &ctx.prefix, ctx)
         }
-        CompletionRequest::PortConnectionExpr => {
+        CompletionProvider::PortConnectionExpr => {
             named::complete_named_port_conn_expr(db, position, &ctx.prefix, ctx)
         }
-        CompletionRequest::ParameterAssignmentExpr => {
+        CompletionProvider::ParameterAssignmentExpr => {
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
-        CompletionRequest::AfterHash(kind) => {
+        CompletionProvider::AfterHash(kind) => {
             paren_list::complete_after_hash(&ctx.prefix, ctx, kind)
         }
-        CompletionRequest::ParenList(kind) => {
+        CompletionProvider::ParenList(kind) => {
             paren_list::complete_in_paren_list(db, position, &ctx.prefix, ctx, kind)
         }
-        CompletionRequest::PortList(kind) => {
+        CompletionProvider::PortList(kind) => {
             port_list::complete_in_port_list(db, position, &ctx.prefix, ctx, kind)
         }
-        CompletionRequest::EventControl { wrap_in_parens } => {
+        CompletionProvider::EventControl { wrap_in_parens } => {
             sensitivity_list::complete_sensitivity_list(
                 db,
                 position,
@@ -52,7 +68,5 @@ pub(super) fn complete_request(
                 wrap_in_parens,
             )
         }
-    };
-
-    candidate::finalize_candidates(candidates, &ctx.prefix)
+    }
 }

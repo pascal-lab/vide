@@ -1,12 +1,6 @@
 use hir::{
-    db::HirDb,
-    hir_def::{
-        Ident,
-        block::BlockId,
-        module::{ModuleId, instantiation::InstanceId},
-    },
-    scope::UnitEntry,
-    semantics::{Semantics, pathres::PathResolution},
+    semantics::Semantics,
+    type_infer::{TyMember, members_of_ty, type_of_expr, type_of_path_resolution},
 };
 use ide_db::root_db::RootDb;
 use span::FilePosition;
@@ -15,16 +9,9 @@ use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::get::GetRef;
 
 use super::candidate::CompletionCandidate;
 use crate::completion::context::CompletionContext;
-
-#[derive(Debug, Clone, Copy)]
-enum MemberScope {
-    Module(ModuleId),
-    Block(BlockId),
-}
 
 pub(super) fn complete_member_access(
     db: &RootDb,
@@ -37,15 +24,21 @@ pub(super) fn complete_member_access(
         return Vec::new();
     };
 
-    let scope = member_access_at_offset(root, position.offset)
-        .and_then(|access| resolve_scope_for_expr(db, &sema, access.left()))
-        .or_else(|| resolve_scope_for_incomplete_access(db, &sema, root, position.offset));
-    let Some(scope) = scope else {
+    let members = member_access_at_offset(root, position.offset)
+        .and_then(|access| members_for_expr(db, &sema, access.left()))
+        .or_else(|| members_for_incomplete_access(db, &sema, root, position.offset))
+        .or_else(|| members_for_incomplete_scoped_access(db, &sema, root, position.offset))
+        .or_else(|| {
+            scoped_name_at_offset(root, position.offset)
+                .and_then(|scoped| members_for_scoped_name(db, &sema, scoped))
+        });
+    let Some(members) = members else {
         return Vec::new();
     };
 
-    scope_member_names(db, scope)
+    members
         .into_iter()
+        .map(|member| member.name)
         .filter(|name| name.as_str().starts_with(prefix))
         .map(|name| {
             let label = name.to_string();
@@ -65,12 +58,40 @@ fn member_access_at_offset(
     SyntaxAncestors::start_from(prev.parent).find_map(ast::MemberAccessExpression::cast)
 }
 
-fn resolve_scope_for_incomplete_access(
+fn scoped_name_at_offset(
+    root: SyntaxNode<'_>,
+    offset: utils::text_edit::TextSize,
+) -> Option<ast::ScopedName<'_>> {
+    let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
+    let node = elem.as_node().or_else(|| elem.parent())?;
+    SyntaxAncestors::start_from(node).find_map(ast::ScopedName::cast).or_else(|| {
+        let prev = root.token_before_offset(offset)?;
+        SyntaxAncestors::start_from(prev.parent).find_map(ast::ScopedName::cast)
+    })
+}
+
+fn members_for_incomplete_scoped_access(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
-) -> Option<MemberScope> {
+) -> Option<Vec<TyMember>> {
+    let separator = root.token_before_offset(offset)?;
+    if separator.kind() != syntax::Token![::] {
+        return None;
+    }
+    let left = root.token_before_offset(separator.text_range()?.start())?;
+    let res = sema.nameres_ident(left)?;
+    let members = members_of_ty(db, &type_of_path_resolution(db, res).ty);
+    (!members.is_empty()).then_some(members)
+}
+
+fn members_for_incomplete_access(
+    db: &RootDb,
+    sema: &Semantics<'_, RootDb>,
+    root: SyntaxNode<'_>,
+    offset: utils::text_edit::TextSize,
+) -> Option<Vec<TyMember>> {
     let dot = root.token_before_offset(offset)?;
     if dot.kind() != syntax::Token![.] {
         return None;
@@ -79,7 +100,7 @@ fn resolve_scope_for_incomplete_access(
     let dot_start = dot.text_range()?.start();
     let expr = expr_before_dot(dot.parent, dot_start)?;
 
-    resolve_scope_for_expr(db, sema, expr)
+    members_for_expr(db, sema, expr)
 }
 
 fn expr_before_dot(
@@ -93,53 +114,21 @@ fn expr_before_dot(
         .find(|expr| expr.syntax().text_range().is_some_and(|r| r.end() == dot_start))
 }
 
-fn resolve_scope_for_expr(
+fn members_for_expr(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     expr: ast::Expression<'_>,
-) -> Option<MemberScope> {
-    let res = sema.expr_to_def(sema.resolve_expr(expr)?)?;
-    resolve_scope_from_resolution(db, res)
+) -> Option<Vec<TyMember>> {
+    let ty = type_of_expr(db, sema.resolve_expr(expr)?).ty;
+    let members = members_of_ty(db, &ty);
+    (!members.is_empty()).then_some(members)
 }
 
-fn resolve_scope_from_resolution(db: &RootDb, res: PathResolution) -> Option<MemberScope> {
-    match res {
-        PathResolution::Module(module_id) => Some(MemberScope::Module(module_id)),
-        PathResolution::Instance(instance) => {
-            resolve_instance_target_module_id(db, instance.module_id, instance.value)
-                .map(MemberScope::Module)
-        }
-        PathResolution::Block(block_id) => Some(MemberScope::Block(block_id)),
-        _ => None,
-    }
-}
-
-fn resolve_instance_target_module_id(
+fn members_for_scoped_name(
     db: &RootDb,
-    module_id: ModuleId,
-    instance_id: InstanceId,
-) -> Option<ModuleId> {
-    let module = db.module(module_id);
-    let instance = module.get(instance_id);
-    let instantiation = module.get(instance.parent);
-    let module_name = instantiation.module_name.as_ref()?;
-    match db.unit_scope().get(module_name)? {
-        UnitEntry::ModuleId(module_id) => Some(module_id),
-        _ => None,
-    }
-}
-
-fn scope_member_names(db: &RootDb, scope: MemberScope) -> Vec<Ident> {
-    let mut names: Vec<Ident> = match scope {
-        MemberScope::Module(module_id) => {
-            db.module_scope(module_id).iter().map(|(name, _)| name.clone()).collect()
-        }
-        MemberScope::Block(block_id) => {
-            db.block_scope(block_id).iter().map(|(name, _)| name.clone()).collect()
-        }
-    };
-
-    names.sort();
-    names.dedup();
-    names
+    sema: &Semantics<'_, RootDb>,
+    scoped: ast::ScopedName<'_>,
+) -> Option<Vec<TyMember>> {
+    let left = ast::Expression::cast(scoped.left().syntax())?;
+    members_for_expr(db, sema, left)
 }

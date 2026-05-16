@@ -10,11 +10,7 @@ use syntax::ast::{self, AstNode};
 use utils::get::Get;
 
 use super::candidate::CompletionCandidate;
-use crate::completion::{
-    context::{CompletionContext, ExpectedSyntax},
-    request::PortListKind,
-    syntax_keywords,
-};
+use crate::completion::{context::CompletionContext, request::PortListKind};
 
 pub(super) fn complete_in_port_list(
     db: &RootDb,
@@ -36,20 +32,11 @@ fn complete_ansi_port_list(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let mut items = visible_typedefs_in_module_header(db, position)
+    visible_typedefs_in_module_header(db, position)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
-        .collect::<Vec<_>>();
-
-    items.extend(
-        syntax_keywords::keyword_candidates(ExpectedSyntax::AnsiPortItem, prefix)
-            .into_labels()
-            .into_iter()
-            .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
-    );
-
-    items
+        .collect()
 }
 
 fn complete_function_port_list(
@@ -58,20 +45,11 @@ fn complete_function_port_list(
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    let mut items = visible_typedefs_in_module_header(db, position)
+    visible_typedefs_in_module_header(db, position)
         .into_iter()
         .filter(|name| name.starts_with(prefix))
         .map(|name| CompletionCandidate::text(name, ctx.replacement))
-        .collect::<Vec<_>>();
-
-    items.extend(
-        syntax_keywords::keyword_candidates(ExpectedSyntax::FunctionPortItem, prefix)
-            .into_labels()
-            .into_iter()
-            .map(|kw| CompletionCandidate::keyword(kw, ctx.replacement)),
-    );
-
-    items
+        .collect()
 }
 
 fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec<String> {

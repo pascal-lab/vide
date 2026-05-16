@@ -7,6 +7,10 @@ pub(super) struct SnippetConfig {
     #[serde(default)]
     pub(super) top_level: BTreeMap<String, SnippetDef>,
     #[serde(default)]
+    pub(super) library_map: BTreeMap<String, SnippetDef>,
+    #[serde(default)]
+    pub(super) parameter_port_list: BTreeMap<String, SnippetDef>,
+    #[serde(default)]
     pub(super) module_item: BTreeMap<String, SnippetDef>,
     #[serde(default)]
     pub(super) directives: BTreeMap<String, SnippetDef>,
@@ -64,8 +68,10 @@ impl SnippetDef {
 
 #[cfg(test)]
 mod tests {
+    use syntax::SyntaxKeywordContext;
+
     use super::*;
-    use crate::completion::{context::ExpectedSyntax, syntax_keywords};
+    use crate::completion::syntax_keywords;
 
     #[test]
     fn bundled_snippets_parse() {
@@ -79,24 +85,42 @@ mod tests {
 
         for entry in entries(&snippets.top_level) {
             assert!(
-                predicted_in(ExpectedSyntax::CompilationUnitItem, &entry.plain),
+                predicted_in(SyntaxKeywordContext::CompilationUnitMember, &entry.plain),
                 "top-level snippet `{}` uses plain `{}` which is not keyword-gated",
                 entry.label,
                 entry.plain
             );
         }
 
+        for entry in entries(&snippets.library_map) {
+            assert!(
+                predicted_in(SyntaxKeywordContext::LibraryMapMember, &entry.plain),
+                "library-map snippet `{}` uses plain `{}` which is not keyword-gated",
+                entry.label,
+                entry.plain
+            );
+        }
+
+        for entry in entries(&snippets.parameter_port_list) {
+            assert!(
+                predicted_in(SyntaxKeywordContext::ParameterPortListItem, &entry.plain),
+                "parameter-port-list snippet `{}` uses plain `{}` which is not keyword-gated",
+                entry.label,
+                entry.plain
+            );
+        }
+
         let contexts = [
-            ExpectedSyntax::ModuleItem,
-            ExpectedSyntax::GenerateItem,
-            ExpectedSyntax::SpecifyItem,
-            ExpectedSyntax::BlockItem { declarations_allowed: true },
-            ExpectedSyntax::Statement,
+            SyntaxKeywordContext::ModuleMember,
+            SyntaxKeywordContext::GenerateMember,
+            SyntaxKeywordContext::SpecifyItem,
+            SyntaxKeywordContext::BlockItem,
+            SyntaxKeywordContext::Statement,
         ];
 
         for entry in entries(&snippets.module_item) {
             assert!(
-                contexts.iter().any(|expected| predicted_in(*expected, &entry.plain)),
+                contexts.iter().any(|context| predicted_in(*context, &entry.plain)),
                 "module snippet `{}` uses plain `{}` which is not keyword-gated",
                 entry.label,
                 entry.plain
@@ -104,7 +128,7 @@ mod tests {
         }
     }
 
-    fn predicted_in(expected: ExpectedSyntax, plain: &str) -> bool {
-        syntax_keywords::keyword_candidates(expected, plain).contains_plain(plain)
+    fn predicted_in(context: SyntaxKeywordContext, plain: &str) -> bool {
+        syntax_keywords::keyword_candidates_for_context(context, plain).contains_plain(plain)
     }
 }

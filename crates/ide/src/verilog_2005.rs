@@ -195,7 +195,11 @@ fn completion_labels(items: Vec<CompletionItem>) -> Vec<String> {
 }
 
 fn completion_labels_for(text: &str, marker: &str) -> Vec<String> {
-    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    completion_labels_for_with_path(text, marker, "/feature.v")
+}
+
+fn completion_labels_for_with_path(text: &str, marker: &str, path: &str) -> Vec<String> {
+    let (host, file_id, _clean_text, markers) = setup_marked_with_path(text, path);
     host.make_analysis()
         .completions_with_trigger(position(file_id, &markers, marker), None)
         .map(completion_labels)
@@ -1253,7 +1257,7 @@ fn verilog_2005_lsp_snapshots() {
     writeln!(
         &mut report,
         "library: {:?}",
-        completion_labels_for("lib/*marker:library*/\n", "library")
+        completion_labels_for_with_path("lib/*marker:library*/\n", "library", "/feature.map")
     )
     .unwrap();
     writeln!(

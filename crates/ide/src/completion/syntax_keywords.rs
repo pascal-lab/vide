@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
-use syntax::{SemanticFacts, SyntaxFacts, SyntaxKind, SyntaxToken, TokenKind};
+use syntax::{SemanticFacts, SyntaxFacts, SyntaxKeywordContext, SyntaxToken, TokenKind};
 
-use crate::completion::{context::ExpectedSyntax, request::PortListKind};
+use crate::completion::request::PortListKind;
 
 const KEYWORD_VERSION: &str = "1364-2005";
 
@@ -20,14 +20,18 @@ impl KeywordCandidates {
         self.labels.iter().any(|label| label == plain)
     }
 
+    #[cfg(test)]
     pub(crate) fn into_labels(self) -> Vec<String> {
         self.labels
     }
 }
 
-pub(crate) fn keyword_candidates(expected: ExpectedSyntax, prefix: &str) -> KeywordCandidates {
+pub(crate) fn keyword_candidates_for_context(
+    context: SyntaxKeywordContext,
+    prefix: &str,
+) -> KeywordCandidates {
     KeywordCandidates {
-        labels: keywords_for_expected(expected)
+        labels: keywords_for_context(context)
             .iter()
             .filter(|keyword| keyword.starts_with(prefix))
             .cloned()
@@ -37,8 +41,7 @@ pub(crate) fn keyword_candidates(expected: ExpectedSyntax, prefix: &str) -> Keyw
 
 #[cfg(test)]
 fn gate_type_keywords() -> &'static [String] {
-    static GATE_TYPE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    GATE_TYPE_KEYWORDS.get_or_init(|| keywords_matching(SyntaxFacts::is_gate_type)).as_slice()
+    keywords_for_context(SyntaxKeywordContext::GateType)
 }
 
 pub(crate) fn edge_keywords() -> &'static [String] {
@@ -46,136 +49,46 @@ pub(crate) fn edge_keywords() -> &'static [String] {
     EDGE_KEYWORDS.get_or_init(|| keywords_matching(SemanticFacts::is_edge_kind)).as_slice()
 }
 
-fn keywords_for_expected(expected: ExpectedSyntax) -> &'static [String] {
-    match expected {
-        ExpectedSyntax::CompilationUnitItem => compilation_unit_keywords(),
-        ExpectedSyntax::ModuleHeaderItem => port_item_keywords(PortListKind::Ansi),
-        ExpectedSyntax::ModuleItem => module_member_keywords(),
-        ExpectedSyntax::GenerateItem => generate_member_keywords(),
-        ExpectedSyntax::SpecifyItem => specify_item_keywords(),
-        ExpectedSyntax::ConfigItem { rules_allowed: false } => config_header_keywords(),
-        ExpectedSyntax::ConfigItem { rules_allowed: true } => config_rule_keywords(),
-        ExpectedSyntax::BlockItem { declarations_allowed: true } => block_item_keywords(),
-        ExpectedSyntax::BlockItem { declarations_allowed: false } | ExpectedSyntax::Statement => {
-            statement_keywords()
-        }
-        ExpectedSyntax::ParameterPortListItem => parameter_keywords(),
-        ExpectedSyntax::AnsiPortItem => port_item_keywords(PortListKind::Ansi),
-        ExpectedSyntax::FunctionPortItem => port_item_keywords(PortListKind::Function),
-        _ => &[],
-    }
-}
-
-fn compilation_unit_keywords() -> &'static [String] {
+fn keywords_for_context(context: SyntaxKeywordContext) -> &'static [String] {
     static COMPILATION_UNIT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    COMPILATION_UNIT_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, kind| {
-                member_keyword_kind(keyword, kind)
-                    .is_some_and(SyntaxFacts::is_allowed_in_compilation_unit)
-                    || library_map_keyword_kind(keyword).is_some()
-            })
-        })
-        .as_slice()
-}
-
-fn module_member_keywords() -> &'static [String] {
+    static LIBRARY_MAP_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
+    static MODULE_HEADER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
     static MODULE_MEMBER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    MODULE_MEMBER_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, kind| {
-                member_keyword_kind(keyword, kind).is_some_and(SyntaxFacts::is_allowed_in_module)
-            })
-        })
-        .as_slice()
-}
-
-fn generate_member_keywords() -> &'static [String] {
     static GENERATE_MEMBER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    GENERATE_MEMBER_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, kind| {
-                member_keyword_kind(keyword, kind).is_some_and(SyntaxFacts::is_allowed_in_generate)
-            })
-        })
-        .as_slice()
-}
-
-fn specify_item_keywords() -> &'static [String] {
     static SPECIFY_ITEM_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    SPECIFY_ITEM_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, _| specify_item_keyword_kind(keyword).is_some())
-        })
-        .as_slice()
-}
-
-fn config_header_keywords() -> &'static [String] {
     static CONFIG_HEADER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    CONFIG_HEADER_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, _| config_header_keyword_kind(keyword).is_some())
-        })
-        .as_slice()
-}
-
-fn config_rule_keywords() -> &'static [String] {
     static CONFIG_RULE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    CONFIG_RULE_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, _| config_rule_keyword_kind(keyword).is_some())
-        })
-        .as_slice()
-}
-
-fn block_item_keywords() -> &'static [String] {
     static BLOCK_ITEM_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    BLOCK_ITEM_KEYWORDS
-        .get_or_init(|| {
-            let mut keywords = block_declaration_keywords()
-                .iter()
-                .chain(statement_keywords().iter())
-                .cloned()
-                .collect::<Vec<_>>();
-            keywords.sort();
-            keywords.dedup();
-            keywords
-        })
-        .as_slice()
-}
-
-fn block_declaration_keywords() -> &'static [String] {
-    static BLOCK_DECLARATION_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    BLOCK_DECLARATION_KEYWORDS
-        .get_or_init(|| {
-            keywords_matching_label(|keyword, kind| {
-                block_declaration_keyword_kind(keyword, kind).is_some()
-            })
-        })
-        .as_slice()
-}
-
-fn statement_keywords() -> &'static [String] {
     static STATEMENT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    STATEMENT_KEYWORDS.get_or_init(|| keywords_matching(SyntaxFacts::is_possible_statement))
-}
-
-fn parameter_keywords() -> &'static [String] {
     static PARAMETER_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    PARAMETER_KEYWORDS.get_or_init(|| keywords_matching(SyntaxFacts::is_possible_parameter))
+    static ANSI_PORT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
+    static FUNCTION_PORT_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
+    static GATE_TYPE_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
+
+    match context {
+        SyntaxKeywordContext::CompilationUnitMember => &COMPILATION_UNIT_KEYWORDS,
+        SyntaxKeywordContext::LibraryMapMember => &LIBRARY_MAP_KEYWORDS,
+        SyntaxKeywordContext::ModuleHeaderItem => &MODULE_HEADER_KEYWORDS,
+        SyntaxKeywordContext::ModuleMember => &MODULE_MEMBER_KEYWORDS,
+        SyntaxKeywordContext::GenerateMember => &GENERATE_MEMBER_KEYWORDS,
+        SyntaxKeywordContext::SpecifyItem => &SPECIFY_ITEM_KEYWORDS,
+        SyntaxKeywordContext::ConfigHeaderItem => &CONFIG_HEADER_KEYWORDS,
+        SyntaxKeywordContext::ConfigRule => &CONFIG_RULE_KEYWORDS,
+        SyntaxKeywordContext::BlockItem => &BLOCK_ITEM_KEYWORDS,
+        SyntaxKeywordContext::Statement => &STATEMENT_KEYWORDS,
+        SyntaxKeywordContext::ParameterPortListItem => &PARAMETER_KEYWORDS,
+        SyntaxKeywordContext::AnsiPortItem => &ANSI_PORT_KEYWORDS,
+        SyntaxKeywordContext::FunctionPortItem => &FUNCTION_PORT_KEYWORDS,
+        SyntaxKeywordContext::GateType => &GATE_TYPE_KEYWORDS,
+    }
+    .get_or_init(|| keyword_context_candidates(context))
+    .as_slice()
 }
 
 pub(crate) fn port_item_keywords(kind: PortListKind) -> &'static [String] {
-    static ANSI_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-    static FUNCTION_KEYWORDS: OnceLock<Vec<String>> = OnceLock::new();
-
     match kind {
-        PortListKind::Ansi => ANSI_KEYWORDS
-            .get_or_init(|| keywords_matching(SyntaxFacts::is_possible_ansi_port))
-            .as_slice(),
-        PortListKind::Function => FUNCTION_KEYWORDS
-            .get_or_init(|| keywords_matching(SyntaxFacts::is_possible_function_port))
-            .as_slice(),
+        PortListKind::Ansi => keywords_for_context(SyntaxKeywordContext::AnsiPortItem),
+        PortListKind::Function => keywords_for_context(SyntaxKeywordContext::FunctionPortItem),
         PortListKind::NonAnsi => &[],
     }
 }
@@ -184,114 +97,14 @@ pub(crate) fn has_port_item_keyword_prefix(prefix: &str, kind: PortListKind) -> 
     !prefix.is_empty() && port_item_keywords(kind).iter().any(|keyword| keyword.starts_with(prefix))
 }
 
-fn member_keyword_kind(keyword: &str, kind: TokenKind) -> Option<SyntaxKind> {
-    if let Some(kind) = known_syntax_kind(SyntaxFacts::get_module_declaration_kind(kind)) {
-        return Some(kind);
-    }
-
-    if let Some(kind) = known_syntax_kind(SyntaxFacts::get_procedural_block_kind(kind)) {
-        return Some(kind);
-    }
-
-    if SyntaxFacts::is_gate_type(kind) {
-        return Some(SyntaxKind::PRIMITIVE_INSTANTIATION);
-    }
-
-    if SyntaxFacts::is_port_direction(kind) {
-        return Some(SyntaxKind::PORT_DECLARATION);
-    }
-
-    if SyntaxFacts::is_net_type(kind) {
-        return Some(SyntaxKind::NET_DECLARATION);
-    }
-
-    if is_data_declaration_keyword(kind) {
-        return Some(SyntaxKind::DATA_DECLARATION);
-    }
-
-    match keyword {
-        "assign" => Some(SyntaxKind::CONTINUOUS_ASSIGN),
-        "begin" => Some(SyntaxKind::GENERATE_BLOCK),
-        "case" | "casex" | "casez" => Some(SyntaxKind::CASE_GENERATE),
-        "config" => Some(SyntaxKind::CONFIG_DECLARATION),
-        "defparam" => Some(SyntaxKind::DEF_PARAM),
-        "for" => Some(SyntaxKind::LOOP_GENERATE),
-        "function" => Some(SyntaxKind::FUNCTION_DECLARATION),
-        "generate" => Some(SyntaxKind::GENERATE_REGION),
-        "genvar" => Some(SyntaxKind::GENVAR_DECLARATION),
-        "if" => Some(SyntaxKind::IF_GENERATE),
-        "localparam" | "parameter" => Some(SyntaxKind::PARAMETER_DECLARATION_STATEMENT),
-        "primitive" => Some(SyntaxKind::UDP_DECLARATION),
-        "specify" => Some(SyntaxKind::SPECIFY_BLOCK),
-        "specparam" => Some(SyntaxKind::SPECPARAM_DECLARATION),
-        "task" => Some(SyntaxKind::TASK_DECLARATION),
-        _ => None,
-    }
+fn keyword_context_candidates(context: SyntaxKeywordContext) -> Vec<String> {
+    SyntaxFacts::keyword_candidates_for_context(KEYWORD_VERSION, context)
 }
 
-fn library_map_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
-    match keyword {
-        "include" => Some(SyntaxKind::LIBRARY_INCLUDE_STATEMENT),
-        "library" => Some(SyntaxKind::LIBRARY_DECLARATION),
-        _ => None,
-    }
-}
-
-fn specify_item_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
-    match keyword {
-        "if" => Some(SyntaxKind::CONDITIONAL_PATH_DECLARATION),
-        "ifnone" => Some(SyntaxKind::IF_NONE_PATH_DECLARATION),
-        "noshowcancelled" | "pulsestyle_ondetect" | "pulsestyle_onevent" | "showcancelled" => {
-            Some(SyntaxKind::PULSE_STYLE_DECLARATION)
-        }
-        "specparam" => Some(SyntaxKind::SPECPARAM_DECLARATION),
-        _ => None,
-    }
-}
-
-fn config_header_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
-    match keyword {
-        "design" => Some(SyntaxKind::CONFIG_DECLARATION),
-        "localparam" => Some(SyntaxKind::PARAMETER_DECLARATION_STATEMENT),
-        _ => None,
-    }
-}
-
-fn config_rule_keyword_kind(keyword: &str) -> Option<SyntaxKind> {
-    match keyword {
-        "cell" => Some(SyntaxKind::CELL_CONFIG_RULE),
-        "default" => Some(SyntaxKind::DEFAULT_CONFIG_RULE),
-        "instance" => Some(SyntaxKind::INSTANCE_CONFIG_RULE),
-        _ => None,
-    }
-}
-
-fn block_declaration_keyword_kind(keyword: &str, kind: TokenKind) -> Option<SyntaxKind> {
-    match keyword {
-        "localparam" | "parameter" => Some(SyntaxKind::PARAMETER_DECLARATION_STATEMENT),
-        _ if is_data_declaration_keyword(kind) => Some(SyntaxKind::DATA_DECLARATION),
-        _ => None,
-    }
-}
-
-fn is_data_declaration_keyword(kind: TokenKind) -> bool {
-    known_syntax_kind(SyntaxFacts::get_integer_type(kind)).is_some()
-        || known_syntax_kind(SyntaxFacts::get_keyword_type(kind)).is_some()
-        || SyntaxFacts::is_possible_data_type(kind)
-}
-
-fn known_syntax_kind(kind: SyntaxKind) -> Option<SyntaxKind> {
-    (kind != SyntaxKind::UNKNOWN).then_some(kind)
-}
-
-fn keywords_matching(predicate: fn(TokenKind) -> bool) -> Vec<String> {
-    keywords_matching_label(|_, kind| predicate(kind))
-}
-
-fn keywords_matching_label(predicate: impl Fn(&str, TokenKind) -> bool) -> Vec<String> {
+fn keywords_matching(predicate: impl Fn(TokenKind) -> bool) -> Vec<String> {
     let mut keywords = all_keywords()
         .iter()
-        .filter(|keyword| keyword_kind(keyword).is_some_and(|kind| predicate(keyword, kind)))
+        .filter(|keyword| keyword_kind(keyword).is_some_and(|kind| predicate(kind)))
         .cloned()
         .collect::<Vec<_>>();
     keywords.sort();
@@ -334,21 +147,31 @@ mod tests {
     }
 
     #[test]
-    fn compilation_unit_keywords_use_member_and_library_map_facts() {
-        let keywords = keywords_at(ExpectedSyntax::CompilationUnitItem);
+    fn compilation_unit_keywords_use_member_facts() {
+        let keywords = keywords_at(SyntaxKeywordContext::CompilationUnitMember);
 
         assert!(keywords.iter().any(|keyword| keyword == "module"));
         assert!(keywords.iter().any(|keyword| keyword == "macromodule"));
         assert!(keywords.iter().any(|keyword| keyword == "primitive"));
         assert!(keywords.iter().any(|keyword| keyword == "config"));
-        assert!(keywords.iter().any(|keyword| keyword == "library"));
-        assert!(keywords.iter().any(|keyword| keyword == "include"));
+        assert!(!keywords.iter().any(|keyword| keyword == "library"));
+        assert!(!keywords.iter().any(|keyword| keyword == "include"));
         assert!(!keywords.iter().any(|keyword| keyword == "endmodule"));
     }
 
     #[test]
+    fn library_map_keywords_use_library_map_facts() {
+        let keywords = keywords_at(SyntaxKeywordContext::LibraryMapMember);
+
+        assert!(keywords.iter().any(|keyword| keyword == "library"));
+        assert!(keywords.iter().any(|keyword| keyword == "include"));
+        assert!(keywords.iter().any(|keyword| keyword == "config"));
+        assert!(!keywords.iter().any(|keyword| keyword == "module"));
+    }
+
+    #[test]
     fn module_member_keywords_use_slang_allowed_in_module() {
-        let keywords = keywords_at(ExpectedSyntax::ModuleItem);
+        let keywords = keywords_at(SyntaxKeywordContext::ModuleMember);
 
         assert!(keywords.iter().any(|keyword| keyword == "always"));
         assert!(keywords.iter().any(|keyword| keyword == "begin"));
@@ -363,12 +186,14 @@ mod tests {
 
     #[test]
     fn generate_member_keywords_use_slang_allowed_in_generate() {
-        let keywords = keywords_at(ExpectedSyntax::GenerateItem);
+        let keywords = keywords_at(SyntaxKeywordContext::GenerateMember);
 
         assert!(keywords.iter().any(|keyword| keyword == "assign"));
         assert!(keywords.iter().any(|keyword| keyword == "begin"));
         assert!(keywords.iter().any(|keyword| keyword == "wire"));
         assert!(keywords.iter().any(|keyword| keyword == "buf"));
+        assert!(!keywords.iter().any(|keyword| keyword == "casex"));
+        assert!(!keywords.iter().any(|keyword| keyword == "casez"));
         assert!(!keywords.iter().any(|keyword| keyword == "while"));
         assert!(!keywords.iter().any(|keyword| keyword == "return"));
         assert!(!keywords.iter().any(|keyword| keyword == "generate"));
@@ -376,7 +201,7 @@ mod tests {
 
     #[test]
     fn specify_item_keywords_use_specify_item_entries() {
-        let keywords = keywords_at(ExpectedSyntax::SpecifyItem);
+        let keywords = keywords_at(SyntaxKeywordContext::SpecifyItem);
 
         assert!(keywords.iter().any(|keyword| keyword == "specparam"));
         assert!(keywords.iter().any(|keyword| keyword == "pulsestyle_ondetect"));
@@ -388,7 +213,7 @@ mod tests {
 
     #[test]
     fn keyword_candidates_filter_prefix() {
-        let candidates = keyword_candidates(ExpectedSyntax::ModuleItem, "al");
+        let candidates = keyword_candidates_for_context(SyntaxKeywordContext::ModuleMember, "al");
 
         assert!(candidates.contains_plain("always"));
         assert!(candidates.labels().iter().all(|keyword| keyword.starts_with("al")));
@@ -396,7 +221,7 @@ mod tests {
 
     #[test]
     fn module_header_keywords_use_ansi_port_facts() {
-        let keywords = keywords_at(ExpectedSyntax::ModuleHeaderItem);
+        let keywords = keywords_at(SyntaxKeywordContext::ModuleHeaderItem);
 
         assert!(keywords.iter().any(|keyword| keyword == "input"));
         assert!(keywords.iter().any(|keyword| keyword == "output"));
@@ -405,14 +230,14 @@ mod tests {
 
     #[test]
     fn block_and_statement_keywords_are_separate() {
-        let block_keywords = keywords_at(ExpectedSyntax::BlockItem { declarations_allowed: true });
+        let block_keywords = keywords_at(SyntaxKeywordContext::BlockItem);
         assert!(block_keywords.iter().any(|keyword| keyword == "integer"));
         assert!(block_keywords.iter().any(|keyword| keyword == "localparam"));
         assert!(block_keywords.iter().any(|keyword| keyword == "for"));
         assert!(!block_keywords.iter().any(|keyword| keyword == "wire"));
         assert!(!block_keywords.iter().any(|keyword| keyword == "module"));
 
-        let statement_keywords = keywords_at(ExpectedSyntax::Statement);
+        let statement_keywords = keywords_at(SyntaxKeywordContext::Statement);
         assert!(statement_keywords.iter().any(|keyword| keyword == "for"));
         assert!(statement_keywords.iter().any(|keyword| keyword == "if"));
         assert!(statement_keywords.iter().any(|keyword| keyword == "begin"));
@@ -423,17 +248,17 @@ mod tests {
 
     #[test]
     fn port_and_parameter_keywords_use_slang_token_facts() {
-        let ansi_keywords = keywords_at(ExpectedSyntax::AnsiPortItem);
+        let ansi_keywords = keywords_at(SyntaxKeywordContext::AnsiPortItem);
         assert!(ansi_keywords.iter().any(|keyword| keyword == "input"));
         assert!(ansi_keywords.iter().any(|keyword| keyword == "output"));
         assert!(!ansi_keywords.iter().any(|keyword| keyword == "always"));
 
-        let function_keywords = keywords_at(ExpectedSyntax::FunctionPortItem);
+        let function_keywords = keywords_at(SyntaxKeywordContext::FunctionPortItem);
         assert!(function_keywords.iter().any(|keyword| keyword == "input"));
         assert!(function_keywords.iter().any(|keyword| keyword == "output"));
         assert!(!function_keywords.iter().any(|keyword| keyword == "always"));
 
-        let parameter_keywords = keywords_at(ExpectedSyntax::ParameterPortListItem);
+        let parameter_keywords = keywords_at(SyntaxKeywordContext::ParameterPortListItem);
         assert!(
             parameter_keywords.iter().any(|keyword| keyword == "parameter"),
             "parameter predictions: {parameter_keywords:?}"
@@ -444,41 +269,42 @@ mod tests {
     #[test]
     fn core_keyword_contexts_are_non_empty() {
         let cases = [
-            ExpectedSyntax::CompilationUnitItem,
-            ExpectedSyntax::ModuleHeaderItem,
-            ExpectedSyntax::ModuleItem,
-            ExpectedSyntax::GenerateItem,
-            ExpectedSyntax::SpecifyItem,
-            ExpectedSyntax::ConfigItem { rules_allowed: false },
-            ExpectedSyntax::ConfigItem { rules_allowed: true },
-            ExpectedSyntax::BlockItem { declarations_allowed: true },
-            ExpectedSyntax::Statement,
-            ExpectedSyntax::AnsiPortItem,
-            ExpectedSyntax::FunctionPortItem,
-            ExpectedSyntax::ParameterPortListItem,
+            SyntaxKeywordContext::CompilationUnitMember,
+            SyntaxKeywordContext::LibraryMapMember,
+            SyntaxKeywordContext::ModuleHeaderItem,
+            SyntaxKeywordContext::ModuleMember,
+            SyntaxKeywordContext::GenerateMember,
+            SyntaxKeywordContext::SpecifyItem,
+            SyntaxKeywordContext::ConfigHeaderItem,
+            SyntaxKeywordContext::ConfigRule,
+            SyntaxKeywordContext::BlockItem,
+            SyntaxKeywordContext::Statement,
+            SyntaxKeywordContext::AnsiPortItem,
+            SyntaxKeywordContext::FunctionPortItem,
+            SyntaxKeywordContext::ParameterPortListItem,
         ];
 
-        for expected in cases {
-            let keywords = keywords_at(expected);
-            assert!(!keywords.is_empty(), "{expected:?} produced no keywords");
+        for context in cases {
+            let keywords = keywords_at(context);
+            assert!(!keywords.is_empty(), "{context:?} produced no keywords");
         }
     }
 
     #[test]
     fn config_keywords_use_config_phase_entries() {
-        let header = config_header_keywords();
+        let header = keywords_for_context(SyntaxKeywordContext::ConfigHeaderItem);
         assert!(header.iter().any(|keyword| keyword == "design"));
         assert!(header.iter().any(|keyword| keyword == "localparam"));
         assert!(!header.iter().any(|keyword| keyword == "default"));
 
-        let rules = config_rule_keywords();
+        let rules = keywords_for_context(SyntaxKeywordContext::ConfigRule);
         assert!(rules.iter().any(|keyword| keyword == "default"));
         assert!(rules.iter().any(|keyword| keyword == "instance"));
         assert!(rules.iter().any(|keyword| keyword == "cell"));
         assert!(!rules.iter().any(|keyword| keyword == "design"));
     }
 
-    fn keywords_at(expected: ExpectedSyntax) -> Vec<String> {
-        keyword_candidates(expected, "").into_labels()
+    fn keywords_at(context: SyntaxKeywordContext) -> Vec<String> {
+        keyword_candidates_for_context(context, "").into_labels()
     }
 }

@@ -13,6 +13,10 @@ use crate::{
 };
 
 fn setup(text: &str) -> (AnalysisHost, FilePosition) {
+    setup_with_path(text, "/test.v")
+}
+
+fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FilePosition) {
     let text = normalize_fixture_text(text);
     let marker = "/*caret*/";
     let off = text.find(marker).expect("missing /*caret*/");
@@ -20,7 +24,7 @@ fn setup(text: &str) -> (AnalysisHost, FilePosition) {
     owned = owned.replace(marker, "");
 
     let file_id = FileId(0);
-    let path = VfsPath::new_virtual_path("/test.v".to_string());
+    let path = VfsPath::new_virtual_path(path.to_string());
 
     let mut file_set = FileSet::default();
     file_set.insert(file_id, path);
@@ -41,6 +45,11 @@ fn setup(text: &str) -> (AnalysisHost, FilePosition) {
 
 fn completions_in_text(text: &str, trigger: Option<TriggerChar>) -> Vec<CompletionItem> {
     let (host, position) = setup(text);
+    super::completions(host.raw_db(), position, trigger)
+}
+
+fn completions_in_library_map(text: &str, trigger: Option<TriggerChar>) -> Vec<CompletionItem> {
+    let (host, position) = setup_with_path(text, "/test.map");
     super::completions(host.raw_db(), position, trigger)
 }
 
@@ -242,6 +251,131 @@ fn expression_completion_excludes_module_item_keywords() {
 }
 
 #[test]
+fn expression_completion_uses_lexical_block_scope_chain() {
+    let text = r#"
+module m;
+  initial begin
+    integer outer_value;
+    begin
+      integer inner_value;
+      inner_value = /*caret*/;
+    end
+  end
+endmodule
+"#;
+    let items = completions_in_text(text, None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"outer_value"), "outer block decl expected: {items:?}");
+    assert!(item_labels.contains(&"inner_value"), "inner block decl expected: {items:?}");
+}
+
+#[test]
+fn expression_completion_uses_slang_system_function_facts() {
+    let items = completions_in_text("module m; localparam int W = $cl/*caret*/; endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"$clog2"), "system function expected: {items:?}");
+    assert!(
+        !item_labels.contains(&"$display"),
+        "system task leaked into expression completion: {items:?}"
+    );
+}
+
+#[test]
+fn statement_completion_uses_slang_system_task_facts() {
+    let items =
+        completions_in_text("module m; initial begin\n  $di/*caret*/\nend endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"$display"), "system task expected: {items:?}");
+    assert!(
+        !item_labels.contains(&"$clog2"),
+        "system function leaked into statement task completion: {items:?}"
+    );
+}
+
+#[test]
+fn expression_completion_uses_generate_block_scope_chain() {
+    let items = completions_in_text(
+        r#"
+module top;
+  generate
+    if (1) begin : g
+      localparam int generated_value = 1;
+      initial begin
+        int local_value;
+        local_value = gen/*caret*/;
+      end
+    end
+  endgenerate
+endmodule
+"#,
+        None,
+    );
+    let item_labels = labels(&items);
+
+    assert!(
+        item_labels.contains(&"generated_value"),
+        "generate block declaration expected: {items:?}"
+    );
+}
+
+#[test]
+fn expression_completion_uses_file_scope_values() {
+    let items = completions_in_text(
+        "int file_value;\nmodule m; initial x = file/*caret*/; endmodule\n",
+        None,
+    );
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"file_value"), "file-scope decl expected: {items:?}");
+}
+
+#[test]
+fn expression_completion_filters_assignment_rhs_by_expected_type() {
+    let items = completions_in_text(
+        r#"
+module m;
+  logic [7:0] lhs;
+  logic [7:0] same_width;
+  logic [15:0] wrong_width;
+  initial lhs = /*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"same_width"), "same-width value expected: {items:?}");
+    assert!(!item_labels.contains(&"wrong_width"), "wrong-width value leaked: {items:?}");
+}
+
+#[test]
+fn expression_completion_filters_subroutine_calls_by_return_type() {
+    let items = completions_in_text(
+        r#"
+module m;
+  function int same_type(input int a);
+    same_type = a;
+  endfunction
+  function logic [15:0] wrong_type(input logic [15:0] a);
+    wrong_type = a;
+  endfunction
+
+  int lhs;
+  assign lhs = /*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"same_type"), "compatible function expected: {items:?}");
+    assert!(!item_labels.contains(&"wrong_type"), "wrong-return function leaked: {items:?}");
+}
+
+#[test]
 fn initializer_expression_completion_excludes_module_item_keywords() {
     let items =
         completions_in_text("module m; wire a; localparam P = a + /*caret*/; endmodule\n", None);
@@ -249,6 +383,24 @@ fn initializer_expression_completion_excludes_module_item_keywords() {
 
     assert!(labels.contains(&"a"), "initializer expression names should be offered: {items:?}");
     assert!(!labels.contains(&"assign"), "module item keyword leaked into initializer: {items:?}");
+}
+
+#[test]
+fn initializer_expression_completion_filters_by_expected_type() {
+    let items = completions_in_text(
+        r#"
+module m;
+  logic [7:0] same_width;
+  logic [15:0] wrong_width;
+  logic [7:0] lhs = /*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"same_width"), "same-width initializer expected: {items:?}");
+    assert!(!item_labels.contains(&"wrong_width"), "wrong-width initializer leaked: {items:?}");
 }
 
 #[test]
@@ -314,15 +466,31 @@ fn module_item_identifier_prefix_stays_module_item_start() {
 }
 
 #[test]
+fn generate_item_completion_includes_module_instantiation_snippets() {
+    let items = completions_in_text(
+        "module Foo; endmodule\nmodule top; generate\n  Fo/*caret*/\nendgenerate endmodule\n",
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"Foo"), "generate module instantiation expected: {items:?}");
+}
+
+#[test]
 fn top_level_completion_keeps_top_level_keyword_prefixes() {
-    for (text, expected) in [
-        ("con/*caret*/\n", "config"),
-        ("pri/*caret*/\n", "primitive"),
-        ("lib/*caret*/\n", "library"),
-    ] {
+    for (text, expected) in [("con/*caret*/\n", "config"), ("pri/*caret*/\n", "primitive")] {
         let items = completions_in_text(text, None);
         assert!(labels(&items).contains(&expected), "{expected} missing from {items:?}");
     }
+}
+
+#[test]
+fn library_map_completion_uses_library_map_keywords() {
+    let items = completions_in_library_map("lib/*caret*/\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"library"), "library map keyword expected: {items:?}");
+    assert!(!item_labels.contains(&"module"), "SV keyword leaked into library map: {items:?}");
 }
 
 #[test]
@@ -494,6 +662,69 @@ fn incomplete_array_member_access_uses_structural_left_expression() {
         labels.contains(&"inner"),
         "array member access should recover left expression: {items:?}"
     );
+}
+
+#[test]
+fn scoped_name_completion_uses_package_scope() {
+    let items = completions_in_text(
+        r#"
+package pkg;
+  localparam int pkg_value = 1;
+  localparam int other_value = 2;
+endpackage
+
+module top;
+  localparam int value = pkg::/*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"pkg_value"), "package member expected: {items:?}");
+    assert!(labels.contains(&"other_value"), "package member expected: {items:?}");
+}
+
+#[test]
+fn scoped_name_completion_filters_prefix() {
+    let items = completions_in_text(
+        r#"
+package pkg;
+  localparam int pkg_value = 1;
+  localparam int other_value = 2;
+endpackage
+
+module top;
+  localparam int value = pkg::pkg/*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"pkg_value"), "prefixed package member expected: {items:?}");
+    assert!(!labels.contains(&"other_value"), "non-matching package member leaked: {items:?}");
+}
+
+#[test]
+fn member_access_completion_uses_struct_fields() {
+    let items = completions_in_text(
+        r#"
+module top;
+  typedef struct {
+    logic [7:0] first_field;
+    logic [7:0] second_field;
+  } packet_t;
+  packet_t pkt;
+  initial pkt./*caret*/
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"first_field"), "struct field expected: {items:?}");
+    assert!(labels.contains(&"second_field"), "struct field expected: {items:?}");
 }
 
 #[test]
