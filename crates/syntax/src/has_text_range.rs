@@ -5,13 +5,17 @@ use slang::{
 use utils::line_index::TextRange;
 
 pub(crate) trait SourceRangeExt {
-    fn to_text_range(self) -> Option<TextRange>;
+    fn to_text_range_in_root(self, root: SyntaxNode<'_>) -> Option<TextRange>;
 }
 
 impl SourceRangeExt for SourceRange {
     #[inline]
-    fn to_text_range(self) -> Option<TextRange> {
-        if !self.is_single_buffer() {
+    fn to_text_range_in_root(self, root: SyntaxNode<'_>) -> Option<TextRange> {
+        let root_range = root.range()?;
+        if !root_range.is_single_buffer()
+            || self.start_buffer_id() != root_range.start_buffer_id()
+            || self.end_buffer_id() != root_range.start_buffer_id()
+        {
             return None;
         }
 
@@ -19,6 +23,13 @@ impl SourceRangeExt for SourceRange {
         let end = u32::try_from(self.end()).ok()?;
         (start <= end).then(|| TextRange::new(start.into(), end.into()))
     }
+}
+
+fn root_node(mut node: SyntaxNode<'_>) -> SyntaxNode<'_> {
+    while let Some(parent) = node.parent() {
+        node = parent;
+    }
+    node
 }
 
 pub trait HasTextRange {
@@ -37,7 +48,8 @@ pub trait HasTextRangeIn<'a> {
 impl HasTextRange for SyntaxNode<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
-        self.range()?.to_text_range()
+        let root = root_node(*self);
+        self.range_with_context(root)?.to_text_range_in_root(root)
     }
 }
 
@@ -51,13 +63,17 @@ impl<'a> HasTextRangeIn<'a> for SyntaxToken<'a> {
 impl HasTextRange for LocatedSyntaxToken<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
-        self.range()?.to_text_range()
+        let root = root_node(self.parent);
+        self.range()?.to_text_range_in_root(root)
     }
 }
 
 impl HasTextRange for SyntaxElement<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
-        self.range()?.to_text_range()
+        match self {
+            SyntaxElement::Node(node) => node.text_range(),
+            SyntaxElement::Token(token) => token.text_range(),
+        }
     }
 }

@@ -238,7 +238,7 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                 {
                     if node
                         .range_with_context(tok.parent)
-                        .and_then(SourceRangeExt::to_text_range)
+                        .and_then(|range| range.to_text_range_in_root(tok.parent.find_root()))
                         .is_some_and(|range| range.contains(offset) || range.end() == offset)
                     {
                         return Some(trivia.kind());
