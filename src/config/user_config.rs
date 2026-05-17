@@ -5,7 +5,7 @@ use base_db::diagnostics_config::{
 use ide::{
     code_lens::CodeLensConfig,
     document_highlight::DocumentHighlightConfig,
-    formatting::{FmtConfig, FmtIndentStyle, FormatterProvider},
+    formatting::{FmtConfig, FormatterProvider},
     hover::HoverConfig,
     inlay_hint::InlayHintConfig,
     references::ReferencesConfig,
@@ -161,7 +161,7 @@ config_data! {
         /// If true, symbols within a scope (except for ports) are private to other scopes.
         scope_visibility: ScopeVisibility = ScopeVisibility::Private,
 
-        formatter_provider: FormatterProvider = FormatterProvider::Vuff,
+        formatter_provider: FormatterProvider = FormatterProvider::Verible,
         formatter_path: Option<Utf8PathBuf> = None,
         formatting_on_enter: bool = true,
         formatting_in_comments: bool = true,
@@ -272,7 +272,6 @@ impl Config {
             executable: self.user_config.formatter_path.clone(),
             args: self.user_config.formatter_args.clone(),
             indent_width: self.user_config.formatting_indent_width,
-            indent_style: FmtIndentStyle::Spaces,
             on_enter: self.user_config.formatting_on_enter,
             in_comments: self.user_config.formatting_in_comments,
         }

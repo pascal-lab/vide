@@ -48,14 +48,14 @@
 
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `vizsla.formatter.provider` | `"vuff"` | formatter 后端。`vuff` 为内置 formatter, 支持全文格式化; `verible` 调用外部 `verible-verilog-format`, 支持全文和范围格式化。 |
+| `vizsla.formatter.provider` | `"verible"` | formatter 后端。当前支持 `verible`, 会调用外部 `verible-verilog-format`。 |
 | `vizsla.formatter.path` | `null` | `verible` provider 使用的可执行文件路径。留空时查找 `verible-verilog-format`。 |
 | `vizsla.formatter.args` | `["--failsafe_success=false"]` | 传给 `verible-verilog-format` 的参数。 |
 | `vizsla.formatting.on.enter` | `true` | 按 Enter 时启用格式化行为。 |
 | `vizsla.formatting.in.comments` | `true` | 在注释内启用 Enter 辅助格式化。 |
 | `vizsla.formatting.indent.width` | `4` | 编辑器没有提供 formatting options 时使用的后备缩进宽度。 |
 
-`Format Document`, `Format Selection` 和 on-type formatting 请求会优先使用编辑器传入的 `tabSize` 和 `insertSpaces`。`vuff` 会读取最近的 `vuff.toml`; 没有 `vuff.toml` 时, 编辑器缩进设置会作为内置 vuff 的默认缩进风格。`verible` provider 会在 formatter args 后追加当前缩进宽度对应的 `--indentation_spaces=<N>`。
+`Format Document`, `Format Selection` 和 on-type formatting 请求会优先使用编辑器传入的 `tabSize`。`verible` provider 会在 formatter args 后追加当前缩进宽度对应的 `--indentation_spaces=<N>`。
 
 ## Inlay Hints
 

@@ -140,12 +140,10 @@
         "vizsla.formatter.provider": {
           "type": "string",
           "enum": [
-            "vuff",
             "verible"
           ],
-          "default": "vuff",
+          "default": "verible",
           "enumDescriptions": [
-            "Use the bundled vuff formatter. Supports Format Document.",
             "Use an external verible-verilog-format executable. Supports Format Document and Format Selection."
           ],
           "description": "Formatter backend used by Vizsla."

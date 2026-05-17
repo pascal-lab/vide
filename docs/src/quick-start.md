@@ -31,6 +31,6 @@
 2. 在模块名、信号名或实例名上执行 `Go to Definition` 或 `Go to Declaration`。
 3. 在实例端口连接、参数赋值、表达式或预处理位置触发补全。
 4. 把光标放到符号上查看悬停说明。
-5. 执行 `Format Document`。默认格式化使用内置 `vuff` formatter, 不需要额外安装外部工具。
+5. 执行 `Format Document`。默认格式化会调用 `verible-verilog-format`, 如果本机没有这个工具, 请配置 `vizsla.formatter.path` 或先跳过格式化验证。
 
 配置变更后, 如果 VS Code 提示重启语言服务器, 选择 `Restart`。

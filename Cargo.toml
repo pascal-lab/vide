@@ -90,15 +90,6 @@ text-size = "1.1.1"
 thiserror = "2.0.0"
 tracing = "0.1.37"
 triomphe = "0.1.9"
-vuff_config = { git = "https://github.com/KelvinChung2000/vuff.git", rev = "17dadc2ea7892df34e69383370fbfddf16a27cc3" }
-vuff_sv_formatter = { git = "https://github.com/KelvinChung2000/vuff.git", rev = "17dadc2ea7892df34e69383370fbfddf16a27cc3" }
-
-[patch.crates-io]
-sv-parser = { git = "https://github.com/KelvinChung2000/sv-parser", branch = "master" }
-sv-parser-error = { git = "https://github.com/KelvinChung2000/sv-parser", branch = "master" }
-sv-parser-parser = { git = "https://github.com/KelvinChung2000/sv-parser", branch = "master" }
-sv-parser-pp = { git = "https://github.com/KelvinChung2000/sv-parser", branch = "master" }
-sv-parser-syntaxtree = { git = "https://github.com/KelvinChung2000/sv-parser", branch = "master" }
 
 [profile.dev]
 debug = 1

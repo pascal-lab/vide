@@ -28,8 +28,6 @@ toml = "0.9.8"
 tracing.workspace = true
 triomphe.workspace = true
 utils.workspace = true
-vuff_config.workspace = true
-vuff_sv_formatter.workspace = true
 which = "7.0.0"
 vfs.workspace = true
 

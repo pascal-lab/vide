@@ -90,16 +90,15 @@ include_dirs = ["include", "rtl"]
 
 ## 格式化没有结果或失败
 
-默认 formatter provider 是内置 `vuff`, 支持全文格式化。如果 `Format Selection` 失败, 通常是因为 `vuff` 当前不支持局部格式化。需要范围格式化时, 切换到 `verible` 并配置 `verible-verilog-format`:
+默认 formatter provider 会调用 `verible-verilog-format`。如果本机没有这个命令, 配置:
 
 ```json
 {
-  "vizsla.formatter.provider": "verible",
   "vizsla.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
 }
 ```
 
-`vizsla.formatter.args` 只对 `verible` 生效。`vuff` 会读取最近的 `vuff.toml`; 如果配置解析或格式化失败, 先临时移走 `vuff.toml` 验证默认配置是否可用。
+格式化失败时, 输出通常来自 formatter stderr。你也可以减少自定义 `vizsla.formatter.args`, 先用默认参数验证。
 
 ## 文件监听问题
 
