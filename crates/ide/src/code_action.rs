@@ -48,6 +48,7 @@ pub enum RepairKind {
     MissingParameter,
     ConvertOrderedPorts,
     ConvertOrderedParams,
+    RemoveEmptyPortConnections,
     AddImplicitNamedPortParens,
     AddInstanceParens,
 }
@@ -225,7 +226,7 @@ impl CodeActionDiagnostics {
 }
 
 impl CodeActionDiagnostic {
-    fn allows_repair(&self, repair: RepairKind) -> bool {
+    pub fn allows_repair(&self, repair: RepairKind) -> bool {
         match repair {
             RepairKind::MissingConnection => {
                 self.source == Some(DiagnosticSource::Semantic)
@@ -246,6 +247,10 @@ impl CodeActionDiagnostic {
             RepairKind::ConvertOrderedParams => {
                 self.source == Some(DiagnosticSource::Semantic)
                     && self.name.as_deref() == Some("MixingOrderedAndNamedParams")
+            }
+            RepairKind::RemoveEmptyPortConnections => {
+                self.source == Some(DiagnosticSource::Semantic)
+                    && self.name.as_deref() == Some("MixingOrderedAndNamedPorts")
             }
             RepairKind::AddImplicitNamedPortParens => {
                 self.source == Some(DiagnosticSource::Semantic)
@@ -291,6 +296,9 @@ impl CodeActionResolveStrategy {
 pub struct CodeActionId {
     pub name: &'static str,
     pub kind: CodeActionKind,
+    /// Diagnostic repair this action can satisfy when a matching diagnostic is
+    /// present.
+    pub repair: Option<RepairKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -427,6 +435,7 @@ mod handlers {
     mod add_missing_connections;
     mod add_missing_parameters;
     mod convert_ordered_connections;
+    mod remove_empty_port_connections;
 
     pub(crate) fn all() -> &'static [Handler] {
         &[
@@ -434,6 +443,7 @@ mod handlers {
             add_missing_parameters::add_missing_parameters,
             convert_ordered_connections::convert_ordered_ports,
             convert_ordered_connections::convert_ordered_params,
+            remove_empty_port_connections::remove_empty_port_connections,
             add_implicit_named_port_parens::add_implicit_named_port_parens,
             add_instance_parens::add_instance_parens,
         ]
@@ -485,11 +495,30 @@ mod tests {
             RepairKind::MissingParameter => action.id.name == "add_missing_parameters",
             RepairKind::ConvertOrderedPorts => action.id.name == "convert_ordered_ports",
             RepairKind::ConvertOrderedParams => action.id.name == "convert_ordered_params",
+            RepairKind::RemoveEmptyPortConnections => {
+                action.id.name == "remove_empty_port_connections"
+            }
             RepairKind::AddImplicitNamedPortParens => {
                 action.id.name == "add_implicit_named_port_parens"
             }
             RepairKind::AddInstanceParens => action.id.name == "add_instance_parens",
         })?;
+        let mut text = text.replace("/*caret*/", "");
+        let edit = action.source_change?.text_edits.remove(&file_id)?;
+        edit.apply(&mut text);
+        Some(text)
+    }
+
+    fn apply_action_without_diagnostics(text: &str, action_name: &str) -> Option<String> {
+        let (db, file_id, offset) = db_with_file(text);
+        let actions = code_action(
+            &db,
+            file_id,
+            utils::text_edit::TextRange::empty(offset),
+            CodeActionDiagnostics::default(),
+            CodeActionResolveStrategy::All,
+        );
+        let action = actions.into_iter().find(|action| action.id.name == action_name)?;
         let mut text = text.replace("/*caret*/", "");
         let edit = action.source_change?.text_edits.remove(&file_id)?;
         edit.apply(&mut text);
@@ -520,6 +549,12 @@ mod tests {
                 source: Some(DiagnosticSource::Semantic),
                 code: None,
                 name: Some("MixingOrderedAndNamedParams".to_owned()),
+                option: None,
+            },
+            RepairKind::RemoveEmptyPortConnections => CodeActionDiagnostic {
+                source: Some(DiagnosticSource::Semantic),
+                code: None,
+                name: Some("MixingOrderedAndNamedPorts".to_owned()),
                 option: None,
             },
             RepairKind::AddImplicitNamedPortParens => CodeActionDiagnostic {
@@ -592,6 +627,26 @@ mod tests {
 
         assert!(!labels.iter().any(|label| label == "Fill connections"));
         assert!(!labels.iter().any(|label| label == "Fill parameters"));
+    }
+
+    #[test]
+    fn convert_ordered_ports_is_available_without_diagnostics() {
+        let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, y); endmodule\n";
+        let fixed = apply_action_without_diagnostics(text, "convert_ordered_ports").unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn convert_ordered_params_is_available_without_diagnostics() {
+        let text = "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/8, 16) u(); endmodule\n";
+        let fixed = apply_action_without_diagnostics(text, "convert_ordered_params").unwrap();
+        assert_eq!(
+            fixed,
+            "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
+        );
     }
 
     #[test]
@@ -727,6 +782,26 @@ mod tests {
     fn convert_ordered_ports_repair_names_ordered_connections() {
         let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, .b(y)); endmodule\n";
         let fixed = apply_action(text, RepairKind::ConvertOrderedPorts).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn remove_empty_port_connection_repair_removes_trailing_comma() {
+        let text = "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y),/*caret*/); endmodule\n";
+        let fixed = apply_action(text, RepairKind::RemoveEmptyPortConnections).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn remove_empty_port_connection_repair_removes_middle_empty_connection() {
+        let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(x), , .b(y)); endmodule\n";
+        let fixed = apply_action(text, RepairKind::RemoveEmptyPortConnections).unwrap();
         assert_eq!(
             fixed,
             "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"

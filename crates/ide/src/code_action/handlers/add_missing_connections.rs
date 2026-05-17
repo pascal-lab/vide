@@ -12,8 +12,11 @@ use crate::code_action::{
     apply_missing_list_edit, missing_member_entry_text, port_names, remaining_ordered_port_names,
 };
 
-const ID: CodeActionId =
-    CodeActionId { name: "add_missing_connections", kind: CodeActionKind::Generate };
+const ID: CodeActionId = CodeActionId {
+    name: "add_missing_connections",
+    kind: CodeActionKind::Generate,
+    repair: Some(RepairKind::MissingConnection),
+};
 const LABEL: &str = "Fill connections";
 
 pub(super) fn add_missing_connections(

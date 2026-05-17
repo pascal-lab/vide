@@ -7,8 +7,11 @@ use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
 };
 
-const ID: CodeActionId =
-    CodeActionId { name: "add_implicit_named_port_parens", kind: CodeActionKind::Generate };
+const ID: CodeActionId = CodeActionId {
+    name: "add_implicit_named_port_parens",
+    kind: CodeActionKind::Generate,
+    repair: Some(RepairKind::AddImplicitNamedPortParens),
+};
 const LABEL: &str = "Add explicit empty port connection";
 
 pub(super) fn add_implicit_named_port_parens(

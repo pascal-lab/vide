@@ -7,21 +7,24 @@ use std::{
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
-    ClientCapabilities, DiagnosticClientCapabilities, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentSymbolParams,
-    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams, PublishDiagnosticsParams,
-    SemanticTokensParams, SemanticTokensResult, TextDocumentClientCapabilities,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
-    WorkspaceClientCapabilities, WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
+    ClientCapabilities, CodeActionCapabilityResolveSupport, CodeActionClientCapabilities,
+    CodeActionContext, CodeActionKind, CodeActionKindLiteralSupport, CodeActionLiteralSupport,
+    CodeActionOrCommand, CodeActionParams, DiagnosticClientCapabilities,
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeParams,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
+    PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
+    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+    TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
+    WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReportResult,
     notification::{
         DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit, Notification as _,
     },
     request::{
-        DocumentDiagnosticRequest, DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition,
-        HoverRequest, Request as _, SemanticTokensFullRequest, Shutdown,
+        CodeActionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest, FoldingRangeRequest,
+        GotoDefinition, HoverRequest, Request as _, SemanticTokensFullRequest, Shutdown,
         WorkspaceDiagnosticRequest,
     },
 };
@@ -313,6 +316,182 @@ fn position_of(text: &str, needle: &str) -> Position {
     let line = text[..offset].bytes().filter(|byte| *byte == b'\n').count() as u32;
     let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
     Position { line, character: (offset - line_start) as u32 }
+}
+
+fn code_action_client_caps() -> ClientCapabilities {
+    ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            code_action: Some(CodeActionClientCapabilities {
+                code_action_literal_support: Some(CodeActionLiteralSupport {
+                    code_action_kind: CodeActionKindLiteralSupport {
+                        value_set: [
+                            CodeActionKind::EMPTY,
+                            CodeActionKind::QUICKFIX,
+                            CodeActionKind::REFACTOR,
+                            CodeActionKind::REFACTOR_REWRITE,
+                        ]
+                        .into_iter()
+                        .map(|kind| kind.as_str().to_owned())
+                        .collect(),
+                    },
+                }),
+                resolve_support: Some(CodeActionCapabilityResolveSupport {
+                    properties: vec!["edit".to_owned()],
+                }),
+                ..Default::default()
+            }),
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+fn request_code_actions(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    context: CodeActionContext,
+    request_id: i32,
+) -> Vec<CodeActionOrCommand> {
+    let position = position_of(text, needle);
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CodeActionRequest::METHOD.to_string(),
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri },
+                range: Range::new(position, position),
+                context,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    recv_response(client, request_id, "codeAction")
+}
+
+fn code_action_titles(actions: &[CodeActionOrCommand]) -> Vec<String> {
+    actions
+        .iter()
+        .map(|action| match action {
+            CodeActionOrCommand::CodeAction(action) => action.title.clone(),
+            CodeActionOrCommand::Command(command) => command.title.clone(),
+        })
+        .collect()
+}
+
+#[test]
+fn code_action_request_returns_ordered_connection_refactor_without_diagnostics() {
+    let text = "\
+module ca_leaf(input clk, input rst_n, output done);
+endmodule
+
+module top;
+  logic clk, rst_n, done;
+  ca_leaf convert_ports_only (clk, rst_n, done);
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+    let diagnostics_id = lsp_server::RequestId::from(199);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let _ = recv_document_diagnostics(&client, diagnostics_id);
+
+    let actions = request_code_actions(
+        &client,
+        uri,
+        text,
+        "convert_ports_only (clk",
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_REWRITE]),
+            trigger_kind: None,
+        },
+        200,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "Convert ordered port connections to named connections"),
+        "expected ordered port conversion refactor, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn code_action_request_uses_server_diagnostics_when_client_diagnostic_has_no_data() {
+    let text = "\
+module ca_leaf(input clk, input rst_n, output done);
+endmodule
+
+module top;
+  logic clk, rst_n, done;
+  ca_leaf mixed_ports (clk, .rst_n(rst_n), .done(done));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+
+    let diagnostics_id = lsp_server::RequestId::from(210);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let (_result_id, mut diagnostics) = recv_document_diagnostics(&client, diagnostics_id);
+    assert!(!diagnostics.is_empty(), "expected mixed connection diagnostic");
+    for diagnostic in &mut diagnostics {
+        diagnostic.data = None;
+    }
+
+    let actions = request_code_actions(
+        &client,
+        uri,
+        text,
+        "clk, .rst_n",
+        CodeActionContext {
+            diagnostics,
+            only: Some(vec![CodeActionKind::QUICKFIX]),
+            trigger_kind: None,
+        },
+        211,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "Convert ordered port connections to named connections"),
+        "expected mixed connection quickfix without client diagnostic data, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
 }
 
 #[test]

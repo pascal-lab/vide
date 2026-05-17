@@ -13,8 +13,11 @@ use crate::code_action::{
     missing_member_entry_text,
 };
 
-const ID: CodeActionId =
-    CodeActionId { name: "add_missing_parameters", kind: CodeActionKind::Generate };
+const ID: CodeActionId = CodeActionId {
+    name: "add_missing_parameters",
+    kind: CodeActionKind::Generate,
+    repair: Some(RepairKind::MissingParameter),
+};
 const LABEL: &str = "Fill parameters";
 
 pub(super) fn add_missing_parameters(

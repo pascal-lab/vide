@@ -4,8 +4,11 @@ use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
 };
 
-const ID: CodeActionId =
-    CodeActionId { name: "add_instance_parens", kind: CodeActionKind::Generate };
+const ID: CodeActionId = CodeActionId {
+    name: "add_instance_parens",
+    kind: CodeActionKind::Generate,
+    repair: Some(RepairKind::AddInstanceParens),
+};
 const LABEL: &str = "Add empty instance port list";
 
 pub(super) fn add_instance_parens(

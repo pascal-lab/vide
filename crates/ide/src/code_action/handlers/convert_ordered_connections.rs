@@ -11,22 +11,24 @@ use crate::code_action::{
     leading_parameter_names, port_names,
 };
 
-const PORTS_ID: CodeActionId =
-    CodeActionId { name: "convert_ordered_ports", kind: CodeActionKind::Generate };
+const PORTS_ID: CodeActionId = CodeActionId {
+    name: "convert_ordered_ports",
+    kind: CodeActionKind::RefactorRewrite,
+    repair: Some(RepairKind::ConvertOrderedPorts),
+};
 const PORTS_LABEL: &str = "Convert ordered port connections to named connections";
 
-const PARAMS_ID: CodeActionId =
-    CodeActionId { name: "convert_ordered_params", kind: CodeActionKind::Generate };
+const PARAMS_ID: CodeActionId = CodeActionId {
+    name: "convert_ordered_params",
+    kind: CodeActionKind::RefactorRewrite,
+    repair: Some(RepairKind::ConvertOrderedParams),
+};
 const PARAMS_LABEL: &str = "Convert ordered parameter assignments to named assignments";
 
 pub(super) fn convert_ordered_ports(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.diagnostics.allows_repair(RepairKind::ConvertOrderedPorts) {
-        return None;
-    }
-
     let sema = ctx.sema;
     let db = sema.db;
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
@@ -65,10 +67,6 @@ pub(super) fn convert_ordered_params(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.diagnostics.allows_repair(RepairKind::ConvertOrderedParams) {
-        return None;
-    }
-
     let sema = ctx.sema;
     let db = sema.db;
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;

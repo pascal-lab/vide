@@ -167,7 +167,7 @@ Vizsla 支持三类格式化入口:
 
 ## 代码操作
 
-当前代码操作围绕模块实例、端口连接和参数赋值修复。它们通常在相关诊断出现后作为 quick fix 展示。
+当前代码操作围绕模块实例、端口连接和参数赋值修复。修复类操作通常在相关诊断出现后作为 quick fix 展示, 转换类操作也可作为 refactor 展示。
 
 | 操作 | 用途 |
 | --- | --- |
@@ -175,6 +175,7 @@ Vizsla 支持三类格式化入口:
 | `Fill parameters` | 补齐缺失参数赋值。命名参数会补 `.PARAM(...)`, 有序参数会按目标参数顺序补值。 |
 | `Convert ordered port connections to named connections` | 把有序端口连接改写成命名端口连接。 |
 | `Convert ordered parameter assignments to named assignments` | 把有序参数赋值改写成命名参数赋值。 |
+| `Remove empty port connections` | 删除命名端口列表里多余的空连接, 例如末尾多出的逗号。 |
 | `Add explicit empty port connection` | 给隐式空端口连接补出显式空括号。 |
 | `Add empty instance port list` | 给缺失端口列表的实例补 `()`。 |
 
