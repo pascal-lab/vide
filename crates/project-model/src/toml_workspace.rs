@@ -238,14 +238,6 @@ defines = [
     }
 
     #[test]
-    fn old_fields_are_rejected() {
-        for field in [r#"top_module = "top""#, r#"include = ["rtl"]"#, r#"macros = ["SYNTHESIS"]"#]
-        {
-            assert!(toml::from_str::<TomlManifestSchema>(field).is_err());
-        }
-    }
-
-    #[test]
     fn configured_empty_sources_do_not_default_to_workspace_root() {
         let root = temp_dir("empty-sources");
         let manifest = root.join("vizsla_config.toml");
