@@ -587,6 +587,13 @@ mod tests {
     }
 
     #[test]
+    fn detects_parameter_port_keyword_prefix_over_decl_name() {
+        let c = ctx("module m #(para/*caret*/) (); endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::ParameterPortListItem));
+        assert_eq!(c.prefix, "para");
+    }
+
+    #[test]
     fn detects_port_connection_list() {
         let c = ctx("module m(input a); endmodule\nmodule top; m u0(/*caret*/); endmodule\n");
         assert_eq!(expected(&c), Some(ExpectedSyntax::PortConnection));
@@ -649,6 +656,13 @@ mod tests {
         let c = ctx("module m(input a, o/*caret*/); endmodule\n");
         assert_eq!(expected(&c), Some(ExpectedSyntax::AnsiPortItem));
         assert_eq!(c.prefix, "o");
+    }
+
+    #[test]
+    fn detects_ansi_port_keyword_prefix_over_decl_name() {
+        let c = ctx("module m(input wir/*caret*/); endmodule\n");
+        assert_eq!(expected(&c), Some(ExpectedSyntax::AnsiPortItem));
+        assert_eq!(c.prefix, "wir");
     }
 
     #[test]

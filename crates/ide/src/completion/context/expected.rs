@@ -1,5 +1,5 @@
 use syntax::{
-    SyntaxAncestors, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxKeywordContext, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
     ast_ext::NamedConnectionDotZoneExt,
     has_text_range::{HasTextRange, HasTextRangeIn},
@@ -8,6 +8,7 @@ use syntax::{
 use super::{
     CompletionExpectation, ExpectationSource, ExpectedSyntax, caret::CaretSnapshot, util::in_parens,
 };
+use crate::completion::syntax_keywords;
 
 trait AstParens<'a>: AstNode<'a> {
     fn open_paren(&self) -> Option<SyntaxToken<'a>>;
@@ -37,7 +38,9 @@ impl_ast_parens!(
 );
 
 pub(super) fn detect_local(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
-    punctuated_expectation(caret).or_else(|| else_clause_expectation(caret))
+    punctuated_expectation(caret)
+        .or_else(|| keyword_prefix_expectation(caret))
+        .or_else(|| else_clause_expectation(caret))
 }
 
 fn expectation(syntax: ExpectedSyntax, source: ExpectationSource) -> CompletionExpectation {
@@ -212,6 +215,47 @@ fn sensitivity_list_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionE
     }
 
     None
+}
+
+fn keyword_prefix_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    keyword_prefix_in_node::<ast::ParameterPortList<'_>>(
+        caret,
+        ExpectedSyntax::ParameterPortListItem,
+        SyntaxKeywordContext::ParameterPortListItem,
+    )
+    .or_else(|| {
+        keyword_prefix_in_node::<ast::AnsiPortList<'_>>(
+            caret,
+            ExpectedSyntax::AnsiPortItem,
+            SyntaxKeywordContext::AnsiPortItem,
+        )
+    })
+    .or_else(|| {
+        keyword_prefix_in_node::<ast::FunctionPortList<'_>>(
+            caret,
+            ExpectedSyntax::FunctionPortItem,
+            SyntaxKeywordContext::FunctionPortItem,
+        )
+    })
+}
+
+fn keyword_prefix_in_node<'a, N>(
+    caret: &CaretSnapshot<'a>,
+    syntax: ExpectedSyntax,
+    context: SyntaxKeywordContext,
+) -> Option<CompletionExpectation>
+where
+    N: AstNode<'a>,
+{
+    let (_, prefix) = caret.replacement_and_prefix();
+    if prefix.is_empty()
+        || syntax_keywords::keyword_candidates_for_context(context, &prefix).labels().is_empty()
+    {
+        return None;
+    }
+
+    let node = caret.root.find_node_at_offset::<N>(caret.offset)?;
+    Some(node_expectation(syntax, node.syntax()))
 }
 
 fn else_clause_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
