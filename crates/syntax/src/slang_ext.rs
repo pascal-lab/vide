@@ -8,7 +8,10 @@ use slang::{
 use token::SyntaxTokenExt;
 use utils::line_index::{TextRange, TextSize};
 
-use crate::{has_text_range::HasTextRange, ptr::SyntaxNodePtr};
+use crate::{
+    has_text_range::{HasTextRange, SourceRangeExt},
+    ptr::SyntaxNodePtr,
+};
 
 pub mod ast_ext;
 pub mod token;
@@ -232,8 +235,18 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                 // For directive trivia, check nested trivia in the directive's first token.
                 if trivia.kind() == Trivia!["`"]
                     && let Some(node) = trivia.syntax()
-                    && let Some(first_tok) = node.first_token()
                 {
+                    if node
+                        .range_with_context(tok.parent)
+                        .and_then(SourceRangeExt::to_text_range)
+                        .is_some_and(|range| range.contains(offset) || range.end() == offset)
+                    {
+                        return Some(trivia.kind());
+                    }
+
+                    let Some(first_tok) = node.first_token() else {
+                        continue;
+                    };
                     for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
                         let nested_range =
                             TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
