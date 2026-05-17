@@ -1,4 +1,5 @@
 use smallvec::SmallVec;
+use syntax::SyntaxKeywordContext;
 
 use super::{
     CompletionExpectation, ExpectationSource, ExpectedSyntax, TriggerChar,
@@ -16,6 +17,8 @@ pub(super) fn expectations(
     let mut expectations = SmallVec::new();
 
     if let Some(expectation) = local.filter(|expectation| local_overrides(*expectation)) {
+        push_unique(&mut expectations, expectation);
+    } else if let Some(expectation) = keyword_prefix(&parser, prefix) {
         push_unique(&mut expectations, expectation);
     } else if let Some(expectation) = port_keyword(&parser, prefix, trigger) {
         push_unique(&mut expectations, expectation);
@@ -46,14 +49,14 @@ fn local_overrides(expectation: CompletionExpectation) -> bool {
         ExpectedSyntax::DirectiveName
         | ExpectedSyntax::Keyword(_)
         | ExpectedSyntax::Expression
-        | ExpectedSyntax::ParameterPortListItem
-        | ExpectedSyntax::AnsiPortItem
-        | ExpectedSyntax::FunctionPortItem
         | ExpectedSyntax::PortConnection
         | ExpectedSyntax::ArgumentExpr
         | ExpectedSyntax::NonAnsiPortName
         | ExpectedSyntax::DeclName => false,
-        ExpectedSyntax::PortConnectionName
+        ExpectedSyntax::ParameterPortListItem
+        | ExpectedSyntax::AnsiPortItem
+        | ExpectedSyntax::FunctionPortItem
+        | ExpectedSyntax::PortConnectionName
         | ExpectedSyntax::ParameterAssignmentName
         | ExpectedSyntax::MemberName
         | ExpectedSyntax::PortConnectionExpr
@@ -63,6 +66,18 @@ fn local_overrides(expectation: CompletionExpectation) -> bool {
         | ExpectedSyntax::ParamValueAssignment
         | ExpectedSyntax::EventControl { .. } => true,
     }
+}
+
+fn keyword_prefix(parser: &ParserExpectations, prefix: &str) -> Option<CompletionExpectation> {
+    if prefix.is_empty() {
+        return None;
+    }
+
+    parser.items().iter().copied().find(|expectation| {
+        keyword_context(expectation.syntax).is_some_and(|context| {
+            !syntax_keywords::keyword_candidates_for_context(context, prefix).labels().is_empty()
+        })
+    })
 }
 
 fn port_keyword(
@@ -98,6 +113,16 @@ fn port_keyword(
                 source: ExpectationSource::Parser,
             })
         })
+}
+
+fn keyword_context(syntax: ExpectedSyntax) -> Option<SyntaxKeywordContext> {
+    match syntax {
+        ExpectedSyntax::Keyword(context) => Some(context),
+        ExpectedSyntax::ParameterPortListItem => Some(SyntaxKeywordContext::ParameterPortListItem),
+        ExpectedSyntax::AnsiPortItem => Some(SyntaxKeywordContext::AnsiPortItem),
+        ExpectedSyntax::FunctionPortItem => Some(SyntaxKeywordContext::FunctionPortItem),
+        _ => None,
+    }
 }
 
 fn port_kind(syntax: ExpectedSyntax) -> Option<PortListKind> {

@@ -585,6 +585,22 @@ fn module_member_completion_includes_parameter_declaration_snippets() {
 }
 
 #[test]
+fn parameter_port_keyword_prefix_completes_before_decl_name() {
+    let items = completions_in_text("module m #(para/*caret*/) (); endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"parameter"), "parameter keyword expected: {items:?}");
+}
+
+#[test]
+fn ansi_port_keyword_prefix_completes_before_decl_name() {
+    let items = completions_in_text("module m(input wir/*caret*/); endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"wire"), "wire keyword expected: {items:?}");
+}
+
+#[test]
 fn gate_primitives_do_not_leak_into_statement_completion() {
     let items = completions_in_text("module m; initial begin\n  a/*caret*/\nend endmodule\n", None);
     let item_labels = labels(&items);
