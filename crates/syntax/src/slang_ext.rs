@@ -113,7 +113,9 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                 return Some(elem);
             }
 
-            cursor.goto_first_child_after_pos(start.into());
+            if !cursor.goto_first_child_after_pos(start.into()) {
+                return None;
+            }
         }
     }
 
@@ -149,8 +151,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         }
 
         let mut cursor = self.walk();
-        cursor.goto_last_tok_before(offset);
-        let left = cursor.to_tok_with_parent();
+        let left =
+            cursor.goto_last_tok_before(offset).then(|| cursor.to_tok_with_parent()).flatten();
         let left_range = left.and_then(|left| left.text_range());
         if left_range.is_some_and(|range| range.contains(offset))
             && let Some(left) = left
@@ -160,8 +162,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
         cursor.reset_to_root();
-        cursor.goto_first_tok_after(offset);
-        let right = cursor.to_tok_with_parent();
+        let right =
+            cursor.goto_first_tok_after(offset).then(|| cursor.to_tok_with_parent()).flatten();
         let right_range = right.and_then(|right| right.text_range());
         let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
 
@@ -326,8 +328,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         }
 
         let mut cursor = self.walk();
-        cursor.goto_last_tok_before(offset);
-        let left = cursor.to_tok_with_parent();
+        let left =
+            cursor.goto_last_tok_before(offset).then(|| cursor.to_tok_with_parent()).flatten();
         let left_range = left.and_then(|left| left.text_range());
         if left_range.is_some_and(|range| range.contains(offset))
             && let Some(left) = left
@@ -337,8 +339,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
         let left_ok = left_range.map(|range| range.end() == offset).unwrap_or(false);
 
         cursor.reset_to_root();
-        cursor.goto_first_tok_after(offset);
-        let right = cursor.to_tok_with_parent();
+        let right =
+            cursor.goto_first_tok_after(offset).then(|| cursor.to_tok_with_parent()).flatten();
         let right_range = right.and_then(|right| right.text_range());
         let right_ok = right_range.map(|range| range.contains(offset)).unwrap_or(false);
 
@@ -427,7 +429,9 @@ impl SyntaxCursorExt for SyntaxCursor<'_> {
 
         while self.to_node().is_some() {
             let success = self.goto_first_child_after_pos(offset);
-            debug_assert!(success);
+            if !success {
+                return false;
+            }
         }
         debug_assert!(self.to_token().is_some());
         true
@@ -438,7 +442,9 @@ impl SyntaxCursorExt for SyntaxCursor<'_> {
             if self.to_elem().range().is_some_and(|range| range.end() == usize::from(offset)) {
                 while self.to_node().is_some() {
                     let success = self.goto_last_child();
-                    debug_assert!(success);
+                    if !success {
+                        return false;
+                    }
                 }
             } else {
                 return false;
@@ -458,7 +464,9 @@ impl SyntaxCursorExt for SyntaxCursor<'_> {
 
         while self.to_node().is_some() {
             let success = self.goto_last_child_before_pos(offset);
-            debug_assert!(success);
+            if !success {
+                return false;
+            }
         }
         debug_assert!(self.to_token().is_some());
         true
@@ -476,5 +484,42 @@ where
     #[inline]
     fn to_ptr(&self) -> SyntaxNodePtr {
         SyntaxNodePtr::from_node(self.syntax())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
+
+    #[test]
+    fn token_at_offset_inside_macro_invocation_does_not_descend_forever() {
+        let text = r#"`include "include/code_action_defs.vh"
+
+module ca_leaf #(
+    parameter WIDTH = `CA_WIDTH,
+    parameter RESET_VALUE = 0
+) ();
+endmodule
+"#;
+        let options = SyntaxTreeOptions {
+            include_buffers: vec![SyntaxTreeBuffer {
+                path: String::from("sample/include/code_action_defs.vh"),
+                text: String::from("`define CA_WIDTH 8\n"),
+            }],
+            include_paths: vec![String::from("sample")],
+            predefines: Vec::new(),
+        };
+        let tree = SyntaxTree::from_text_with_options(
+            text,
+            "sample/rtl/code_action_targets.v",
+            "sample/rtl/code_action_targets.v",
+            &options,
+        );
+        let root = tree.root().unwrap();
+        let macro_start = text.find("`CA_WIDTH").unwrap();
+        let offset = TextSize::from((macro_start + 1) as u32);
+
+        assert!(matches!(root.token_at_offset(offset), TokenAtOffset::None));
     }
 }
