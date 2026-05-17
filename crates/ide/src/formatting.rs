@@ -15,7 +15,7 @@ use itertools::Itertools;
 use span::FilePosition;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
-    token::SyntaxTokenExt, trivia::TriviaKindExt,
+    token::SyntaxTokenWithParentExt, trivia::TriviaKindExt,
 };
 use utils::{
     line_index::{TextRange, TextSize},
@@ -179,7 +179,7 @@ pub fn format_on_type(
     let mut cursor = root.walk();
 
     cursor.goto_first_tok_after_or_last(offset);
-    let Some(right) = cursor.to_token() else {
+    let Some(right) = cursor.to_tok_with_parent() else {
         return Ok(None);
     };
     let trivias = right.trivias_with_range().collect_vec();

@@ -5,7 +5,7 @@ use slang::{
     ChildrenIter, SyntaxAncestors, SyntaxCursor, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
     SyntaxTrivia, TokenKind, Trivia, TriviaKind, ast::AstNode,
 };
-use token::SyntaxTokenExt;
+use token::{SyntaxTokenExt, SyntaxTokenWithParentExt};
 use utils::line_index::{TextRange, TextSize};
 
 use crate::{
@@ -226,8 +226,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             tok: SyntaxTokenWithParent<'_>,
             offset: TextSize,
         ) -> Option<TriviaKind> {
-            for ((start, end), trivia) in tok.tok.trivias_with_loc() {
-                let range = TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32));
+            let root = tok.parent.find_root();
+            for (range, trivia) in tok.trivias_with_range() {
                 if range.contains(offset) {
                     return Some(trivia.kind());
                 }
@@ -247,9 +247,8 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                     let Some(first_tok) = node.first_token() else {
                         continue;
                     };
-                    for ((ns, ne), nested_trivia) in first_tok.trivias_with_loc() {
-                        let nested_range =
-                            TextRange::new(TextSize::new(ns as u32), TextSize::new(ne as u32));
+                    for (nested_range, nested_trivia) in first_tok.trivias_with_range_in_root(root)
+                    {
                         if nested_range.contains(offset) {
                             return Some(nested_trivia.kind());
                         }
@@ -401,7 +400,7 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     #[inline]
     fn trivias_with_range(&self) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
         if let Some(tok) = self.first_token() {
-            Either::Right(tok.trivias_with_range())
+            Either::Right(tok.trivias_with_range_in_root(self.find_root()))
         } else {
             Either::Left(iter::empty())
         }

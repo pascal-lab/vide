@@ -1,11 +1,11 @@
 use either::Either;
 use slang::{
-    ChildrenIter, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia, Token, TokenKind,
+    ChildrenIter, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia, Token, TokenKind,
     ast::{self, AstNode},
 };
 use utils::line_index::{TextRange, TextSize};
 
-use crate::support;
+use crate::{SyntaxNodeExt, support};
 
 pub trait TokenKindExt {
     fn is_pair_token(&self) -> bool;
@@ -53,6 +53,9 @@ impl TokenKindExt for TokenKind {
 
 pub trait SyntaxTokenWithParentExt<'a> {
     fn is_word_like(&self) -> bool;
+    fn trivias_with_range(
+        &self,
+    ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a, Self>;
 }
 
 impl<'a> SyntaxTokenWithParentExt<'a> for SyntaxTokenWithParent<'a> {
@@ -62,6 +65,11 @@ impl<'a> SyntaxTokenWithParentExt<'a> for SyntaxTokenWithParent<'a> {
             TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => true,
             _ => is_word_like_value_text(&self.tok.value_text().to_string()),
         }
+    }
+
+    #[inline]
+    fn trivias_with_range(&self) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
+        self.tok.trivias_with_range_in_root(self.parent.find_root())
     }
 }
 
@@ -147,17 +155,34 @@ pub fn pair_token(
 }
 
 pub trait SyntaxTokenExt<'a> {
-    fn trivias_with_range(
+    fn trivias_with_range_in_root(
         &self,
+        root: SyntaxNode<'a>,
     ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a, Self>;
 }
 
 impl<'a> SyntaxTokenExt<'a> for SyntaxToken<'a> {
     #[inline]
-    fn trivias_with_range(&self) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
-        self.trivias_with_loc().map(|((start, end), trivia)| {
-            let range = TextRange::new(TextSize::new(start as u32), TextSize::new(end as u32));
-            (range, trivia)
-        })
+    fn trivias_with_range_in_root(
+        &self,
+        root: SyntaxNode<'a>,
+    ) -> impl ChildrenIter<(TextRange, SyntaxTrivia<'a>)> + use<'a> {
+        let Some(root_range) = root.range().filter(|range| range.is_single_buffer()) else {
+            return Either::Left(std::iter::empty());
+        };
+        let root_buffer_id = root_range.start_buffer_id();
+
+        let trivias = self
+            .trivias_with_loc()
+            .filter_map(move |(loc, trivia)| {
+                if loc.buffer_id != root_buffer_id {
+                    return None;
+                }
+                let start = u32::try_from(loc.start).ok()?;
+                let end = u32::try_from(loc.end).ok()?;
+                Some((TextRange::new(TextSize::new(start), TextSize::new(end)), trivia))
+            })
+            .collect::<Vec<_>>();
+        Either::Right(trivias.into_iter())
     }
 }

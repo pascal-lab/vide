@@ -148,7 +148,7 @@ impl RegionTreeBuilder {
                 self.stack.pop();
             }
         }
-        self.handle_tok(end_tok);
+        self.handle_tok(end_tok, context);
     }
 
     pub(crate) fn finish(&mut self) -> RegionTree {
@@ -164,13 +164,13 @@ impl RegionTreeBuilder {
     }
 
     #[inline]
-    fn handle_tok(&mut self, token: Option<SyntaxToken>) {
+    fn handle_tok(&mut self, token: Option<SyntaxToken>, context: SyntaxNode) {
         let Some(token) = token else {
             return;
         };
 
         self.finish_pseudo_region();
-        self.handle_trivia(token.trivias_with_range());
+        self.handle_trivia(token.trivias_with_range_in_root(context.find_root()));
     }
 
     fn handle_pseudo_region<'a>(

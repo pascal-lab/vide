@@ -16,7 +16,8 @@ use memchr::memmem::Finder;
 use rustc_hash::FxHashSet;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxTrivia,
-    token::SyntaxTokenExt,
+    has_text_range::HasTextRange,
+    token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
 };
 use utils::{
@@ -180,13 +181,13 @@ fn collect_line_comments(
         if !cursor.goto_first_tok_after_or_last(TextSize::from(start as u32)) {
             continue;
         }
-        let Some(tok) = cursor.to_token() else {
+        let Some(tok) = cursor.to_tok_with_parent() else {
             continue;
         };
-        let Some(tok_range) = tok.range() else {
+        let Some(tok_range) = tok.text_range() else {
             continue;
         };
-        visited_ranges.insert(tok_range.start());
+        visited_ranges.insert(tok_range.start().into());
         let mut trivias = tok.trivias_with_range().peekable();
 
         let check_lc = |t: &SyntaxTrivia| {
@@ -223,7 +224,7 @@ fn collect_line_comments(
             }
         }
 
-        last_pos = tok_range.start();
+        last_pos = tok_range.start().into();
     }
 
     visited_ranges
@@ -249,10 +250,10 @@ fn collect_block_comments(
         if !cursor.goto_first_tok_after_or_last(TextSize::from(start as u32)) {
             continue;
         }
-        let Some(tok) = cursor.to_token() else {
+        let Some(tok) = cursor.to_tok_with_parent() else {
             continue;
         };
-        let Some(tok_range) = tok.range() else {
+        let Some(tok_range) = tok.text_range() else {
             continue;
         };
 
@@ -267,7 +268,7 @@ fn collect_block_comments(
             }
         }
 
-        last_pos = tok_range.start();
+        last_pos = tok_range.start().into();
     }
 }
 

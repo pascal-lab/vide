@@ -5,7 +5,7 @@ use span::FilePosition;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind,
     has_text_range::HasTextRange,
-    token::{SyntaxTokenExt, TokenKindExt},
+    token::{SyntaxTokenWithParentExt, TokenKindExt},
 };
 use utils::line_index::TextRange;
 
@@ -41,7 +41,7 @@ pub(crate) fn selection_ranges(
             let Some(token) = cursor.to_tok_with_parent() else {
                 return res;
             };
-            let trivias = token.tok.trivias_with_range().collect_vec();
+            let trivias = token.trivias_with_range().collect_vec();
             let Some(range) = trivias.iter().find(|(range, _)| range.contains(offset)) else {
                 return res;
             };
