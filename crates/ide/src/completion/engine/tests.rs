@@ -485,6 +485,14 @@ fn top_level_completion_keeps_top_level_keyword_prefixes() {
 }
 
 #[test]
+fn prefix_module_completion_at_file_start_does_not_panic() {
+    let items = completions_in_text("/*caret*/module counter(input clk", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"module"), "top-level module keyword expected: {items:?}");
+}
+
+#[test]
 fn library_map_completion_uses_library_map_keywords() {
     let items = completions_in_library_map("lib/*caret*/\n", None);
     let item_labels = labels(&items);

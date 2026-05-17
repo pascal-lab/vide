@@ -4,6 +4,7 @@ mod caret;
 mod decl_name;
 mod expected;
 mod lex;
+mod parser;
 mod util;
 
 use base_db::source_db::{SourceDb, SourceRootDb};
@@ -11,10 +12,11 @@ use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
 use span::FilePosition;
-use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree};
+use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode};
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
+use crate::completion::{request::PortListKind, syntax_keywords};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {
@@ -222,11 +224,26 @@ fn detect_completion_context_impl(
 
     let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
     let mut expectations = SmallVec::new();
-    let ast_expectation = expected::detect_completion_expectation(&caret);
-    if let Some(expectation) = decl_name::potential_ansi_port_item_start(&caret, trigger) {
+    let local_expectation = expected::detect_local_completion_expectation(&caret);
+    let mut parser_expectations = SmallVec::new();
+    if let Some(parser_expected_syntax) = parser_expected_syntax {
+        for item in parser_expected_syntax {
+            for expectation in parser::completion_expectations_for_parser_item(item) {
+                push_expectation(&mut parser_expectations, expectation);
+            }
+        }
+    }
+    remove_recovered_config_rule_expectations(&mut parser_expectations);
+
+    if local_expectation.is_some_and(local_expectation_suppresses_parser) {
+        push_expectation(&mut expectations, local_expectation.unwrap());
+    } else if let Some(expectation) = parser_port_keyword_expectation(
+        parser_expected_syntax,
+        &parser_expectations,
+        &prefix,
+        trigger,
+    ) {
         push_expectation(&mut expectations, expectation);
-    } else if ast_expectation.is_some_and(ast_expectation_refines_parser) {
-        push_expectation(&mut expectations, ast_expectation.unwrap());
     } else if in_decl_name {
         push_expectation(
             &mut expectations,
@@ -236,15 +253,11 @@ fn detect_completion_context_impl(
             },
         );
     } else {
-        if let Some(parser_expected_syntax) = parser_expected_syntax {
-            for item in parser_expected_syntax {
-                for expectation in completion_expectations_for_parser_item(item) {
-                    push_expectation(&mut expectations, expectation);
-                }
-            }
+        for expectation in parser_expectations {
+            push_expectation(&mut expectations, expectation);
         }
 
-        if let Some(expectation) = ast_expectation {
+        if let Some(expectation) = local_expectation {
             push_expectation(&mut expectations, expectation);
         }
     }
@@ -256,59 +269,7 @@ fn parser_expected_syntax_for_text(
     source_text: &str,
     offset: TextSize,
 ) -> Vec<ParserExpectedSyntax> {
-    let offset = usize::from(offset);
-    if root.kind() == syntax::SyntaxKind::LIBRARY_MAP {
-        SyntaxTree::library_map_expected_syntax_at_offset(source_text, "source", "", offset)
-    } else {
-        SyntaxTree::expected_syntax_at_offset(source_text, "source", "", offset)
-    }
-}
-
-fn completion_expectations_for_parser_item(
-    item: &ParserExpectedSyntax,
-) -> SmallVec<[CompletionExpectation; 3]> {
-    let source = ExpectationSource::Parser;
-    match item.name.as_str() {
-        "ExpectedParameterPort" => smallvec![CompletionExpectation {
-            syntax: ExpectedSyntax::ParameterPortListItem,
-            source,
-        }],
-        "ExpectedAnsiPort" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::AnsiPortItem, source }]
-        }
-        "ExpectedFunctionPort" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::FunctionPortItem, source }]
-        }
-        "ExpectedPortConnection" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::PortConnection, source }]
-        }
-        "ExpectedArgument" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::ArgumentExpr, source }]
-        }
-        "ExpectedExpression" => {
-            smallvec![CompletionExpectation { syntax: ExpectedSyntax::Expression, source }]
-        }
-        "ExpectedStatement" => {
-            let mut expectations = SmallVec::new();
-            if let Some(context) = item.keyword_context {
-                expectations.push(CompletionExpectation {
-                    syntax: ExpectedSyntax::Keyword(context),
-                    source,
-                });
-            }
-            expectations.push(CompletionExpectation { syntax: ExpectedSyntax::Expression, source });
-            expectations
-        }
-        _ => item
-            .keyword_context
-            .map(|context| {
-                smallvec![CompletionExpectation {
-                    syntax: ExpectedSyntax::Keyword(context),
-                    source,
-                }]
-            })
-            .unwrap_or_default(),
-    }
+    parser::parser_expected_syntax_for_text(root, source_text, offset)
 }
 
 fn push_expectation(
@@ -320,22 +281,75 @@ fn push_expectation(
     }
 }
 
-fn ast_expectation_refines_parser(expectation: CompletionExpectation) -> bool {
+fn parser_port_keyword_expectation(
+    parser_items: Option<&[ParserExpectedSyntax]>,
+    expectations: &[CompletionExpectation],
+    prefix: &str,
+    trigger: Option<TriggerChar>,
+) -> Option<CompletionExpectation> {
+    if prefix.is_empty() {
+        if trigger == Some(TriggerChar::Comma) {
+            return None;
+        }
+
+        return expectations
+            .iter()
+            .copied()
+            .find(|expectation| port_keyword_kind(expectation.syntax).is_some());
+    }
+
+    expectations
+        .iter()
+        .copied()
+        .find(|expectation| {
+            port_keyword_kind(expectation.syntax)
+                .is_some_and(|kind| syntax_keywords::has_port_item_keyword_prefix(prefix, kind))
+        })
+        .or_else(|| {
+            parser_items?.iter().any(|item| item.name == "ExpectedNonAnsiPort").then_some(())?;
+            syntax_keywords::has_port_item_keyword_prefix(prefix, PortListKind::Ansi).then_some(
+                CompletionExpectation {
+                    syntax: ExpectedSyntax::AnsiPortItem,
+                    source: ExpectationSource::Parser,
+                },
+            )
+        })
+}
+
+fn port_keyword_kind(syntax: ExpectedSyntax) -> Option<PortListKind> {
+    match syntax {
+        ExpectedSyntax::AnsiPortItem => Some(PortListKind::Ansi),
+        ExpectedSyntax::FunctionPortItem => Some(PortListKind::Function),
+        _ => None,
+    }
+}
+
+fn remove_recovered_config_rule_expectations(
+    expectations: &mut SmallVec<[CompletionExpectation; 4]>,
+) {
+    let has_header = expectations.iter().any(|expectation| {
+        expectation.syntax == ExpectedSyntax::Keyword(SyntaxKeywordContext::ConfigHeaderItem)
+    });
+    if has_header {
+        expectations.retain(|expectation| {
+            expectation.syntax != ExpectedSyntax::Keyword(SyntaxKeywordContext::ConfigRule)
+        });
+    }
+}
+
+fn local_expectation_suppresses_parser(expectation: CompletionExpectation) -> bool {
     match expectation.syntax {
-        ExpectedSyntax::Keyword(context) => matches!(
-            context,
-            SyntaxKeywordContext::ModuleHeaderItem
-                | SyntaxKeywordContext::ConfigHeaderItem
-                | SyntaxKeywordContext::ConfigRule
-        ),
-        ExpectedSyntax::Expression => false,
-        ExpectedSyntax::DirectiveName | ExpectedSyntax::DeclName => false,
         ExpectedSyntax::ElseClause => false,
-        ExpectedSyntax::ParameterPortListItem
+        ExpectedSyntax::DirectiveName
+        | ExpectedSyntax::Keyword(_)
+        | ExpectedSyntax::Expression
+        | ExpectedSyntax::ParameterPortListItem
         | ExpectedSyntax::AnsiPortItem
         | ExpectedSyntax::FunctionPortItem
         | ExpectedSyntax::PortConnection
-        | ExpectedSyntax::ArgumentExpr => false,
+        | ExpectedSyntax::ArgumentExpr
+        | ExpectedSyntax::NonAnsiPortName
+        | ExpectedSyntax::DeclName => false,
         ExpectedSyntax::PortConnectionName
         | ExpectedSyntax::ParameterAssignmentName
         | ExpectedSyntax::MemberName
@@ -344,7 +358,6 @@ fn ast_expectation_refines_parser(expectation: CompletionExpectation) -> bool {
         | ExpectedSyntax::AfterParamValueAssignmentHash
         | ExpectedSyntax::AfterParameterPortListHash
         | ExpectedSyntax::ParamValueAssignment
-        | ExpectedSyntax::NonAnsiPortName
         | ExpectedSyntax::EventControl { .. } => true,
     }
 }
@@ -477,6 +490,13 @@ mod tests {
 
     fn expected(c: &CompletionContext) -> Option<ExpectedSyntax> {
         c.expectations.first().map(|expectation| expectation.syntax)
+    }
+
+    fn source(c: &CompletionContext, syntax: ExpectedSyntax) -> Option<ExpectationSource> {
+        c.expectations
+            .iter()
+            .find(|expectation| expectation.syntax == syntax)
+            .map(|expectation| expectation.source)
     }
 
     fn keyword(context: SyntaxKeywordContext) -> ExpectedSyntax {
@@ -871,6 +891,53 @@ mod tests {
         assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
         assert_eq!(
             c.expectations.first().map(|expectation| expectation.source),
+            Some(ExpectationSource::Parser)
+        );
+    }
+
+    #[test]
+    fn broad_completion_contexts_come_from_parser_expected_syntax() {
+        let cases = [
+            ("module m;\n  /*caret*/\nendmodule\n", keyword(SyntaxKeywordContext::ModuleMember)),
+            (
+                "module m; initial begin\n  /*caret*/\nend endmodule\n",
+                keyword(SyntaxKeywordContext::BlockItem),
+            ),
+            (
+                "module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n",
+                keyword(SyntaxKeywordContext::Statement),
+            ),
+            ("module m; logic [7:0] lhs = /*caret*/; endmodule\n", ExpectedSyntax::Expression),
+            ("module m #(\n  /*caret*/\n) (); endmodule\n", ExpectedSyntax::ParameterPortListItem),
+            (
+                "module m(input a); endmodule\nmodule top; m u0(/*caret*/); endmodule\n",
+                ExpectedSyntax::PortConnection,
+            ),
+            ("module m; initial f(/*caret*/); endmodule\n", ExpectedSyntax::ArgumentExpr),
+            ("module m(input a,\n  /*caret*/\n); endmodule\n", ExpectedSyntax::AnsiPortItem),
+            (
+                "module m; task t(input a,\n  /*caret*/\n); endtask endmodule\n",
+                ExpectedSyntax::FunctionPortItem,
+            ),
+            (
+                "module m(a, /*caret*/b); input a; output b; endmodule\n",
+                ExpectedSyntax::NonAnsiPortName,
+            ),
+        ];
+
+        for (text, syntax) in cases {
+            let c = ctx(text);
+            assert_eq!(source(&c, syntax), Some(ExpectationSource::Parser), "{text}");
+        }
+    }
+
+    #[test]
+    fn truncated_module_member_prefix_uses_parser_expected_syntax() {
+        let c = ctx("module counter;\n  wi/*caret*/");
+
+        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ModuleMember)));
+        assert_eq!(
+            source(&c, keyword(SyntaxKeywordContext::ModuleMember)),
             Some(ExpectationSource::Parser)
         );
     }
