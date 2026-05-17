@@ -290,10 +290,7 @@ mod tests {
             trigger,
             lex,
             expectations: syntax.map_or_else(SmallVec::new, |syntax| {
-                smallvec![CompletionExpectation {
-                    syntax,
-                    source: ExpectationSource::RecoveredSyntax,
-                }]
+                smallvec![CompletionExpectation { syntax, source: ExpectationSource::Parser }]
             }),
             in_decl_name: false,
         }

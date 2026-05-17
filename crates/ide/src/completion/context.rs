@@ -5,6 +5,7 @@ mod decl_name;
 mod expected;
 mod lex;
 mod parser;
+mod resolve;
 mod util;
 
 use base_db::source_db::{SourceDb, SourceRootDb};
@@ -16,7 +17,6 @@ use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode};
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
-use crate::completion::{request::PortListKind, syntax_keywords};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {
@@ -69,7 +69,6 @@ pub enum ExpectationSource {
     DeclarationName,
     Ast(syntax::SyntaxKind),
     Token(syntax::TokenKind),
-    RecoveredSyntax,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,44 +222,9 @@ fn detect_completion_context_impl(
     }
 
     let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
-    let mut expectations = SmallVec::new();
-    let local_expectation = expected::detect_local_completion_expectation(&caret);
-    let mut parser_expectations = SmallVec::new();
-    if let Some(parser_expected_syntax) = parser_expected_syntax {
-        for item in parser_expected_syntax {
-            for expectation in parser::completion_expectations_for_parser_item(item) {
-                push_expectation(&mut parser_expectations, expectation);
-            }
-        }
-    }
-    remove_recovered_config_rule_expectations(&mut parser_expectations);
-
-    if local_expectation.is_some_and(local_expectation_suppresses_parser) {
-        push_expectation(&mut expectations, local_expectation.unwrap());
-    } else if let Some(expectation) = parser_port_keyword_expectation(
-        parser_expected_syntax,
-        &parser_expectations,
-        &prefix,
-        trigger,
-    ) {
-        push_expectation(&mut expectations, expectation);
-    } else if in_decl_name {
-        push_expectation(
-            &mut expectations,
-            CompletionExpectation {
-                syntax: ExpectedSyntax::DeclName,
-                source: ExpectationSource::DeclarationName,
-            },
-        );
-    } else {
-        for expectation in parser_expectations {
-            push_expectation(&mut expectations, expectation);
-        }
-
-        if let Some(expectation) = local_expectation {
-            push_expectation(&mut expectations, expectation);
-        }
-    }
+    let local = expected::detect_local(&caret);
+    let parser = parser::expectations(parser_expected_syntax);
+    let expectations = resolve::expectations(parser, local, in_decl_name, &prefix, trigger);
     CompletionContext { replacement, prefix, trigger, lex, expectations, in_decl_name }
 }
 
@@ -270,96 +234,6 @@ fn parser_expected_syntax_for_text(
     offset: TextSize,
 ) -> Vec<ParserExpectedSyntax> {
     parser::parser_expected_syntax_for_text(root, source_text, offset)
-}
-
-fn push_expectation(
-    expectations: &mut SmallVec<[CompletionExpectation; 4]>,
-    expectation: CompletionExpectation,
-) {
-    if !expectations.iter().any(|existing| existing.syntax == expectation.syntax) {
-        expectations.push(expectation);
-    }
-}
-
-fn parser_port_keyword_expectation(
-    parser_items: Option<&[ParserExpectedSyntax]>,
-    expectations: &[CompletionExpectation],
-    prefix: &str,
-    trigger: Option<TriggerChar>,
-) -> Option<CompletionExpectation> {
-    if prefix.is_empty() {
-        if trigger == Some(TriggerChar::Comma) {
-            return None;
-        }
-
-        return expectations
-            .iter()
-            .copied()
-            .find(|expectation| port_keyword_kind(expectation.syntax).is_some());
-    }
-
-    expectations
-        .iter()
-        .copied()
-        .find(|expectation| {
-            port_keyword_kind(expectation.syntax)
-                .is_some_and(|kind| syntax_keywords::has_port_item_keyword_prefix(prefix, kind))
-        })
-        .or_else(|| {
-            parser_items?.iter().any(|item| item.name == "ExpectedNonAnsiPort").then_some(())?;
-            syntax_keywords::has_port_item_keyword_prefix(prefix, PortListKind::Ansi).then_some(
-                CompletionExpectation {
-                    syntax: ExpectedSyntax::AnsiPortItem,
-                    source: ExpectationSource::Parser,
-                },
-            )
-        })
-}
-
-fn port_keyword_kind(syntax: ExpectedSyntax) -> Option<PortListKind> {
-    match syntax {
-        ExpectedSyntax::AnsiPortItem => Some(PortListKind::Ansi),
-        ExpectedSyntax::FunctionPortItem => Some(PortListKind::Function),
-        _ => None,
-    }
-}
-
-fn remove_recovered_config_rule_expectations(
-    expectations: &mut SmallVec<[CompletionExpectation; 4]>,
-) {
-    let has_header = expectations.iter().any(|expectation| {
-        expectation.syntax == ExpectedSyntax::Keyword(SyntaxKeywordContext::ConfigHeaderItem)
-    });
-    if has_header {
-        expectations.retain(|expectation| {
-            expectation.syntax != ExpectedSyntax::Keyword(SyntaxKeywordContext::ConfigRule)
-        });
-    }
-}
-
-fn local_expectation_suppresses_parser(expectation: CompletionExpectation) -> bool {
-    match expectation.syntax {
-        ExpectedSyntax::ElseClause => false,
-        ExpectedSyntax::DirectiveName
-        | ExpectedSyntax::Keyword(_)
-        | ExpectedSyntax::Expression
-        | ExpectedSyntax::ParameterPortListItem
-        | ExpectedSyntax::AnsiPortItem
-        | ExpectedSyntax::FunctionPortItem
-        | ExpectedSyntax::PortConnection
-        | ExpectedSyntax::ArgumentExpr
-        | ExpectedSyntax::NonAnsiPortName
-        | ExpectedSyntax::DeclName => false,
-        ExpectedSyntax::PortConnectionName
-        | ExpectedSyntax::ParameterAssignmentName
-        | ExpectedSyntax::MemberName
-        | ExpectedSyntax::PortConnectionExpr
-        | ExpectedSyntax::ParameterAssignmentExpr
-        | ExpectedSyntax::AfterParamValueAssignmentHash
-        | ExpectedSyntax::AfterParameterPortListHash
-        | ExpectedSyntax::ParamValueAssignment
-        | ExpectedSyntax::EventControl { .. } => true,
-    }
 }
 
 fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {

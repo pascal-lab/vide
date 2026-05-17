@@ -36,9 +36,7 @@ impl_ast_parens!(
     ast::ParameterValueAssignment<'a>,
 );
 
-pub(super) fn detect_local_completion_expectation(
-    caret: &CaretSnapshot<'_>,
-) -> Option<CompletionExpectation> {
+pub(super) fn detect_local(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     punctuated_expectation(caret).or_else(|| else_clause_expectation(caret))
 }
 
