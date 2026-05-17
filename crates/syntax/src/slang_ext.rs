@@ -503,25 +503,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
+    use crate::{SyntaxTree, SyntaxTreeOptions};
 
     #[test]
     fn token_at_offset_inside_macro_invocation_does_not_descend_forever() {
-        let text = r#"`include "include/code_action_defs.vh"
-
-module ca_leaf #(
+        let text = r#"module ca_leaf #(
     parameter WIDTH = `CA_WIDTH,
     parameter RESET_VALUE = 0
 ) ();
 endmodule
 "#;
         let options = SyntaxTreeOptions {
-            include_buffers: vec![SyntaxTreeBuffer {
-                path: String::from("sample/include/code_action_defs.vh"),
-                text: String::from("`define CA_WIDTH 8\n"),
-            }],
-            include_paths: vec![String::from("sample")],
-            predefines: Vec::new(),
+            predefines: vec![String::from("CA_WIDTH=8")],
+            include_paths: Vec::new(),
+            include_buffers: Vec::new(),
         };
         let tree = SyntaxTree::from_text_with_options(
             text,
@@ -533,6 +528,9 @@ endmodule
         let macro_start = text.find("`CA_WIDTH").unwrap();
         let offset = TextSize::from((macro_start + 1) as u32);
 
-        assert!(matches!(root.token_at_offset(offset), TokenAtOffset::None));
+        let TokenAtOffset::Single(tok) = root.token_at_offset(offset) else {
+            panic!("expected a token mapped to the macro invocation");
+        };
+        assert_eq!(tok.kind(), TokenKind::INTEGER_LITERAL);
     }
 }
