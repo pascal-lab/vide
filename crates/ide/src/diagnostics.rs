@@ -177,9 +177,12 @@ mod tests {
 
     #[test]
     fn semantic_diagnostics_map_include_header_files() {
-        let root =
-            std::env::temp_dir().join(format!("vizsla-diagnostics-include-{}", std::process::id()));
-        let root = AbsPathBuf::assert_utf8(root);
+        let root = if cfg!(windows) {
+            "C:/vizsla-diagnostics-include"
+        } else {
+            "/vizsla-diagnostics-include"
+        };
+        let root = AbsPathBuf::assert(root.into());
         let top_path = root.join("top.sv");
         let header_path = root.join("defs.vh");
 
