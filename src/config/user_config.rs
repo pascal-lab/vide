@@ -5,7 +5,7 @@ use base_db::diagnostics_config::{
 use ide::{
     code_lens::CodeLensConfig,
     document_highlight::DocumentHighlightConfig,
-    formatting::FmtConfig,
+    formatting::{FmtConfig, FmtIndentStyle, FormatterProvider},
     hover::HoverConfig,
     inlay_hint::InlayHintConfig,
     references::ReferencesConfig,
@@ -161,12 +161,12 @@ config_data! {
         /// If true, symbols within a scope (except for ports) are private to other scopes.
         scope_visibility: ScopeVisibility = ScopeVisibility::Private,
 
+        formatter_provider: FormatterProvider = FormatterProvider::Vuff,
         formatter_path: Option<Utf8PathBuf> = None,
         formatting_on_enter: bool = true,
         formatting_in_comments: bool = true,
         formatting_indent_width: usize = 4,
         formatter_args: Vec<String> = vec![
-            "--indentation_spaces=4",
             "--failsafe_success=false",
         ].into_iter().map(String::from).collect(),
 
@@ -267,11 +267,12 @@ impl Config {
     }
 
     pub(crate) fn fmt(&self) -> FmtConfig {
-        let mut args = self.user_config.formatter_args.clone();
-        args.push(format!("--indentation_spaces={}", self.user_config.formatting_indent_width));
         FmtConfig {
+            provider: self.user_config.formatter_provider,
             executable: self.user_config.formatter_path.clone(),
-            args,
+            args: self.user_config.formatter_args.clone(),
+            indent_width: self.user_config.formatting_indent_width,
+            indent_style: FmtIndentStyle::Spaces,
             on_enter: self.user_config.formatting_on_enter,
             in_comments: self.user_config.formatting_in_comments,
         }

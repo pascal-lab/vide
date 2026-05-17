@@ -137,13 +137,26 @@
           "default": "private",
           "description": "Controls whether symbols inside scopes, except ports, are visible outside those scopes."
         },
+        "vizsla.formatter.provider": {
+          "type": "string",
+          "enum": [
+            "vuff",
+            "verible"
+          ],
+          "default": "vuff",
+          "enumDescriptions": [
+            "Use the bundled vuff formatter. Supports Format Document.",
+            "Use an external verible-verilog-format executable. Supports Format Document and Format Selection."
+          ],
+          "description": "Formatter backend used by Vizsla."
+        },
         "vizsla.formatter.path": {
           "type": [
             "string",
             "null"
           ],
           "default": null,
-          "description": "Path to an external formatter executable. Leave empty to use the default formatter."
+          "description": "Path to verible-verilog-format when vizsla.formatter.provider is verible. Leave empty to find it on PATH."
         },
         "vizsla.formatter.args": {
           "type": "array",
@@ -151,10 +164,9 @@
             "type": "string"
           },
           "default": [
-            "--indentation_spaces=4",
             "--failsafe_success=false"
           ],
-          "description": "Arguments passed to the formatter."
+          "description": "Arguments passed to verible-verilog-format when vizsla.formatter.provider is verible."
         },
         "vizsla.formatting.on.enter": {
           "type": "boolean",
@@ -170,7 +182,7 @@
           "type": "integer",
           "minimum": 0,
           "default": 4,
-          "description": "Number of spaces used for formatting indentation."
+          "description": "Fallback indentation width used when editor formatting options are unavailable."
         },
         "vizsla.inlayHints.port.connection.enable": {
           "type": "boolean",
