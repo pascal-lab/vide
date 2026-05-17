@@ -1,5 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use syntax::{Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer};
+use syntax::{
+    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
+    SyntaxTreeBufferIds,
+};
 use triomphe::Arc;
 use utils::line_index::TextSize;
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
@@ -98,6 +101,20 @@ fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentit
 
 fn normalized_path_key(path: &str) -> String {
     path.replace('\\', "/")
+}
+
+fn insert_buffer_file_ids(
+    buffer_file_ids: &mut FxHashMap<u32, FileId>,
+    path_file_ids: &FxHashMap<String, FileId>,
+    buffers: SyntaxTreeBufferIds,
+    root_file_id: FileId,
+) {
+    buffer_file_ids.insert(buffers.root_buffer_id, root_file_id);
+    for buffer in buffers.source_buffers {
+        if let Some(file_id) = path_file_ids.get(&normalized_path_key(&buffer.path)) {
+            buffer_file_ids.insert(buffer.buffer_id, *file_id);
+        }
+    }
 }
 
 fn syntax_tree_options_for_file(
@@ -352,7 +369,7 @@ fn source_root_semantic_diagnostics(
             }
             let text = db.file_text(file_id);
             let identity = source_file_identity(db, file_id);
-            let buffer_id = match db.file_kind(file_id) {
+            let buffer_ids = match db.file_kind(file_id) {
                 SourceFileKind::SystemVerilog => {
                     let options = syntax_tree_options_for_file(db, file_id);
                     compilation.add_syntax_tree_from_text(
@@ -369,7 +386,7 @@ fn source_root_semantic_diagnostics(
                 ),
                 SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
             };
-            buffer_file_ids.insert(buffer_id, file_id);
+            insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids, file_id);
         }
     }
 
@@ -377,14 +394,8 @@ fn source_root_semantic_diagnostics(
         .semantic_diagnostics_with_options(&config.slang.warnings)
         .into_iter()
         .filter_map(|diag| {
-            let diag_file_id = diag
-                .buffer_id
-                .and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())
-                .or_else(|| {
-                    diag.file_name
-                        .as_ref()
-                        .and_then(|path| path_file_ids.get(&normalized_path_key(path)).copied())
-                })?;
+            let diag_file_id =
+                diag.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
             let diag = config.apply_rules(DiagnosticSource::Semantic, diag)?;
             Some((diag_file_id, diag))
         })

@@ -119,10 +119,15 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_db::SourceRootDb, source_root::SourceRoot};
+    use base_db::{
+        change::Change,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        source_db::SourceRootDb,
+        source_root::{SourceRoot, SourceRootId},
+    };
     use ide_db::root_db::RootDb;
     use triomphe::Arc;
-    use utils::lines::LineEnding;
+    use utils::{lines::LineEnding, paths::AbsPathBuf};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::diagnostics;
@@ -167,6 +172,57 @@ mod tests {
         assert!(
             db.semantic_diagnostics(FileId(0)).is_empty(),
             "child file should not receive diagnostics that belong to top.sv"
+        );
+    }
+
+    #[test]
+    fn semantic_diagnostics_map_include_header_files() {
+        let root =
+            std::env::temp_dir().join(format!("vizsla-diagnostics-include-{}", std::process::id()));
+        let root = AbsPathBuf::assert_utf8(root);
+        let top_path = root.join("top.sv");
+        let header_path = root.join("defs.vh");
+
+        let mut db = RootDb::new(None);
+        let mut file_set = FileSet::default();
+        file_set.insert(FileId(0), VfsPath::from(top_path.clone()));
+        file_set.insert(FileId(1), VfsPath::from(header_path));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(0),
+            change_kind: ChangeKind::Create(
+                Arc::from("module top;\n`include \"defs.vh\"\nendmodule\n"),
+                LineEnding::Unix,
+            ),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(1),
+            change_kind: ChangeKind::Create(
+                Arc::from("logic value = missing_name;\n"),
+                LineEnding::Unix,
+            ),
+        });
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig { predefines: Vec::new(), include_dirs: vec![root] },
+            }],
+        )));
+        db.apply_change(change);
+
+        let diagnostics = diagnostics(&db, FileId(1));
+
+        assert!(
+            diagnostics.iter().any(|diag| diag.message.contains("missing_name")),
+            "expected semantic diagnostic in included header: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|diag| diag.file_id == FileId(1)),
+            "header diagnostics should be attributed to the header file: {diagnostics:?}"
         );
     }
 }
