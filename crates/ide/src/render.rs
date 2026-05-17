@@ -1,4 +1,3 @@
-use base_db::source_db::SourceDb;
 use hir::{
     container::{ContainerId, ContainerParent, InFile},
     display::HirDisplay,
@@ -8,8 +7,12 @@ use hir::{
 };
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
-use syntax::{SVInt, SyntaxCursorExt, trivia::TriviaExt};
-use utils::text_edit::TextSize;
+use syntax::{
+    SVInt, SyntaxCursorExt, SyntaxNodeExt,
+    has_text_range::HasTextRange,
+    token::SyntaxTokenWithParentExt,
+    trivia::{TriviaExt, TriviaKindExt},
+};
 
 use crate::{
     definitions::{Definition, DefinitionOrigin},
@@ -149,29 +152,38 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opti
 fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin) -> Option<Markup> {
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
-    let end = range.end();
-
-    let text = db.file_text(file_id.file_id());
-    let text = &text[end.into()..];
-    let relative_start = 'out: {
-        for ((pos, c), (_, c1)) in text.char_indices().tuple_windows() {
-            match c {
-                '\n' => return None,
-                '/' if matches!(c1, '/' | '*') => break 'out pos as u32,
-                _ => {}
-            }
-        }
-        return None;
-    };
 
     let root = sema.parse_root(file_id.file_id())?;
-    let mut cursor = root.walk();
-    cursor.goto_first_tok_after_or_last(end + TextSize::new(relative_start));
-    cursor
-        .to_token()?
-        .trivias()
-        .find_map(|t| t.as_comment().map(|c| c.to_string()))
-        .map(|comment| comment.into())
+    let elem = root.elem_at_exact_range(range)?;
+    let mut offset = elem.text_range()?.end();
+
+    loop {
+        let mut cursor = root.walk();
+        if !cursor.goto_first_tok_after(offset) {
+            return None;
+        }
+
+        let tok = cursor.to_tok_with_parent()?;
+        for (range, trivia) in tok.trivias_with_range() {
+            if range.end() <= offset {
+                continue;
+            }
+
+            if trivia.kind().is_eol() {
+                return None;
+            }
+
+            if let Some(comment) = trivia.as_comment() {
+                return Some(comment.to_string().into());
+            }
+        }
+
+        let tok_range = tok.text_range()?;
+        if tok_range.end() <= offset {
+            return None;
+        }
+        offset = tok_range.end();
+    }
 }
 
 fn render_containers(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {

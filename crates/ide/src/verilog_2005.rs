@@ -730,6 +730,58 @@ include "vendor.map";
 }
 
 #[test]
+fn verilog_2005_hover_renders_side_comment_from_trivia() {
+    let text = r#"
+module side_comment_ctx;
+  wire /*marker:sig_def*/sig; // side comment from trivia
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let hover = host
+        .make_analysis()
+        .hover(
+            position(file_id, &markers, "sig_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("signal hover expected");
+
+    assert!(
+        hover.info.as_str().contains("side comment from trivia"),
+        "hover should render the declaration side comment: {}",
+        hover.info.as_str()
+    );
+}
+
+#[test]
+fn verilog_2005_hover_after_truncation_uses_current_syntax_context() {
+    let full = "module\t/*marker:name*/axi_addr_miter(i_last_addr, i_size, i_burst, i_len); // full declaration\nendmodule\n";
+    let (mut host, file_id, _clean_text, markers) = setup_marked(full);
+
+    let mut change = Change::new();
+    change.add_changed_file(ChangedFile {
+        file_id,
+        change_kind: ChangeKind::Modify(
+            Arc::from("module\taxi_addr_miter(i_last_addr, i_size, i_burst, i_len);"),
+            LineEnding::Unix,
+        ),
+    });
+    host.apply_change(change);
+
+    let hover = host
+        .make_analysis()
+        .hover(position(file_id, &markers, "name"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("truncated module hover expected");
+
+    assert!(
+        !hover.info.as_str().contains("full declaration"),
+        "hover should not render stale side comments: {}",
+        hover.info.as_str()
+    );
+}
+
+#[test]
 fn verilog_2005_block_parameter_declarations_lower_without_fallback() {
     let text = r#"
 module block_param_ctx;
