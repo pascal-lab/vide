@@ -147,17 +147,20 @@ Vizsla 支持三类格式化入口:
 - `Format Selection`
 - 按 Enter 时的 on-type formatting
 
-全文和范围格式化默认调用 `verible-verilog-format`。如果它不在 `PATH` 中, 请配置:
+默认 formatter provider 是 `vuff`, 它内置在服务器中, 支持 `Format Document`, 并会读取最近的 `vuff.toml`。如果没有 `vuff.toml`, 会使用编辑器传入的 `tabSize` 和 `insertSpaces`; 编辑器没有提供时再回退到 `vizsla.formatting.indent.width`。
+
+`vuff` 当前不支持局部格式化。需要 `Format Selection` 或按 Enter 后对上一行结构做局部格式化时, 请切换到 `verible`:
 
 ```json
 {
+  "vizsla.formatter.provider": "verible",
   "vizsla.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
 }
 ```
 
-`vizsla.formatter.args` 会传给外部 formatter。服务器还会根据 `vizsla.formatting.indent.width` 追加当前缩进宽度对应的 `--indentation_spaces=<N>`。
+`vizsla.formatter.path` 和 `vizsla.formatter.args` 只对 `verible` 生效。服务器还会根据编辑器传入的 `tabSize` 为 verible 追加当前缩进宽度对应的 `--indentation_spaces=<N>`。
 
-按 Enter 时的辅助格式化不只是调用外部 formatter。我们还会处理注释续行和上一行结构格式化, 受这些设置控制:
+按 Enter 时的辅助格式化不只是调用 formatter。我们还会处理注释续行和上一行结构格式化, 受这些设置控制:
 
 - `vizsla.formatting.on.enter`
 - `vizsla.formatting.in.comments`

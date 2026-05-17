@@ -2,10 +2,12 @@ use std::{
     io::Write,
     iter,
     ops::{ControlFlow, Range},
+    path::Path,
     process::{Command, Stdio},
     str,
 };
 
+use anyhow::Context as _;
 use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
 use hir::semantics::Semantics;
@@ -23,13 +25,44 @@ use utils::{
     text_edit::TextEdit,
 };
 use vfs::FileId;
+use vuff_config::{ConfigSource, IndentStyle as VuffIndentStyle};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormatterProvider {
+    Vuff,
+    Verible,
+}
+
+impl FormatterProvider {
+    fn supports_range_formatting(self) -> bool {
+        matches!(self, Self::Verible)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FmtIndentStyle {
+    Spaces,
+    Tabs,
+}
+
+#[derive(Debug, Clone)]
 pub struct FmtConfig {
+    pub provider: FormatterProvider,
     pub executable: Option<Utf8PathBuf>,
     pub args: Vec<String>,
+    pub indent_width: usize,
+    pub indent_style: FmtIndentStyle,
     pub on_enter: bool,
     pub in_comments: bool,
+}
+
+impl FmtConfig {
+    pub fn apply_editor_options(&mut self, tab_size: u32, insert_spaces: bool) {
+        self.indent_width = tab_size as usize;
+        self.indent_style =
+            if insert_spaces { FmtIndentStyle::Spaces } else { FmtIndentStyle::Tabs };
+    }
 }
 
 pub(crate) fn format(
@@ -40,22 +73,82 @@ pub(crate) fn format(
     config: FmtConfig,
 ) -> anyhow::Result<Option<TextEdit>> {
     let text = db.file_text(file_id);
-    format_inner(text.as_ref(), line_range, ending, config)
+    let file_path = db.file_path(file_id);
+    format_inner(
+        text.as_ref(),
+        line_range,
+        ending,
+        file_path.as_ref().map(|path| path.as_ref()),
+        config,
+    )
 }
 
 fn format_inner(
     text: &str,
     line_range: Option<Range<usize>>,
     ending: &LineEnding,
+    file_path: Option<&Path>,
     config: FmtConfig,
 ) -> Result<Option<TextEdit>, anyhow::Error> {
+    let new_text = match config.provider {
+        FormatterProvider::Vuff => {
+            if line_range.is_some() {
+                anyhow::bail!(
+                    "vuff formatter does not support range formatting; set \
+                     `vizsla.formatter.provider` to `verible` to use Format Selection"
+                );
+            }
+            format_vuff(text, file_path, &config)?
+        }
+        FormatterProvider::Verible => format_verible(text, line_range, &config)?,
+    };
+
+    let (new_text, new_line_endings) = LineEnding::normalize(new_text);
+
+    if *ending != new_line_endings {
+        let range = TextRange::up_to(TextSize::of(text));
+        Ok(Some(TextEdit::replace(range, new_text)))
+    } else if *text == new_text {
+        Ok(None)
+    } else {
+        Ok(Some(diff(text, &new_text)))
+    }
+}
+
+fn format_vuff(text: &str, file_path: Option<&Path>, config: &FmtConfig) -> anyhow::Result<String> {
+    let env_config = std::env::var_os("VUFF_CONFIG");
+    let search_start = file_path.and_then(Path::parent).unwrap_or_else(|| Path::new("."));
+    let resolved = vuff_config::load_config(None, env_config.as_deref(), search_start)
+        .context("failed to load vuff formatter config")?;
+    let mut options = resolved.options;
+
+    if matches!(resolved.source, ConfigSource::Defaults) {
+        options.indent_width = u8::try_from(config.indent_width).with_context(|| {
+            format!("invalid formatting indent width for vuff: {}", config.indent_width)
+        })?;
+        options.indent_style = match config.indent_style {
+            FmtIndentStyle::Spaces => VuffIndentStyle::Spaces,
+            FmtIndentStyle::Tabs => VuffIndentStyle::Tabs,
+        };
+    }
+
+    vuff_sv_formatter::format_source(text, &options).context("vuff formatter failed")
+}
+
+fn format_verible(
+    text: &str,
+    line_range: Option<Range<usize>>,
+    config: &FmtConfig,
+) -> anyhow::Result<String> {
     let verible_fmt_path = config
         .executable
+        .clone()
         .map_or_else(|| which::which("verible-verilog-format"), |p| Ok(p.into()))?;
 
     let mut cmd = Command::new(verible_fmt_path);
 
     cmd.args(&config.args);
+    cmd.arg(format!("--indentation_spaces={}", config.indent_width));
     if let Some(lines) = line_range {
         cmd.arg("--lines").arg(format!("{}-{}", lines.start + 1, lines.end));
     }
@@ -75,16 +168,7 @@ fn format_inner(
         return Err(anyhow::format_err!("verible-verilog-format failed: {}", stderr));
     }
 
-    let (new_text, new_line_endings) = LineEnding::normalize(String::from_utf8(output.stdout)?);
-
-    if *ending != new_line_endings {
-        let range = TextRange::up_to(TextSize::of(text));
-        Ok(Some(TextEdit::replace(range, new_text)))
-    } else if *text == new_text {
-        Ok(None)
-    } else {
-        Ok(Some(diff(text, &new_text)))
-    }
+    String::from_utf8(output.stdout).context("verible-verilog-format produced invalid UTF-8")
 }
 
 fn diff(old: &str, new: &str) -> TextEdit {
@@ -169,6 +253,7 @@ pub fn format_on_type(
 
     // region: formatting
     if config.on_enter
+        && config.provider.supports_range_formatting()
         && let Some(trivias) = trivias.get(..idx.unwrap_or(trivias.len()))
         && let Some(edits) = format_previous(db, file_id, trivias, &mut cursor, line_info, config)
     {
@@ -317,7 +402,14 @@ fn format_previous<'a>(
         }
     }
 
-    let Ok(Some(edits)) = format_inner(&text, line_range, ending, config) else {
+    let file_path = db.file_path(file_id);
+    let Ok(Some(edits)) = format_inner(
+        &text,
+        line_range,
+        ending,
+        file_path.as_ref().map(|path| path.as_ref()),
+        config,
+    ) else {
         return None;
     };
 
@@ -338,7 +430,7 @@ mod tests {
     };
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use super::{FmtConfig, format_on_type};
+    use super::{FmtConfig, FormatterProvider, format_on_type};
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId(0);
@@ -369,7 +461,15 @@ mod tests {
     }
 
     fn config() -> FmtConfig {
-        FmtConfig { executable: None, args: Vec::new(), on_enter: false, in_comments: true }
+        FmtConfig {
+            provider: FormatterProvider::Vuff,
+            executable: None,
+            args: Vec::new(),
+            indent_width: 4,
+            indent_style: super::FmtIndentStyle::Spaces,
+            on_enter: false,
+            in_comments: true,
+        }
     }
 
     #[test]
