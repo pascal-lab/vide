@@ -1,17 +1,16 @@
-use hir::{
-    container::{InContainer, InModule},
-    db::HirDb,
-    hir_def::{declaration::Declaration, module::instantiation::ParamAssign},
-};
-use itertools::Itertools;
+use base_db::source_db::SourceDb;
+use hir::{container::InModule, db::HirDb, hir_def::module::instantiation::ParamAssign};
 use rustc_hash::FxHashSet;
-use smol_str::SmolStr;
-use syntax::{ast, has_text_range::HasTextRange};
+use syntax::{
+    ast::{self, AstNode},
+    has_text_range::HasTextRange,
+};
 use utils::get::GetRef;
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-    append_missing_list_entries,
+    all_parameter_names, apply_missing_list_edit, leading_parameter_names,
+    missing_member_entry_text,
 };
 
 const ID: CodeActionId =
@@ -36,29 +35,23 @@ pub(super) fn add_missing_parameters(
     let instantiation = module.get(instantiation_id);
 
     let params_node = ast_instantiation.parameters()?;
-    let insert_offset = params_node.close_paren()?.text_range()?.start();
+    let open_paren = params_node.open_paren()?.text_range()?;
+    let close_paren = params_node.close_paren()?.text_range()?;
 
     let target_module_id = sema.nameres_instantiation(ast_instantiation)?;
     let target_module = db.module(target_module_id);
 
-    let has_existing_assigns = !instantiation.param_assigns.is_empty();
     let is_ordered = instantiation
         .param_assigns
         .first()
         .map(|id| matches!(module.get(*id), ParamAssign::Ordered(_)))
         .unwrap_or_default();
 
-    let names = if is_ordered {
-        let assigned = instantiation.param_assigns.len();
-
-        target_module
-            .declarations
-            .values()
-            .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
-            .flat_map(|declaration| declaration.decls())
-            .filter_map(|decl| target_module.get(decl).name.clone())
-            .skip(assigned)
-            .collect_vec()
+    let names: Vec<_> = if is_ordered {
+        leading_parameter_names(&target_module)
+            .into_iter()
+            .skip(instantiation.param_assigns.len())
+            .collect()
     } else {
         let mut assigned_names = FxHashSet::default();
         for param_id in instantiation.param_assigns.iter() {
@@ -71,20 +64,10 @@ pub(super) fn add_missing_parameters(
             }
         }
 
-        let mut names = Vec::default();
-
-        for decl_id in target_module.declarations.values() {
-            if let Declaration::ParamDecl(_) = decl_id {
-                for decl in decl_id.decls() {
-                    if let Some(name) = target_module.get(decl).name.clone()
-                        && !assigned_names.contains(&name)
-                    {
-                        names.push(name);
-                    }
-                }
-            }
-        }
-        names
+        all_parameter_names(&target_module)
+            .into_iter()
+            .filter(|name| !assigned_names.contains(name))
+            .collect()
     };
 
     if names.is_empty() {
@@ -92,21 +75,17 @@ pub(super) fn add_missing_parameters(
     }
 
     collector.add(ID, LABEL, ctx.range, |builder| {
-        let mut entries = Vec::new();
-        let cont_id = module_id.into();
-        let mut add_to_text = |name: SmolStr| match (
-            sema.name_to_def(InContainer::new(cont_id, name.clone())),
-            is_ordered,
-        ) {
-            (None, true) => entries.push(format!("/* {name} */ 0")),
-            (None, false) => entries.push(format!(".{name}()")),
-            (Some(_), true) => entries.push(name.to_string()),
-            (Some(_), false) => entries.push(format!(".{name}")),
-        };
+        let entries = names
+            .into_iter()
+            .map(|name| missing_member_entry_text(sema, module_id, name, is_ordered, "0"))
+            .collect();
 
-        names.into_iter().for_each(&mut add_to_text);
-
-        builder.insert(insert_offset, append_missing_list_entries(entries, has_existing_assigns));
+        let text = sema.db.file_text(ctx.file_id);
+        let item_ranges = params_node.parameters().children().filter_map(|assign| {
+            let range = assign.syntax().text_range()?;
+            (!range.is_empty()).then_some(range)
+        });
+        apply_missing_list_edit(builder, &text, open_paren, close_paren, item_ranges, entries);
     });
 
     Some(())

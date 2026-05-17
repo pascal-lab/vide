@@ -1,10 +1,6 @@
-use hir::{
-    container::{InContainer, InModule},
-    db::HirDb,
-    hir_def::module::{instantiation::PortConn, port::Ports},
-};
+use base_db::source_db::SourceDb;
+use hir::{container::InModule, db::HirDb, hir_def::module::instantiation::PortConn};
 use rustc_hash::FxHashSet;
-use smol_str::SmolStr;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
@@ -13,7 +9,7 @@ use utils::get::GetRef;
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-    append_missing_list_entries,
+    apply_missing_list_edit, missing_member_entry_text, port_names, remaining_ordered_port_names,
 };
 
 const ID: CodeActionId =
@@ -35,42 +31,21 @@ pub(super) fn add_missing_connections(
     let InModule { value: instance_id, module_id } = sema.resolve_instance(ast_instance)?;
     let module = db.module(module_id);
     let instance = module.get(instance_id);
-    let insert_offset = ast_instance.close_paren()?.text_range()?.start();
+    let open_paren = ast_instance.open_paren()?.text_range()?;
+    let close_paren = ast_instance.close_paren()?.text_range()?;
 
     let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
     let target_module_id = sema.nameres_instantiation(instantiation)?;
     let target_module = db.module(target_module_id);
 
-    let has_existing_connections = !instance.connections.is_empty();
     let is_ordered = instance
         .connections
         .first()
         .map(|id| matches!(module.get(*id), PortConn::Ordered(_) | PortConn::Empty))
         .unwrap_or_default();
 
-    let names = if is_ordered {
-        let mut names = Vec::default();
-        let connected = instance.connections.len();
-        match &target_module.ports {
-            Ports::NonAnsi { ports, .. } => {
-                ports.values().skip(connected).filter_map(|port| port.label.clone()).for_each(
-                    |label| {
-                        names.push(label);
-                    },
-                );
-            }
-            Ports::Ansi(ports) => {
-                ports
-                    .values()
-                    .flat_map(|port| port.decls.clone())
-                    .skip(connected)
-                    .filter_map(|decl| target_module.get(decl).name.clone())
-                    .for_each(|name| {
-                        names.push(name);
-                    });
-            }
-        }
-        names
+    let names: Vec<_> = if is_ordered {
+        remaining_ordered_port_names(&target_module, instance.connections.len())
     } else {
         let mut connected_names = FxHashSet::default();
         for conn_id in instance.connections.iter() {
@@ -83,28 +58,10 @@ pub(super) fn add_missing_connections(
             }
         }
 
-        let mut names = Vec::default();
-        match &target_module.ports {
-            Ports::NonAnsi { ports, .. } => {
-                ports.values().filter_map(|port| port.label.clone()).for_each(|label| {
-                    if !connected_names.contains(&label) {
-                        names.push(label);
-                    }
-                });
-            }
-            Ports::Ansi(ports) => {
-                ports
-                    .values()
-                    .flat_map(|port| port.decls.clone())
-                    .filter_map(|decl| target_module.get(decl).name.clone())
-                    .for_each(|name| {
-                        if !connected_names.contains(&name) {
-                            names.push(name);
-                        }
-                    });
-            }
-        }
-        names
+        port_names(&target_module)
+            .into_iter()
+            .filter(|name| !connected_names.contains(name))
+            .collect()
     };
 
     if names.is_empty() {
@@ -112,22 +69,17 @@ pub(super) fn add_missing_connections(
     }
 
     collector.add(ID, LABEL, ctx.range, |builder| {
-        let mut entries = Vec::new();
-        let cont_id = module_id.into();
-        let mut add_to_text = |name: SmolStr| match (
-            sema.name_to_def(InContainer::new(cont_id, name.clone())),
-            is_ordered,
-        ) {
-            (None, true) => entries.push(format!("/* {name} */ '0")),
-            (None, false) => entries.push(format!(".{name}()")),
-            (Some(_), true) => entries.push(name.to_string()),
-            (Some(_), false) => entries.push(format!(".{name}")),
-        };
+        let entries = names
+            .into_iter()
+            .map(|name| missing_member_entry_text(sema, module_id, name, is_ordered, "'0"))
+            .collect();
 
-        names.into_iter().for_each(&mut add_to_text);
-
-        builder
-            .insert(insert_offset, append_missing_list_entries(entries, has_existing_connections));
+        let text = sema.db.file_text(ctx.file_id);
+        let item_ranges = ast_instance.connections().children().filter_map(|conn| {
+            let range = conn.syntax().text_range()?;
+            (!range.is_empty()).then_some(range)
+        });
+        apply_missing_list_edit(builder, &text, open_paren, close_paren, item_ranges, entries);
     });
 
     Some(())

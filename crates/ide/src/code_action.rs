@@ -1,7 +1,18 @@
-use hir::semantics::Semantics;
+use hir::{
+    container::InContainer,
+    hir_def::{
+        declaration::Declaration,
+        module::{Module, ModuleId, port::Ports},
+    },
+    semantics::Semantics,
+};
 use ide_db::root_db::RootDb;
+use smol_str::SmolStr;
 use syntax::ast::{AstNode, CompilationUnit};
-use utils::text_edit::{TextRange, TextSize};
+use utils::{
+    get::GetRef,
+    text_edit::{TextRange, TextSize},
+};
 use vfs::FileId;
 
 use crate::source_change::{SourceChange, SourceChangeBuilder};
@@ -41,12 +52,170 @@ pub enum RepairKind {
     AddInstanceParens,
 }
 
-pub(crate) fn append_missing_list_entries(entries: Vec<String>, has_existing: bool) -> String {
-    let mut text = entries.join(", ");
-    if has_existing && !text.is_empty() {
-        text.insert_str(0, ", ");
+pub(crate) struct MissingListEdit {
+    pub range: TextRange,
+    pub replacement: String,
+}
+
+pub(crate) fn port_names(module: &Module) -> Vec<SmolStr> {
+    match &module.ports {
+        Ports::NonAnsi { ports, .. } => {
+            ports.values().filter_map(|port| port.label.clone()).collect()
+        }
+        Ports::Ansi(ports) => ports
+            .values()
+            .flat_map(|port| port.decls.clone())
+            .filter_map(|decl| module.get(decl).name.clone())
+            .collect(),
     }
-    text
+}
+
+pub(crate) fn remaining_ordered_port_names(module: &Module, connected: usize) -> Vec<SmolStr> {
+    match &module.ports {
+        Ports::NonAnsi { ports, .. } => {
+            ports.values().skip(connected).filter_map(|port| port.label.clone()).collect()
+        }
+        Ports::Ansi(ports) => ports
+            .values()
+            .flat_map(|port| port.decls.clone())
+            .skip(connected)
+            .filter_map(|decl| module.get(decl).name.clone())
+            .collect(),
+    }
+}
+
+pub(crate) fn leading_parameter_names(module: &Module) -> Vec<SmolStr> {
+    module
+        .declarations
+        .values()
+        .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
+        .flat_map(|declaration| declaration.decls())
+        .filter_map(|decl| module.get(decl).name.clone())
+        .collect()
+}
+
+pub(crate) fn all_parameter_names(module: &Module) -> Vec<SmolStr> {
+    module
+        .declarations
+        .values()
+        .filter(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
+        .flat_map(|declaration| declaration.decls())
+        .filter_map(|decl| module.get(decl).name.clone())
+        .collect()
+}
+
+pub(crate) fn missing_member_entry_text(
+    sema: &Semantics<'_, RootDb>,
+    module_id: ModuleId,
+    name: SmolStr,
+    is_ordered: bool,
+    unresolved_ordered_value: &str,
+) -> String {
+    match (sema.name_to_def(InContainer::new(module_id.into(), name.clone())), is_ordered) {
+        (None, true) => format!("/* {name} */ {unresolved_ordered_value}"),
+        (None, false) => format!(".{name}()"),
+        (Some(_), true) => name.to_string(),
+        (Some(_), false) => format!(".{name}"),
+    }
+}
+
+pub(crate) fn apply_missing_list_edit(
+    builder: &mut SourceChangeBuilder,
+    text: &str,
+    open_paren: TextRange,
+    close_paren: TextRange,
+    item_ranges: impl IntoIterator<Item = TextRange>,
+    entries: Vec<String>,
+) {
+    if let Some(edit) = missing_list_edit(text, open_paren, close_paren, item_ranges, entries) {
+        builder.replace(edit.range, edit.replacement);
+    }
+}
+
+pub(crate) fn missing_list_edit(
+    text: &str,
+    open_paren: TextRange,
+    close_paren: TextRange,
+    item_ranges: impl IntoIterator<Item = TextRange>,
+    entries: Vec<String>,
+) -> Option<MissingListEdit> {
+    if entries.is_empty() {
+        return None;
+    }
+
+    let open_end = open_paren.end();
+    let close_start = close_paren.start();
+    if close_start < open_end {
+        return None;
+    }
+
+    let open_end_usize = usize::from(open_end);
+    let close_start_usize = usize::from(close_start);
+    let content = text.get(open_end_usize..close_start_usize)?;
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let multiline = content.contains('\n');
+
+    let trimmed_len = content.trim_end_matches(char::is_whitespace).len();
+    let trimmed = &content[..trimmed_len];
+    let trailing_comma = trimmed.ends_with(',');
+    let meaningful_len =
+        if trailing_comma { trimmed.len().saturating_sub(1) } else { trimmed.len() };
+    let has_existing_text = !trimmed[..meaningful_len].trim().is_empty();
+
+    let last_token_end = TextSize::from((open_end_usize + trimmed.len()) as u32);
+    let range_start = if trailing_comma {
+        last_token_end
+    } else if has_existing_text {
+        TextSize::from((open_end_usize + meaningful_len) as u32)
+    } else {
+        open_end
+    };
+    let range = TextRange::new(range_start, close_start);
+
+    let replacement = if multiline {
+        let close_indent = line_indent(text, close_start);
+        let item_indent = item_ranges
+            .into_iter()
+            .filter(|range| !range.is_empty() && range.start() < close_start)
+            .last()
+            .and_then(|range| item_line_indent(text, range.start()))
+            .unwrap_or_else(|| format!("{close_indent}    "));
+
+        let mut lines = Vec::new();
+        let entries_len = entries.len();
+        for (idx, entry) in entries.into_iter().enumerate() {
+            let needs_comma = trailing_comma || idx + 1 < entries_len;
+            let comma = if needs_comma { "," } else { "" };
+            lines.push(format!("{item_indent}{entry}{comma}"));
+        }
+
+        let rendered_entries = lines.join(newline);
+        let prefix = if has_existing_text && !trailing_comma { "," } else { "" };
+        format!("{prefix}{newline}{rendered_entries}{newline}{close_indent}")
+    } else {
+        let rendered_entries = entries.join(", ");
+        if has_existing_text {
+            let separator = if trailing_comma { " " } else { ", " };
+            format!("{separator}{rendered_entries}")
+        } else {
+            rendered_entries
+        }
+    };
+
+    Some(MissingListEdit { range, replacement })
+}
+
+fn line_indent(text: &str, offset: TextSize) -> String {
+    let offset = usize::from(offset).min(text.len());
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    text[line_start..offset].chars().take_while(|ch| *ch == ' ' || *ch == '\t').collect()
+}
+
+fn item_line_indent(text: &str, offset: TextSize) -> Option<String> {
+    let offset = usize::from(offset).min(text.len());
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    let before_item = &text[line_start..offset];
+    before_item.chars().all(|ch| ch == ' ' || ch == '\t').then(|| before_item.to_owned())
 }
 
 impl CodeActionDiagnostics {
@@ -436,6 +605,36 @@ mod tests {
     }
 
     #[test]
+    fn missing_connection_repair_handles_one_line_trailing_comma() {
+        let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(),); endmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_connection_repair_preserves_multiline_named_style() {
+        let text = "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    /*caret*/.a()\n);\nendmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    .a(),\n    .b(),\n    .c()\n);\nendmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_connection_repair_preserves_multiline_trailing_comma_style() {
+        let text = "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    /*caret*/.a(),\n);\nendmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
+        assert_eq!(
+            fixed,
+            "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    .a(),\n    .b(),\n    .c(),\n);\nendmodule\n"
+        );
+    }
+
+    #[test]
     fn missing_connection_repair_fills_empty_named_connection_list() {
         let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/); endmodule\n";
         let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
@@ -472,6 +671,16 @@ mod tests {
         assert_eq!(
             fixed,
             "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
+        );
+    }
+
+    #[test]
+    fn missing_parameter_repair_preserves_multiline_trailing_comma_style() {
+        let text = "module child #(parameter A = 1, parameter B, parameter C) (); endmodule\nmodule top;\nchild #(\n    /*caret*/.A(1),\n) u();\nendmodule\n";
+        let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
+        assert_eq!(
+            fixed,
+            "module child #(parameter A = 1, parameter B, parameter C) (); endmodule\nmodule top;\nchild #(\n    .A(1),\n    .B(),\n    .C(),\n) u();\nendmodule\n"
         );
     }
 

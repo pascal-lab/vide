@@ -1,18 +1,14 @@
 use base_db::source_db::SourceDb;
-use hir::{
-    db::HirDb,
-    hir_def::{declaration::Declaration, module::port::Ports},
-};
+use hir::db::HirDb;
 use itertools::Itertools;
-use smol_str::SmolStr;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
-use utils::get::GetRef;
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+    leading_parameter_names, port_names,
 };
 
 const PORTS_ID: CodeActionId =
@@ -78,7 +74,7 @@ pub(super) fn convert_ordered_params(
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let target_module_id = sema.nameres_instantiation(ast_instantiation)?;
     let target_module = db.module(target_module_id);
-    let param_names = parameter_names(&target_module);
+    let param_names = leading_parameter_names(&target_module);
 
     let replacements = ast_instantiation
         .parameters()?
@@ -105,29 +101,6 @@ pub(super) fn convert_ordered_params(
     });
 
     Some(())
-}
-
-fn port_names(module: &hir::hir_def::module::Module) -> Vec<SmolStr> {
-    match &module.ports {
-        Ports::NonAnsi { ports, .. } => {
-            ports.values().filter_map(|port| port.label.clone()).collect()
-        }
-        Ports::Ansi(ports) => ports
-            .values()
-            .flat_map(|port| port.decls.clone())
-            .filter_map(|decl| module.get(decl).name.clone())
-            .collect(),
-    }
-}
-
-fn parameter_names(module: &hir::hir_def::module::Module) -> Vec<SmolStr> {
-    module
-        .declarations
-        .values()
-        .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
-        .flat_map(|declaration| declaration.decls())
-        .filter_map(|decl| module.get(decl).name.clone())
-        .collect()
 }
 
 fn text_at(ctx: &CodeActionCtx, range: utils::text_edit::TextRange) -> Option<String> {
