@@ -36,15 +36,14 @@ pub(crate) fn goto_definition(
 
 fn handle_ctrl_flow_kw(
     sema: &Semantics<RootDb>,
-    tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    tp @ SyntaxTokenWithParent { parent, .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
     let file_id = sema.find_file(parent)?;
-    let kind = tok.kind();
+    let kind = tp.kind();
 
     match kind {
         _ if let Some(pair) = pair_token(tp) => {
-            let pair = pair.either(|pair| pair, |_| tok);
-            let tok = InFile::new(file_id, SyntaxTokenWithParent { parent, tok: pair });
+            let tok = InFile::new(file_id, pair.either(|pair| pair, |_| tp));
             Some(vec![tok.to_nav(sema.db)?])
         }
         _ => None,

@@ -1,4 +1,7 @@
-use syntax::{ast, has_text_range::HasTextRange};
+use syntax::{
+    ast::{self, AstNode},
+    has_text_range::HasTextRangeIn,
+};
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
@@ -21,7 +24,7 @@ pub(super) fn add_implicit_named_port_parens(
         return None;
     }
 
-    let insert_offset = conn.name()?.text_range()?.end();
+    let insert_offset = conn.name()?.text_range_in(conn.syntax())?.end();
     collector.add(ID, LABEL, ctx.range, |builder| {
         builder.insert(insert_offset, "()".to_owned());
     });

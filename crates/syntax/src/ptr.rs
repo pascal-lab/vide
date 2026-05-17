@@ -42,8 +42,12 @@ pub struct SyntaxTokenPtr {
 }
 
 impl SyntaxTokenPtr {
-    pub fn from_token(token: SyntaxToken) -> SyntaxTokenPtr {
+    pub fn from_token(token: SyntaxTokenWithParent) -> SyntaxTokenPtr {
         SyntaxTokenPtr { kind: token.kind(), range: token.text_range().unwrap() }
+    }
+
+    pub fn from_token_in(context: SyntaxNode, token: SyntaxToken) -> SyntaxTokenPtr {
+        SyntaxTokenPtr::from_token(SyntaxTokenWithParent { parent: context, tok: token })
     }
 
     pub fn to_token<'a>(&self, tree: &'a SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
@@ -69,10 +73,10 @@ impl SyntaxElementPtr {
     pub fn from_element(element: SyntaxElement) -> SyntaxElementPtr {
         match element {
             SyntaxElement::Node(node) => SyntaxElementPtr::Node(SyntaxNodePtr::from_node(node)),
-            SyntaxElement::Token(SyntaxTokenWithParent { parent, tok }) => {
+            SyntaxElement::Token(tok_with_parent @ SyntaxTokenWithParent { parent, .. }) => {
                 SyntaxElementPtr::Token {
                     parent: SyntaxNodePtr::from_node(parent),
-                    tok: SyntaxTokenPtr::from_token(tok),
+                    tok: SyntaxTokenPtr::from_token(tok_with_parent),
                 }
             }
         }

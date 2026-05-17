@@ -1,4 +1,8 @@
-use syntax::{SyntaxNodeExt, ast, ast::AstNode, has_text_range::HasTextRange};
+use syntax::{
+    SyntaxNodeExt,
+    ast::{self, AstNode},
+    has_text_range::{HasTextRange, HasTextRangeIn},
+};
 use utils::line_index::TextSize;
 
 use crate::completion::{
@@ -93,8 +97,9 @@ fn is_in_existing_declarator_name(caret: &CaretSnapshot<'_>) -> bool {
     caret
         .root
         .find_node_at_offset::<ast::Declarator<'_>>(caret.offset)
-        .and_then(|declarator| declarator.name())
-        .and_then(|name| name.text_range())
+        .and_then(|declarator| {
+            declarator.name().and_then(|name| name.text_range_in(declarator.syntax()))
+        })
         .is_some_and(|range| range.contains(caret.offset) || range.end() == caret.offset)
 }
 

@@ -12,7 +12,7 @@ use ide_db::root_db::RootDb;
 use span::{FilePosition, FileRange};
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::HasTextRangeIn,
 };
 use utils::{get::Get, text_edit::TextRange};
 use vfs::FileId;
@@ -100,11 +100,9 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
                     .filter_map(|tok| ast::HierarchyInstantiation::cast(tok.token.parent))
                 {
                     for instance in instantiation.instances().children() {
-                        if let Some(range) = instance
-                            .decl()
-                            .and_then(|decl| decl.name())
-                            .and_then(|name| name.text_range())
-                        {
+                        if let Some(range) = instance.decl().and_then(|decl| {
+                            decl.name().and_then(|name| name.text_range_in(decl.syntax()))
+                        }) {
                             ranges.push(FileRange { file_id, range });
                         }
                     }

@@ -2,7 +2,7 @@ use la_arena::{Arena, Idx};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     ChildrenIter, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTrivia, WalkEvent, ast,
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::SyntaxTokenExt,
     trivia::{TriviaExt, TriviaKindExt},
@@ -137,8 +137,10 @@ impl RegionTreeBuilder {
         self.stack.pop();
     }
 
-    pub(crate) fn stage(&mut self, end_tok: Option<SyntaxToken>) {
-        if let Some(end) = end_tok.as_ref().and_then(|tok| tok.text_range()).map(|r| r.end()) {
+    pub(crate) fn stage<'a>(&mut self, end_tok: Option<SyntaxToken<'a>>, context: SyntaxNode<'a>) {
+        if let Some(end) =
+            end_tok.as_ref().and_then(|tok| tok.text_range_in(context)).map(|r| r.end())
+        {
             while let Some(last) = self.stack.last() {
                 let node = &mut self.tree.nodes[*last];
                 let start = node.range.start();

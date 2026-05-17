@@ -3,7 +3,7 @@ use hir::{container::InModule, db::HirDb, hir_def::module::instantiation::PortCo
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
 };
 use utils::get::GetRef;
 
@@ -31,8 +31,8 @@ pub(super) fn add_missing_connections(
     let InModule { value: instance_id, module_id } = sema.resolve_instance(ast_instance)?;
     let module = db.module(module_id);
     let instance = module.get(instance_id);
-    let open_paren = ast_instance.open_paren()?.text_range()?;
-    let close_paren = ast_instance.close_paren()?.text_range()?;
+    let open_paren = ast_instance.open_paren()?.text_range_in(ast_instance.syntax())?;
+    let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
 
     let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
     let target_module_id = sema.nameres_instantiation(instantiation)?;

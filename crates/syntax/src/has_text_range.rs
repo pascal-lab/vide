@@ -1,7 +1,10 @@
-use slang::{SourceRange, SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTokenWithParent};
+use slang::{
+    SourceRange, SyntaxElement, SyntaxNode, SyntaxToken,
+    SyntaxTokenWithParent as LocatedSyntaxToken,
+};
 use utils::line_index::TextRange;
 
-pub trait SourceRangeExt {
+pub(crate) trait SourceRangeExt {
     fn to_text_range(self) -> Option<TextRange>;
 }
 
@@ -22,6 +25,15 @@ pub trait HasTextRange {
     fn text_range(&self) -> Option<TextRange>;
 }
 
+/// Interpret a bare AST getter token in an explicit syntax context.
+///
+/// This is intended for the boundary where generated AST APIs still return a
+/// raw [`SyntaxToken`]. Prefer [`HasTextRange`] on
+/// [`slang::SyntaxTokenWithParent`] in IDE/HIR logic.
+pub trait HasTextRangeIn<'a> {
+    fn text_range_in(&self, context: SyntaxNode<'a>) -> Option<TextRange>;
+}
+
 impl HasTextRange for SyntaxNode<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
@@ -29,14 +41,14 @@ impl HasTextRange for SyntaxNode<'_> {
     }
 }
 
-impl HasTextRange for SyntaxToken<'_> {
+impl<'a> HasTextRangeIn<'a> for SyntaxToken<'a> {
     #[inline]
-    fn text_range(&self) -> Option<TextRange> {
-        self.range()?.to_text_range()
+    fn text_range_in(&self, context: SyntaxNode<'a>) -> Option<TextRange> {
+        LocatedSyntaxToken { parent: context, tok: *self }.text_range()
     }
 }
 
-impl HasTextRange for SyntaxTokenWithParent<'_> {
+impl HasTextRange for LocatedSyntaxToken<'_> {
     #[inline]
     fn text_range(&self) -> Option<TextRange> {
         self.range()?.to_text_range()

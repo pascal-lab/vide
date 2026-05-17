@@ -94,15 +94,21 @@ fn is_word_like_value_text(text: &str) -> bool {
 /// the end-token.
 pub fn pair_token(
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
-) -> Option<Either<SyntaxToken, SyntaxToken>> {
+) -> Option<Either<SyntaxTokenWithParent, SyntaxTokenWithParent>> {
     let kind = tok.kind();
 
     macro_rules! P {
         ($beg:ident | $end:ident, $($rest:tt)*) => {
             if kind == Token![$beg] {
-                Either::Right(support::child_token(parent, Token![$end])?)
+                Either::Right(SyntaxTokenWithParent {
+                    parent,
+                    tok: support::child_token(parent, Token![$end])?,
+                })
             } else if kind == Token![$end] {
-                Either::Left(support::child_token(parent, Token![$beg])?)
+                Either::Left(SyntaxTokenWithParent {
+                    parent,
+                    tok: support::child_token(parent, Token![$beg])?,
+                })
             } else {
                 P! { $($rest)* }
             }
@@ -113,13 +119,17 @@ pub fn pair_token(
     let res = match kind {
         Token![module] => {
             // move from header to declaration
-            let parent = ast::ModuleDeclaration::cast(parent.parent()?)?;
-            Either::Right(parent.endmodule()?)
+            let decl = ast::ModuleDeclaration::cast(parent.parent()?)?;
+            Either::Right(SyntaxTokenWithParent { parent: decl.syntax(), tok: decl.endmodule()? })
         }
         Token![endmodule] => {
             // move from declaration to header
-            let parent = ast::ModuleDeclaration::cast(parent)?;
-            Either::Left(parent.header().module_keyword()?)
+            let decl = ast::ModuleDeclaration::cast(parent)?;
+            let header = decl.header();
+            Either::Left(SyntaxTokenWithParent {
+                parent: header.syntax(),
+                tok: header.module_keyword()?,
+            })
         }
         _ => {
             P! {

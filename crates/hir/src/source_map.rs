@@ -227,10 +227,11 @@ macro_rules! define_src_with_name {
 
         impl From<ast::$ty<'_>> for $name {
             fn from(node: ast::$ty<'_>) -> Self {
+                let syntax = syntax::ast::AstNode::syntax(&node);
                 Self {
                     node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
                     name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
-                    .map(|name| syntax::ptr::SyntaxTokenPtr::from_token(name)),
+                    .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
                 }
             }
         }
@@ -315,10 +316,11 @@ macro_rules! define_src_with_name {
         $(
             impl From<ast::$ty<'_>> for $name {
                 fn from(node: ast::$ty<'_>) -> Self {
+                    let syntax = syntax::ast::AstNode::syntax(&node);
                     Self::$ty {
                         node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
                         name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
-                            .map(|name| syntax::ptr::SyntaxTokenPtr::from_token(name)),
+                            .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
                     }
                 }
             }

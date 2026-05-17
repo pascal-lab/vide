@@ -224,22 +224,24 @@ impl<'a> ToAstNode<'a, ast::LoopGenerate<'a>> for GenerateBlockSrc {
 
 impl From<ast::GenerateBlock<'_>> for GenerateBlockSrc {
     fn from(block: ast::GenerateBlock<'_>) -> Self {
+        let syntax = block.syntax();
         GenerateBlockSrc::GenerateBlock {
             node: syntax::slang_ext::AstNodeExt::to_ptr(&block),
-            name: generate_block_name(block).map(SyntaxTokenPtr::from_token),
+            name: generate_block_name(block)
+                .map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
         }
     }
 }
 
 impl From<ast::LoopGenerate<'_>> for GenerateBlockSrc {
     fn from(loop_generate: ast::LoopGenerate<'_>) -> Self {
+        let block = loop_generate.block().as_generate_block();
         GenerateBlockSrc::LoopGenerate {
             node: syntax::slang_ext::AstNodeExt::to_ptr(&loop_generate),
-            name: loop_generate
-                .block()
-                .as_generate_block()
-                .and_then(generate_block_name)
-                .map(SyntaxTokenPtr::from_token),
+            name: block.and_then(|block| {
+                generate_block_name(block)
+                    .map(|name| SyntaxTokenPtr::from_token_in(block.syntax(), name))
+            }),
         }
     }
 }
@@ -640,7 +642,7 @@ impl LowerGenerateBlockCtx<'_> {
             self.region_tree.handle_node(member.syntax());
         }
 
-        self.region_tree.stage(block.end());
+        self.region_tree.stage(block.end(), block.syntax());
         self.generate_block.region_tree = self.region_tree.finish();
         self.generate_block_source_map.region_tree = self.generate_block.region_tree.clone();
     }
@@ -671,7 +673,7 @@ impl LowerGenerateBlockCtx<'_> {
                 self.generate_block_source_map.items.push(item);
                 self.region_tree.handle_node(member.syntax());
             }
-            self.region_tree.stage(block.end());
+            self.region_tree.stage(block.end(), block.syntax());
         }
 
         self.generate_block.region_tree = self.region_tree.finish();

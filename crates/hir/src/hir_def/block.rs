@@ -292,7 +292,7 @@ impl LowerBlockCtx<'_> {
             self.region_tree.handle_node(node.syntax());
         }
 
-        self.region_tree.stage(block.end());
+        self.region_tree.stage(block.end(), block.syntax());
         self.block_source_map.region_tree = self.region_tree.finish();
     }
 }

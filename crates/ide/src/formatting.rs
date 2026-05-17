@@ -307,7 +307,7 @@ fn format_previous<'a>(
 
     // WORKAROUND: if there is a redundant token at the end of the list, remove it.
     // Otherwise, the formatter will not work correctly
-    if let Some(token) = cursor.to_token()
+    if let Some(token) = cursor.to_tok_with_parent()
         && let Some(token_range) = token.text_range()
         && let Some(idx) = cursor.idx()
     {

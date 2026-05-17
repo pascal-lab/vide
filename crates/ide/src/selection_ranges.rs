@@ -38,10 +38,10 @@ pub(crate) fn selection_ranges(
             if !cursor.goto_first_tok_after_or_last(offset) {
                 return res;
             }
-            let Some(token) = cursor.to_token() else {
+            let Some(token) = cursor.to_tok_with_parent() else {
                 return res;
             };
-            let trivias = token.trivias_with_range().collect_vec();
+            let trivias = token.tok.trivias_with_range().collect_vec();
             let Some(range) = trivias.iter().find(|(range, _)| range.contains(offset)) else {
                 return res;
             };
@@ -68,7 +68,7 @@ pub(crate) fn selection_ranges(
         }
     };
 
-    let Some(token) = cursor.to_token() else {
+    let Some(token) = cursor.to_tok_with_parent() else {
         return res;
     };
     let Some(mut range) = token.text_range() else {

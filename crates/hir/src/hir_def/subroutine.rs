@@ -371,7 +371,7 @@ impl LowerSubroutineBodyCtx<'_> {
             }
         }
 
-        self.region_tree.stage(func.end());
+        self.region_tree.stage(func.end(), func.syntax());
         self.subroutine_source_map.region_tree = self.region_tree.finish();
     }
 }

@@ -17,7 +17,7 @@ use span::FilePosition;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::HasTextRangeIn,
     match_ast,
 };
 // Last week, I found an issue with the original strategy and have successfully implemented
@@ -81,8 +81,15 @@ pub(crate) fn signature_help(
                     continue;
                 };
 
-                if params.open_paren().and_then(|open_paren| open_paren.text_range()).is_some_and(|range| offset >= range.end()) &&
-                    params.close_paren().and_then(|close_paren| close_paren.text_range()).is_some_and(|range| offset <= range.start()) {
+                if params
+                    .open_paren()
+                    .and_then(|open_paren| open_paren.text_range_in(params.syntax()))
+                    .is_some_and(|range| offset >= range.end())
+                    && params
+                        .close_paren()
+                        .and_then(|close_paren| close_paren.text_range_in(params.syntax()))
+                        .is_some_and(|range| offset <= range.start())
+                {
                         return sig_help_for_instantiation(&sema, it, offset, config);
                     }
             },

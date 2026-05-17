@@ -314,7 +314,7 @@ impl LowerFileCtx<'_> {
             self.region_tree.handle_node(member.syntax());
         }
 
-        self.region_tree.stage(root.end_of_file());
+        self.region_tree.stage(root.end_of_file(), root.syntax());
         self.file_source_map.region_tree = self.region_tree.finish();
     }
 
@@ -333,7 +333,7 @@ impl LowerFileCtx<'_> {
             self.region_tree.handle_node(member.syntax());
         }
 
-        self.region_tree.stage(root.end_of_file());
+        self.region_tree.stage(root.end_of_file(), root.syntax());
         self.file_source_map.region_tree = self.region_tree.finish();
     }
 }

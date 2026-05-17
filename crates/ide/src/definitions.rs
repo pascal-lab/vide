@@ -25,7 +25,7 @@ use smol_str::SmolStr;
 use syntax::{
     SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
 };
@@ -187,7 +187,8 @@ impl DefinitionOrigin {
                     .into_iter()
                     .nth(value.0 as usize)
                     .and_then(|port| port.as_function_port())?;
-                let range = port.declarator().name()?.text_range()?;
+                let declarator = port.declarator();
+                let range = declarator.name()?.text_range_in(declarator.syntax())?;
                 Some(InFile::new(src.file_id, range))
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {

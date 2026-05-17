@@ -1,8 +1,9 @@
 use syntax::{
     SyntaxAncestors, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt, SyntaxToken,
+    SyntaxTokenWithParent,
     ast::{self, AstNode},
     ast_ext::NamedConnectionDotZoneExt,
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -121,7 +122,7 @@ where
 {
     let offset = caret.offset;
     let node = caret.root.find_node_at_offset::<N>(offset)?;
-    in_parens(offset, node.open_paren(), node.close_paren()).then_some(node)
+    in_parens(offset, node.open_paren(), node.close_paren(), node.syntax()).then_some(node)
 }
 
 fn punctuated_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
@@ -169,11 +170,15 @@ fn expectation_after_scope_resolution(caret: &CaretSnapshot<'_>) -> Option<Compl
         .then_some(node_expectation(ExpectedSyntax::MemberName, scoped.syntax()))
 }
 
-fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
+fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxTokenWithParent<'_>> {
     use ast::Name::*;
     match scoped.right() {
-        IdentifierName(ident) => ident.identifier(),
-        IdentifierSelectName(ident) => ident.identifier(),
+        IdentifierName(ident) => {
+            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+        }
+        IdentifierSelectName(ident) => {
+            Some(SyntaxTokenWithParent { parent: ident.syntax(), tok: ident.identifier()? })
+        }
         _ => None,
     }
 }
@@ -188,7 +193,10 @@ fn expectation_after_hash(caret: &CaretSnapshot<'_>) -> Option<CompletionExpecta
 
     if let Some(params) =
         caret.root.find_node_at_offset::<ast::ParameterValueAssignment<'_>>(offset)
-        && params.hash().and_then(|t| t.text_range()).is_some_and(|r| r.end() == offset)
+        && params
+            .hash()
+            .and_then(|t| t.text_range_in(params.syntax()))
+            .is_some_and(|r| r.end() == offset)
     {
         return Some(node_expectation(
             ExpectedSyntax::AfterParamValueAssignmentHash,
@@ -197,7 +205,10 @@ fn expectation_after_hash(caret: &CaretSnapshot<'_>) -> Option<CompletionExpecta
     }
 
     if let Some(params) = caret.root.find_node_at_offset::<ast::ParameterPortList<'_>>(offset)
-        && params.hash().and_then(|t| t.text_range()).is_some_and(|r| r.end() == offset)
+        && params
+            .hash()
+            .and_then(|t| t.text_range_in(params.syntax()))
+            .is_some_and(|r| r.end() == offset)
     {
         return Some(node_expectation(ExpectedSyntax::AfterParameterPortListHash, params.syntax()));
     }
@@ -391,10 +402,11 @@ fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
     let offset = caret.offset;
     let module = caret.root.find_node_at_offset::<ast::ModuleDeclaration<'_>>(offset)?;
     let header = module.header();
-    let start = header.semi().and_then(|semi| semi.text_range()).map(|r| r.end())?;
+    let start =
+        header.semi().and_then(|semi| semi.text_range_in(header.syntax())).map(|r| r.end())?;
     let end = module
         .endmodule()
-        .and_then(|tok| tok.text_range())
+        .and_then(|tok| tok.text_range_in(module.syntax()))
         .map(|range| range.start())
         .or_else(|| module.syntax().text_range().map(|range| range.end()))?;
 
@@ -406,7 +418,10 @@ fn module_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
 fn config_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
     let offset = caret.offset;
     let config = caret.root.find_node_at_offset::<ast::ConfigDeclaration<'_>>(offset)?;
-    let start = config.semi_1().and_then(|semi| semi.text_range()).map(|range| range.end())?;
+    let start = config
+        .semi_1()
+        .and_then(|semi| semi.text_range_in(config.syntax()))
+        .map(|range| range.end())?;
     let end = config.syntax().text_range().map(|range| range.end())?;
 
     if !range_touches(TextRange::new(start, end), offset) {
@@ -416,7 +431,7 @@ fn config_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpect
     let replacement_start = caret.replacement_and_prefix().0.start();
     let rules_allowed = config
         .semi_2()
-        .and_then(|semi| semi.text_range())
+        .and_then(|semi| semi.text_range_in(config.syntax()))
         .is_some_and(|range| range.end() <= replacement_start);
     Some(node_keyword_expectation(
         if rules_allowed {
@@ -433,7 +448,7 @@ fn compilation_unit_item_expectation(caret: &CaretSnapshot<'_>) -> Option<Comple
     let unit = caret.root.find_node_at_offset::<ast::CompilationUnit<'_>>(offset)?;
     let end = unit
         .end_of_file()
-        .and_then(|tok| tok.text_range())
+        .and_then(|tok| tok.text_range_in(unit.syntax()))
         .map(|range| range.start())
         .or_else(|| unit.syntax().text_range().map(|range| range.end()))?;
 
@@ -475,9 +490,9 @@ fn item_zone(
     close: Option<SyntaxToken<'_>>,
     owner: SyntaxNode<'_>,
 ) -> Option<TextRange> {
-    let start = open?.text_range()?.end();
+    let start = open?.text_range_in(owner)?.end();
     let end = close
-        .and_then(|tok| tok.text_range().map(|range| range.start()))
+        .and_then(|tok| tok.text_range_in(owner).map(|range| range.start()))
         .or_else(|| owner.text_range().map(|range| range.end()))?;
     Some(TextRange::new(start, end))
 }

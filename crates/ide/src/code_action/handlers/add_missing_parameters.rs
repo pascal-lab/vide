@@ -3,7 +3,7 @@ use hir::{container::InModule, db::HirDb, hir_def::module::instantiation::ParamA
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
 };
 use utils::get::GetRef;
 
@@ -35,8 +35,8 @@ pub(super) fn add_missing_parameters(
     let instantiation = module.get(instantiation_id);
 
     let params_node = ast_instantiation.parameters()?;
-    let open_paren = params_node.open_paren()?.text_range()?;
-    let close_paren = params_node.close_paren()?.text_range()?;
+    let open_paren = params_node.open_paren()?.text_range_in(params_node.syntax())?;
+    let close_paren = params_node.close_paren()?.text_range_in(params_node.syntax())?;
 
     let target_module_id = sema.nameres_instantiation(ast_instantiation)?;
     let target_module = db.module(target_module_id);

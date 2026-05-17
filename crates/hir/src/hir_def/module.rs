@@ -343,7 +343,7 @@ impl LowerModuleCtx<'_> {
                 self.module.param_ports = Some(IdxRange::new(beg..end));
             }
 
-            self.region_tree.stage(param_ports.close_paren());
+            self.region_tree.stage(param_ports.close_paren(), param_ports.syntax());
         }
 
         match header.ports() {
@@ -515,7 +515,7 @@ impl LowerModuleCtx<'_> {
             self.module_source_map.items.push(idx);
             self.region_tree.handle_node(member.syntax());
         }
-        self.region_tree.stage(decl.endmodule());
+        self.region_tree.stage(decl.endmodule(), decl.syntax());
         self.module_source_map.region_tree = self.region_tree.finish();
     }
 }

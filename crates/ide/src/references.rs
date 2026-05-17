@@ -5,7 +5,7 @@ use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use span::FilePosition;
 use syntax::{
-    SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent, TokenKind,
+    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
@@ -73,13 +73,13 @@ pub(crate) fn references(
 
 pub(crate) fn handle_ctrl_flow_kw(
     sema: &Semantics<'_, RootDb>,
-    tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+    tp @ SyntaxTokenWithParent { parent, .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<References>> {
     let file_id = sema.find_file(parent)?;
-    let kind = tok.kind();
+    let kind = tp.kind();
 
     let mut refs = vec![];
-    let mut add_ref = |tok: SyntaxToken| {
+    let mut add_ref = |tok: SyntaxTokenWithParent| {
         if let Some(range) = tok.text_range() {
             refs.push((range, ReferenceCategory::empty()));
         }
@@ -87,8 +87,8 @@ pub(crate) fn handle_ctrl_flow_kw(
 
     match kind {
         _ if let Some(pair) = pair_token(tp) => {
-            let pair: SyntaxToken = pair.either_into();
-            add_ref(tok);
+            let pair = pair.either(|tok| tok, |tok| tok);
+            add_ref(tp);
             add_ref(pair);
         }
         _ => return None,

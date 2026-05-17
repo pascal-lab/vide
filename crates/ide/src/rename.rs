@@ -5,7 +5,7 @@ use span::FilePosition;
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
+    has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
 };
@@ -107,10 +107,11 @@ fn edits_from_refs(
     let mut text_edit = TextEdit::builder();
     let text = sema.db.file_text(file_id);
 
-    for ReferenceToken { token: SyntaxTokenWithParent { parent, tok } } in toks.into_iter() {
-        let Some(range) = tok.text_range() else {
+    for ReferenceToken { token } in toks.into_iter() {
+        let Some(range) = token.text_range() else {
             continue;
         };
+        let SyntaxTokenWithParent { parent, tok } = token;
 
         let conn_data_range = |it: ast::NamedPortConnection| it.expr()?.syntax().text_range();
 
@@ -120,7 +121,7 @@ fn edits_from_refs(
                 match (it.open_paren(), it.close_paren()) {
                     (Some(_), Some(cp)) if conn_data_range(it).is_some_and(|r| &text[r] == new_name) => {
                         // .port(new),  => .new,
-                        if let Some(end) = cp.text_range().map(|range| range.end()) {
+                        if let Some(end) = cp.text_range_in(it.syntax()).map(|range| range.end()) {
                             text_edit.replace(TextRange::new(range.start(), end), new_name.to_owned());
                         } else {
                             text_edit.replace(range, new_name.to_owned());
@@ -154,13 +155,16 @@ fn edits_from_refs(
                     .name()
                     .filter(|n| lower_ident(Some(*n)).is_some_and(|name| name == new_name)) {
                     // .new(data) => .new
-                    let Some(start) = port_name.text_range().map(|range| range.start()) else {
+                    let Some(start) =
+                        port_name.text_range_in(port_conn.syntax()).map(|range| range.start()) else {
                         text_edit.replace(range, new_name.to_owned());
                         continue;
                     };
                     let end = if let Some(cp) = port_conn.close_paren() {
-                        cp.text_range().map(|range| range.end()).unwrap_or(range.end())
-                    }else {
+                        cp.text_range_in(port_conn.syntax())
+                            .map(|range| range.end())
+                            .unwrap_or(range.end())
+                    } else {
                         range.end()
                     };
                     text_edit.replace(TextRange::new(start, end), new_name.to_owned());

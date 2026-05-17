@@ -21,7 +21,11 @@ use hir::{
 };
 use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
-use syntax::{SyntaxTokenWithParent, ast::AstNode, has_text_range::HasTextRange};
+use syntax::{
+    SyntaxTokenWithParent,
+    ast::AstNode,
+    has_text_range::{HasTextRange, HasTextRangeIn},
+};
 use utils::{
     get::{Get, GetRef},
     line_index::TextRange,
@@ -195,7 +199,9 @@ impl ToNav for InSubroutine<SubroutinePortId> {
             .ports
             .get(value.0 as usize)
             .and_then(|port| port.name.clone());
-        let focus_range = port.declarator().name().and_then(|name| name.text_range());
+        let declarator = port.declarator();
+        let focus_range =
+            declarator.name().and_then(|name| name.text_range_in(declarator.syntax()));
         let full_range = port.syntax().text_range()?;
 
         Some(build(
@@ -315,12 +321,12 @@ impl ToNav for InContainer<StmtId> {
 
 impl ToNav for InFile<SyntaxTokenWithParent<'_>> {
     fn to_nav(&self, _db: &RootDb) -> Option<NavTarget> {
-        let InFile { value: SyntaxTokenWithParent { parent, tok }, file_id } = *self;
-        let full_range = parent.text_range().or_else(|| tok.text_range())?;
+        let InFile { value: token, file_id } = *self;
+        let full_range = token.parent.text_range()?;
         Some(NavTarget {
             file_id: file_id.file_id(),
             full_range,
-            focus_range: tok.text_range(),
+            focus_range: token.text_range(),
             name: None,
             kind: None,
             container_name: None,

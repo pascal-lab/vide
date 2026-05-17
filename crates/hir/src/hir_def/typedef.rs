@@ -63,10 +63,11 @@ impl<'a> ToAstNode<'a, ast::TypedefDeclaration<'a>> for TypedefSrc {
 
 impl From<ast::TypedefDeclaration<'_>> for TypedefSrc {
     fn from(node: ast::TypedefDeclaration<'_>) -> Self {
+        let syntax = node.syntax();
         let name_token = node.name();
         TypedefSrc {
             node: AstNodeExt::to_ptr(&node),
-            name: name_token.map(SyntaxTokenPtr::from_token),
+            name: name_token.map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
         }
     }
 }

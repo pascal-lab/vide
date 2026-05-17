@@ -171,7 +171,8 @@ impl<'a> ToAstNode<'a, ast::ClassDeclaration<'a>> for ClassSrc {
 
 impl From<ast::ClassDeclaration<'_>> for ClassSrc {
     fn from(node: ast::ClassDeclaration<'_>) -> Self {
-        let name = node.name().map(SyntaxTokenPtr::from_token);
+        let syntax = node.syntax();
+        let name = node.name().map(|name| SyntaxTokenPtr::from_token_in(syntax, name));
         ClassSrc { node: AstNodeExt::to_ptr(&node), name }
     }
 }
