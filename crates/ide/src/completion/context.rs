@@ -46,6 +46,7 @@ pub enum ExpectedSyntax {
     MemberName,
     PortConnectionExpr,
     ParameterAssignmentExpr,
+    ElseClause,
     AfterParamValueAssignmentHash,
     AfterParameterPortListHash,
     ParamValueAssignment,
@@ -329,6 +330,7 @@ fn ast_expectation_refines_parser(expectation: CompletionExpectation) -> bool {
         ),
         ExpectedSyntax::Expression => false,
         ExpectedSyntax::DirectiveName | ExpectedSyntax::DeclName => false,
+        ExpectedSyntax::ElseClause => false,
         ExpectedSyntax::ParameterPortListItem
         | ExpectedSyntax::AnsiPortItem
         | ExpectedSyntax::FunctionPortItem
@@ -895,6 +897,19 @@ mod tests {
     fn detects_procedural_statement_keyword_prefix_after_statement() {
         let c = ctx("module m; initial begin\n  x = 1;\n  re/*caret*/\nend endmodule\n");
         assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::Statement)));
+    }
+
+    #[test]
+    fn detects_else_clause_after_if_block() {
+        let c = ctx(
+            "module m; initial begin\n  if (cond) begin\n  end\n  el/*caret*/\nend endmodule\n",
+        );
+        assert!(
+            c.expectations
+                .iter()
+                .any(|expectation| expectation.syntax == ExpectedSyntax::ElseClause)
+        );
+        assert_eq!(c.prefix, "el");
     }
 
     #[test]

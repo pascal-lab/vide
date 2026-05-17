@@ -619,6 +619,35 @@ fn statement_completion_after_statement_excludes_decls_and_module_items() {
 }
 
 #[test]
+fn statement_completion_after_if_block_includes_else_snippets() {
+    let items = completions_in_text(
+        r#"
+module m;
+  initial begin
+    if (cond) begin
+    end
+    el/*caret*/
+  end
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"else"), "else block snippet expected: {items:?}");
+    assert!(labels.contains(&"else if"), "else-if block snippet expected: {items:?}");
+
+    let else_item = items.iter().find(|item| item.label == "else").unwrap();
+    assert_eq!(else_item.snippet_edit.as_ref().unwrap().ins, "else begin\n\t${0}\nend");
+
+    let else_if_item = items.iter().find(|item| item.label == "else if").unwrap();
+    assert_eq!(
+        else_if_item.snippet_edit.as_ref().unwrap().ins,
+        "else if (${1:cond}) begin\n\t${0}\nend"
+    );
+}
+
+#[test]
 fn no_completion_in_block_decl_name_gap() {
     let items =
         completions_in_text("module m; initial begin\n  integer /*caret*/;\nend endmodule\n", None);

@@ -101,3 +101,16 @@ fn snippet_completions(
         })
         .collect()
 }
+
+pub(super) fn complete_else_clause(
+    prefix: &str,
+    ctx: &CompletionContext,
+) -> Vec<CompletionCandidate> {
+    snippets::entries(&snippets::snippet_config().else_clause)
+        .into_iter()
+        .filter(|entry| entry.label.starts_with(prefix))
+        .map(|entry| {
+            CompletionCandidate::snippet(entry.label, ctx.replacement, entry.plain, entry.snippet)
+        })
+        .collect()
+}

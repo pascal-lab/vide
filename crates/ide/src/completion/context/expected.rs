@@ -58,6 +58,7 @@ impl ExpectationEngine<'_, '_> {
     fn detect(&self) -> Option<CompletionExpectation> {
         self.structural_expectation()
             .or_else(|| self.item_expectation())
+            .or_else(|| self.else_clause_expectation())
             .or_else(|| self.statement_keyword_expectation())
             .or_else(|| self.expression_expectation())
             .or_else(|| self.procedural_item_expectation())
@@ -75,6 +76,10 @@ impl ExpectationEngine<'_, '_> {
             .or_else(|| module_item_expectation(self.caret))
             .or_else(|| compilation_unit_item_expectation(self.caret))
             .or_else(|| library_map_item_expectation(self.caret))
+    }
+
+    fn else_clause_expectation(&self) -> Option<CompletionExpectation> {
+        else_clause_expectation(self.caret)
     }
 
     fn statement_keyword_expectation(&self) -> Option<CompletionExpectation> {
@@ -332,6 +337,26 @@ fn statement_keyword_expectation(caret: &CaretSnapshot<'_>) -> Option<Completion
             node_keyword_expectation(SyntaxKeywordContext::Statement, stmt.syntax())
         })
     })
+}
+
+fn else_clause_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {
+    let (replacement, prefix) = caret.replacement_and_prefix();
+    if !prefix.is_empty() && !"else".starts_with(&prefix) {
+        return None;
+    }
+
+    let replacement_start = replacement.start();
+    let prev = caret.root.token_before_offset(replacement_start)?;
+    let prev_range = prev.text_range()?;
+    let conditional =
+        SyntaxAncestors::start_from(prev.parent).find_map(ast::ConditionalStatement::cast)?;
+    if conditional.else_clause().is_some() {
+        return None;
+    }
+
+    let then_range = conditional.statement().syntax().text_range()?;
+    (then_range.end() == prev_range.end() && replacement_start >= then_range.end())
+        .then_some(node_expectation(ExpectedSyntax::ElseClause, conditional.syntax()))
 }
 
 fn procedural_item_expectation(caret: &CaretSnapshot<'_>) -> Option<CompletionExpectation> {

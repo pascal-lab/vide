@@ -48,7 +48,7 @@ initial = "initial begin\n\t${0}\nend"
 begin = "begin\n\t${0}\nend"
 fork = "fork\n\t${0}\njoin"
 if = "if (${1:cond}) begin\n\t${0}\nend"
-ifelse = { plain = "if", snippet = "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend" }
+"if else" = { plain = "if", snippet = "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend" }
 case = "case (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase"
 casez = "casez (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase"
 casex = "casex (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase"
@@ -59,6 +59,10 @@ forever = "forever begin\n\t${0}\nend"
 disable = "disable ${1:block};"
 wait = "wait (${1:cond}) begin\n\t${0}\nend"
 specify = "specify\n\t${0}\nendspecify"
+
+[else_clause]
+else = "else begin\n\t${0}\nend"
+"else if" = { plain = "else", snippet = "else if (${1:cond}) begin\n\t${0}\nend" }
 
 [directives]
 define = "define ${1:NAME} ${0:VALUE}"

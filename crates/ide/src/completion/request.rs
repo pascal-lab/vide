@@ -69,6 +69,7 @@ pub(crate) enum CompletionProvider {
     MemberName,
     PortConnectionExpr,
     ParameterAssignmentExpr,
+    ElseClause,
     AfterHash(HashKind),
     ParenList(ParenListKind),
     PortList(PortListKind),
@@ -157,6 +158,7 @@ fn request_for_expected_syntax(expected: ExpectedSyntax) -> Option<CompletionReq
         ExpectedSyntax::MemberName => CompletionProvider::MemberName,
         ExpectedSyntax::PortConnectionExpr => CompletionProvider::PortConnectionExpr,
         ExpectedSyntax::ParameterAssignmentExpr => CompletionProvider::ParameterAssignmentExpr,
+        ExpectedSyntax::ElseClause => CompletionProvider::ElseClause,
         ExpectedSyntax::AfterParamValueAssignmentHash => {
             CompletionProvider::AfterHash(HashKind::ParamValueAssignment)
         }
@@ -235,6 +237,7 @@ impl CompletionProvider {
         match self {
             CompletionProvider::Keywords(provider) => provider.trigger_policy(),
             CompletionProvider::SystemTasks => TriggerPolicy::ManualOrPrefix,
+            CompletionProvider::ElseClause => TriggerPolicy::ManualOrPrefix,
             CompletionProvider::PortList(PortListKind::Ansi | PortListKind::Function) => {
                 TriggerPolicy::ManualPrefixOrNewline
             }

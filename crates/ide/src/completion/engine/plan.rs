@@ -50,6 +50,7 @@ fn complete_provider(
         CompletionProvider::ParameterAssignmentExpr => {
             named::complete_named_param_assign_expr(db, position, &ctx.prefix, ctx)
         }
+        CompletionProvider::ElseClause => keywords::complete_else_clause(&ctx.prefix, ctx),
         CompletionProvider::AfterHash(kind) => {
             paren_list::complete_after_hash(&ctx.prefix, ctx, kind)
         }
