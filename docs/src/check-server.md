@@ -1,65 +1,91 @@
-# 确认 Vizsla 正常工作
-
-装好扩展、打开工程之后，我们先确认语言服务器真的启动了。
+# 检查服务器
 
 ## 看状态栏
 
-看 VS Code 左下角或状态栏区域。Vizsla 会显示这些状态之一：
+最直接的判断是状态栏:
 
-- `Vizsla Starting`：服务器正在启动。
-- `Vizsla Ready`：服务器已经运行。
-- `Vizsla Stopped`：服务器已经停止。
-- `Vizsla Error`：服务器启动失败或运行失败。
+- `Vizsla Ready`: 服务器已启动。
+- `Vizsla Error`: 启动失败。
+- `Vizsla Starting` 长时间不结束: 需要查看输出通道。
 
-看到 `Vizsla Ready` 就可以继续写代码。
+点击状态栏项可以打开 `Vizsla Language Server` 输出通道。
 
-## 查看服务器版本
+## 看输出通道
 
-打开命令面板，运行：
-
-```text
-Vizsla: Show Server Version
-```
-
-如果 VS Code 弹出类似 `Vizsla server: vizsla 0.1.0_DEBUG` 或 `vizsla 0.1.0_RELEASE` 的信息，说明扩展已经能启动服务器二进制。
-
-## 打开输出日志
-
-如果状态不是 `Ready`，先打开输出窗口：
+执行 `Vizsla: Show Language Server Output`, 查找这些信息:
 
 ```text
-Vizsla: Show Language Server Output
+[INFO] Vizsla extension activating...
+[INFO] Platform: win32-x64
+[INFO] Looking for bundled server at: ...
+[INFO] Server command: ...
+[INFO] Server args: ...
+[INFO] Working directory: ...
+[INFO] Language server started successfully
 ```
 
-你也可以直接点击状态栏里的 Vizsla 状态项。
+如果看到 bundled server not found, 说明当前 VSIX 没有包含可用服务器, 或平台不匹配。你可以换对应平台 VSIX, 或配置 `vizsla.server.command`。
 
-输出里会有这些信息：
+## 验证 bundled server
 
-- 扩展路径。
-- 当前平台，例如 `win32-x64`。
-- VS Code 版本。
-- 服务器命令。
-- 工作目录。
-- 服务器启动或失败的原因。
+默认配置下, 扩展会在扩展安装目录的 `server` 子目录下寻找服务器:
 
-## 重启服务器
+- Windows: `vizsla.exe`
+- macOS/Linux: `vizsla`
 
-当你修改了服务器启动设置，或者觉得服务器状态不对时，运行：
+如果找到, 输出通道会记录找到 bundled server。非 Windows 平台还会检查可执行权限, 并尝试设置为 `755`。
+
+## 验证 custom server
+
+配置自定义服务器后, 输出通道应出现:
 
 ```text
-Vizsla: Restart Language Server
+[INFO] Using custom server command: ...
 ```
 
-重启后状态栏会从 `Vizsla Stopping`、`Vizsla Starting` 回到 `Vizsla Ready`。
+我们建议先在终端直接验证:
 
-> [!WARNING]
-> **警告**
->
-> 如果你修改的是普通语言功能设置，比如诊断、格式化、inlay hints，VS Code 会通过配置更新通知服务器。只有这些启动相关设置变化后，扩展才会提示你重启：
->
-> - `vizsla.server.command`
-> - `vizsla.server.args`
-> - `vizsla.server.additionalArgs`
-> - `vizsla.server.cwd`
-> - `vizsla.trace.server`
+```powershell
+D:\tools\vizsla\vizsla.exe --version
+```
 
+然后把同一个路径写入:
+
+```json
+{
+  "vizsla.server.command": "D:\\tools\\vizsla\\vizsla.exe"
+}
+```
+
+## 使用 vizsla --version
+
+服务器二进制支持 `--version`:
+
+```powershell
+vizsla --version
+```
+
+源码中的版本格式包含 Cargo package version, 并区分 `DEBUG` 或 `RELEASE` 构建。
+
+## 打开服务器日志
+
+服务器支持 `--log` 和 `--log_file`:
+
+```powershell
+vizsla --log debug --log_file .\.vizsla\server.log
+```
+
+通过 VS Code 扩展传参:
+
+```json
+{
+  "vizsla.server.additionalArgs": [
+    "--log",
+    "debug",
+    "--log_file",
+    "D:\\work\\my-rtl\\.vizsla\\server.log"
+  ]
+}
+```
+
+改完启动参数后, 执行 `Vizsla: Restart Language Server`。

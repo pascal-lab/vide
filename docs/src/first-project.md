@@ -1,55 +1,54 @@
-# 打开你的第一个工程
+# 第一个工程
 
-Vizsla 以 VS Code 的工作区文件夹作为工程入口。你打开哪个文件夹，它就从哪个文件夹开始看你的 Verilog/SystemVerilog 文件。
+## 推荐目录
 
-## 准备一个最小工程
+小工程可以先用简单结构:
 
-新建一个文件夹，比如 `vizsla-demo`。然后在里面创建 `top.sv`：
-
-```systemverilog
-module child(input logic clk, input logic rst_n, output logic done);
-    assign done = rst_n & clk;
-endmodule
-
-module top(input logic clk, input logic rst_n, output logic done);
-    child u_child(
-        .clk(clk),
-        .rst_n(rst_n),
-        .done(done)
-    );
-endmodule
+```text
+my-rtl/
+  rtl/
+    top.sv
+    alu.sv
+  include/
+    defs.svh
 ```
 
-用 VS Code 打开这个文件夹，而不是只打开单个文件：
+直接用 VS Code 打开 `my-rtl`:
 
 ```powershell
-code .\vizsla-demo
+code D:\work\my-rtl
 ```
 
-打开 `top.sv` 后，VS Code 右下角应该显示文件语言为 `SystemVerilog`。如果你打开的是 `.v` 或 `.vh`，语言会显示为 `Verilog`。
+## 没有清单时会怎样
 
-## 支持的文件后缀
+如果 workspace root 下没有 `vizsla_config.toml`, 我们会把这个目录作为未配置工程:
 
-Vizsla 扩展会识别这些文件：
+- `sources` 默认为 workspace root。
+- `include_dirs` 默认为 workspace root。
+- 不设置 `top_modules`。
+- 不设置预定义宏。
+- 不设置库依赖。
 
-- `.v`
-- `.vh`
-- `.sv`
-- `.svh`
-- `.svi`
+这适合源文件集中、目录不大的工程。
 
-如果你的文件后缀不在这个列表里，VS Code 不会自动把它交给 Vizsla。请先把文件改成常见后缀，或者在 VS Code 里手动关联语言。
+## 什么时候创建清单
 
-## 没有配置文件时会发生什么
+当工程变大时, 我们建议在 workspace root 创建 `vizsla_config.toml`:
 
-如果工程根目录没有 `vizsla_config.toml`，Vizsla 会把你打开的工作区根目录当作源码目录，并默认把这个目录也当作 include 目录。
+- 你只想扫描 `rtl` 和 `include`, 不想扫描仿真输出、生成目录或第三方缓存。
+- 你需要设置 `defines`。
+- 你需要把 include 目录和 source 目录分开。
+- 你有外部库目录, 希望它们作为依赖参与分析。
+- 你想显式声明 `top_modules`。
 
-这对小工程很方便。你刚开始试用时，不需要写配置文件。
+示例:
 
-> [!NOTE]
-> **讨论**
->
-> 当工程变大之后，常见情况会复杂一点：源码在 `rtl/`，头文件在 `include/`，仿真文件在 `tb/`，第三方库在 `ip/`。这时你就应该写 `vizsla_config.toml`，明确告诉 Vizsla 哪些文件要看、哪些目录用于 include、哪些目录要排除。
->
-> 下一页我们先确认服务器是否正常工作。配置文件稍后再写。
+```toml
+top_modules = ["top"]
+defines = ["SYNTHESIS", "DATA_WIDTH=32"]
+sources = ["rtl"]
+include_dirs = ["include"]
+exclude = ["build", "out"]
+```
 
+清单只会从你打开的 workspace root 读取。我们不会自动向父目录或子目录搜索其它 `vizsla_config.toml`。

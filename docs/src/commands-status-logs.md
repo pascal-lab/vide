@@ -1,84 +1,59 @@
 # 命令、状态栏和日志
 
-VS Code 扩展启动后，会注册三个命令，并在状态栏显示服务器状态。遇到问题时，这一页是第一张检查清单。
+## 命令面板命令
 
-## 命令
+VS Code 扩展贡献了三个命令:
 
-### `Vizsla: Show Language Server Output`
-
-打开 `Vizsla Language Server` 输出窗口。
-
-当服务器没有启动、诊断不刷新、配置不生效时，先运行这个命令。
-
-### `Vizsla: Restart Language Server`
-
-停止并重新启动语言服务器。
-
-修改服务器路径、服务器参数、工作目录或 trace 设置后，运行这个命令。
-
-### `Vizsla: Show Server Version`
-
-运行服务器的 `--version`，并把第一行结果显示出来。
-
-如果你不确定 VS Code 正在使用哪个 `vizsla`，运行这个命令，然后打开输出窗口看完整命令。
+| 命令 | 作用 |
+| --- | --- |
+| `Vizsla: Show Language Server Output` | 打开 `Vizsla Language Server` 输出通道。 |
+| `Vizsla: Restart Language Server` | 停止并重新启动语言服务器。 |
+| `Vizsla: Show Server Version` | 执行服务器 `--version`, 并显示第一行版本输出。 |
 
 ## 状态栏
 
-Vizsla 状态栏项会显示：
+扩展会在状态栏左侧显示服务器状态:
 
-- `Vizsla Starting`
-- `Vizsla Ready`
-- `Vizsla Stopping`
-- `Vizsla Stopped`
-- `Vizsla Error`
+| 状态 | 含义 |
+| --- | --- |
+| `Vizsla Starting` | 正在创建并启动语言服务器。 |
+| `Vizsla Ready` | 语言服务器已经启动。 |
+| `Vizsla Stopping` | 正在停止语言服务器。 |
+| `Vizsla Stopped` | 语言服务器已停止。 |
+| `Vizsla Error` | 服务器启动失败。 |
 
-点击状态栏项可以直接打开输出窗口。
+点击状态栏项会打开输出通道。出现 `Vizsla Error` 时, 先看这里。
 
-## 日志里应该看什么
+## 输出通道
 
-打开输出窗口后，优先看这些行：
+扩展输出通道名称是 `Vizsla Language Server`。这里会记录:
 
-- `Platform`：确认平台是不是你预期的系统和架构。
-- `Looking for bundled server at`：确认扩展在找哪个服务器文件。
-- `Server command`：确认最终运行的命令。
-- `Server args`：确认传入参数。
-- `Working directory`：确认工程根目录。
-- `Language server started successfully`：确认启动成功。
+- 扩展激活信息。
+- 扩展安装路径。
+- 当前平台和架构。
+- VS Code 版本。
+- 服务器命令、参数和工作目录。
+- bundled server 查找结果。
+- 启动、停止、重启和版本查询结果。
 
-## 服务器命令行参数
+## 查询服务器版本
 
-Vizsla 服务器本身支持这些命令行参数：
-
-```text
---process-name <PROCESS_NAME>
---log <LOG>
---log_file <LOG_FILE>
---version
---help
-```
-
-常用例子：
+你可以从命令面板执行 `Vizsla: Show Server Version`。扩展会解析当前服务器启动配置, 然后执行:
 
 ```powershell
 vizsla --version
-vizsla --log debug --log_file D:\tmp\vizsla.log
 ```
 
-在 VS Code 里传参时，请放到 `vizsla.server.additionalArgs`：
+如果配置了 `vizsla.server.command`, 版本查询会使用这个自定义命令。扩展会把 `vizsla.server.args` 放在 `--version` 前面。
 
-```json
-{
-  "vizsla.server.additionalArgs": [
-    "--log",
-    "debug",
-    "--log_file",
-    "D:/tmp/vizsla.log"
-  ]
-}
-```
+## 配置变更后重启
 
-> [!WARNING]
-> **警告**
->
-> `--log_file` 的路径目录必须存在，或者 Vizsla 能创建它。路径写错时，服务器可能启动失败。启动失败后请看输出窗口里的错误信息。
+这些启动相关设置变更后, 扩展会提示你重启语言服务器:
 
+- `vizsla.server.command`
+- `vizsla.server.args`
+- `vizsla.server.additionalArgs`
+- `vizsla.server.cwd`
+- `vizsla.trace.server`
+
+选择提示里的 `Restart`, 或手动执行 `Vizsla: Restart Language Server`。
