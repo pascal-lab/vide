@@ -1,6 +1,7 @@
 use utils::text_edit::TextRange;
 
-use crate::{code_action::RepairKind, source_change::SourceChange};
+use super::diagnostics::RepairKind;
+use crate::source_change::SourceChange;
 
 #[derive(Debug, Clone)]
 pub enum CodeActionResolveStrategy {
