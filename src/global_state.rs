@@ -121,6 +121,7 @@ pub(crate) struct GlobalState {
     // workspaces
     pub(crate) workspaces: Arc<Vec<Workspace>>,
     pub(crate) fetch_workspaces_task: ExclTask<(Arc<Vec<Workspace>>, Vec<anyhow::Error>)>,
+    pub(crate) registered_client_file_watcher_globs: Option<Vec<String>>,
 }
 
 impl GlobalState {
@@ -168,6 +169,7 @@ impl GlobalState {
 
             workspaces: Arc::from(vec![]),
             fetch_workspaces_task: ExclTask::default(),
+            registered_client_file_watcher_globs: None,
         }
     }
 
