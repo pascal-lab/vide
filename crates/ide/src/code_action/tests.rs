@@ -209,7 +209,7 @@ fn convert_ordered_params_is_available_without_diagnostics() {
 }
 
 #[test]
-fn literal_base_converts_unsized_decimal_to_hexadecimal() {
+fn literal_base_converts_plain_decimal_to_sized_signed_hexadecimal() {
     let text = "module top; localparam int value = /*caret*/42; endmodule\n";
     let fixed = apply_action_without_diagnostics_with_label(
         text,
@@ -218,7 +218,20 @@ fn literal_base_converts_unsized_decimal_to_hexadecimal() {
     )
     .unwrap();
 
-    assert_eq!(fixed, "module top; localparam int value = 'h2a; endmodule\n");
+    assert_eq!(fixed, "module top; localparam int value = 32'sh2a; endmodule\n");
+}
+
+#[test]
+fn literal_base_preserves_plain_decimal_sign_bit() {
+    let text = "module top; localparam longint value = /*caret*/2147483648; endmodule\n";
+    let fixed = apply_action_without_diagnostics_with_label(
+        text,
+        "convert_literal_base",
+        "Convert literal to hexadecimal",
+    )
+    .unwrap();
+
+    assert_eq!(fixed, "module top; localparam longint value = 33'sh80000000; endmodule\n");
 }
 
 #[test]
@@ -235,7 +248,7 @@ fn literal_base_preserves_size_and_signed_base() {
 }
 
 #[test]
-fn literal_base_converts_unsized_based_literal_to_decimal() {
+fn literal_base_converts_unsized_based_literal_to_based_decimal() {
     let text = "module top; localparam int value = /*caret*/'hff; endmodule\n";
     let fixed = apply_action_without_diagnostics_with_label(
         text,
@@ -244,7 +257,7 @@ fn literal_base_converts_unsized_based_literal_to_decimal() {
     )
     .unwrap();
 
-    assert_eq!(fixed, "module top; localparam int value = 255; endmodule\n");
+    assert_eq!(fixed, "module top; localparam int value = 'd255; endmodule\n");
 }
 
 #[test]
@@ -258,6 +271,16 @@ fn literal_base_preserves_unsized_signed_base() {
     .unwrap();
 
     assert_eq!(fixed, "module top; localparam int value = 'sd255; endmodule\n");
+}
+
+#[test]
+fn literal_base_does_not_offer_decimal_for_unknown_bits() {
+    let labels = action_labels_without_diagnostics(
+        "module top; logic [3:0] value = /*caret*/'hx; endmodule\n",
+    );
+
+    assert!(labels.iter().any(|label| label == "Convert literal to binary"));
+    assert!(!labels.iter().any(|label| label == "Convert literal to decimal"));
 }
 
 #[test]
