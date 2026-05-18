@@ -26,6 +26,9 @@ jobs:
           components: clippy, rustfmt
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
       - name: Format Check
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -47,6 +50,9 @@ jobs:
           components: rustfmt
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
       - name: Test
         run: rustup run nightly cargo test --workspace
 
@@ -66,6 +72,9 @@ jobs:
           components: rustfmt
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -106,6 +115,9 @@ jobs:
           components: rustfmt
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

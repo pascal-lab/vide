@@ -1,6 +1,6 @@
 {
   "name": "vizsla-lsp",
-  "displayName": "Vizsla LSP",
+  "displayName": "Vizsla",
   "description": "Language support for Verilog and SystemVerilog powered by the Vizsla language server.",
   "version": "0.1.0",
   "publisher": "vizsla",

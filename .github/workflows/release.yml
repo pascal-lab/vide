@@ -42,6 +42,9 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
 
       - name: Setup Node
         uses: actions/setup-node@v4

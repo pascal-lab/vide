@@ -1,4 +1,4 @@
-# Vizsla LSP
+# Vizsla
 
 Language support for Verilog and SystemVerilog powered by the Vizsla language server.
 

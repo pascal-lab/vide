@@ -4,7 +4,7 @@
 
 普通用户只需要安装 VS Code 扩展。扩展会在启动时优先使用随扩展打包的 `vizsla` 服务器, 不需要你单独安装 Rust 或手动启动 LSP 进程。
 
-扩展的显示名是 `Vizsla LSP`, 扩展 ID 是 `vizsla.vizsla-lsp`。如果它已经出现在你的扩展来源中, 直接在 VS Code 扩展面板安装即可。
+扩展的显示名是 `Vizsla`, 扩展 ID 是 `vizsla.vizsla-lsp`。如果它已经出现在你的扩展来源中, 直接在 VS Code 扩展面板安装即可。
 
 ## 离线或本地 VSIX 安装
 

@@ -26,7 +26,7 @@ Vizsla 由两部分组成：
 code --install-extension vizsla.vizsla-lsp
 ```
 
-也可以在 VS Code 扩展面板中搜索 `Vizsla LSP` 并点击 Install。
+也可以在 VS Code 扩展面板中搜索 `Vizsla` 并点击 Install。
 
 如果你要修改 Vizsla、调试本地服务器，或者扩展还没有发布到市场，请看 [从源码构建](docs/src/build-from-source.md)。
 
