@@ -1,4 +1,4 @@
-use std::{mem, ops::Range};
+use std::ops::Range;
 
 use lsp_types::{
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
@@ -67,14 +67,9 @@ pub(crate) fn handle_did_change_text_document(
             }
         };
 
-        let text = apply_document_changes(
-            state.config.position_encoding(),
-            mem::take(data),
-            params.content_changes,
-        );
-
-        if *data != text {
-            *data = text.clone();
+        if let Some(text) =
+            update_document_text(state.config.position_encoding(), data, params.content_changes)
+        {
             set_vfs_file_contents(state, &path, text)?;
         }
     }
@@ -207,9 +202,24 @@ fn set_vfs_file_contents(
     vfs.0.file_id(path).ok_or_else(|| anyhow::format_err!("loaded file has no FileId: {path}"))
 }
 
+fn update_document_text(
+    encoding: PositionEncoding,
+    data: &mut String,
+    content_changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
+) -> Option<String> {
+    let text = apply_document_changes(encoding, data, content_changes);
+
+    if *data == text {
+        None
+    } else {
+        *data = text.clone();
+        Some(text)
+    }
+}
+
 fn apply_document_changes(
     encoding: PositionEncoding,
-    file_contents: String,
+    file_contents: &str,
     content_changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
 ) -> String {
     // Skip to the last full document change and peek at the first content change
@@ -219,10 +229,10 @@ fn apply_document_changes(
                 let (full_doc_changes, rest) = content_changes.split_at(idx + 1);
                 match full_doc_changes.last() {
                     Some(full_doc_change) => (full_doc_change.text.clone(), rest),
-                    None => (file_contents.clone(), rest),
+                    None => (file_contents.to_owned(), rest),
                 }
             }
-            None => (file_contents.clone(), &content_changes[..]),
+            None => (file_contents.to_owned(), &content_changes[..]),
         }
     };
 
@@ -259,4 +269,46 @@ fn apply_document_changes(
         }
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_types::TextDocumentContentChangeEvent;
+    use utils::lines::PositionEncoding;
+
+    use super::update_document_text;
+
+    #[test]
+    fn clearing_document_updates_mem_doc_and_vfs_text() {
+        let mut text = "module top;\nendmodule\n".to_owned();
+        let vfs_text = update_document_text(
+            PositionEncoding::Utf8,
+            &mut text,
+            vec![TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: String::new(),
+            }],
+        );
+
+        assert_eq!(text, "");
+        assert_eq!(vfs_text.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn unchanged_document_skips_vfs_update() {
+        let mut text = "module top;\nendmodule\n".to_owned();
+        let vfs_text = update_document_text(
+            PositionEncoding::Utf8,
+            &mut text,
+            vec![TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "module top;\nendmodule\n".to_owned(),
+            }],
+        );
+
+        assert_eq!(text, "module top;\nendmodule\n");
+        assert!(vfs_text.is_none());
+    }
 }
