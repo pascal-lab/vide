@@ -1,5 +1,6 @@
 use std::ops;
 
+use lsp_types::notification::Notification;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -136,4 +137,30 @@ pub enum CodeActionResolveError {
     Stable,
     #[error("invalid action id: {0}")]
     InvalidId(String),
+}
+
+pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vizsla.server.runQiheAnalysis";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunQiheAnalysisParams {
+    pub uri: lsp_types::Url,
+    #[serde(default)]
+    pub cwd: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QiheStatusParams {
+    pub token: String,
+    pub state: String,
+    pub message: Option<String>,
+}
+
+pub enum QiheStatusNotification {}
+
+impl Notification for QiheStatusNotification {
+    type Params = QiheStatusParams;
+
+    const METHOD: &'static str = "vizsla/qiheStatus";
 }

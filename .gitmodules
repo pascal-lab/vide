@@ -1,3 +1,6 @@
 [submodule "crates/slang"]
 	path = crates/slang
 	url = https://github.com/roife/slang.git
+[submodule "qihe"]
+	path = qihe
+	url = git@github.com:pascal-lab/qihe.git

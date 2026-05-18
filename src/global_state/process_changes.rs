@@ -14,7 +14,7 @@ use super::{
     main_loop::{PublishDiagnosticsTask, Task},
     reload::should_refresh_for_change,
 };
-use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
+use crate::config::user_config::DiagnosticsUpdateUserConfig;
 
 #[derive(Debug)]
 pub(crate) enum DiagnosticInvalidation {
@@ -195,60 +195,32 @@ impl GlobalState {
             return;
         }
 
-        if !self.config.cli_pull_diagnostics_support() {
-            let snapshot = self.make_snapshot();
-            self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
-                let mut results = Vec::with_capacity(files.len());
-                for file_id in files {
-                    let uri = match snapshot.url(file_id) {
-                        Ok(uri) => uri,
-                        Err(error) => {
-                            tracing::debug!(
-                                ?file_id,
-                                "skipping push diagnostics for file without URI: {error:#}"
-                            );
-                            continue;
-                        }
-                    };
-                    let version = snapshot.file_version(file_id);
-
-                    let diagnostics = match snapshot.diagnostics(file_id) {
-                        Ok(diags) if !diags.is_empty() => {
-                            let line_info = match snapshot.line_info(file_id) {
-                                Ok(line_info) => line_info,
-                                Err(error) => {
-                                    tracing::debug!(
-                                        ?file_id,
-                                        "skipping push diagnostics without line info: {error:#}"
-                                    );
-                                    continue;
-                                }
-                            };
-                            diags
-                                .into_iter()
-                                .map(|diag| to_proto::diagnostic(&line_info, diag))
-                                .collect()
-                        }
-                        Ok(_) => Vec::new(),
-                        Err(error) => {
-                            tracing::debug!(
-                                ?file_id,
-                                "skipping push diagnostics after diagnostic error: {error:#}"
-                            );
-                            continue;
-                        }
-                    };
-
-                    results.push(PublishDiagnosticsTask { file_id, uri, version, diagnostics });
-                }
-                Task::Diagnostics(results)
-            });
+        if self.config.cli_pull_diagnostics_support() {
+            if self.config.cli_workspace_diagnostic_refresh_support() {
+                self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
+            }
+            return;
         }
 
-        if self.config.cli_pull_diagnostics_support()
-            && self.config.cli_workspace_diagnostic_refresh_support()
-        {
-            self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
-        }
+        let snapshot = self.make_snapshot();
+        self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
+            let mut results = Vec::with_capacity(files.len());
+            for file_id in files {
+                let uri = match snapshot.url(file_id) {
+                    Ok(uri) => uri,
+                    Err(error) => {
+                        tracing::debug!(
+                            ?file_id,
+                            "skipping push diagnostics for file without URI: {error:#}"
+                        );
+                        continue;
+                    }
+                };
+                let version = snapshot.file_version(file_id);
+                let diagnostics = snapshot.lsp_diagnostics(file_id);
+                results.push(PublishDiagnosticsTask { file_id, uri, version, diagnostics });
+            }
+            Task::Diagnostics(results)
+        });
     }
 }

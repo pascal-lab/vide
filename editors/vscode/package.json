@@ -100,6 +100,30 @@
           "default": [],
           "description": "Additional arguments appended when launching the Vizsla language server."
         },
+        "vizsla.qihe.command": {
+          "type": "string",
+          "default": "qihe",
+          "description": "Command used to invoke Qihe. It must be available in the environment PATH seen by VS Code."
+        },
+        "vizsla.qihe.compileArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Arguments inserted after `qihe compile`. Use this for compile mode selection or forwarded `slang` options such as `--mode sv -- -I include`."
+        },
+        "vizsla.qihe.runArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-g",
+            "std"
+          ],
+          "description": "Arguments inserted after `qihe run` when the Qihe analysis button is used."
+        },
         "vizsla.files.excludeDirs": {
           "type": "array",
           "items": {
@@ -299,8 +323,22 @@
       {
         "command": "vizsla.showServerVersion",
         "title": "Vizsla: Show Server Version"
+      },
+      {
+        "command": "vizsla.runQiheAnalysis",
+        "title": "Vizsla: Run Qihe Analysis",
+        "icon": "$(beaker)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vizsla.runQiheAnalysis",
+          "when": "resourceLangId == verilog || resourceLangId == systemverilog",
+          "group": "navigation@10"
+        }
+      ]
+    }
   },
   "scripts": {
     "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js",

@@ -1,4 +1,5 @@
 use anyhow::Context;
+use std::path::Path;
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
@@ -6,12 +7,16 @@ use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use project_model::Workspace;
 use rustc_hash::FxHashMap;
 use triomphe::Arc;
-use utils::lines::{LineEnding, LineInfo};
-use vfs::{FileId, Vfs};
+use utils::{
+    lines::{LineEnding, LineInfo},
+    paths::AbsPathBuf,
+};
+use vfs::{FileId, Vfs, VfsPath};
 
 use super::mem_docs::MemDocs;
 use crate::{
     config::Config,
+    global_state::QiheDiagnosticState,
     lsp_ext::{from_proto, to_proto},
 };
 
@@ -21,6 +26,7 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) analysis: Analysis,
     // pub(crate) check_fixes: CheckFixes,
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
+    pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
     pub(crate) mem_docs: MemDocs,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     #[allow(dead_code)]
@@ -40,6 +46,11 @@ impl GlobalStateSnapshot {
         let file_id =
             vfs.file_id(&path).ok_or_else(|| anyhow::format_err!("file not found: {path}"))?;
         Ok(file_id)
+    }
+
+    pub(crate) fn file_id_for_path(&self, path: &Path) -> Option<FileId> {
+        let path = VfsPath::from(AbsPathBuf::try_from(path.to_path_buf()).ok()?);
+        self.vfs_read().file_id(&path)
     }
 
     pub(crate) fn line_info(&self, file_id: FileId) -> anyhow::Result<LineInfo> {
@@ -88,6 +99,30 @@ impl GlobalStateSnapshot {
         Ok(diagnostics)
     }
 
+    pub(crate) fn lsp_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
+        let mut diagnostics = match (self.diagnostics(file_id), self.line_info(file_id)) {
+            (Ok(diagnostics), Ok(line_info)) => diagnostics
+                .into_iter()
+                .map(|diag| crate::lsp_ext::to_proto::diagnostic(&line_info, diag))
+                .collect(),
+            _ => Vec::new(),
+        };
+        diagnostics.extend(self.qihe_diagnostics(file_id));
+        diagnostics
+    }
+
+    pub(crate) fn qihe_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
+        self.qihe_diagnostics
+            .lock()
+            .get(&file_id)
+            .map(|state| state.diagnostics.clone())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn qihe_generation(&self, file_id: FileId) -> u64 {
+        self.qihe_diagnostics.lock().get(&file_id).map(|state| state.generation).unwrap_or(0)
+    }
+
     pub(crate) fn file_version(&self, file_id: FileId) -> Option<i32> {
         self.mem_docs.version(file_id)
     }
@@ -115,7 +150,11 @@ impl GlobalStateSnapshot {
             .map(|(file_id, version)| format!("{file_id}:{version}"))
             .collect::<Vec<_>>()
             .join(",");
-        Some(format!("diag:{}:{file_versions}", diagnostics_config.revision))
+        Some(format!(
+            "diag:{}:{file_versions}:qihe:{}",
+            diagnostics_config.revision,
+            self.qihe_generation(file_id)
+        ))
     }
 
     pub(crate) fn source_root_file_ids(&self, file_id: FileId) -> Vec<FileId> {

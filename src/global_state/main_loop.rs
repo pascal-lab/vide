@@ -14,6 +14,7 @@ use super::{
     GlobalState, VfsProgress,
     dispatcher::{NotifDispatcher, ReqDispatcher},
     handlers,
+    qihe::QiheUpdate,
     reload::FetchWorkspaceProgress,
     respond::Progress,
 };
@@ -40,6 +41,13 @@ pub(crate) enum Task {
     Retry(lsp_server::Request),
     FetchWorkspace(FetchWorkspaceProgress),
     Diagnostics(Vec<PublishDiagnosticsTask>),
+    Qihe(QiheTask),
+}
+
+#[derive(Debug)]
+pub(crate) enum QiheTask {
+    Finished { update: QiheUpdate, progress_token: String },
+    Failed { message: String, progress_token: String },
 }
 
 pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
@@ -246,6 +254,7 @@ impl GlobalState {
             .on_sync::<OnTypeFormatting>(handle_on_type_formatting)
             .on_no_retry::<CodeActionRequest>(handle_code_action)
             .on_no_retry::<CodeActionResolveRequest>(handle_code_action_resolve)
+            .on_sync_mut::<ExecuteCommand>(handle_execute_command)
             .on::<SelectionRangeRequest>(handle_selection_range)
             .finish();
     }
@@ -312,7 +321,8 @@ impl GlobalState {
 
                 self.report_progress("Fetching Workspaces", state, None, None, None);
             }
-            Task::Diagnostics(diags) => self.publish_diagnostics(diags),
+            Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags, false),
+            Task::Qihe(task) => self.handle_qihe_task(task),
         }
     }
 
@@ -362,8 +372,12 @@ impl GlobalState {
         }
     }
 
-    fn publish_diagnostics(&mut self, diagnostics: Vec<PublishDiagnosticsTask>) {
-        if self.config.cli_pull_diagnostics_support() {
+    pub(super) fn publish_diagnostics_tasks(
+        &mut self,
+        diagnostics: Vec<PublishDiagnosticsTask>,
+        force_push: bool,
+    ) {
+        if self.config.cli_pull_diagnostics_support() && !force_push {
             return;
         }
 

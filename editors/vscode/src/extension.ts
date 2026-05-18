@@ -16,12 +16,21 @@ import { getServerStatusPresentation, type ServerStatus } from './status';
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
 const execFileAsync = promisify(execFile);
 const showOutputCommand = 'vizsla.showOutput';
 const restartServerCommand = 'vizsla.restartServer';
 const showServerVersionCommand = 'vizsla.showServerVersion';
+const runQiheAnalysisCommand = 'vizsla.runQiheAnalysis';
+const runQiheAnalysisRequest = 'vizsla.server.runQiheAnalysis';
+const qiheStatusNotification = 'vizsla/qiheStatus';
+const qiheAnalysisIcon = '$(beaker)';
 const versionTimeoutMs = 5000;
+
+const activeQiheTokens = new Set<string>();
+const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
+let qiheStatusHideTimer: NodeJS.Timeout | undefined;
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
@@ -55,6 +64,124 @@ function updateServerStatus(status: ServerStatus, detail?: string): void {
     ? new vscode.ThemeColor(presentation.backgroundColor)
     : undefined;
   statusBarItem.show();
+}
+
+function clearQiheStatusHideTimer(): void {
+  if (!qiheStatusHideTimer) {
+    return;
+  }
+
+  clearTimeout(qiheStatusHideTimer);
+  qiheStatusHideTimer = undefined;
+}
+
+function updateQiheStatus(
+  tooltip: string,
+  hideAfterMs?: number,
+): void {
+  if (!qiheStatusBarItem) {
+    return;
+  }
+
+  clearQiheStatusHideTimer();
+  qiheStatusBarItem.text = `${qiheAnalysisIcon} Qihe`;
+  qiheStatusBarItem.tooltip = tooltip;
+  qiheStatusBarItem.show();
+
+  if (!hideAfterMs) {
+    return;
+  }
+
+  qiheStatusHideTimer = setTimeout(() => {
+    qiheStatusBarItem?.hide();
+    qiheStatusHideTimer = undefined;
+  }, hideAfterMs);
+}
+
+function createQiheStatusBarItem(): vscode.StatusBarItem {
+  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  item.name = 'Vizsla Qihe';
+  item.command = runQiheAnalysisCommand;
+  item.hide();
+  return item;
+}
+
+function startQiheNotification(token: string, message?: string): void {
+  if (qiheProgressNotifications.has(token)) {
+    return;
+  }
+
+  let resolveProgress = () => {};
+  const progressPromise = new Promise<void>((resolve) => {
+    resolveProgress = resolve;
+  });
+
+  qiheProgressNotifications.set(token, { resolve: resolveProgress });
+
+  void vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Running Qihe analysis',
+    },
+    async (progress) => {
+      if (message) {
+        progress.report({ message });
+      }
+      await progressPromise;
+    },
+  );
+}
+
+function finishQiheNotification(token: string): void {
+  const entry = qiheProgressNotifications.get(token);
+  if (!entry) {
+    return;
+  }
+
+  qiheProgressNotifications.delete(token);
+  entry.resolve();
+}
+
+function registerQiheNotifications(languageClient: LanguageClient): void {
+  languageClient.onNotification(
+    qiheStatusNotification,
+    (params: { token?: unknown; state?: unknown; message?: unknown }) => {
+      const token =
+        typeof params.token === 'string' ? params.token : undefined;
+      const state =
+        typeof params.state === 'string' ? params.state : undefined;
+      const message =
+        typeof params.message === 'string' ? params.message : undefined;
+
+      if (!token || !state) {
+        return;
+      }
+
+      switch (state) {
+        case 'begin':
+          activeQiheTokens.add(token);
+          updateQiheStatus(message ?? 'Qihe analysis is running');
+          startQiheNotification(token, message);
+          break;
+        case 'end':
+          activeQiheTokens.delete(token);
+          finishQiheNotification(token);
+          if (activeQiheTokens.size === 0) {
+            updateQiheStatus(message ?? 'Qihe analysis finished', 4000);
+          }
+          break;
+        case 'failed':
+          activeQiheTokens.delete(token);
+          finishQiheNotification(token);
+          if (activeQiheTokens.size === 0) {
+            updateQiheStatus(message ?? 'Qihe analysis failed', 6000);
+          }
+          break;
+        default:
+          break;
+      }
+    },
+  );
 }
 
 interface ServerConfiguration {
@@ -277,6 +404,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     updateServerStatus('starting');
     log('[INFO] Starting language server...');
     client = await createClient(context);
+    registerQiheNotifications(client);
     await client.start();
     log('[INFO] Language server started successfully');
     updateServerStatus('ready');
@@ -342,6 +470,43 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
   }
 }
 
+async function runQiheAnalysis(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a Verilog or SystemVerilog file first.');
+    return;
+  }
+
+  if (!['verilog', 'systemverilog'].includes(editor.document.languageId)) {
+    vscode.window.showWarningMessage('Qihe analysis is only available for Verilog files.');
+    return;
+  }
+
+  if (!client) {
+    vscode.window.showErrorMessage('Vizsla language server is not running.');
+    return;
+  }
+
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  const payload = {
+    uri: editor.document.uri.toString(),
+    cwd: workspaceFolder?.uri.fsPath,
+  };
+
+  log(`[INFO] Running Qihe analysis: ${JSON.stringify(payload)}`);
+
+  try {
+    await client.sendRequest('workspace/executeCommand', {
+      command: runQiheAnalysisRequest,
+      arguments: [payload],
+    });
+  } catch (error) {
+    const message = `Failed to run Qihe analysis: ${(error as Error).message}`;
+    log(`[ERROR] ${message}`);
+    vscode.window.showErrorMessage(message);
+  }
+}
+
 function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
   return (
     event.affectsConfiguration('vizsla.server.command') ||
@@ -357,6 +522,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(outputChannel);
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBarItem);
+  qiheStatusBarItem = createQiheStatusBarItem();
+  context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
 
   log('[INFO] Vizsla extension activating...');
@@ -369,10 +536,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(showOutputRegistration);
 
-  const restartCommandRegistration = vscode.commands.registerCommand(restartServerCommand, async () => {
-    log('[INFO] Restart command triggered');
-    await restartClient(context);
-  });
+  const restartCommandRegistration = vscode.commands.registerCommand(
+    restartServerCommand,
+    async () => {
+      log('[INFO] Restart command triggered');
+      await restartClient(context);
+    },
+  );
   context.subscriptions.push(restartCommandRegistration);
 
   const showVersionRegistration = vscode.commands.registerCommand(
@@ -383,6 +553,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(showVersionRegistration);
+
+  const runQiheRegistration = vscode.commands.registerCommand(
+    runQiheAnalysisCommand,
+    async () => {
+      await runQiheAnalysis();
+    },
+  );
+  context.subscriptions.push(runQiheRegistration);
 
   const configurationRegistration = vscode.workspace.onDidChangeConfiguration(
     async (event) => {
@@ -408,6 +586,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
+  clearQiheStatusHideTimer();
+  for (const { resolve } of qiheProgressNotifications.values()) {
+    resolve();
+  }
+  qiheProgressNotifications.clear();
+  activeQiheTokens.clear();
+
   if (outputChannel) {
     log('[INFO] Vizsla extension deactivating...');
   }

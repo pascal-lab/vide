@@ -12,7 +12,10 @@ use lsp_types::{
 };
 use utils::{line_index::WideEncoding, lines::PositionEncoding, try_, try_or_default};
 
-use crate::{config::Config, lsp_ext::ext};
+use crate::{
+    config::Config,
+    lsp_ext::ext::{self, RUN_QIHE_ANALYSIS_COMMAND},
+};
 
 impl Config {
     #[allow(dead_code)]
@@ -291,7 +294,10 @@ impl Config {
             document_link_provider: None,
             color_provider: None,
             folding_range_provider: Some(true.into()),
-            execute_command_provider: None,
+            execute_command_provider: Some(lsp_types::ExecuteCommandOptions {
+                commands: vec![RUN_QIHE_ANALYSIS_COMMAND.to_string()],
+                work_done_progress_options: Default::default(),
+            }),
             workspace: WorkspaceServerCapabilities {
                 workspace_folders: WorkspaceFoldersServerCapabilities {
                     supported: true.into(),

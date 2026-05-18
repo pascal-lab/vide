@@ -8,7 +8,10 @@ use vfs::FileId;
 
 use crate::{
     global_state::snapshot::GlobalStateSnapshot,
-    lsp_ext::{from_proto, to_proto},
+    lsp_ext::{
+        ext::{RUN_QIHE_ANALYSIS_COMMAND, RunQiheAnalysisParams},
+        from_proto, to_proto,
+    },
 };
 
 mod code_action;
@@ -108,13 +111,8 @@ pub(crate) fn handle_document_diagnostic(
     params: lsp_types::DocumentDiagnosticParams,
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
-
-    let diagnostics = snap.diagnostics(file_id)?;
-    let line_info = snap.line_info(file_id)?;
-    let items =
-        diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect();
-
     let result_id = snap.diagnostic_result_id(file_id);
+    let items = snap.lsp_diagnostics(file_id);
     Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
 }
 
@@ -172,8 +170,11 @@ pub(crate) fn handle_workspace_diagnostic(
         let diagnostics = diagnostics_by_file.remove(&file_id).unwrap_or_default();
 
         let line_info = snap.line_info(file_id)?;
-        let diag_items =
-            diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect();
+        let mut diag_items = diagnostics
+            .into_iter()
+            .map(|diag| to_proto::diagnostic(&line_info, diag))
+            .collect::<Vec<_>>();
+        diag_items.extend(snap.qihe_diagnostics(file_id));
 
         let result_id = snap.diagnostic_result_id(file_id);
         let version = snap.file_version(file_id).map(|version| version as i64);
@@ -227,6 +228,30 @@ fn document_diagnostic_report(
     })
 }
 
+fn handle_qihe_analysis_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let args = params
+        .arguments
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::format_err!("missing executeCommand arguments"))?;
+    let params = serde_json::from_value::<RunQiheAnalysisParams>(args)?;
+    state.spawn_qihe_analysis(params);
+    Ok(None)
+}
+
+pub(crate) fn handle_execute_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    match params.command.as_str() {
+        RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
+        _ => anyhow::bail!("unknown executeCommand: {}", params.command),
+    }
+}
+
 fn workspace_diagnostic_report(
     uri: lsp_types::Url,
     version: Option<i64>,
@@ -259,6 +284,55 @@ fn workspace_diagnostic_report(
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use lsp_types::{Url, WorkspaceDocumentDiagnosticReport};
+
+    use super::workspace_diagnostic_report;
+
+    #[test]
+    fn workspace_diagnostic_report_uses_full_for_new_result_id() {
+        let uri = Url::parse("file:///tmp/test.sv").unwrap();
+        let report = workspace_diagnostic_report(
+            uri.clone(),
+            Some(3),
+            Some("4".to_string()),
+            Vec::new(),
+            Some("2"),
+        );
+
+        match report {
+            WorkspaceDocumentDiagnosticReport::Full(report) => {
+                assert_eq!(report.uri, uri);
+                assert_eq!(report.version, Some(3));
+                assert_eq!(report.full_document_diagnostic_report.result_id.as_deref(), Some("4"));
+                assert!(report.full_document_diagnostic_report.items.is_empty());
+            }
+            other => panic!("expected full report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_diagnostic_report_uses_unchanged_for_matching_result_id() {
+        let uri = Url::parse("file:///tmp/test.sv").unwrap();
+        let report = workspace_diagnostic_report(
+            uri.clone(),
+            Some(5),
+            Some("5".to_string()),
+            Vec::new(),
+            Some("5"),
+        );
+
+        match report {
+            WorkspaceDocumentDiagnosticReport::Unchanged(report) => {
+                assert_eq!(report.uri, uri);
+                assert_eq!(report.version, Some(5));
+                assert_eq!(report.unchanged_document_diagnostic_report.result_id, "5");
+            }
+            other => panic!("expected unchanged report, got {other:?}"),
+        }
+    }
+}
 pub(crate) fn handle_document_symbol(
     snap: GlobalStateSnapshot,
     params: lsp_types::DocumentSymbolParams,
