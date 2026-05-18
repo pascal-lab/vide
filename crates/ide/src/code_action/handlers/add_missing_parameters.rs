@@ -24,11 +24,11 @@ pub(super) fn add_missing_parameters(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.diagnostics.allows_repair(RepairKind::MissingParameter) {
+    if !ctx.allows_repair(RepairKind::MissingParameter) {
         return None;
     }
 
-    let sema = ctx.sema;
+    let sema = ctx.sema();
     let db = sema.db;
 
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
@@ -77,13 +77,13 @@ pub(super) fn add_missing_parameters(
         return None;
     }
 
-    collector.add(ID, LABEL, ctx.range, |builder| {
+    collector.add(ID, LABEL, ctx.range(), |builder| {
         let entries = names
             .into_iter()
             .map(|name| missing_member_entry_text(sema, module_id, name, is_ordered, "0"))
             .collect();
 
-        let text = sema.db.file_text(ctx.file_id);
+        let text = sema.db.file_text(ctx.file_id());
         let item_ranges = params_node.parameters().children().filter_map(|assign| {
             let range = assign.syntax().text_range()?;
             (!range.is_empty()).then_some(range)

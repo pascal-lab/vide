@@ -29,7 +29,7 @@ pub(super) fn convert_ordered_ports(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    let sema = ctx.sema;
+    let sema = ctx.sema();
     let db = sema.db;
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
@@ -54,7 +54,7 @@ pub(super) fn convert_ordered_ports(
         return None;
     }
 
-    collector.add(PORTS_ID, PORTS_LABEL, ctx.range, |builder| {
+    collector.add(PORTS_ID, PORTS_LABEL, ctx.range(), |builder| {
         for (range, text) in replacements {
             builder.replace(range, text);
         }
@@ -67,7 +67,7 @@ pub(super) fn convert_ordered_params(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    let sema = ctx.sema;
+    let sema = ctx.sema();
     let db = sema.db;
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let target_module_id = sema.nameres_instantiation(ast_instantiation)?;
@@ -92,7 +92,7 @@ pub(super) fn convert_ordered_params(
         return None;
     }
 
-    collector.add(PARAMS_ID, PARAMS_LABEL, ctx.range, |builder| {
+    collector.add(PARAMS_ID, PARAMS_LABEL, ctx.range(), |builder| {
         for (range, text) in replacements {
             builder.replace(range, text);
         }
@@ -102,6 +102,6 @@ pub(super) fn convert_ordered_params(
 }
 
 fn text_at(ctx: &CodeActionCtx, range: utils::text_edit::TextRange) -> Option<String> {
-    let text = ctx.sema.db.file_text(ctx.file_id);
+    let text = ctx.sema().db.file_text(ctx.file_id());
     Some(text[std::ops::Range::<usize>::from(range)].to_owned())
 }

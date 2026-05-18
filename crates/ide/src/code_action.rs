@@ -8,7 +8,6 @@ use hir::{
 };
 use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
-use syntax::ast::{AstNode, CompilationUnit};
 use utils::{
     get::GetRef,
     text_edit::{TextRange, TextSize},
@@ -18,9 +17,13 @@ use vfs::FileId;
 use crate::source_change::SourceChangeBuilder;
 
 mod action;
+mod collector;
+mod context;
 mod diagnostics;
 
 pub use action::{CodeAction, CodeActionId, CodeActionKind, CodeActionResolveStrategy};
+pub(crate) use collector::CodeActionCollector;
+pub(crate) use context::CodeActionCtx;
 pub use diagnostics::{
     CodeActionDiagnostic, CodeActionDiagnostics, DiagnosticCode, DiagnosticSource, RepairKind,
 };
@@ -191,70 +194,6 @@ fn item_line_indent(text: &str, offset: TextSize) -> Option<String> {
     before_item.chars().all(|ch| ch == ' ' || ch == '\t').then(|| before_item.to_owned())
 }
 
-pub(crate) struct CodeActionCollector {
-    file: FileId,
-    resolve_strategy: CodeActionResolveStrategy,
-    buf: Vec<CodeAction>,
-}
-
-impl CodeActionCollector {
-    fn new(ctx: &CodeActionCtx, resolve_strategy: CodeActionResolveStrategy) -> Self {
-        Self { file: ctx.file_id, resolve_strategy, buf: Vec::new() }
-    }
-
-    pub(crate) fn add(
-        &mut self,
-        id: CodeActionId,
-        label: impl Into<String>,
-        target: TextRange,
-        f: impl FnOnce(&mut SourceChangeBuilder),
-    ) -> Option<()> {
-        let source_change = if self.resolve_strategy.should_resolve(id) {
-            let mut builder = SourceChangeBuilder::new(self.file);
-            f(&mut builder);
-            Some(builder.finish())
-        } else {
-            None
-        };
-
-        self.buf.push(CodeAction { id, label: label.into(), target, source_change });
-        Some(())
-    }
-
-    fn finish(mut self) -> Vec<CodeAction> {
-        self.buf.sort_by_key(|assist| assist.target.len());
-        self.buf
-    }
-}
-
-struct CodeActionCtx<'a> {
-    sema: &'a Semantics<'a, RootDb>,
-    file_id: FileId,
-    range: TextRange,
-    diagnostics: CodeActionDiagnostics,
-    compilation_unit: CompilationUnit<'a>,
-}
-
-impl<'a> CodeActionCtx<'a> {
-    fn new(
-        sema: &'a Semantics<'a, RootDb>,
-        file_id: FileId,
-        range: TextRange,
-        diagnostics: CodeActionDiagnostics,
-    ) -> Option<Self> {
-        let compilation_unit = CompilationUnit::cast(sema.parse_root(file_id)?)?;
-        Some(Self { sema, file_id, range, diagnostics, compilation_unit })
-    }
-
-    fn offset(&self) -> TextSize {
-        self.range.start()
-    }
-
-    fn find_node_at_offset<N: AstNode<'a>>(&self) -> Option<N> {
-        self.sema.find_node_at_offset(self.compilation_unit.syntax(), self.offset())
-    }
-}
-
 pub(crate) fn code_action(
     db: &RootDb,
     file_id: FileId,
@@ -267,7 +206,7 @@ pub(crate) fn code_action(
         return Vec::new();
     };
 
-    let mut collector = CodeActionCollector::new(&ctx, resolve_strategy);
+    let mut collector = CodeActionCollector::new(ctx.file_id(), resolve_strategy);
     handlers::all().iter().for_each(|handler| {
         handler(&mut collector, &ctx);
     });
