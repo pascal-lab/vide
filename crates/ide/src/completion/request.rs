@@ -74,6 +74,7 @@ pub(crate) enum CompletionProvider {
     ParenList(ParenListKind),
     PortList(PortListKind),
     EventControl { wrap_in_parens: bool },
+    IntegerLiteralBase,
 }
 
 impl CompletionRequest {
@@ -96,6 +97,19 @@ impl CompletionRequest {
             .any(|expectation| expectation.syntax == ExpectedSyntax::DirectiveName)
         {
             return Some(Self::single(CompletionProvider::Directives));
+        }
+
+        if ctx
+            .expectations
+            .iter()
+            .any(|expectation| expectation.syntax == ExpectedSyntax::IntegerLiteralBase)
+        {
+            return Some(Self::single(CompletionProvider::IntegerLiteralBase));
+        }
+
+        // Apostrophe is registered only to start integer literal base completion.
+        if ctx.trigger == Some(TriggerChar::Apostrophe) {
+            return None;
         }
 
         if ctx.lex != LexContext::Code {
@@ -200,6 +214,7 @@ fn request_for_expected_syntax(expected: ExpectedSyntax) -> Option<CompletionReq
         ExpectedSyntax::EventControl { wrap_in_parens } => {
             CompletionProvider::EventControl { wrap_in_parens }
         }
+        ExpectedSyntax::IntegerLiteralBase => CompletionProvider::IntegerLiteralBase,
     };
 
     Some(CompletionRequest::single(provider))
@@ -238,6 +253,7 @@ impl CompletionProvider {
             CompletionProvider::Keywords(provider) => provider.trigger_policy(),
             CompletionProvider::SystemTasks => TriggerPolicy::ManualOrPrefix,
             CompletionProvider::ElseClause => TriggerPolicy::ManualOrPrefix,
+            CompletionProvider::IntegerLiteralBase => TriggerPolicy::ManualOrPrefix,
             CompletionProvider::PortList(PortListKind::Ansi | PortListKind::Function) => {
                 TriggerPolicy::ManualPrefixOrNewline
             }
@@ -396,6 +412,26 @@ mod tests {
                 Some(keyword(SyntaxKeywordContext::ModuleMember))
             )),
             None
+        );
+    }
+
+    #[test]
+    fn apostrophe_trigger_only_requests_integer_literal_bases() {
+        assert_eq!(
+            CompletionRequest::from_context(&context(
+                LexContext::Code,
+                Some(TriggerChar::Apostrophe),
+                Some(ExpectedSyntax::Expression)
+            )),
+            None
+        );
+        assert_eq!(
+            CompletionRequest::from_context(&context(
+                LexContext::Code,
+                Some(TriggerChar::Apostrophe),
+                Some(ExpectedSyntax::IntegerLiteralBase)
+            )),
+            Some(CompletionRequest::single(CompletionProvider::IntegerLiteralBase))
         );
     }
 

@@ -3,6 +3,7 @@ mod expr;
 mod instantiation;
 mod item;
 mod keywords;
+mod literal;
 mod member;
 mod named;
 mod paren_list;

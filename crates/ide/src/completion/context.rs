@@ -13,7 +13,10 @@ use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
 use span::FilePosition;
-use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode};
+use syntax::{
+    ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt,
+    has_text_range::HasTextRange,
+};
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
@@ -35,6 +38,7 @@ pub enum TriggerChar {
     At,
     Hash,
     Backtick,
+    Apostrophe,
     Newline,
 }
 
@@ -60,6 +64,7 @@ pub enum ExpectedSyntax {
     NonAnsiPortName,
     EventControl { wrap_in_parens: bool },
     DeclName,
+    IntegerLiteralBase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +159,24 @@ fn detect_completion_context_impl(
     let (mut replacement, mut prefix) = caret.replacement_and_prefix();
 
     let lex = lex::detect_lex_context(&caret);
+    if matches!(lex, LexContext::Code | LexContext::Literal)
+        && let Some(word) = integer_literal_base_word_at_offset(&caret, offset)
+    {
+        replacement = word.replacement;
+        prefix = word.prefix;
+        return CompletionContext {
+            replacement,
+            prefix,
+            trigger,
+            lex,
+            expectations: smallvec![CompletionExpectation {
+                syntax: ExpectedSyntax::IntegerLiteralBase,
+                source: ExpectationSource::Token(syntax::Token!["'"]),
+            }],
+            in_decl_name: false,
+        };
+    }
+
     if lex != LexContext::Code {
         let expectation = if lex == LexContext::PreprocDirective
             && let Some(word) = directive_word_at_offset(source_text, offset)
@@ -267,6 +290,49 @@ fn identifier_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Opt
     let prefix = source_text[start..offset].to_string();
     let replacement = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
     Some(DirectiveWord { replacement, prefix })
+}
+
+fn integer_literal_base_word_at_offset(
+    caret: &CaretSnapshot<'_>,
+    offset: TextSize,
+) -> Option<DirectiveWord> {
+    // Only recover from token shapes that slang has already produced:
+    // <integer> ' and <integer> 's.
+    let prev = caret.root.token_before_offset(offset)?;
+    let prev_range = prev.text_range()?;
+    if prev_range.end() != offset {
+        return None;
+    }
+
+    if !is_integer_literal_size_before(caret, prev_range.start()) {
+        return None;
+    }
+
+    match prev.kind() {
+        syntax::Token!["'"] => {
+            Some(DirectiveWord { replacement: TextRange::empty(offset), prefix: String::new() })
+        }
+        syntax::TokenKind::INTEGER_BASE => {
+            let raw = prev.tok.raw_text().to_string();
+            if !matches!(raw.as_str(), "'s" | "'S") {
+                return None;
+            }
+
+            Some(DirectiveWord {
+                replacement: TextRange::new(prev_range.start() + TextSize::new(1), offset),
+                prefix: String::from("s"),
+            })
+        }
+        _ => None,
+    }
+}
+
+fn is_integer_literal_size_before(caret: &CaretSnapshot<'_>, offset: TextSize) -> bool {
+    let Some(prev) = caret.root.token_before_offset(offset) else {
+        return false;
+    };
+    prev.kind() == syntax::TokenKind::INTEGER_LITERAL
+        && prev.text_range().is_some_and(|range| range.end() == offset)
 }
 
 fn is_identifier_name_byte(byte: u8) -> bool {
@@ -390,12 +456,25 @@ mod tests {
     fn detects_typing_based_literal_after_quote() {
         let c = ctx("module m; initial x = 4'/*caret*/; endmodule\n");
         assert_eq!(c.lex, LexContext::Literal);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::IntegerLiteralBase));
+        assert!(c.replacement.is_empty());
+        assert_eq!(c.prefix, "");
+    }
+
+    #[test]
+    fn detects_typing_signed_based_literal_after_s() {
+        let c = ctx("module m; initial x = 4's/*caret*/; endmodule\n");
+        assert_eq!(c.lex, LexContext::Literal);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::IntegerLiteralBase));
+        assert!(!c.replacement.is_empty());
+        assert_eq!(c.prefix, "s");
     }
 
     #[test]
     fn detects_typing_based_literal_after_base() {
         let c = ctx("module m; initial x = 4'b/*caret*/; endmodule\n");
         assert_eq!(c.lex, LexContext::Literal);
+        assert_eq!(expected(&c), None);
     }
 
     #[test]
