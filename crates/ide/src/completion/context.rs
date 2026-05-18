@@ -116,11 +116,13 @@ pub(crate) fn completion_context(
     let text = db.file_text(file_id);
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     let directive_word = directive_word_at_offset(&text, offset);
+    let token_word = library_map_word_at_offset(root, &text, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         directive_word,
+        token_word,
         Some(&parser_expected_syntax),
     )
 }
@@ -130,7 +132,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, None)
+    detect_completion_context_impl(root, offset, trigger, None, None, None)
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -141,11 +143,13 @@ pub fn detect_completion_context_with_source_text(
 ) -> CompletionContext {
     let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
     let directive_word = directive_word_at_offset(source_text, offset);
+    let token_word = library_map_word_at_offset(root, source_text, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         directive_word,
+        token_word,
         Some(&parser_expected_syntax),
     )
 }
@@ -155,6 +159,7 @@ fn detect_completion_context_impl(
     offset: TextSize,
     trigger: Option<TriggerChar>,
     directive_word: Option<CompletionWord>,
+    token_word: Option<CompletionWord>,
     parser_expected_syntax: Option<&[ParserExpectedSyntax]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
@@ -206,6 +211,13 @@ fn detect_completion_context_impl(
         };
     }
 
+    if prefix.is_empty()
+        && let Some(word) = token_word.filter(|word| !word.prefix.is_empty())
+    {
+        replacement = word.replacement;
+        prefix = word.prefix;
+    }
+
     if trigger == Some(TriggerChar::Backtick) {
         return CompletionContext {
             replacement,
@@ -244,6 +256,26 @@ fn directive_word_at_offset(source_text: &str, offset: TextSize) -> Option<Compl
             TextSize::from(directive.replacement.end as u32),
         ),
         prefix: directive.prefix,
+    })
+}
+
+fn library_map_word_at_offset(
+    root: SyntaxNode<'_>,
+    source_text: &str,
+    offset: TextSize,
+) -> Option<CompletionWord> {
+    if root.kind() != syntax::SyntaxKind::LIBRARY_MAP {
+        return None;
+    }
+
+    let word =
+        syntax::SyntaxTree::token_word_at_offset(source_text, "source", "", usize::from(offset))?;
+    Some(CompletionWord {
+        replacement: TextRange::new(
+            TextSize::from(word.replacement.start as u32),
+            TextSize::from(word.replacement.end as u32),
+        ),
+        prefix: word.prefix,
     })
 }
 
@@ -713,7 +745,7 @@ mod tests {
     fn detects_library_map_item_keyword_prefix() {
         let c = library_map_ctx("lib/*caret*/\n");
         assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::LibraryMapMember)));
-        assert_eq!(c.prefix, "");
+        assert_eq!(c.prefix, "lib");
     }
 
     #[test]
