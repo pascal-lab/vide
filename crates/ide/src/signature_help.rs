@@ -188,8 +188,11 @@ fn sig_help_for_instance(
                     let header = InModule::new(target_module_id, port_decl.header)
                         .display_signature(db)
                         .unwrap_or_else(|_| "<missing-header>".to_string());
-                    buf.push_str(&header);
-                    buf.push(' ');
+                    let header = header.trim_end();
+                    buf.push_str(header);
+                    if !header.is_empty() {
+                        buf.push(' ');
+                    }
                 }
                 let header_size = buf.len();
 
