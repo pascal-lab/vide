@@ -8,7 +8,7 @@ mod parser;
 mod resolve;
 mod util;
 
-use base_db::source_db::SourceRootDb;
+use base_db::source_db::{SourceDb, SourceRootDb};
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
@@ -113,8 +113,16 @@ pub(crate) fn completion_context(
             in_decl_name: false,
         };
     };
+    let text = db.file_text(file_id);
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
-    detect_completion_context_impl(root, offset, trigger, Some(&parser_expected_syntax))
+    let directive_word = directive_word_at_offset(&text, offset);
+    detect_completion_context_impl(
+        root,
+        offset,
+        trigger,
+        directive_word,
+        Some(&parser_expected_syntax),
+    )
 }
 
 pub fn detect_completion_context(
@@ -122,7 +130,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None)
+    detect_completion_context_impl(root, offset, trigger, None, None)
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -132,13 +140,21 @@ pub fn detect_completion_context_with_source_text(
     source_text: &str,
 ) -> CompletionContext {
     let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
-    detect_completion_context_impl(root, offset, trigger, Some(&parser_expected_syntax))
+    let directive_word = directive_word_at_offset(source_text, offset);
+    detect_completion_context_impl(
+        root,
+        offset,
+        trigger,
+        directive_word,
+        Some(&parser_expected_syntax),
+    )
 }
 
 fn detect_completion_context_impl(
     root: SyntaxNode<'_>,
     offset: TextSize,
     trigger: Option<TriggerChar>,
+    directive_word: Option<CompletionWord>,
     parser_expected_syntax: Option<&[ParserExpectedSyntax]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
@@ -174,6 +190,22 @@ fn detect_completion_context_impl(
         };
     }
 
+    if let Some(word) = directive_word {
+        replacement = word.replacement;
+        prefix = word.prefix;
+        return CompletionContext {
+            replacement,
+            prefix,
+            trigger,
+            lex,
+            expectations: smallvec![CompletionExpectation {
+                syntax: ExpectedSyntax::DirectiveName,
+                source: ExpectationSource::Token(syntax::TokenKind::DIRECTIVE),
+            }],
+            in_decl_name: false,
+        };
+    }
+
     if trigger == Some(TriggerChar::Backtick) {
         return CompletionContext {
             replacement,
@@ -201,6 +233,18 @@ fn parser_expected_syntax_for_text(
     offset: TextSize,
 ) -> Vec<ParserExpectedSyntax> {
     parser::parser_expected_syntax_for_text(root, source_text, offset)
+}
+
+fn directive_word_at_offset(source_text: &str, offset: TextSize) -> Option<CompletionWord> {
+    let directive =
+        syntax::SyntaxTree::directive_at_offset(source_text, "source", "", usize::from(offset))?;
+    Some(CompletionWord {
+        replacement: TextRange::new(
+            TextSize::from(directive.replacement.start as u32),
+            TextSize::from(directive.replacement.end as u32),
+        ),
+        prefix: directive.prefix,
+    })
 }
 
 fn integer_literal_base_word_at_offset(
@@ -405,24 +449,28 @@ mod tests {
     }
 
     #[test]
-    fn does_not_infer_partial_preproc_directive_word() {
+    fn detects_preproc_directive_keyword() {
         let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), None);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
+        assert_eq!(c.prefix, "de");
     }
 
     #[test]
-    fn does_not_normalize_partial_preproc_directive_word() {
+    fn normalizes_preproc_directive_word_replacement() {
         let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), None);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
+        assert_eq!(c.prefix, "de");
+        assert_eq!(c.replacement, TextRange::new(TextSize::from(1), TextSize::from(7)));
     }
 
     #[test]
-    fn does_not_infer_inline_preproc_directive_word() {
+    fn detects_inline_preproc_directive_word() {
         let c = ctx("module m; initial `de/*caret*/; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), None);
+        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
+        assert_eq!(c.prefix, "de");
     }
 
     #[test]
@@ -830,8 +878,7 @@ mod tests {
         let text = "module m; initial `/*caret*/FOO; endmodule\n";
         let manual = ctx(text);
         let triggered = ctx_with_trigger(text, Some(TriggerChar::Backtick));
-        assert_eq!(expected(&manual), None);
-        assert_eq!(expected(&triggered), Some(ExpectedSyntax::DirectiveName));
+        assert_eq!(expected(&manual), expected(&triggered));
     }
 
     #[test]
