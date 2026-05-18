@@ -4,7 +4,7 @@
 
 普通用户只需要安装 VS Code 扩展。扩展会在启动时优先使用随扩展打包的 `vizsla` 服务器, 不需要你单独安装 Rust 或手动启动 LSP 进程。
 
-扩展的显示名是 `Vizsla LSP`, 扩展包名是 `vizsla-vscode`。如果它已经出现在你的扩展来源中, 直接在 VS Code 扩展面板安装即可。
+扩展的显示名是 `Vizsla LSP`, 扩展 ID 是 `vizsla.vizsla-lsp`。如果它已经出现在你的扩展来源中, 直接在 VS Code 扩展面板安装即可。
 
 ## 离线或本地 VSIX 安装
 
@@ -23,10 +23,8 @@ code --install-extension .\vizsla-vscode-win32-x64.vsix
 VSIX 是按平台打包的。当前打包脚本支持这些目标:
 
 - `darwin-arm64`
-- `darwin-x64`
 - `linux-arm64`
 - `linux-x64`
-- `win32-arm64`
 - `win32-x64`
 
 ## 什么时候配置自定义服务器
