@@ -14,6 +14,9 @@ use utils::{json::get_field, paths::Utf8PathBuf};
 
 use super::Config;
 
+const DEFAULT_QIHE_COMMAND: &str = "qihe";
+const DEFAULT_QIHE_RUN_ARGS: &[&str] = &["-g", "std"];
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FilesWatcherDef {
@@ -36,6 +39,13 @@ impl From<ScopeVisibility> for ide::ScopeVisibility {
             ScopeVisibility::Private => ide::ScopeVisibility::Private,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QiheConfig {
+    pub(crate) command: String,
+    pub(crate) compile_args: Vec<String>,
+    pub(crate) run_args: Vec<String>,
 }
 
 macro_rules! default_value {
@@ -109,6 +119,11 @@ config_data! {
         semantic_diagnostics_enable: bool = true,
 
         signature_help_params_only: bool = false,
+
+        qihe_command: String = DEFAULT_QIHE_COMMAND.to_string(),
+        qihe_compileArgs: Vec<String> = vec![],
+        qihe_runArgs: Vec<String> =
+            DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_string()).collect(),
     }
 }
 
@@ -170,6 +185,22 @@ impl Config {
 
     pub(crate) fn signature_help(&self) -> SignatureHelpConfig {
         SignatureHelpConfig { params_only: self.user_config.signature_help_params_only }
+    }
+
+    pub(crate) fn qihe(&self) -> QiheConfig {
+        let command = Some(self.user_config.qihe_command.trim())
+            .filter(|cmd| !cmd.is_empty())
+            .unwrap_or(DEFAULT_QIHE_COMMAND)
+            .to_string();
+
+        let run_args = Some(&self.user_config.qihe_runArgs)
+            .filter(|args| !args.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_string()).collect()
+            });
+
+        QiheConfig { command, compile_args: self.user_config.qihe_compileArgs.clone(), run_args }
     }
 }
 

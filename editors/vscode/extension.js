@@ -3,11 +3,202 @@ const path = require('path');
 const fs = require('fs');
 const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
 
+const RUN_QIHE_ANALYSIS_COMMAND = 'vizsla.runQiheAnalysis';
+const RUN_QIHE_ANALYSIS_REQUEST = 'vizsla.server.runQiheAnalysis';
+const QIHE_STATUS_NOTIFICATION = 'vizsla/qiheStatus';
+const QIHE_ANALYSIS_ICON = '$(beaker)';
+
 /** @type {LanguageClient | undefined} */
 let client;
 
 /** @type {vscode.OutputChannel} */
 let outputChannel;
+
+/** @type {vscode.StatusBarItem | undefined} */
+let qiheStatusBarItem;
+
+const activeQiheTokens = new Set();
+let qiheStatusHideTimer;
+const qiheProgressNotifications = new Map();
+
+function clearQiheStatusHideTimer() {
+  if (qiheStatusHideTimer) {
+    clearTimeout(qiheStatusHideTimer);
+    qiheStatusHideTimer = undefined;
+  }
+}
+
+function createQiheStatusBarItem() {
+  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  item.name = 'Vizsla Qihe';
+  item.command = RUN_QIHE_ANALYSIS_COMMAND;
+  item.hide();
+  return item;
+}
+
+function showRunningQiheStatus(message) {
+  if (!qiheStatusBarItem) {
+    return;
+  }
+
+  clearQiheStatusHideTimer();
+  qiheStatusBarItem.text = `${QIHE_ANALYSIS_ICON} Qihe`;
+  qiheStatusBarItem.tooltip = message ? `Qihe running: ${message}` : 'Qihe analysis is running';
+  qiheStatusBarItem.show();
+}
+
+function showCompletedQiheStatus(message) {
+  if (!qiheStatusBarItem) {
+    return;
+  }
+
+  clearQiheStatusHideTimer();
+  qiheStatusBarItem.text = `${QIHE_ANALYSIS_ICON} Qihe`;
+  qiheStatusBarItem.tooltip = message || 'Qihe analysis finished';
+  qiheStatusBarItem.show();
+  qiheStatusHideTimer = setTimeout(() => {
+    qiheStatusBarItem?.hide();
+    qiheStatusHideTimer = undefined;
+  }, 4000);
+}
+
+function showFailedQiheStatus(message) {
+  if (!qiheStatusBarItem) {
+    return;
+  }
+
+  clearQiheStatusHideTimer();
+  qiheStatusBarItem.text = `${QIHE_ANALYSIS_ICON} Qihe`;
+  qiheStatusBarItem.tooltip = message || 'Qihe analysis failed';
+  qiheStatusBarItem.show();
+  qiheStatusHideTimer = setTimeout(() => {
+    qiheStatusBarItem?.hide();
+    qiheStatusHideTimer = undefined;
+  }, 6000);
+}
+
+function hideQiheStatus() {
+  clearQiheStatusHideTimer();
+  qiheStatusBarItem?.hide();
+}
+
+function startQiheNotification(token, message) {
+  if (qiheProgressNotifications.has(token)) {
+    return;
+  }
+
+  let resolveProgress;
+  const progressPromise = new Promise((resolve) => {
+    resolveProgress = resolve;
+  });
+
+  qiheProgressNotifications.set(token, {
+    resolve: resolveProgress,
+  });
+
+  vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Running Qihe analysis',
+    },
+    async (progress) => {
+      if (message) {
+        progress.report({ message });
+      }
+      await progressPromise;
+    }
+  );
+}
+
+function finishQiheNotification(token) {
+  const entry = qiheProgressNotifications.get(token);
+  if (!entry) {
+    return;
+  }
+
+  qiheProgressNotifications.delete(token);
+  entry.resolve();
+}
+
+function handleQiheStatus(params) {
+  const token = typeof params?.token === 'string' ? params.token : undefined;
+  if (!token) {
+    return;
+  }
+
+  switch (params?.state) {
+    case 'begin':
+      activeQiheTokens.add(token);
+      showRunningQiheStatus(params.message);
+      startQiheNotification(token, params.message);
+      break;
+    case 'end':
+      activeQiheTokens.delete(token);
+      finishQiheNotification(token);
+      if (activeQiheTokens.size === 0) {
+        showCompletedQiheStatus(params.message);
+      }
+      break;
+    case 'failed':
+      activeQiheTokens.delete(token);
+      finishQiheNotification(token);
+      if (activeQiheTokens.size === 0) {
+        showFailedQiheStatus(params.message);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function registerQiheNotifications(languageClient) {
+  languageClient.onNotification(QIHE_STATUS_NOTIFICATION, handleQiheStatus);
+}
+
+async function runQiheAnalysis() {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('Open a Verilog or SystemVerilog file first.');
+    return;
+  }
+
+  const languageId = editor.document.languageId;
+  if (languageId !== 'verilog' && languageId !== 'systemverilog') {
+    vscode.window.showWarningMessage('Qihe analysis is only available for Verilog files.');
+    return;
+  }
+
+  if (!client) {
+    vscode.window.showErrorMessage('Vizsla language server is not running.');
+    return;
+  }
+
+  const qiheConfig = readQiheConfiguration();
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  const payload = {
+    uri: editor.document.uri.toString(),
+    cwd: workspaceFolder?.uri.fsPath,
+  };
+
+  outputChannel.appendLine(
+    `[INFO] Running Qihe analysis: ${JSON.stringify(payload)} with config ${JSON.stringify(qiheConfig)}`
+  );
+
+  try {
+    await client.sendRequest('workspace/executeCommand', {
+      command: RUN_QIHE_ANALYSIS_REQUEST,
+      arguments: [payload],
+    });
+  } catch (error) {
+    outputChannel.appendLine(`[ERROR] Qihe analysis request failed: ${error.message}`);
+    vscode.window.showErrorMessage(`Failed to run Qihe analysis: ${error.message}`);
+  }
+}
+
+function registerQiheCommand(context) {
+  const command = vscode.commands.registerCommand(RUN_QIHE_ANALYSIS_COMMAND, runQiheAnalysis);
+  context.subscriptions.push(command);
+}
 
 /**
  * Get the server executable path
@@ -86,7 +277,7 @@ function getServerPath(context) {
  * @returns {{command: string | undefined, args: string[], additionalArgs: string[], cwd: string | undefined, trace: string}}
  */
 function readConfiguration() {
-  const config = vscode.workspace.getConfiguration('vizslaLsp');
+  const config = vscode.workspace.getConfiguration('vizsla');
   const command = config.get('server.command');
   const args = config.get('server.args') ?? [];
   const additionalArgs = config.get('server.additionalArgs') ?? [];
@@ -94,7 +285,7 @@ function readConfiguration() {
   const trace = config.get('trace.server') ?? 'off';
 
   if (!Array.isArray(args) || !Array.isArray(additionalArgs)) {
-    vscode.window.showErrorMessage('vizslaLsp server arguments settings must be arrays of strings.');
+    vscode.window.showErrorMessage('vizsla server arguments settings must be arrays of strings.');
     return {
       command: undefined,
       args: [],
@@ -110,6 +301,25 @@ function readConfiguration() {
     additionalArgs,
     cwd: typeof cwd === 'string' && cwd.length > 0 ? cwd : undefined,
     trace
+  };
+}
+
+function readQiheConfiguration() {
+  const config = vscode.workspace.getConfiguration('vizsla');
+  const command = config.get('qihe.command') ?? 'qihe';
+  const compileArgs = config.get('qihe.compileArgs') ?? [];
+  const runArgs = config.get('qihe.runArgs') ?? ['-g', 'std'];
+
+  return {
+    command: typeof command === 'string' && command.length > 0 ? command : 'qihe',
+    compileArgs,
+    runArgs,
+  };
+}
+
+function readInitializationOptions() {
+  return {
+    qihe: readQiheConfiguration(),
   };
 }
 
@@ -152,7 +362,7 @@ async function createClient(context) {
   if (!serverCommand) {
     serverCommand = getServerPath(context);
     if (!serverCommand) {
-      const message = 'Vizsla Language Server binary not found. Please build the server separately, install it in your PATH, or configure "vizslaLsp.server.command".';
+      const message = 'Vizsla Language Server binary not found. Please build the server separately, install it in your PATH, or configure "vizsla.server.command".';
       outputChannel.appendLine(`[ERROR] ${message}`);
       vscode.window.showErrorMessage(message);
       throw new Error(message);
@@ -201,6 +411,7 @@ async function createClient(context) {
       { scheme: 'file', language: 'systemverilog' }
     ],
     synchronize: {
+      configurationSection: 'vizsla',
       fileEvents: [
         vscode.workspace.createFileSystemWatcher('**/*.v'),
         vscode.workspace.createFileSystemWatcher('**/*.vh'),
@@ -212,14 +423,14 @@ async function createClient(context) {
     outputChannel,
     traceOutputChannel: outputChannel,
     revealOutputChannelOn: 4, // Never automatically reveal
-    initializationOptions: {},
+    initializationOptions: readInitializationOptions(),
     // Add trace setting
     ...(config.trace !== 'off' && { trace: config.trace })
   };
 
   outputChannel.appendLine('[INFO] Creating LanguageClient instance...');
   const languageClient = new LanguageClient(
-    'vizslaLsp',
+    'vizsla',
     'Vizsla Language Server',
     serverOptions,
     clientOptions
@@ -262,6 +473,11 @@ async function stopClient() {
     outputChannel.appendLine(`[ERROR] Error stopping language server: ${error.message}`);
   }
   client = undefined;
+  activeQiheTokens.clear();
+  for (const token of qiheProgressNotifications.keys()) {
+    finishQiheNotification(token);
+  }
+  hideQiheStatus();
 }
 
 /**
@@ -282,6 +498,8 @@ async function activate(context) {
   // Create output channel
   outputChannel = vscode.window.createOutputChannel('Vizsla Language Server');
   context.subscriptions.push(outputChannel);
+  qiheStatusBarItem = createQiheStatusBarItem();
+  context.subscriptions.push(qiheStatusBarItem);
 
   outputChannel.appendLine('[INFO] Vizsla extension activating...');
   outputChannel.appendLine(`[INFO] Extension path: ${context.extensionPath}`);
@@ -294,9 +512,13 @@ async function activate(context) {
     await restartClient(context);
   });
   context.subscriptions.push(restartCommand);
+  registerQiheCommand(context);
 
   // Start the client
   await startClient(context);
+  if (client) {
+    registerQiheNotifications(client);
+  }
 
   outputChannel.appendLine('[INFO] Vizsla extension activated');
 }
@@ -312,6 +534,7 @@ async function deactivate() {
   if (outputChannel) {
     outputChannel.appendLine('[INFO] Vizsla extension deactivated');
   }
+  hideQiheStatus();
 }
 
 module.exports = {

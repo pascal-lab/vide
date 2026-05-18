@@ -12,7 +12,10 @@ use vfs::FileId;
 
 use crate::{
     global_state::snapshot::GlobalStateSnapshot,
-    lsp_ext::{ext::CodeActionResolveError, from_proto, to_proto},
+    lsp_ext::{
+        ext::{CodeActionResolveError, RUN_QIHE_ANALYSIS_COMMAND, RunQiheAnalysisParams},
+        from_proto, to_proto,
+    },
 };
 
 pub(crate) fn handle_goto_definition(
@@ -106,21 +109,30 @@ pub(crate) fn handle_document_diagnostic(
     params: lsp_types::DocumentDiagnosticParams,
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
+    let diagnostics = snap.lsp_diagnostics(file_id);
 
-    let diagnostics = match snap.diagnostics(file_id) {
-        Ok(diags) => diags,
-        Err(_) => Vec::new(),
+    let result_id = file_result_id(snap.file_version(file_id), snap.qihe_generation(file_id));
+    let report = if result_id.as_deref() == params.previous_result_id.as_deref() {
+        lsp_types::DocumentDiagnosticReport::Unchanged(
+            lsp_types::RelatedUnchangedDocumentDiagnosticReport {
+                related_documents: None,
+                unchanged_document_diagnostic_report:
+                    lsp_types::UnchangedDocumentDiagnosticReport {
+                        result_id: result_id.expect("matching previous result id must exist"),
+                    },
+            },
+        )
+    } else {
+        lsp_types::DocumentDiagnosticReport::Full(lsp_types::RelatedFullDocumentDiagnosticReport {
+            related_documents: None,
+            full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                result_id,
+                items: diagnostics,
+            },
+        })
     };
 
-    let items = match snap.line_info(file_id) {
-        Ok(line_info) => {
-            diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
-        }
-        Err(_) => Vec::new(),
-    };
-
-    let result_id = file_result_id(snap.file_version(file_id));
-    Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
+    Ok(report.into())
 }
 
 pub(crate) fn handle_workspace_diagnostic(
@@ -139,19 +151,8 @@ pub(crate) fn handle_workspace_diagnostic(
         let uri = to_proto::url(&snap, file_id);
         seen.insert(uri.clone());
 
-        let diagnostics = match snap.diagnostics(file_id) {
-            Ok(diags) => diags,
-            Err(_) => Vec::new(),
-        };
-
-        let diag_items = match snap.line_info(file_id) {
-            Ok(line_info) => {
-                diagnostics.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect()
-            }
-            Err(_) => Vec::new(),
-        };
-
-        let result_id = file_result_id(snap.file_version(file_id));
+        let diag_items = snap.lsp_diagnostics(file_id);
+        let result_id = file_result_id(snap.file_version(file_id), snap.qihe_generation(file_id));
         let version = snap.file_version(file_id).map(|version| version as i64);
         let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
 
@@ -177,34 +178,32 @@ pub(crate) fn handle_workspace_diagnostic(
     }))
 }
 
-fn file_result_id(version: Option<i32>) -> Option<String> {
-    version.map(|it| it.to_string())
+fn file_result_id(version: Option<i32>, qihe_generation: u64) -> Option<String> {
+    Some(format!("{}:{qihe_generation}", version.unwrap_or(-1)))
 }
 
-fn document_diagnostic_report(
-    result_id: Option<String>,
-    items: Vec<lsp_types::Diagnostic>,
-    previous_result_id: Option<&str>,
-) -> lsp_types::DocumentDiagnosticReport {
-    if result_id.as_deref() == previous_result_id {
-        return lsp_types::DocumentDiagnosticReport::Unchanged(
-            lsp_types::RelatedUnchangedDocumentDiagnosticReport {
-                related_documents: None,
-                unchanged_document_diagnostic_report:
-                    lsp_types::UnchangedDocumentDiagnosticReport {
-                        result_id: result_id.expect("matching previous result id must exist"),
-                    },
-            },
-        );
-    }
+fn handle_qihe_analysis_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let args = params
+        .arguments
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::format_err!("missing executeCommand arguments"))?;
+    let params = serde_json::from_value::<RunQiheAnalysisParams>(args)?;
+    state.spawn_qihe_analysis(params);
+    Ok(None)
+}
 
-    lsp_types::DocumentDiagnosticReport::Full(lsp_types::RelatedFullDocumentDiagnosticReport {
-        related_documents: None,
-        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-            result_id,
-            items,
-        },
-    })
+pub(crate) fn handle_execute_command(
+    state: &mut crate::global_state::GlobalState,
+    params: lsp_types::ExecuteCommandParams,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    match params.command.as_str() {
+        RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
+        _ => anyhow::bail!("unknown executeCommand: {}", params.command),
+    }
 }
 
 fn workspace_diagnostic_report(
@@ -241,25 +240,9 @@ fn workspace_diagnostic_report(
 
 #[cfg(test)]
 mod tests {
-    use lsp_types::{
-        DocumentDiagnosticReport, UnchangedDocumentDiagnosticReport, Url,
-        WorkspaceDocumentDiagnosticReport,
-    };
+    use lsp_types::{Url, WorkspaceDocumentDiagnosticReport};
 
-    use super::{document_diagnostic_report, workspace_diagnostic_report};
-
-    #[test]
-    fn document_diagnostic_report_uses_unchanged_for_matching_result_id() {
-        let report = document_diagnostic_report(Some("7".to_string()), Vec::new(), Some("7"));
-
-        match report {
-            DocumentDiagnosticReport::Unchanged(report) => assert_eq!(
-                report.unchanged_document_diagnostic_report,
-                UnchangedDocumentDiagnosticReport { result_id: "7".to_string() }
-            ),
-            other => panic!("expected unchanged report, got {other:?}"),
-        }
-    }
+    use super::workspace_diagnostic_report;
 
     #[test]
     fn workspace_diagnostic_report_uses_full_for_new_result_id() {

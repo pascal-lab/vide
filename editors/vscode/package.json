@@ -58,7 +58,7 @@
     "configuration": {
       "title": "Vizsla Language Server",
       "properties": {
-        "vizslaLsp.trace.server": {
+        "vizsla.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -68,7 +68,7 @@
           "default": "off",
           "description": "Traces the communication between VS Code and the language server."
         },
-        "vizslaLsp.server.command": {
+        "vizsla.server.command": {
           "type": [
             "string",
             "null"
@@ -76,7 +76,7 @@
           "default": null,
           "description": "Override command used to launch the Vizsla language server. Leave empty to use the bundled binary."
         },
-        "vizslaLsp.server.args": {
+        "vizsla.server.args": {
           "type": "array",
           "items": {
             "type": "string"
@@ -84,7 +84,7 @@
           "default": [],
           "description": "Arguments passed before any additional arguments when a custom command is provided."
         },
-        "vizslaLsp.server.cwd": {
+        "vizsla.server.cwd": {
           "type": [
             "string",
             "null"
@@ -92,13 +92,37 @@
           "default": null,
           "description": "Working directory for the Vizsla language server process. Defaults to the first workspace folder."
         },
-        "vizslaLsp.server.additionalArgs": {
+        "vizsla.server.additionalArgs": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
           "description": "Additional arguments appended when launching the Vizsla language server."
+        },
+        "vizsla.qihe.command": {
+          "type": "string",
+          "default": "qihe",
+          "description": "Command used to invoke Qihe. It must be available in the environment PATH seen by VS Code."
+        },
+        "vizsla.qihe.compileArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Arguments inserted after `qihe compile`. Use this for compile mode selection or forwarded `slang` options such as `--mode sv -- -I include`."
+        },
+        "vizsla.qihe.runArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-g",
+            "std"
+          ],
+          "description": "Arguments inserted after `qihe run` when the Qihe analysis button is used."
         }
       }
     },
@@ -106,8 +130,22 @@
       {
         "command": "vizsla.restartServer",
         "title": "Vizsla: Restart Language Server"
+      },
+      {
+        "command": "vizsla.runQiheAnalysis",
+        "title": "Vizsla: Run Qihe Analysis",
+        "icon": "$(beaker)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vizsla.runQiheAnalysis",
+          "when": "resourceLangId == verilog || resourceLangId == systemverilog",
+          "group": "navigation@10"
+        }
+      ]
+    }
   },
   "scripts": {
     "package": "bash scripts/package.sh",

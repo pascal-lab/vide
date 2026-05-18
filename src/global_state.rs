@@ -3,6 +3,7 @@ mod handlers;
 pub mod main_loop;
 mod mem_docs;
 mod process_changes;
+mod qihe;
 pub mod reload;
 pub mod respond;
 pub(crate) mod snapshot;
@@ -101,6 +102,7 @@ pub(crate) struct GlobalState {
 
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) diagnostics: FxHashMap<FileId, Vec<lsp_types::Diagnostic>>,
+    pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
@@ -142,6 +144,7 @@ impl GlobalState {
 
             semantic_tokens_cache: Arc::new(Default::default()),
             diagnostics: FxHashMap::default(),
+            qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
 
             vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
@@ -161,8 +164,15 @@ impl GlobalState {
             vfs: Arc::clone(&self.vfs),
             mem_docs: self.mem_docs.clone(),
             sema_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
+            qihe_diagnostics: Arc::clone(&self.qihe_diagnostics),
         }
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct QiheDiagnosticState {
+    pub(crate) generation: u64,
+    pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
 }
 
 // handle request
