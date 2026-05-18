@@ -1,13 +1,9 @@
-use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
-use utils::text_edit::TextRange;
-use vfs::FileId;
-
 mod action;
 mod collector;
 mod context;
 mod diagnostics;
 mod edits;
+mod engine;
 mod handlers;
 mod module_members;
 
@@ -18,30 +14,11 @@ pub use diagnostics::{
     CodeActionDiagnostic, CodeActionDiagnostics, DiagnosticCode, DiagnosticSource, RepairKind,
 };
 pub(crate) use edits::apply_missing_list_edit;
+pub(crate) use engine::code_action;
 pub(crate) use module_members::{
     all_parameter_names, leading_parameter_names, missing_member_entry_text, port_names,
     remaining_ordered_port_names,
 };
-
-pub(crate) fn code_action(
-    db: &RootDb,
-    file_id: FileId,
-    range: TextRange,
-    diagnostics: CodeActionDiagnostics,
-    resolve_strategy: CodeActionResolveStrategy,
-) -> Vec<CodeAction> {
-    let sema = Semantics::new(db);
-    let Some(ctx) = CodeActionCtx::new(&sema, file_id, range, diagnostics) else {
-        return Vec::new();
-    };
-
-    let mut collector = CodeActionCollector::new(ctx.file_id(), resolve_strategy);
-    handlers::all().iter().for_each(|handler| {
-        handler(&mut collector, &ctx);
-    });
-
-    collector.finish()
-}
 
 #[cfg(test)]
 mod tests {
