@@ -1,4 +1,3 @@
-
 use base_db::{change::Change, source_root::SourceRoot};
 use ide_db::root_db::RootDb;
 use triomphe::Arc;
