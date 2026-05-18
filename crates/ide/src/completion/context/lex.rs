@@ -9,7 +9,7 @@ pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
         return LexContext::Literal;
     }
 
-    if is_typing_based_literal(caret) {
+    if is_at_literal_boundary(caret) {
         return LexContext::Literal;
     }
 
@@ -48,74 +48,38 @@ fn trivia_kind_at_caret_offset(caret: &CaretSnapshot<'_>) -> Option<syntax::Triv
     (kind == syntax::Trivia![lc]).then_some(kind)
 }
 
-fn is_typing_based_literal(caret: &CaretSnapshot<'_>) -> bool {
-    let Some(before) = line_text_before_caret(caret) else { return false };
-    let Some(quote_idx) = before.rfind('\'') else {
-        return false;
-    };
-
-    let (size, after_quote) = before.split_at(quote_idx);
-    if size.is_empty() || !size.bytes().next_back().is_some_and(|b| b.is_ascii_digit()) {
-        return false;
-    }
-    if !size
-        .bytes()
-        .rev()
-        .take_while(|b| b.is_ascii_digit() || *b == b'_')
-        .any(|b| b.is_ascii_digit())
-    {
-        return false;
-    }
-
-    let after_quote = &after_quote[1..];
-    let mut chars = after_quote.chars();
-    let Some(base) = chars.next() else {
-        return true;
-    };
-    if !matches!(base, 'b' | 'B' | 'o' | 'O' | 'd' | 'D' | 'h' | 'H' | 's' | 'S') {
-        return false;
-    }
-    let digits = if matches!(base, 's' | 'S') {
-        let Some(base) = chars.next() else {
-            return true;
-        };
-        if !matches!(base, 'b' | 'B' | 'o' | 'O' | 'd' | 'D' | 'h' | 'H') {
-            return false;
-        }
-        chars.as_str()
-    } else {
-        chars.as_str()
-    };
-
-    digits
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'x' | b'X' | b'z' | b'Z' | b'?'))
-}
-
-fn line_text_before_caret(caret: &CaretSnapshot<'_>) -> Option<String> {
-    let mut tokens = Vec::new();
-    let mut prev_offset = caret.offset;
-    while prev_offset > TextSize::new(0) {
-        let tok = caret.root.token_before_offset(prev_offset)?;
-        let range = tok.text_range()?;
-        let text = tok.tok.raw_text().to_string();
-        if let Some(line_start) = text.rfind('\n') {
-            tokens.push(text[line_start + 1..].to_owned());
-            break;
-        }
-        tokens.push(text);
-        prev_offset = range.start();
-    }
-
-    tokens.reverse();
-    Some(tokens.concat())
-}
-
 fn is_inside_literal(caret: &CaretSnapshot<'_>) -> bool {
     let tok = caret.root.token_at_offset(caret.offset).left_biased();
     tok.is_some_and(|tp| {
         tp.kind().is_literal() && tp.text_range().is_some_and(|r| r.contains(caret.offset))
     })
+}
+
+fn is_at_literal_boundary(caret: &CaretSnapshot<'_>) -> bool {
+    let Some(prev) = caret.root.token_before_offset(caret.offset) else {
+        return false;
+    };
+    let Some(range) = prev.text_range() else {
+        return false;
+    };
+    if range.end() != caret.offset {
+        return false;
+    }
+
+    if prev.kind().is_literal() {
+        return true;
+    }
+
+    let Some(before_prev) = caret.root.token_before_offset(range.start()) else {
+        return false;
+    };
+    let is_after_integer_size = before_prev.kind() == syntax::TokenKind::INTEGER_LITERAL
+        && before_prev.text_range().is_some_and(|before_range| before_range.end() == range.start());
+    if !is_after_integer_size {
+        return false;
+    }
+
+    matches!(prev.kind(), syntax::TokenKind::INTEGER_BASE | syntax::Token!["'"])
 }
 
 fn is_inside_preproc_directive_trivia(caret: &CaretSnapshot<'_>) -> bool {
