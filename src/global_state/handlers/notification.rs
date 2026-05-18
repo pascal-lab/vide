@@ -67,11 +67,9 @@ pub(crate) fn handle_did_change_text_document(
             }
         };
 
-        if let Some(text) = update_document_text(
-            state.config.position_encoding(),
-            data,
-            params.content_changes,
-        ) {
+        if let Some(text) =
+            update_document_text(state.config.position_encoding(), data, params.content_changes)
+        {
             set_vfs_file_contents(state, &path, text)?;
         }
     }
@@ -275,9 +273,10 @@ fn apply_document_changes(
 
 #[cfg(test)]
 mod tests {
-    use super::update_document_text;
     use lsp_types::TextDocumentContentChangeEvent;
     use utils::lines::PositionEncoding;
+
+    use super::update_document_text;
 
     #[test]
     fn clearing_document_updates_mem_doc_and_vfs_text() {
