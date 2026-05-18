@@ -284,55 +284,6 @@ fn workspace_diagnostic_report(
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use lsp_types::{Url, WorkspaceDocumentDiagnosticReport};
-
-    use super::workspace_diagnostic_report;
-
-    #[test]
-    fn workspace_diagnostic_report_uses_full_for_new_result_id() {
-        let uri = Url::parse("file:///tmp/test.sv").unwrap();
-        let report = workspace_diagnostic_report(
-            uri.clone(),
-            Some(3),
-            Some("4".to_string()),
-            Vec::new(),
-            Some("2"),
-        );
-
-        match report {
-            WorkspaceDocumentDiagnosticReport::Full(report) => {
-                assert_eq!(report.uri, uri);
-                assert_eq!(report.version, Some(3));
-                assert_eq!(report.full_document_diagnostic_report.result_id.as_deref(), Some("4"));
-                assert!(report.full_document_diagnostic_report.items.is_empty());
-            }
-            other => panic!("expected full report, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn workspace_diagnostic_report_uses_unchanged_for_matching_result_id() {
-        let uri = Url::parse("file:///tmp/test.sv").unwrap();
-        let report = workspace_diagnostic_report(
-            uri.clone(),
-            Some(5),
-            Some("5".to_string()),
-            Vec::new(),
-            Some("5"),
-        );
-
-        match report {
-            WorkspaceDocumentDiagnosticReport::Unchanged(report) => {
-                assert_eq!(report.uri, uri);
-                assert_eq!(report.version, Some(5));
-                assert_eq!(report.unchanged_document_diagnostic_report.result_id, "5");
-            }
-            other => panic!("expected unchanged report, got {other:?}"),
-        }
-    }
-}
 pub(crate) fn handle_document_symbol(
     snap: GlobalStateSnapshot,
     params: lsp_types::DocumentSymbolParams,
@@ -704,19 +655,6 @@ mod tests {
     use super::{document_diagnostic_report, workspace_diagnostic_report};
 
     #[test]
-    fn document_diagnostic_report_uses_unchanged_for_matching_result_id() {
-        let report = document_diagnostic_report(Some("7".to_string()), Vec::new(), Some("7"));
-
-        match report {
-            DocumentDiagnosticReport::Unchanged(report) => assert_eq!(
-                report.unchanged_document_diagnostic_report,
-                UnchangedDocumentDiagnosticReport { result_id: "7".to_string() }
-            ),
-            other => panic!("expected unchanged report, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn workspace_diagnostic_report_uses_full_for_new_result_id() {
         let uri = Url::parse("file:///tmp/test.sv").unwrap();
         let report = workspace_diagnostic_report(
@@ -755,6 +693,18 @@ mod tests {
                 assert_eq!(report.version, Some(5));
                 assert_eq!(report.unchanged_document_diagnostic_report.result_id, "5");
             }
+            other => panic!("expected unchanged report, got {other:?}"),
+        }
+    }
+    #[test]
+    fn document_diagnostic_report_uses_unchanged_for_matching_result_id() {
+        let report = document_diagnostic_report(Some("7".to_string()), Vec::new(), Some("7"));
+
+        match report {
+            DocumentDiagnosticReport::Unchanged(report) => assert_eq!(
+                report.unchanged_document_diagnostic_report,
+                UnchangedDocumentDiagnosticReport { result_id: "7".to_string() }
+            ),
             other => panic!("expected unchanged report, got {other:?}"),
         }
     }

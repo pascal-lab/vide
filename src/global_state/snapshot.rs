@@ -1,5 +1,6 @@
-use anyhow::Context;
 use std::path::Path;
+
+use anyhow::Context;
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
