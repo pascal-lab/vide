@@ -8,7 +8,7 @@ mod parser;
 mod resolve;
 mod util;
 
-use base_db::source_db::{SourceDb, SourceRootDb};
+use base_db::source_db::SourceRootDb;
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
@@ -69,11 +69,11 @@ pub enum ExpectedSyntax {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpectationSource {
-    DirectiveWord,
     Parser,
     DeclarationName,
     Ast(syntax::SyntaxKind),
     Token(syntax::TokenKind),
+    Trigger(TriggerChar),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +92,7 @@ pub struct CompletionContext {
     pub in_decl_name: bool,
 }
 
-struct DirectiveWord {
+struct CompletionWord {
     replacement: TextRange,
     prefix: String,
 }
@@ -113,15 +113,8 @@ pub(crate) fn completion_context(
             in_decl_name: false,
         };
     };
-    let text = db.file_text(file_id);
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
-    detect_completion_context_impl(
-        root,
-        offset,
-        trigger,
-        Some(&text),
-        Some(&parser_expected_syntax),
-    )
+    detect_completion_context_impl(root, offset, trigger, Some(&parser_expected_syntax))
 }
 
 pub fn detect_completion_context(
@@ -129,7 +122,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, None)
+    detect_completion_context_impl(root, offset, trigger, None)
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -139,20 +132,13 @@ pub fn detect_completion_context_with_source_text(
     source_text: &str,
 ) -> CompletionContext {
     let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
-    detect_completion_context_impl(
-        root,
-        offset,
-        trigger,
-        Some(source_text),
-        Some(&parser_expected_syntax),
-    )
+    detect_completion_context_impl(root, offset, trigger, Some(&parser_expected_syntax))
 }
 
 fn detect_completion_context_impl(
     root: SyntaxNode<'_>,
     offset: TextSize,
     trigger: Option<TriggerChar>,
-    source_text: Option<&str>,
     parser_expected_syntax: Option<&[ParserExpectedSyntax]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
@@ -178,31 +164,17 @@ fn detect_completion_context_impl(
     }
 
     if lex != LexContext::Code {
-        let expectation = if lex == LexContext::PreprocDirective
-            && let Some(word) = directive_word_at_offset(source_text, offset)
-        {
-            replacement = word.replacement;
-            prefix = word.prefix;
-            Some(CompletionExpectation {
-                syntax: ExpectedSyntax::DirectiveName,
-                source: ExpectationSource::DirectiveWord,
-            })
-        } else {
-            None
-        };
         return CompletionContext {
             replacement,
             prefix,
             trigger,
             lex,
-            expectations: expectation.into_iter().collect(),
+            expectations: SmallVec::new(),
             in_decl_name: false,
         };
     }
 
-    if let Some(word) = directive_word_at_offset(source_text, offset) {
-        replacement = word.replacement;
-        prefix = word.prefix;
+    if trigger == Some(TriggerChar::Backtick) {
         return CompletionContext {
             replacement,
             prefix,
@@ -210,17 +182,10 @@ fn detect_completion_context_impl(
             lex,
             expectations: smallvec![CompletionExpectation {
                 syntax: ExpectedSyntax::DirectiveName,
-                source: ExpectationSource::DirectiveWord,
+                source: ExpectationSource::Trigger(TriggerChar::Backtick),
             }],
             in_decl_name: false,
         };
-    }
-
-    if prefix.is_empty()
-        && let Some(word) = identifier_word_at_offset(source_text, offset)
-    {
-        replacement = word.replacement;
-        prefix = word.prefix;
     }
 
     let parser = parser::expectations(parser_expected_syntax);
@@ -238,64 +203,10 @@ fn parser_expected_syntax_for_text(
     parser::parser_expected_syntax_for_text(root, source_text, offset)
 }
 
-fn directive_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {
-    let source_text = source_text?;
-    let offset = usize::from(offset);
-    if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
-        return None;
-    }
-
-    let bytes = source_text.as_bytes();
-    let mut start = offset;
-    while start > 0 && bytes.get(start - 1).is_some_and(|byte| is_identifier_name_byte(*byte)) {
-        start -= 1;
-    }
-
-    if start == 0 || bytes.get(start - 1) != Some(&b'`') {
-        return None;
-    }
-
-    let mut end = offset;
-    while bytes.get(end).is_some_and(|byte| is_identifier_name_byte(*byte)) {
-        end += 1;
-    }
-
-    let prefix = source_text[start..offset].to_string();
-    let replacement = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
-    Some(DirectiveWord { replacement, prefix })
-}
-
-fn identifier_word_at_offset(source_text: Option<&str>, offset: TextSize) -> Option<DirectiveWord> {
-    let source_text = source_text?;
-    let offset = usize::from(offset);
-    if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
-        return None;
-    }
-
-    let bytes = source_text.as_bytes();
-    let mut start = offset;
-    while start > 0 && bytes.get(start - 1).is_some_and(|byte| is_identifier_name_byte(*byte)) {
-        start -= 1;
-    }
-
-    if start == offset {
-        return None;
-    }
-
-    let mut end = offset;
-    while bytes.get(end).is_some_and(|byte| is_identifier_name_byte(*byte)) {
-        end += 1;
-    }
-
-    let prefix = source_text[start..offset].to_string();
-    let replacement = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
-    Some(DirectiveWord { replacement, prefix })
-}
-
 fn integer_literal_base_word_at_offset(
     caret: &CaretSnapshot<'_>,
     offset: TextSize,
-) -> Option<DirectiveWord> {
+) -> Option<CompletionWord> {
     // Only recover from token shapes that slang has already produced:
     // <integer> ' and <integer> 's.
     let prev = caret.root.token_before_offset(offset)?;
@@ -310,7 +221,7 @@ fn integer_literal_base_word_at_offset(
 
     match prev.kind() {
         syntax::Token!["'"] => {
-            Some(DirectiveWord { replacement: TextRange::empty(offset), prefix: String::new() })
+            Some(CompletionWord { replacement: TextRange::empty(offset), prefix: String::new() })
         }
         syntax::TokenKind::INTEGER_BASE => {
             let raw = prev.tok.raw_text().to_string();
@@ -318,7 +229,7 @@ fn integer_literal_base_word_at_offset(
                 return None;
             }
 
-            Some(DirectiveWord {
+            Some(CompletionWord {
                 replacement: TextRange::new(prev_range.start() + TextSize::new(1), offset),
                 prefix: String::from("s"),
             })
@@ -333,10 +244,6 @@ fn is_integer_literal_size_before(caret: &CaretSnapshot<'_>, offset: TextSize) -
     };
     prev.kind() == syntax::TokenKind::INTEGER_LITERAL
         && prev.text_range().is_some_and(|range| range.end() == offset)
-}
-
-fn is_identifier_name_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
 
 #[cfg(test)]
@@ -498,28 +405,24 @@ mod tests {
     }
 
     #[test]
-    fn detects_preproc_directive_keyword() {
+    fn does_not_infer_partial_preproc_directive_word() {
         let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-        assert_eq!(c.prefix, "de");
+        assert_eq!(expected(&c), None);
     }
 
     #[test]
-    fn normalizes_preproc_directive_word_replacement() {
+    fn does_not_normalize_partial_preproc_directive_word() {
         let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-        assert_eq!(c.prefix, "de");
-        assert_eq!(c.replacement, TextRange::new(TextSize::from(1), TextSize::from(7)));
+        assert_eq!(expected(&c), None);
     }
 
     #[test]
-    fn detects_inline_preproc_directive_word() {
+    fn does_not_infer_inline_preproc_directive_word() {
         let c = ctx("module m; initial `de/*caret*/; endmodule\n");
         assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-        assert_eq!(c.prefix, "de");
+        assert_eq!(expected(&c), None);
     }
 
     #[test]
@@ -762,7 +665,7 @@ mod tests {
     fn detects_library_map_item_keyword_prefix() {
         let c = library_map_ctx("lib/*caret*/\n");
         assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::LibraryMapMember)));
-        assert_eq!(c.prefix, "lib");
+        assert_eq!(c.prefix, "");
     }
 
     #[test]
@@ -808,11 +711,11 @@ mod tests {
     }
 
     #[test]
-    fn item_context_recovery_uses_identifier_replacement_start() {
+    fn item_context_does_not_recover_identifier_replacement_start_without_token() {
         let c = ctx("module m; specify\n  sp/*caret*/\nendspecify endmodule\n");
 
-        assert_eq!(c.replacement, TextRange::new(TextSize::from(20), TextSize::from(22)));
-        assert_eq!(c.prefix, "sp");
+        assert_eq!(c.replacement, TextRange::empty(TextSize::from(22)));
+        assert_eq!(c.prefix, "");
         assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
         assert_eq!(
             c.expectations.first().map(|expectation| expectation.source),
@@ -927,7 +830,8 @@ mod tests {
         let text = "module m; initial `/*caret*/FOO; endmodule\n";
         let manual = ctx(text);
         let triggered = ctx_with_trigger(text, Some(TriggerChar::Backtick));
-        assert_eq!(expected(&manual), expected(&triggered));
+        assert_eq!(expected(&manual), None);
+        assert_eq!(expected(&triggered), Some(ExpectedSyntax::DirectiveName));
     }
 
     #[test]

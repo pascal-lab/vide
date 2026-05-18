@@ -288,13 +288,16 @@ fn no_completion_at_top_level_with_comma_trigger() {
 }
 
 #[test]
-fn preproc_completion_preserves_typed_backtick() {
-    let items = completions_in_text("module m; initial `de/*caret*/; endmodule\n", None);
+fn backtick_trigger_completes_preproc_directives() {
+    let items = completions_in_text(
+        "module m; initial `/*caret*/; endmodule\n",
+        Some(TriggerChar::Backtick),
+    );
     let define = items
         .iter()
         .find(|item| item.label == "define" && item.kind == CompletionItemKind::Keyword)
         .expect("define directive completion expected");
-    let mut text = "module m; initial `de; endmodule\n".to_string();
+    let mut text = "module m; initial `; endmodule\n".to_string();
     define.edit.as_ref().unwrap().apply_on(&mut text);
 
     assert_eq!(text, "module m; initial `define; endmodule\n");
