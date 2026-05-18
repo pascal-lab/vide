@@ -91,10 +91,6 @@ jobs:
             target: linux-arm64
           - os: windows-latest
             target: win32-x64
-          - os: windows-11-arm
-            target: win32-arm64
-          - os: macos-15-intel
-            target: darwin-x64
           - os: macos-15
             target: darwin-arm64
     defaults:
@@ -121,7 +117,7 @@ jobs:
       - name: Set build metadata
         shell: bash
         run: |
-          echo "VIZSLA_COMMIT_HASH=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "VIZSLA_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
           echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
         run: npm run package:${{ matrix.target }}
