@@ -20,9 +20,11 @@ pub(super) fn convert_literal_base(
     let literal = SelectedIntegerLiteral::from_context(ctx)?;
 
     for target_base in literal.target_bases() {
+        let Some(replacement) = literal.render(target_base) else {
+            continue;
+        };
         let range = literal.range;
         let label = target_base.action_label();
-        let replacement = literal.render(target_base);
         collector.add(ACTION_ID, label, range, |builder| {
             builder.replace(range, replacement);
         });
@@ -57,7 +59,7 @@ impl SelectedIntegerLiteral {
         Some(Self {
             range: integer.text_range()?,
             value: token.int()?,
-            notation: LiteralNotation::plain_decimal(),
+            notation: LiteralNotation::PlainDecimal,
         })
     }
 
@@ -71,57 +73,75 @@ impl SelectedIntegerLiteral {
     }
 
     fn target_bases(&self) -> impl Iterator<Item = LiteralRadix> + '_ {
-        LiteralRadix::ALL.into_iter().filter(|base| *base != self.notation.base)
+        LiteralRadix::ALL.into_iter().filter(|base| *base != self.notation.base())
     }
 
-    fn render(&self, target_base: LiteralRadix) -> String {
+    fn render(&self, target_base: LiteralRadix) -> Option<String> {
         self.notation.render(&self.value, target_base)
     }
 }
 
 #[derive(Debug)]
-struct LiteralNotation {
-    base: LiteralRadix,
-    width: Option<String>,
-    signed: bool,
+enum LiteralNotation {
+    PlainDecimal,
+    Based { base: LiteralRadix, width: Option<String>, signed: bool },
 }
 
 impl LiteralNotation {
-    fn plain_decimal() -> Self {
-        Self { base: LiteralRadix::Decimal, width: None, signed: false }
-    }
-
     fn based(literal: ast::IntegerVectorExpression) -> Option<Self> {
         let base = literal.base()?;
-        Some(Self {
+        Some(Self::Based {
             base: LiteralRadix::from(base.base()?),
             width: literal.size().map(|size| size.raw_text().to_string()),
             signed: base.raw_text().as_bytes().iter().any(|byte| byte.eq_ignore_ascii_case(&b's')),
         })
     }
 
-    fn render(&self, value: &SVInt, target_base: LiteralRadix) -> String {
+    fn base(&self) -> LiteralRadix {
+        match self {
+            Self::PlainDecimal => LiteralRadix::Decimal,
+            Self::Based { base, .. } => *base,
+        }
+    }
+
+    fn render(&self, value: &SVInt, target_base: LiteralRadix) -> Option<String> {
+        if target_base == LiteralRadix::Decimal && value.has_unknown() {
+            return None;
+        }
+
         let digits = value.serialize(target_base.radix());
-        if self.can_render_as_plain_decimal(target_base) {
-            return digits;
-        }
-
-        let mut text = String::new();
-        if let Some(width) = &self.width {
-            text.push_str(width);
-        }
-        text.push('\'');
-        if self.signed {
-            text.push('s');
-        }
-        text.push_str(target_base.specifier());
-        text.push_str(&digits);
-        text
+        Some(match self {
+            Self::PlainDecimal => {
+                format!("{}'s{}{}", plain_decimal_width(value), target_base.specifier(), digits)
+            }
+            Self::Based { width: Some(width), signed, .. } => {
+                format!(
+                    "{width}'{}{}{}",
+                    signed_specifier(*signed),
+                    target_base.specifier(),
+                    digits
+                )
+            }
+            Self::Based { width: None, signed, .. } => {
+                format!("'{}{}{}", signed_specifier(*signed), target_base.specifier(), digits)
+            }
+        })
     }
+}
 
-    fn can_render_as_plain_decimal(&self, target_base: LiteralRadix) -> bool {
-        target_base == LiteralRadix::Decimal && self.width.is_none() && !self.signed
+fn plain_decimal_width(value: &SVInt) -> usize {
+    let width = value.get_bit_width();
+    if width < 32 {
+        32
+    } else if value.is_signed() {
+        width
+    } else {
+        width + 1
     }
+}
+
+fn signed_specifier(signed: bool) -> &'static str {
+    if signed { "s" } else { "" }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
