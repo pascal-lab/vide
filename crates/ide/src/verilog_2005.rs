@@ -870,6 +870,36 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_ansi_ports_inherit_implicit_header_type() {
+    let text = r#"
+module child(
+    input rst,
+    output io_vgaclk,
+    output [7:0] a, b, c
+);
+endmodule
+
+module top;
+  child u(/*marker:rst*/rst, io_vgaclk, a, b, c);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "rst"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for ordered port connection");
+
+    assert_eq!(
+        signature.label,
+        "module child(input rst, output io_vgaclk, output [7:0] a, output [7:0] b, output [7:0] c)"
+    );
+}
+
+#[test]
 fn verilog_2005_direct_generate_subroutine_resolves_locally() {
     let text = r#"
 module direct_generate_subroutine_ctx;

@@ -191,9 +191,7 @@ impl DataTy {
     pub(crate) fn is_ast_missing(ty: ast::DataType) -> bool {
         match ty {
             ast::DataType::ImplicitType(ty) => {
-                ty.signing().is_none()
-                    && ty.dimensions().children().count() == 0
-                    && ty.placeholder().is_none()
+                ty.signing().is_none() && ty.dimensions().children().count() == 0
             }
             _ => false,
         }
