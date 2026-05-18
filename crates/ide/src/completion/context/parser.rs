@@ -1,5 +1,5 @@
 use smallvec::{SmallVec, smallvec};
-use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree};
+use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree, TokenKind};
 use utils::line_index::TextSize;
 
 use super::{CompletionExpectation, ExpectationSource, ExpectedSyntax};
@@ -8,6 +8,7 @@ use super::{CompletionExpectation, ExpectationSource, ExpectedSyntax};
 pub(super) struct ParserExpectations {
     items: SmallVec<[CompletionExpectation; 4]>,
     has_non_ansi_port: bool,
+    has_decl_name: bool,
 }
 
 impl ParserExpectations {
@@ -17,6 +18,10 @@ impl ParserExpectations {
 
     pub(super) fn has_non_ansi_port(&self) -> bool {
         self.has_non_ansi_port
+    }
+
+    pub(super) fn has_decl_name(&self) -> bool {
+        self.has_decl_name
     }
 
     pub(super) fn into_items(self) -> SmallVec<[CompletionExpectation; 4]> {
@@ -40,10 +45,12 @@ pub(super) fn parser_expected_syntax_for_text(
 pub(super) fn expectations(items: Option<&[ParserExpectedSyntax]>) -> ParserExpectations {
     let mut expectations = SmallVec::new();
     let mut has_non_ansi_port = false;
+    let mut has_decl_name = false;
 
     if let Some(items) = items {
         for item in items {
             has_non_ansi_port |= item.name == "ExpectedNonAnsiPort";
+            has_decl_name |= is_decl_name_expectation(item);
             for expectation in map_item(item) {
                 push_unique(&mut expectations, expectation);
             }
@@ -52,7 +59,7 @@ pub(super) fn expectations(items: Option<&[ParserExpectedSyntax]>) -> ParserExpe
 
     normalize_config_phase(&mut expectations);
 
-    ParserExpectations { items: expectations, has_non_ansi_port }
+    ParserExpectations { items: expectations, has_non_ansi_port, has_decl_name }
 }
 
 fn map_item(item: &ParserExpectedSyntax) -> SmallVec<[CompletionExpectation; 3]> {
@@ -101,6 +108,13 @@ fn map_item(item: &ParserExpectedSyntax) -> SmallVec<[CompletionExpectation; 3]>
             })
             .unwrap_or_default(),
     }
+}
+
+fn is_decl_name_expectation(item: &ParserExpectedSyntax) -> bool {
+    matches!(
+        item.name.as_str(),
+        "ExpectedIdentifier" | "ExpectedDeclarator" | "ExpectedSubroutineName"
+    ) || (item.name == "ExpectedToken" && item.token_kind == TokenKind::IDENTIFIER)
 }
 
 fn normalize_config_phase(expectations: &mut SmallVec<[CompletionExpectation; 4]>) {

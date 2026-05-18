@@ -181,29 +181,6 @@ fn in_memory_include_buffers(
     buffers
 }
 
-fn expected_decl_name_offsets(db: &dyn SourceRootDb, file_id: FileId) -> Arc<Vec<TextSize>> {
-    if matches!(db.file_kind(file_id), SourceFileKind::ProjectManifest) {
-        return Arc::new(Vec::new());
-    }
-
-    let tree = db.parse_src_for_compilation(file_id);
-    let mut compilation = Compilation::new();
-    compilation.add_syntax_tree(tree);
-    let config = db.diagnostics_config();
-    let mut out = Vec::new();
-    for name in ["ExpectedIdentifier", "ExpectedDeclarator", "ExpectedSubroutineName"] {
-        out.extend(
-            compilation
-                .parse_diag_offsets_by_name(name, &config.slang.warnings)
-                .into_iter()
-                .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from)),
-        );
-    }
-    out.sort();
-    out.dedup();
-    Arc::new(out)
-}
-
 fn parser_expected_syntax(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -276,7 +253,6 @@ pub trait SourceRootDb: SourceDb {
         file_id: FileId,
         offset: TextSize,
     ) -> Arc<[ParserExpectedSyntax]>;
-    fn expected_decl_name_offsets(&self, file_id: FileId) -> Arc<Vec<TextSize>>;
     fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
     fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
     fn source_root_semantic_diagnostics(

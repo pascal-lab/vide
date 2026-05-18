@@ -67,9 +67,6 @@ impl RootDb {
         base_db::source_db::ParseSrcForCompilationQuery
             .in_db_mut(self)
             .set_lru_capacity(lru_capacity);
-        base_db::source_db::ExpectedDeclNameOffsetsQuery
-            .in_db_mut(self)
-            .set_lru_capacity(lru_capacity);
         hir::db::HirFileWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         hir::db::ModuleWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
         hir::db::BlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);

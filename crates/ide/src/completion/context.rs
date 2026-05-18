@@ -109,14 +109,12 @@ pub(crate) fn completion_context(
         };
     };
     let text = db.file_text(file_id);
-    let expected_decl_name_offsets = db.expected_decl_name_offsets(file_id);
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         Some(&text),
-        Some(&expected_decl_name_offsets),
         Some(&parser_expected_syntax),
     )
 }
@@ -126,23 +124,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, None, None)
-}
-
-pub fn detect_completion_context_with_expected_decl_name_offsets(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-    trigger: Option<TriggerChar>,
-    expected_decl_name_offsets: &[TextSize],
-) -> CompletionContext {
-    detect_completion_context_impl(
-        root,
-        offset,
-        trigger,
-        None,
-        Some(expected_decl_name_offsets),
-        None,
-    )
+    detect_completion_context_impl(root, offset, trigger, None, None)
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -150,7 +132,6 @@ pub fn detect_completion_context_with_source_text(
     offset: TextSize,
     trigger: Option<TriggerChar>,
     source_text: &str,
-    expected_decl_name_offsets: &[TextSize],
 ) -> CompletionContext {
     let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
     detect_completion_context_impl(
@@ -158,7 +139,6 @@ pub fn detect_completion_context_with_source_text(
         offset,
         trigger,
         Some(source_text),
-        Some(expected_decl_name_offsets),
         Some(&parser_expected_syntax),
     )
 }
@@ -168,7 +148,6 @@ fn detect_completion_context_impl(
     offset: TextSize,
     trigger: Option<TriggerChar>,
     source_text: Option<&str>,
-    expected_decl_name_offsets: Option<&[TextSize]>,
     parser_expected_syntax: Option<&[ParserExpectedSyntax]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
@@ -221,9 +200,9 @@ fn detect_completion_context_impl(
         prefix = word.prefix;
     }
 
-    let in_decl_name = decl_name::is_in_decl_name(&caret, expected_decl_name_offsets);
-    let local = expected::detect_local(&caret);
     let parser = parser::expectations(parser_expected_syntax);
+    let in_decl_name = decl_name::is_in_decl_name(&caret, parser.has_decl_name());
+    let local = expected::detect_local(&caret);
     let expectations = resolve::expectations(parser, local, in_decl_name, &prefix, trigger);
     CompletionContext { replacement, prefix, trigger, lex, expectations, in_decl_name }
 }
@@ -301,7 +280,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use syntax::{Compilation, SyntaxTree};
+    use syntax::SyntaxTree;
 
     use super::*;
 
@@ -318,13 +297,7 @@ mod tests {
         let owned = text.replace(marker, "");
         let tree = SyntaxTree::from_library_map_text(&owned, "test", "test.map");
         let root = tree.root().unwrap();
-        detect_completion_context_with_source_text(
-            root,
-            TextSize::from(off as u32),
-            None,
-            &owned,
-            &[],
-        )
+        detect_completion_context_with_source_text(root, TextSize::from(off as u32), None, &owned)
     }
 
     fn ctx_with_trigger(text: &str, trigger: Option<TriggerChar>) -> CompletionContext {
@@ -338,27 +311,12 @@ mod tests {
         let path = format!("test_{id}.v");
         let tree = SyntaxTree::from_text(&owned, "test", &path);
 
-        let mut compilation = Compilation::new();
-        compilation.add_syntax_tree(tree.clone());
-        let mut expected_ident_offsets: Vec<TextSize> = Vec::new();
-        for name in ["ExpectedIdentifier", "ExpectedDeclarator", "ExpectedSubroutineName"] {
-            expected_ident_offsets.extend(
-                compilation
-                    .parse_diag_offsets_by_name(name, &[])
-                    .into_iter()
-                    .filter_map(|offset| u32::try_from(offset).ok().map(TextSize::from)),
-            );
-        }
-        expected_ident_offsets.sort();
-        expected_ident_offsets.dedup();
-
         let root = tree.root().unwrap();
         detect_completion_context_with_source_text(
             root,
             TextSize::from(off as u32),
             trigger,
             &owned,
-            &expected_ident_offsets,
         )
     }
 
