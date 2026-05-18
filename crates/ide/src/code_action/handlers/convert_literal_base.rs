@@ -24,8 +24,10 @@ pub(super) fn convert_literal_base(
             continue;
         }
 
+        let Some(replacement) = literal.render(target_base) else {
+            continue;
+        };
         let label = format!("Convert literal to {}", target_base.label());
-        let replacement = literal.render(target_base);
         collector.add(ID, label, literal.range, |builder| {
             builder.replace(literal.range, replacement);
         });
@@ -39,27 +41,49 @@ struct IntegerLiteral {
     range: TextRange,
     value: SVInt,
     base: IntegerBase,
-    size: Option<String>,
-    signed: bool,
+    notation: IntegerLiteralNotation,
 }
 
 impl IntegerLiteral {
-    fn render(&self, base: IntegerBase) -> String {
+    fn render(&self, base: IntegerBase) -> Option<String> {
+        if base == IntegerBase::Dec && self.value.has_unknown() {
+            return None;
+        }
+
         let digits = self.value.serialize(base.radix());
-        let Some(size) = &self.size else {
-            if base == IntegerBase::Dec && !self.signed {
-                return digits;
+        Some(match &self.notation {
+            IntegerLiteralNotation::PlainDecimal => {
+                format!("{}'s{}{}", self.plain_decimal_width(), base.specifier(), digits)
             }
-
-            return format!("'{}{}{}", self.signed_specifier(), base.specifier(), digits);
-        };
-
-        format!("{size}'{}{}{}", self.signed_specifier(), base.specifier(), digits)
+            IntegerLiteralNotation::Based { size: Some(size), signed } => {
+                format!("{size}'{}{}{}", signed_specifier(*signed), base.specifier(), digits)
+            }
+            IntegerLiteralNotation::Based { size: None, signed } => {
+                format!("'{}{}{}", signed_specifier(*signed), base.specifier(), digits)
+            }
+        })
     }
 
-    fn signed_specifier(&self) -> &'static str {
-        if self.signed { "s" } else { "" }
+    fn plain_decimal_width(&self) -> usize {
+        let width = self.value.get_bit_width();
+        if width < 32 {
+            32
+        } else if self.value.is_signed() {
+            width
+        } else {
+            width + 1
+        }
     }
+}
+
+#[derive(Debug)]
+enum IntegerLiteralNotation {
+    PlainDecimal,
+    Based { size: Option<String>, signed: bool },
+}
+
+fn signed_specifier(signed: bool) -> &'static str {
+    if signed { "s" } else { "" }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,8 +151,7 @@ fn literal_at(ctx: &CodeActionCtx) -> Option<IntegerLiteral> {
         range: integer.text_range()?,
         value: token.int()?,
         base: IntegerBase::Dec,
-        size: None,
-        signed: false,
+        notation: IntegerLiteralNotation::PlainDecimal,
     })
 }
 
@@ -139,7 +162,9 @@ fn integer_vector_literal(literal: ast::IntegerVectorExpression) -> Option<Integ
         range: literal.syntax().text_range()?,
         value: value.int()?,
         base: IntegerBase::from_literal_base(base.base()?),
-        size: literal.size().map(|size| size.raw_text().to_string()),
-        signed: base.raw_text().as_bytes().iter().any(|byte| byte.eq_ignore_ascii_case(&b's')),
+        notation: IntegerLiteralNotation::Based {
+            size: literal.size().map(|size| size.raw_text().to_string()),
+            signed: base.raw_text().as_bytes().iter().any(|byte| byte.eq_ignore_ascii_case(&b's')),
+        },
     })
 }
