@@ -346,7 +346,7 @@
     "typecheck": "tsc -p . --noEmit",
     "compile": "npm run clean && npm run typecheck && npm run bundle",
     "test": "npm run compile && node --import tsx --test \"test/**/*.test.ts\"",
-    "package": "npm run compile && tsx scripts/package.ts",
+    "package:debug": "npm run compile && tsx scripts/package.ts --debug",
     "package:darwin-arm64": "npm run compile && tsx scripts/package.ts darwin-arm64",
     "package:darwin-x64": "npm run compile && tsx scripts/package.ts darwin-x64",
     "package:linux-x64": "npm run compile && tsx scripts/package.ts linux-x64",

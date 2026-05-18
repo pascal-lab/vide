@@ -26,8 +26,14 @@ mod lsp_ext;
 
 const DEFAULT_PROCESS_NAME: &str = env!("CARGO_PKG_NAME");
 const DEBUG: bool = cfg!(debug_assertions);
-const VERSION: &str =
-    formatcp!("{}_{}", env!("CARGO_PKG_VERSION"), if DEBUG { "DEBUG" } else { "RELEASE" });
+const BUILD_PROFILE: &str = if DEBUG { "DEBUG" } else { "RELEASE" };
+const VERSION: &str = formatcp!(
+    "{}_{}+{}.{}",
+    env!("CARGO_PKG_VERSION"),
+    BUILD_PROFILE,
+    env!("VIZSLA_COMMIT_HASH"),
+    env!("VIZSLA_BUILD_DATE")
+);
 
 #[derive(Clone, Debug, Parser)]
 #[clap(name = DEFAULT_PROCESS_NAME, version = VERSION)]

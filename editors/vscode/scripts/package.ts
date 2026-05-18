@@ -13,6 +13,8 @@ const vscodeDir = findExtensionRoot(__dirname);
 const repoRoot = path.resolve(vscodeDir, '..', '..');
 const binName = 'vizsla';
 
+type BuildProfile = 'debug' | 'release';
+
 function findExtensionRoot(startDir: string): string {
   let currentDir = path.resolve(startDir);
 
@@ -84,7 +86,19 @@ function sanitizedVsceEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-function ensureTargetServerBinary(target: PlatformFolder, binFile: string): string {
+function cargoProfileDir(profile: BuildProfile): string {
+  return profile === 'release' ? 'release' : 'debug';
+}
+
+function cargoBuildArgs(profile: BuildProfile): string[] {
+  return profile === 'release' ? ['build', '--release'] : ['build'];
+}
+
+function ensureTargetServerBinary(
+  target: PlatformFolder,
+  binFile: string,
+  profile: BuildProfile,
+): string {
   const serverOutDir = path.join(vscodeDir, 'server', target);
   const hostTarget = hostPlatformFolder();
   if (target !== hostTarget) {
@@ -99,9 +113,9 @@ function ensureTargetServerBinary(target: PlatformFolder, binFile: string): stri
     return serverPath;
   }
 
-  run('cargo', ['build', '--release'], repoRoot);
+  run('cargo', cargoBuildArgs(profile), repoRoot);
 
-  const sourcePath = path.join(repoRoot, 'target', 'release', binFile);
+  const sourcePath = path.join(repoRoot, 'target', cargoProfileDir(profile), binFile);
   const destPath = path.join(serverOutDir, binFile);
   fs.mkdirSync(serverOutDir, { recursive: true });
   fs.copyFileSync(sourcePath, destPath);
@@ -131,7 +145,18 @@ function cleanRuntimeServerFiles(): void {
   }
 }
 
-function packageExtension(target: string): string {
+function parseArgs(): { target: PlatformFolder; profile: BuildProfile } {
+  const args = process.argv.slice(2);
+  const profile = args[0] === '--debug' ? 'debug' : 'release';
+  if (profile === 'debug') {
+    args.shift();
+  }
+
+  const target = args[0] ?? hostPlatformFolder();
+  if (args.length > 1) {
+    throw new Error(`unexpected package arguments: ${args.join(' ')}`);
+  }
+
   if (!isPlatformFolder(target)) {
     throw new Error(
       `unsupported target platform: ${target}\n` +
@@ -139,12 +164,17 @@ function packageExtension(target: string): string {
     );
   }
 
+  return { target, profile };
+}
+
+function packageExtension(target: PlatformFolder, profile: BuildProfile): string {
   const binFile = binaryFileForTarget(target);
-  const targetServerPath = ensureTargetServerBinary(target, binFile);
+  const targetServerPath = ensureTargetServerBinary(target, binFile, profile);
   cleanRuntimeServerFiles();
   const runtimeServerPath = stageRuntimeServer(targetServerPath, target, binFile);
 
-  const vsixOut = `vizsla-vscode-${target}.vsix`;
+  const debugSuffix = profile === 'debug' ? '-debug' : '';
+  const vsixOut = `vizsla-vscode-${target}${debugSuffix}.vsix`;
   const vsceBin = path.join(vscodeDir, 'node_modules', '@vscode', 'vsce', 'vsce');
   try {
     run(process.execPath, [
@@ -163,8 +193,8 @@ function packageExtension(target: string): string {
 }
 
 function main(): void {
-  const target = process.argv[2] ?? hostPlatformFolder();
-  const vsixPath = packageExtension(target);
+  const { target, profile } = parseArgs();
+  const vsixPath = packageExtension(target, profile);
   console.log(vsixPath);
 }
 

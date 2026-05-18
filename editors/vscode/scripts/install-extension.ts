@@ -48,7 +48,7 @@ function main(): void {
 
   if (vsixFiles.length === 0) {
     throw new Error(
-      'No matching VSIX found. Run `npm run package` first to create one, then rerun this command.',
+      'No matching VSIX found. Run `npm run package:debug` first to create one, then rerun this command.',
     );
   }
 

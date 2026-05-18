@@ -76,5 +76,59 @@ jobs:
         run: npm ci
       - name: Test extension
         run: npm test
+
+  dev-package:
+    name: Dev Package (${{ matrix.target }})
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-latest
+            target: win32-x64
+          - os: windows-11-arm
+            target: win32-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: macos-14
+            target: darwin-arm64
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Set build metadata
+        shell: bash
+        run: |
+          echo "VIZSLA_COMMIT_HASH=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
-        run: npm run package:linux-x64
+        run: npm run package:${{ matrix.target }}
+      - name: Upload dev VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vizsla-vscode-dev-${{ matrix.target }}-${{ github.sha }}
+          path: editors/vscode/vizsla-vscode-${{ matrix.target }}.vsix
+          if-no-files-found: error
+          retention-days: 14
