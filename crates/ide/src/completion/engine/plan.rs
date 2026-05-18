@@ -2,8 +2,8 @@ use ide_db::root_db::RootDb;
 use span::FilePosition;
 
 use super::{
-    CompletionItem, candidate, expr, keywords, member, named, paren_list, port_list, preproc,
-    sensitivity_list, system,
+    CompletionItem, candidate, expr, keywords, literal, member, named, paren_list, port_list,
+    preproc, sensitivity_list, system,
 };
 use crate::completion::{
     context::CompletionContext,
@@ -69,5 +69,6 @@ fn complete_provider(
                 wrap_in_parens,
             )
         }
+        CompletionProvider::IntegerLiteralBase => literal::complete_integer_literal_bases(ctx),
     }
 }

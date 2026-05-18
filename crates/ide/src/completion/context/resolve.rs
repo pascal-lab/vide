@@ -52,7 +52,8 @@ fn local_overrides(expectation: CompletionExpectation) -> bool {
         | ExpectedSyntax::PortConnection
         | ExpectedSyntax::ArgumentExpr
         | ExpectedSyntax::NonAnsiPortName
-        | ExpectedSyntax::DeclName => false,
+        | ExpectedSyntax::DeclName
+        | ExpectedSyntax::IntegerLiteralBase => false,
         ExpectedSyntax::ParameterPortListItem
         | ExpectedSyntax::AnsiPortItem
         | ExpectedSyntax::FunctionPortItem

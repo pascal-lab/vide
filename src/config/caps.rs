@@ -248,6 +248,7 @@ impl Config {
                     "@".into(),
                     "#".into(),
                     "`".into(),
+                    "'".into(),
                     "\n".into(),
                 ]),
                 ..Default::default()

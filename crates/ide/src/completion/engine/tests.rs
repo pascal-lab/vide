@@ -75,6 +75,7 @@ fn parse_trigger(line: &str) -> Option<TriggerChar> {
         "@" => Some(TriggerChar::At),
         "#" => Some(TriggerChar::Hash),
         "`" => Some(TriggerChar::Backtick),
+        "'" => Some(TriggerChar::Apostrophe),
         "\\n" => Some(TriggerChar::Newline),
         _ => None,
     }
@@ -195,7 +196,6 @@ fn no_completion_inside_based_literal() {
 #[test]
 fn no_completion_while_typing_based_literal() {
     for text in [
-        "module m; initial x = 4'/*caret*/; endmodule\n",
         "module m; initial x = 4'b/*caret*/; endmodule\n",
         "module m; initial x = 4'b0001/*caret*/; endmodule\n",
     ] {
@@ -209,6 +209,75 @@ fn no_completion_while_typing_based_literal() {
 }
 
 #[test]
+fn completes_integer_literal_base_after_apostrophe() {
+    let items = completions_in_text(
+        "module m; initial x = 4'/*caret*/; endmodule\n",
+        Some(TriggerChar::Apostrophe),
+    );
+    let item_labels = labels(&items);
+
+    assert_eq!(item_labels, ["b", "d", "h", "o", "sb", "sd", "sh", "so"]);
+}
+
+#[test]
+fn completes_integer_literal_base_after_apostrophe_in_assignment() {
+    let items = completions_in_text(
+        r#"
+`timescale 1ns/1ps
+
+module counter #(
+    parameter WIDTH = 8
+) (
+    input  wire             clk,
+    input  wire             rst_n,
+    input  wire             enable,
+    output reg  [WIDTH-1:0] count
+);
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            count <= {WIDTH{1'b0}};
+        end else if (enable) begin
+            count <= count + 1'/*caret*/
+        end
+    end
+endmodule
+"#,
+        Some(TriggerChar::Apostrophe),
+    );
+    let item_labels = labels(&items);
+
+    assert_eq!(item_labels, ["b", "d", "h", "o", "sb", "sd", "sh", "so"]);
+}
+
+#[test]
+fn completes_signed_integer_literal_base_prefix() {
+    let items = completions_in_text("module m; initial x = 4's/*caret*/; endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert_eq!(item_labels, ["sb", "sd", "sh", "so"]);
+
+    let sb = items.iter().find(|item| item.label == "sb").unwrap();
+    let mut text = "module m; initial x = 4's; endmodule\n".to_string();
+    sb.edit.as_ref().unwrap().apply_on(&mut text);
+    assert_eq!(text, "module m; initial x = 4'sb; endmodule\n");
+}
+
+#[test]
+fn no_integer_literal_base_completion_without_integer_size() {
+    for text in [
+        "module m; initial x = '/*caret*/; endmodule\n",
+        "module m; initial x = foo'/*caret*/; endmodule\n",
+    ] {
+        let items = completions_in_text(text, Some(TriggerChar::Apostrophe));
+        assert!(
+            items.is_empty(),
+            "apostrophe trigger should only complete integer literal bases, got: {:?}",
+            items
+        );
+    }
+}
+
+#[test]
 fn no_completion_at_top_level_with_comma_trigger() {
     let items = completions_in_text(",/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
     assert!(
@@ -216,6 +285,22 @@ fn no_completion_at_top_level_with_comma_trigger() {
         "should not complete at top level on comma trigger, got: {:?}",
         items
     );
+}
+
+#[test]
+fn backtick_trigger_completes_preproc_directives() {
+    let items = completions_in_text(
+        "module m; initial `/*caret*/; endmodule\n",
+        Some(TriggerChar::Backtick),
+    );
+    let define = items
+        .iter()
+        .find(|item| item.label == "define" && item.kind == CompletionItemKind::Keyword)
+        .expect("define directive completion expected");
+    let mut text = "module m; initial `; endmodule\n".to_string();
+    define.edit.as_ref().unwrap().apply_on(&mut text);
+
+    assert_eq!(text, "module m; initial `define; endmodule\n");
 }
 
 #[test]
