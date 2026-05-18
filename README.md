@@ -23,7 +23,7 @@ Vizsla 由两部分组成：
 普通用户请从 VS Code 扩展市场安装：
 
 ```powershell
-code --install-extension vizsla.vizsla-vscode
+code --install-extension vizsla.vizsla-lsp
 ```
 
 也可以在 VS Code 扩展面板中搜索 `Vizsla LSP` 并点击 Install。
