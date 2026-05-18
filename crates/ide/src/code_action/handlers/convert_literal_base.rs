@@ -7,7 +7,7 @@ use utils::text_edit::TextRange;
 
 use crate::code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind};
 
-const ID: CodeActionId = CodeActionId {
+const ACTION_ID: CodeActionId = CodeActionId {
     name: "convert_literal_base",
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
@@ -17,17 +17,14 @@ pub(super) fn convert_literal_base(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    let literal = literal_at(ctx)?;
+    let literal = SelectedIntegerLiteral::from_context(ctx)?;
 
-    for target_base in IntegerBase::ALL {
-        if target_base == literal.base {
-            continue;
-        }
-
-        let label = format!("Convert literal to {}", target_base.label());
+    for target_base in literal.target_bases() {
+        let range = literal.range;
+        let label = target_base.action_label();
         let replacement = literal.render(target_base);
-        collector.add(ID, label, literal.range, |builder| {
-            builder.replace(literal.range, replacement);
+        collector.add(ACTION_ID, label, range, |builder| {
+            builder.replace(range, replacement);
         });
     }
 
@@ -35,111 +32,144 @@ pub(super) fn convert_literal_base(
 }
 
 #[derive(Debug)]
-struct IntegerLiteral {
+struct SelectedIntegerLiteral {
     range: TextRange,
     value: SVInt,
-    base: IntegerBase,
-    size: Option<String>,
+    notation: LiteralNotation,
+}
+
+impl SelectedIntegerLiteral {
+    fn from_context(ctx: &CodeActionCtx) -> Option<Self> {
+        ctx.find_node_at_offset::<ast::IntegerVectorExpression>()
+            .and_then(Self::from_based_syntax)
+            .or_else(|| {
+                ctx.find_node_at_offset::<ast::LiteralExpression>()
+                    .and_then(Self::from_plain_decimal_syntax)
+            })
+    }
+
+    fn from_plain_decimal_syntax(literal: ast::LiteralExpression) -> Option<Self> {
+        let ast::LiteralExpression::IntegerLiteralExpression(integer) = literal else {
+            return None;
+        };
+
+        let token = integer.child_token(0)?;
+        Some(Self {
+            range: integer.text_range()?,
+            value: token.int()?,
+            notation: LiteralNotation::plain_decimal(),
+        })
+    }
+
+    fn from_based_syntax(literal: ast::IntegerVectorExpression) -> Option<Self> {
+        let value = literal.value()?;
+        Some(Self {
+            range: literal.syntax().text_range()?,
+            value: value.int()?,
+            notation: LiteralNotation::based(literal)?,
+        })
+    }
+
+    fn target_bases(&self) -> impl Iterator<Item = LiteralRadix> + '_ {
+        LiteralRadix::ALL.into_iter().filter(|base| *base != self.notation.base)
+    }
+
+    fn render(&self, target_base: LiteralRadix) -> String {
+        self.notation.render(&self.value, target_base)
+    }
+}
+
+#[derive(Debug)]
+struct LiteralNotation {
+    base: LiteralRadix,
+    width: Option<String>,
     signed: bool,
 }
 
-impl IntegerLiteral {
-    fn render(&self, base: IntegerBase) -> String {
-        let digits = self.value.serialize(base.radix());
-        let Some(size) = &self.size else {
-            if base == IntegerBase::Dec && !self.signed {
-                return digits;
-            }
-
-            return format!("'{}{}{}", self.signed_specifier(), base.specifier(), digits);
-        };
-
-        format!("{size}'{}{}{}", self.signed_specifier(), base.specifier(), digits)
+impl LiteralNotation {
+    fn plain_decimal() -> Self {
+        Self { base: LiteralRadix::Decimal, width: None, signed: false }
     }
 
-    fn signed_specifier(&self) -> &'static str {
-        if self.signed { "s" } else { "" }
+    fn based(literal: ast::IntegerVectorExpression) -> Option<Self> {
+        let base = literal.base()?;
+        Some(Self {
+            base: LiteralRadix::from(base.base()?),
+            width: literal.size().map(|size| size.raw_text().to_string()),
+            signed: base.raw_text().as_bytes().iter().any(|byte| byte.eq_ignore_ascii_case(&b's')),
+        })
+    }
+
+    fn render(&self, value: &SVInt, target_base: LiteralRadix) -> String {
+        let digits = value.serialize(target_base.radix());
+        if self.can_render_as_plain_decimal(target_base) {
+            return digits;
+        }
+
+        let mut text = String::new();
+        if let Some(width) = &self.width {
+            text.push_str(width);
+        }
+        text.push('\'');
+        if self.signed {
+            text.push('s');
+        }
+        text.push_str(target_base.specifier());
+        text.push_str(&digits);
+        text
+    }
+
+    fn can_render_as_plain_decimal(&self, target_base: LiteralRadix) -> bool {
+        target_base == LiteralRadix::Decimal && self.width.is_none() && !self.signed
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IntegerBase {
-    Bin,
-    Oct,
-    Dec,
-    Hex,
+enum LiteralRadix {
+    Binary,
+    Octal,
+    Decimal,
+    Hexadecimal,
 }
 
-impl IntegerBase {
-    const ALL: [Self; 4] = [Self::Bin, Self::Oct, Self::Dec, Self::Hex];
-
-    fn from_literal_base(base: LiteralBase) -> Self {
-        match base {
-            LiteralBase::Bin => Self::Bin,
-            LiteralBase::Oct => Self::Oct,
-            LiteralBase::Dec => Self::Dec,
-            LiteralBase::Hex => Self::Hex,
-        }
-    }
+impl LiteralRadix {
+    const ALL: [Self; 4] = [Self::Binary, Self::Octal, Self::Decimal, Self::Hexadecimal];
 
     fn radix(self) -> usize {
         match self {
-            Self::Bin => 2,
-            Self::Oct => 8,
-            Self::Dec => 10,
-            Self::Hex => 16,
+            Self::Binary => 2,
+            Self::Octal => 8,
+            Self::Decimal => 10,
+            Self::Hexadecimal => 16,
         }
     }
 
     fn specifier(self) -> &'static str {
         match self {
-            Self::Bin => "b",
-            Self::Oct => "o",
-            Self::Dec => "d",
-            Self::Hex => "h",
+            Self::Binary => "b",
+            Self::Octal => "o",
+            Self::Decimal => "d",
+            Self::Hexadecimal => "h",
         }
     }
 
-    fn label(self) -> &'static str {
+    fn action_label(self) -> &'static str {
         match self {
-            Self::Bin => "binary",
-            Self::Oct => "octal",
-            Self::Dec => "decimal",
-            Self::Hex => "hexadecimal",
+            Self::Binary => "Convert literal to binary",
+            Self::Octal => "Convert literal to octal",
+            Self::Decimal => "Convert literal to decimal",
+            Self::Hexadecimal => "Convert literal to hexadecimal",
         }
     }
 }
 
-fn literal_at(ctx: &CodeActionCtx) -> Option<IntegerLiteral> {
-    if let Some(literal) =
-        ctx.find_node_at_offset::<ast::IntegerVectorExpression>().and_then(integer_vector_literal)
-    {
-        return Some(literal);
+impl From<LiteralBase> for LiteralRadix {
+    fn from(base: LiteralBase) -> Self {
+        match base {
+            LiteralBase::Bin => Self::Binary,
+            LiteralBase::Oct => Self::Octal,
+            LiteralBase::Dec => Self::Decimal,
+            LiteralBase::Hex => Self::Hexadecimal,
+        }
     }
-
-    let literal = ctx.find_node_at_offset::<ast::LiteralExpression>()?;
-    let ast::LiteralExpression::IntegerLiteralExpression(integer) = literal else {
-        return None;
-    };
-
-    let token = integer.child_token(0)?;
-    Some(IntegerLiteral {
-        range: integer.text_range()?,
-        value: token.int()?,
-        base: IntegerBase::Dec,
-        size: None,
-        signed: false,
-    })
-}
-
-fn integer_vector_literal(literal: ast::IntegerVectorExpression) -> Option<IntegerLiteral> {
-    let base = literal.base()?;
-    let value = literal.value()?;
-    Some(IntegerLiteral {
-        range: literal.syntax().text_range()?,
-        value: value.int()?,
-        base: IntegerBase::from_literal_base(base.base()?),
-        size: literal.size().map(|size| size.raw_text().to_string()),
-        signed: base.raw_text().as_bytes().iter().any(|byte| byte.eq_ignore_ascii_case(&b's')),
-    })
 }
