@@ -2,12 +2,12 @@
   "name": "vizsla-vscode",
   "displayName": "Vizsla LSP",
   "description": "Language support for Verilog and SystemVerilog powered by the Vizsla language server.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "vizsla",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/roife/vizsla"
+    "url": "https://github.com/pascal-lab/vizsla"
   },
   "engines": {
     "vscode": "^1.101.0"
