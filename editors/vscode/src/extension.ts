@@ -380,13 +380,6 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
     ],
     synchronize: {
       configurationSection: ['vizsla'],
-      fileEvents: [
-        vscode.workspace.createFileSystemWatcher('**/*.v'),
-        vscode.workspace.createFileSystemWatcher('**/*.vh'),
-        vscode.workspace.createFileSystemWatcher('**/*.sv'),
-        vscode.workspace.createFileSystemWatcher('**/*.svh'),
-        vscode.workspace.createFileSystemWatcher('**/*.svi'),
-      ],
     },
     outputChannel: channel,
     traceOutputChannel: channel,
