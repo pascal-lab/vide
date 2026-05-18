@@ -109,3 +109,53 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
           files: artifacts/**/*.vsix
+
+  publish-marketplace:
+    name: Publish VS Code Marketplace
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build-and-package, publish]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Download VSIX artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish VSIX packages
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${VSCE_PAT:-}" ]]; then
+            echo "VSCE_PAT secret is not set; cannot publish to VS Code Marketplace." >&2
+            exit 1
+          fi
+
+          shopt -s globstar nullglob
+          vsixes=(../../artifacts/**/*.vsix)
+          if (( ${#vsixes[@]} == 0 )); then
+            echo "No VSIX artifacts found to publish." >&2
+            exit 1
+          fi
+
+          for vsix in "${vsixes[@]}"; do
+            node node_modules/@vscode/vsce/vsce publish --packagePath "$vsix"
+          done
