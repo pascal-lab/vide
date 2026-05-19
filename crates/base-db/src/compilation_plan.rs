@@ -74,9 +74,11 @@ fn include_buffers_for_plan_with_roots(
     plan: &CompilationPlan,
     include_roots: bool,
 ) -> Vec<SyntaxTreeBuffer> {
-    let root_files = include_roots
-        .then(|| plan.roots.iter().copied().collect::<FxHashSet<_>>())
-        .unwrap_or_default();
+    let root_files = if include_roots {
+        plan.roots.iter().copied().collect::<FxHashSet<_>>()
+    } else {
+        FxHashSet::default()
+    };
     let mut seen_files = PathIdentitySet::default();
     let mut seen_buffer_paths = FxHashSet::default();
     let mut buffers = Vec::new();
