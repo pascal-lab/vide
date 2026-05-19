@@ -12,6 +12,7 @@ use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
+    macro_index::{self, MacroFileIndex},
     project::{CompilationProfileId, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -34,6 +35,7 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
+    fn macro_file_index(&self, file_id: FileId) -> Arc<MacroFileIndex>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -88,6 +90,17 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
         }
         SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+    }
+}
+
+fn macro_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<MacroFileIndex> {
+    match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            Arc::new(macro_index::macro_file_index(&db.parse_src(file_id)))
+        }
+        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
+            Arc::new(MacroFileIndex::default())
+        }
     }
 }
 
