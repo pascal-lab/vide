@@ -1,25 +1,56 @@
-use std::{
-    fs,
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fs;
 
 use crate::paths::{AbsPath, AbsPathBuf, Utf8Path};
 
-static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
 #[derive(Debug)]
 pub struct TestDir {
+    _temp_dir: tempfile::TempDir,
     path: AbsPathBuf,
 }
 
 impl TestDir {
     pub fn new(name: &str) -> Self {
-        let path = unique_temp_path(name);
-        fs::create_dir(&path).unwrap_or_else(|err| {
-            panic!("failed to create test directory {path}: {err}");
+        let temp_dir = tempfile::Builder::new()
+            .prefix(&format!("vizsla-{name}-"))
+            .tempdir()
+            .unwrap_or_else(|err| {
+                panic!("failed to create test directory for {name}: {err}");
+            });
+        let path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+        Self { _temp_dir: temp_dir, path }
+    }
+
+    pub fn new_in(parent: impl AsRef<std::path::Path>, name: &str) -> Self {
+        let temp_dir = tempfile::Builder::new()
+            .prefix(&format!("vizsla-{name}-"))
+            .tempdir_in(parent)
+            .unwrap_or_else(|err| {
+                panic!("failed to create test directory for {name}: {err}");
+            });
+        let path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+        Self { _temp_dir: temp_dir, path }
+    }
+
+    pub fn from_temp_dir(temp_dir: tempfile::TempDir) -> Self {
+        let path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+        Self { _temp_dir: temp_dir, path }
+    }
+
+    pub fn into_temp_dir(self) -> tempfile::TempDir {
+        self._temp_dir
+    }
+
+    pub fn into_path(self) -> AbsPathBuf {
+        let path = self.path.clone();
+        let _ = self._temp_dir.keep();
+        path
+    }
+
+    pub fn close(self) {
+        let path = self.path.to_string();
+        self._temp_dir.close().unwrap_or_else(|err| {
+            panic!("failed to remove test directory {path}: {err}");
         });
-        Self { path }
     }
 
     pub fn path(&self) -> &AbsPath {
@@ -50,23 +81,6 @@ impl TestDir {
         });
         path
     }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
-fn unique_temp_path(name: &str) -> AbsPathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time should be after unix epoch")
-        .as_nanos();
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let path =
-        std::env::temp_dir().join(format!("vizsla-{name}-{}-{stamp}-{id}", std::process::id()));
-    AbsPathBuf::assert_utf8(path)
 }
 
 #[cfg(test)]

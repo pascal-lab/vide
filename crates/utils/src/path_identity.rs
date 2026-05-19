@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use rustc_hash::{FxHashMap, FxHashSet};
+use same_file::Handle;
 
 use crate::paths::{AbsPath, AbsPathBuf};
 
@@ -20,47 +23,46 @@ impl PathKey {
     }
 }
 
-/// Returns identity lookup keys for a path crossing a process or FFI boundary.
+/// Returns proven path spellings for a path crossing a process or FFI boundary.
 ///
 /// This is intentionally not a total "canonical path" function. The raw path
 /// key is always registered first, because it is the only identity we can
-/// preserve without doing IO. The filesystem canonical key is added only when
+/// preserve without doing IO. The filesystem canonical path is added only when
 /// the OS can prove one for the current path. When canonicalization fails, for
 /// example because the file does not exist yet or the filesystem rejects the
-/// lookup, we do not invent another key.
+/// lookup, we do not invent another spelling.
 ///
-/// The result is an alias set, not a correctness guarantee. It handles the
-/// common path spellings that arise between the LSP client, VFS, and slang
-/// buffers while keeping lookup failure explicit when no registered identity
-/// matches.
-pub fn path_alias_keys(path: &AbsPath) -> Vec<PathKey> {
-    let mut keys = vec![PathKey::from_abs_path(path)];
+/// These strings are safe to hand to external parsers as alternate names for
+/// the same VFS text. File identity comparisons use `same-file` separately.
+pub fn path_alias_paths(path: &AbsPath) -> Vec<AbsPathBuf> {
+    let mut paths = vec![path.to_path_buf()];
 
-    if let Some(canonical) = std::fs::canonicalize(path)
-        .ok()
-        .and_then(|path| AbsPathBuf::try_from(path).ok())
-        .map(|path| PathKey::from_abs_path(path.as_path()))
-        && !keys.contains(&canonical)
+    if let Some(canonical) = canonical_path(path)
+        && !paths.contains(&canonical)
     {
-        keys.push(canonical);
+        paths.push(canonical);
     }
 
-    keys
+    paths
 }
 
-#[derive(Debug, Clone)]
+pub fn path_alias_keys(path: &AbsPath) -> Vec<PathKey> {
+    path_alias_paths(path).iter().map(|path| PathKey::from_abs_path(path)).collect()
+}
+
 pub struct PathIdentityIndex<T> {
     aliases: FxHashMap<PathKey, T>,
+    handles: Vec<(Handle, T)>,
 }
 
 impl<T> Default for PathIdentityIndex<T> {
     fn default() -> Self {
-        Self { aliases: FxHashMap::default() }
+        Self { aliases: FxHashMap::default(), handles: Vec::new() }
     }
 }
 
 impl<T: Copy> PathIdentityIndex<T> {
-    /// Registers every identity key that can be derived for `path`.
+    /// Registers every path spelling and OS file identity that can be proven.
     ///
     /// Later inserts for the same alias replace earlier values. This mirrors
     /// the previous `PathKey -> FileId` map behavior and keeps collisions
@@ -70,16 +72,55 @@ impl<T: Copy> PathIdentityIndex<T> {
         for key in path_alias_keys(path) {
             self.aliases.insert(key, value);
         }
+        self.insert_handle(path, value);
     }
 
     pub fn get(&self, path: impl AsRef<str>) -> Option<T> {
-        self.aliases.get(&PathKey::new(path)).copied()
+        let path = path.as_ref();
+        self.aliases.get(&PathKey::new(path)).copied().or_else(|| self.get_path(Path::new(path)))
+    }
+
+    pub fn get_path(&self, path: impl AsRef<Path>) -> Option<T> {
+        let path = path.as_ref();
+        if let Some(path) = path.to_str()
+            && let Some(value) = self.aliases.get(&PathKey::new(path)).copied()
+        {
+            return Some(value);
+        }
+
+        if let Some(canonical) = canonical_path(path)
+            && let Some(value) =
+                self.aliases.get(&PathKey::from_abs_path(canonical.as_path())).copied()
+        {
+            return Some(value);
+        }
+
+        let handle = Handle::from_path(path).ok()?;
+        self.handles.iter().find_map(|(known, value)| (known == &handle).then_some(*value))
+    }
+
+    fn insert_handle(&mut self, path: &AbsPath, value: T) {
+        let Ok(handle) = Handle::from_path(path) else {
+            return;
+        };
+
+        if let Some((_, existing)) = self.handles.iter_mut().find(|(known, _)| known == &handle) {
+            *existing = value;
+        } else {
+            self.handles.push((handle, value));
+        }
     }
 }
 
-#[derive(Debug, Clone, Default)]
 pub struct PathIdentitySet {
     aliases: FxHashSet<PathKey>,
+    handles: Vec<Handle>,
+}
+
+impl Default for PathIdentitySet {
+    fn default() -> Self {
+        Self { aliases: FxHashSet::default(), handles: Vec::new() }
+    }
 }
 
 impl PathIdentitySet {
@@ -87,10 +128,25 @@ impl PathIdentitySet {
     /// seen.
     pub fn insert_path(&mut self, path: &AbsPath) -> bool {
         let keys = path_alias_keys(path);
-        let is_new = keys.iter().all(|key| !self.aliases.contains(key));
+        let handle = Handle::from_path(path).ok();
+        let is_new = keys.iter().all(|key| !self.aliases.contains(key))
+            && handle
+                .as_ref()
+                .is_none_or(|handle| self.handles.iter().all(|known| known != handle));
+
         self.aliases.extend(keys);
+        if let Some(handle) = handle
+            && self.handles.iter().all(|known| known != &handle)
+        {
+            self.handles.push(handle);
+        }
+
         is_new
     }
+}
+
+fn canonical_path(path: impl AsRef<Path>) -> Option<AbsPathBuf> {
+    dunce::canonicalize(path).ok().and_then(|path| AbsPathBuf::try_from(path).ok())
 }
 
 fn normalize_path_key(path: &str) -> String {
@@ -131,23 +187,20 @@ mod tests {
     }
 
     #[test]
-    fn path_alias_keys_include_raw_path() {
+    fn path_alias_paths_include_raw_path() {
         let cwd = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
 
-        assert!(path_alias_keys(cwd.as_path()).contains(&PathKey::from_abs_path(cwd.as_path())));
+        assert!(path_alias_paths(cwd.as_path()).contains(&cwd));
     }
 
     #[test]
-    fn path_alias_keys_do_not_invent_canonical_key_for_missing_path() {
+    fn path_alias_paths_do_not_invent_canonical_path_for_missing_path() {
         let dir = crate::test_support::TestDir::new("missing-path-alias");
         let missing = dir.join("missing.sv");
         let missing_path: &std::path::Path = missing.as_ref();
 
         assert!(!missing_path.exists());
-        assert_eq!(
-            path_alias_keys(missing.as_path()),
-            vec![PathKey::from_abs_path(missing.as_path())]
-        );
+        assert_eq!(path_alias_paths(missing.as_path()), vec![missing]);
     }
 
     #[test]
@@ -158,6 +211,17 @@ mod tests {
         index.insert_path(cwd.as_path(), 1);
 
         assert_eq!(index.get(cwd.to_string()), Some(1));
+    }
+
+    #[test]
+    fn path_identity_index_resolves_existing_path_by_handle() {
+        let dir = crate::test_support::TestDir::new("same-file-handle");
+        let path = dir.write("source.sv", "module top; endmodule\n");
+        let mut index = PathIdentityIndex::default();
+
+        index.insert_path(path.as_path(), 1);
+
+        assert_eq!(index.get_path(path.as_path()), Some(1));
     }
 
     #[test]
