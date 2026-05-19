@@ -11,6 +11,11 @@ import {
 } from 'vscode-languageclient/node';
 
 import { getBundledServerPath, getPlatformFolder } from './platform';
+import {
+  DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_FILE_NAME,
+  getProjectConfigPath,
+} from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
@@ -345,6 +350,63 @@ function createServerEnv(
   };
 }
 
+async function createMissingProjectConfigs(): Promise<void> {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const createdConfigs: vscode.Uri[] = [];
+
+  for (const folder of workspaceFolders) {
+    if (folder.uri.scheme !== 'file') {
+      log(
+        `[WARN] Skipping project config creation for non-file workspace: ${folder.uri.toString()}`,
+      );
+      continue;
+    }
+
+    const configPath = getProjectConfigPath(folder.uri.fsPath);
+    if (fs.existsSync(configPath)) {
+      continue;
+    }
+
+    try {
+      await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
+        encoding: 'utf8',
+        flag: 'wx',
+      });
+      createdConfigs.push(vscode.Uri.file(configPath));
+      log(`[INFO] Created default project config: ${configPath}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        continue;
+      }
+
+      const message = `Failed to create ${PROJECT_CONFIG_FILE_NAME} in ${folder.name}: ${(error as Error).message}`;
+      log(`[WARN] ${message}`);
+      void vscode.window.showWarningMessage(message);
+    }
+  }
+
+  if (createdConfigs.length === 0) {
+    return;
+  }
+
+  const message =
+    createdConfigs.length === 1
+      ? `No ${PROJECT_CONFIG_FILE_NAME} found. Created a default project config.`
+      : `No ${PROJECT_CONFIG_FILE_NAME} found in ${createdConfigs.length} workspace folders. Created default project configs.`;
+
+  void vscode.window.showInformationMessage(message, 'Open Config').then(async (selection) => {
+    if (selection !== 'Open Config') {
+      return;
+    }
+
+    try {
+      await vscode.window.showTextDocument(createdConfigs[0]);
+    } catch (error) {
+      log(`[WARN] Failed to open ${PROJECT_CONFIG_FILE_NAME}: ${(error as Error).message}`);
+    }
+  });
+}
+
 async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
   const channel = requireOutputChannel();
   log('[INFO] Creating language client...');
@@ -573,6 +635,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(configurationRegistration);
 
+  await createMissingProjectConfigs();
   await startClient(context);
 
   log('[INFO] Vizsla extension activated');
