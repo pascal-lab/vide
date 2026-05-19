@@ -242,10 +242,11 @@ mod tests {
         let root = AbsPathBuf::assert_utf8(dir.clone());
         let pkg_path = root.join("a_pkg.sv");
         let frag_path = root.join("z_frag.sv");
-        let pkg_text = "`include \"z_frag.sv\"\nmodule pkg_mod; endmodule\n";
-        let frag_text = "module frag_mod; endmodule\n";
+        let pkg_text = "module pkg_mod;\n`include \"z_frag.sv\"\nendmodule\n";
+        let disk_frag_text = "logic value = 1'b0;\n";
+        let vfs_frag_text = "logic value = missing_name;\n";
         std::fs::write(&pkg_path, pkg_text).unwrap();
-        std::fs::write(&frag_path, frag_text).unwrap();
+        std::fs::write(&frag_path, disk_frag_text).unwrap();
 
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
@@ -259,17 +260,19 @@ mod tests {
         });
         change.add_changed_file(ChangedFile {
             file_id: FileId(1),
-            change_kind: ChangeKind::Create(Arc::from(frag_text), LineEnding::Unix),
+            change_kind: ChangeKind::Create(Arc::from(vfs_frag_text), LineEnding::Unix),
         });
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         db.apply_change(change);
 
-        let diagnostics = diagnostics(&db, FileId(0));
+        let diagnostics = diagnostics(&db, FileId(1));
         let _ = std::fs::remove_dir_all(dir);
 
         assert!(
-            diagnostics.iter().all(|diag| !diag.message.contains("already been assigned")),
-            "included .sv should not be added as a second root source: {diagnostics:?}"
+            diagnostics
+                .iter()
+                .any(|diag| diag.file_id == FileId(1) && diag.message.contains("missing_name")),
+            "included .sv should use VFS text and receive mapped diagnostics: {diagnostics:?}"
         );
     }
 }

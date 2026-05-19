@@ -244,6 +244,7 @@ fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTr
 fn in_memory_include_buffers(
     db: &dyn SourceRootDb,
     include_dirs: &[utils::paths::AbsPathBuf],
+    include_file_ids: &FxHashSet<FileId>,
 ) -> Vec<SyntaxTreeBuffer> {
     let mut seen = PathIdentitySet::default();
     let mut buffers = Vec::new();
@@ -253,18 +254,18 @@ fn in_memory_include_buffers(
             continue;
         }
 
-        if !matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader) {
+        let include_header_in_include_path =
+            matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader)
+                && db.file_path(file_id).is_some_and(|path| {
+                    include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
+                });
+        if !include_header_in_include_path && !include_file_ids.contains(&file_id) {
             continue;
         }
 
         let Some(path) = db.file_path(file_id) else {
             continue;
         };
-
-        let in_include_path = include_dirs.iter().any(|include_dir| path.starts_with(include_dir));
-        if !in_include_path {
-            continue;
-        }
 
         if !seen.insert_path(&path) {
             continue;
@@ -386,7 +387,27 @@ fn include_buffers_for_profile(
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
     let project_config = db.project_config();
     let preprocess = project_config.preprocess_for_profile(profile_id);
-    Arc::new(in_memory_include_buffers(db, &preprocess.include_dirs))
+    let roots = source_roots_for_profile(db, &project_config, profile_id);
+    let include_file_ids = included_file_ids_for_roots(db, &roots, &preprocess.include_dirs);
+    Arc::new(in_memory_include_buffers(db, &preprocess.include_dirs, &include_file_ids))
+}
+
+fn source_roots_for_profile(
+    db: &dyn SourceRootDb,
+    project_config: &ProjectConfig,
+    profile_id: Option<CompilationProfileId>,
+) -> Vec<SourceRootId> {
+    if let Some(profile) = profile_id.and_then(|profile_id| project_config.profile(profile_id)) {
+        return profile.source_roots.clone();
+    }
+
+    let mut roots = FxHashSet::default();
+    for file_id in db.files().iter().copied() {
+        if !db.file_is_project_ignored(file_id) {
+            roots.insert(db.source_root_id(file_id));
+        }
+    }
+    roots.into_iter().collect()
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
