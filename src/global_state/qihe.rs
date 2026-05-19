@@ -11,6 +11,7 @@ use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, LogMessageParams, MessageType,
     NumberOrString, ShowMessageParams,
 };
+use project_model::project_manifest::MANIFEST_FILE_NAME;
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
@@ -228,18 +229,74 @@ fn run_qihe_request(
         .cwd
         .and_then(|path| path.canonicalize().ok())
         .unwrap_or_else(|| snapshot.config.root_path.to_path_buf().into());
-    let active_path_buf: PathBuf = active_path.to_path_buf().into();
+    let compile_input = qihe_compile_input(snapshot, active_file_id, active_path.as_path(), &cwd)?;
     let (ir_path, storage_root) =
         qihe_run_paths(active_path.as_path()).context("failed to prepare qihe workspace")?;
-    run_qihe_commands(&qihe_config, &cwd, &active_path_buf, &ir_path, &storage_root)?;
+    run_qihe_commands(&qihe_config, &cwd, &compile_input, &ir_path, &storage_root)?;
 
     let diagnostics = load_latest_diagnostics(&storage_root)?;
-    let converter = DiagnosticConverter {
-        snapshot,
-        default_file_id: active_file_id,
-        default_path: active_path.as_path(),
+    let resolution_base = if compile_input.project_mode {
+        cwd.as_path()
+    } else {
+        active_path
+            .as_path()
+            .parent()
+            .map(AsRef::as_ref)
+            .unwrap_or_else(|| active_path.as_path().as_ref())
     };
+    let converter =
+        DiagnosticConverter { snapshot, default_file_id: active_file_id, resolution_base };
     QiheUpdate::from_json_diagnostics(active_file_id, diagnostics, &converter)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QiheCompileInput {
+    files: Vec<PathBuf>,
+    slang_args: Vec<String>,
+    project_mode: bool,
+}
+
+fn qihe_compile_input(
+    snapshot: &GlobalStateSnapshot,
+    active_file_id: FileId,
+    active_path: &AbsPath,
+    cwd: &Path,
+) -> Result<QiheCompileInput> {
+    if !cwd.join(MANIFEST_FILE_NAME).is_file() {
+        return Ok(QiheCompileInput {
+            files: vec![active_path.to_path_buf().into()],
+            slang_args: Vec::new(),
+            project_mode: false,
+        });
+    }
+
+    let plan = snapshot.analysis.compilation_plan(active_file_id).map_err(|_| qihe_cancelled())?;
+    let mut files = plan
+        .roots
+        .iter()
+        .filter_map(|file_id| snapshot.file_path(*file_id).map(PathBuf::from))
+        .collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+
+    if files.is_empty() {
+        files.push(active_path.to_path_buf().into());
+    }
+
+    let mut slang_args = Vec::new();
+    for top_module in &plan.top_modules {
+        slang_args.push("--top".to_owned());
+        slang_args.push(top_module.clone());
+    }
+    for include_dir in &plan.include_dirs {
+        slang_args.push("-I".to_owned());
+        slang_args.push(include_dir.to_string());
+    }
+    for define in &plan.predefines {
+        slang_args.push(format!("-D{define}"));
+    }
+
+    Ok(QiheCompileInput { files, slang_args, project_mode: true })
 }
 
 fn qihe_run_paths(active_path: &AbsPath) -> Result<(PathBuf, PathBuf)> {
@@ -255,15 +312,13 @@ fn qihe_run_paths(active_path: &AbsPath) -> Result<(PathBuf, PathBuf)> {
 fn run_qihe_commands(
     qihe_config: &QiheConfig,
     cwd: &Path,
-    active_path: &Path,
+    compile_input: &QiheCompileInput,
     ir_path: &Path,
     storage_root: &Path,
 ) -> Result<()> {
     let mut command = qihe_command(qihe_config, cwd, "compile");
-    run_command(
-        command.args(&qihe_config.compile_args).arg(active_path).arg("-o").arg(ir_path),
-        "qihe compile",
-    )?;
+    prepare_qihe_compile_command(&mut command, qihe_config, compile_input, ir_path);
+    run_command(&mut command, "qihe compile")?;
 
     let mut command = qihe_command(qihe_config, cwd, "run");
     run_command(
@@ -275,6 +330,40 @@ fn run_qihe_commands(
             .arg(format!("storage.root={}", storage_root.display())),
         "qihe run",
     )
+}
+
+fn prepare_qihe_compile_command(
+    command: &mut Command,
+    qihe_config: &QiheConfig,
+    compile_input: &QiheCompileInput,
+    ir_path: &Path,
+) {
+    let (qihe_args, user_slang_args) = split_compile_args(&qihe_config.compile_args);
+    command.args(&qihe_args);
+    if compile_input.project_mode && !has_compile_mode(&qihe_args) {
+        command.args(["--mode", "sv"]);
+    }
+    command.args(&compile_input.files).arg("-o").arg(ir_path);
+
+    let has_slang_args = !user_slang_args.is_empty() || !compile_input.slang_args.is_empty();
+    if has_slang_args {
+        command.arg("--").args(&user_slang_args).args(&compile_input.slang_args);
+    }
+}
+
+fn split_compile_args(args: &[String]) -> (Vec<String>, Vec<String>) {
+    let Some(separator) = args.iter().position(|arg| arg == "--") else {
+        return (args.to_vec(), Vec::new());
+    };
+    (args[..separator].to_vec(), args[separator + 1..].to_vec())
+}
+
+fn has_compile_mode(args: &[String]) -> bool {
+    args.iter().enumerate().any(|(idx, arg)| {
+        arg == "--mode"
+            || arg.starts_with("--mode=")
+            || (arg == "-m" && args.get(idx + 1).is_some())
+    })
 }
 
 fn qihe_command(qihe_config: &QiheConfig, cwd: &Path, subcommand: &str) -> Command {
@@ -343,7 +432,7 @@ fn latest_diagnostic_path(diagnostics_dir: &Path) -> Result<Option<PathBuf>> {
 struct DiagnosticConverter<'a> {
     snapshot: &'a GlobalStateSnapshot,
     default_file_id: FileId,
-    default_path: &'a AbsPath,
+    resolution_base: &'a Path,
 }
 
 type SourceRange = (FileId, TextRange);
@@ -410,7 +499,7 @@ impl<'a> DiagnosticConverter<'a> {
 
     fn location_from_source(&self, location: SourceLocation) -> Result<Option<SourceRange>> {
         let file_id = location.file_name.as_deref().map_or(Some(self.default_file_id), |name| {
-            resolve_file_name(self.default_path, name)
+            resolve_file_name(self.resolution_base, name)
                 .and_then(|path| self.snapshot.file_id_for_path(path.as_ref()))
         });
         let Some(file_id) = file_id else { return Ok(None) };
@@ -448,13 +537,9 @@ fn qihe_cancelled() -> anyhow::Error {
     anyhow!("qihe analysis cancelled")
 }
 
-fn resolve_file_name(default_path: &AbsPath, file_name: &str) -> Option<PathBuf> {
+fn resolve_file_name(base_dir: &Path, file_name: &str) -> Option<PathBuf> {
     let candidate = Path::new(file_name);
-    Some(if candidate.is_absolute() {
-        candidate.to_path_buf()
-    } else {
-        default_path.parent()?.join(file_name).into()
-    })
+    Some(if candidate.is_absolute() { candidate.to_path_buf() } else { base_dir.join(file_name) })
 }
 
 fn map_severity(severity: &str) -> DiagnosticSeverity {
@@ -515,7 +600,13 @@ struct QiheJsonSupportInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_source_loc, strip_ansi};
+    use std::{ffi::OsStr, path::PathBuf, process::Command};
+
+    use super::{
+        QiheCompileInput, has_compile_mode, parse_source_loc, prepare_qihe_compile_command,
+        split_compile_args, strip_ansi,
+    };
+    use crate::config::user_config::QiheConfig;
 
     #[test]
     fn parses_line_col_only_locations() {
@@ -539,5 +630,104 @@ mod tests {
     #[test]
     fn strips_ansi_escape_sequences() {
         assert_eq!(strip_ansi("\u{1b}[32mINFO\u{1b}[m hello"), "INFO hello");
+    }
+
+    #[test]
+    fn split_compile_args_preserves_forwarded_slang_args() {
+        let args = ["--mode", "sv", "--", "-I", "include"].map(ToOwned::to_owned).to_vec();
+
+        let (qihe_args, slang_args) = split_compile_args(&args);
+
+        assert_eq!(qihe_args, ["--mode", "sv"]);
+        assert_eq!(slang_args, ["-I", "include"]);
+    }
+
+    #[test]
+    fn detects_existing_compile_mode() {
+        assert!(has_compile_mode(&["--mode".to_owned(), "sv".to_owned()]));
+        assert!(has_compile_mode(&["--mode=sv".to_owned()]));
+        assert!(has_compile_mode(&["-m".to_owned(), "sv".to_owned()]));
+        assert!(!has_compile_mode(&["--foo".to_owned()]));
+    }
+
+    #[test]
+    fn project_compile_command_synthesizes_sv_mode_and_slang_args() {
+        let config = QiheConfig {
+            command: "qihe".to_owned(),
+            compile_args: vec!["--flag".to_owned(), "--".to_owned(), "--lint".to_owned()],
+            run_args: Vec::new(),
+        };
+        let input = QiheCompileInput {
+            files: vec![PathBuf::from("/repo/rtl/a.sv"), PathBuf::from("/repo/rtl/b.sv")],
+            slang_args: vec![
+                "--top".to_owned(),
+                "top".to_owned(),
+                "-I".to_owned(),
+                "/repo/include".to_owned(),
+                "-DDEBUG".to_owned(),
+            ],
+            project_mode: true,
+        };
+        let mut command = Command::new("qihe");
+
+        prepare_qihe_compile_command(
+            &mut command,
+            &config,
+            &input,
+            PathBuf::from("/tmp/in.qh").as_path(),
+        );
+
+        let args = command_args(&command);
+        assert_eq!(
+            args,
+            [
+                "--flag",
+                "--mode",
+                "sv",
+                "/repo/rtl/a.sv",
+                "/repo/rtl/b.sv",
+                "-o",
+                "/tmp/in.qh",
+                "--",
+                "--lint",
+                "--top",
+                "top",
+                "-I",
+                "/repo/include",
+                "-DDEBUG",
+            ]
+        );
+    }
+
+    #[test]
+    fn single_file_compile_command_does_not_force_sv_mode() {
+        let config = QiheConfig {
+            command: "qihe".to_owned(),
+            compile_args: Vec::new(),
+            run_args: Vec::new(),
+        };
+        let input = QiheCompileInput {
+            files: vec![PathBuf::from("/repo/top.sv")],
+            slang_args: Vec::new(),
+            project_mode: false,
+        };
+        let mut command = Command::new("qihe");
+
+        prepare_qihe_compile_command(
+            &mut command,
+            &config,
+            &input,
+            PathBuf::from("/tmp/in.qh").as_path(),
+        );
+
+        assert_eq!(command_args(&command), ["/repo/top.sv", "-o", "/tmp/in.qh"]);
+    }
+
+    fn command_args(command: &Command) -> Vec<&str> {
+        command
+            .get_args()
+            .map(OsStr::to_str)
+            .collect::<Option<Vec<_>>>()
+            .expect("utf-8 command args")
     }
 }
