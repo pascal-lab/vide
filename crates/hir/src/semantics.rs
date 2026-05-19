@@ -75,7 +75,7 @@ pub struct SemanticsImpl<'db> {
     // s2d_cache
     // Root -> HirFileId
     root2file_cache: RefCell<FxHashMap<SyntaxNode<'db>, HirFileId>>,
-    source2def_cache: RefCell<Source2DefCache<'db>>,
+    source2def_cache: RefCell<Source2DefCache>,
     hir2def_cache: RefCell<Hir2DefCache>,
 
     // SyntaxNode is a borrowed pointer into a SyntaxTree. Semantics returns nodes with its
