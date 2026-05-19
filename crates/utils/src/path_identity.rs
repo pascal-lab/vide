@@ -28,9 +28,11 @@ impl PathKey {
 /// This is intentionally not a total "canonical path" function. The raw path
 /// key is always registered first, because it is the only identity we can
 /// preserve without doing IO. The filesystem canonical path is added only when
-/// the OS can prove one for the current path. When canonicalization fails, for
-/// example because the file does not exist yet or the filesystem rejects the
-/// lookup, we do not invent another spelling.
+/// the OS can prove one for the current path. Canonicalization goes through
+/// `dunce` so Windows extended-length paths are converted back to ordinary path
+/// spelling where possible. When canonicalization fails, for example because
+/// the file does not exist yet or the filesystem rejects the lookup, we do not
+/// invent another spelling.
 ///
 /// These strings are safe to hand to external parsers as alternate names for
 /// the same VFS text. File identity comparisons use `same-file` separately.
@@ -146,6 +148,9 @@ impl PathIdentitySet {
 }
 
 fn canonical_path(path: impl AsRef<Path>) -> Option<AbsPathBuf> {
+    // `dunce` wraps `std::fs::canonicalize` but smooths over Windows
+    // extended-length path spelling. It is still only an optional, OS-proven
+    // spelling; file identity checks use `same-file::Handle`.
     dunce::canonicalize(path).ok().and_then(|path| AbsPathBuf::try_from(path).ok())
 }
 
