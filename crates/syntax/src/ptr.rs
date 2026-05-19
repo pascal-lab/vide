@@ -100,3 +100,38 @@ impl SyntaxElementPtr {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use slang::ast::{self, AstNode};
+
+    use crate::has_text_range::HasTextRange;
+
+    #[test]
+    fn no_include_expansion_parse_does_not_expand_cwd_includes() {
+        let include_rel = "target/vizsla_pathless_include_test_defs.svh";
+        std::fs::create_dir_all("target").expect("target directory");
+        std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
+
+        let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
+        let tree = slang::SyntaxTree::from_text_no_include_expansion(&text, "", "");
+        let root = tree.root().expect("root syntax node");
+        let unit = ast::CompilationUnit::cast(root).expect("compilation unit");
+        let mut saw_root_module = false;
+
+        for member in unit.members().children() {
+            match member {
+                ast::Member::TypedefDeclaration(_) => {
+                    panic!("parse with include expansion disabled must not read includes");
+                }
+                ast::Member::ModuleDeclaration(module) => {
+                    saw_root_module = true;
+                    assert!(module.syntax().text_range().is_some());
+                }
+                _ => {}
+            }
+        }
+
+        assert!(saw_root_module);
+    }
+}
