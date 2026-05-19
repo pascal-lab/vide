@@ -1,7 +1,7 @@
 pub use salsa::{self, Cancelled};
 
 pub mod change;
-pub mod compile_units;
+pub mod compilation_plan;
 pub mod diagnostics_config;
 pub mod intern;
 pub mod preproc_index;

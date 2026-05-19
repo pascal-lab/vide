@@ -258,6 +258,10 @@ mod tests {
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
         db.apply_change(change);
 
+        let plan = db.compilation_plan_for_root(SourceRootId(0));
+        assert!(plan.include_only.contains(&FileId(1)));
+        assert_eq!(plan.roots, vec![FileId(0)]);
+
         let diagnostics = diagnostics(&db, FileId(1));
 
         assert!(
@@ -323,6 +327,11 @@ mod tests {
             }],
         )));
         db.apply_change(change);
+
+        let plan = db.compilation_plan_for_root(SourceRootId(0));
+        assert_eq!(plan.include_only.len(), 2);
+        assert!(plan.include_only.contains(&FileId(1)));
+        assert!(plan.include_only.contains(&FileId(2)));
 
         let diagnostics = source_root_diagnostics(&db, FileId(0));
 

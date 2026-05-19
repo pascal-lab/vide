@@ -8,7 +8,7 @@ use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
-    compile_units::{self, CompileUnits},
+    compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     preproc_index::{self, PreprocFileIndex},
     project::{CompilationProfileId, ProjectConfig},
@@ -230,11 +230,11 @@ pub trait SourceRootDb: SourceDb {
 
     fn file_compilation_profile(&self, file_id: FileId) -> Option<CompilationProfileId>;
     fn file_is_project_ignored(&self, file_id: FileId) -> bool;
-    fn compile_units_for_root(&self, source_root_id: SourceRootId) -> Arc<CompileUnits>;
-    fn compile_units_for_profile(
+    fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan>;
+    fn compilation_plan_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
-    ) -> Arc<CompileUnits>;
+    ) -> Arc<CompilationPlan>;
     fn include_buffers_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
@@ -276,26 +276,26 @@ fn file_is_project_ignored(db: &dyn SourceRootDb, file_id: FileId) -> bool {
     db.source_root(source_root_id).is_ignored()
 }
 
-fn compile_units_for_root(
+fn compilation_plan_for_root(
     db: &dyn SourceRootDb,
     source_root_id: SourceRootId,
-) -> Arc<CompileUnits> {
-    Arc::new(CompileUnits::for_source_root(db, source_root_id))
+) -> Arc<CompilationPlan> {
+    Arc::new(CompilationPlan::for_source_root(db, source_root_id))
 }
 
-fn compile_units_for_profile(
+fn compilation_plan_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
-) -> Arc<CompileUnits> {
-    Arc::new(CompileUnits::for_profile(db, profile_id))
+) -> Arc<CompilationPlan> {
+    Arc::new(CompilationPlan::for_profile(db, profile_id))
 }
 
 fn include_buffers_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
-    let units = db.compile_units_for_profile(profile_id);
-    Arc::new(compile_units::include_buffers_for_units(db, &units))
+    let plan = db.compilation_plan_for_profile(profile_id);
+    Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
@@ -317,11 +317,11 @@ fn source_root_semantic_diagnostics(
         return Arc::from(Vec::<(FileId, SyntaxDiagnostic)>::new());
     }
 
-    let units = db.compile_units_for_root(source_root_id);
-    let mut compilation = Compilation::new_with_top_modules(&units.top_modules);
+    let plan = db.compilation_plan_for_root(source_root_id);
+    let mut compilation = Compilation::new_with_top_modules(&plan.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
-    for file_id in units.roots.iter().copied() {
+    for file_id in plan.roots.iter().copied() {
         let text = db.file_text(file_id);
         let identity = source_file_identity(db, file_id);
         let buffer_ids = match db.file_kind(file_id) {

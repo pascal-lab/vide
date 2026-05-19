@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CompileUnits {
+pub struct CompilationPlan {
     pub source_roots: Vec<SourceRootId>,
     pub roots: Vec<FileId>,
     /// Files reached through literal SystemVerilog include directives. They are
@@ -25,7 +25,7 @@ pub struct CompileUnits {
     pub top_modules: Vec<String>,
 }
 
-impl CompileUnits {
+impl CompilationPlan {
     pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
@@ -51,13 +51,13 @@ impl CompileUnits {
     ) -> Self {
         let include_only = include_targets_for_source_roots(db, &source_roots, &include_dirs);
         let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
-        CompileUnits { source_roots, roots, include_only, include_dirs, top_modules }
+        CompilationPlan { source_roots, roots, include_only, include_dirs, top_modules }
     }
 }
 
-pub fn include_buffers_for_units(
+pub fn include_buffers_for_plan(
     db: &dyn SourceRootDb,
-    units: &CompileUnits,
+    plan: &CompilationPlan,
 ) -> Vec<SyntaxTreeBuffer> {
     let mut seen_files = PathIdentitySet::default();
     let mut seen_buffer_paths = FxHashSet::default();
@@ -71,9 +71,9 @@ pub fn include_buffers_for_units(
         let include_header_in_include_path =
             matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader)
                 && db.file_path(file_id).is_some_and(|path| {
-                    units.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
+                    plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
                 });
-        if !include_header_in_include_path && !units.include_only.contains(&file_id) {
+        if !include_header_in_include_path && !plan.include_only.contains(&file_id) {
             continue;
         }
 
