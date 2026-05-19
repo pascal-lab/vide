@@ -114,15 +114,10 @@ impl<T: Copy> PathIdentityIndex<T> {
     }
 }
 
+#[derive(Default)]
 pub struct PathIdentitySet {
     aliases: FxHashSet<PathKey>,
     handles: Vec<Handle>,
-}
-
-impl Default for PathIdentitySet {
-    fn default() -> Self {
-        Self { aliases: FxHashSet::default(), handles: Vec::new() }
-    }
 }
 
 impl PathIdentitySet {
