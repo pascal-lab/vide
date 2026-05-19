@@ -17,6 +17,9 @@ use crate::{
 pub struct CompileUnits {
     pub source_roots: Vec<SourceRootId>,
     pub roots: Vec<FileId>,
+    /// Files reached through literal SystemVerilog include directives. They are
+    /// made available to slang through include buffers, but are not added
+    /// as standalone semantic roots.
     pub include_only: FxHashSet<FileId>,
     pub include_dirs: Vec<AbsPathBuf>,
     pub top_modules: Vec<String>,
