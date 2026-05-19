@@ -89,9 +89,7 @@ fn highlight_refs<'a>(
         .remove(&file_id)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|tok| {
-            Some(DocumentHighlight { range: tok.range()?, category: tok.category() })
-        });
+        .map(|tok| DocumentHighlight { range: tok.range(), category: tok.category() });
 
     Some(defs.chain(refs).collect())
 }

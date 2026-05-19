@@ -102,7 +102,7 @@ pub(crate) fn rename(
 
 fn edits_from_refs(
     sema: &Semantics<'_, RootDb>,
-    (file_id, toks): (FileId, Vec<ReferenceToken<'_>>),
+    (file_id, toks): (FileId, Vec<ReferenceToken>),
     def: &Definition,
     old_name: &str,
     new_name: &str,
@@ -110,9 +110,11 @@ fn edits_from_refs(
     let mut text_edit = TextEdit::builder();
     let text = sema.db.file_text(file_id);
     let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
 
-    for ReferenceToken { token } in toks.into_iter() {
-        let Some(range) = token.text_range() else {
+    for token_ref in toks.into_iter() {
+        let range = token_ref.range();
+        let Some(token) = token_ref.to_token(parsed_file.syntax_tree()) else {
             continue;
         };
         let SyntaxTokenWithParent { parent, tok } = token;

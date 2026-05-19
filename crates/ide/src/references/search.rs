@@ -14,7 +14,7 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
     SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, has_text_range::HasTextRange,
-    token::TokenKindExt,
+    ptr::SyntaxTokenPtr, token::TokenKindExt,
 };
 use triomphe::Arc;
 use utils::{
@@ -135,18 +135,30 @@ pub(crate) struct ReferencesCtx<'a, 'b> {
     scope: SearchScope,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ReferenceToken<'a> {
-    pub token: SyntaxTokenWithParent<'a>,
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReferenceToken {
+    ptr: SyntaxTokenPtr,
+    category: ReferenceCategory,
 }
 
-impl ReferenceToken<'_> {
-    pub fn range(&self) -> Option<TextRange> {
-        self.token.text_range()
+impl ReferenceToken {
+    pub fn new(token: SyntaxTokenWithParent) -> Self {
+        Self {
+            ptr: SyntaxTokenPtr::from_token(token),
+            category: ReferenceCategory::from_tok(token),
+        }
+    }
+
+    pub fn range(&self) -> TextRange {
+        self.ptr.range()
     }
 
     pub fn category(&self) -> ReferenceCategory {
-        ReferenceCategory::from_tok(self.token)
+        self.category
+    }
+
+    pub fn to_token<'a>(&self, tree: &'a syntax::SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
+        self.ptr.to_token(tree)
     }
 }
 
@@ -162,7 +174,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         Self { sema, def, scope }
     }
 
-    pub(crate) fn search(&self) -> IntMap<FileId, Vec<ReferenceToken<'a>>> {
+    pub(crate) fn search(&self) -> IntMap<FileId, Vec<ReferenceToken>> {
         let sema = self.sema;
         let db = sema.db;
         let mut res: IntMap<_, Vec<_>> = IntMap::default();
@@ -194,7 +206,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
                 .for_each(|token| {
                     res.entry(file_id)
                         .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
-                        .push(ReferenceToken { token })
+                        .push(ReferenceToken::new(token))
                 });
         }
 
