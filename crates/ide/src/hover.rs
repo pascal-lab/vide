@@ -29,7 +29,8 @@ pub(crate) fn hover(
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
-    let root = sema.parse_root(file_id)?;
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root()?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
     let res = handle_literal(&sema, hir_file_id, token)

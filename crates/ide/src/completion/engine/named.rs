@@ -23,7 +23,8 @@ pub(super) fn complete_named_port_names(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
     let Some(instantiation) =
@@ -68,7 +69,8 @@ pub(super) fn complete_named_param_names(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
     let Some(instantiation) =
@@ -112,7 +114,8 @@ pub(super) fn complete_named_port_conn_expr(
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let file_id = position.file_id.into();
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
     let Some(conn) = sema.find_node_at_offset::<ast::NamedPortConnection>(root, position.offset)
@@ -159,7 +162,8 @@ pub(super) fn complete_named_param_assign_expr(
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let file_id = position.file_id.into();
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
     let Some(assign) = sema.find_node_at_offset::<ast::NamedParamAssignment>(root, position.offset)

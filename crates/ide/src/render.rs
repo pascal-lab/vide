@@ -153,7 +153,8 @@ fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin)
     let db = sema.db;
     let InFile { value: range, file_id } = origin.range(db)?;
 
-    let root = sema.parse_root(file_id.file_id())?;
+    let parsed_file = sema.parse_file(file_id.file_id());
+    let root = parsed_file.root()?;
     let elem = root.elem_at_exact_range(range)?;
     let mut offset = elem.text_range()?.end();
 

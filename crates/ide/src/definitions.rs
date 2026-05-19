@@ -541,7 +541,8 @@ mod tests {
         let (host, file_id) = host_with_file(text);
         let db = host.raw_db();
         let sema = Semantics::<RootDb>::new(db);
-        let file = sema.parse(file_id).unwrap();
+        let parsed_file = sema.parse_file(file_id);
+        let file = parsed_file.compilation_unit().unwrap();
         let port_decl_name_offset = TextSize::from(text.find("input a").unwrap() as u32 + 6);
         let token = file.syntax().token_at_offset(port_decl_name_offset).left_biased().unwrap();
         let DefinitionClass::Definition(def) =

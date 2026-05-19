@@ -199,9 +199,11 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         for (text, file_id, range) in self.scope_files() {
             self.sema.db.unwind_if_cancelled();
 
-            let root = LazyCell::new(|| sema.parse_root(file_id));
+            let parsed_file = LazyCell::new(|| sema.parse_file(file_id));
             Self::match_text(&text, finder, range)
-                .filter_map(|offset| Self::filter_token((*root)?, file_id, &def_ranges, offset))
+                .filter_map(|offset| {
+                    Self::filter_token((*parsed_file).root()?, file_id, &def_ranges, offset)
+                })
                 .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
                 .for_each(|token| {
                     res.entry(file_id)
@@ -246,12 +248,12 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         })
     }
 
-    fn filter_token(
-        node: SyntaxNode<'a>,
+    fn filter_token<'tree>(
+        node: SyntaxNode<'tree>,
         file_id: FileId,
         names: &[InFile<TextRange>],
         offset: TextSize,
-    ) -> Option<SyntaxTokenWithParent<'a>> {
+    ) -> Option<SyntaxTokenWithParent<'tree>> {
         let tok = node.token_at_offset(offset).find(|tok| tok.kind().name_like())?;
         let tok_range = tok.text_range()?;
 
@@ -265,11 +267,11 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         }
     }
 
-    fn classify_and_filter(
+    fn classify_and_filter<'tree>(
         &self,
-        sema: &'a Semantics<'a, RootDb>,
+        sema: &Semantics<'_, RootDb>,
         file_id: hir::file::HirFileId,
-        tp: &SyntaxTokenWithParent<'a>,
+        tp: &SyntaxTokenWithParent<'tree>,
     ) -> bool {
         let Some(def) = DefinitionClass::resolve(sema, file_id, *tp) else {
             return false;

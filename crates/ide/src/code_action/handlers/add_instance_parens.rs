@@ -19,7 +19,7 @@ pub(super) fn add_instance_parens(
         return None;
     }
 
-    let token = ctx.compilation_unit.syntax().token_before_offset(ctx.range.end())?;
+    let token = ctx.compilation_unit()?.syntax().token_before_offset(ctx.range.end())?;
     if !token.kind().name_like() || token.text_range()?.end() != ctx.range.end() {
         return None;
     }

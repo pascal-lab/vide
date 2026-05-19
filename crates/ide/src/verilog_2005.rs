@@ -107,7 +107,7 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
 }
 
 #[test]
-fn semantics_nodes_survive_parse_lru_eviction() {
+fn parsed_file_nodes_survive_parse_lru_eviction() {
     let mut file_set = FileSet::default();
     let files = [
         (FileId(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
@@ -129,7 +129,8 @@ fn semantics_nodes_survive_parse_lru_eviction() {
     db.apply_change(change);
 
     let sema = Semantics::new(&db);
-    let root = sema.parse_root(FileId(0)).expect("a.sv should parse");
+    let parsed_file = sema.parse_file(FileId(0));
+    let root = parsed_file.root().expect("a.sv should parse");
     let child_count = root.child_count();
     assert!(child_count > 0);
 

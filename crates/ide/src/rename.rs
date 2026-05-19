@@ -49,7 +49,8 @@ pub(crate) fn prepare_rename(
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
-    let root = sema.parse_root(file_id).ok_or(RenameError::NoRefFound)?;
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
     DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)?;
@@ -64,7 +65,8 @@ pub(crate) fn rename(
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
-    let root = sema.parse_root(file_id).ok_or(RenameError::NoRefFound)?;
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let def =
         match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {

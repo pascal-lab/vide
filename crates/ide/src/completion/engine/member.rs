@@ -22,7 +22,8 @@ pub(super) fn complete_member_access(
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
     let file_id = position.file_id.into();
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
 
