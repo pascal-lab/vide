@@ -6,7 +6,7 @@ use syntax::{
 use triomphe::Arc;
 use utils::{
     line_index::TextSize,
-    path_identity::{PathKey, path_alias_keys},
+    path_identity::{PathIdentityIndex, PathIdentitySet},
 };
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
@@ -104,14 +104,14 @@ fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentit
 
 fn insert_buffer_file_ids(
     buffer_file_ids: &mut FxHashMap<u32, FileId>,
-    path_file_ids: &FxHashMap<PathKey, FileId>,
+    path_file_ids: &PathIdentityIndex<FileId>,
     buffers: SyntaxTreeBufferIds,
     root_file_id: FileId,
 ) {
     buffer_file_ids.insert(buffers.root_buffer_id, root_file_id);
     for buffer in buffers.source_buffers {
-        if let Some(file_id) = path_file_ids.get(&PathKey::new(&buffer.path)) {
-            buffer_file_ids.insert(buffer.buffer_id, *file_id);
+        if let Some(file_id) = path_file_ids.get(&buffer.path) {
+            buffer_file_ids.insert(buffer.buffer_id, file_id);
         }
     }
 }
@@ -148,7 +148,7 @@ fn in_memory_include_buffers(
     db: &dyn SourceRootDb,
     include_dirs: &[utils::paths::AbsPathBuf],
 ) -> Vec<SyntaxTreeBuffer> {
-    let mut seen = FxHashSet::default();
+    let mut seen = PathIdentitySet::default();
     let mut buffers = Vec::new();
 
     for file_id in db.files().iter().copied() {
@@ -169,11 +169,9 @@ fn in_memory_include_buffers(
             continue;
         }
 
-        let keys = path_alias_keys(&path);
-        if keys.iter().any(|key| seen.contains(key)) {
+        if !seen.insert_path(&path) {
             continue;
         }
-        seen.extend(keys);
 
         let path = path.to_string();
         buffers.push(SyntaxTreeBuffer { path, text: db.file_text(file_id).to_string() });
@@ -321,15 +319,13 @@ fn source_root_semantic_diagnostics(
     let top_modules = profile.map(|profile| profile.top_modules.clone()).unwrap_or_default();
     let mut compilation = Compilation::new_with_top_modules(&top_modules);
     let mut buffer_file_ids = FxHashMap::default();
-    let mut path_file_ids = FxHashMap::default();
+    let mut path_file_ids = PathIdentityIndex::default();
     for file_id in db.files().iter().copied() {
         if db.file_is_project_ignored(file_id) {
             continue;
         }
         if let Some(path) = db.file_path(file_id) {
-            for key in path_alias_keys(&path) {
-                path_file_ids.insert(key, file_id);
-            }
+            path_file_ids.insert_path(&path, file_id);
         }
     }
     let mut visited_files = FxHashSet::default();
