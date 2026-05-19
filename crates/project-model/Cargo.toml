@@ -18,3 +18,6 @@ smol_str.workspace = true
 toml = "0.8.8"
 triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
+
+[dev-dependencies]
+utils = { workspace = true, features = ["camino_serde1", "test-support"] }
