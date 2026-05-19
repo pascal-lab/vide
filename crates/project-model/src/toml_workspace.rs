@@ -94,6 +94,7 @@ pub struct TomlWorkspace {
     pub exclude: Vec<AbsPathBuf>,
     pub package: Vec<AbsPathBuf>,
     pub is_lib: bool,
+    pub has_manifest: bool,
 }
 
 impl TomlWorkspace {
@@ -169,6 +170,7 @@ impl TomlWorkspace {
             exclude,
             package,
             is_lib,
+            has_manifest: true,
         })
     }
 
@@ -182,6 +184,7 @@ impl TomlWorkspace {
             exclude: vec![],
             package: vec![],
             is_lib,
+            has_manifest: false,
         }
     }
 }

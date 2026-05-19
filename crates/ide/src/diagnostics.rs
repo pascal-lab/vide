@@ -132,7 +132,7 @@ mod tests {
 
     use super::{diagnostics, source_root_diagnostics};
 
-    fn db_with_files(files: &[(&str, &str)]) -> RootDb {
+    fn db_with_files(files: &[(&str, &str)], configured: bool) -> RootDb {
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
         let mut change = Change::new();
@@ -148,16 +148,29 @@ mod tests {
         }
 
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        if configured {
+            change.set_project_config(Arc::new(ProjectConfig::new(
+                vec![Some(CompilationProfileId(0))],
+                vec![CompilationProfile {
+                    source_roots: vec![SourceRootId(0)],
+                    top_modules: Vec::new(),
+                    preprocess: PreprocessConfig::default(),
+                }],
+            )));
+        }
         db.apply_change(change);
         db
     }
 
     #[test]
     fn semantic_diagnostics_include_other_workspace_files() {
-        let db = db_with_files(&[
-            ("/child.sv", "module child(input logic a, input logic b);\nendmodule\n"),
-            ("/top.sv", "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n"),
-        ]);
+        let db = db_with_files(
+            &[
+                ("/child.sv", "module child(input logic a, input logic b);\nendmodule\n"),
+                ("/top.sv", "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n"),
+            ],
+            true,
+        );
 
         let diagnostics = diagnostics(&db, FileId(1));
 
@@ -172,6 +185,25 @@ mod tests {
         assert!(
             db.semantic_diagnostics(FileId(0)).is_empty(),
             "child file should not receive diagnostics that belong to top.sv"
+        );
+    }
+
+    #[test]
+    fn unconfigured_root_keeps_only_parse_diagnostics() {
+        let db = db_with_files(
+            &[
+                ("/child.sv", "module child(input logic a, input logic b);\nendmodule\n"),
+                ("/top.sv", "module top(;\n  logic sig;\n  child u(.a(sig));\nendmodule\n"),
+            ],
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(1));
+
+        assert!(!diagnostics.is_empty(), "expected syntax diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+            "unconfigured roots should not run semantic diagnostics: {diagnostics:?}"
         );
     }
 
@@ -256,6 +288,14 @@ mod tests {
             change_kind: ChangeKind::Create(Arc::from(vfs_frag_text), LineEnding::Unix),
         });
         change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0))],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig::default(),
+            }],
+        )));
         db.apply_change(change);
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
