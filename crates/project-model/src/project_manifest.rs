@@ -73,78 +73,57 @@ impl ProjectManifest {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::fs;
 
-    use utils::paths::AbsPathBuf;
+    use utils::test_support::TestDir;
 
     use super::{MANIFEST_FILE_NAME, ProjectManifest};
 
-    fn temp_project_dir(name: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("vizsla-manifest-{name}-{}-{stamp}", std::process::id()))
-    }
-
     #[test]
     fn from_path_does_not_use_parent_manifest() {
-        let base = temp_project_dir("parent");
+        let base = TestDir::new("manifest-parent");
         let child = base.join("child");
         fs::create_dir_all(&child).unwrap();
         fs::write(base.join(MANIFEST_FILE_NAME), r#"top_modules = ["parent"]"#).unwrap();
 
-        let child_abs = AbsPathBuf::try_from(child.clone()).unwrap();
+        let child_abs = child;
         let manifest = ProjectManifest::from_path(&child_abs).unwrap();
-
-        let _ = fs::remove_dir_all(base);
 
         assert_eq!(manifest, ProjectManifest::UnconfiguredRoot(child_abs));
     }
 
     #[test]
     fn from_path_uses_workspace_root_manifest() {
-        let root = temp_project_dir("root");
-        fs::create_dir_all(&root).unwrap();
+        let root = TestDir::new("manifest-root");
         let manifest_path = root.join(MANIFEST_FILE_NAME);
         fs::write(&manifest_path, r#"top_modules = ["root"]"#).unwrap();
 
-        let manifest =
-            ProjectManifest::from_path(&AbsPathBuf::try_from(root.clone()).unwrap()).unwrap();
+        let root = root.path().to_path_buf();
+        let manifest = ProjectManifest::from_path(&root).unwrap();
 
-        let _ = fs::remove_dir_all(root);
-
-        assert_eq!(manifest, ProjectManifest::Toml(AbsPathBuf::try_from(manifest_path).unwrap()));
+        assert_eq!(manifest, ProjectManifest::Toml(manifest_path));
     }
 
     #[test]
     fn from_path_does_not_use_child_manifest() {
-        let root = temp_project_dir("child");
+        let root = TestDir::new("manifest-child");
         let child = root.join("child");
         fs::create_dir_all(&child).unwrap();
         fs::write(child.join(MANIFEST_FILE_NAME), r#"top_modules = ["child"]"#).unwrap();
 
-        let root_abs = AbsPathBuf::try_from(root.clone()).unwrap();
+        let root_abs = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root_abs).unwrap();
-
-        let _ = fs::remove_dir_all(root);
 
         assert_eq!(manifest, ProjectManifest::UnconfiguredRoot(root_abs));
     }
 
     #[test]
     fn from_path_rejects_non_manifest_file() {
-        let root = temp_project_dir("file");
-        fs::create_dir_all(&root).unwrap();
+        let root = TestDir::new("manifest-file");
         let file = root.join("top.sv");
         fs::write(&file, "module top; endmodule\n").unwrap();
 
-        let error = ProjectManifest::from_path(&AbsPathBuf::try_from(file).unwrap()).unwrap_err();
-
-        let _ = fs::remove_dir_all(root);
+        let error = ProjectManifest::from_path(&file).unwrap_err();
 
         assert!(error.to_string().contains("must be a directory"));
     }

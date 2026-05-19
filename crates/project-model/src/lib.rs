@@ -280,24 +280,15 @@ fn collect_dependency_roots(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::fs;
+
+    use utils::test_support::TestDir;
 
     use super::*;
 
-    fn temp_project_dir(name: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("vizsla-{name}-{}-{stamp}", std::process::id()))
-    }
-
     #[test]
     fn project_model_loads_external_package_as_library_once() {
-        let base = temp_project_dir("project-model-package");
+        let base = TestDir::new("project-model-package");
         let root = base.join("root");
         let root_rtl = root.join("rtl");
         let package = base.join("pkg");
@@ -316,11 +307,8 @@ libraries = ["../pkg"]
         fs::write(package.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl"]"#)
             .unwrap();
 
-        let manifest =
-            ProjectManifest::from_path(&AbsPathBuf::try_from(root.clone()).unwrap()).unwrap();
+        let manifest = ProjectManifest::from_path(&root).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
-
-        let _ = fs::remove_dir_all(base);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 2);
@@ -330,7 +318,7 @@ libraries = ["../pkg"]
 
     #[test]
     fn project_model_loads_unconfigured_external_package_as_library() {
-        let base = temp_project_dir("project-model-unconfigured-package");
+        let base = TestDir::new("project-model-unconfigured-package");
         let root = base.join("root");
         let root_rtl = root.join("rtl");
         let package = base.join("pkg");
@@ -347,12 +335,9 @@ libraries = ["../pkg/rtl"]
         )
         .unwrap();
 
-        let manifest =
-            ProjectManifest::from_path(&AbsPathBuf::try_from(root.clone()).unwrap()).unwrap();
+        let manifest = ProjectManifest::from_path(&root).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
         let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
-
-        let _ = fs::remove_dir_all(base);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 2);
@@ -366,7 +351,7 @@ libraries = ["../pkg/rtl"]
 
     #[test]
     fn headers_only_workspace_is_loaded() {
-        let base = temp_project_dir("project-model-headers-only");
+        let base = TestDir::new("project-model-headers-only");
         let root = base.join("root");
         let include = root.join("include");
         fs::create_dir_all(&include).unwrap();
@@ -378,12 +363,9 @@ include_dirs = ["include"]
         )
         .unwrap();
 
-        let manifest =
-            ProjectManifest::from_path(&AbsPathBuf::try_from(root.clone()).unwrap()).unwrap();
+        let manifest = ProjectManifest::from_path(&root).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
         let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
-
-        let _ = fs::remove_dir_all(base);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(load.len(), 1);
@@ -392,7 +374,7 @@ include_dirs = ["include"]
 
     #[test]
     fn workspace_profiles_include_only_dependency_library_roots() {
-        let base = temp_project_dir("project-model-dependency-closure");
+        let base = TestDir::new("project-model-dependency-closure");
         let root_a = base.join("root_a");
         let root_b = base.join("root_b");
         let pkg_a = base.join("pkg_a");
@@ -420,16 +402,10 @@ libraries = ["../pkg_b"]
             .unwrap();
 
         let (model, errors) = ProjectModel::load(vec![
-            ProjectManifest::Toml(
-                AbsPathBuf::try_from(root_a.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
-            ),
-            ProjectManifest::Toml(
-                AbsPathBuf::try_from(root_b.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
-            ),
+            ProjectManifest::Toml(root_a.join(project_manifest::MANIFEST_FILE_NAME)),
+            ProjectManifest::Toml(root_b.join(project_manifest::MANIFEST_FILE_NAME)),
         ]);
         let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
-
-        let _ = fs::remove_dir_all(base);
 
         assert!(errors.is_empty(), "{errors:#?}");
         let root_a_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
@@ -443,7 +419,7 @@ libraries = ["../pkg_b"]
 
     #[test]
     fn workspace_profiles_include_transitive_shared_dependency_roots_once() {
-        let base = temp_project_dir("project-model-transitive-dependency-closure");
+        let base = TestDir::new("project-model-transitive-dependency-closure");
         let app = base.join("app");
         let lib_a = base.join("lib_a");
         let lib_b = base.join("lib_b");
@@ -476,11 +452,9 @@ libraries = ["../common"]
             .unwrap();
 
         let (model, errors) = ProjectModel::load(vec![ProjectManifest::Toml(
-            AbsPathBuf::try_from(app.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
+            app.join(project_manifest::MANIFEST_FILE_NAME),
         )]);
         let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
-
-        let _ = fs::remove_dir_all(base);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 4);
@@ -505,7 +479,7 @@ libraries = ["../common"]
 
     #[test]
     fn workspace_profile_includes_explicit_dependency_even_when_dependency_is_local() {
-        let base = temp_project_dir("project-model-local-dependency");
+        let base = TestDir::new("project-model-local-dependency");
         let app = base.join("app");
         let pkg = base.join("pkg");
         fs::create_dir_all(app.join("rtl")).unwrap();
@@ -525,16 +499,10 @@ libraries = ["../pkg"]
         .unwrap();
 
         let (model, errors) = ProjectModel::load(vec![
-            ProjectManifest::Toml(
-                AbsPathBuf::try_from(app.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
-            ),
-            ProjectManifest::Toml(
-                AbsPathBuf::try_from(pkg.join(project_manifest::MANIFEST_FILE_NAME)).unwrap(),
-            ),
+            ProjectManifest::Toml(app.join(project_manifest::MANIFEST_FILE_NAME)),
+            ProjectManifest::Toml(pkg.join(project_manifest::MANIFEST_FILE_NAME)),
         ]);
         let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
-
-        let _ = fs::remove_dir_all(base);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 2);

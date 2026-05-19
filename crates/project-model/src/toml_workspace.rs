@@ -188,17 +188,9 @@ impl TomlWorkspace {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use utils::test_support::TestDir;
 
-    fn temp_dir(name: &str) -> AbsPathBuf {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        AbsPathBuf::assert_utf8(
-            std::env::temp_dir().join(format!("vizsla-{name}-{}-{stamp}", std::process::id())),
-        )
-    }
+    use super::*;
 
     #[test]
     fn test_de_macros() {
@@ -239,40 +231,34 @@ defines = [
 
     #[test]
     fn configured_empty_sources_do_not_default_to_workspace_root() {
-        let root = temp_dir("empty-sources");
-        let manifest = root.join("vizsla_config.toml");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(&manifest, "sources = []\n").unwrap();
+        let root = TestDir::new("empty-sources");
+        let manifest = root.write("vizsla_config.toml", "sources = []\n");
 
         let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
 
-        let _ = std::fs::remove_dir_all(&root);
         assert!(workspace.sources.is_empty());
     }
 
     #[test]
     fn excluded_configured_sources_do_not_default_to_workspace_root() {
-        let root = temp_dir("excluded-sources");
-        let manifest = root.join("vizsla_config.toml");
-        std::fs::create_dir_all(root.join("rtl")).unwrap();
-        std::fs::write(&manifest, "sources = [\"rtl\"]\nexclude = [\"rtl\"]\n").unwrap();
+        let root = TestDir::new("excluded-sources");
+        root.create_dir_all("rtl");
+        let manifest =
+            root.write("vizsla_config.toml", "sources = [\"rtl\"]\nexclude = [\"rtl\"]\n");
 
         let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
 
-        let _ = std::fs::remove_dir_all(&root);
         assert!(workspace.sources.is_empty());
     }
 
     #[test]
     fn configured_empty_include_dirs_do_not_default_to_sources() {
-        let root = temp_dir("empty-include-dirs");
-        let manifest = root.join("vizsla_config.toml");
-        std::fs::create_dir_all(root.join("rtl")).unwrap();
-        std::fs::write(&manifest, "sources = [\"rtl\"]\ninclude_dirs = []\n").unwrap();
+        let root = TestDir::new("empty-include-dirs");
+        root.create_dir_all("rtl");
+        let manifest = root.write("vizsla_config.toml", "sources = [\"rtl\"]\ninclude_dirs = []\n");
 
         let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
 
-        let _ = std::fs::remove_dir_all(&root);
         assert!(workspace.include_dirs.is_empty());
     }
 }
