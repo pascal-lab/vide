@@ -84,7 +84,9 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
 
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            SyntaxTree::from_text(&text, "", "")
+            // HIR source maps are local to the queried file; project-aware include
+            // expansion belongs to parse_src_for_compilation.
+            SyntaxTree::from_text_no_include_expansion(&text, "", "")
         }
         SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
