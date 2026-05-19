@@ -86,7 +86,12 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             // HIR source maps are local to the queried file; project-aware include
             // expansion belongs to parse_src_for_compilation.
-            SyntaxTree::from_text_no_include_expansion(&text, "", "")
+            SyntaxTree::from_text_with_options(
+                &text,
+                "",
+                "",
+                &syntax::SyntaxTreeOptions::without_include_expansion(),
+            )
         }
         SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
@@ -148,10 +153,23 @@ fn syntax_tree_options_for_file(
 ) -> syntax::SyntaxTreeOptions {
     let project_config = db.project_config();
     let profile_id = db.file_compilation_profile(file_id);
+    let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
+    syntax_tree_options_for_profile(&project_config, profile_id, include_buffers)
+}
+
+fn syntax_tree_options_for_profile(
+    project_config: &ProjectConfig,
+    profile_id: Option<CompilationProfileId>,
+    include_buffers: Vec<SyntaxTreeBuffer>,
+) -> syntax::SyntaxTreeOptions {
     let preprocess = project_config.preprocess_for_profile(profile_id);
     let include_paths = preprocess.include_dir_strings();
-    let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
-    syntax::SyntaxTreeOptions { predefines: preprocess.predefines, include_paths, include_buffers }
+    syntax::SyntaxTreeOptions {
+        predefines: preprocess.predefines,
+        include_paths,
+        include_buffers,
+        ..syntax::SyntaxTreeOptions::default()
+    }
 }
 
 fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
@@ -320,6 +338,12 @@ fn source_root_semantic_diagnostics(
     }
 
     let plan = db.compilation_plan_for_root(source_root_id);
+    let compilation_include_buffers =
+        compilation_plan::compilation_source_buffers_for_plan(db, &plan);
+    let project_config = db.project_config();
+    let profile_id = project_config.profile_for_root(source_root_id);
+    let compilation_options =
+        syntax_tree_options_for_profile(&project_config, profile_id, compilation_include_buffers);
     let mut compilation = Compilation::new_with_top_modules(&plan.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
@@ -327,15 +351,12 @@ fn source_root_semantic_diagnostics(
         let text = db.file_text(file_id);
         let identity = source_file_identity(db, file_id);
         let buffer_ids = match db.file_kind(file_id) {
-            SourceFileKind::SystemVerilog => {
-                let options = syntax_tree_options_for_file(db, file_id);
-                compilation.add_syntax_tree_from_text(
-                    &text,
-                    &identity.name,
-                    &identity.path,
-                    &options,
-                )
-            }
+            SourceFileKind::SystemVerilog => compilation.add_syntax_tree_from_text(
+                &text,
+                &identity.name,
+                &identity.path,
+                &compilation_options,
+            ),
             SourceFileKind::LibraryMap => compilation.add_library_map_syntax_tree_from_text(
                 &text,
                 &identity.name,

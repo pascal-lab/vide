@@ -114,7 +114,12 @@ mod tests {
         std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
 
         let text = format!("`include \"{include_rel}\"\nmodule top;\nendmodule\n");
-        let tree = slang::SyntaxTree::from_text_no_include_expansion(&text, "", "");
+        let tree = slang::SyntaxTree::from_text_with_options(
+            &text,
+            "",
+            "",
+            &slang::SyntaxTreeOptions::without_include_expansion(),
+        );
         let root = tree.root().expect("root syntax node");
         let unit = ast::CompilationUnit::cast(root).expect("compilation unit");
         let mut saw_root_module = false;

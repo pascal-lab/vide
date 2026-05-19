@@ -1,7 +1,7 @@
 use rustc_hash::FxHashSet;
 use syntax::SyntaxTreeBuffer;
 use utils::{
-    path_identity::{PathIdentityIndex, PathIdentitySet, path_alias_paths},
+    path_identity::{PathIdentityIndex, PathIdentitySet},
     paths::{AbsPathBuf, Utf8Path},
 };
 use vfs::FileId;
@@ -59,6 +59,24 @@ pub fn include_buffers_for_plan(
     db: &dyn SourceRootDb,
     plan: &CompilationPlan,
 ) -> Vec<SyntaxTreeBuffer> {
+    include_buffers_for_plan_with_roots(db, plan, false)
+}
+
+pub fn compilation_source_buffers_for_plan(
+    db: &dyn SourceRootDb,
+    plan: &CompilationPlan,
+) -> Vec<SyntaxTreeBuffer> {
+    include_buffers_for_plan_with_roots(db, plan, true)
+}
+
+fn include_buffers_for_plan_with_roots(
+    db: &dyn SourceRootDb,
+    plan: &CompilationPlan,
+    include_roots: bool,
+) -> Vec<SyntaxTreeBuffer> {
+    let root_files = include_roots
+        .then(|| plan.roots.iter().copied().collect::<FxHashSet<_>>())
+        .unwrap_or_default();
     let mut seen_files = PathIdentitySet::default();
     let mut seen_buffer_paths = FxHashSet::default();
     let mut buffers = Vec::new();
@@ -73,7 +91,12 @@ pub fn include_buffers_for_plan(
                 && db.file_path(file_id).is_some_and(|path| {
                     plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
                 });
-        if !include_header_in_include_path && !plan.include_only.contains(&file_id) {
+        let semantic_root = root_files.contains(&file_id)
+            && matches!(db.file_kind(file_id), SourceFileKind::SystemVerilog);
+        if !semantic_root
+            && !include_header_in_include_path
+            && !plan.include_only.contains(&file_id)
+        {
             continue;
         }
 
@@ -85,12 +108,9 @@ pub fn include_buffers_for_plan(
             continue;
         }
 
-        let text = db.file_text(file_id).to_string();
-        for alias_path in path_alias_paths(&path) {
-            let path = alias_path.to_string();
-            if seen_buffer_paths.insert(path.clone()) {
-                buffers.push(SyntaxTreeBuffer { path, text: text.clone() });
-            }
+        let path = path.to_string();
+        if seen_buffer_paths.insert(path.clone()) {
+            buffers.push(SyntaxTreeBuffer { path, text: db.file_text(file_id).to_string() });
         }
     }
 
