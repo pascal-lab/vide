@@ -75,7 +75,7 @@ npm run package
 - 文件扩展名是否是 `.v`, `.sv`, `.vh`, `.svh`, `.svi` 或 `.map`。
 - 你是否打开了子目录, 导致 workspace root 变了。
 
-没有清单时, 我们只把当前 workspace root 当作未配置工程。不会自动向父目录或子目录搜索清单。
+VS Code 扩展会在缺少清单时创建默认 `vizsla_config.toml`。如果你使用其它客户端且没有清单, Vizsla 只保留 syntax/parse diagnostics; 需要语义诊断和跨文件能力时请先创建清单。我们不会自动向父目录或子目录搜索清单。
 
 ## include 或宏没有生效
 
