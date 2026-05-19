@@ -6,6 +6,8 @@ pub mod lines;
 pub mod panic_context;
 pub mod path_identity;
 pub mod paths;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod text_edit;
 pub mod thread;
 pub mod uimpl;

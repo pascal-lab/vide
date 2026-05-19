@@ -25,3 +25,4 @@ triomphe.workspace = true
 
 [features]
 camino_serde1 = ["camino/serde1"]
+test-support = []
