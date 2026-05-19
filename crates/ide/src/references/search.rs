@@ -157,7 +157,7 @@ impl ReferenceToken {
         self.category
     }
 
-    pub fn to_token<'a>(&self, tree: &'a syntax::SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
+    pub fn to_token<'a>(self, tree: &'a syntax::SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
         self.ptr.to_token(tree)
     }
 }
