@@ -7,12 +7,13 @@ use triomphe::Arc;
 use utils::{
     line_index::TextSize,
     path_identity::{PathIdentityIndex, PathIdentitySet},
+    paths::{AbsPathBuf, Utf8Path},
 };
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
-    macro_index::{self, MacroFileIndex},
+    macro_index::{self, MacroFileIndex, MacroIncludeTarget},
     project::{CompilationProfileId, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -113,6 +114,89 @@ fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentit
     let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
     let name = if path.is_empty() { "source".to_owned() } else { path.clone() };
     SourceFileIdentity { name, path }
+}
+
+fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
+    let mut index = PathIdentityIndex::default();
+    for file_id in db.files().iter().copied() {
+        if db.file_is_project_ignored(file_id) {
+            continue;
+        }
+        if let Some(path) = db.file_path(file_id) {
+            index.insert_path(&path, file_id);
+        }
+    }
+    index
+}
+
+fn included_file_ids_for_roots(
+    db: &dyn SourceRootDb,
+    roots: &[SourceRootId],
+    include_dirs: &[AbsPathBuf],
+) -> FxHashSet<FileId> {
+    let path_file_ids = path_file_ids(db);
+    let mut included = FxHashSet::default();
+
+    for root_id in roots {
+        let source_root = db.source_root(*root_id);
+        for file_id in source_root.iter() {
+            if db.file_is_project_ignored(file_id) {
+                continue;
+            }
+            if !matches!(
+                db.file_kind(file_id),
+                SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+            ) {
+                continue;
+            }
+
+            let Some(includer_path) = db.file_path(file_id) else {
+                continue;
+            };
+
+            for include in &db.macro_file_index(file_id).includes {
+                let MacroIncludeTarget::Literal { path, .. } = &include.target else {
+                    continue;
+                };
+                if let Some(included_file_id) =
+                    resolve_include_target(path, &includer_path, include_dirs, &path_file_ids)
+                {
+                    included.insert(included_file_id);
+                }
+            }
+        }
+    }
+
+    included
+}
+
+fn resolve_include_target(
+    path: &str,
+    includer_path: &AbsPathBuf,
+    include_dirs: &[AbsPathBuf],
+    path_file_ids: &PathIdentityIndex<FileId>,
+) -> Option<FileId> {
+    let include_path = Utf8Path::new(path);
+    if include_path.is_absolute() {
+        let abs_path = AbsPathBuf::try_from(include_path.to_path_buf()).ok()?.normalize();
+        return path_file_ids.get_path(abs_path.as_path());
+    }
+
+    if let Some(parent) = includer_path.parent() {
+        let candidate = parent.absolutize(include_path);
+        if let Some(file_id) = path_file_ids.get_path(candidate.as_path()) {
+            return Some(file_id);
+        }
+    }
+
+    for include_dir in include_dirs {
+        let candidate = include_dir.absolutize(include_path);
+        if let Some(file_id) = path_file_ids.get_path(candidate.as_path()) {
+            return Some(file_id);
+        }
+    }
+
+    None
 }
 
 fn insert_buffer_file_ids(
@@ -325,22 +409,17 @@ fn source_root_semantic_diagnostics(
     }
 
     let project_config = db.project_config();
-    let profile = project_config.profile_for_root(source_root_id);
-    let profile = profile.and_then(|profile_id| project_config.profile(profile_id));
+    let profile_id = project_config.profile_for_root(source_root_id);
+    let profile = profile_id.and_then(|profile_id| project_config.profile(profile_id));
     let compilation_roots =
         profile.map(|profile| profile.source_roots.clone()).unwrap_or_else(|| vec![source_root_id]);
     let top_modules = profile.map(|profile| profile.top_modules.clone()).unwrap_or_default();
+    let preprocess = project_config.preprocess_for_profile(profile_id);
+    let include_file_ids =
+        included_file_ids_for_roots(db, &compilation_roots, &preprocess.include_dirs);
     let mut compilation = Compilation::new_with_top_modules(&top_modules);
     let mut buffer_file_ids = FxHashMap::default();
-    let mut path_file_ids = PathIdentityIndex::default();
-    for file_id in db.files().iter().copied() {
-        if db.file_is_project_ignored(file_id) {
-            continue;
-        }
-        if let Some(path) = db.file_path(file_id) {
-            path_file_ids.insert_path(&path, file_id);
-        }
-    }
+    let path_file_ids = path_file_ids(db);
     let mut visited_files = FxHashSet::default();
 
     for root_id in compilation_roots {
@@ -353,6 +432,11 @@ fn source_root_semantic_diagnostics(
                 continue;
             }
             if !db.file_kind(file_id).is_semantic_compilation_unit() {
+                continue;
+            }
+            if matches!(db.file_kind(file_id), SourceFileKind::SystemVerilog)
+                && include_file_ids.contains(&file_id)
+            {
                 continue;
             }
             let text = db.file_text(file_id);

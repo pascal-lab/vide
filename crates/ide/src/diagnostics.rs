@@ -228,4 +228,48 @@ mod tests {
             "header diagnostics should be attributed to the header file: {diagnostics:?}"
         );
     }
+
+    #[test]
+    fn semantic_diagnostics_do_not_compile_included_sv_as_root_source() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join(format!("vizsla-diagnostics-included-sv-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let root = AbsPathBuf::assert_utf8(dir.clone());
+        let pkg_path = root.join("a_pkg.sv");
+        let frag_path = root.join("z_frag.sv");
+        let pkg_text = "`include \"z_frag.sv\"\nmodule pkg_mod; endmodule\n";
+        let frag_text = "module frag_mod; endmodule\n";
+        std::fs::write(&pkg_path, pkg_text).unwrap();
+        std::fs::write(&frag_path, frag_text).unwrap();
+
+        let mut db = RootDb::new(None);
+        let mut file_set = FileSet::default();
+        file_set.insert(FileId(0), VfsPath::from(pkg_path.clone()));
+        file_set.insert(FileId(1), VfsPath::from(frag_path));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(0),
+            change_kind: ChangeKind::Create(Arc::from(pkg_text), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(1),
+            change_kind: ChangeKind::Create(Arc::from(frag_text), LineEnding::Unix),
+        });
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        db.apply_change(change);
+
+        let diagnostics = diagnostics(&db, FileId(0));
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(
+            diagnostics.iter().all(|diag| !diag.message.contains("already been assigned")),
+            "included .sv should not be added as a second root source: {diagnostics:?}"
+        );
+    }
 }
