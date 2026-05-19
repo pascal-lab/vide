@@ -179,33 +179,39 @@ fn include_targets_for_source_roots(
 ) -> FxHashSet<FileId> {
     let path_file_ids = path_file_ids(db);
     let mut included = FxHashSet::default();
-
+    let mut scanned = FxHashSet::default();
+    let mut pending = Vec::new();
     for root_id in roots {
-        let source_root = db.source_root(*root_id);
-        for file_id in source_root.iter() {
-            if db.file_is_project_ignored(file_id) {
-                continue;
-            }
-            if !matches!(
-                db.file_kind(file_id),
-                SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
-            ) {
-                continue;
-            }
+        pending.extend(db.source_root(*root_id).iter());
+    }
 
-            let Some(includer_path) = db.file_path(file_id) else {
+    while let Some(file_id) = pending.pop() {
+        if !scanned.insert(file_id) {
+            continue;
+        }
+        if db.file_is_project_ignored(file_id) {
+            continue;
+        }
+        if !matches!(
+            db.file_kind(file_id),
+            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+        ) {
+            continue;
+        }
+
+        let Some(includer_path) = db.file_path(file_id) else {
+            continue;
+        };
+
+        for include in &db.preproc_file_index(file_id).includes {
+            let MacroIncludeTarget::Literal { path, .. } = &include.target else {
                 continue;
             };
-
-            for include in &db.preproc_file_index(file_id).includes {
-                let MacroIncludeTarget::Literal { path, .. } = &include.target else {
-                    continue;
-                };
-                if let Some(included_file_id) =
-                    resolve_include_target(path, &includer_path, include_dirs, &path_file_ids)
-                {
-                    included.insert(included_file_id);
-                }
+            if let Some(included_file_id) =
+                resolve_include_target(path, &includer_path, include_dirs, &path_file_ids)
+                && included.insert(included_file_id)
+            {
+                pending.push(included_file_id);
             }
         }
     }

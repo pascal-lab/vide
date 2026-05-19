@@ -127,10 +127,10 @@ mod tests {
     };
     use ide_db::root_db::RootDb;
     use triomphe::Arc;
-    use utils::{lines::LineEnding, paths::AbsPathBuf};
+    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use super::diagnostics;
+    use super::{diagnostics, source_root_diagnostics};
 
     fn db_with_files(files: &[(&str, &str)]) -> RootDb {
         let mut db = RootDb::new(None);
@@ -231,15 +231,8 @@ mod tests {
 
     #[test]
     fn semantic_diagnostics_do_not_compile_included_sv_as_root_source() {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let dir = std::env::temp_dir()
-            .join(format!("vizsla-diagnostics-included-sv-{}-{stamp}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let root = AbsPathBuf::assert_utf8(dir.clone());
+        let dir = TestDir::new("diagnostics-included-sv");
+        let root = dir.path().to_path_buf();
         let pkg_path = root.join("a_pkg.sv");
         let frag_path = root.join("z_frag.sv");
         let pkg_text = "module pkg_mod;\n`include \"z_frag.sv\"\nendmodule\n";
@@ -266,13 +259,78 @@ mod tests {
         db.apply_change(change);
 
         let diagnostics = diagnostics(&db, FileId(1));
-        let _ = std::fs::remove_dir_all(dir);
 
         assert!(
             diagnostics
                 .iter()
                 .any(|diag| diag.file_id == FileId(1) && diag.message.contains("missing_name")),
             "included .sv should use VFS text and receive mapped diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn semantic_diagnostics_follow_transitive_included_sv_buffers() {
+        let dir = TestDir::new("diagnostics-transitive-included-sv");
+        let src_root = dir.join("src");
+        let include_root = dir.join("include");
+        std::fs::create_dir_all(&src_root).unwrap();
+        std::fs::create_dir_all(&include_root).unwrap();
+
+        let top_path = src_root.join("top.sv");
+        let mid_path = include_root.join("mid.sv");
+        let leaf_path = include_root.join("leaf.sv");
+        let top_text = "module top;\n`include \"mid.sv\"\nendmodule\n";
+        let mid_text = "`include \"leaf.sv\"\n";
+        let disk_leaf_text = "logic value = 1'b0;\n";
+        let vfs_leaf_text = "logic value = missing_name;\n";
+        std::fs::write(&top_path, top_text).unwrap();
+        std::fs::write(&mid_path, mid_text).unwrap();
+        std::fs::write(&leaf_path, disk_leaf_text).unwrap();
+
+        let mut db = RootDb::new(None);
+        let mut src_files = FileSet::default();
+        src_files.insert(FileId(0), VfsPath::from(top_path));
+        let mut include_files = FileSet::default();
+        include_files.insert(FileId(1), VfsPath::from(mid_path));
+        include_files.insert(FileId(2), VfsPath::from(leaf_path));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(0),
+            change_kind: ChangeKind::Create(Arc::from(top_text), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(1),
+            change_kind: ChangeKind::Create(Arc::from(mid_text), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(2),
+            change_kind: ChangeKind::Create(Arc::from(vfs_leaf_text), LineEnding::Unix),
+        });
+        change.set_roots(vec![
+            SourceRoot::new_local(src_files),
+            SourceRoot::new_local(include_files),
+        ]);
+        change.set_project_config(Arc::new(ProjectConfig::new(
+            vec![Some(CompilationProfileId(0)), None],
+            vec![CompilationProfile {
+                source_roots: vec![SourceRootId(0)],
+                top_modules: Vec::new(),
+                preprocess: PreprocessConfig {
+                    predefines: Vec::new(),
+                    include_dirs: vec![include_root],
+                },
+            }],
+        )));
+        db.apply_change(change);
+
+        let diagnostics = source_root_diagnostics(&db, FileId(0));
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diag| diag.file_id == FileId(2) && diag.message.contains("missing_name")),
+            "transitively included .sv should use VFS text: {diagnostics:?}"
         );
     }
 }
