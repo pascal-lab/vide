@@ -4,7 +4,10 @@ use syntax::{
     SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
-use utils::line_index::TextSize;
+use utils::{
+    line_index::TextSize,
+    paths::{PathKey, path_alias_keys},
+};
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
@@ -99,19 +102,15 @@ fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentit
     SourceFileIdentity { name, path }
 }
 
-fn normalized_path_key(path: &str) -> String {
-    path.replace('\\', "/")
-}
-
 fn insert_buffer_file_ids(
     buffer_file_ids: &mut FxHashMap<u32, FileId>,
-    path_file_ids: &FxHashMap<String, FileId>,
+    path_file_ids: &FxHashMap<PathKey, FileId>,
     buffers: SyntaxTreeBufferIds,
     root_file_id: FileId,
 ) {
     buffer_file_ids.insert(buffers.root_buffer_id, root_file_id);
     for buffer in buffers.source_buffers {
-        if let Some(file_id) = path_file_ids.get(&normalized_path_key(&buffer.path)) {
+        if let Some(file_id) = path_file_ids.get(&PathKey::new(&buffer.path)) {
             buffer_file_ids.insert(buffer.buffer_id, *file_id);
         }
     }
@@ -170,11 +169,13 @@ fn in_memory_include_buffers(
             continue;
         }
 
-        let path = path.to_string();
-        if !seen.insert(path.clone()) {
+        let keys = path_alias_keys(&path);
+        if keys.iter().any(|key| seen.contains(key)) {
             continue;
         }
+        seen.extend(keys);
 
+        let path = path.to_string();
         buffers.push(SyntaxTreeBuffer { path, text: db.file_text(file_id).to_string() });
     }
 
@@ -326,7 +327,9 @@ fn source_root_semantic_diagnostics(
             continue;
         }
         if let Some(path) = db.file_path(file_id) {
-            path_file_ids.insert(normalized_path_key(&path.to_string()), file_id);
+            for key in path_alias_keys(&path) {
+                path_file_ids.insert(key, file_id);
+            }
         }
     }
     let mut visited_files = FxHashSet::default();
