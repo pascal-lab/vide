@@ -4,6 +4,7 @@ pub mod json;
 pub mod line_index;
 pub mod lines;
 pub mod panic_context;
+pub mod path_identity;
 pub mod paths;
 pub mod text_edit;
 pub mod thread;

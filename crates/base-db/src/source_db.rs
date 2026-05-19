@@ -6,7 +6,7 @@ use syntax::{
 use triomphe::Arc;
 use utils::{
     line_index::TextSize,
-    paths::{PathKey, path_alias_keys},
+    path_identity::{PathKey, path_alias_keys},
 };
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
