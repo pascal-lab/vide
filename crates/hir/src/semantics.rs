@@ -34,6 +34,29 @@ pub struct Semantics<'db, DB> {
     impl_: SemanticsImpl<'db>,
 }
 
+pub struct ParsedFile {
+    file_id: HirFileId,
+    tree: SyntaxTree,
+}
+
+impl ParsedFile {
+    pub fn file_id(&self) -> HirFileId {
+        self.file_id
+    }
+
+    pub fn syntax_tree(&self) -> &SyntaxTree {
+        &self.tree
+    }
+
+    pub fn root(&self) -> Option<SyntaxNode<'_>> {
+        self.tree.root()
+    }
+
+    pub fn compilation_unit(&self) -> Option<ast::CompilationUnit<'_>> {
+        ast::CompilationUnit::cast(self.root()?)
+    }
+}
+
 impl<DB: HirDb> Semantics<'_, DB> {
     pub fn new(db: &DB) -> Semantics<'_, DB> {
         let impl_ = SemanticsImpl::new(db);
@@ -109,6 +132,10 @@ impl<'db> SemanticsImpl<'db> {
 
     pub fn parse(&self, file_id: FileId) -> Option<ast::CompilationUnit<'_>> {
         ast::CompilationUnit::cast(self.parse_root(file_id)?)
+    }
+
+    pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
+        ParsedFile { file_id: file_id.into(), tree: self.db.parse_src(file_id) }
     }
 
     pub fn find_file(&self, node: SyntaxNode) -> Option<HirFileId> {
