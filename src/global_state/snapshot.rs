@@ -54,6 +54,10 @@ impl GlobalStateSnapshot {
         self.vfs_read().file_id(&path)
     }
 
+    pub(crate) fn file_path(&self, file_id: FileId) -> Option<AbsPathBuf> {
+        self.vfs_read().file_path(file_id)?.as_abs_path().map(ToOwned::to_owned)
+    }
+
     pub(crate) fn line_info(&self, file_id: FileId) -> anyhow::Result<LineInfo> {
         let ending = {
             let vfs = self.vfs.read();
