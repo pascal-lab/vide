@@ -14,15 +14,15 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CompilationPlan {
+pub struct CompileUnits {
     pub source_roots: Vec<SourceRootId>,
-    pub root_files: Vec<FileId>,
-    pub include_files: FxHashSet<FileId>,
+    pub roots: Vec<FileId>,
+    pub include_only: FxHashSet<FileId>,
     pub include_dirs: Vec<AbsPathBuf>,
     pub top_modules: Vec<String>,
 }
 
-impl CompilationPlan {
+impl CompileUnits {
     pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
@@ -46,15 +46,15 @@ impl CompilationPlan {
         top_modules: Vec<String>,
         include_dirs: Vec<AbsPathBuf>,
     ) -> Self {
-        let include_files = included_file_ids_for_roots(db, &source_roots, &include_dirs);
-        let root_files = root_file_ids_for_roots(db, &source_roots, &include_files);
-        CompilationPlan { source_roots, root_files, include_files, include_dirs, top_modules }
+        let include_only = include_targets_for_source_roots(db, &source_roots, &include_dirs);
+        let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
+        CompileUnits { source_roots, roots, include_only, include_dirs, top_modules }
     }
 }
 
-pub fn in_memory_include_buffers(
+pub fn include_buffers_for_units(
     db: &dyn SourceRootDb,
-    plan: &CompilationPlan,
+    units: &CompileUnits,
 ) -> Vec<SyntaxTreeBuffer> {
     let mut seen_files = PathIdentitySet::default();
     let mut seen_buffer_paths = FxHashSet::default();
@@ -68,9 +68,9 @@ pub fn in_memory_include_buffers(
         let include_header_in_include_path =
             matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader)
                 && db.file_path(file_id).is_some_and(|path| {
-                    plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
+                    units.include_dirs.iter().any(|include_dir| path.starts_with(include_dir))
                 });
-        if !include_header_in_include_path && !plan.include_files.contains(&file_id) {
+        if !include_header_in_include_path && !units.include_only.contains(&file_id) {
             continue;
         }
 
@@ -124,10 +124,10 @@ fn all_non_ignored_roots(db: &dyn SourceRootDb) -> Vec<SourceRootId> {
     roots.into_iter().collect()
 }
 
-fn root_file_ids_for_roots(
+fn compile_roots_for_source_roots(
     db: &dyn SourceRootDb,
     roots: &[SourceRootId],
-    include_files: &FxHashSet<FileId>,
+    include_only: &FxHashSet<FileId>,
 ) -> Vec<FileId> {
     let mut files = Vec::new();
     let mut visited = FxHashSet::default();
@@ -145,7 +145,7 @@ fn root_file_ids_for_roots(
                 continue;
             }
             if matches!(db.file_kind(file_id), SourceFileKind::SystemVerilog)
-                && include_files.contains(&file_id)
+                && include_only.contains(&file_id)
             {
                 continue;
             }
@@ -169,7 +169,7 @@ fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
     index
 }
 
-fn included_file_ids_for_roots(
+fn include_targets_for_source_roots(
     db: &dyn SourceRootDb,
     roots: &[SourceRootId],
     include_dirs: &[AbsPathBuf],
