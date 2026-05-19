@@ -13,7 +13,7 @@ use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
-    macro_index::{self, MacroFileIndex, MacroIncludeTarget},
+    preproc_index::{self, MacroIncludeTarget, PreprocFileIndex},
     project::{CompilationProfileId, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -36,7 +36,7 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
-    fn macro_file_index(&self, file_id: FileId) -> Arc<MacroFileIndex>;
+    fn preproc_file_index(&self, file_id: FileId) -> Arc<PreprocFileIndex>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -94,13 +94,13 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     }
 }
 
-fn macro_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<MacroFileIndex> {
+fn preproc_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocFileIndex> {
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            Arc::new(macro_index::macro_file_index(&db.parse_src(file_id)))
+            Arc::new(preproc_index::preproc_file_index(&db.parse_src(file_id)))
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
-            Arc::new(MacroFileIndex::default())
+            Arc::new(PreprocFileIndex::default())
         }
     }
 }
@@ -154,7 +154,7 @@ fn included_file_ids_for_roots(
                 continue;
             };
 
-            for include in &db.macro_file_index(file_id).includes {
+            for include in &db.preproc_file_index(file_id).includes {
                 let MacroIncludeTarget::Literal { path, .. } = &include.target else {
                     continue;
                 };

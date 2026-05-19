@@ -7,7 +7,7 @@ use syntax::{
 use utils::line_index::TextRange;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct MacroFileIndex {
+pub struct PreprocFileIndex {
     pub directives: Vec<MacroDirective>,
     pub defines: Vec<MacroDefine>,
     pub undefs: Vec<MacroUndef>,
@@ -95,12 +95,12 @@ pub struct MacroToken {
     pub range: Option<TextRange>,
 }
 
-pub fn macro_file_index(tree: &SyntaxTree) -> MacroFileIndex {
+pub fn preproc_file_index(tree: &SyntaxTree) -> PreprocFileIndex {
     let Some(root) = tree.root() else {
-        return MacroFileIndex::default();
+        return PreprocFileIndex::default();
     };
 
-    let mut index = MacroFileIndex::default();
+    let mut index = PreprocFileIndex::default();
     for node in directive_nodes(root) {
         collect_directive(&mut index, node);
     }
@@ -130,7 +130,7 @@ fn directive_nodes(root: SyntaxNode<'_>) -> Vec<SyntaxNode<'_>> {
     nodes
 }
 
-fn collect_directive(index: &mut MacroFileIndex, node: SyntaxNode<'_>) {
+fn collect_directive(index: &mut PreprocFileIndex, node: SyntaxNode<'_>) {
     let Some(directive) = ast::Directive::cast(node) else {
         return;
     };
@@ -171,7 +171,7 @@ fn collect_directive(index: &mut MacroFileIndex, node: SyntaxNode<'_>) {
 }
 
 fn push_directive(
-    index: &mut MacroFileIndex,
+    index: &mut PreprocFileIndex,
     kind: MacroDirectiveKind,
     node: SyntaxNode<'_>,
     directive_index: usize,
@@ -300,9 +300,9 @@ fn macro_name(name: String) -> SmolStr {
 mod tests {
     use super::*;
 
-    fn index(text: &str) -> MacroFileIndex {
+    fn index(text: &str) -> PreprocFileIndex {
         let tree = SyntaxTree::from_text(text, "source", "");
-        macro_file_index(&tree)
+        preproc_file_index(&tree)
     }
 
     #[test]
