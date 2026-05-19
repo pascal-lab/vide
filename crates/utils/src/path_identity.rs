@@ -20,8 +20,19 @@ impl PathKey {
     }
 }
 
-/// Returns lookup keys for the raw path and, when available, its filesystem
-/// canonical form.
+/// Returns identity lookup keys for a path crossing a process or FFI boundary.
+///
+/// This is intentionally not a total "canonical path" function. The raw path
+/// key is always registered first, because it is the only identity we can
+/// preserve without doing IO. The filesystem canonical key is added only when
+/// the OS can prove one for the current path. When canonicalization fails, for
+/// example because the file does not exist yet or the filesystem rejects the
+/// lookup, we do not invent another key.
+///
+/// The result is an alias set, not a correctness guarantee. It handles the
+/// common path spellings that arise between the LSP client, VFS, and slang
+/// buffers while keeping lookup failure explicit when no registered identity
+/// matches.
 pub fn path_alias_keys(path: &AbsPath) -> Vec<PathKey> {
     let mut keys = vec![PathKey::from_abs_path(path)];
 
@@ -49,6 +60,12 @@ impl<T> Default for PathIdentityIndex<T> {
 }
 
 impl<T: Copy> PathIdentityIndex<T> {
+    /// Registers every identity key that can be derived for `path`.
+    ///
+    /// Later inserts for the same alias replace earlier values. This mirrors
+    /// the previous `PathKey -> FileId` map behavior and keeps collisions
+    /// visible to the caller's insertion order instead of guessing which
+    /// spelling is more correct.
     pub fn insert_path(&mut self, path: &AbsPath, value: T) {
         for key in path_alias_keys(path) {
             self.aliases.insert(key, value);
@@ -66,6 +83,8 @@ pub struct PathIdentitySet {
 }
 
 impl PathIdentitySet {
+    /// Inserts all known aliases and returns whether none of them had been
+    /// seen.
     pub fn insert_path(&mut self, path: &AbsPath) -> bool {
         let keys = path_alias_keys(path);
         let is_new = keys.iter().all(|key| !self.aliases.contains(key));
@@ -116,6 +135,19 @@ mod tests {
         let cwd = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
 
         assert!(path_alias_keys(cwd.as_path()).contains(&PathKey::from_abs_path(cwd.as_path())));
+    }
+
+    #[test]
+    fn path_alias_keys_do_not_invent_canonical_key_for_missing_path() {
+        let dir = crate::test_support::TestDir::new("missing-path-alias");
+        let missing = dir.join("missing.sv");
+        let missing_path: &std::path::Path = missing.as_ref();
+
+        assert!(!missing_path.exists());
+        assert_eq!(
+            path_alias_keys(missing.as_path()),
+            vec![PathKey::from_abs_path(missing.as_path())]
+        );
     }
 
     #[test]
