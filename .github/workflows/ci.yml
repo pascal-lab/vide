@@ -172,6 +172,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Trust checkout directories
+        working-directory: .
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/crates/slang"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
