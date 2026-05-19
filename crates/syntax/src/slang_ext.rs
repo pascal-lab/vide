@@ -514,8 +514,7 @@ endmodule
 "#;
         let options = SyntaxTreeOptions {
             predefines: vec![String::from("CA_WIDTH=8")],
-            include_paths: Vec::new(),
-            include_buffers: Vec::new(),
+            ..SyntaxTreeOptions::default()
         };
         let tree = SyntaxTree::from_text_with_options(
             text,
