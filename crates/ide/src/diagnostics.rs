@@ -342,4 +342,42 @@ mod tests {
             "transitively included .sv should use VFS text: {diagnostics:?}"
         );
     }
+
+    #[test]
+    fn semantic_compilation_preloads_root_source_buffers() {
+        let dir = TestDir::new("diagnostics-preloaded-roots");
+        let root = dir.path().to_path_buf();
+        let a_path = root.join("a.sv");
+        let b_path = root.join("b.sv");
+        let a_text = "module a; endmodule\n";
+        let b_text = "module b; endmodule\n";
+        std::fs::write(&a_path, a_text).unwrap();
+        std::fs::write(&b_path, b_text).unwrap();
+
+        let mut db = RootDb::new(None);
+        let mut file_set = FileSet::default();
+        file_set.insert(FileId(0), VfsPath::from(a_path.clone()));
+        file_set.insert(FileId(1), VfsPath::from(b_path.clone()));
+
+        let mut change = Change::new();
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(0),
+            change_kind: ChangeKind::Create(Arc::from(a_text), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: FileId(1),
+            change_kind: ChangeKind::Create(Arc::from(b_text), LineEnding::Unix),
+        });
+        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        db.apply_change(change);
+
+        let plan = db.compilation_plan_for_root(SourceRootId(0));
+        assert_eq!(plan.roots, vec![FileId(0), FileId(1)]);
+        let buffers = base_db::compilation_plan::compilation_source_buffers_for_plan(&db, &plan);
+        let buffer_paths = buffers.iter().map(|buffer| buffer.path.as_str()).collect::<Vec<_>>();
+        let a_path = a_path.to_string();
+        let b_path = b_path.to_string();
+        assert!(buffer_paths.contains(&a_path.as_str()));
+        assert!(buffer_paths.contains(&b_path.as_str()));
+    }
 }
