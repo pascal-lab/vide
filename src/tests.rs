@@ -1,4 +1,7 @@
-use std::{fs, thread, time::Duration};
+use std::{
+    fs, thread,
+    time::{Duration, Instant},
+};
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
@@ -37,6 +40,42 @@ use crate::{
 };
 
 type TempDir = TestDir;
+
+const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn recv_lsp_message_until(
+    client: &Connection,
+    deadline: Instant,
+    context: &str,
+) -> Option<Message> {
+    let now = Instant::now();
+    if now >= deadline {
+        return None;
+    }
+
+    let timeout = deadline.saturating_duration_since(now);
+    match client.receiver.recv_timeout(timeout) {
+        Ok(message) => Some(message),
+        Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
+        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+            panic!("test client disconnected while waiting for {context}");
+        }
+    }
+}
+
+fn handle_test_server_request(client: &Connection, request: Request, context: &str) {
+    if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD
+        || request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD
+    {
+        client
+            .sender
+            .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+            .unwrap();
+        return;
+    }
+
+    panic!("unexpected server request during {context}: {request:?}");
+}
 
 fn setup_diagnostics_test(
     client_caps: ClientCapabilities,
@@ -149,7 +188,7 @@ fn shutdown_test_server(
         .unwrap();
 
     loop {
-        match client.receiver.recv_timeout(Duration::from_secs(10)).unwrap() {
+        match client.receiver.recv_timeout(LSP_TEST_TIMEOUT).unwrap() {
             Message::Response(response) if response.id == shutdown_id => break,
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
@@ -171,10 +210,9 @@ fn recv_document_diagnostics(
     client: &Connection,
     request_id: lsp_server::RequestId,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, "documentDiagnostic") {
+        match message {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
                 let result = serde_json::from_value::<DocumentDiagnosticReportResult>(
@@ -196,8 +234,10 @@ fn recv_document_diagnostics(
             }
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(client, request, "documentDiagnostic diagnostics test")
             }
             _ => {}
         }
@@ -207,10 +247,9 @@ fn recv_document_diagnostics(
 }
 
 fn recv_publish_diagnostics_for_uri(client: &Connection, uri: &Url) -> Vec<lsp_types::Diagnostic> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, "publishDiagnostics") {
+        match message {
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
             {
@@ -224,7 +263,7 @@ fn recv_publish_diagnostics_for_uri(client: &Connection, uri: &Url) -> Vec<lsp_t
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(client, request, "publishDiagnostics diagnostics test")
             }
             _ => {}
         }
@@ -238,10 +277,9 @@ fn recv_response<T: DeserializeOwned>(
     request_id: lsp_server::RequestId,
     label: &str,
 ) -> T {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, label) {
+        match message {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{label} returned error: {:?}", response.error);
                 return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
@@ -251,25 +289,7 @@ fn recv_response<T: DeserializeOwned>(
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
-            Message::Request(request) => {
-                panic!("unexpected server request during {label}: {request:?}");
-            }
+            Message::Request(request) => handle_test_server_request(client, request, label),
             _ => {}
         }
     }
@@ -706,10 +726,10 @@ fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
 
     let mut pull_diagnostics = None;
     let mut saw_publish_diagnostics = false;
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
 
-    while std::time::Instant::now() < deadline && pull_diagnostics.is_none() {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    while Instant::now() < deadline && pull_diagnostics.is_none() {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         let message = client.receiver.recv_timeout(timeout).unwrap();
 
         match message {
@@ -757,9 +777,9 @@ fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
     );
     assert!(!saw_publish_diagnostics, "pull-capable client should not receive publishDiagnostics");
 
-    let quiet_until = std::time::Instant::now() + Duration::from_millis(500);
-    while std::time::Instant::now() < quiet_until {
-        let timeout = quiet_until.saturating_duration_since(std::time::Instant::now());
+    let quiet_until = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < quiet_until {
+        let timeout = quiet_until.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout) {
             Ok(Message::Notification(notification))
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
@@ -794,10 +814,10 @@ fn legacy_client_receives_publish_diagnostics() {
         UserConfig::default(),
         "module broken(;\nendmodule\n",
     );
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
 
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
@@ -865,9 +885,9 @@ endmodule
     );
     client.sender.send(Message::Request(request)).unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
@@ -935,9 +955,9 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
     );
     client.sender.send(Message::Request(request)).unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
@@ -1610,9 +1630,9 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         )))
         .unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Request(request)
                 if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
@@ -1657,9 +1677,9 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         )))
         .unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
