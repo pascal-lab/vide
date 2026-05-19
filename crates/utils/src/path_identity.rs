@@ -1,3 +1,5 @@
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use crate::paths::{AbsPath, AbsPathBuf};
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -33,6 +35,43 @@ pub fn path_alias_keys(path: &AbsPath) -> Vec<PathKey> {
     }
 
     keys
+}
+
+#[derive(Debug, Clone)]
+pub struct PathIdentityIndex<T> {
+    aliases: FxHashMap<PathKey, T>,
+}
+
+impl<T> Default for PathIdentityIndex<T> {
+    fn default() -> Self {
+        Self { aliases: FxHashMap::default() }
+    }
+}
+
+impl<T: Copy> PathIdentityIndex<T> {
+    pub fn insert_path(&mut self, path: &AbsPath, value: T) {
+        for key in path_alias_keys(path) {
+            self.aliases.insert(key, value);
+        }
+    }
+
+    pub fn get(&self, path: impl AsRef<str>) -> Option<T> {
+        self.aliases.get(&PathKey::new(path)).copied()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PathIdentitySet {
+    aliases: FxHashSet<PathKey>,
+}
+
+impl PathIdentitySet {
+    pub fn insert_path(&mut self, path: &AbsPath) -> bool {
+        let keys = path_alias_keys(path);
+        let is_new = keys.iter().all(|key| !self.aliases.contains(key));
+        self.aliases.extend(keys);
+        is_new
+    }
 }
 
 fn normalize_path_key(path: &str) -> String {
@@ -77,5 +116,24 @@ mod tests {
         let cwd = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
 
         assert!(path_alias_keys(cwd.as_path()).contains(&PathKey::from_abs_path(cwd.as_path())));
+    }
+
+    #[test]
+    fn path_identity_index_resolves_raw_path() {
+        let cwd = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
+        let mut index = PathIdentityIndex::default();
+
+        index.insert_path(cwd.as_path(), 1);
+
+        assert_eq!(index.get(cwd.to_string()), Some(1));
+    }
+
+    #[test]
+    fn path_identity_set_detects_duplicate_raw_path() {
+        let cwd = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
+        let mut set = PathIdentitySet::default();
+
+        assert!(set.insert_path(cwd.as_path()));
+        assert!(!set.insert_path(cwd.as_path()));
     }
 }
