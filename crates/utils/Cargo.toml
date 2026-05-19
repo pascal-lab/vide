@@ -9,18 +9,22 @@ edition.workspace = true
 anyhow.workspace = true
 camino.workspace = true
 crossbeam-channel.workspace = true
+dunce.workspace = true
 itertools.workspace = true
 jod-thread = "0.1.2"
 la-arena.workspace = true
 libc = "0.2.150"
 memchr.workspace = true
 nohash-hasher.workspace = true
+rustc-hash.workspace = true
+same-file.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-slang.workspace = true
+tempfile.workspace = true
 text-size.workspace = true
 tracing.workspace = true
 triomphe.workspace = true
 
 [features]
 camino_serde1 = ["camino/serde1"]
+test-support = []
