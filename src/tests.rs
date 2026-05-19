@@ -1,9 +1,4 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{fs, thread, time::Duration};
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
@@ -29,7 +24,7 @@ use lsp_types::{
     },
 };
 use serde::de::DeserializeOwned;
-use utils::paths::AbsPathBuf;
+use utils::test_support::TestDir;
 
 use crate::{
     Opt,
@@ -41,43 +36,18 @@ use crate::{
     lsp_ext::to_proto,
 };
 
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new() -> Self {
-        let unique = format!(
-            "vizsla-diag-test-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        );
-        let path = env::temp_dir().join(unique);
-        fs::create_dir_all(&path).unwrap();
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
+type TempDir = TestDir;
 
 fn setup_diagnostics_test(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("diag-test");
     let file_path = temp_dir.path().join("broken.sv");
     fs::write(&file_path, file_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -95,8 +65,7 @@ fn setup_diagnostics_test(
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
 
-    let uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref()).unwrap();
+    let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
     let did_open = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
@@ -121,19 +90,16 @@ fn setup_multi_file_diagnostics_test(
     user_config: UserConfig,
     files: &[(&str, &str)],
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Vec<Url>) {
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("diag-test");
     let mut uris = Vec::new();
 
     for (path, text) in files {
         let file_path = temp_dir.path().join(path);
         fs::write(&file_path, text).unwrap();
-        uris.push(
-            to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref())
-                .unwrap(),
-        );
+        uris.push(to_proto::url_from_abs_path(file_path.as_path()).unwrap());
     }
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1053,7 +1019,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("configured-includes");
     let rtl_dir = temp_dir.path().join("rtl");
     let include_dir = temp_dir.path().join("include");
     fs::create_dir_all(&rtl_dir).unwrap();
@@ -1068,7 +1034,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     let top_path = rtl_dir.join("top.sv");
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1085,8 +1051,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     client
         .sender
         .send(Message::Notification(Notification::new(
@@ -1137,7 +1102,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("library-include-changes");
     let app_dir = temp_dir.path().join("app");
     let app_rtl_dir = app_dir.join("rtl");
     let package_dir = temp_dir.path().join("pkg");
@@ -1161,9 +1126,9 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     let top_path = app_rtl_dir.join("top.sv");
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
-    let app_root = AbsPathBuf::assert_utf8(app_dir.clone());
-    let package_root = AbsPathBuf::assert_utf8(package_dir.clone());
+    let root_path = temp_dir.path().to_path_buf();
+    let app_root = app_dir.clone();
+    let package_root = package_dir.clone();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1180,10 +1145,8 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
-    let header_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(header_path.clone()).as_ref()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
     let first_id = lsp_server::RequestId::from(1);
     client
@@ -1260,7 +1223,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("include-changes");
     let rtl_dir = temp_dir.path().join("rtl");
     let include_dir = temp_dir.path().join("include");
     fs::create_dir_all(&rtl_dir).unwrap();
@@ -1277,7 +1240,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     let top_path = rtl_dir.join("top.sv");
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1294,10 +1257,8 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
-    let header_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(header_path.clone()).as_ref()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
     let first_id = lsp_server::RequestId::from(1);
     client
@@ -1369,13 +1330,13 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("manifest-diagnostics");
     let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl\"]\n";
     let manifest_path = temp_dir.path().join("vizsla_config.toml");
     fs::write(&manifest_path, manifest_text).unwrap();
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1392,9 +1353,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let manifest_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(manifest_path.clone()).as_ref())
-            .unwrap();
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
     client
         .sender
@@ -1478,7 +1437,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("manifest-exclude-refresh");
     let manifest_path = temp_dir.path().join("vizsla_config.toml");
     let ignored_dir = temp_dir.path().join("ignored");
     let rtl_dir = temp_dir.path().join("rtl");
@@ -1488,7 +1447,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     fs::write(ignored_dir.join("ignored.sv"), "module ignored(;\nendmodule\n").unwrap();
     fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1505,13 +1464,9 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let ignored_uri = to_proto::url_from_abs_path(
-        AbsPathBuf::assert_utf8(ignored_dir.join("ignored.sv")).as_ref(),
-    )
-    .unwrap();
-    let manifest_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(manifest_path.clone()).as_ref())
-            .unwrap();
+    let ignored_uri =
+        to_proto::url_from_abs_path(ignored_dir.join("ignored.sv").as_path()).unwrap();
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
     let first_id = lsp_server::RequestId::from(1);
     client
@@ -1615,14 +1570,14 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("workspace-scan");
     let child_path = temp_dir.path().join("child.sv");
     let top_path = temp_dir.path().join("top.v");
     let top_text = "module top;\n  wire sig;\n  child u(.a(sig));\nendmodule\n";
     fs::write(&child_path, "module child(input logic a, input logic b);\nendmodule\n").unwrap();
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1639,8 +1594,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
 
     let (server, client) = Connection::memory();
     let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     client
         .sender
         .send(Message::Notification(Notification::new(
