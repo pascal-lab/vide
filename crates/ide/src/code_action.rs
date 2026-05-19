@@ -434,11 +434,13 @@ mod handlers {
     mod add_instance_parens;
     mod add_missing_connections;
     mod add_missing_parameters;
+    mod convert_literal_base;
     mod convert_ordered_connections;
     mod remove_empty_port_connections;
 
     pub(crate) fn all() -> &'static [Handler] {
         &[
+            convert_literal_base::convert_literal_base,
             add_missing_connections::add_missing_connections,
             add_missing_parameters::add_missing_parameters,
             convert_ordered_connections::convert_ordered_ports,
@@ -510,6 +512,23 @@ mod tests {
     }
 
     fn apply_action_without_diagnostics(text: &str, action_name: &str) -> Option<String> {
+        apply_action_without_diagnostics_by(text, |action| action.id.name == action_name)
+    }
+
+    fn apply_action_without_diagnostics_with_label(
+        text: &str,
+        action_name: &str,
+        label: &str,
+    ) -> Option<String> {
+        apply_action_without_diagnostics_by(text, |action| {
+            action.id.name == action_name && action.label == label
+        })
+    }
+
+    fn apply_action_without_diagnostics_by(
+        text: &str,
+        pred: impl Fn(&CodeAction) -> bool,
+    ) -> Option<String> {
         let (db, file_id, offset) = db_with_file(text);
         let actions = code_action(
             &db,
@@ -518,7 +537,7 @@ mod tests {
             CodeActionDiagnostics::default(),
             CodeActionResolveStrategy::All,
         );
-        let action = actions.into_iter().find(|action| action.id.name == action_name)?;
+        let action = actions.into_iter().find(pred)?;
         let mut text = text.replace("/*caret*/", "");
         let edit = action.source_change?.text_edits.remove(&file_id)?;
         edit.apply(&mut text);
@@ -647,6 +666,90 @@ mod tests {
             fixed,
             "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
         );
+    }
+
+    #[test]
+    fn literal_base_converts_plain_decimal_to_sized_signed_hexadecimal() {
+        let text = "module top; localparam int value = /*caret*/42; endmodule\n";
+        let fixed = apply_action_without_diagnostics_with_label(
+            text,
+            "convert_literal_base",
+            "Convert literal to hexadecimal",
+        )
+        .unwrap();
+
+        assert_eq!(fixed, "module top; localparam int value = 32'sh2a; endmodule\n");
+    }
+
+    #[test]
+    fn literal_base_preserves_plain_decimal_sign_bit() {
+        let text = "module top; localparam longint value = /*caret*/2147483648; endmodule\n";
+        let fixed = apply_action_without_diagnostics_with_label(
+            text,
+            "convert_literal_base",
+            "Convert literal to hexadecimal",
+        )
+        .unwrap();
+
+        assert_eq!(fixed, "module top; localparam longint value = 33'sh80000000; endmodule\n");
+    }
+
+    #[test]
+    fn literal_base_preserves_size_and_signed_base() {
+        let text = "module top; localparam logic [7:0] value = /*caret*/8'sh2A; endmodule\n";
+        let fixed = apply_action_without_diagnostics_with_label(
+            text,
+            "convert_literal_base",
+            "Convert literal to binary",
+        )
+        .unwrap();
+
+        assert_eq!(fixed, "module top; localparam logic [7:0] value = 8'sb101010; endmodule\n");
+    }
+
+    #[test]
+    fn literal_base_converts_unsized_based_literal_to_based_decimal() {
+        let text = "module top; localparam int value = /*caret*/'hff; endmodule\n";
+        let fixed = apply_action_without_diagnostics_with_label(
+            text,
+            "convert_literal_base",
+            "Convert literal to decimal",
+        )
+        .unwrap();
+
+        assert_eq!(fixed, "module top; localparam int value = 'd255; endmodule\n");
+    }
+
+    #[test]
+    fn literal_base_preserves_unsized_signed_base() {
+        let text = "module top; localparam int value = /*caret*/'shff; endmodule\n";
+        let fixed = apply_action_without_diagnostics_with_label(
+            text,
+            "convert_literal_base",
+            "Convert literal to decimal",
+        )
+        .unwrap();
+
+        assert_eq!(fixed, "module top; localparam int value = 'sd255; endmodule\n");
+    }
+
+    #[test]
+    fn literal_base_does_not_offer_decimal_for_unknown_bits() {
+        let labels = action_labels_without_diagnostics(
+            "module top; logic [3:0] value = /*caret*/'hx; endmodule\n",
+        );
+
+        assert!(labels.iter().any(|label| label == "Convert literal to binary"));
+        assert!(!labels.iter().any(|label| label == "Convert literal to decimal"));
+    }
+
+    #[test]
+    fn literal_base_is_not_available_for_string_literals() {
+        let labels = action_labels_without_diagnostics(
+            "module top; string value = /*caret*/\"42\"; endmodule\n",
+        );
+
+        assert!(!labels.iter().any(|label| label.starts_with("Convert literal to ")));
     }
 
     #[test]
