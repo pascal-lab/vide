@@ -6,7 +6,7 @@ use hir::{
 };
 use ide_db::root_db::RootDb;
 use span::FilePosition;
-use syntax::ast::{self, AstNode};
+use syntax::ast;
 use utils::get::Get;
 
 use super::candidate::CompletionCandidate;
@@ -54,14 +54,12 @@ fn complete_function_port_list(
 
 fn visible_typedefs_in_module_header(db: &RootDb, position: FilePosition) -> Vec<String> {
     let sema = Semantics::new(db);
+    let file_id = position.file_id.into();
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
     };
     let module = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, position.offset);
     let Some(module) = module else {
-        return Vec::new();
-    };
-    let Some(file_id) = sema.find_file(module.syntax()) else {
         return Vec::new();
     };
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
@@ -98,14 +96,12 @@ fn complete_non_ansi_port_list(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
+    let file_id = position.file_id.into();
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
     };
     let module = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, position.offset);
     let Some(module) = module else {
-        return Vec::new();
-    };
-    let Some(file_id) = sema.find_file(module.syntax()) else {
         return Vec::new();
     };
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);

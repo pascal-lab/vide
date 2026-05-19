@@ -190,7 +190,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             let root = LazyCell::new(|| sema.parse_root(file_id));
             Self::match_text(&text, finder, range)
                 .filter_map(|offset| Self::filter_token((*root)?, file_id, &def_ranges, offset))
-                .filter(|tp| self.classify_and_filter(sema, tp))
+                .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
                 .for_each(|token| {
                     res.entry(file_id)
                         .or_insert_with(|| Vec::with_capacity(Self::FILE_REF_CAPACITY))
@@ -256,9 +256,10 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
     fn classify_and_filter(
         &self,
         sema: &'a Semantics<'a, RootDb>,
+        file_id: hir::file::HirFileId,
         tp: &SyntaxTokenWithParent<'a>,
     ) -> bool {
-        let Some(def) = DefinitionClass::resolve(sema, *tp) else {
+        let Some(def) = DefinitionClass::resolve(sema, file_id, *tp) else {
             return false;
         };
 

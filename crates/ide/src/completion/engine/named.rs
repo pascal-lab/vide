@@ -111,6 +111,7 @@ pub(super) fn complete_named_port_conn_expr(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
+    let file_id = position.file_id.into();
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
     };
@@ -127,7 +128,8 @@ pub(super) fn complete_named_port_conn_expr(
         return Vec::new();
     };
 
-    let Some(current_module_id) = sema.resolve_instantiation(instantiation).map(|it| it.module_id)
+    let Some(current_module_id) =
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
     else {
         return Vec::new();
     };
@@ -156,6 +158,7 @@ pub(super) fn complete_named_param_assign_expr(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
+    let file_id = position.file_id.into();
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
     };
@@ -172,7 +175,8 @@ pub(super) fn complete_named_param_assign_expr(
         return Vec::new();
     };
 
-    let Some(current_module_id) = sema.resolve_instantiation(instantiation).map(|it| it.module_id)
+    let Some(current_module_id) =
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
     else {
         return Vec::new();
     };

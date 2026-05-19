@@ -1,4 +1,4 @@
-use hir::{container::InContainer, hir_def::expr::Expr, semantics::Semantics};
+use hir::{container::InContainer, file::HirFileId, hir_def::expr::Expr, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use span::{FilePosition, RangeInfo};
 use syntax::{
@@ -28,10 +28,12 @@ pub(crate) fn hover(
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
     let sema = Semantics::new(db);
+    let hir_file_id = file_id.into();
     let root = sema.parse_root(file_id)?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
-    let res = handle_literal(&sema, token).or_else(|| handle_definition(&sema, token))?;
+    let res = handle_literal(&sema, hir_file_id, token)
+        .or_else(|| handle_definition(&sema, hir_file_id, token))?;
     Some(RangeInfo::new(token.text_range()?, res))
 }
 
@@ -45,6 +47,7 @@ pub(crate) fn token_precedence(kind: TokenKind) -> usize {
 
 fn handle_literal(
     sema: &Semantics<RootDb>,
+    file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Markup> {
     if !tok.kind().is_literal() {
@@ -52,7 +55,7 @@ fn handle_literal(
     }
 
     let expr = ast::Expression::cast(parent)?;
-    let InContainer { value: expr_id, cont_id } = sema.resolve_expr(expr)?;
+    let InContainer { value: expr_id, cont_id } = sema.resolve_expr(file_id, expr)?;
     let container = cont_id.to_container(sema.db);
     let Expr::Literal(literal) = container.get(expr_id) else {
         return None;
@@ -61,8 +64,12 @@ fn handle_literal(
     render::render_literal(literal)
 }
 
-fn handle_definition(sema: &Semantics<RootDb>, tp: SyntaxTokenWithParent) -> Option<Markup> {
-    let def = DefinitionClass::resolve(sema, tp)?;
+fn handle_definition(
+    sema: &Semantics<RootDb>,
+    file_id: HirFileId,
+    tp: SyntaxTokenWithParent,
+) -> Option<Markup> {
+    let def = DefinitionClass::resolve(sema, file_id, tp)?;
     let mut res = Markup::new();
 
     match def {

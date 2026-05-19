@@ -9,6 +9,7 @@ use crate::{
     container::{
         ContainerId, InBlock, InContainer, InFile, InGenerateBlock, InModule, InSubroutine,
     },
+    file::HirFileId,
     hir_def::{
         block::BlockId,
         declaration::Declaration,
@@ -28,9 +29,9 @@ use crate::{
 impl SemanticsImpl<'_> {
     pub fn nameres_ident(
         &self,
+        file_id: HirFileId,
         SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
     ) -> Option<PathResolution> {
-        let file_id = self.find_file(parent)?;
         let ident = lower_ident_opt(Some(tok))?;
         self.with_ctx(|ctx| {
             let container = ctx.find_container(InFile::new(file_id, parent));

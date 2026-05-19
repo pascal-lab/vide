@@ -116,8 +116,7 @@ impl<'db> SemanticsImpl<'db> {
         self.lookup_file_id(root_node)
     }
 
-    pub fn container_for_node(&self, node: SyntaxNode) -> Option<ContainerId> {
-        let file_id = self.find_file(node)?;
+    pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {
         self.with_ctx(|ctx| Some(ctx.find_container(InFile::new(file_id, node))))
     }
 
@@ -144,14 +143,16 @@ impl<'db> SemanticsImpl<'db> {
 }
 
 impl SemanticsImpl<'_> {
-    pub fn block_to_def(&self, block: ast::BlockStatement) -> Option<BlockId> {
-        let file_id = self.find_file(block.syntax())?;
+    pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<BlockId> {
         let block_src = BlockSrc::from(block);
         self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))
     }
 
-    pub fn subroutine_to_def(&self, subroutine: ast::FunctionDeclaration) -> Option<SubroutineId> {
-        let file_id = self.find_file(subroutine.syntax())?;
+    pub fn subroutine_to_def(
+        &self,
+        file_id: HirFileId,
+        subroutine: ast::FunctionDeclaration,
+    ) -> Option<SubroutineId> {
         let subroutine_src = SubroutineSrc::from(subroutine);
         self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }

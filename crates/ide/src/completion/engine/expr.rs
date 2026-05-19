@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use hir::{
     container::{ContainerId, ContainerParent, InContainer, InSubroutine},
     db::HirDb,
+    file::HirFileId,
     hir_def::{
         lower_ident_opt,
         module::ModuleId,
@@ -58,6 +59,7 @@ fn complete_expression_impl(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
+    let file_id = position.file_id.into();
     let Some(root) = sema.parse_root(position.file_id) else {
         return Vec::new();
     };
@@ -65,15 +67,16 @@ fn complete_expression_impl(
     let mut names: BTreeMap<String, NameKind> = BTreeMap::new();
     let mut current_module_id = None;
 
-    if let Some(container_id) = container_id_at_offset(&sema, root, position.offset) {
+    if let Some(container_id) = container_id_at_offset(&sema, file_id, root, position.offset) {
         current_module_id = module_id_for_container(db, container_id);
         for container_id in ContainerParent::start_from(db, container_id) {
             collect_container_names(db, container_id, &mut names);
         }
     }
 
-    let expected_ty = current_module_id
-        .and_then(|module_id| expected_type_at_offset(db, &sema, root, position.offset, module_id));
+    let expected_ty = current_module_id.and_then(|module_id| {
+        expected_type_at_offset(db, &sema, file_id, root, position.offset, module_id)
+    });
 
     let mut candidates: Vec<_> = names
         .into_iter()
@@ -97,12 +100,13 @@ fn complete_expression_impl(
 
 fn container_id_at_offset(
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
 ) -> Option<ContainerId> {
     let elem = root.covering_element(utils::line_index::TextRange::empty(offset));
     let node = elem.as_node().or_else(|| elem.parent())?;
-    sema.container_for_node(node)
+    sema.container_for_node(file_id, node)
 }
 
 fn collect_container_names(
@@ -255,18 +259,20 @@ fn expression_candidate_matches_expected_type(
 fn expected_type_at_offset(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
     _current_module_id: ModuleId,
 ) -> Option<Ty> {
-    expected_type_for_assignment_rhs(db, sema, root, offset)
-        .or_else(|| expected_type_for_declarator_initializer(db, sema, root, offset))
+    expected_type_for_assignment_rhs(db, sema, file_id, root, offset)
+        .or_else(|| expected_type_for_declarator_initializer(db, sema, file_id, root, offset))
         .filter(|ty| type_class(db, ty).is_some())
 }
 
 fn expected_type_for_assignment_rhs(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
 ) -> Option<Ty> {
@@ -281,13 +287,14 @@ fn expected_type_for_assignment_rhs(
         return None;
     }
 
-    let res = sema.expr_to_def(sema.resolve_expr(assignment.left())?)?;
+    let res = sema.expr_to_def(sema.resolve_expr(file_id, assignment.left())?)?;
     Some(type_of_path_resolution(db, res).ty)
 }
 
 fn expected_type_for_declarator_initializer(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: TextSize,
 ) -> Option<Ty> {
@@ -300,7 +307,7 @@ fn expected_type_for_declarator_initializer(
     }
 
     let ident = lower_ident_opt(declarator.name())?;
-    let container_id = sema.container_for_node(declarator.syntax())?;
+    let container_id = sema.container_for_node(file_id, declarator.syntax())?;
     let res = sema.name_to_def(InContainer::new(container_id, ident))?;
     Some(type_of_path_resolution(db, res).ty)
 }

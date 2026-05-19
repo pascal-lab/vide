@@ -15,10 +15,11 @@ pub(crate) fn goto_declaration(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
+    let hir_file_id = file_id.into();
     let root = sema.parse_root(file_id)?;
     let token = root.token_at_offset(offset).pick_bext_token(goto_definition::token_precedence)?;
 
-    let origins = match DefinitionClass::resolve(&sema, token)? {
+    let origins = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
         DefinitionClass::Definition(definition) => definition.declaration_origins(),
         DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origins(),
     };

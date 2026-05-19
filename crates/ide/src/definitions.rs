@@ -2,6 +2,7 @@ use base_db::intern::Lookup;
 use hir::{
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
+    file::HirFileId,
     hir_def::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
@@ -421,13 +422,14 @@ impl_from! { DefinitionClass =>
 impl DefinitionClass {
     pub(crate) fn resolve(
         sema: &Semantics<'_, RootDb>,
+        file_id: HirFileId,
         tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
     ) -> Option<Self> {
         if !tok.kind().name_like() {
             return None;
         }
 
-        if let Some(def) = resolve_member_or_scoped_name(sema, tp) {
+        if let Some(def) = resolve_member_or_scoped_name(sema, file_id, tp) {
             return Some(def);
         }
 
@@ -439,7 +441,7 @@ impl DefinitionClass {
                 let port = sema.nameres_named_port_conn(it).map(Definition::from);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
-                    let local = sema.nameres_ident(tp).map(Definition::from);
+                    let local = sema.nameres_ident(file_id, tp).map(Definition::from);
 
                     match (port, local) {
                         (Some(port), Some(local)) => Self::PortConnShorthand { port, local },
@@ -450,7 +452,7 @@ impl DefinitionClass {
                     port?.into()
                 }
             },
-            _ => Definition::from(sema.nameres_ident(tp)?).into(),
+            _ => Definition::from(sema.nameres_ident(file_id, tp)?).into(),
         };
 
         Some(res)
@@ -468,6 +470,7 @@ impl DefinitionClass {
 
 fn resolve_member_or_scoped_name(
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<DefinitionClass> {
     if let Some(access) =
@@ -475,7 +478,7 @@ fn resolve_member_or_scoped_name(
         && access.name() == Some(tok)
     {
         let expr = ast::Expression::cast(access.syntax())?;
-        let res = sema.expr_to_def(sema.resolve_expr(expr)?)?;
+        let res = sema.expr_to_def(sema.resolve_expr(file_id, expr)?)?;
         return Some(Definition::from(res).into());
     }
 
@@ -486,7 +489,7 @@ fn resolve_member_or_scoped_name(
     }
 
     let expr = ast::Expression::cast(scoped.syntax())?;
-    let res = sema.expr_to_def(sema.resolve_expr(expr)?)?;
+    let res = sema.expr_to_def(sema.resolve_expr(file_id, expr)?)?;
     Some(Definition::from(res).into())
 }
 
@@ -541,7 +544,8 @@ mod tests {
         let file = sema.parse(file_id).unwrap();
         let port_decl_name_offset = TextSize::from(text.find("input a").unwrap() as u32 + 6);
         let token = file.syntax().token_at_offset(port_decl_name_offset).left_biased().unwrap();
-        let DefinitionClass::Definition(def) = DefinitionClass::resolve(&sema, token).unwrap()
+        let DefinitionClass::Definition(def) =
+            DefinitionClass::resolve(&sema, file_id.into(), token).unwrap()
         else {
             panic!("expected plain definition");
         };
