@@ -6,7 +6,7 @@ use pathres::PathResolution;
 use rustc_hash::FxHashMap;
 use source_to_def::{Source2DefCache, Source2DefCtx};
 use syntax::{
-    SyntaxAncestors, SyntaxNode, SyntaxNodeExt,
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTree,
     ast::{self, AstNode},
 };
 use utils::text_edit::TextSize;
@@ -77,6 +77,10 @@ pub struct SemanticsImpl<'db> {
     root2file_cache: RefCell<FxHashMap<SyntaxNode<'db>, HirFileId>>,
     source2def_cache: RefCell<Source2DefCache<'db>>,
     hir2def_cache: RefCell<Hir2DefCache>,
+
+    // SyntaxNode is a borrowed pointer into a SyntaxTree. Semantics returns nodes with its
+    // own lifetime, so it must retain the trees those nodes came from even if Salsa evicts them.
+    syntax_trees: RefCell<Vec<SyntaxTree>>,
 }
 
 impl<'db> SemanticsImpl<'db> {
@@ -86,16 +90,19 @@ impl<'db> SemanticsImpl<'db> {
             root2file_cache: Default::default(),
             source2def_cache: Default::default(),
             hir2def_cache: Default::default(),
+            syntax_trees: Default::default(),
         }
     }
 
     pub fn parse_root(&self, file_id: FileId) -> Option<SyntaxNode<'_>> {
         let tree = self.db.parse_src(file_id);
 
-        // Unsafe: we garentee that the root node is valid for the lifetime of the db
+        // Unsafe: we keep the SyntaxTree alive for the lifetime of this Semantics
+        // instance.
         let root = tree.root()?;
         let root_node: SyntaxNode<'db> =
             unsafe { std::mem::transmute::<SyntaxNode<'_>, SyntaxNode<'db>>(root) };
+        self.syntax_trees.borrow_mut().push(tree);
         self.cache_node2file(root_node, file_id.into());
         Some(root_node)
     }
