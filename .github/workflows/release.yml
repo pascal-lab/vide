@@ -94,7 +94,7 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates cmake git python3
 
       - name: Install Rust components
-        run: rustup component add rustfmt
+        run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
 
       - name: Checkout
         uses: actions/checkout@v4
