@@ -172,7 +172,8 @@ pub fn format_on_type(
     }
 
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(file_id) else {
+    let parsed_file = sema.parse_file(file_id);
+    let Some(root) = parsed_file.root() else {
         return Ok(None);
     };
 

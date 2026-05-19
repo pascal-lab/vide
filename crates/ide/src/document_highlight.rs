@@ -1,4 +1,4 @@
-use hir::{container::InFile, semantics::Semantics};
+use hir::{container::InFile, file::HirFileId, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use span::FilePosition;
 use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
@@ -31,11 +31,13 @@ pub(crate) fn document_highlight(
     config: DocumentHighlightConfig,
 ) -> Option<Vec<DocumentHighlight>> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id)?;
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root()?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
-    handle_ctrl_flow_kw(&sema, token).or_else(|| {
-        let def = match DefinitionClass::resolve(&sema, token)? {
+    handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
+        let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
         };
@@ -53,10 +55,11 @@ fn token_precedence(kind: TokenKind) -> usize {
 
 fn handle_ctrl_flow_kw(
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     tp: SyntaxTokenWithParent,
 ) -> Option<Vec<DocumentHighlight>> {
-    let cur_file_id = sema.find_file(tp.parent)?.file_id();
-    let highlights = references::handle_ctrl_flow_kw(sema, tp)?
+    let cur_file_id = file_id.file_id();
+    let highlights = references::handle_ctrl_flow_kw(sema, file_id, tp)?
         .into_iter()
         .filter_map(|mut r| r.refs.remove(&cur_file_id))
         .flatten()
@@ -87,9 +90,7 @@ fn highlight_refs<'a>(
         .remove(&file_id)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|tok| {
-            Some(DocumentHighlight { range: tok.range()?, category: tok.category() })
-        });
+        .map(|tok| DocumentHighlight { range: tok.range(), category: tok.category() });
 
     Some(defs.chain(refs).collect())
 }

@@ -103,7 +103,8 @@ pub(crate) fn completion_context(
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(file_id) else {
+    let parsed_file = sema.parse_file(file_id);
+    let Some(root) = parsed_file.root() else {
         return CompletionContext {
             replacement: TextRange::empty(offset),
             prefix: String::new(),

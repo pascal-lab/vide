@@ -4,7 +4,7 @@ use hir::{
         declaration::Declaration,
         module::{Module, ModuleId, port::Ports},
     },
-    semantics::Semantics,
+    semantics::{ParsedFile, Semantics},
 };
 use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
@@ -382,7 +382,7 @@ struct CodeActionCtx<'a> {
     file_id: FileId,
     range: TextRange,
     diagnostics: CodeActionDiagnostics,
-    compilation_unit: CompilationUnit<'a>,
+    parsed_file: ParsedFile,
 }
 
 impl<'a> CodeActionCtx<'a> {
@@ -392,16 +392,21 @@ impl<'a> CodeActionCtx<'a> {
         range: TextRange,
         diagnostics: CodeActionDiagnostics,
     ) -> Option<Self> {
-        let compilation_unit = CompilationUnit::cast(sema.parse_root(file_id)?)?;
-        Some(Self { sema, file_id, range, diagnostics, compilation_unit })
+        let parsed_file = sema.parse_file(file_id);
+        parsed_file.compilation_unit()?;
+        Some(Self { sema, file_id, range, diagnostics, parsed_file })
     }
 
     fn offset(&self) -> TextSize {
         self.range.start()
     }
 
-    fn find_node_at_offset<N: AstNode<'a>>(&self) -> Option<N> {
-        self.sema.find_node_at_offset(self.compilation_unit.syntax(), self.offset())
+    fn find_node_at_offset<'b, N: AstNode<'b>>(&'b self) -> Option<N> {
+        self.sema.find_node_at_offset(self.compilation_unit()?.syntax(), self.offset())
+    }
+
+    fn compilation_unit(&self) -> Option<CompilationUnit<'_>> {
+        self.parsed_file.compilation_unit()
     }
 }
 

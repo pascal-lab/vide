@@ -2,6 +2,7 @@ use hir::{
     container::{InContainer, InModule},
     db::HirDb,
     display::HirDisplay,
+    file::HirFileId,
     hir_def::{
         declaration::Declaration,
         module::{
@@ -66,14 +67,16 @@ pub(crate) fn signature_help(
     config: SignatureHelpConfig,
 ) -> Option<SignatureHelp> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id)?;
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root()?;
     let token = root.token_at_offset(offset).left_biased()?;
 
     for node in SyntaxAncestors::start_from(token.parent) {
         match_ast! { node,
             ast::HierarchicalInstance[it] => {
                 if it.close_paren().is_none_or(|tok| tok != token.tok) {
-                    return sig_help_for_instance(&sema, it, offset, config);
+                    return sig_help_for_instance(&sema, hir_file_id, it, offset, config);
                 }
             },
             ast::HierarchyInstantiation[it] => {
@@ -90,7 +93,7 @@ pub(crate) fn signature_help(
                         .and_then(|close_paren| close_paren.text_range_in(params.syntax()))
                         .is_some_and(|range| offset <= range.start())
                 {
-                        return sig_help_for_instantiation(&sema, it, offset, config);
+                        return sig_help_for_instantiation(&sema, hir_file_id, it, offset, config);
                     }
             },
             _ => {},
@@ -102,6 +105,7 @@ pub(crate) fn signature_help(
 
 fn sig_help_for_instance(
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     instance: ast::HierarchicalInstance,
     offset: TextSize,
     config: SignatureHelpConfig,
@@ -109,7 +113,8 @@ fn sig_help_for_instance(
     let db = sema.db;
 
     let active_param = 'blk: {
-        let Some(InModule { value: instance_id, module_id }) = sema.resolve_instance(instance)
+        let Some(InModule { value: instance_id, module_id }) =
+            sema.resolve_instance(file_id, instance)
         else {
             break 'blk None;
         };
@@ -221,6 +226,7 @@ fn sig_help_for_instance(
 
 fn sig_help_for_instantiation(
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     instantiation: ast::HierarchyInstantiation,
     offset: TextSize,
     config: SignatureHelpConfig,
@@ -229,7 +235,7 @@ fn sig_help_for_instantiation(
 
     let active_param = 'blk: {
         let Some(InModule { value: instantiation_id, module_id }) =
-            sema.resolve_instantiation(instantiation)
+            sema.resolve_instantiation(file_id, instantiation)
         else {
             break 'blk None;
         };

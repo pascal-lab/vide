@@ -51,7 +51,9 @@ impl SyntaxTokenPtr {
     }
 
     pub fn to_token<'a>(&self, tree: &'a SyntaxTree) -> Option<SyntaxTokenWithParent<'a>> {
-        tree.root()?.elem_at_exact_range(self.range)?.as_tok_with_parent()
+        tree.root()?.token_at_offset(self.range.start()).find(|token| {
+            token.kind() == self.kind && token.text_range().is_some_and(|range| range == self.range)
+        })
     }
 
     pub fn kind(&self) -> TokenKind {
