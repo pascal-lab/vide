@@ -4,11 +4,13 @@ use syntax::{
     SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
-use utils::line_index::TextSize;
+use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
 use crate::{
+    compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
+    preproc_index::{self, PreprocFileIndex},
     project::{CompilationProfileId, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -31,6 +33,7 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
+    fn preproc_file_index(&self, file_id: FileId) -> Arc<PreprocFileIndex>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -54,7 +57,10 @@ pub enum SourceFileKind {
 impl SourceFileKind {
     pub fn from_path(path: &VfsPath) -> Self {
         match path.name_and_extension() {
-            Some(("vizsla_config", Some(ext))) if ext.eq_ignore_ascii_case("toml") => {
+            Some((name, Some(ext)))
+                if (name == "vizsla" || name == "vizsla_config")
+                    && ext.eq_ignore_ascii_case("toml") =>
+            {
                 Self::ProjectManifest
             }
             Some((_, Some(ext))) if ext.eq_ignore_ascii_case("map") => Self::LibraryMap,
@@ -67,7 +73,7 @@ impl SourceFileKind {
         }
     }
 
-    fn is_semantic_compilation_unit(self) -> bool {
+    pub(crate) fn is_semantic_compilation_unit(self) -> bool {
         matches!(self, Self::SystemVerilog | Self::LibraryMap)
     }
 
@@ -81,10 +87,28 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
 
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            SyntaxTree::from_text(&text, "", "")
+            // HIR source maps are local to the queried file; project-aware include
+            // expansion belongs to parse_src_for_compilation.
+            SyntaxTree::from_text_with_options(
+                &text,
+                "",
+                "",
+                &syntax::SyntaxTreeOptions::without_include_expansion(),
+            )
         }
         SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+    }
+}
+
+fn preproc_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocFileIndex> {
+    match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            Arc::new(preproc_index::preproc_file_index(&db.parse_src(file_id)))
+        }
+        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
+            Arc::new(PreprocFileIndex::default())
+        }
     }
 }
 
@@ -99,20 +123,29 @@ fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentit
     SourceFileIdentity { name, path }
 }
 
-fn normalized_path_key(path: &str) -> String {
-    path.replace('\\', "/")
+fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
+    let mut index = PathIdentityIndex::default();
+    for file_id in db.files().iter().copied() {
+        if db.file_is_project_ignored(file_id) {
+            continue;
+        }
+        if let Some(path) = db.file_path(file_id) {
+            index.insert_path(&path, file_id);
+        }
+    }
+    index
 }
 
 fn insert_buffer_file_ids(
     buffer_file_ids: &mut FxHashMap<u32, FileId>,
-    path_file_ids: &FxHashMap<String, FileId>,
+    path_file_ids: &PathIdentityIndex<FileId>,
     buffers: SyntaxTreeBufferIds,
     root_file_id: FileId,
 ) {
     buffer_file_ids.insert(buffers.root_buffer_id, root_file_id);
     for buffer in buffers.source_buffers {
-        if let Some(file_id) = path_file_ids.get(&normalized_path_key(&buffer.path)) {
-            buffer_file_ids.insert(buffer.buffer_id, *file_id);
+        if let Some(file_id) = path_file_ids.get(&buffer.path) {
+            buffer_file_ids.insert(buffer.buffer_id, file_id);
         }
     }
 }
@@ -123,10 +156,23 @@ fn syntax_tree_options_for_file(
 ) -> syntax::SyntaxTreeOptions {
     let project_config = db.project_config();
     let profile_id = db.file_compilation_profile(file_id);
+    let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
+    syntax_tree_options_for_profile(&project_config, profile_id, include_buffers)
+}
+
+fn syntax_tree_options_for_profile(
+    project_config: &ProjectConfig,
+    profile_id: Option<CompilationProfileId>,
+    include_buffers: Vec<SyntaxTreeBuffer>,
+) -> syntax::SyntaxTreeOptions {
     let preprocess = project_config.preprocess_for_profile(profile_id);
     let include_paths = preprocess.include_dir_strings();
-    let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
-    syntax::SyntaxTreeOptions { predefines: preprocess.predefines, include_paths, include_buffers }
+    syntax::SyntaxTreeOptions {
+        predefines: preprocess.predefines,
+        include_paths,
+        include_buffers,
+        ..syntax::SyntaxTreeOptions::default()
+    }
 }
 
 fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
@@ -143,42 +189,6 @@ fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTr
         }
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
     }
-}
-
-fn in_memory_include_buffers(
-    db: &dyn SourceRootDb,
-    include_dirs: &[utils::paths::AbsPathBuf],
-) -> Vec<SyntaxTreeBuffer> {
-    let mut seen = FxHashSet::default();
-    let mut buffers = Vec::new();
-
-    for file_id in db.files().iter().copied() {
-        if db.file_is_project_ignored(file_id) {
-            continue;
-        }
-
-        if !matches!(db.file_kind(file_id), SourceFileKind::IncludeHeader) {
-            continue;
-        }
-
-        let Some(path) = db.file_path(file_id) else {
-            continue;
-        };
-
-        let in_include_path = include_dirs.iter().any(|include_dir| path.starts_with(include_dir));
-        if !in_include_path {
-            continue;
-        }
-
-        let path = path.to_string();
-        if !seen.insert(path.clone()) {
-            continue;
-        }
-
-        buffers.push(SyntaxTreeBuffer { path, text: db.file_text(file_id).to_string() });
-    }
-
-    buffers
 }
 
 fn parser_expected_syntax(
@@ -243,6 +253,11 @@ pub trait SourceRootDb: SourceDb {
 
     fn file_compilation_profile(&self, file_id: FileId) -> Option<CompilationProfileId>;
     fn file_is_project_ignored(&self, file_id: FileId) -> bool;
+    fn compilation_plan_for_root(&self, source_root_id: SourceRootId) -> Arc<CompilationPlan>;
+    fn compilation_plan_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<CompilationPlan>;
     fn include_buffers_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
@@ -284,13 +299,26 @@ fn file_is_project_ignored(db: &dyn SourceRootDb, file_id: FileId) -> bool {
     db.source_root(source_root_id).is_ignored()
 }
 
+fn compilation_plan_for_root(
+    db: &dyn SourceRootDb,
+    source_root_id: SourceRootId,
+) -> Arc<CompilationPlan> {
+    Arc::new(CompilationPlan::for_source_root(db, source_root_id))
+}
+
+fn compilation_plan_for_profile(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<CompilationPlan> {
+    Arc::new(CompilationPlan::for_profile(db, profile_id))
+}
+
 fn include_buffers_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
-    let project_config = db.project_config();
-    let preprocess = project_config.preprocess_for_profile(profile_id);
-    Arc::new(in_memory_include_buffers(db, &preprocess.include_dirs))
+    let plan = db.compilation_plan_for_profile(profile_id);
+    Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
@@ -313,57 +341,38 @@ fn source_root_semantic_diagnostics(
     }
 
     let project_config = db.project_config();
-    let profile = project_config.profile_for_root(source_root_id);
-    let profile = profile.and_then(|profile_id| project_config.profile(profile_id));
-    let compilation_roots =
-        profile.map(|profile| profile.source_roots.clone()).unwrap_or_else(|| vec![source_root_id]);
-    let top_modules = profile.map(|profile| profile.top_modules.clone()).unwrap_or_default();
-    let mut compilation = Compilation::new_with_top_modules(&top_modules);
+    let Some(profile_id) = project_config.profile_for_root(source_root_id) else {
+        return Arc::from(Vec::<(FileId, SyntaxDiagnostic)>::new());
+    };
+    let plan = db.compilation_plan_for_profile(Some(profile_id));
+    let compilation_include_buffers =
+        compilation_plan::compilation_source_buffers_for_plan(db, &plan);
+    let compilation_options = syntax_tree_options_for_profile(
+        &project_config,
+        Some(profile_id),
+        compilation_include_buffers,
+    );
+    let mut compilation = Compilation::new_with_top_modules(&plan.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
-    let mut path_file_ids = FxHashMap::default();
-    for file_id in db.files().iter().copied() {
-        if db.file_is_project_ignored(file_id) {
-            continue;
-        }
-        if let Some(path) = db.file_path(file_id) {
-            path_file_ids.insert(normalized_path_key(&path.to_string()), file_id);
-        }
-    }
-    let mut visited_files = FxHashSet::default();
-
-    for root_id in compilation_roots {
-        let source_root = db.source_root(root_id);
-        for file_id in source_root.iter() {
-            if !visited_files.insert(file_id) {
-                continue;
-            }
-            if db.file_is_project_ignored(file_id) {
-                continue;
-            }
-            if !db.file_kind(file_id).is_semantic_compilation_unit() {
-                continue;
-            }
-            let text = db.file_text(file_id);
-            let identity = source_file_identity(db, file_id);
-            let buffer_ids = match db.file_kind(file_id) {
-                SourceFileKind::SystemVerilog => {
-                    let options = syntax_tree_options_for_file(db, file_id);
-                    compilation.add_syntax_tree_from_text(
-                        &text,
-                        &identity.name,
-                        &identity.path,
-                        &options,
-                    )
-                }
-                SourceFileKind::LibraryMap => compilation.add_library_map_syntax_tree_from_text(
-                    &text,
-                    &identity.name,
-                    &identity.path,
-                ),
-                SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
-            };
-            insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids, file_id);
-        }
+    let path_file_ids = path_file_ids(db);
+    for file_id in plan.roots.iter().copied() {
+        let text = db.file_text(file_id);
+        let identity = source_file_identity(db, file_id);
+        let buffer_ids = match db.file_kind(file_id) {
+            SourceFileKind::SystemVerilog => compilation.add_syntax_tree_from_text(
+                &text,
+                &identity.name,
+                &identity.path,
+                &compilation_options,
+            ),
+            SourceFileKind::LibraryMap => compilation.add_library_map_syntax_tree_from_text(
+                &text,
+                &identity.name,
+                &identity.path,
+            ),
+            SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
+        };
+        insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids, file_id);
     }
 
     let diagnostics = compilation
@@ -401,5 +410,16 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::SystemVerilog);
         assert!(kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn project_manifests_are_not_slang_parse_diagnostic_units() {
+        for file_name in ["vizsla.toml", "vizsla_config.toml"] {
+            let kind =
+                SourceFileKind::from_path(&VfsPath::new_virtual_path(format!("/root/{file_name}")));
+
+            assert_eq!(kind, SourceFileKind::ProjectManifest);
+            assert!(!kind.is_slang_parse_unit());
+        }
     }
 }

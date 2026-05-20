@@ -15,6 +15,8 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
@@ -22,26 +24,17 @@ concurrency:
 
 jobs:
   build:
-    name: Build mdBook
+    name: Build Starlight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install mdBook
-        run: cargo install mdbook --version 0.5.2 --locked
-
-      - name: Build documentation
-        run: mdbook build docs
-
-      - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+      - name: Install, build, and upload docs
+        uses: withastro/action@v6
         with:
-          path: docs/book
+          path: docs
+          node-version: 24
 
   deploy:
     name: Deploy to GitHub Pages
@@ -57,4 +50,4 @@ jobs:
     steps:
       - name: Deploy Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

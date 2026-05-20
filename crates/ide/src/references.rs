@@ -1,4 +1,4 @@
-use hir::semantics::Semantics;
+use hir::{file::HirFileId, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use nohash_hasher::IntMap;
@@ -59,11 +59,13 @@ pub(crate) fn references(
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id)?;
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root()?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
-    handle_ctrl_flow_kw(&sema, token).or_else(|| {
-        let def = match DefinitionClass::resolve(&sema, token)? {
+    handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
+        let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
         };
@@ -72,10 +74,10 @@ pub(crate) fn references(
 }
 
 pub(crate) fn handle_ctrl_flow_kw(
-    sema: &Semantics<'_, RootDb>,
-    tp @ SyntaxTokenWithParent { parent, .. }: SyntaxTokenWithParent,
+    _sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<References>> {
-    let file_id = sema.find_file(parent)?;
     let kind = tp.kind();
 
     let mut refs = vec![];
@@ -106,10 +108,7 @@ fn search_refs<'a>(
         .search()
         .into_iter()
         .map(|(file_id, tokens)| {
-            let res = tokens
-                .into_iter()
-                .filter_map(|token| Some((token.range()?, token.category())))
-                .collect();
+            let res = tokens.into_iter().map(|token| (token.range(), token.category())).collect();
             (file_id, res)
         })
         .collect();

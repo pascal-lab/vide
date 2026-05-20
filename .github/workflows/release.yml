@@ -20,7 +20,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Keep the Linux x64 VSIX compatible with Ubuntu 22.04 glibc/libstdc++.
+          - os: ubuntu-22.04
             target: linux-x64
           - os: ubuntu-24.04-arm
             target: linux-arm64
@@ -74,9 +75,68 @@ jobs:
           path: editors/vscode/vizsla-vscode-${{ matrix.target }}.vsix
           if-no-files-found: error
 
+  build-alpine-package:
+    name: Package ${{ matrix.target }}
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: alpine-x64
+            image: ghcr.io/blackdex/rust-musl:x86_64-musl-nightly
+          - target: alpine-arm64
+            image: ghcr.io/blackdex/rust-musl:aarch64-musl-nightly
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates cmake git python3
+
+      - name: Install Rust components
+        run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Trust checkout directories
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/crates/slang"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Set build metadata
+        shell: bash
+        run: |
+          echo "VIZSLA_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+
+      - name: Build VSIX
+        working-directory: editors/vscode
+        run: npm run package:${{ matrix.target }}
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vizsla-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-${{ matrix.target }}
+          path: editors/vscode/vizsla-vscode-${{ matrix.target }}.vsix
+          if-no-files-found: error
+
   publish:
     name: Publish ${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }} release
-    needs: [build-and-package]
+    needs: [build-and-package, build-alpine-package]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'beta' || github.ref_name }}

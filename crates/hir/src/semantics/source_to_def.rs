@@ -3,6 +3,7 @@ use syntax::{
     SyntaxAncestors, SyntaxNode,
     ast::{self, AstNode},
     match_ast,
+    ptr::SyntaxNodePtr,
 };
 use utils::get::{Get, GetRef};
 
@@ -25,13 +26,13 @@ use crate::{
 };
 
 #[derive(Default, Debug)]
-pub(super) struct Source2DefCache<'db> {
-    container_map: FxHashMap<InFile<SyntaxNode<'db>>, ContainerId>,
+pub(super) struct Source2DefCache {
+    container_map: FxHashMap<InFile<SyntaxNodePtr>, ContainerId>,
 }
 
 pub(super) struct Source2DefCtx<'db, 'cache> {
     pub(super) db: &'db dyn HirDb,
-    pub(super) source_cache: &'cache mut Source2DefCache<'db>,
+    pub(super) source_cache: &'cache mut Source2DefCache,
     pub(super) hir_cache: &'cache mut Hir2DefCache,
 }
 
@@ -242,8 +243,7 @@ impl Source2DefCtx<'_, '_> {
         &mut self,
         InFile { value: node, file_id }: InFile<SyntaxNode>,
     ) -> ContainerId {
-        let node = unsafe { std::mem::transmute::<SyntaxNode<'_>, SyntaxNode<'_>>(node) };
-        let in_file = InFile::new(file_id, node);
+        let in_file = InFile::new(file_id, SyntaxNodePtr::from_node(node));
 
         if let Some(container_id) = self.source_cache.container_map.get(&in_file) {
             return *container_id;

@@ -1,5 +1,6 @@
 [top_level]
 module = "module ${1:name} (${2:ports});\n\t${0}\nendmodule"
+"module #(...)" = { plain = "module", snippet = "module ${1:name} #(\n\tparameter ${2:PARAM} = ${3:VALUE}\n) (${4:ports});\n\t${0}\nendmodule" }
 primitive = "primitive ${1:name} (${2:ports});\n\t${0}\nendprimitive"
 macromodule = "macromodule ${1:name} (${2:ports});\n\t${0}\nendmodule"
 config = "config ${1:name};\n\tdesign ${2:work.top};\nendconfig"

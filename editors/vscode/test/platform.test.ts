@@ -11,6 +11,8 @@ import {
 } from '../src/platform';
 
 test('maps supported Node platform and architecture pairs to VS Code target folders', () => {
+  assert.equal(getPlatformFolder('alpine', 'arm64'), 'alpine-arm64');
+  assert.equal(getPlatformFolder('alpine', 'x64'), 'alpine-x64');
   assert.equal(getPlatformFolder('darwin', 'arm64'), 'darwin-arm64');
   assert.equal(getPlatformFolder('darwin', 'x64'), 'darwin-x64');
   assert.equal(getPlatformFolder('linux', 'arm64'), 'linux-arm64');
@@ -25,6 +27,8 @@ test('rejects unsupported platform and architecture pairs', () => {
 });
 
 test('checks package targets with a type guard', () => {
+  assert.equal(isPlatformFolder('alpine-arm64'), true);
+  assert.equal(isPlatformFolder('alpine-x64'), true);
   assert.equal(isPlatformFolder('linux-x64'), true);
   assert.equal(isPlatformFolder('linux-riscv64'), false);
 });

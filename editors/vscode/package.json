@@ -2,7 +2,7 @@
   "name": "vizsla-lsp",
   "displayName": "Vizsla",
   "description": "Language support for Verilog and SystemVerilog powered by the Vizsla language server.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "vizsla",
   "license": "MIT",
   "repository": {
@@ -347,6 +347,8 @@
     "compile": "npm run clean && npm run typecheck && npm run bundle",
     "test": "npm run compile && node --import tsx --test \"test/**/*.test.ts\"",
     "package:debug": "npm run compile && tsx scripts/package.ts --debug",
+    "package:alpine-arm64": "npm run compile && tsx scripts/package.ts alpine-arm64",
+    "package:alpine-x64": "npm run compile && tsx scripts/package.ts alpine-x64",
     "package:darwin-arm64": "npm run compile && tsx scripts/package.ts darwin-arm64",
     "package:darwin-x64": "npm run compile && tsx scripts/package.ts darwin-x64",
     "package:linux-x64": "npm run compile && tsx scripts/package.ts linux-x64",

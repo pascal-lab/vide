@@ -8,6 +8,7 @@ edition.workspace = true
 [dependencies]
 crossbeam-channel.workspace = true
 fst = "0.4.7"
+globset.workspace = true
 indexmap = "2.0.0"
 nohash-hasher.workspace = true
 rustc-hash.workspace = true

@@ -4,7 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use base_db::{change::Change, source_root::SourceRoot};
+use base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot};
+use hir::semantics::Semantics;
+use ide_db::root_db::RootDb;
 use insta::assert_snapshot;
 use span::FilePosition;
 use triomphe::Arc;
@@ -102,6 +104,41 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
     let mut host = AnalysisHost::default();
     host.apply_change(change);
     (host, file_id)
+}
+
+#[test]
+fn parsed_file_nodes_survive_parse_lru_eviction() {
+    let mut file_set = FileSet::default();
+    let files = [
+        (FileId(0), "/a.sv", "module a;\n  wire x;\nendmodule\n"),
+        (FileId(1), "/b.sv", "module b;\nendmodule\n"),
+        (FileId(2), "/c.sv", "module c;\nendmodule\n"),
+    ];
+
+    let mut change = Change::new();
+    for (file_id, path, text) in files {
+        file_set.insert(file_id, VfsPath::new_virtual_path(path.to_owned()));
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(text), LineEnding::Unix),
+        });
+    }
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+
+    let mut db = RootDb::new(Some(1));
+    db.apply_change(change);
+
+    let sema = Semantics::new(&db);
+    let parsed_file = sema.parse_file(FileId(0));
+    let root = parsed_file.root().expect("a.sv should parse");
+    let child_count = root.child_count();
+    assert!(child_count > 0);
+
+    let _ = db.parse_src(FileId(1));
+    let _ = db.parse_src(FileId(2));
+
+    assert_eq!(root.child_count(), child_count);
+    assert!(root.first_token().is_some());
 }
 
 fn setup_marked(text: &str) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
@@ -867,6 +904,36 @@ endmodule
     assert!(renamed.contains("y = drive_value;"));
     assert!(renamed.contains("input [3:0] value;"));
     assert!(renamed.contains("add1 = value + 1'b1;"));
+}
+
+#[test]
+fn verilog_2005_ansi_ports_inherit_implicit_header_type() {
+    let text = r#"
+module child(
+    input rst,
+    output io_vgaclk,
+    output [7:0] a, b, c
+);
+endmodule
+
+module top;
+  child u(/*marker:rst*/rst, io_vgaclk, a, b, c);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "rst"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for ordered port connection");
+
+    assert_eq!(
+        signature.label,
+        "module child(input rst, output io_vgaclk, output [7:0] a, output [7:0] b, output [7:0] c)"
+    );
 }
 
 #[test]

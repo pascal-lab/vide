@@ -33,3 +33,4 @@ vfs.workspace = true
 
 [dev-dependencies]
 insta = "1.46.0"
+utils = { workspace = true, features = ["test-support"] }

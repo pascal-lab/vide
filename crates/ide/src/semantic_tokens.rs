@@ -126,7 +126,8 @@ pub(crate) fn semantic_tokens(
     range: Option<TextRange>,
 ) -> Vec<SemaToken> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(file_id) else {
+    let parsed_file = sema.parse_file(file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
     let file_id = HirFileId(file_id);

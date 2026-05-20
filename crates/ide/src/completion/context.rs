@@ -37,6 +37,7 @@ pub enum TriggerChar {
     Comma,
     At,
     Hash,
+    Dollar,
     Backtick,
     Apostrophe,
     Newline,
@@ -103,7 +104,8 @@ pub(crate) fn completion_context(
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(file_id) else {
+    let parsed_file = sema.parse_file(file_id);
+    let Some(root) = parsed_file.root() else {
         return CompletionContext {
             replacement: TextRange::empty(offset),
             prefix: String::new(),
@@ -117,12 +119,14 @@ pub(crate) fn completion_context(
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
     let directive_word = directive_word_at_offset(&text, offset);
     let token_word = library_map_word_at_offset(root, &text, offset);
+    let system_word = standalone_system_identifier_word_at_offset(&text, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         directive_word,
         token_word,
+        system_word,
         Some(&parser_expected_syntax),
     )
 }
@@ -132,7 +136,7 @@ pub fn detect_completion_context(
     offset: TextSize,
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
-    detect_completion_context_impl(root, offset, trigger, None, None, None)
+    detect_completion_context_impl(root, offset, trigger, None, None, None, None)
 }
 
 pub fn detect_completion_context_with_source_text(
@@ -144,12 +148,14 @@ pub fn detect_completion_context_with_source_text(
     let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
     let directive_word = directive_word_at_offset(source_text, offset);
     let token_word = library_map_word_at_offset(root, source_text, offset);
+    let system_word = standalone_system_identifier_word_at_offset(source_text, offset);
     detect_completion_context_impl(
         root,
         offset,
         trigger,
         directive_word,
         token_word,
+        system_word,
         Some(&parser_expected_syntax),
     )
 }
@@ -160,6 +166,7 @@ fn detect_completion_context_impl(
     trigger: Option<TriggerChar>,
     directive_word: Option<CompletionWord>,
     token_word: Option<CompletionWord>,
+    system_word: Option<CompletionWord>,
     parser_expected_syntax: Option<&[ParserExpectedSyntax]>,
 ) -> CompletionContext {
     let caret = CaretSnapshot::new(root, offset);
@@ -213,6 +220,13 @@ fn detect_completion_context_impl(
 
     if prefix.is_empty()
         && let Some(word) = token_word.filter(|word| !word.prefix.is_empty())
+    {
+        replacement = word.replacement;
+        prefix = word.prefix;
+    }
+
+    if prefix.is_empty()
+        && let Some(word) = system_word
     {
         replacement = word.replacement;
         prefix = word.prefix;
@@ -276,6 +290,26 @@ fn library_map_word_at_offset(
             TextSize::from(word.replacement.end as u32),
         ),
         prefix: word.prefix,
+    })
+}
+
+fn standalone_system_identifier_word_at_offset(
+    source_text: &str,
+    offset: TextSize,
+) -> Option<CompletionWord> {
+    let offset = usize::from(offset);
+    if offset == 0 || offset > source_text.len() || !source_text.is_char_boundary(offset) {
+        return None;
+    }
+
+    let start = offset - 1;
+    if source_text.as_bytes().get(start) != Some(&b'$') {
+        return None;
+    }
+
+    Some(CompletionWord {
+        replacement: TextRange::new(TextSize::from(start as u32), TextSize::from(offset as u32)),
+        prefix: "$".to_owned(),
     })
 }
 
@@ -421,6 +455,17 @@ mod tests {
     fn detects_string_literal() {
         let c = ctx("module m; initial $display(\"he/*caret*/llo\"); endmodule\n");
         assert_eq!(c.lex, LexContext::Literal);
+    }
+
+    #[test]
+    fn detects_standalone_dollar_as_system_identifier_prefix() {
+        let text = "module m; initial begin $/*caret*/ end endmodule\n";
+        let dollar = TextSize::from(text.find('$').unwrap() as u32);
+        let c = ctx(text);
+
+        assert_eq!(c.lex, LexContext::Code);
+        assert_eq!(c.prefix, "$");
+        assert_eq!(c.replacement, TextRange::new(dollar, dollar + TextSize::from(1)));
     }
 
     #[test]

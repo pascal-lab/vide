@@ -1,4 +1,7 @@
-# 故障排查
+---
+title: 故障排查
+description: 排查 Vizsla 状态栏错误、服务器启动失败、诊断和文件监听问题。
+---
 
 ## 状态栏显示 Vizsla Error
 
@@ -69,13 +72,22 @@ npm run package
 
 检查工程清单:
 
-- `vizsla_config.toml` 是否位于 workspace root。
-- `sources` 是否包含目标目录。
-- `exclude` 是否把目录排除了。
+- `vizsla.toml` 是否位于 workspace root。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。
+- `sources` shell glob 是否能匹配目标文件, 例如递归目录要写成 `rtl/**`。
+- `exclude` shell glob 是否把目标文件排除了, 例如目录递归排除是 `build/**`。
 - 文件扩展名是否是 `.v`, `.sv`, `.vh`, `.svh`, `.svi` 或 `.map`。
 - 你是否打开了子目录, 导致 workspace root 变了。
 
-没有清单时, 我们只把当前 workspace root 当作未配置工程。不会自动向父目录或子目录搜索清单。
+VS Code 扩展只会在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时创建默认 `vizsla.toml`:
+
+```toml
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
+sources = []
+include_dirs = []
+```
+
+这个默认清单和无清单都会保留打开文件的 syntax/parse diagnostics, 但不会扫描工程文件或启用 semantic diagnostics; 需要语义诊断和跨文件能力时, 请写入实际的 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。我们不会自动向父目录或子目录搜索清单。
 
 ## include 或宏没有生效
 
@@ -112,7 +124,7 @@ include_dirs = ["include", "rtl"]
 }
 ```
 
-`vizsla.files.excludeDirs` 只接受 workspace 相对目录, 不支持 glob。需要 glob 时, 另配 VS Code 的 `files.watcherExclude`。
+`vizsla.files.excludeDirs` 只接受 workspace 相对目录, 不支持 glob。文件选择请优先使用 manifest 的 `sources` / `exclude` shell glob; 如果还要减少 VS Code 自己的 watcher 事件, 另配 VS Code 的 `files.watcherExclude`。
 
 ## 日志排查
 

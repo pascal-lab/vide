@@ -1,8 +1,6 @@
 use std::{
-    env, fs,
-    path::{Path, PathBuf},
-    thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    fs, thread,
+    time::{Duration, Instant},
 };
 
 use lsp_server::{Connection, Message, Notification, Request};
@@ -29,7 +27,7 @@ use lsp_types::{
     },
 };
 use serde::de::DeserializeOwned;
-use utils::paths::AbsPathBuf;
+use utils::test_support::TestDir;
 
 use crate::{
     Opt,
@@ -41,31 +39,56 @@ use crate::{
     lsp_ext::to_proto,
 };
 
-struct TempDir {
-    path: PathBuf,
+type TempDir = TestDir;
+
+const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_TEST_CONFIG: &str = "sources = [\"**\"]\ninclude_dirs = [\".\"]\n";
+const SYNTAX_ONLY_TEST_CONFIG: &str = "\
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+# Fill shell globs, for example sources = [\"rtl/**\"] and include_dirs = [\"include\"], to enable semantic diagnostics.
+sources = []
+include_dirs = []
+";
+
+fn recv_lsp_message_until(
+    client: &Connection,
+    deadline: Instant,
+    context: &str,
+) -> Option<Message> {
+    let now = Instant::now();
+    if now >= deadline {
+        return None;
+    }
+
+    let timeout = deadline.saturating_duration_since(now);
+    match client.receiver.recv_timeout(timeout) {
+        Ok(message) => Some(message),
+        Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
+        Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+            panic!("test client disconnected while waiting for {context}");
+        }
+    }
 }
 
-impl TempDir {
-    fn new() -> Self {
-        let unique = format!(
-            "vizsla-diag-test-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        );
-        let path = env::temp_dir().join(unique);
-        fs::create_dir_all(&path).unwrap();
-        Self { path }
+fn handle_test_server_request(client: &Connection, request: Request, context: &str) {
+    if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD
+        || request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD
+    {
+        client
+            .sender
+            .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+            .unwrap();
+        return;
     }
 
-    fn path(&self) -> &Path {
-        &self.path
-    }
+    panic!("unexpected server request during {context}: {request:?}");
 }
 
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
+fn spawn_default_test_server(
+    config: config::Config,
+    server: Connection,
+) -> thread::JoinHandle<anyhow::Result<()>> {
+    thread::spawn(move || main_loop::main_loop(config, server, lsp_types::TraceValue::Off))
 }
 
 fn setup_diagnostics_test(
@@ -73,11 +96,47 @@ fn setup_diagnostics_test(
     user_config: UserConfig,
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
-    let temp_dir = TempDir::new();
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, None)
+}
+
+fn setup_configured_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(DEFAULT_TEST_CONFIG))
+}
+
+fn setup_syntax_only_config_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(SYNTAX_ONLY_TEST_CONFIG))
+}
+
+fn setup_empty_config_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(""))
+}
+
+fn setup_diagnostics_test_inner(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+    config_text: Option<&str>,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    let temp_dir = TempDir::new("diag-test");
     let file_path = temp_dir.path().join("broken.sv");
     fs::write(&file_path, file_text).unwrap();
+    if let Some(config_text) = config_text {
+        fs::write(temp_dir.path().join("vizsla_config.toml"), config_text).unwrap();
+    }
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -93,10 +152,9 @@ fn setup_diagnostics_test(
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
 
-    let uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref()).unwrap();
+    let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
     let did_open = DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
@@ -116,24 +174,33 @@ fn setup_diagnostics_test(
     (temp_dir, client, server_thread, uri)
 }
 
-fn setup_multi_file_diagnostics_test(
+fn setup_configured_multi_file_diagnostics_test(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
     files: &[(&str, &str)],
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Vec<Url>) {
-    let temp_dir = TempDir::new();
+    setup_multi_file_diagnostics_test_inner(client_caps, user_config, files, true)
+}
+
+fn setup_multi_file_diagnostics_test_inner(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    files: &[(&str, &str)],
+    write_config: bool,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Vec<Url>) {
+    let temp_dir = TempDir::new("diag-test");
     let mut uris = Vec::new();
+    if write_config {
+        fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    }
 
     for (path, text) in files {
         let file_path = temp_dir.path().join(path);
         fs::write(&file_path, text).unwrap();
-        uris.push(
-            to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(file_path.clone()).as_ref())
-                .unwrap(),
-        );
+        uris.push(to_proto::url_from_abs_path(file_path.as_path()).unwrap());
     }
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -149,7 +216,7 @@ fn setup_multi_file_diagnostics_test(
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
 
     for ((path, text), uri) in files.iter().zip(uris.iter()) {
         let did_open = DidOpenTextDocumentParams {
@@ -183,7 +250,7 @@ fn shutdown_test_server(
         .unwrap();
 
     loop {
-        match client.receiver.recv_timeout(Duration::from_secs(10)).unwrap() {
+        match client.receiver.recv_timeout(LSP_TEST_TIMEOUT).unwrap() {
             Message::Response(response) if response.id == shutdown_id => break,
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
@@ -205,10 +272,9 @@ fn recv_document_diagnostics(
     client: &Connection,
     request_id: lsp_server::RequestId,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, "documentDiagnostic") {
+        match message {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
                 let result = serde_json::from_value::<DocumentDiagnosticReportResult>(
@@ -230,8 +296,10 @@ fn recv_document_diagnostics(
             }
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(client, request, "documentDiagnostic diagnostics test")
             }
             _ => {}
         }
@@ -241,10 +309,9 @@ fn recv_document_diagnostics(
 }
 
 fn recv_publish_diagnostics_for_uri(client: &Connection, uri: &Url) -> Vec<lsp_types::Diagnostic> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, "publishDiagnostics") {
+        match message {
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
             {
@@ -258,7 +325,7 @@ fn recv_publish_diagnostics_for_uri(client: &Connection, uri: &Url) -> Vec<lsp_t
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Request(request) => {
-                panic!("unexpected server request during diagnostics test: {request:?}");
+                handle_test_server_request(client, request, "publishDiagnostics diagnostics test")
             }
             _ => {}
         }
@@ -272,10 +339,9 @@ fn recv_response<T: DeserializeOwned>(
     request_id: lsp_server::RequestId,
     label: &str,
 ) -> T {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
-        match client.receiver.recv_timeout(timeout).unwrap() {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, label) {
+        match message {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{label} returned error: {:?}", response.error);
                 return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
@@ -285,25 +351,7 @@ fn recv_response<T: DeserializeOwned>(
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
-            Message::Request(request)
-                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
-            {
-                client
-                    .sender
-                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
-                    .unwrap();
-            }
-            Message::Request(request) => {
-                panic!("unexpected server request during {label}: {request:?}");
-            }
+            Message::Request(request) => handle_test_server_request(client, request, label),
             _ => {}
         }
     }
@@ -386,6 +434,54 @@ fn code_action_titles(actions: &[CodeActionOrCommand]) -> Vec<String> {
 }
 
 #[test]
+fn clearing_open_document_updates_analysis_state() {
+    let text = "module stale_after_clear;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(ClientCapabilities::default(), UserConfig::default(), text);
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidChangeTextDocument::METHOD.to_string(),
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier { uri: uri.clone(), version: 2 },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: String::new(),
+                }],
+            },
+        )))
+        .unwrap();
+
+    let symbols_id = lsp_server::RequestId::from(180);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            symbols_id.clone(),
+            DocumentSymbolRequest::METHOD.to_string(),
+            DocumentSymbolParams {
+                text_document: TextDocumentIdentifier { uri },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let symbols: Option<DocumentSymbolResponse> =
+        recv_response(&client, symbols_id, "documentSymbol");
+    let symbol_count = match symbols {
+        Some(DocumentSymbolResponse::Nested(symbols)) => symbols.len(),
+        Some(DocumentSymbolResponse::Flat(symbols)) => symbols.len(),
+        None => 0,
+    };
+
+    assert_eq!(symbol_count, 0, "cleared documents must not expose stale symbols");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn code_action_request_returns_ordered_connection_refactor_without_diagnostics() {
     let text = "\
 module ca_leaf(input clk, input rst_n, output done);
@@ -449,7 +545,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+        setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
 
     let diagnostics_id = lsp_server::RequestId::from(210);
     client
@@ -692,10 +788,10 @@ fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
 
     let mut pull_diagnostics = None;
     let mut saw_publish_diagnostics = false;
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
 
-    while std::time::Instant::now() < deadline && pull_diagnostics.is_none() {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    while Instant::now() < deadline && pull_diagnostics.is_none() {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         let message = client.receiver.recv_timeout(timeout).unwrap();
 
         match message {
@@ -743,9 +839,9 @@ fn pull_capable_client_does_not_receive_duplicate_publish_diagnostics() {
     );
     assert!(!saw_publish_diagnostics, "pull-capable client should not receive publishDiagnostics");
 
-    let quiet_until = std::time::Instant::now() + Duration::from_millis(500);
-    while std::time::Instant::now() < quiet_until {
-        let timeout = quiet_until.saturating_duration_since(std::time::Instant::now());
+    let quiet_until = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < quiet_until {
+        let timeout = quiet_until.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout) {
             Ok(Message::Notification(notification))
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
@@ -780,10 +876,10 @@ fn legacy_client_receives_publish_diagnostics() {
         UserConfig::default(),
         "module broken(;\nendmodule\n",
     );
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
 
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
@@ -835,7 +931,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(pull_caps, user_config, file_text);
+        setup_configured_diagnostics_test(pull_caps, user_config, file_text);
 
     let request_id = lsp_server::RequestId::from(1);
     let request = Request::new(
@@ -851,9 +947,9 @@ endmodule
     );
     client.sender.send(Message::Request(request)).unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
@@ -887,6 +983,185 @@ endmodule
 }
 
 #[test]
+fn unconfigured_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "unconfigured workspaces should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn syntax_only_config_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "syntax-only configs should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn empty_config_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_empty_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "empty configs should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn syntax_only_config_workspace_reports_parse_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module top(;
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message.contains("expected")),
+        "syntax-only configs should still report parse diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn workspace_diagnostics_use_multi_file_semantic_context() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
@@ -895,7 +1170,7 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
         }),
         ..Default::default()
     };
-    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         pull_caps,
         UserConfig::default(),
         &[
@@ -921,9 +1196,9 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
     );
     client.sender.send(Message::Request(request)).unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
@@ -1005,14 +1280,14 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("configured-includes");
     let rtl_dir = temp_dir.path().join("rtl");
     let include_dir = temp_dir.path().join("include");
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
         temp_dir.path().join("vizsla_config.toml"),
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"include\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
     fs::write(include_dir.join("common_defs.svh"), "`define ENABLE_COUNTER 1\n").unwrap();
@@ -1020,7 +1295,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     let top_path = rtl_dir.join("top.sv");
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1036,9 +1311,8 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    let server_thread = spawn_default_test_server(config, server);
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     client
         .sender
         .send(Message::Notification(Notification::new(
@@ -1089,7 +1363,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("library-include-changes");
     let app_dir = temp_dir.path().join("app");
     let app_rtl_dir = app_dir.join("rtl");
     let package_dir = temp_dir.path().join("pkg");
@@ -1098,7 +1372,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::create_dir_all(&package_include_dir).unwrap();
     fs::write(
         app_dir.join("vizsla_config.toml"),
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"../pkg/include\"]\nlibraries = [\"../pkg\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"../pkg/include\"]\nlibraries = [\"../pkg\"]\n",
     )
     .unwrap();
     fs::write(
@@ -1113,9 +1387,9 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     let top_path = app_rtl_dir.join("top.sv");
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
-    let app_root = AbsPathBuf::assert_utf8(app_dir.clone());
-    let package_root = AbsPathBuf::assert_utf8(package_dir.clone());
+    let root_path = temp_dir.path().to_path_buf();
+    let app_root = app_dir.clone();
+    let package_root = package_dir.clone();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1131,11 +1405,9 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
-    let header_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(header_path.clone()).as_ref()).unwrap();
+    let server_thread = spawn_default_test_server(config, server);
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
     let first_id = lsp_server::RequestId::from(1);
     client
@@ -1212,14 +1484,14 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("include-changes");
     let rtl_dir = temp_dir.path().join("rtl");
     let include_dir = temp_dir.path().join("include");
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
         temp_dir.path().join("vizsla_config.toml"),
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"include\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
     let header_path = include_dir.join("common_defs.svh");
@@ -1229,7 +1501,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     let top_path = rtl_dir.join("top.sv");
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1245,11 +1517,9 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
-    let header_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(header_path.clone()).as_ref()).unwrap();
+    let server_thread = spawn_default_test_server(config, server);
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
     let first_id = lsp_server::RequestId::from(1);
     client
@@ -1321,13 +1591,13 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
-    let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl\"]\n";
-    let manifest_path = temp_dir.path().join("vizsla_config.toml");
+    let temp_dir = TempDir::new("manifest-diagnostics");
+    let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
     fs::write(&manifest_path, manifest_text).unwrap();
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1343,10 +1613,8 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let manifest_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(manifest_path.clone()).as_ref())
-            .unwrap();
+    let server_thread = spawn_default_test_server(config, server);
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
     client
         .sender
@@ -1430,17 +1698,17 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("manifest-exclude-refresh");
     let manifest_path = temp_dir.path().join("vizsla_config.toml");
     let ignored_dir = temp_dir.path().join("ignored");
     let rtl_dir = temp_dir.path().join("rtl");
     fs::create_dir_all(&ignored_dir).unwrap();
     fs::create_dir_all(&rtl_dir).unwrap();
-    fs::write(&manifest_path, "").unwrap();
+    fs::write(&manifest_path, DEFAULT_TEST_CONFIG).unwrap();
     fs::write(ignored_dir.join("ignored.sv"), "module ignored(;\nendmodule\n").unwrap();
     fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1456,14 +1724,10 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let ignored_uri = to_proto::url_from_abs_path(
-        AbsPathBuf::assert_utf8(ignored_dir.join("ignored.sv")).as_ref(),
-    )
-    .unwrap();
-    let manifest_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(manifest_path.clone()).as_ref())
-            .unwrap();
+    let server_thread = spawn_default_test_server(config, server);
+    let ignored_uri =
+        to_proto::url_from_abs_path(ignored_dir.join("ignored.sv").as_path()).unwrap();
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
     let first_id = lsp_server::RequestId::from(1);
     client
@@ -1497,11 +1761,11 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
                 .any(|diag| diag.message.contains("expected"));
         }
     }
-    assert!(saw_ignored_diagnostic, "empty config should diagnose ignored.sv");
+    assert!(saw_ignored_diagnostic, "root-scanning config should diagnose ignored.sv");
 
     fs::write(
         &manifest_path,
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\nexclude = [\"ignored\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\nexclude = [\"ignored/**\"]\n",
     )
     .unwrap();
     client
@@ -1567,14 +1831,15 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         }),
         ..Default::default()
     };
-    let temp_dir = TempDir::new();
+    let temp_dir = TempDir::new("workspace-scan");
     let child_path = temp_dir.path().join("child.sv");
     let top_path = temp_dir.path().join("top.v");
     let top_text = "module top;\n  wire sig;\n  child u(.a(sig));\nendmodule\n";
+    fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
     fs::write(&child_path, "module child(input logic a, input logic b);\nendmodule\n").unwrap();
     fs::write(&top_path, top_text).unwrap();
 
-    let root_path = AbsPathBuf::assert_utf8(temp_dir.path().to_path_buf());
+    let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -1590,9 +1855,8 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
-    let top_uri =
-        to_proto::url_from_abs_path(AbsPathBuf::assert_utf8(top_path.clone()).as_ref()).unwrap();
+    let server_thread = spawn_default_test_server(config, server);
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     client
         .sender
         .send(Message::Notification(Notification::new(
@@ -1608,9 +1872,9 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         )))
         .unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Request(request)
                 if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
@@ -1655,9 +1919,9 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         )))
         .unwrap();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        let timeout = deadline.saturating_duration_since(std::time::Instant::now());
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while Instant::now() < deadline {
+        let timeout = deadline.saturating_duration_since(Instant::now());
         match client.receiver.recv_timeout(timeout).unwrap() {
             Message::Response(response) if response.id == request_id => {
                 assert!(response.error.is_none(), "{:?}", response.error);
@@ -1722,7 +1986,7 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
         }),
         ..Default::default()
     };
-    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         pull_caps,
         UserConfig::default(),
         &[
@@ -1805,7 +2069,7 @@ fn legacy_publish_diagnostics_refreshes_dependent_open_files() {
     let mut user_config = UserConfig::default();
     user_config.diagnostics.update = DiagnosticsUpdateUserConfig::OnType;
 
-    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         ClientCapabilities::default(),
         user_config,
         &[

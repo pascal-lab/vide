@@ -48,10 +48,12 @@ pub(crate) fn prepare_rename(
     FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id).ok_or(RenameError::NoRefFound)?;
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
-    DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)?;
+    DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)?;
     Ok(text_range)
 }
 
@@ -62,12 +64,15 @@ pub(crate) fn rename(
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id).ok_or(RenameError::NoRefFound)?;
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
-    let def = match DefinitionClass::resolve(&sema, token).ok_or(RenameError::NoDefFound)? {
-        DefinitionClass::Definition(def) => def,
-        DefinitionClass::PortConnShorthand { local, .. } => local,
-    };
+    let def =
+        match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
+            DefinitionClass::Definition(def) => def,
+            DefinitionClass::PortConnShorthand { local, .. } => local,
+        };
 
     let old_name = lower_ident(Some(token.tok)).ok_or(RenameError::NoRefFound)?;
     let mut source_changes = SourceChange::default();
@@ -99,16 +104,19 @@ pub(crate) fn rename(
 
 fn edits_from_refs(
     sema: &Semantics<'_, RootDb>,
-    (file_id, toks): (FileId, Vec<ReferenceToken<'_>>),
+    (file_id, toks): (FileId, Vec<ReferenceToken>),
     def: &Definition,
     old_name: &str,
     new_name: &str,
 ) -> (FileId, TextEdit) {
     let mut text_edit = TextEdit::builder();
     let text = sema.db.file_text(file_id);
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
 
-    for ReferenceToken { token } in toks.into_iter() {
-        let Some(range) = token.text_range() else {
+    for token_ref in toks.into_iter() {
+        let range = token_ref.range();
+        let Some(token) = token_ref.to_token(parsed_file.syntax_tree()) else {
             continue;
         };
         let SyntaxTokenWithParent { parent, tok } = token;
@@ -129,7 +137,7 @@ fn edits_from_refs(
                     }
                     (None, None) => {
                         if let Some(port_conn) = ast::PortConnection::cast(it.syntax()) {
-                            if let Some(ref_container) = sema.resolve_named_port_conn(port_conn)
+                            if let Some(ref_container) = sema.resolve_named_port_conn(hir_file_id, port_conn)
                                 && def
                                     .container_id(sema.db)
                                     .is_some_and(|id| id == ref_container.module_id.into())

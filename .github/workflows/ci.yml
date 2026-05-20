@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [master]
   pull_request:
     types: [opened, synchronize, reopened]
     branches: ["**"]
@@ -94,7 +94,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Keep the Linux x64 VSIX compatible with Ubuntu 22.04 glibc/libstdc++.
+          - os: ubuntu-22.04
             target: linux-x64
           - os: ubuntu-24.04-arm
             target: linux-arm64
@@ -136,6 +137,74 @@ jobs:
           echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
         run: npm run package:debug -- ${{ matrix.target }}
+      - name: Upload dev VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vizsla-vscode-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
+          path: editors/vscode/vizsla-vscode-${{ matrix.target }}-debug.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+  dev-alpine-package:
+    name: Dev Package (${{ matrix.target }})
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: alpine-x64
+            image: ghcr.io/blackdex/rust-musl:x86_64-musl-nightly
+          - target: alpine-arm64
+            image: ghcr.io/blackdex/rust-musl:aarch64-musl-nightly
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - name: Install build dependencies
+        working-directory: .
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates cmake git python3
+
+      - name: Install Rust components
+        working-directory: .
+        run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Trust checkout directories
+        working-directory: .
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/crates/slang"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set build metadata
+        id: build-metadata
+        shell: bash
+        working-directory: .
+        run: |
+          commit_hash="$(git rev-parse --short "$GITHUB_SHA")"
+          echo "VIZSLA_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
+          echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
+          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+
+      - name: Package extension
+        run: npm run package:debug -- ${{ matrix.target }}
+
       - name: Upload dev VSIX
         uses: actions/upload-artifact@v4
         with:

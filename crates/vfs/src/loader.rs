@@ -6,6 +6,8 @@ use utils::{
     paths::{AbsPath, AbsPathBuf},
 };
 
+use crate::{PathGlobMatcher, PathMatcher};
+
 #[derive(Debug, Clone)]
 pub enum Entry {
     Files(Vec<AbsPathBuf>),
@@ -15,8 +17,9 @@ pub enum Entry {
 #[derive(Debug, Clone, Default)]
 pub struct Directories {
     pub extensions: Vec<String>,
-    pub include: Vec<AbsPathBuf>,
+    pub include: Vec<PathMatcher>,
     pub exclude: Vec<AbsPathBuf>,
+    pub exclude_globs: Option<PathGlobMatcher>,
 }
 
 #[derive(Debug)]
@@ -75,32 +78,34 @@ impl Directories {
             return false;
         }
 
-        self.includes_path(path)
+        self.includes_file(path)
     }
 
     pub fn contains_dir(&self, path: &AbsPath) -> bool {
-        self.includes_path(path)
+        self.includes_dir(path)
+    }
+
+    pub fn include_roots(&self) -> impl Iterator<Item = &AbsPathBuf> {
+        self.include.iter().flat_map(PathMatcher::scan_roots)
     }
 
     /// Returns `true` if `path` is included in `self`.
     ///
     /// It is included if
-    ///   - An element in `self.include` is a prefix of `path`.
-    ///   - This path is longer than any element in `self.exclude` that is a
-    ///     prefix of `path`. In case of equality, exclusion wins.
-    fn includes_path(&self, path: &AbsPath) -> bool {
-        let mut longest_incl: Option<&AbsPathBuf> = None;
-        for incl in &self.include {
-            if path.starts_with(incl) && longest_incl.is_none_or(|path| incl.starts_with(path)) {
-                longest_incl = Some(incl);
-            }
-        }
+    ///   - An include root is a prefix of `path`.
+    ///   - No literal exclude prefix matches `path`.
+    fn includes_file(&self, path: &AbsPath) -> bool {
+        self.include.iter().any(|include| include.contains_file(path)) && !self.is_excluded(path)
+    }
 
-        let Some(longest_incl) = longest_incl else {
-            return false;
-        };
+    fn includes_dir(&self, path: &AbsPath) -> bool {
+        self.include.iter().any(|include| include.contains_dir(path))
+            && !self.exclude.iter().any(|excl| path.starts_with(excl))
+    }
 
-        !self.exclude.iter().any(|excl| path.starts_with(excl) && excl.starts_with(longest_incl))
+    fn is_excluded(&self, path: &AbsPath) -> bool {
+        self.exclude.iter().any(|excl| path.starts_with(excl))
+            || self.exclude_globs.as_ref().is_some_and(|exclude| exclude.is_match(path))
     }
 }
 

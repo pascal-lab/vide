@@ -52,6 +52,7 @@ pub(crate) fn handle_completion(
             ',' => Some(TriggerChar::Comma),
             '@' => Some(TriggerChar::At),
             '#' => Some(TriggerChar::Hash),
+            '$' => Some(TriggerChar::Dollar),
             '`' => Some(TriggerChar::Backtick),
             '\'' => Some(TriggerChar::Apostrophe),
             '\n' | '\r' => Some(TriggerChar::Newline),

@@ -1,4 +1,4 @@
-use hir::semantics::Semantics;
+use hir::semantics::{ParsedFile, Semantics};
 use ide_db::root_db::RootDb;
 use syntax::{
     SyntaxNode,
@@ -14,7 +14,7 @@ pub(crate) struct CodeActionCtx<'a> {
     file_id: FileId,
     range: TextRange,
     diagnostics: CodeActionDiagnostics,
-    compilation_unit: CompilationUnit<'a>,
+    parsed_file: ParsedFile,
 }
 
 impl<'a> CodeActionCtx<'a> {
@@ -24,8 +24,9 @@ impl<'a> CodeActionCtx<'a> {
         range: TextRange,
         diagnostics: CodeActionDiagnostics,
     ) -> Option<Self> {
-        let compilation_unit = CompilationUnit::cast(sema.parse_root(file_id)?)?;
-        Some(Self { sema, file_id, range, diagnostics, compilation_unit })
+        let parsed_file = sema.parse_file(file_id);
+        parsed_file.compilation_unit()?;
+        Some(Self { sema, file_id, range, diagnostics, parsed_file })
     }
 
     pub(crate) fn sema(&self) -> &'a Semantics<'a, RootDb> {
@@ -40,8 +41,8 @@ impl<'a> CodeActionCtx<'a> {
         self.range
     }
 
-    pub(crate) fn syntax(&self) -> SyntaxNode<'a> {
-        self.compilation_unit.syntax()
+    pub(crate) fn syntax(&self) -> SyntaxNode<'_> {
+        self.compilation_unit().syntax()
     }
 
     pub(crate) fn allows_repair(&self, repair: RepairKind) -> bool {
@@ -52,7 +53,13 @@ impl<'a> CodeActionCtx<'a> {
         self.range.start()
     }
 
-    pub(crate) fn find_node_at_offset<N: AstNode<'a>>(&self) -> Option<N> {
-        self.sema.find_node_at_offset(self.compilation_unit.syntax(), self.offset())
+    pub(crate) fn find_node_at_offset<'b, N: AstNode<'b>>(&'b self) -> Option<N> {
+        self.sema.find_node_at_offset(self.compilation_unit().syntax(), self.offset())
+    }
+
+    fn compilation_unit(&self) -> CompilationUnit<'_> {
+        self.parsed_file
+            .compilation_unit()
+            .expect("CodeActionCtx should only be constructed for compilation units")
     }
 }

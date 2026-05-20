@@ -1,4 +1,3 @@
-use utils::paths::AbsPathBuf;
 use vfs::{FileId, FileSet, FileSetConfig, Vfs, VfsPath, anchored_path::AnchoredPath};
 
 use crate::source_db::SourceFileKind;
@@ -16,35 +15,32 @@ pub enum SourceRootRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceRoot {
     role: SourceRootRole,
-    source_paths: Option<Vec<AbsPathBuf>>,
+    source_files: Option<Vec<FileId>>,
     file_set: FileSet,
 }
 
 impl SourceRoot {
     pub fn new_local(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Local, source_paths: None, file_set }
+        SourceRoot { role: SourceRootRole::Local, source_files: None, file_set }
     }
 
     pub fn new_library(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Library, source_paths: None, file_set }
+        SourceRoot { role: SourceRootRole::Library, source_files: None, file_set }
     }
 
     pub fn new_ignored(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Ignored, source_paths: None, file_set }
+        SourceRoot { role: SourceRootRole::Ignored, source_files: None, file_set }
     }
 
-    pub fn new_local_with_source_paths(
-        file_set: FileSet,
-        source_paths: Vec<AbsPathBuf>,
-    ) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Local, source_paths: Some(source_paths), file_set }
+    pub fn new_local_with_source_files(file_set: FileSet, source_files: Vec<FileId>) -> SourceRoot {
+        SourceRoot { role: SourceRootRole::Local, source_files: Some(source_files), file_set }
     }
 
-    pub fn new_library_with_source_paths(
+    pub fn new_library_with_source_files(
         file_set: FileSet,
-        source_paths: Vec<AbsPathBuf>,
+        source_files: Vec<FileId>,
     ) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Library, source_paths: Some(source_paths), file_set }
+        SourceRoot { role: SourceRootRole::Library, source_files: Some(source_files), file_set }
     }
 
     pub fn role(&self) -> SourceRootRole {
@@ -79,15 +75,12 @@ impl SourceRoot {
         let Some(path) = self.path_for_file(file) else {
             return SourceFileKind::default();
         };
-        let Some(abs_path) = path.as_abs_path() else {
-            return SourceFileKind::from_path(path);
-        };
         let kind = SourceFileKind::from_path(path);
-        let Some(source_paths) = &self.source_paths else {
+        let Some(source_files) = &self.source_files else {
             return kind;
         };
-        if matches!(kind, SourceFileKind::LibraryMap)
-            || source_paths.iter().any(|source_path| abs_path.starts_with(source_path))
+        if matches!(kind, SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest)
+            || source_files.contains(file)
         {
             kind
         } else {
@@ -101,27 +94,28 @@ pub struct SourceRootConfig {
     pub fileset_config: FileSetConfig,
     pub local_filesets: Vec<usize>,
     pub ignored_filesets: Vec<usize>,
-    pub source_paths_by_fileset: Vec<Vec<AbsPathBuf>>,
 }
 
 impl SourceRootConfig {
     pub fn partition(&self, vfs: &Vfs) -> Vec<SourceRoot> {
         self.fileset_config
-            .partition(vfs)
+            .partition_with_source(vfs)
             .into_iter()
             .enumerate()
-            .map(|(idx, file_set)| {
-                let source_paths = self.source_paths_by_fileset.get(idx).cloned();
+            .map(|(idx, partition)| {
+                let file_set = partition.file_set;
+                let source_files =
+                    partition.source_files.map(|source_files| source_files.into_iter().collect());
                 if self.ignored_filesets.contains(&idx) {
                     return SourceRoot::new_ignored(file_set);
                 }
-                match (self.local_filesets.contains(&idx), source_paths) {
-                    (true, Some(source_paths)) => {
-                        SourceRoot::new_local_with_source_paths(file_set, source_paths)
+                match (self.local_filesets.contains(&idx), source_files) {
+                    (true, Some(source_files)) => {
+                        SourceRoot::new_local_with_source_files(file_set, source_files)
                     }
                     (true, None) => SourceRoot::new_local(file_set),
-                    (false, Some(source_paths)) => {
-                        SourceRoot::new_library_with_source_paths(file_set, source_paths)
+                    (false, Some(source_files)) => {
+                        SourceRoot::new_library_with_source_files(file_set, source_files)
                     }
                     (false, None) => SourceRoot::new_library(file_set),
                 }
@@ -142,7 +136,6 @@ mod tests {
             fileset_config: builder.build(),
             local_filesets: Vec::new(),
             ignored_filesets: vec![1],
-            source_paths_by_fileset: Vec::new(),
         };
         let roots = config.partition(&Vfs::default());
 
@@ -159,5 +152,15 @@ mod tests {
 
         assert_eq!(root.role(), SourceRootRole::Ignored);
         assert_eq!(root.file_kind(&file_id), SourceFileKind::SystemVerilog);
+    }
+
+    #[test]
+    fn source_filtered_root_preserves_project_manifest_kind() {
+        let mut file_set = FileSet::default();
+        let file_id = FileId(0);
+        file_set.insert(file_id, VfsPath::new_virtual_path("/root/vizsla.toml".into()));
+        let root = SourceRoot::new_local_with_source_files(file_set, Vec::new());
+
+        assert_eq!(root.file_kind(&file_id), SourceFileKind::ProjectManifest);
     }
 }

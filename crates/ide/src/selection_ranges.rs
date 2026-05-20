@@ -14,7 +14,8 @@ pub(crate) fn selection_ranges(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Vec<TextRange> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(file_id) else {
+    let parsed_file = sema.parse_file(file_id);
+    let Some(root) = parsed_file.root() else {
         return vec![TextRange::empty(offset)];
     };
 

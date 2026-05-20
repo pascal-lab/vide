@@ -230,10 +230,8 @@ impl NotifyActor {
                 .collect_vec(),
             loader::Entry::Directories(dirs) => {
                 let mut res = Vec::new();
-                let dir_set =
-                    dirs.include.iter().chain(dirs.exclude.iter()).collect::<FxHashSet<_>>();
 
-                for root in &dirs.include {
+                for root in dirs.include_roots() {
                     let walkdir =
                         WalkDir::new(root).follow_links(true).into_iter().filter_entry(|entry| {
                             if !entry.file_type().is_dir() {
@@ -242,7 +240,7 @@ impl NotifyActor {
                             let Ok(path) = AbsPathBuf::try_from(entry.path().to_path_buf()) else {
                                 return false;
                             };
-                            root == &path || !dir_set.contains(&path)
+                            root == &path || dirs.contains_dir(&path)
                         });
 
                     let files = walkdir.filter_map(|it| it.ok()).filter_map(|entry| {
@@ -260,8 +258,7 @@ impl NotifyActor {
                             return None;
                         }
 
-                        let ext = abs_path.extension().unwrap_or_default();
-                        if dirs.extensions.iter().all(|it| it.as_str() != ext) {
+                        if !dirs.contains_file(&abs_path) {
                             return None;
                         }
 

@@ -29,9 +29,11 @@ pub(super) fn add_missing_connections(
 
     let sema = ctx.sema();
     let db = sema.db;
+    let file_id = ctx.file_id().into();
 
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
-    let InModule { value: instance_id, module_id } = sema.resolve_instance(ast_instance)?;
+    let InModule { value: instance_id, module_id } =
+        sema.resolve_instance(file_id, ast_instance)?;
     let module = db.module(module_id);
     let instance = module.get(instance_id);
     let open_paren = ast_instance.open_paren()?.text_range_in(ast_instance.syntax())?;

@@ -1,4 +1,4 @@
-use hir::{container::InFile, semantics::Semantics};
+use hir::{container::InFile, file::HirFileId, semantics::Semantics};
 use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use span::{FilePosition, RangeInfo};
@@ -18,11 +18,13 @@ pub(crate) fn goto_definition(
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let sema = Semantics::new(db);
-    let root = sema.parse_root(file_id)?;
+    let hir_file_id = file_id.into();
+    let parsed_file = sema.parse_file(file_id);
+    let root = parsed_file.root()?;
     let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
 
-    let navs = handle_ctrl_flow_kw(&sema, token).or_else(|| {
-        DefinitionClass::resolve(&sema, token)?
+    let navs = handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
+        DefinitionClass::resolve(&sema, hir_file_id, token)?
             .origins()
             .into_iter()
             .unique()
@@ -36,9 +38,9 @@ pub(crate) fn goto_definition(
 
 fn handle_ctrl_flow_kw(
     sema: &Semantics<RootDb>,
-    tp @ SyntaxTokenWithParent { parent, .. }: SyntaxTokenWithParent,
+    file_id: HirFileId,
+    tp @ SyntaxTokenWithParent { .. }: SyntaxTokenWithParent,
 ) -> Option<Vec<NavTarget>> {
-    let file_id = sema.find_file(parent)?;
     let kind = tp.kind();
 
     match kind {

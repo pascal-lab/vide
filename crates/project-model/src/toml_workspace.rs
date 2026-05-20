@@ -2,36 +2,126 @@ use std::sync::LazyLock;
 
 use anyhow::Context;
 use const_format::formatcp;
-use itertools::Itertools;
 use regex::Regex;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use smol_str::SmolStr;
-use utils::paths::{AbsPathBuf, Utf8PathBuf, sort_and_remove_subfolders};
+use utils::paths::{AbsPathBuf, Utf8PathBuf};
 
 use crate::macro_def::{MacroAtom, MacroDef};
 
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
+#[cfg(feature = "manifest-schema")]
+const MACRO_DEFINITION_SCHEMA_RE: &str = r"^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\S* )(?:=.*)?$";
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_VERSION: &str = "v1";
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_PATH: &str =
+    formatcp!("/vizsla/schemas/{TOML_MANIFEST_SCHEMA_VERSION}/vizsla.schema.json");
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_URL: &str =
+    formatcp!("https://pascal-lab.github.io{TOML_MANIFEST_SCHEMA_PATH}");
+
 static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
 static KV_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})=(.*)$")));
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "manifest-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+    feature = "manifest-schema",
+    schemars(
+        title = "Vizsla project manifest",
+        description = "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
+        extend("$id" = TOML_MANIFEST_SCHEMA_URL, "x-tombi-table-keys-order" = "schema")
+    )
+)]
 struct TomlManifestSchema {
+    /// Top-level module names for the compilation profile.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Top-level module names for the compilation profile.",
+            extend("examples" = [["top"]])
+        )
+    )]
     pub top_modules: Vec<String>,
+    /// Predefined macros. Use NAME or NAME=value strings.
     #[serde(deserialize_with = "de_macros", default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Predefined macros. Use NAME or NAME=value strings.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            inner(regex(pattern = MACRO_DEFINITION_SCHEMA_RE)),
+            extend("examples" = [["SYNTHESIS", "DATA_WIDTH=32"]])
+        )
+    )]
     pub defines: MacroDef,
+    /// Workspace-relative shell glob patterns for source files to scan. Omitted
+    /// sources do not scan the workspace root.
     #[serde(default)]
-    pub sources: Option<Vec<Utf8PathBuf>>,
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Workspace-relative shell glob patterns for source files to scan. Omitted sources do not scan the workspace root.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["rtl/**", "ip/**/*.sv"]])
+        )
+    )]
+    pub sources: Option<Vec<String>>,
+    /// Include search directories. When omitted, Vizsla uses the scan roots
+    /// inferred from sources as include directories.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Include search directories. When omitted, Vizsla uses the scan roots inferred from sources as include directories.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["include", "rtl"]])
+        )
+    )]
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
+    /// External library or dependency workspace paths.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "External library or dependency workspace paths.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["../common_cells"]])
+        )
+    )]
     pub libraries: Vec<Utf8PathBuf>,
+    /// Workspace-relative shell glob patterns to remove from loaded files.
     #[serde(default)]
-    pub exclude: Vec<Utf8PathBuf>,
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Workspace-relative shell glob patterns to remove from loaded files.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["build/**", "sim/work/**", "**/*_bb.v"]])
+        )
+    )]
+    pub exclude: Vec<String>,
+}
+
+#[cfg(feature = "manifest-schema")]
+fn empty_string_vec() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(feature = "manifest-schema")]
+pub fn generated_toml_manifest_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap()
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
@@ -89,15 +179,14 @@ pub struct TomlWorkspace {
     pub top_modules: Vec<String>,
     pub workspace_root: AbsPathBuf,
     pub macro_defs: MacroDef,
-    pub sources: Vec<AbsPathBuf>,
-    pub include_dirs: Vec<AbsPathBuf>,
-    pub exclude: Vec<AbsPathBuf>,
-    pub package: Vec<AbsPathBuf>,
-    pub is_lib: bool,
+    pub source_patterns: Vec<String>,
+    pub include_dirs: Option<Vec<AbsPathBuf>>,
+    pub libraries: Vec<AbsPathBuf>,
+    pub exclude_patterns: Vec<String>,
 }
 
 impl TomlWorkspace {
-    pub fn load_from_file(toml: &AbsPathBuf, is_lib: bool) -> anyhow::Result<Self> {
+    pub fn load_from_file(toml: &AbsPathBuf) -> anyhow::Result<Self> {
         let toml_file =
             std::fs::read_to_string(toml).with_context(|| format!("failed to read {:?}", toml))?;
 
@@ -111,94 +200,34 @@ impl TomlWorkspace {
             .to_path_buf();
         let macro_defs = toml_schema.defines;
 
-        let mut exclude = toml_schema
-            .exclude
+        let include_dirs = toml_schema.include_dirs.map(|paths| {
+            paths.into_iter().map(|path| workspace_root.absolutize(path)).collect::<Vec<_>>()
+        });
+        let source_patterns = toml_schema.sources.unwrap_or_default();
+        let libraries = toml_schema
+            .libraries
             .into_iter()
             .map(|path| workspace_root.absolutize(path))
-            .collect_vec();
-        sort_and_remove_subfolders(&mut exclude);
-
-        let sources_was_configured = toml_schema.sources.is_some();
-        let include_dirs_was_configured = toml_schema.include_dirs.is_some();
-        let mut sources = Vec::new();
-        let mut include_dirs = Vec::new();
-        let mut package = Vec::new();
-
-        for path in toml_schema.sources.unwrap_or_default() {
-            let path = workspace_root.absolutize(path);
-            if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
-                if path.starts_with(&workspace_root) {
-                    sources.push(path);
-                } else {
-                    package.push(path);
-                }
-            }
-        }
-
-        for path in toml_schema.include_dirs.unwrap_or_default() {
-            let path = workspace_root.absolutize(path);
-            if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
-                include_dirs.push(path);
-            }
-        }
-
-        for path in toml_schema.libraries {
-            let path = workspace_root.absolutize(path);
-            if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
-                package.push(path);
-            }
-        }
-
-        sort_and_remove_subfolders(&mut sources);
-        sort_and_remove_subfolders(&mut include_dirs);
-        sort_and_remove_subfolders(&mut package);
-
-        if sources.is_empty() && !sources_was_configured {
-            sources.push(workspace_root.clone());
-        }
-        if include_dirs.is_empty() && !include_dirs_was_configured {
-            include_dirs = sources.clone();
-        }
+            .collect::<Vec<_>>();
+        let exclude_patterns = toml_schema.exclude;
 
         Ok(TomlWorkspace {
             top_modules,
             workspace_root,
             macro_defs,
-            sources,
+            source_patterns,
             include_dirs,
-            exclude,
-            package,
-            is_lib,
+            libraries,
+            exclude_patterns,
         })
-    }
-
-    pub fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
-        Self {
-            top_modules: Vec::new(),
-            workspace_root: path.clone(),
-            macro_defs: MacroDef::default(),
-            sources: vec![path.clone()],
-            include_dirs: vec![path.clone()],
-            exclude: vec![],
-            package: vec![],
-            is_lib,
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use utils::test_support::TestDir;
 
-    fn temp_dir(name: &str) -> AbsPathBuf {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        AbsPathBuf::assert_utf8(
-            std::env::temp_dir().join(format!("vizsla-{name}-{}-{stamp}", std::process::id())),
-        )
-    }
+    use super::*;
 
     #[test]
     fn test_de_macros() {
@@ -238,41 +267,68 @@ defines = [
     }
 
     #[test]
-    fn configured_empty_sources_do_not_default_to_workspace_root() {
-        let root = temp_dir("empty-sources");
-        let manifest = root.join("vizsla_config.toml");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(&manifest, "sources = []\n").unwrap();
+    fn empty_manifest_uses_syntax_only_default() {
+        let root = TestDir::new("empty-manifest");
+        let manifest = root.write("vizsla_config.toml", "");
 
-        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+        let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
-        let _ = std::fs::remove_dir_all(&root);
-        assert!(workspace.sources.is_empty());
+        assert!(workspace.source_patterns.is_empty());
+        assert_eq!(workspace.include_dirs, None);
+        assert!(workspace.libraries.is_empty());
+        assert!(workspace.exclude_patterns.is_empty());
     }
 
     #[test]
-    fn excluded_configured_sources_do_not_default_to_workspace_root() {
-        let root = temp_dir("excluded-sources");
-        let manifest = root.join("vizsla_config.toml");
-        std::fs::create_dir_all(root.join("rtl")).unwrap();
-        std::fs::write(&manifest, "sources = [\"rtl\"]\nexclude = [\"rtl\"]\n").unwrap();
+    fn configured_empty_sources_do_not_default_to_workspace_root() {
+        let root = TestDir::new("empty-sources");
+        let manifest = root.write("vizsla_config.toml", "sources = []\n");
 
-        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+        let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
-        let _ = std::fs::remove_dir_all(&root);
-        assert!(workspace.sources.is_empty());
+        assert!(workspace.source_patterns.is_empty());
+    }
+
+    #[test]
+    fn keeps_source_and_exclude_globs_relative_to_workspace() {
+        let root = TestDir::new("manifest-source-exclude-globs");
+        root.create_dir_all("rtl");
+        let manifest = root.write(
+            "vizsla_config.toml",
+            "sources = [\"rtl/**\"]\nexclude = [\"build/**\", \"**/*_bb.v\"]\n",
+        );
+
+        let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
+
+        assert_eq!(workspace.source_patterns, ["rtl/**"]);
+        assert_eq!(workspace.exclude_patterns, ["build/**", "**/*_bb.v"]);
     }
 
     #[test]
     fn configured_empty_include_dirs_do_not_default_to_sources() {
-        let root = temp_dir("empty-include-dirs");
-        let manifest = root.join("vizsla_config.toml");
-        std::fs::create_dir_all(root.join("rtl")).unwrap();
-        std::fs::write(&manifest, "sources = [\"rtl\"]\ninclude_dirs = []\n").unwrap();
+        let root = TestDir::new("empty-include-dirs");
+        root.create_dir_all("rtl");
+        let manifest =
+            root.write("vizsla_config.toml", "sources = [\"rtl/**\"]\ninclude_dirs = []\n");
 
-        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+        let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
-        let _ = std::fs::remove_dir_all(&root);
-        assert!(workspace.include_dirs.is_empty());
+        assert_eq!(workspace.include_dirs, Some(Vec::new()));
+    }
+
+    #[test]
+    fn parses_paths_as_absolute_paths() {
+        let root = TestDir::new("manifest-paths");
+        let manifest = root.write(
+            "vizsla_config.toml",
+            r#"include_dirs = ["include"]
+libraries = ["../pkg"]
+"#,
+        );
+
+        let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
+
+        assert_eq!(workspace.include_dirs, Some(vec![root.join("include")]));
+        assert_eq!(workspace.libraries, [root.join("../pkg")]);
     }
 }

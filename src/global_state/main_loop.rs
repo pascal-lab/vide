@@ -1,10 +1,9 @@
 use std::time::{Duration, Instant};
 
 use always_assert::always;
-use const_format::formatcp;
 use crossbeam_channel::{Receiver, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
-use lsp_types::notification::Notification as _;
+use lsp_types::{TraceValue, notification::Notification as _};
 use project_model::project_manifest;
 use triomphe::Arc;
 use utils::thread::ThreadIntent;
@@ -50,7 +49,11 @@ pub(crate) enum QiheTask {
     Failed { message: String, progress_token: String },
 }
 
-pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
+pub fn main_loop(
+    config: Config,
+    connection: Connection,
+    initial_trace: TraceValue,
+) -> anyhow::Result<()> {
     tracing::info!("initial config: {:#?}", config);
 
     // hack for windwos
@@ -62,7 +65,7 @@ pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
         SetThreadPriority(thread, thread_priority_above_normal);
     }
 
-    GlobalState::new(connection.sender, config).run(connection.receiver)
+    GlobalState::new(connection.sender, config, initial_trace).run(connection.receiver)
 }
 
 impl GlobalState {
@@ -90,24 +93,23 @@ impl GlobalState {
     }
 
     fn register_did_save_cap(&mut self) {
+        let mut document_selector = vec![lsp_types::DocumentFilter {
+            language: None,
+            scheme: None,
+            pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
+        }];
+        document_selector.extend(project_manifest::MANIFEST_FILE_NAMES.iter().map(|file_name| {
+            lsp_types::DocumentFilter {
+                language: None,
+                scheme: None,
+                pattern: Some(format!("**/{file_name}")),
+            }
+        }));
+
         let save_registration_options = lsp_types::TextDocumentSaveRegistrationOptions {
             include_text: false.into(),
             text_document_registration_options: lsp_types::TextDocumentRegistrationOptions {
-                document_selector: vec![
-                    lsp_types::DocumentFilter {
-                        language: None,
-                        scheme: None,
-                        pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
-                    },
-                    lsp_types::DocumentFilter {
-                        language: None,
-                        scheme: None,
-                        pattern: Some(
-                            formatcp!("**/{}", project_manifest::MANIFEST_FILE_NAME).into(),
-                        ),
-                    },
-                ]
-                .into(),
+                document_selector: document_selector.into(),
             },
         };
 
@@ -273,6 +275,7 @@ impl GlobalState {
             .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)
             .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)
             .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)
+            .on_sync_mut::<SetTrace>(handle_set_trace)
             .finish();
     }
 

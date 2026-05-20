@@ -30,10 +30,11 @@ pub(super) fn add_missing_parameters(
 
     let sema = ctx.sema();
     let db = sema.db;
+    let file_id = ctx.file_id().into();
 
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let InModule { value: instantiation_id, module_id } =
-        sema.resolve_instantiation(ast_instantiation)?;
+        sema.resolve_instantiation(file_id, ast_instantiation)?;
     let module = db.module(module_id);
     let instantiation = module.get(instantiation_id);
 

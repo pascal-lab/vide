@@ -1,0 +1,95 @@
+{
+  "$id": "https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vizsla project manifest",
+  "description": "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
+  "type": "object",
+  "properties": {
+    "top_modules": {
+      "description": "Top-level module names for the compilation profile.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [
+        [
+          "top"
+        ]
+      ]
+    },
+    "defines": {
+      "description": "Predefined macros. Use NAME or NAME=value strings.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\\\\S* )(?:=.*)?$"
+      },
+      "default": [],
+      "examples": [
+        [
+          "SYNTHESIS",
+          "DATA_WIDTH=32"
+        ]
+      ]
+    },
+    "sources": {
+      "description": "Workspace-relative shell glob patterns for source files to scan. Omitted sources do not scan the workspace root.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [
+        [
+          "rtl/**",
+          "ip/**/*.sv"
+        ]
+      ]
+    },
+    "include_dirs": {
+      "description": "Include search directories. When omitted, Vizsla uses the scan roots inferred from sources as include directories.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [
+        [
+          "include",
+          "rtl"
+        ]
+      ]
+    },
+    "libraries": {
+      "description": "External library or dependency workspace paths.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [
+        [
+          "../common_cells"
+        ]
+      ]
+    },
+    "exclude": {
+      "description": "Workspace-relative shell glob patterns to remove from loaded files.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [
+        [
+          "build/**",
+          "sim/work/**",
+          "**/*_bb.v"
+        ]
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "x-tombi-table-keys-order": "schema"
+}

@@ -11,6 +11,13 @@ import {
 } from 'vscode-languageclient/node';
 
 import { getBundledServerPath, getPlatformFolder } from './platform';
+import {
+  DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_FILE_NAMES,
+  PROJECT_CONFIG_FILE_NAME,
+  PROJECT_SOURCE_FILE_GLOB,
+  getProjectConfigPath,
+} from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
@@ -345,6 +352,109 @@ function createServerEnv(
   };
 }
 
+async function promptForMissingProjectConfigs(context: vscode.ExtensionContext): Promise<void> {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const missingConfigs: { folder: vscode.WorkspaceFolder; configPath: string }[] = [];
+
+  for (const folder of workspaceFolders) {
+    if (folder.uri.scheme !== 'file') {
+      log(
+        `[WARN] Skipping project config prompt for non-file workspace: ${folder.uri.toString()}`,
+      );
+      continue;
+    }
+
+    const existingConfigPath = PROJECT_CONFIG_FILE_NAMES
+      .map((fileName) => getProjectConfigPath(folder.uri.fsPath, fileName))
+      .find((configPath) => fs.existsSync(configPath));
+    if (existingConfigPath) {
+      log(`[INFO] Found project config: ${existingConfigPath}`);
+      continue;
+    }
+
+    const sourceFiles = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB),
+      undefined,
+      1,
+    );
+    if (sourceFiles.length === 0) {
+      log(
+        `[INFO] Skipping project config prompt for workspace without Verilog/SystemVerilog files: ${folder.name}`,
+      );
+      continue;
+    }
+
+    const configPath = getProjectConfigPath(folder.uri.fsPath);
+    missingConfigs.push({ folder, configPath });
+  }
+
+  if (missingConfigs.length === 0) {
+    return;
+  }
+
+  const createConfigAction =
+    missingConfigs.length === 1 ? 'Create Manifest' : 'Create Manifests';
+  const restartNotice =
+    'Creating a manifest will restart the Vizsla language server so the workspace can reload it.';
+  const promptMessage =
+    missingConfigs.length === 1
+      ? `No Vizsla project manifest was detected in ${missingConfigs[0].folder.name}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. ${restartNotice}`
+      : `No Vizsla project manifest was detected in ${missingConfigs.length} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. ${restartNotice}`;
+
+  const selection = await vscode.window.showWarningMessage(promptMessage, createConfigAction);
+  if (selection !== createConfigAction) {
+    return;
+  }
+
+  const createdConfigs: vscode.Uri[] = [];
+
+  for (const { folder, configPath } of missingConfigs) {
+    try {
+      await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
+        encoding: 'utf8',
+        flag: 'wx',
+      });
+      createdConfigs.push(vscode.Uri.file(configPath));
+      log(`[INFO] Created default project config: ${configPath}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        log(`[INFO] Project config already exists: ${configPath}`);
+        continue;
+      }
+
+      const errorMessage = `Failed to create ${PROJECT_CONFIG_FILE_NAME} in ${folder.name}: ${(error as Error).message}`;
+      log(`[WARN] ${errorMessage}`);
+      void vscode.window.showWarningMessage(errorMessage);
+    }
+  }
+
+  if (createdConfigs.length === 0) {
+    return;
+  }
+
+  if (client) {
+    await restartClient(context);
+  }
+
+  const createdMessage =
+    createdConfigs.length === 1
+      ? `Created ${PROJECT_CONFIG_FILE_NAME} with syntax-only defaults.`
+      : `Created syntax-only ${PROJECT_CONFIG_FILE_NAME} files in ${createdConfigs.length} workspace folders.`;
+  const openConfigAction = createdConfigs.length === 1 ? 'Open Manifest' : 'Open First Manifest';
+
+  void vscode.window.showInformationMessage(createdMessage, openConfigAction).then(async (selection) => {
+    if (selection !== openConfigAction) {
+      return;
+    }
+
+    try {
+      await vscode.window.showTextDocument(createdConfigs[0]);
+    } catch (error) {
+      log(`[WARN] Failed to open ${PROJECT_CONFIG_FILE_NAME}: ${(error as Error).message}`);
+    }
+  });
+}
+
 async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
   const channel = requireOutputChannel();
   log('[INFO] Creating language client...');
@@ -380,13 +490,6 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
     ],
     synchronize: {
       configurationSection: ['vizsla'],
-      fileEvents: [
-        vscode.workspace.createFileSystemWatcher('**/*.v'),
-        vscode.workspace.createFileSystemWatcher('**/*.vh'),
-        vscode.workspace.createFileSystemWatcher('**/*.sv'),
-        vscode.workspace.createFileSystemWatcher('**/*.svh'),
-        vscode.workspace.createFileSystemWatcher('**/*.svi'),
-      ],
     },
     outputChannel: channel,
     traceOutputChannel: channel,
@@ -581,6 +684,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(configurationRegistration);
 
   await startClient(context);
+  void promptForMissingProjectConfigs(context);
 
   log('[INFO] Vizsla extension activated');
 }

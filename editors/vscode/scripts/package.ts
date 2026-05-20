@@ -15,6 +15,11 @@ const binName = 'vizsla';
 
 type BuildProfile = 'debug' | 'release';
 
+const cargoTargets: Partial<Record<PlatformFolder, string>> = {
+  'alpine-arm64': 'aarch64-unknown-linux-musl',
+  'alpine-x64': 'x86_64-unknown-linux-musl',
+};
+
 function findExtensionRoot(startDir: string): string {
   let currentDir = path.resolve(startDir);
 
@@ -90,8 +95,26 @@ function cargoProfileDir(profile: BuildProfile): string {
   return profile === 'release' ? 'release' : 'debug';
 }
 
-function cargoBuildArgs(profile: BuildProfile): string[] {
-  return profile === 'release' ? ['build', '--release'] : ['build'];
+function cargoBuildArgs(profile: BuildProfile, cargoTarget?: string): string[] {
+  const args = ['build'];
+  if (profile === 'release') {
+    args.push('--release');
+  }
+  if (cargoTarget) {
+    args.push('--target', cargoTarget);
+  }
+
+  return args;
+}
+
+function cargoOutputDir(profile: BuildProfile, cargoTarget?: string): string {
+  const pathParts = [repoRoot, 'target'];
+  if (cargoTarget) {
+    pathParts.push(cargoTarget);
+  }
+  pathParts.push(cargoProfileDir(profile));
+
+  return path.join(...pathParts);
 }
 
 function ensureTargetServerBinary(
@@ -101,7 +124,8 @@ function ensureTargetServerBinary(
 ): string {
   const serverOutDir = path.join(vscodeDir, 'server', target);
   const hostTarget = hostPlatformFolder();
-  if (target !== hostTarget) {
+  const cargoTarget = cargoTargets[target];
+  if (target !== hostTarget && !cargoTarget) {
     const serverPath = path.join(serverOutDir, binFile);
     if (!fs.existsSync(serverPath)) {
       throw new Error(
@@ -113,9 +137,13 @@ function ensureTargetServerBinary(
     return serverPath;
   }
 
-  run('cargo', cargoBuildArgs(profile), repoRoot);
+  if (cargoTarget) {
+    run('rustup', ['target', 'add', cargoTarget], repoRoot);
+  }
 
-  const sourcePath = path.join(repoRoot, 'target', cargoProfileDir(profile), binFile);
+  run('cargo', cargoBuildArgs(profile, cargoTarget), repoRoot);
+
+  const sourcePath = path.join(cargoOutputDir(profile, cargoTarget), binFile);
   const destPath = path.join(serverOutDir, binFile);
   fs.mkdirSync(serverOutDir, { recursive: true });
   fs.copyFileSync(sourcePath, destPath);

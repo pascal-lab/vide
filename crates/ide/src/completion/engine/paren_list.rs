@@ -70,14 +70,13 @@ fn complete_parameter_port_list_with_typedefs(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let file_id = position.file_id.into();
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
     let Some(module) = sema.find_node_at_offset::<ast::ModuleDeclaration>(root, position.offset)
     else {
-        return Vec::new();
-    };
-    let Some(file_id) = sema.find_file(module.syntax()) else {
         return Vec::new();
     };
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
@@ -114,7 +113,9 @@ fn complete_port_connections(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let file_id = position.file_id.into();
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
 
@@ -132,7 +133,8 @@ fn complete_port_connections(
     let Some(instantiation) = enclosing_instantiation(instance.syntax()) else {
         return Vec::new();
     };
-    let Some(current_module_id) = sema.resolve_instantiation(instantiation).map(|it| it.module_id)
+    let Some(current_module_id) =
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
     else {
         return Vec::new();
     };
@@ -193,7 +195,9 @@ fn complete_param_value_assignment(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let file_id = position.file_id.into();
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
 
@@ -208,7 +212,8 @@ fn complete_param_value_assignment(
         return Vec::new();
     };
 
-    let Some(current_module_id) = sema.resolve_instantiation(instantiation).map(|it| it.module_id)
+    let Some(current_module_id) =
+        sema.resolve_instantiation(file_id, instantiation).map(|it| it.module_id)
     else {
         return Vec::new();
     };

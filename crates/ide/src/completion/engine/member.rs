@@ -1,4 +1,5 @@
 use hir::{
+    file::HirFileId,
     semantics::Semantics,
     type_infer::{TyMember, members_of_ty, type_of_expr, type_of_path_resolution},
 };
@@ -20,17 +21,19 @@ pub(super) fn complete_member_access(
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
     let sema = Semantics::new(db);
-    let Some(root) = sema.parse_root(position.file_id) else {
+    let file_id = position.file_id.into();
+    let parsed_file = sema.parse_file(position.file_id);
+    let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
 
     let members = member_access_at_offset(root, position.offset)
-        .and_then(|access| members_for_expr(db, &sema, access.left()))
-        .or_else(|| members_for_incomplete_access(db, &sema, root, position.offset))
-        .or_else(|| members_for_incomplete_scoped_access(db, &sema, root, position.offset))
+        .and_then(|access| members_for_expr(db, &sema, file_id, access.left()))
+        .or_else(|| members_for_incomplete_access(db, &sema, file_id, root, position.offset))
+        .or_else(|| members_for_incomplete_scoped_access(db, &sema, file_id, root, position.offset))
         .or_else(|| {
             scoped_name_at_offset(root, position.offset)
-                .and_then(|scoped| members_for_scoped_name(db, &sema, scoped))
+                .and_then(|scoped| members_for_scoped_name(db, &sema, file_id, scoped))
         });
     let Some(members) = members else {
         return Vec::new();
@@ -73,6 +76,7 @@ fn scoped_name_at_offset(
 fn members_for_incomplete_scoped_access(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
 ) -> Option<Vec<TyMember>> {
@@ -81,7 +85,7 @@ fn members_for_incomplete_scoped_access(
         return None;
     }
     let left = root.token_before_offset(separator.text_range()?.start())?;
-    let res = sema.nameres_ident(left)?;
+    let res = sema.nameres_ident(file_id, left)?;
     let members = members_of_ty(db, &type_of_path_resolution(db, res).ty);
     (!members.is_empty()).then_some(members)
 }
@@ -89,6 +93,7 @@ fn members_for_incomplete_scoped_access(
 fn members_for_incomplete_access(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     root: SyntaxNode<'_>,
     offset: utils::text_edit::TextSize,
 ) -> Option<Vec<TyMember>> {
@@ -100,7 +105,7 @@ fn members_for_incomplete_access(
     let dot_start = dot.text_range()?.start();
     let expr = expr_before_dot(dot.parent, dot_start)?;
 
-    members_for_expr(db, sema, expr)
+    members_for_expr(db, sema, file_id, expr)
 }
 
 fn expr_before_dot(
@@ -117,9 +122,10 @@ fn expr_before_dot(
 fn members_for_expr(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     expr: ast::Expression<'_>,
 ) -> Option<Vec<TyMember>> {
-    let ty = type_of_expr(db, sema.resolve_expr(expr)?).ty;
+    let ty = type_of_expr(db, sema.resolve_expr(file_id, expr)?).ty;
     let members = members_of_ty(db, &ty);
     (!members.is_empty()).then_some(members)
 }
@@ -127,8 +133,9 @@ fn members_for_expr(
 fn members_for_scoped_name(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
     scoped: ast::ScopedName<'_>,
 ) -> Option<Vec<TyMember>> {
     let left = ast::Expression::cast(scoped.left().syntax())?;
-    members_for_expr(db, sema, left)
+    members_for_expr(db, sema, file_id, left)
 }
