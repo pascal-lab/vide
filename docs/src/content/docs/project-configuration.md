@@ -3,7 +3,7 @@ title: 项目配置
 description: 配置 vizsla.toml 工程清单、源文件、include 目录和宏定义。
 ---
 
-Vizsla 的工程清单文件名固定为 `vizsla_config.toml`。它必须放在 workspace root 下, 或者被显式作为工程路径传入。字段名必须使用当前支持的名字, 旧字段或未知字段会被拒绝。
+Vizsla 的工程清单文件名优先使用 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容, 但当两个文件同时存在时会读取 `vizsla.toml`。清单必须放在 workspace root 下, 或者被显式作为工程路径传入。字段名必须使用当前支持的名字, 旧字段或未知字段会被拒绝。
 
 ## 完整示例
 
@@ -38,9 +38,9 @@ exclude = [
 ]
 ```
 
-所有路径都相对于 `vizsla_config.toml` 所在目录解析。
+所有路径都相对于工程清单所在目录解析。
 
-VS Code 在缺少清单时会生成 syntax-only 默认清单:
+VS Code 在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时会生成 syntax-only 默认 `vizsla.toml`:
 
 ```toml
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
@@ -49,7 +49,7 @@ sources = []
 include_dirs = []
 ```
 
-这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的 `vizsla_config.toml` 和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
+这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的 `vizsla.toml` / `vizsla_config.toml` 和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
 
 ## 字段说明
 
@@ -93,7 +93,7 @@ defines = [
 
 `libraries` 用于声明依赖库。每个库路径会被当作工程路径继续解析:
 
-- 如果库目录下有 `vizsla_config.toml`, 我们会按这个清单加载库。
+- 如果库目录下有 `vizsla.toml`, 我们会按这个清单加载库; 否则回退到 `vizsla_config.toml`。
 - 如果库目录没有清单, 我们会把该目录作为未配置库加载。
 - 依赖会参与当前工程的编译 profile, 并支持传递依赖。
 
@@ -109,7 +109,7 @@ exclude = ["build", "out", "sim/work"]
 
 ## 常见注意事项
 
-- 清单文件名必须是 `vizsla_config.toml`。
+- 推荐清单文件名是 `vizsla.toml`; `vizsla_config.toml` 仅作为兼容旧工程的 fallback。
 - `top_module`, `include`, `macros` 这类旧字段不会被接受。
-- 我们不会从子目录自动发现清单。打开 `repo` 时, 只检查 `repo/vizsla_config.toml`。
+- 我们不会从子目录自动发现清单。打开 `repo` 时, 只检查 `repo/vizsla.toml`, 再回退检查 `repo/vizsla_config.toml`。
 - 配置了 `sources = []` 的工程可以只加载 include 目录, 适合头文件型 workspace。

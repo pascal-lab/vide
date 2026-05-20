@@ -13,7 +13,9 @@ import {
 import { getBundledServerPath, getPlatformFolder } from './platform';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_FILE_NAMES,
   PROJECT_CONFIG_FILE_NAME,
+  PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
 } from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
@@ -362,11 +364,27 @@ async function createMissingProjectConfigs(): Promise<void> {
       continue;
     }
 
-    const configPath = getProjectConfigPath(folder.uri.fsPath);
-    if (fs.existsSync(configPath)) {
+    const existingConfigPath = PROJECT_CONFIG_FILE_NAMES
+      .map((fileName) => getProjectConfigPath(folder.uri.fsPath, fileName))
+      .find((configPath) => fs.existsSync(configPath));
+    if (existingConfigPath) {
+      log(`[INFO] Found project config: ${existingConfigPath}`);
       continue;
     }
 
+    const sourceFiles = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB),
+      undefined,
+      1,
+    );
+    if (sourceFiles.length === 0) {
+      log(
+        `[INFO] Skipping project config creation for workspace without Verilog/SystemVerilog files: ${folder.name}`,
+      );
+      continue;
+    }
+
+    const configPath = getProjectConfigPath(folder.uri.fsPath);
     try {
       await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
         encoding: 'utf8',
