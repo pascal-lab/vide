@@ -149,8 +149,68 @@ fn manifest_completion(
     Ok(Some(lsp_types::CompletionResponse::Array(items)))
 }
 
+fn manifest_hover(
+    snap: &GlobalStateSnapshot,
+    position: FilePosition,
+) -> anyhow::Result<Option<lsp_types::Hover>> {
+    let text = snap.file_text(position.file_id)?;
+    let offset = usize::try_from(u32::from(position.offset)).unwrap_or(usize::MAX).min(text.len());
+    let Some((item, range)) = manifest_field_at_offset(&text, offset) else {
+        return Ok(None);
+    };
+
+    let line_info = snap.line_info(position.file_id)?;
+    let value = format!("`{}`\n\n{}\n\n{}", item.key, item.detail, item.documentation);
+
+    Ok(Some(lsp_types::Hover {
+        contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+            kind: lsp_types::MarkupKind::Markdown,
+            value,
+        }),
+        range: Some(to_proto::range(&line_info, range)),
+    }))
+}
+
+fn manifest_field_at_offset(
+    text: &str,
+    offset: usize,
+) -> Option<(&'static ManifestFieldCompletion, TextRange)> {
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    let line_end = text[offset..].find('\n').map(|idx| offset + idx).unwrap_or(text.len());
+    let line = &text[line_start..line_end];
+    let line_prefix = &text[line_start..offset];
+    if line.trim_start().starts_with('#') || line_prefix.contains('=') {
+        return None;
+    }
+
+    let bytes = text.as_bytes();
+    let at_key = offset < line_end && is_manifest_key_byte(bytes[offset]);
+    let after_key = offset > line_start && is_manifest_key_byte(bytes[offset - 1]);
+    if !at_key && !after_key {
+        return None;
+    }
+
+    let mut start = offset;
+    while start > line_start && is_manifest_key_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+
+    let mut end = offset;
+    while end < line_end && is_manifest_key_byte(bytes[end]) {
+        end += 1;
+    }
+
+    let key = &text[start..end];
+    let item = MANIFEST_FIELD_COMPLETIONS.iter().find(|item| item.key == key)?;
+    Some((item, TextRange::new(to_text_size(start), to_text_size(end))))
+}
+
 fn is_manifest_key_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn is_manifest_key_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn to_text_size(value: usize) -> TextSize {
@@ -613,6 +673,9 @@ pub(crate) fn handle_hover(
     params: lsp_types::HoverParams,
 ) -> anyhow::Result<Option<lsp_types::Hover>> {
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
+    if snap.is_manifest_file(position.file_id) {
+        return manifest_hover(&snap, position);
+    }
 
     let config = snap.config.hover();
     let hover_format = config.format;
