@@ -1917,6 +1917,79 @@ fn project_manifest_completes_top_level_fields() {
 }
 
 #[test]
+fn project_manifest_completes_only_missing_top_level_fields() {
+    let temp_dir = TempDir::new("manifest-missing-field-completion");
+    let manifest_text = "sources = []\ninc";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        ClientCapabilities::default(),
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            Completion::METHOD.to_string(),
+            lsp_types::CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: manifest_uri },
+                    position: Position { line: 1, character: 3 },
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            },
+        )))
+        .unwrap();
+
+    let completions: Option<lsp_types::CompletionResponse> =
+        recv_response(&client, request_id, "completion");
+    let items = match completions {
+        Some(lsp_types::CompletionResponse::Array(items)) => items,
+        other => panic!("expected completion array, got {other:?}"),
+    };
+    let labels = items.iter().map(|item| item.label.as_str()).collect::<Vec<_>>();
+
+    assert!(!labels.contains(&"sources"));
+    assert!(labels.contains(&"include_dirs"));
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn project_manifest_completes_path_values() {
     let temp_dir = TempDir::new("manifest-path-completion");
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
