@@ -72,13 +72,13 @@ npm run package
 
 检查工程清单:
 
-- `vizsla_config.toml` 是否位于 workspace root。
+- `vizsla.toml` 是否位于 workspace root。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。
 - `sources` 是否包含目标目录。
 - `exclude` 是否把目录排除了。
 - 文件扩展名是否是 `.v`, `.sv`, `.vh`, `.svh`, `.svi` 或 `.map`。
 - 你是否打开了子目录, 导致 workspace root 变了。
 
-VS Code 扩展会在缺少清单时创建默认 `vizsla_config.toml`:
+VS Code 扩展只会在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时创建默认 `vizsla.toml`:
 
 ```toml
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
