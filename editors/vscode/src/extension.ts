@@ -394,12 +394,14 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
 
   const createConfigAction =
     missingConfigs.length === 1 ? 'Create Manifest' : 'Create Manifests';
-  const message =
+  const restartNotice =
+    'Creating a manifest will restart the Vizsla language server so the workspace can reload it.';
+  const promptMessage =
     missingConfigs.length === 1
-      ? `No Vizsla project manifest was detected in ${missingConfigs[0].folder.name}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited.`
-      : `No Vizsla project manifest was detected in ${missingConfigs.length} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited.`;
+      ? `No Vizsla project manifest was detected in ${missingConfigs[0].folder.name}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. ${restartNotice}`
+      : `No Vizsla project manifest was detected in ${missingConfigs.length} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. ${restartNotice}`;
 
-  const selection = await vscode.window.showWarningMessage(message, createConfigAction);
+  const selection = await vscode.window.showWarningMessage(promptMessage, createConfigAction);
   if (selection !== createConfigAction) {
     return;
   }
@@ -420,9 +422,9 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
         continue;
       }
 
-      const message = `Failed to create ${PROJECT_CONFIG_FILE_NAME} in ${folder.name}: ${(error as Error).message}`;
-      log(`[WARN] ${message}`);
-      void vscode.window.showWarningMessage(message);
+      const errorMessage = `Failed to create ${PROJECT_CONFIG_FILE_NAME} in ${folder.name}: ${(error as Error).message}`;
+      log(`[WARN] ${errorMessage}`);
+      void vscode.window.showWarningMessage(errorMessage);
     }
   }
 
@@ -434,13 +436,13 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
     await restartClient(context);
   }
 
-  const message =
+  const createdMessage =
     createdConfigs.length === 1
       ? `Created ${PROJECT_CONFIG_FILE_NAME} with syntax-only defaults.`
       : `Created syntax-only ${PROJECT_CONFIG_FILE_NAME} files in ${createdConfigs.length} workspace folders.`;
   const openConfigAction = createdConfigs.length === 1 ? 'Open Manifest' : 'Open First Manifest';
 
-  void vscode.window.showInformationMessage(message, openConfigAction).then(async (selection) => {
+  void vscode.window.showInformationMessage(createdMessage, openConfigAction).then(async (selection) => {
     if (selection !== openConfigAction) {
       return;
     }
