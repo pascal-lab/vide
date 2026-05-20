@@ -213,6 +213,11 @@ impl GlobalStateSnapshot {
             .is_some_and(is_manifest_file_name)
     }
 
+    pub(crate) fn file_abs_path(&self, file_id: FileId) -> Option<AbsPathBuf> {
+        let vfs = self.vfs_read();
+        vfs.file_path(file_id).and_then(|path| path.as_abs_path()).map(|path| path.to_path_buf())
+    }
+
     pub(crate) fn url(&self, id: FileId) -> anyhow::Result<Url> {
         let vfs = &self.vfs_read();
         let path =

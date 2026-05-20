@@ -1,9 +1,15 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+};
 
 use ide::{folding_ranges::FoldingConfig, references::References};
 use itertools::Itertools;
 use span::{FilePosition, FileRange};
-use utils::text_edit::{TextRange, TextSize};
+use utils::{
+    paths::AbsPath,
+    text_edit::{TextRange, TextSize},
+};
 use vfs::FileId;
 
 use crate::{
@@ -104,6 +110,11 @@ fn manifest_completion(
 ) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
     let text = snap.file_text(position.file_id)?;
     let offset = usize::try_from(u32::from(position.offset)).unwrap_or(usize::MAX).min(text.len());
+    let path_completion = manifest_path_completion(snap, position.file_id, &text, offset)?;
+    if let Some(path_completion) = path_completion {
+        return Ok(Some(path_completion));
+    }
+
     let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
     let line_prefix = &text[line_start..offset];
     if line_prefix.trim_start().starts_with('#')
@@ -147,6 +158,168 @@ fn manifest_completion(
         .collect();
 
     Ok(Some(lsp_types::CompletionResponse::Array(items)))
+}
+
+fn manifest_path_completion(
+    snap: &GlobalStateSnapshot,
+    file_id: FileId,
+    text: &str,
+    offset: usize,
+) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
+    let Some(context) = manifest_path_completion_context(text, offset) else {
+        return Ok(None);
+    };
+    let Some(manifest_path) = snap.file_abs_path(file_id) else {
+        return Ok(None);
+    };
+    let Some(manifest_dir) = manifest_path.parent() else {
+        return Ok(None);
+    };
+
+    let line_info = snap.line_info(file_id)?;
+    let replacement = to_proto::range(&line_info, context.replacement);
+    let items = manifest_path_completion_items(manifest_dir, &context.prefix, replacement);
+
+    Ok(Some(lsp_types::CompletionResponse::Array(items)))
+}
+
+fn manifest_path_completion_items(
+    manifest_dir: &AbsPath,
+    prefix: &str,
+    replacement: lsp_types::Range,
+) -> Vec<lsp_types::CompletionItem> {
+    let prefix = prefix.replace('\\', "/");
+    let (dir_prefix, name_prefix) = prefix
+        .rsplit_once('/')
+        .map(|(dir, name)| (format!("{dir}/"), name))
+        .unwrap_or_else(|| (String::new(), prefix.as_str()));
+    let search_dir = if dir_prefix.is_empty() {
+        manifest_dir.to_path_buf()
+    } else {
+        manifest_dir.absolutize(&dir_prefix)
+    };
+
+    let Ok(entries) = fs::read_dir(search_dir.as_path()) else {
+        return Vec::new();
+    };
+
+    let mut items = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().into_string().ok()?;
+            if !name.starts_with(name_prefix) {
+                return None;
+            }
+
+            let file_type = entry.file_type().ok()?;
+            let is_dir = file_type.is_dir();
+            let completion_text =
+                format!("{}{}{}", dir_prefix, name, if is_dir { "/" } else { "" });
+            let kind = if is_dir {
+                lsp_types::CompletionItemKind::FOLDER
+            } else {
+                lsp_types::CompletionItemKind::FILE
+            };
+            let sort_prefix = if is_dir { '0' } else { '1' };
+
+            Some(lsp_types::CompletionItem {
+                label: completion_text.clone(),
+                kind: Some(kind),
+                detail: Some(if is_dir { "Directory" } else { "File" }.to_string()),
+                sort_text: Some(format!("{sort_prefix}_{completion_text}")),
+                text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                    range: replacement,
+                    new_text: completion_text,
+                })),
+                ..Default::default()
+            })
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|lhs, rhs| lhs.sort_text.cmp(&rhs.sort_text));
+    items
+}
+
+struct ManifestPathCompletionContext {
+    prefix: String,
+    replacement: TextRange,
+}
+
+fn manifest_path_completion_context(
+    text: &str,
+    offset: usize,
+) -> Option<ManifestPathCompletionContext> {
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    let line_end = text[offset..].find('\n').map(|idx| offset + idx).unwrap_or(text.len());
+    let line = &text[line_start..line_end];
+    if line.trim_start().starts_with('#') {
+        return None;
+    }
+
+    let (quote_count, quote_start) = unescaped_quote_state(&text[line_start..offset], line_start);
+    if quote_count % 2 == 0 {
+        return None;
+    }
+    let quote_start = quote_start?;
+    let key = manifest_assignment_key_before_offset(text, line_start, line_end)?;
+    if !MANIFEST_PATH_FIELDS.contains(&key) {
+        return None;
+    }
+
+    Some(ManifestPathCompletionContext {
+        prefix: text[quote_start + 1..offset].to_string(),
+        replacement: TextRange::new(to_text_size(quote_start + 1), to_text_size(offset)),
+    })
+}
+
+fn unescaped_quote_state(text: &str, base_offset: usize) -> (usize, Option<usize>) {
+    let mut count = 0;
+    let mut last = None;
+    let mut escaped = false;
+
+    for (idx, byte) in text.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            count += 1;
+            last = Some(base_offset + idx);
+        }
+    }
+
+    (count, last)
+}
+
+fn manifest_assignment_key_before_offset(
+    text: &str,
+    line_start: usize,
+    line_end: usize,
+) -> Option<&str> {
+    let current_line = &text[line_start..line_end];
+    if let Some(key) = manifest_assignment_key(current_line) {
+        return Some(key);
+    }
+
+    let mut cursor = line_start;
+    while cursor > 0 {
+        let prev_end = cursor - 1;
+        let prev_start = text[..prev_end].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+        let line = &text[prev_start..prev_end];
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            cursor = prev_start;
+            continue;
+        }
+
+        return manifest_assignment_key(line);
+    }
+
+    None
+}
+
+fn manifest_assignment_key(line: &str) -> Option<&str> {
+    let eq = line.find('=')?;
+    Some(line[..eq].trim())
 }
 
 fn manifest_hover(
@@ -269,6 +442,8 @@ const MANIFEST_FIELD_COMPLETIONS: &[ManifestFieldCompletion] = &[
         documentation: "Paths to remove from sources, include_dirs, and libraries.",
     },
 ];
+
+const MANIFEST_PATH_FIELDS: &[&str] = &["sources", "include_dirs", "libraries", "exclude"];
 
 pub(crate) fn handle_goto_declaration(
     snap: GlobalStateSnapshot,

@@ -1836,6 +1836,88 @@ fn project_manifest_completes_top_level_fields() {
 }
 
 #[test]
+fn project_manifest_completes_path_values() {
+    let temp_dir = TempDir::new("manifest-path-completion");
+    fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
+    fs::write(temp_dir.path().join("top.sv"), "module top; endmodule\n").unwrap();
+    let manifest_text = "sources = [\"r\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        ClientCapabilities::default(),
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            Completion::METHOD.to_string(),
+            lsp_types::CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: manifest_uri },
+                    position: Position { line: 0, character: 13 },
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            },
+        )))
+        .unwrap();
+
+    let completions: Option<lsp_types::CompletionResponse> =
+        recv_response(&client, request_id, "path completion");
+    let items = match completions {
+        Some(lsp_types::CompletionResponse::Array(items)) => items,
+        other => panic!("expected completion array, got {other:?}"),
+    };
+    let rtl = items
+        .into_iter()
+        .find(|item| item.label == "rtl/")
+        .expect("rtl directory completion should be present");
+    let edit = match rtl.text_edit {
+        Some(lsp_types::CompletionTextEdit::Edit(edit)) => edit,
+        other => panic!("expected text edit, got {other:?}"),
+    };
+    assert_eq!(edit.new_text, "rtl/");
+    assert_eq!(edit.range.start, Position { line: 0, character: 12 });
+    assert_eq!(edit.range.end, Position { line: 0, character: 13 });
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn project_manifest_hovers_top_level_fields() {
     let temp_dir = TempDir::new("manifest-hover");
     let manifest_text = "sources = [\"rtl\"]\n";
