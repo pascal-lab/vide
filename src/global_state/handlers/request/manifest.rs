@@ -2,8 +2,8 @@ use std::fs;
 
 use itertools::Itertools;
 use project_model::{
-    TomlManifestField, toml_manifest_field_at_offset, toml_manifest_fields,
-    toml_manifest_path_at_offset, toml_manifest_paths,
+    TomlManifestField, toml_manifest_field_at_offset, toml_manifest_field_completion_context,
+    toml_manifest_fields, toml_manifest_path_at_offset, toml_manifest_paths,
 };
 use span::FilePosition;
 use utils::{
@@ -53,28 +53,20 @@ pub(super) fn completion(
         return Ok(Some(path_completion));
     }
 
-    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    let line_prefix = &text[line_start..offset];
-    if line_prefix.trim_start().starts_with('#')
-        || line_prefix.contains('=')
-        || line_prefix.matches('"').count() % 2 == 1
-    {
+    let Some(context) = toml_manifest_field_completion_context(&text, offset) else {
         return Ok(None);
-    }
-
-    let replace_start = line_start
-        + line_prefix
-            .char_indices()
-            .rev()
-            .find_map(|(idx, ch)| (!is_key_char(ch)).then_some(idx + ch.len_utf8()))
-            .unwrap_or(0);
-    let replacement = TextRange::new(to_text_size(replace_start), to_text_size(offset));
+    };
+    let replacement = TextRange::new(
+        to_text_size(context.replacement_range.start),
+        to_text_size(context.replacement_range.end),
+    );
     let line_info = snap.line_info(position.file_id)?;
     let snippet_support = snap.config.cli_completion_snippet_support();
 
     let items = MANIFEST_FIELD_COMPLETIONS
         .iter()
         .enumerate()
+        .filter(|(_, item)| !context.existing_fields.iter().any(|field| field == item.key))
         .map(|(idx, item)| {
             let new_text = if snippet_support { item.snippet } else { item.plain };
             lsp_types::CompletionItem {
@@ -304,10 +296,6 @@ fn symbol_information(
         location: lsp_types::Location { uri, range: to_proto::range(line_info, range) },
         container_name: None,
     }
-}
-
-fn is_key_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn to_text_size(value: usize) -> TextSize {

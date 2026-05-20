@@ -13,8 +13,9 @@ use base_db::{
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
 pub use toml_manifest::{
-    TomlManifestDiagnostic, TomlManifestField, TomlManifestPath, toml_manifest_diagnostics,
-    toml_manifest_field_at_offset, toml_manifest_fields, toml_manifest_path_at_offset,
+    TomlManifestDiagnostic, TomlManifestField, TomlManifestFieldCompletionContext,
+    TomlManifestPath, toml_manifest_diagnostics, toml_manifest_field_at_offset,
+    toml_manifest_field_completion_context, toml_manifest_fields, toml_manifest_path_at_offset,
     toml_manifest_paths,
 };
 use triomphe::Arc;
