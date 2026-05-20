@@ -15,8 +15,13 @@ const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
 #[cfg(feature = "manifest-schema")]
 const MACRO_DEFINITION_SCHEMA_RE: &str = r"^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\S* )(?:=.*)?$";
 #[cfg(feature = "manifest-schema")]
-const TOML_MANIFEST_SCHEMA_ID: &str =
-    "https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json";
+pub const TOML_MANIFEST_SCHEMA_VERSION: &str = "v1";
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_PATH: &str =
+    formatcp!("/vizsla/schemas/{TOML_MANIFEST_SCHEMA_VERSION}/vizsla.schema.json");
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_URL: &str =
+    formatcp!("https://pascal-lab.github.io{TOML_MANIFEST_SCHEMA_PATH}");
 
 static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
@@ -31,7 +36,7 @@ static KV_RE: LazyLock<Result<Regex, regex::Error>> =
     schemars(
         title = "Vizsla project manifest",
         description = "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
-        extend("$id" = TOML_MANIFEST_SCHEMA_ID, "x-tombi-table-keys-order" = "schema")
+        extend("$id" = TOML_MANIFEST_SCHEMA_URL, "x-tombi-table-keys-order" = "schema")
     )
 )]
 struct TomlManifestSchema {

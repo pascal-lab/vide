@@ -68,9 +68,13 @@ test('default project config keeps startup diagnostics syntax-only', () => {
 test('project config schema URL resolves to a published docs asset', () => {
   const schemaUrl = new URL(PROJECT_CONFIG_SCHEMA_URL);
 
-  assert.equal(PROJECT_CONFIG_SCHEMA_VERSION, 'v1');
+  assert.match(PROJECT_CONFIG_SCHEMA_VERSION, /^v\d+$/);
   assert.equal(schemaUrl.origin, 'https://pascal-lab.github.io');
   assert.equal(schemaUrl.pathname, PROJECT_CONFIG_SCHEMA_PATH);
+  assert.equal(
+    PROJECT_CONFIG_SCHEMA_PATH,
+    `/vizsla/schemas/${PROJECT_CONFIG_SCHEMA_VERSION}/vizsla.schema.json`,
+  );
   assert.match(schemaUrl.pathname, /^\/vizsla\/schemas\/v\d+\/vizsla\.schema\.json$/);
 
   const docsPublicPath = path.join(__dirname, '..', '..', '..', 'docs', 'public');

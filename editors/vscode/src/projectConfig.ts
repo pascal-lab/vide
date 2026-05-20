@@ -1,5 +1,17 @@
 import * as path from 'node:path';
 
+import {
+  PROJECT_CONFIG_SCHEMA_PATH,
+  PROJECT_CONFIG_SCHEMA_URL,
+  PROJECT_CONFIG_SCHEMA_VERSION,
+} from './generated/projectConfigSchema';
+
+export {
+  PROJECT_CONFIG_SCHEMA_PATH,
+  PROJECT_CONFIG_SCHEMA_URL,
+  PROJECT_CONFIG_SCHEMA_VERSION,
+} from './generated/projectConfigSchema';
+
 export const PROJECT_CONFIG_FILE_NAME = 'vizsla.toml';
 export const LEGACY_PROJECT_CONFIG_FILE_NAME = 'vizsla_config.toml';
 export const PROJECT_CONFIG_FILE_NAMES = [
@@ -14,10 +26,6 @@ export const PROJECT_SOURCE_FILE_EXTENSIONS = [
   '.svi',
 ] as const;
 export const PROJECT_SOURCE_FILE_GLOB = '**/*.{v,sv,vh,svh,svi}';
-export const PROJECT_CONFIG_SCHEMA_VERSION = 'v1';
-export const PROJECT_CONFIG_SCHEMA_PATH = `/vizsla/schemas/${PROJECT_CONFIG_SCHEMA_VERSION}/vizsla.schema.json`;
-export const PROJECT_CONFIG_SCHEMA_URL =
-  `https://pascal-lab.github.io${PROJECT_CONFIG_SCHEMA_PATH}`;
 
 export const DEFAULT_PROJECT_CONFIG_TEXT = `#:schema ${PROJECT_CONFIG_SCHEMA_URL}
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
