@@ -10,9 +10,9 @@ use lsp_types::{
     CodeActionOrCommand, CodeActionParams, DiagnosticClientCapabilities,
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
-    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
-    PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
+    DocumentLinkParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position,
+    ProgressParams, PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
     WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
@@ -21,9 +21,9 @@ use lsp_types::{
         DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit, Notification as _,
     },
     request::{
-        CodeActionRequest, Completion, DocumentDiagnosticRequest, DocumentSymbolRequest,
-        FoldingRangeRequest, GotoDefinition, HoverRequest, Request as _, SemanticTokensFullRequest,
-        Shutdown, WorkspaceDiagnosticRequest,
+        CodeActionRequest, Completion, DocumentDiagnosticRequest, DocumentLinkRequest,
+        DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition, HoverRequest, Request as _,
+        SemanticTokensFullRequest, Shutdown, WorkspaceDiagnosticRequest,
     },
 };
 use serde::de::DeserializeOwned;
@@ -1989,6 +1989,75 @@ fn project_manifest_goes_to_path_values() {
     };
     assert_eq!(location.uri, target_uri);
     assert_eq!(location.range.start, Position { line: 0, character: 0 });
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn project_manifest_links_path_values() {
+    let temp_dir = TempDir::new("manifest-path-links");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+    let manifest_text = "sources = [\"rtl\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        ClientCapabilities::default(),
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    let target_uri = to_proto::url_from_abs_path(rtl_dir.as_path()).unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentLinkRequest::METHOD.to_string(),
+            DocumentLinkParams {
+                text_document: TextDocumentIdentifier { uri: manifest_uri },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let links: Option<Vec<lsp_types::DocumentLink>> =
+        recv_response(&client, request_id, "manifest path links");
+    let links = links.expect("document links should return a response");
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].target.as_ref(), Some(&target_uri));
+    assert_eq!(links[0].range.start, Position { line: 0, character: 12 });
+    assert_eq!(links[0].range.end, Position { line: 0, character: 15 });
 
     shutdown_test_server(&client, server_thread);
 }

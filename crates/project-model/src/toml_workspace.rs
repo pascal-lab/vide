@@ -130,20 +130,29 @@ pub fn toml_manifest_field_at_offset(text: &str, offset: usize) -> Option<TomlMa
         .find(|field| range_contains_offset(&field.key_range, offset))
 }
 
-pub fn toml_manifest_path_at_offset(text: &str, offset: usize) -> Option<TomlManifestPath> {
-    manifest_top_level_values(text).into_iter().find_map(|(key, _, value)| {
-        if !MANIFEST_PATH_FIELDS.contains(&key.as_str()) {
-            return None;
-        }
-
-        manifest_string_value_at_offset(text, &key, &value, offset).or_else(|| {
-            value.as_array().and_then(|array| {
-                array
-                    .iter()
-                    .find_map(|value| manifest_string_value_at_offset(text, &key, value, offset))
-            })
+pub fn toml_manifest_paths(text: &str) -> Vec<TomlManifestPath> {
+    manifest_top_level_values(text)
+        .into_iter()
+        .filter(|(key, _, _)| MANIFEST_PATH_FIELDS.contains(&key.as_str()))
+        .flat_map(|(key, _, value)| {
+            let mut paths = Vec::new();
+            if let Some(path) = manifest_string_value(&key, &value, text) {
+                paths.push(path);
+            }
+            if let Some(array) = value.as_array() {
+                paths.extend(
+                    array.iter().filter_map(|value| manifest_string_value(&key, value, text)),
+                );
+            }
+            paths
         })
-    })
+        .collect()
+}
+
+pub fn toml_manifest_path_at_offset(text: &str, offset: usize) -> Option<TomlManifestPath> {
+    toml_manifest_paths(text)
+        .into_iter()
+        .find(|path| range_contains_offset(&path.content_range, offset))
 }
 
 fn manifest_top_level_values(text: &str) -> Vec<(String, Range<usize>, Value)> {
@@ -164,20 +173,9 @@ fn manifest_top_level_values(text: &str) -> Vec<(String, Range<usize>, Value)> {
         .collect()
 }
 
-fn manifest_string_value_at_offset(
-    text: &str,
-    key: &str,
-    value: &Value,
-    offset: usize,
-) -> Option<TomlManifestPath> {
+fn manifest_string_value(key: &str, value: &Value, text: &str) -> Option<TomlManifestPath> {
     let value_range = value.span()?;
-    if !range_contains_offset(&value_range, offset) {
-        return None;
-    }
     let content_range = string_content_range(text, value_range.clone())?;
-    if !range_contains_offset(&content_range, offset) {
-        return None;
-    }
 
     Some(TomlManifestPath {
         key: key.to_string(),
@@ -438,6 +436,15 @@ defines = [
         assert_eq!(path.value, "rtl/top.sv");
         assert_eq!(&toml[path.content_range.clone()], "rtl/top.sv");
         assert!(toml_manifest_path_at_offset(toml, 1).is_none());
+    }
+
+    #[test]
+    fn manifest_paths_lists_top_level_path_arrays() {
+        let toml = "sources = [\"rtl\", \"ip\"]\ntop_modules = [\"top\"]\n";
+        let paths = toml_manifest_paths(toml);
+        let values = paths.iter().map(|path| path.value.as_str()).collect::<Vec<_>>();
+
+        assert_eq!(values, ["rtl", "ip"]);
     }
 
     #[test]

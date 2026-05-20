@@ -14,6 +14,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 pub use toml_workspace::{
     TomlManifestDiagnostic, TomlManifestField, TomlManifestPath, toml_manifest_diagnostics,
     toml_manifest_field_at_offset, toml_manifest_fields, toml_manifest_path_at_offset,
+    toml_manifest_paths,
 };
 use triomphe::Arc;
 use utils::paths::{AbsPathBuf, sort_and_remove_subfolders};

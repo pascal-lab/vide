@@ -1,7 +1,7 @@
 use ide::hover::HoverFormat;
 use lsp_types::{
     CodeActionKind, CodeActionOptions, CodeActionProviderCapability, CodeLensOptions,
-    DeclarationCapability, DiagnosticOptions, DiagnosticServerCapabilities,
+    DeclarationCapability, DiagnosticOptions, DiagnosticServerCapabilities, DocumentLinkOptions,
     DocumentOnTypeFormattingOptions, FileOperationFilter, FileOperationPattern,
     FileOperationPatternKind, FileOperationRegistrationOptions, InlayHintOptions,
     InlayHintServerCapabilities, OneOf, PositionEncodingKind, RenameOptions, SaveOptions,
@@ -292,7 +292,10 @@ impl Config {
                 work_done_progress_options: Default::default(),
             })
             .into(),
-            document_link_provider: None,
+            document_link_provider: Some(DocumentLinkOptions {
+                resolve_provider: Some(false),
+                work_done_progress_options: Default::default(),
+            }),
             color_provider: None,
             folding_range_provider: Some(true.into()),
             execute_command_provider: Some(lsp_types::ExecuteCommandOptions {

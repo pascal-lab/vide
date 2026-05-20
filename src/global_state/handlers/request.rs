@@ -7,7 +7,7 @@ use ide::{folding_ranges::FoldingConfig, references::References};
 use itertools::Itertools;
 use project_model::{
     TomlManifestField, toml_manifest_field_at_offset, toml_manifest_fields,
-    toml_manifest_path_at_offset,
+    toml_manifest_path_at_offset, toml_manifest_paths,
 };
 use span::{FilePosition, FileRange};
 use utils::{
@@ -58,16 +58,9 @@ fn manifest_goto_definition(
         return Ok(None);
     }
 
-    let Some(manifest_path) = snap.file_abs_path(position.file_id) else {
+    let Some(target) = manifest_path_target(snap, position.file_id, &context.value) else {
         return Ok(None);
     };
-    let Some(manifest_dir) = manifest_path.parent() else {
-        return Ok(None);
-    };
-    let target = manifest_dir.absolutize(context.value.replace('\\', "/"));
-    if fs::metadata(target.as_path()).is_err() {
-        return Ok(None);
-    }
 
     let uri = to_proto::url_from_abs_path(target.as_path())?;
     Ok(Some(lsp_types::GotoDefinitionResponse::Scalar(lsp_types::Location {
@@ -77,6 +70,18 @@ fn manifest_goto_definition(
             lsp_types::Position::new(0, 0),
         ),
     })))
+}
+
+fn manifest_path_target(
+    snap: &GlobalStateSnapshot,
+    file_id: FileId,
+    path_value: &str,
+) -> Option<utils::paths::AbsPathBuf> {
+    let manifest_path = snap.file_abs_path(file_id)?;
+    let manifest_dir = manifest_path.parent()?;
+    let target = manifest_dir.absolutize(path_value.replace('\\', "/"));
+    fs::metadata(target.as_path()).ok()?;
+    Some(target)
 }
 
 pub(crate) fn handle_completion(
@@ -596,6 +601,37 @@ pub(crate) fn handle_document_symbol(
     };
 
     Ok(Some(res))
+}
+
+pub(crate) fn handle_document_link(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::DocumentLinkParams,
+) -> anyhow::Result<Option<Vec<lsp_types::DocumentLink>>> {
+    let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
+    if !snap.is_manifest_file(file_id) {
+        return Ok(Some(Vec::new()));
+    }
+
+    let text = snap.file_text(file_id)?;
+    let line_info = snap.line_info(file_id)?;
+    let links = toml_manifest_paths(&text)
+        .into_iter()
+        .filter_map(|path| {
+            let target = manifest_path_target(&snap, file_id, &path.value)?;
+            let range = TextRange::new(
+                to_text_size(path.content_range.start),
+                to_text_size(path.content_range.end),
+            );
+            Some(lsp_types::DocumentLink {
+                range: to_proto::range(&line_info, range),
+                target: to_proto::url_from_abs_path(target.as_path()).ok(),
+                tooltip: Some(format!("Open {}", path.value)),
+                data: None,
+            })
+        })
+        .collect();
+
+    Ok(Some(links))
 }
 
 fn manifest_document_symbols(
