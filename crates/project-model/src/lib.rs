@@ -372,9 +372,27 @@ libraries = ["../pkg/rtl"]
     }
 
     #[test]
-    fn empty_manifest_has_no_compilation_profile() {
+    fn empty_manifest_has_compilation_profile() {
         let root = TestDir::new("project-model-empty-manifest");
         fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "").unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        assert!(project_config.profile_for_root(SourceRootId(0)).is_some());
+    }
+
+    #[test]
+    fn syntax_only_default_manifest_has_no_compilation_profile() {
+        let root = TestDir::new("project-model-syntax-only-manifest");
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "sources = []\ninclude_dirs = []\n",
+        )
+        .unwrap();
 
         let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);

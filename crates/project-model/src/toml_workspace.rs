@@ -21,28 +21,17 @@ static KV_RE: LazyLock<Result<Regex, regex::Error>> =
 #[serde(deny_unknown_fields)]
 struct TomlManifestSchema {
     #[serde(default)]
-    pub top_modules: Option<Vec<String>>,
-    #[serde(deserialize_with = "de_optional_macros", default)]
-    pub defines: Option<MacroDef>,
+    pub top_modules: Vec<String>,
+    #[serde(deserialize_with = "de_macros", default)]
+    pub defines: MacroDef,
     #[serde(default)]
     pub sources: Option<Vec<Utf8PathBuf>>,
     #[serde(default)]
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
     #[serde(default)]
-    pub libraries: Option<Vec<Utf8PathBuf>>,
+    pub libraries: Vec<Utf8PathBuf>,
     #[serde(default)]
-    pub exclude: Option<Vec<Utf8PathBuf>>,
-}
-
-impl TomlManifestSchema {
-    fn configures_semantic_diagnostics(&self) -> bool {
-        self.top_modules.is_some()
-            || self.defines.is_some()
-            || self.sources.is_some()
-            || self.include_dirs.is_some()
-            || self.libraries.is_some()
-            || self.exclude.is_some()
-    }
+    pub exclude: Vec<Utf8PathBuf>,
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
@@ -95,13 +84,6 @@ where
     Ok(MacroDef { macros })
 }
 
-fn de_optional_macros<'de, D>(deserializer: D) -> Result<Option<MacroDef>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    de_macros(deserializer).map(Some)
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct TomlWorkspace {
     pub top_modules: Vec<String>,
@@ -123,17 +105,16 @@ impl TomlWorkspace {
         let toml_schema: TomlManifestSchema =
             toml::from_str(&toml_file).with_context(|| format!("failed to parse {:?}", toml))?;
 
-        let configures_semantic_diagnostics = toml_schema.configures_semantic_diagnostics();
-        let top_modules = toml_schema.top_modules.unwrap_or_default();
+        let configures_semantic_diagnostics = true;
+        let top_modules = toml_schema.top_modules;
         let workspace_root = toml
             .parent()
             .with_context(|| format!("manifest path has no parent: {toml}"))?
             .to_path_buf();
-        let macro_defs = toml_schema.defines.unwrap_or_default();
+        let macro_defs = toml_schema.defines;
 
         let mut exclude = toml_schema
             .exclude
-            .unwrap_or_default()
             .into_iter()
             .map(|path| workspace_root.absolutize(path))
             .collect_vec();
@@ -163,7 +144,7 @@ impl TomlWorkspace {
             }
         }
 
-        for path in toml_schema.libraries.unwrap_or_default() {
+        for path in toml_schema.libraries {
             let path = workspace_root.absolutize(path);
             if exclude.iter().all(|excluded| !path.starts_with(excluded)) {
                 package.push(path);
@@ -195,12 +176,14 @@ impl TomlWorkspace {
     }
 
     pub fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
+        let sources = if is_lib { vec![path.clone()] } else { Vec::new() };
+        let include_dirs = sources.clone();
         Self {
             top_modules: Vec::new(),
             workspace_root: path.clone(),
             macro_defs: MacroDef::default(),
-            sources: vec![path.clone()],
-            include_dirs: vec![path.clone()],
+            sources,
+            include_dirs,
             exclude: vec![],
             package: vec![],
             is_lib,
@@ -229,7 +212,7 @@ defines = [
 ]
         "#;
         let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
-        assert_eq!(toml_schema.top_modules.unwrap(), ["main"]);
+        assert_eq!(toml_schema.top_modules, ["main"]);
         let mut macros = FxHashSet::default();
         macros.insert(MacroAtom::Flag("foo".into()));
         macros.insert(MacroAtom::Flag("bar".into()));
@@ -237,7 +220,7 @@ defines = [
         macros.insert(MacroAtom::KeyValue { key: "BAR".into(), value: "foo".into() });
         macros.insert(MacroAtom::KeyValue { key: "BAZ".into(), value: "foo bar".into() });
         macros.insert(MacroAtom::KeyValue { key: "eqwe".into(), value: "123".into() });
-        assert_eq!(toml_schema.defines, Some(MacroDef { macros }));
+        assert_eq!(toml_schema.defines, MacroDef { macros });
     }
 
     #[test]
@@ -249,11 +232,11 @@ defines = [
 ]
         "#;
         let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
-        assert_eq!(toml_schema.defines.unwrap().to_predefine_strings(), ["BAR=foo", "FOO"]);
+        assert_eq!(toml_schema.defines.to_predefine_strings(), ["BAR=foo", "FOO"]);
     }
 
     #[test]
-    fn empty_manifest_loads_root_without_semantic_configuration() {
+    fn empty_manifest_loads_root_with_semantic_configuration() {
         let root = TestDir::new("empty-manifest");
         let manifest = root.write("vizsla_config.toml", "");
 
@@ -261,6 +244,17 @@ defines = [
 
         assert_eq!(workspace.sources, [root.path().to_path_buf()]);
         assert_eq!(workspace.include_dirs, [root.path().to_path_buf()]);
+        assert!(workspace.configures_semantic_diagnostics);
+    }
+
+    #[test]
+    fn unconfigured_root_uses_syntax_only_default() {
+        let root = TestDir::new("unconfigured-root");
+
+        let workspace = TomlWorkspace::from_unconfigured_root(&root.path().to_path_buf(), false);
+
+        assert!(workspace.sources.is_empty());
+        assert!(workspace.include_dirs.is_empty());
         assert!(!workspace.configures_semantic_diagnostics);
     }
 

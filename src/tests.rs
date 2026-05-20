@@ -43,6 +43,7 @@ type TempDir = TestDir;
 
 const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TEST_CONFIG: &str = "sources = [\".\"]\ninclude_dirs = [\".\"]\n";
+const SYNTAX_ONLY_TEST_CONFIG: &str = "sources = []\ninclude_dirs = []\n";
 
 fn recv_lsp_message_until(
     client: &Connection,
@@ -94,12 +95,12 @@ fn setup_configured_diagnostics_test(
     setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(DEFAULT_TEST_CONFIG))
 }
 
-fn setup_empty_config_diagnostics_test(
+fn setup_syntax_only_config_diagnostics_test(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
-    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(""))
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(SYNTAX_ONLY_TEST_CONFIG))
 }
 
 fn setup_diagnostics_test_inner(
@@ -1008,7 +1009,7 @@ endmodule
 }
 
 #[test]
-fn empty_config_workspace_reports_only_syntax_diagnostics() {
+fn syntax_only_config_workspace_reports_only_syntax_diagnostics() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
             diagnostic: Some(DiagnosticClientCapabilities::default()),
@@ -1026,7 +1027,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_empty_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+        setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
 
     let request_id = lsp_server::RequestId::from(1);
     client
@@ -1047,7 +1048,7 @@ endmodule
     let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
-        "empty configs should suppress semantic diagnostics: {diagnostics:?}"
+        "syntax-only configs should suppress semantic diagnostics: {diagnostics:?}"
     );
 
     shutdown_test_server(&client, server_thread);

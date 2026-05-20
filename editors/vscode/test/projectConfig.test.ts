@@ -21,6 +21,6 @@ test('resolves project config paths under workspace roots', () => {
   );
 });
 
-test('default project config is empty to keep startup diagnostics syntax-only', () => {
-  assert.equal(DEFAULT_PROJECT_CONFIG_TEXT, '');
+test('default project config keeps startup diagnostics syntax-only', () => {
+  assert.equal(DEFAULT_PROJECT_CONFIG_TEXT, 'sources = []\ninclude_dirs = []\n');
 });
