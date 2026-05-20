@@ -7,6 +7,7 @@ use regex::Regex;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use smol_str::SmolStr;
+use toml_edit::{ImDocument, Value};
 use utils::paths::{AbsPathBuf, Utf8PathBuf, sort_and_remove_subfolders};
 
 use crate::macro_def::{MacroAtom, MacroDef};
@@ -98,6 +99,102 @@ pub fn toml_manifest_diagnostics(text: &str) -> Vec<TomlManifestDiagnostic> {
         }
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TomlManifestField {
+    pub key: String,
+    pub key_range: Range<usize>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TomlManifestPath {
+    pub key: String,
+    pub value: String,
+    pub value_range: Range<usize>,
+    pub content_range: Range<usize>,
+}
+
+pub fn toml_manifest_field_at_offset(text: &str, offset: usize) -> Option<TomlManifestField> {
+    manifest_top_level_values(text).into_iter().find_map(|(key, key_range, _)| {
+        range_contains_offset(&key_range, offset).then_some(TomlManifestField { key, key_range })
+    })
+}
+
+pub fn toml_manifest_path_at_offset(text: &str, offset: usize) -> Option<TomlManifestPath> {
+    manifest_top_level_values(text).into_iter().find_map(|(key, _, value)| {
+        if !MANIFEST_PATH_FIELDS.contains(&key.as_str()) {
+            return None;
+        }
+
+        manifest_string_value_at_offset(text, &key, &value, offset).or_else(|| {
+            value.as_array().and_then(|array| {
+                array
+                    .iter()
+                    .find_map(|value| manifest_string_value_at_offset(text, &key, value, offset))
+            })
+        })
+    })
+}
+
+fn manifest_top_level_values(text: &str) -> Vec<(String, Range<usize>, Value)> {
+    let Ok(document) = text.parse::<ImDocument<String>>() else {
+        return Vec::new();
+    };
+
+    document
+        .as_table()
+        .get_values()
+        .into_iter()
+        .filter_map(|(keys, value)| {
+            let [key] = keys.as_slice() else {
+                return None;
+            };
+            Some((key.get().to_string(), key.span()?, value.clone()))
+        })
+        .collect()
+}
+
+fn manifest_string_value_at_offset(
+    text: &str,
+    key: &str,
+    value: &Value,
+    offset: usize,
+) -> Option<TomlManifestPath> {
+    let value_range = value.span()?;
+    if !range_contains_offset(&value_range, offset) {
+        return None;
+    }
+    let content_range = string_content_range(text, value_range.clone())?;
+    if !range_contains_offset(&content_range, offset) {
+        return None;
+    }
+
+    Some(TomlManifestPath {
+        key: key.to_string(),
+        value: value.as_str()?.to_string(),
+        value_range,
+        content_range,
+    })
+}
+
+fn string_content_range(text: &str, value_range: Range<usize>) -> Option<Range<usize>> {
+    let raw = text.get(value_range.clone())?;
+    let quote_len = if raw.starts_with("\"\"\"") || raw.starts_with("'''") {
+        3
+    } else if raw.starts_with('"') || raw.starts_with('\'') {
+        1
+    } else {
+        return None;
+    };
+    (raw.len() >= quote_len * 2)
+        .then_some(value_range.start + quote_len..value_range.end - quote_len)
+}
+
+fn range_contains_offset(range: &Range<usize>, offset: usize) -> bool {
+    range.start <= offset && offset <= range.end
+}
+
+const MANIFEST_PATH_FIELDS: &[&str] = &["sources", "include_dirs", "libraries", "exclude"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TomlWorkspace {
@@ -308,5 +405,35 @@ defines = [
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("unknown field"));
+    }
+
+    #[test]
+    fn manifest_field_lookup_uses_toml_key_spans() {
+        let toml = "sources = [\"rtl\"]\n";
+        let field = toml_manifest_field_at_offset(toml, 1).unwrap();
+
+        assert_eq!(field.key, "sources");
+        assert_eq!(field.key_range, 0..7);
+        assert!(toml_manifest_field_at_offset(toml, 12).is_none());
+    }
+
+    #[test]
+    fn manifest_path_lookup_uses_toml_value_spans() {
+        let toml = "sources = [\n  \"rtl/top.sv\",\n]\n";
+        let offset = toml.find("top").unwrap();
+        let path = toml_manifest_path_at_offset(toml, offset).unwrap();
+
+        assert_eq!(path.key, "sources");
+        assert_eq!(path.value, "rtl/top.sv");
+        assert_eq!(&toml[path.content_range.clone()], "rtl/top.sv");
+        assert!(toml_manifest_path_at_offset(toml, 1).is_none());
+    }
+
+    #[test]
+    fn manifest_path_lookup_ignores_non_path_fields() {
+        let toml = "top_modules = [\"top\"]\n";
+        let offset = toml.find("top").unwrap();
+
+        assert!(toml_manifest_path_at_offset(toml, offset).is_none());
     }
 }
