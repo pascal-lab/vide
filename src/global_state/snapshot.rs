@@ -1,24 +1,20 @@
-use std::{fs, path::Path};
+use std::path::Path;
 
 use anyhow::Context;
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
-use project_model::{
-    Workspace, project_manifest::is_manifest_file_name, toml_manifest_diagnostics,
-    toml_manifest_paths,
-};
+use project_model::{Workspace, project_manifest::is_manifest_file_name};
 use rustc_hash::FxHashMap;
 use triomphe::Arc;
 use utils::{
     lines::{LineEnding, LineInfo},
     paths::AbsPathBuf,
-    text_edit::{TextRange, TextSize},
 };
 use vfs::{FileId, Vfs, VfsPath};
 
-use super::mem_docs::MemDocs;
+use super::{manifest_diagnostics, mem_docs::MemDocs};
 use crate::{
     config::Config,
     global_state::QiheDiagnosticState,
@@ -112,80 +108,9 @@ impl GlobalStateSnapshot {
                 .collect(),
             _ => Vec::new(),
         };
-        diagnostics.extend(self.manifest_lsp_diagnostics(file_id));
+        diagnostics.extend(manifest_diagnostics::diagnostics(self, file_id));
         diagnostics.extend(self.qihe_diagnostics(file_id));
         diagnostics
-    }
-
-    pub(crate) fn manifest_lsp_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
-        if !self.is_manifest_file(file_id) {
-            return Vec::new();
-        }
-
-        let Ok(text) = self.file_text(file_id) else {
-            return Vec::new();
-        };
-        let Ok(line_info) = self.line_info(file_id) else {
-            return Vec::new();
-        };
-
-        let schema_diagnostics = toml_manifest_diagnostics(&text);
-        if !schema_diagnostics.is_empty() {
-            return schema_diagnostics
-                .into_iter()
-                .map(|diag| {
-                    let range = diag
-                        .range
-                        .map(|range| byte_range_to_text_range(range, text.len()))
-                        .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
-                    lsp_types::Diagnostic {
-                        range: to_proto::range(&line_info, range),
-                        severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                        code: Some(lsp_types::NumberOrString::String("manifest".to_string())),
-                        code_description: None,
-                        source: Some("vizsla".to_string()),
-                        message: diag.message,
-                        related_information: None,
-                        tags: None,
-                        data: None,
-                    }
-                })
-                .collect();
-        }
-
-        let Some(manifest_path) = self.file_abs_path(file_id) else {
-            return Vec::new();
-        };
-        let Some(manifest_dir) = manifest_path.parent() else {
-            return Vec::new();
-        };
-
-        toml_manifest_paths(&text)
-            .into_iter()
-            .filter(|path| path.key != "exclude")
-            .filter_map(|path| {
-                let target = manifest_dir.absolutize(path.value.replace('\\', "/"));
-                if fs::metadata(target.as_path()).is_ok() {
-                    return None;
-                }
-
-                let range = byte_range_to_text_range(path.content_range.clone(), text.len());
-                Some(lsp_types::Diagnostic {
-                    range: to_proto::range(&line_info, range),
-                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
-                    code: Some(lsp_types::NumberOrString::String("manifest.path".to_string())),
-                    code_description: None,
-                    source: Some("vizsla".to_string()),
-                    message: format!(
-                        "manifest path does not exist for `{}`: {}",
-                        path.key, path.value
-                    ),
-                    related_information: None,
-                    tags: None,
-                    data: None,
-                })
-            })
-            .collect()
     }
 
     pub(crate) fn qihe_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
@@ -270,14 +195,4 @@ impl GlobalStateSnapshot {
         let path = from_proto::vfs_path(url).ok()?;
         self.mem_docs.file_id(&path).and_then(|file_id| self.file_version(file_id))
     }
-}
-
-fn byte_range_to_text_range(range: std::ops::Range<usize>, text_len: usize) -> TextRange {
-    fn to_text_size(value: usize) -> TextSize {
-        TextSize::new(u32::try_from(value).unwrap_or(u32::MAX))
-    }
-
-    let start = range.start.min(text_len);
-    let end = range.end.min(text_len).max(start);
-    TextRange::new(to_text_size(start), to_text_size(end))
 }
