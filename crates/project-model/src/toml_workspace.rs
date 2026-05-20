@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{ops::Range, sync::LazyLock};
 
 use anyhow::Context;
 use const_format::formatcp;
@@ -82,6 +82,21 @@ where
         .into_iter()
         .collect::<FxHashSet<_>>();
     Ok(MacroDef { macros })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TomlManifestDiagnostic {
+    pub range: Option<Range<usize>>,
+    pub message: String,
+}
+
+pub fn toml_manifest_diagnostics(text: &str) -> Vec<TomlManifestDiagnostic> {
+    match toml::from_str::<TomlManifestSchema>(text) {
+        Ok(_) => Vec::new(),
+        Err(error) => {
+            vec![TomlManifestDiagnostic { range: error.span(), message: error.to_string() }]
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -285,5 +300,13 @@ defines = [
         let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
 
         assert!(workspace.include_dirs.is_empty());
+    }
+
+    #[test]
+    fn manifest_diagnostics_report_schema_errors() {
+        let diagnostics = toml_manifest_diagnostics("source = [\"rtl\"]\n");
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("unknown field"));
     }
 }

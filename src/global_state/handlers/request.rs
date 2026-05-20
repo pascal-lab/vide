@@ -175,6 +175,7 @@ pub(crate) fn handle_workspace_diagnostic(
             .into_iter()
             .map(|diag| to_proto::diagnostic(&line_info, diag))
             .collect::<Vec<_>>();
+        diag_items.extend(snap.manifest_lsp_diagnostics(file_id));
         diag_items.extend(snap.qihe_diagnostics(file_id));
 
         let result_id = snap.diagnostic_result_id(file_id);

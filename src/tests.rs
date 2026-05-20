@@ -1683,6 +1683,79 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
 }
 
 #[test]
+fn project_manifest_reports_toml_schema_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new("manifest-schema-diagnostics");
+    let manifest_text = "source = [\"rtl\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: manifest_uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message.contains("unknown field")),
+        "manifest should receive TOML schema diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
