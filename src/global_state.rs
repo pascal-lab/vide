@@ -7,6 +7,7 @@ mod qihe;
 pub mod reload;
 pub mod respond;
 pub(crate) mod snapshot;
+mod trace;
 
 use std::time::Instant;
 
@@ -18,7 +19,7 @@ use base_db::{
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use ide::analysis_host::AnalysisHost;
 use lsp_server::{Message, ReqQueue, Request};
-use lsp_types::Url;
+use lsp_types::{TraceValue, Url};
 use nohash_hasher::IntMap;
 use parking_lot::{Mutex, RwLock};
 use project_model::Workspace;
@@ -31,7 +32,7 @@ use utils::{
 };
 use vfs::{self, FileId, Vfs};
 
-use self::{main_loop::Task, mem_docs::MemDocs, snapshot::GlobalStateSnapshot};
+use self::{main_loop::Task, mem_docs::MemDocs, snapshot::GlobalStateSnapshot, trace::LspTrace};
 use crate::config::{Config, ConfigError};
 
 pub(crate) struct TaskPool<T> {
@@ -94,6 +95,7 @@ pub(crate) const DEFAULT_REQ_HANDLER: ReqHandler = |_, _| {};
 
 pub(crate) struct GlobalState {
     pub(crate) sender: Sender<Message>,
+    pub(crate) lsp_trace: LspTrace,
 
     pub(crate) req_queue: ReqQueue<(String, Instant), ReqHandler>,
 
@@ -125,7 +127,11 @@ pub(crate) struct GlobalState {
 }
 
 impl GlobalState {
-    pub(crate) fn new(sender: Sender<lsp_server::Message>, config: Config) -> GlobalState {
+    pub(crate) fn new(
+        sender: Sender<lsp_server::Message>,
+        config: Config,
+        initial_trace: TraceValue,
+    ) -> GlobalState {
         let vfs_loader = {
             let (sender, receiver) = unbounded::<vfs::loader::Message>();
             let handle: vfs_notify::NotifyHandle = vfs::loader::Handle::spawn(sender);
@@ -148,6 +154,7 @@ impl GlobalState {
 
         GlobalState {
             sender,
+            lsp_trace: LspTrace::new(initial_trace),
             req_queue: ReqQueue::default(),
             task_pool,
             config: Arc::new(config),

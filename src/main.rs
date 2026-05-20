@@ -98,6 +98,7 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         capabilities: client_caps,
         workspace_folders,
         initialization_options,
+        trace,
         ..
     } = from_json::<lsp_types::InitializeParams>("InitializeParams", &initialize_params)?;
 
@@ -165,7 +166,7 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         return Err(e.into());
     }
 
-    main_loop::main_loop(config, connection)?;
+    main_loop::main_loop(config, connection, trace.unwrap_or_default())?;
 
     io_threads.join()?;
     tracing::info!("Server shut down. BYE!");
