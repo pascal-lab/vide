@@ -1,24 +1,18 @@
-use std::panic::AssertUnwindSafe;
-
 use hir::{
     container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
-    db::{HirDb, InternDb},
+    db::HirDb,
     display::HirDisplay,
     hir_def::{
         DEFAULT_NAME,
         declaration::Declaration,
         expr::{
-            Expr,
-            data_ty::{
-                BuiltinDataTy, BuiltinDataTyId, DataTy, Dimension, IntKind, NamedDataTy, Real,
-                VecKind,
-            },
+            data_ty::DataTy,
             declarator::{DeclId, DeclaratorParent},
         },
         literal::Literal,
         module::{
             ModuleId,
-            port::{NonAnsiPortId, PortDirection, PortHeader, Ports},
+            port::{NonAnsiPortId, Ports},
         },
         subroutine::{SubroutineId, SubroutineKind, SubroutinePortDir, SubroutinePortId},
     },
@@ -313,7 +307,7 @@ fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
         Ports::Ansi(port_decls) => {
             let mut ports = Vec::new();
             for port_decl in port_decls.values() {
-                let header = render_port_header(db, module_id, port_decl.header);
+                let header = InModule::new(module_id, port_decl.header).display_source(db).ok();
                 for decl_id in port_decl.decls.clone() {
                     let name =
                         InContainer::new(module_id.into(), decl_id).display_signature(db).ok();
@@ -361,7 +355,9 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
                 return None;
             };
             let module = db.module(module_id);
-            let header = render_port_header(db, module_id, module.get(port_decl_id).header)?;
+            let header = InModule::new(module_id, module.get(port_decl_id).header)
+                .display_source(db)
+                .ok()?;
             let decl =
                 InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
             Some(format!("{header} {decl}"))
@@ -445,113 +441,8 @@ fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<Strin
     Some(rendered)
 }
 
-fn render_port_header(db: &RootDb, module_id: ModuleId, header: PortHeader) -> Option<String> {
-    safe_display_source(&InModule::new(module_id, header), db).or_else(|| {
-        let dir = match header.dir() {
-            PortDirection::Input => "input",
-            PortDirection::Output => "output",
-            PortDirection::Inout => "inout",
-            PortDirection::Ref => "ref",
-        };
-        match header {
-            PortHeader::Var { var_kw, ty, .. } => {
-                let ty = render_data_ty(db, module_id.into(), ty)?;
-                Some(if var_kw { format!("{dir} var {ty}") } else { format!("{dir} {ty}") })
-            }
-            PortHeader::Net { net_ty, .. } => {
-                let kind = net_ty.kind.display_source(db).ok()?;
-                let ty = render_data_ty(db, module_id.into(), net_ty.ty)?;
-                Some(format!("{dir} {kind} {ty}"))
-            }
-        }
-    })
-}
-
 fn render_data_ty(db: &RootDb, container: ContainerId, ty: DataTy) -> Option<String> {
-    let displayed = if matches!(container, ContainerId::SubroutineId(_)) {
-        None
-    } else {
-        safe_display_source(&InContainer::new(container, ty), db)
-    };
-    displayed.or_else(|| match ty {
-        DataTy::Builtin(id) => render_builtin_ty(db, container, id),
-        DataTy::Named(named) => render_named_ty(db, container, named),
-        DataTy::Struct(struct_id) => {
-            let cont = struct_id.cont_id.to_container(db);
-            let def = cont.get(struct_id.value);
-            Some(
-                def.name
-                    .as_ref()
-                    .map(|name| format!("struct {name}"))
-                    .unwrap_or_else(|| "struct".to_string()),
-            )
-        }
-    })
-}
-
-fn render_builtin_ty(db: &RootDb, container: ContainerId, id: BuiltinDataTyId) -> Option<String> {
-    match db.lookup_intern_ty(id) {
-        BuiltinDataTy::Int { kind, signing } => {
-            let mut rendered = String::new();
-            if signing {
-                rendered.push_str("signed ");
-            }
-            rendered.push_str(match kind {
-                IntKind::Byte => "byte",
-                IntKind::ShortInt => "shortint",
-                IntKind::Int => "int",
-                IntKind::LongInt => "longint",
-                IntKind::Integer => "integer",
-                IntKind::Time => "time",
-            });
-            Some(rendered)
-        }
-        BuiltinDataTy::Vector { kind, signing, dimensions } => {
-            let mut rendered = String::new();
-            if signing {
-                rendered.push_str("signed ");
-            }
-            rendered.push_str(match kind {
-                VecKind::Bit => "bit",
-                VecKind::Logic => "logic",
-                VecKind::Reg => "reg",
-            });
-            for dim in dimensions.iter().flatten() {
-                rendered.push_str(&render_dimension(container, *dim, db));
-            }
-            Some(rendered)
-        }
-        BuiltinDataTy::Real(real) => Some(match real {
-            Real::Real => "real".to_string(),
-            Real::ShortReal => "shortreal".to_string(),
-            Real::RealTime => "realtime".to_string(),
-        }),
-        BuiltinDataTy::String => Some("string".to_string()),
-        BuiltinDataTy::Void => Some("void".to_string()),
-    }
-}
-
-fn render_named_ty(db: &RootDb, container: ContainerId, named: NamedDataTy) -> Option<String> {
-    let expr_id = match named {
-        NamedDataTy::Ident(expr_id) | NamedDataTy::Field(expr_id) => expr_id,
-    };
-    let cont = container.to_container(db);
-    let expr = cont.get(expr_id);
-    match expr {
-        Expr::Ident(ident) => Some(ident.to_string()),
-        _ => safe_display_source(&InContainer::new(container, expr_id), db),
-    }
-}
-
-fn render_dimension(container: ContainerId, dim: Dimension, db: &RootDb) -> String {
-    if matches!(container, ContainerId::SubroutineId(_)) {
-        return "[..]".to_string();
-    }
-    safe_display_source(&InContainer::new(container, dim), db).unwrap_or_else(|| "[..]".to_string())
-}
-
-fn safe_display_source<T: HirDisplay>(value: &T, db: &RootDb) -> Option<String> {
-    std::panic::catch_unwind(AssertUnwindSafe(|| value.display_source(db))).ok()?.ok()
+    InContainer::new(container, ty).display_source(db).ok()
 }
 
 fn render_label_signature(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
