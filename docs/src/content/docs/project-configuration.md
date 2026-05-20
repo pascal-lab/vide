@@ -55,17 +55,7 @@ include_dirs = []
 
 这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的清单和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
 
-编辑清单时, TOML 结构诊断、字段补全、hover 和格式化交给 Tombi。Vizsla 只读取清单来构建工程模型, 并在清单变更后刷新工程信息。
-
-## Tombi Schema
-
-推荐安装 [Tombi](https://github.com/tombi-toml/tombi) 来编辑 `vizsla.toml`。Tombi 可以用 JSON Schema 提供 TOML 结构诊断、字段补全、hover 和格式化。Vizsla 扩展生成的默认清单会在文件顶部加入 schema directive:
-
-```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
-```
-
-这个 directive 是 TOML 注释, 没有安装 Tombi 时也不会影响 Vizsla 读取清单。已有清单可以手动把它加到文件开头。schema URL 带有版本段; 后续清单格式变化时, 新版 Vizsla 可以生成指向新版 schema 的 directive, 已有工程仍保留原来的 schema。
+Vizsla 只读取清单来构建工程模型, 并在清单变更后刷新工程信息。文件开头的 schema directive 是 TOML 注释, 不会影响 Vizsla 读取清单。schema URL 带有版本段; 后续清单格式变化时, 新版 Vizsla 可以生成指向新版 schema 的 directive, 已有工程仍保留原来的 schema。
 
 ## 字段说明
 
