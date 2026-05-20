@@ -1,11 +1,20 @@
 use std::{collections::BTreeSet, fs, io::ErrorKind};
 
 use anyhow::{Context, bail};
-use const_format::formatcp;
 use itertools::Itertools;
 use utils::paths::AbsPathBuf;
 
-pub const MANIFEST_FILE_NAME: &str = formatcp!("vizsla_config.toml");
+pub const MANIFEST_FILE_NAME: &str = "vizsla.toml";
+pub const LEGACY_MANIFEST_FILE_NAME: &str = "vizsla_config.toml";
+pub const MANIFEST_FILE_NAMES: [&str; 2] = [MANIFEST_FILE_NAME, LEGACY_MANIFEST_FILE_NAME];
+
+pub fn is_manifest_file_name(file_name: &str) -> bool {
+    MANIFEST_FILE_NAMES.contains(&file_name)
+}
+
+fn manifest_file_names_display() -> String {
+    MANIFEST_FILE_NAMES.join(" or ")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum ProjectManifest {
@@ -31,25 +40,29 @@ impl ProjectManifest {
     }
 
     pub fn from_path(path: &AbsPathBuf) -> anyhow::Result<ProjectManifest> {
-        if path.file_name().unwrap_or_default() == MANIFEST_FILE_NAME {
+        if path.file_name().is_some_and(is_manifest_file_name) {
             return Self::from_toml(path);
         }
 
         let metadata =
             fs::metadata(path).with_context(|| format!("project path does not exist: {path}"))?;
         if !metadata.is_dir() {
-            bail!("project path must be a directory or {MANIFEST_FILE_NAME}: {path}");
+            bail!("project path must be a directory or {}: {path}", manifest_file_names_display());
         }
 
-        let manifest = path.join(MANIFEST_FILE_NAME);
-        match fs::metadata(&manifest) {
-            Ok(metadata) if metadata.is_file() => Self::from_toml(&manifest),
-            Ok(_) => bail!("project manifest path is not a file: {manifest}"),
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                Ok(Self::UnconfiguredRoot(path.clone()))
+        for file_name in MANIFEST_FILE_NAMES {
+            let manifest = path.join(file_name);
+            match fs::metadata(&manifest) {
+                Ok(metadata) if metadata.is_file() => return Self::from_toml(&manifest),
+                Ok(_) => bail!("project manifest path is not a file: {manifest}"),
+                Err(err) if err.kind() == ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(err).with_context(|| format!("failed to inspect {manifest}"));
+                }
             }
-            Err(err) => Err(err).with_context(|| format!("failed to inspect {manifest}")),
         }
+
+        Ok(Self::UnconfiguredRoot(path.clone()))
     }
 
     fn from_toml(path: &AbsPathBuf) -> anyhow::Result<Self> {
@@ -57,8 +70,8 @@ impl ProjectManifest {
             bail!("bad manifest path: {path}");
         }
 
-        if path.file_name().unwrap_or_default() != MANIFEST_FILE_NAME {
-            bail!("manifest path must point to {MANIFEST_FILE_NAME}: {path}");
+        if !path.file_name().is_some_and(is_manifest_file_name) {
+            bail!("manifest path must point to {}: {path}", manifest_file_names_display());
         }
 
         let metadata = fs::metadata(path)
@@ -77,7 +90,7 @@ mod tests {
 
     use utils::test_support::TestDir;
 
-    use super::{MANIFEST_FILE_NAME, ProjectManifest};
+    use super::{LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, ProjectManifest};
 
     #[test]
     fn from_path_does_not_use_parent_manifest() {
@@ -97,6 +110,31 @@ mod tests {
         let root = TestDir::new("manifest-root");
         let manifest_path = root.join(MANIFEST_FILE_NAME);
         fs::write(&manifest_path, r#"top_modules = ["root"]"#).unwrap();
+
+        let root = root.path().to_path_buf();
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+
+        assert_eq!(manifest, ProjectManifest::Toml(manifest_path));
+    }
+
+    #[test]
+    fn from_path_uses_legacy_workspace_root_manifest() {
+        let root = TestDir::new("legacy-manifest-root");
+        let manifest_path = root.join(LEGACY_MANIFEST_FILE_NAME);
+        fs::write(&manifest_path, r#"top_modules = ["root"]"#).unwrap();
+
+        let root = root.path().to_path_buf();
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+
+        assert_eq!(manifest, ProjectManifest::Toml(manifest_path));
+    }
+
+    #[test]
+    fn from_path_prefers_canonical_manifest() {
+        let root = TestDir::new("canonical-manifest-root");
+        let manifest_path = root.join(MANIFEST_FILE_NAME);
+        fs::write(&manifest_path, r#"top_modules = ["root"]"#).unwrap();
+        fs::write(root.join(LEGACY_MANIFEST_FILE_NAME), r#"top_modules = ["legacy"]"#).unwrap();
 
         let root = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root).unwrap();

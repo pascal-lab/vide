@@ -15,6 +15,7 @@ import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_FILE_NAME,
   getProjectConfigPath,
+  getProjectConfigPaths,
 } from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
 
@@ -362,11 +363,14 @@ async function createMissingProjectConfigs(): Promise<void> {
       continue;
     }
 
-    const configPath = getProjectConfigPath(folder.uri.fsPath);
-    if (fs.existsSync(configPath)) {
+    const existingConfigPath = getProjectConfigPaths(folder.uri.fsPath).find((configPath) =>
+      fs.existsSync(configPath),
+    );
+    if (existingConfigPath !== undefined) {
       continue;
     }
 
+    const configPath = getProjectConfigPath(folder.uri.fsPath);
     try {
       await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
         encoding: 'utf8',
