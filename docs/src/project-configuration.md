@@ -40,6 +40,9 @@ exclude = [
 VS Code 在缺少清单时会生成 syntax-only 默认清单:
 
 ```toml
+# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
+# Do not delete them unless you want omitted fields to default to the workspace root.
+# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```

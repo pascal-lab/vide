@@ -393,9 +393,10 @@ async function createMissingProjectConfigs(): Promise<void> {
     createdConfigs.length === 1
       ? `No ${PROJECT_CONFIG_FILE_NAME} found. Created a syntax-only project config.`
       : `No ${PROJECT_CONFIG_FILE_NAME} found in ${createdConfigs.length} workspace folders. Created syntax-only project configs.`;
+  const openConfigAction = createdConfigs.length === 1 ? 'Open Config' : 'Open First Config';
 
-  void vscode.window.showInformationMessage(message, 'Open Config').then(async (selection) => {
-    if (selection !== 'Open Config') {
+  void vscode.window.showInformationMessage(message, openConfigAction).then(async (selection) => {
+    if (selection !== openConfigAction) {
       return;
     }
 

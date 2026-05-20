@@ -43,7 +43,13 @@ type TempDir = TestDir;
 
 const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TEST_CONFIG: &str = "sources = [\".\"]\ninclude_dirs = [\".\"]\n";
-const SYNTAX_ONLY_TEST_CONFIG: &str = "sources = []\ninclude_dirs = []\n";
+const SYNTAX_ONLY_TEST_CONFIG: &str = "\
+# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
+# Do not delete them unless you want omitted fields to default to the workspace root.
+# Fill real paths, for example sources = [\"rtl\"] and include_dirs = [\"include\"], to enable semantic diagnostics.
+sources = []
+include_dirs = []
+";
 
 fn recv_lsp_message_until(
     client: &Connection,
@@ -1049,6 +1055,47 @@ endmodule
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
         "syntax-only configs should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn syntax_only_config_workspace_reports_parse_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module top(;
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message.contains("expected")),
+        "syntax-only configs should still report parse diagnostics: {diagnostics:?}"
     );
 
     shutdown_test_server(&client, server_thread);

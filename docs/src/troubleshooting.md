@@ -78,6 +78,9 @@ npm run package
 VS Code 扩展会在缺少清单时创建默认 `vizsla_config.toml`:
 
 ```toml
+# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
+# Do not delete them unless you want omitted fields to default to the workspace root.
+# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```
