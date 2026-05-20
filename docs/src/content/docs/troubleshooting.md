@@ -1,4 +1,7 @@
-# 故障排查
+---
+title: 故障排查
+description: 排查 Vizsla 状态栏错误、服务器启动失败、诊断和文件监听问题。
+---
 
 ## 状态栏显示 Vizsla Error
 

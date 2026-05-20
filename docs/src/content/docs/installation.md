@@ -1,4 +1,7 @@
-# 安装
+---
+title: 安装
+description: 通过 VS Code 扩展市场、VSIX 或自定义服务器安装 Vizsla。
+---
 
 ## 通过 VS Code 扩展安装
 

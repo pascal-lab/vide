@@ -1,4 +1,7 @@
-# 快速开始
+---
+title: 快速开始
+description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
+---
 
 请根据以下步骤，快速开始体验 Vizsla。
 

@@ -1,4 +1,7 @@
-# VS Code 设置
+---
+title: VS Code 设置
+description: Vizsla VS Code 扩展的配置项参考。
+---
 
 所有设置都在 `vizsla.*` 命名空间下。你可以在 VS Code Settings UI 中搜索 `Vizsla`, 也可以直接编辑 `settings.json`。
 

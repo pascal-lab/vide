@@ -1,4 +1,7 @@
-# 第一个工程
+---
+title: 第一个工程
+description: 为 Vizsla 准备第一个 Verilog/SystemVerilog 工程目录。
+---
 
 ## 推荐目录
 

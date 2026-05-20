@@ -1,0 +1,105 @@
+---
+title: Vizsla 用户手册
+description: Verilog/SystemVerilog 语言服务器和 VS Code 扩展用户手册。
+template: splash
+editUrl: false
+lastUpdated: false
+hero:
+  title: Vizsla
+  tagline: 面向 Verilog 和 SystemVerilog 的语言服务器与 VS Code 扩展，把 RTL 开发常用的 IDE 能力接入编辑器。
+  actions:
+    - text: 快速开始
+      link: ./quick-start/
+      icon: right-arrow
+    - text: 查看 GitHub
+      link: https://github.com/pascal-lab/vizsla
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+  <Card title="面向 RTL 的语言理解" icon="code-branch">
+    读取工程清单、源文件、include 目录和宏定义，维护 Verilog/SystemVerilog 语义信息。
+  </Card>
+  <Card title="VS Code 内即开即用" icon="vscode">
+    扩展负责语言配置、语法高亮、命令、状态栏，并自动启动 bundled language server。
+  </Card>
+  <Card title="导航与诊断" icon="magnifier">
+    支持语义诊断、跳转到声明/定义、引用查找、文档高亮、符号大纲和折叠。
+  </Card>
+  <Card title="辅助编写 RTL" icon="rocket">
+    提供补全、悬停说明、签名帮助、重命名、格式化、代码操作和 inlay hints。
+  </Card>
+</CardGrid>
+
+## 开始阅读
+
+<CardGrid>
+  <LinkCard
+    title="快速开始"
+    href="./quick-start/"
+    description="安装扩展、打开 RTL 工程、确认服务器启动，然后试用核心 IDE 功能。"
+  />
+  <LinkCard
+    title="安装"
+    href="./installation/"
+    description="了解 VS Code 扩展、离线 VSIX 和自定义服务器的安装方式。"
+  />
+  <LinkCard
+    title="第一个工程"
+    href="./first-project/"
+    description="准备推荐目录结构，理解没有清单时的默认扫描行为。"
+  />
+  <LinkCard
+    title="项目配置"
+    href="./project-configuration/"
+    description="编写 vizsla.toml，配置 sources、include_dirs、defines 和 libraries。"
+  />
+</CardGrid>
+
+## 常用参考
+
+<CardGrid>
+  <LinkCard
+    title="日常使用"
+    href="./daily-use/"
+    description="按功能了解诊断、跳转、补全、格式化、代码操作、语义高亮和 code lens。"
+  />
+  <LinkCard
+    title="VS Code 设置"
+    href="./vscode-settings/"
+    description="查阅 server、files、workspace、diagnostics、formatter 等配置项。"
+  />
+  <LinkCard
+    title="命令、状态栏和日志"
+    href="./commands-status-logs/"
+    description="查看命令面板命令、状态栏状态和输出通道行为。"
+  />
+  <LinkCard
+    title="故障排查"
+    href="./troubleshooting/"
+    description="排查服务器启动失败、诊断不更新、文件监听和格式化问题。"
+  />
+</CardGrid>
+
+## 项目组成
+
+Vizsla 由两个部分组成:
+
+- `vizsla`: Rust 编写的 LSP 服务器, 负责读取工程、解析源文件、维护语义信息并响应编辑器请求。
+- `editors/vscode`: VS Code 扩展, 负责贡献 Verilog/SystemVerilog 语言配置、语法高亮、命令、状态栏, 并启动语言服务器。
+
+后续我们会支持更多编辑器。
+
+## 支持的文件
+
+VS Code 扩展当前识别这些文件类型:
+
+| 语言 | 扩展名 |
+| --- | --- |
+| Verilog | `.v`, `.vh` |
+| SystemVerilog | `.sv`, `.svh`, `.svi` |
+
+服务器加载工程时还会读取 `.map` 文件, 以支持库映射等工程输入。
