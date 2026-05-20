@@ -94,6 +94,7 @@ pub struct TomlWorkspace {
     pub exclude: Vec<AbsPathBuf>,
     pub package: Vec<AbsPathBuf>,
     pub is_lib: bool,
+    pub configures_semantic_diagnostics: bool,
 }
 
 impl TomlWorkspace {
@@ -118,7 +119,6 @@ impl TomlWorkspace {
             .collect_vec();
         sort_and_remove_subfolders(&mut exclude);
 
-        let sources_was_configured = toml_schema.sources.is_some();
         let include_dirs_was_configured = toml_schema.include_dirs.is_some();
         let mut sources = Vec::new();
         let mut include_dirs = Vec::new();
@@ -153,12 +153,10 @@ impl TomlWorkspace {
         sort_and_remove_subfolders(&mut include_dirs);
         sort_and_remove_subfolders(&mut package);
 
-        if sources.is_empty() && !sources_was_configured {
-            sources.push(workspace_root.clone());
-        }
         if include_dirs.is_empty() && !include_dirs_was_configured {
             include_dirs = sources.clone();
         }
+        let configures_semantic_diagnostics = !sources.is_empty() || !include_dirs.is_empty();
 
         Ok(TomlWorkspace {
             top_modules,
@@ -169,19 +167,23 @@ impl TomlWorkspace {
             exclude,
             package,
             is_lib,
+            configures_semantic_diagnostics,
         })
     }
 
     pub fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
+        let sources = if is_lib { vec![path.clone()] } else { Vec::new() };
+        let include_dirs = sources.clone();
         Self {
             top_modules: Vec::new(),
             workspace_root: path.clone(),
             macro_defs: MacroDef::default(),
-            sources: vec![path.clone()],
-            include_dirs: vec![path.clone()],
+            sources,
+            include_dirs,
             exclude: vec![],
             package: vec![],
             is_lib,
+            configures_semantic_diagnostics: false,
         }
     }
 }
@@ -227,6 +229,29 @@ defines = [
         "#;
         let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
         assert_eq!(toml_schema.defines.to_predefine_strings(), ["BAR=foo", "FOO"]);
+    }
+
+    #[test]
+    fn empty_manifest_uses_syntax_only_default() {
+        let root = TestDir::new("empty-manifest");
+        let manifest = root.write("vizsla_config.toml", "");
+
+        let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
+
+        assert!(workspace.sources.is_empty());
+        assert!(workspace.include_dirs.is_empty());
+        assert!(!workspace.configures_semantic_diagnostics);
+    }
+
+    #[test]
+    fn unconfigured_root_uses_syntax_only_default() {
+        let root = TestDir::new("unconfigured-root");
+
+        let workspace = TomlWorkspace::from_unconfigured_root(&root.path().to_path_buf(), false);
+
+        assert!(workspace.sources.is_empty());
+        assert!(workspace.include_dirs.is_empty());
+        assert!(!workspace.configures_semantic_diagnostics);
     }
 
     #[test]

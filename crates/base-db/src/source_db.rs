@@ -337,13 +337,18 @@ fn source_root_semantic_diagnostics(
         return Arc::from(Vec::<(FileId, SyntaxDiagnostic)>::new());
     }
 
-    let plan = db.compilation_plan_for_root(source_root_id);
+    let project_config = db.project_config();
+    let Some(profile_id) = project_config.profile_for_root(source_root_id) else {
+        return Arc::from(Vec::<(FileId, SyntaxDiagnostic)>::new());
+    };
+    let plan = db.compilation_plan_for_profile(Some(profile_id));
     let compilation_include_buffers =
         compilation_plan::compilation_source_buffers_for_plan(db, &plan);
-    let project_config = db.project_config();
-    let profile_id = project_config.profile_for_root(source_root_id);
-    let compilation_options =
-        syntax_tree_options_for_profile(&project_config, profile_id, compilation_include_buffers);
+    let compilation_options = syntax_tree_options_for_profile(
+        &project_config,
+        Some(profile_id),
+        compilation_include_buffers,
+    );
     let mut compilation = Compilation::new_with_top_modules(&plan.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);

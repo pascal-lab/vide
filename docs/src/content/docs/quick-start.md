@@ -11,7 +11,16 @@ description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
 
 ## 2. 打开工程目录
 
-用 VS Code 打开包含 RTL 源码的目录。没有 `vizsla_config.toml` 时, 我们会把 workspace root 当作未配置工程, 默认扫描这个根目录。
+用 VS Code 打开包含 RTL 源码的目录。没有 `vizsla_config.toml` 时, 扩展会创建默认清单并弹出提示:
+
+```toml
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
+sources = []
+include_dirs = []
+```
+
+这个默认清单不会扫描工程目录, 只启用打开文件的 syntax/parse diagnostics。
 
 ## 3. 确认状态栏
 
@@ -37,3 +46,5 @@ description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
 5. 执行 `Format Document`。默认格式化会调用 `verible-verilog-format`, 如果本机没有这个工具, 请配置 `vizsla.formatter.path` 或先跳过格式化验证。
 
 配置变更后, 如果 VS Code 提示重启语言服务器, 选择 `Restart`。
+
+需要跨文件语义诊断、跳转和端口/参数相关能力时, 请在 `vizsla_config.toml` 中写入实际的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。

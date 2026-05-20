@@ -42,6 +42,13 @@ use crate::{
 type TempDir = TestDir;
 
 const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_TEST_CONFIG: &str = "sources = [\".\"]\ninclude_dirs = [\".\"]\n";
+const SYNTAX_ONLY_TEST_CONFIG: &str = "\
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+# Fill real paths, for example sources = [\"rtl\"] and include_dirs = [\"include\"], to enable semantic diagnostics.
+sources = []
+include_dirs = []
+";
 
 fn recv_lsp_message_until(
     client: &Connection,
@@ -82,9 +89,45 @@ fn setup_diagnostics_test(
     user_config: UserConfig,
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, None)
+}
+
+fn setup_configured_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(DEFAULT_TEST_CONFIG))
+}
+
+fn setup_syntax_only_config_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(SYNTAX_ONLY_TEST_CONFIG))
+}
+
+fn setup_empty_config_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(""))
+}
+
+fn setup_diagnostics_test_inner(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+    config_text: Option<&str>,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
     let temp_dir = TempDir::new("diag-test");
     let file_path = temp_dir.path().join("broken.sv");
     fs::write(&file_path, file_text).unwrap();
+    if let Some(config_text) = config_text {
+        fs::write(temp_dir.path().join("vizsla_config.toml"), config_text).unwrap();
+    }
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
@@ -124,13 +167,25 @@ fn setup_diagnostics_test(
     (temp_dir, client, server_thread, uri)
 }
 
-fn setup_multi_file_diagnostics_test(
+fn setup_configured_multi_file_diagnostics_test(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
     files: &[(&str, &str)],
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Vec<Url>) {
+    setup_multi_file_diagnostics_test_inner(client_caps, user_config, files, true)
+}
+
+fn setup_multi_file_diagnostics_test_inner(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    files: &[(&str, &str)],
+    write_config: bool,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Vec<Url>) {
     let temp_dir = TempDir::new("diag-test");
     let mut uris = Vec::new();
+    if write_config {
+        fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    }
 
     for (path, text) in files {
         let file_path = temp_dir.path().join(path);
@@ -483,7 +538,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+        setup_configured_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
 
     let diagnostics_id = lsp_server::RequestId::from(210);
     client
@@ -869,7 +924,7 @@ module top;
 endmodule
 ";
     let (_temp_dir, client, server_thread, uri) =
-        setup_diagnostics_test(pull_caps, user_config, file_text);
+        setup_configured_diagnostics_test(pull_caps, user_config, file_text);
 
     let request_id = lsp_server::RequestId::from(1);
     let request = Request::new(
@@ -921,6 +976,185 @@ endmodule
 }
 
 #[test]
+fn unconfigured_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "unconfigured workspaces should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn syntax_only_config_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "syntax-only configs should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn empty_config_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_empty_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "empty configs should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn syntax_only_config_workspace_reports_parse_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module top(;
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_syntax_only_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message.contains("expected")),
+        "syntax-only configs should still report parse diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn workspace_diagnostics_use_multi_file_semantic_context() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
@@ -929,7 +1163,7 @@ fn workspace_diagnostics_use_multi_file_semantic_context() {
         }),
         ..Default::default()
     };
-    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         pull_caps,
         UserConfig::default(),
         &[
@@ -1463,7 +1697,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     let rtl_dir = temp_dir.path().join("rtl");
     fs::create_dir_all(&ignored_dir).unwrap();
     fs::create_dir_all(&rtl_dir).unwrap();
-    fs::write(&manifest_path, "").unwrap();
+    fs::write(&manifest_path, DEFAULT_TEST_CONFIG).unwrap();
     fs::write(ignored_dir.join("ignored.sv"), "module ignored(;\nendmodule\n").unwrap();
     fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
 
@@ -1520,7 +1754,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
                 .any(|diag| diag.message.contains("expected"));
         }
     }
-    assert!(saw_ignored_diagnostic, "empty config should diagnose ignored.sv");
+    assert!(saw_ignored_diagnostic, "root-scanning config should diagnose ignored.sv");
 
     fs::write(
         &manifest_path,
@@ -1594,6 +1828,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
     let child_path = temp_dir.path().join("child.sv");
     let top_path = temp_dir.path().join("top.v");
     let top_text = "module top;\n  wire sig;\n  child u(.a(sig));\nendmodule\n";
+    fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
     fs::write(&child_path, "module child(input logic a, input logic b);\nendmodule\n").unwrap();
     fs::write(&top_path, top_text).unwrap();
 
@@ -1744,7 +1979,7 @@ fn document_diagnostic_result_id_changes_when_dependency_changes() {
         }),
         ..Default::default()
     };
-    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         pull_caps,
         UserConfig::default(),
         &[
@@ -1827,7 +2062,7 @@ fn legacy_publish_diagnostics_refreshes_dependent_open_files() {
     let mut user_config = UserConfig::default();
     user_config.diagnostics.update = DiagnosticsUpdateUserConfig::OnType;
 
-    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test(
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         ClientCapabilities::default(),
         user_config,
         &[

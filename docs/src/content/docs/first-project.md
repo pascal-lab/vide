@@ -24,19 +24,22 @@ code D:\work\my-rtl
 
 ## 没有清单时会怎样
 
-如果 workspace root 下没有 `vizsla_config.toml`, 我们会把这个目录作为未配置工程:
+如果 VS Code 打开的 workspace root 下没有 `vizsla_config.toml`, 扩展会创建默认清单并弹出提示:
 
-- `sources` 默认为 workspace root。
-- `include_dirs` 默认为 workspace root。
-- 不设置 `top_modules`。
-- 不设置预定义宏。
-- 不设置库依赖。
+```toml
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
+sources = []
+include_dirs = []
+```
 
-这适合源文件集中、目录不大的工程。
+这个默认清单不会扫描 workspace root, 只运行打开文件的 syntax/parse diagnostics, 不运行 semantic diagnostics。这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用语义诊断和跨文件能力。
+
+如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla_config.toml`, Vizsla 只保留 syntax/parse diagnostics, 不运行 semantic diagnostics。
 
 ## 什么时候创建清单
 
-当工程变大时, 我们建议在 workspace root 创建 `vizsla_config.toml`:
+当工程变大时, 我们建议编辑 workspace root 下的 `vizsla_config.toml`:
 
 - 你只想扫描 `rtl` 和 `include`, 不想扫描仿真输出、生成目录或第三方缓存。
 - 你需要设置 `defines`。

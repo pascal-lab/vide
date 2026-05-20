@@ -84,6 +84,10 @@ impl Workspace {
         &self.0.package
     }
 
+    fn enables_semantic_diagnostics(&self) -> bool {
+        self.0.configures_semantic_diagnostics || self.0.is_lib
+    }
+
     fn preprocess_config(&self) -> PreprocessConfig {
         PreprocessConfig {
             predefines: self.0.macro_defs.to_predefine_strings(),
@@ -198,6 +202,10 @@ pub fn get_workspace_folder(
     for (root_idx, workspace_idx, _is_lib) in root_workspaces {
         let source_root_id = SourceRootId(root_idx as u32);
         let workspace = &workspaces[workspace_idx];
+        if !workspace.enables_semantic_diagnostics() {
+            continue;
+        }
+
         let profile_id = CompilationProfileId(profiles.len() as u32);
         root_profiles[root_idx] = Some(profile_id);
 
@@ -347,6 +355,52 @@ libraries = ["../pkg/rtl"]
         let root_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
         let root_profile = project_config.profile(root_profile_id).unwrap();
         assert_eq!(root_profile.source_roots, vec![SourceRootId(0), SourceRootId(1)]);
+    }
+
+    #[test]
+    fn unconfigured_root_has_no_compilation_profile() {
+        let root = TestDir::new("project-model-unconfigured-root");
+        fs::create_dir_all(root.join("rtl")).unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
+    }
+
+    #[test]
+    fn empty_manifest_has_no_compilation_profile() {
+        let root = TestDir::new("project-model-empty-manifest");
+        fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "").unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
+    }
+
+    #[test]
+    fn syntax_only_default_manifest_has_no_compilation_profile() {
+        let root = TestDir::new("project-model-syntax-only-manifest");
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "sources = []\ninclude_dirs = []\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
     }
 
     #[test]
