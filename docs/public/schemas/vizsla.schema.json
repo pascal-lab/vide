@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json",
+  "title": "Vizsla project manifest",
+  "description": "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-tombi-table-keys-order": "schema",
+  "properties": {
+    "top_modules": {
+      "type": "array",
+      "description": "Top-level module names for the compilation profile.",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [["top"]]
+    },
+    "defines": {
+      "type": "array",
+      "description": "Predefined macros. Use NAME or NAME=value strings.",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\\\\S* )(?:=.*)?$"
+      },
+      "default": [],
+      "examples": [["SYNTHESIS", "DATA_WIDTH=32"]]
+    },
+    "sources": {
+      "type": "array",
+      "description": "Source files or directories to scan. Omitted sources do not scan the workspace root.",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [["rtl"]]
+    },
+    "include_dirs": {
+      "type": "array",
+      "description": "Include search directories. When omitted, Vizsla uses the final sources as include directories.",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [["include", "rtl"]]
+    },
+    "libraries": {
+      "type": "array",
+      "description": "External library or dependency workspace paths.",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [["../common_cells"]]
+    },
+    "exclude": {
+      "type": "array",
+      "description": "Paths to remove from sources, include directories, and libraries.",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "examples": [["build", "sim/work"]]
+    }
+  }
+}

@@ -8,7 +8,9 @@ import {
   PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
   PROJECT_CONFIG_FILE_NAMES,
-  PROJECT_SOURCE_FILE_GLOB_PATTERN,
+  PROJECT_SOURCE_FILE_GLOB,
+  isProjectConfigFileName,
+  isProjectSourceFileName,
   getProjectConfigPath,
   getProjectConfigPaths,
 } from '../src/projectConfig';
@@ -27,7 +29,7 @@ test('selects project configs as LSP documents by file name', () => {
 });
 
 test('uses the VS Code language contribution source glob for startup config creation', () => {
-  assert.equal(PROJECT_SOURCE_FILE_GLOB_PATTERN, '**/*.{v,vh,sv,svh,svi}');
+  assert.equal(PROJECT_SOURCE_FILE_GLOB, '**/*.{v,sv,vh,svh,svi}');
 });
 
 test('resolves project config paths under workspace roots', () => {
@@ -46,6 +48,28 @@ test('resolves all supported project config paths under workspace roots', () => 
     path.join(workspaceRoot, PROJECT_CONFIG_FILE_NAME),
     path.join(workspaceRoot, LEGACY_PROJECT_CONFIG_FILE_NAME),
   ]);
+});
+
+test('resolves legacy project config paths under workspace roots', () => {
+  const workspaceRoot = path.join('tmp', 'workspace');
+
+  assert.equal(
+    getProjectConfigPath(workspaceRoot, LEGACY_PROJECT_CONFIG_FILE_NAME),
+    path.join(workspaceRoot, LEGACY_PROJECT_CONFIG_FILE_NAME),
+  );
+});
+
+test('recognizes project config file names', () => {
+  assert.equal(isProjectConfigFileName('vizsla.toml'), true);
+  assert.equal(isProjectConfigFileName('vizsla_config.toml'), true);
+  assert.equal(isProjectConfigFileName('other.toml'), false);
+});
+
+test('recognizes Verilog and SystemVerilog source file names', () => {
+  assert.equal(isProjectSourceFileName('top.v'), true);
+  assert.equal(isProjectSourceFileName('top.SV'), true);
+  assert.equal(isProjectSourceFileName('defs.svh'), true);
+  assert.equal(isProjectSourceFileName('main.ts'), false);
 });
 
 test('default project config keeps startup diagnostics syntax-only', () => {

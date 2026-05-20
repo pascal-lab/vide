@@ -10,7 +10,14 @@ export const PROJECT_CONFIG_DOCUMENT_SELECTORS = PROJECT_CONFIG_FILE_NAMES.map((
   scheme: 'file',
   pattern: `**/${fileName}`,
 }));
-export const PROJECT_SOURCE_FILE_GLOB_PATTERN = '**/*.{v,vh,sv,svh,svi}';
+export const PROJECT_SOURCE_FILE_EXTENSIONS = [
+  '.v',
+  '.sv',
+  '.vh',
+  '.svh',
+  '.svi',
+] as const;
+export const PROJECT_SOURCE_FILE_GLOB = '**/*.{v,sv,vh,svh,svi}';
 
 export const DEFAULT_PROJECT_CONFIG_TEXT = `# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
@@ -18,8 +25,23 @@ sources = []
 include_dirs = []
 `;
 
-export function getProjectConfigPath(workspaceFolderPath: string): string {
-  return path.join(workspaceFolderPath, PROJECT_CONFIG_FILE_NAME);
+export function isProjectConfigFileName(fileName: string): boolean {
+  return PROJECT_CONFIG_FILE_NAMES.includes(
+    fileName as (typeof PROJECT_CONFIG_FILE_NAMES)[number],
+  );
+}
+
+export function isProjectSourceFileName(fileName: string): boolean {
+  return PROJECT_SOURCE_FILE_EXTENSIONS.includes(
+    path.extname(fileName).toLowerCase() as (typeof PROJECT_SOURCE_FILE_EXTENSIONS)[number],
+  );
+}
+
+export function getProjectConfigPath(
+  workspaceFolderPath: string,
+  fileName = PROJECT_CONFIG_FILE_NAME,
+): string {
+  return path.join(workspaceFolderPath, fileName);
 }
 
 export function getProjectConfigPaths(workspaceFolderPath: string): string[] {

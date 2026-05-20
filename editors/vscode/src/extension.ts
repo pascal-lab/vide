@@ -15,12 +15,11 @@ import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
-  PROJECT_SOURCE_FILE_GLOB_PATTERN,
+  PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
   getProjectConfigPaths,
 } from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
-import { TOML_LANGUAGE_CONFIGURATION, TOML_LANGUAGE_ID } from './tomlLanguage';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -40,15 +39,6 @@ const versionTimeoutMs = 5000;
 const activeQiheTokens = new Set<string>();
 const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
 let qiheStatusHideTimer: NodeJS.Timeout | undefined;
-
-function registerTomlLanguageConfiguration(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(
-    vscode.languages.setLanguageConfiguration(
-      TOML_LANGUAGE_ID,
-      TOML_LANGUAGE_CONFIGURATION as vscode.LanguageConfiguration,
-    ),
-  );
-}
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
@@ -379,6 +369,7 @@ async function createMissingProjectConfigs(): Promise<void> {
       fs.existsSync(configPath),
     );
     if (existingConfigPath !== undefined) {
+      log(`[INFO] Found project config: ${existingConfigPath}`);
       continue;
     }
 
@@ -433,7 +424,7 @@ async function createMissingProjectConfigs(): Promise<void> {
 
 async function workspaceContainsProjectSource(folder: vscode.WorkspaceFolder): Promise<boolean> {
   const files = await vscode.workspace.findFiles(
-    new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB_PATTERN),
+    new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB),
     undefined,
     1,
   );
@@ -614,7 +605,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   qiheStatusBarItem = createQiheStatusBarItem();
   context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
-  registerTomlLanguageConfiguration(context);
 
   log('[INFO] Vizsla extension activating...');
   log(`[INFO] Extension path: ${context.extensionPath}`);

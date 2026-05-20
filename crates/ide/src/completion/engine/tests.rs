@@ -74,6 +74,7 @@ fn parse_trigger(line: &str) -> Option<TriggerChar> {
         "," => Some(TriggerChar::Comma),
         "@" => Some(TriggerChar::At),
         "#" => Some(TriggerChar::Hash),
+        "$" => Some(TriggerChar::Dollar),
         "`" => Some(TriggerChar::Backtick),
         "'" => Some(TriggerChar::Apostrophe),
         "\\n" => Some(TriggerChar::Newline),
@@ -115,6 +116,13 @@ fn no_completion_in_line_comment_with_comma_trigger() {
     // regression: comma trigger in line comment should not trigger completion
     let items =
         completions_in_text("// ,,/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
+    assert!(items.is_empty());
+}
+
+#[test]
+fn no_completion_in_line_comment_with_dollar_trigger() {
+    let items =
+        completions_in_text("// $/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Dollar));
     assert!(items.is_empty());
 }
 
@@ -378,6 +386,28 @@ fn statement_completion_uses_slang_system_task_facts() {
         !item_labels.contains(&"$clog2"),
         "system function leaked into statement task completion: {items:?}"
     );
+}
+
+#[test]
+fn standalone_dollar_completion_suggests_system_tasks_and_functions() {
+    let items = completions_in_text("module m; initial begin\n  $/*caret*/\nend endmodule\n", None);
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"$display"), "system task expected: {items:?}");
+    assert!(item_labels.contains(&"$finish"), "system task expected: {items:?}");
+    assert!(item_labels.contains(&"$time"), "system function expected: {items:?}");
+}
+
+#[test]
+fn dollar_trigger_suggests_system_tasks_and_functions() {
+    let items = completions_in_text(
+        "module m; initial begin\n  $/*caret*/\nend endmodule\n",
+        Some(TriggerChar::Dollar),
+    );
+    let item_labels = labels(&items);
+
+    assert!(item_labels.contains(&"$display"), "system task expected: {items:?}");
+    assert!(item_labels.contains(&"$time"), "system function expected: {items:?}");
 }
 
 #[test]
