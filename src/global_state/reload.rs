@@ -265,7 +265,7 @@ mod tests {
         );
 
         let (server, client) = Connection::memory();
-        (GlobalState::new(server.sender, config), client)
+        (GlobalState::new(server.sender, config, lsp_types::TraceValue::Off), client)
     }
 
     fn drain_client_requests(client: &Connection) -> Vec<LspRequest> {

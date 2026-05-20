@@ -4,7 +4,7 @@ use always_assert::always;
 use const_format::formatcp;
 use crossbeam_channel::{Receiver, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
-use lsp_types::notification::Notification as _;
+use lsp_types::{TraceValue, notification::Notification as _};
 use project_model::project_manifest;
 use triomphe::Arc;
 use utils::thread::ThreadIntent;
@@ -50,7 +50,11 @@ pub(crate) enum QiheTask {
     Failed { message: String, progress_token: String },
 }
 
-pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
+pub fn main_loop(
+    config: Config,
+    connection: Connection,
+    initial_trace: TraceValue,
+) -> anyhow::Result<()> {
     tracing::info!("initial config: {:#?}", config);
 
     // hack for windwos
@@ -62,7 +66,7 @@ pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
         SetThreadPriority(thread, thread_priority_above_normal);
     }
 
-    GlobalState::new(connection.sender, config).run(connection.receiver)
+    GlobalState::new(connection.sender, config, initial_trace).run(connection.receiver)
 }
 
 impl GlobalState {
@@ -145,14 +149,17 @@ impl GlobalState {
         let was_stuck = self.is_stuck();
 
         match event {
-            Event::Lsp(msg) => match msg {
-                Message::Request(req) => {
-                    self.register_request(loop_start, &req);
-                    self.handle_request(req);
+            Event::Lsp(msg) => {
+                self.trace_incoming_lsp_message(&msg);
+                match msg {
+                    Message::Request(req) => {
+                        self.register_request(loop_start, &req);
+                        self.handle_request(req);
+                    }
+                    Message::Notification(notif) => self.handle_notification(notif),
+                    Message::Response(res) => self.handle_response(res),
                 }
-                Message::Notification(notif) => self.handle_notification(notif),
-                Message::Response(res) => self.handle_response(res),
-            },
+            }
             Event::Task(task) => self.handle_task(task),
             Event::Vfs(msg) => self.handle_vfs_msg(msg),
         }

@@ -77,6 +77,13 @@ fn handle_test_server_request(client: &Connection, request: Request, context: &s
     panic!("unexpected server request during {context}: {request:?}");
 }
 
+fn spawn_default_test_server(
+    config: config::Config,
+    server: Connection,
+) -> thread::JoinHandle<anyhow::Result<()>> {
+    thread::spawn(move || main_loop::main_loop(config, server, lsp_types::TraceValue::Off))
+}
+
 fn setup_diagnostics_test(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
@@ -102,7 +109,7 @@ fn setup_diagnostics_test(
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
 
     let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
     let did_open = DidOpenTextDocumentParams {
@@ -154,7 +161,7 @@ fn setup_multi_file_diagnostics_test(
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
 
     for ((path, text), uri) in files.iter().zip(uris.iter()) {
         let did_open = DidOpenTextDocumentParams {
@@ -1070,7 +1077,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     client
         .sender
@@ -1164,7 +1171,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
@@ -1276,7 +1283,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
 
@@ -1372,7 +1379,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
     let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
     client
@@ -1483,7 +1490,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
     let ignored_uri =
         to_proto::url_from_abs_path(ignored_dir.join("ignored.sv").as_path()).unwrap();
     let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
@@ -1613,7 +1620,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
     );
 
     let (server, client) = Connection::memory();
-    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let server_thread = spawn_default_test_server(config, server);
     let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
     client
         .sender
