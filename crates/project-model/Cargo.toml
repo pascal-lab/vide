@@ -5,6 +5,9 @@ description = "Model of a project"
 
 edition.workspace = true
 
+[features]
+manifest-schema = ["dep:schemars", "dep:serde_json"]
+
 [dependencies]
 vfs.workspace = true
 anyhow.workspace = true
@@ -14,12 +17,12 @@ itertools.workspace = true
 regex.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
+serde_json = { workspace = true, optional = true }
 smol_str.workspace = true
 toml = "0.8.8"
 triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
+schemars = { version = "1.2.1", features = ["preserve_order"], optional = true }
 
 [dev-dependencies]
-schemars = { version = "1.2.1", features = ["preserve_order"] }
-serde_json.workspace = true
 utils = { workspace = true, features = ["camino_serde1", "test-support"] }
