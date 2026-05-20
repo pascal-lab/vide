@@ -12,26 +12,107 @@ use utils::paths::{AbsPathBuf, Utf8PathBuf, sort_and_remove_subfolders};
 use crate::macro_def::{MacroAtom, MacroDef};
 
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
+#[cfg(test)]
+const MACRO_DEFINITION_SCHEMA_RE: &str = r"^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\S* )(?:=.*)?$";
+#[cfg(test)]
+const TOML_MANIFEST_SCHEMA_ID: &str =
+    "https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json";
+
 static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
 static KV_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})=(.*)$")));
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+    test,
+    schemars(
+        title = "Vizsla project manifest",
+        description = "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
+        extend("$id" = TOML_MANIFEST_SCHEMA_ID, "x-tombi-table-keys-order" = "schema")
+    )
+)]
 struct TomlManifestSchema {
+    /// Top-level module names for the compilation profile.
     #[serde(default)]
+    #[cfg_attr(
+        test,
+        schemars(
+            description = "Top-level module names for the compilation profile.",
+            extend("examples" = [["top"]])
+        )
+    )]
     pub top_modules: Vec<String>,
+    /// Predefined macros. Use NAME or NAME=value strings.
     #[serde(deserialize_with = "de_macros", default)]
+    #[cfg_attr(
+        test,
+        schemars(
+            description = "Predefined macros. Use NAME or NAME=value strings.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            inner(regex(pattern = MACRO_DEFINITION_SCHEMA_RE)),
+            extend("examples" = [["SYNTHESIS", "DATA_WIDTH=32"]])
+        )
+    )]
     pub defines: MacroDef,
+    /// Source files or directories to scan. Omitted sources do not scan the
+    /// workspace root.
     #[serde(default)]
+    #[cfg_attr(
+        test,
+        schemars(
+            description = "Source files or directories to scan. Omitted sources do not scan the workspace root.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["rtl"]])
+        )
+    )]
     pub sources: Option<Vec<Utf8PathBuf>>,
+    /// Include search directories. When omitted, Vizsla uses the final sources
+    /// as include directories.
     #[serde(default)]
+    #[cfg_attr(
+        test,
+        schemars(
+            description = "Include search directories. When omitted, Vizsla uses the final sources as include directories.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["include", "rtl"]])
+        )
+    )]
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
+    /// External library or dependency workspace paths.
     #[serde(default)]
+    #[cfg_attr(
+        test,
+        schemars(
+            description = "External library or dependency workspace paths.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["../common_cells"]])
+        )
+    )]
     pub libraries: Vec<Utf8PathBuf>,
+    /// Paths to remove from sources, include directories, and libraries.
     #[serde(default)]
+    #[cfg_attr(
+        test,
+        schemars(
+            description = "Paths to remove from sources, include directories, and libraries.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["build", "sim/work"]])
+        )
+    )]
     pub exclude: Vec<Utf8PathBuf>,
+}
+
+#[cfg(test)]
+fn empty_string_vec() -> Vec<String> {
+    Vec::new()
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
@@ -190,9 +271,40 @@ impl TomlWorkspace {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, fs, path::PathBuf};
+
     use utils::test_support::TestDir;
 
     use super::*;
+
+    fn generated_toml_manifest_schema() -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap()
+    }
+
+    fn checked_in_toml_manifest_schema_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/public/schemas/v1/vizsla.schema.json")
+    }
+
+    #[test]
+    fn checked_in_manifest_schema_matches_generated_schema() {
+        let generated = generated_toml_manifest_schema();
+        let schema_path = checked_in_toml_manifest_schema_path();
+
+        if env::var_os("VIZSLA_UPDATE_MANIFEST_SCHEMA").is_some() {
+            let schema = format!("{}\n", serde_json::to_string_pretty(&generated).unwrap());
+            fs::write(&schema_path, schema).unwrap();
+        }
+
+        let checked_in: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&schema_path).unwrap()).unwrap();
+        assert_eq!(
+            checked_in, generated,
+            "checked-in manifest schema is stale; run \
+             VIZSLA_UPDATE_MANIFEST_SCHEMA=1 cargo test -p project-model \
+             checked_in_manifest_schema_matches_generated_schema"
+        );
+    }
 
     #[test]
     fn test_de_macros() {
