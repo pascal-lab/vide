@@ -5,7 +5,10 @@ use std::{
 
 use ide::{folding_ranges::FoldingConfig, references::References};
 use itertools::Itertools;
-use project_model::{toml_manifest_field_at_offset, toml_manifest_path_at_offset};
+use project_model::{
+    TomlManifestField, toml_manifest_field_at_offset, toml_manifest_fields,
+    toml_manifest_path_at_offset,
+};
 use span::{FilePosition, FileRange};
 use utils::{
     paths::AbsPath,
@@ -570,6 +573,10 @@ pub(crate) fn handle_document_symbol(
     params: lsp_types::DocumentSymbolParams,
 ) -> anyhow::Result<Option<lsp_types::DocumentSymbolResponse>> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
+    if snap.is_manifest_file(file_id) {
+        return manifest_document_symbols(&snap, file_id);
+    }
+
     let line_info = snap.line_info(file_id)?;
     let symbols = snap.analysis.document_symbol(file_id)?;
 
@@ -589,6 +596,73 @@ pub(crate) fn handle_document_symbol(
     };
 
     Ok(Some(res))
+}
+
+fn manifest_document_symbols(
+    snap: &GlobalStateSnapshot,
+    file_id: FileId,
+) -> anyhow::Result<Option<lsp_types::DocumentSymbolResponse>> {
+    let text = snap.file_text(file_id)?;
+    let line_info = snap.line_info(file_id)?;
+    let fields = toml_manifest_fields(&text);
+
+    let res = if snap.config.hierarchical_symbols() {
+        fields
+            .into_iter()
+            .map(|field| manifest_document_symbol(&line_info, field))
+            .collect_vec()
+            .into()
+    } else {
+        let url = to_proto::url(snap, file_id)?;
+        fields
+            .into_iter()
+            .map(|field| manifest_symbol_information(&line_info, url.clone(), field))
+            .collect_vec()
+            .into()
+    };
+
+    Ok(Some(res))
+}
+
+#[allow(deprecated)]
+fn manifest_document_symbol(
+    line_info: &utils::lines::LineInfo,
+    field: TomlManifestField,
+) -> lsp_types::DocumentSymbol {
+    let range =
+        TextRange::new(to_text_size(field.key_range.start), to_text_size(field.value_range.end));
+    let selection_range =
+        TextRange::new(to_text_size(field.key_range.start), to_text_size(field.key_range.end));
+
+    lsp_types::DocumentSymbol {
+        name: field.key,
+        detail: None,
+        kind: lsp_types::SymbolKind::PROPERTY,
+        tags: None,
+        deprecated: None,
+        range: to_proto::range(line_info, range),
+        selection_range: to_proto::range(line_info, selection_range),
+        children: None,
+    }
+}
+
+#[allow(deprecated)]
+fn manifest_symbol_information(
+    line_info: &utils::lines::LineInfo,
+    uri: lsp_types::Url,
+    field: TomlManifestField,
+) -> lsp_types::SymbolInformation {
+    let range =
+        TextRange::new(to_text_size(field.key_range.start), to_text_size(field.value_range.end));
+
+    lsp_types::SymbolInformation {
+        name: field.key,
+        kind: lsp_types::SymbolKind::PROPERTY,
+        tags: None,
+        deprecated: None,
+        location: lsp_types::Location { uri, range: to_proto::range(line_info, range) },
+        container_name: None,
+    }
 }
 
 pub(crate) fn handle_document_highlight(

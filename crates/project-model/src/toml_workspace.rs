@@ -104,6 +104,7 @@ pub fn toml_manifest_diagnostics(text: &str) -> Vec<TomlManifestDiagnostic> {
 pub struct TomlManifestField {
     pub key: String,
     pub key_range: Range<usize>,
+    pub value_range: Range<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -114,10 +115,19 @@ pub struct TomlManifestPath {
     pub content_range: Range<usize>,
 }
 
+pub fn toml_manifest_fields(text: &str) -> Vec<TomlManifestField> {
+    manifest_top_level_values(text)
+        .into_iter()
+        .filter_map(|(key, key_range, value)| {
+            Some(TomlManifestField { key, key_range, value_range: value.span()? })
+        })
+        .collect()
+}
+
 pub fn toml_manifest_field_at_offset(text: &str, offset: usize) -> Option<TomlManifestField> {
-    manifest_top_level_values(text).into_iter().find_map(|(key, key_range, _)| {
-        range_contains_offset(&key_range, offset).then_some(TomlManifestField { key, key_range })
-    })
+    toml_manifest_fields(text)
+        .into_iter()
+        .find(|field| range_contains_offset(&field.key_range, offset))
 }
 
 pub fn toml_manifest_path_at_offset(text: &str, offset: usize) -> Option<TomlManifestPath> {
@@ -414,6 +424,7 @@ defines = [
 
         assert_eq!(field.key, "sources");
         assert_eq!(field.key_range, 0..7);
+        assert_eq!(&toml[field.value_range], "[\"rtl\"]");
         assert!(toml_manifest_field_at_offset(toml, 12).is_none());
     }
 
