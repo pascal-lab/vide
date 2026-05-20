@@ -8,7 +8,7 @@ Vizsla 的工程清单文件名优先使用 `vizsla.toml`。旧文件名 `vizsla
 ## 完整示例
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
 
 top_modules = ["top"]
 
@@ -45,7 +45,7 @@ exclude = [
 VS Code 在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时会生成 syntax-only 默认 `vizsla.toml`:
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
@@ -61,10 +61,10 @@ include_dirs = []
 推荐安装 [Tombi](https://github.com/tombi-toml/tombi) 来编辑 `vizsla.toml`。Tombi 可以用 JSON Schema 提供 TOML 结构诊断、字段补全、hover 和格式化。Vizsla 扩展生成的默认清单会在文件顶部加入 schema directive:
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
 ```
 
-这个 directive 是 TOML 注释, 没有安装 Tombi 时也不会影响 Vizsla 读取清单。已有清单可以手动把它加到文件开头。
+这个 directive 是 TOML 注释, 没有安装 Tombi 时也不会影响 Vizsla 读取清单。已有清单可以手动把它加到文件开头。schema URL 带有版本段; 后续清单格式变化时, 新版 Vizsla 可以生成指向新版 schema 的 directive, 已有工程仍保留原来的 schema。
 
 ## 字段说明
 

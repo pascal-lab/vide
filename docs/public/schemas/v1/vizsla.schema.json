@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json",
+  "$id": "https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json",
   "title": "Vizsla project manifest",
   "description": "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
   "type": "object",
