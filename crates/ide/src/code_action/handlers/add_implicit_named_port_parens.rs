@@ -18,7 +18,7 @@ pub(super) fn add_implicit_named_port_parens(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.diagnostics.allows_repair(RepairKind::AddImplicitNamedPortParens) {
+    if !ctx.allows_repair(RepairKind::AddImplicitNamedPortParens) {
         return None;
     }
 
@@ -28,7 +28,7 @@ pub(super) fn add_implicit_named_port_parens(
     }
 
     let insert_offset = conn.name()?.text_range_in(conn.syntax())?.end();
-    collector.add(ID, LABEL, ctx.range, |builder| {
+    collector.add(ID, LABEL, ctx.range(), |builder| {
         builder.insert(insert_offset, "()".to_owned());
     });
 

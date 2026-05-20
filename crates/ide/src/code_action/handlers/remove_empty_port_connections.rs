@@ -21,7 +21,7 @@ pub(super) fn remove_empty_port_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.diagnostics.allows_repair(RepairKind::RemoveEmptyPortConnections) {
+    if !ctx.allows_repair(RepairKind::RemoveEmptyPortConnections) {
         return None;
     }
 
@@ -31,7 +31,7 @@ pub(super) fn remove_empty_port_connections(
         return None;
     }
 
-    collector.add(ID, LABEL, ctx.range, |builder| {
+    collector.add(ID, LABEL, ctx.range(), |builder| {
         for range in comma_ranges {
             builder.delete(range);
         }

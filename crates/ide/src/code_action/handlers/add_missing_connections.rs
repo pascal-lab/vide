@@ -23,13 +23,13 @@ pub(super) fn add_missing_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.diagnostics.allows_repair(RepairKind::MissingConnection) {
+    if !ctx.allows_repair(RepairKind::MissingConnection) {
         return None;
     }
 
-    let sema = ctx.sema;
+    let sema = ctx.sema();
     let db = sema.db;
-    let file_id = ctx.file_id.into();
+    let file_id = ctx.file_id().into();
 
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let InModule { value: instance_id, module_id } =
@@ -73,13 +73,13 @@ pub(super) fn add_missing_connections(
         return None;
     }
 
-    collector.add(ID, LABEL, ctx.range, |builder| {
+    collector.add(ID, LABEL, ctx.range(), |builder| {
         let entries = names
             .into_iter()
             .map(|name| missing_member_entry_text(sema, module_id, name, is_ordered, "'0"))
             .collect();
 
-        let text = sema.db.file_text(ctx.file_id);
+        let text = sema.db.file_text(ctx.file_id());
         let item_ranges = ast_instance.connections().children().filter_map(|conn| {
             let range = conn.syntax().text_range()?;
             (!range.is_empty()).then_some(range)
