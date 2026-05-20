@@ -79,6 +79,14 @@ impl GlobalState {
     }
 
     pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {
+        if matches!(invalidation, DiagnosticInvalidation::WorkspaceChanged)
+            && self.config.cli_pull_diagnostics_support()
+            && self.config.cli_workspace_diagnostic_refresh_support()
+        {
+            self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
+            return;
+        }
+
         let file_ids = match invalidation {
             DiagnosticInvalidation::FileChanges(file_ids) => {
                 if self.config.diagnostics_config().semantic.enabled {
