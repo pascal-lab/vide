@@ -28,6 +28,10 @@ pub(crate) fn handle_goto_definition(
     params: lsp_types::GotoDefinitionParams,
 ) -> anyhow::Result<Option<lsp_types::GotoDefinitionResponse>> {
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
+    if snap.is_manifest_file(position.file_id) {
+        return manifest_goto_definition(&snap, position);
+    }
+
     let Some(nav_info) = snap.analysis.goto_definition(position)? else {
         return Ok(None);
     };
@@ -35,6 +39,40 @@ pub(crate) fn handle_goto_definition(
     let src = FileRange { file_id: position.file_id, range: nav_info.range };
     let res = to_proto::goto_definition_response(&snap, Some(src), nav_info.info)?;
     Ok(Some(res))
+}
+
+fn manifest_goto_definition(
+    snap: &GlobalStateSnapshot,
+    position: FilePosition,
+) -> anyhow::Result<Option<lsp_types::GotoDefinitionResponse>> {
+    let text = snap.file_text(position.file_id)?;
+    let offset = usize::try_from(u32::from(position.offset)).unwrap_or(usize::MAX).min(text.len());
+    let Some(context) = manifest_path_string_context(&text, offset) else {
+        return Ok(None);
+    };
+    if context.value.is_empty() {
+        return Ok(None);
+    }
+
+    let Some(manifest_path) = snap.file_abs_path(position.file_id) else {
+        return Ok(None);
+    };
+    let Some(manifest_dir) = manifest_path.parent() else {
+        return Ok(None);
+    };
+    let target = manifest_dir.absolutize(context.value.replace('\\', "/"));
+    if fs::metadata(target.as_path()).is_err() {
+        return Ok(None);
+    }
+
+    let uri = to_proto::url_from_abs_path(target.as_path())?;
+    Ok(Some(lsp_types::GotoDefinitionResponse::Scalar(lsp_types::Location {
+        uri,
+        range: lsp_types::Range::new(
+            lsp_types::Position::new(0, 0),
+            lsp_types::Position::new(0, 0),
+        ),
+    })))
 }
 
 pub(crate) fn handle_completion(
@@ -271,6 +309,32 @@ fn manifest_path_completion_context(
     })
 }
 
+struct ManifestPathStringContext {
+    value: String,
+}
+
+fn manifest_path_string_context(text: &str, offset: usize) -> Option<ManifestPathStringContext> {
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    let line_end = text[offset..].find('\n').map(|idx| offset + idx).unwrap_or(text.len());
+    let line = &text[line_start..line_end];
+    if line.trim_start().starts_with('#') {
+        return None;
+    }
+
+    let (quote_count, quote_start) = unescaped_quote_state(&text[line_start..offset], line_start);
+    if quote_count % 2 == 0 {
+        return None;
+    }
+    let quote_start = quote_start?;
+    let key = manifest_assignment_key_before_offset(text, line_start, line_end)?;
+    if !MANIFEST_PATH_FIELDS.contains(&key) {
+        return None;
+    }
+
+    let quote_end = next_unescaped_quote(&text[offset..line_end], offset)?;
+    Some(ManifestPathStringContext { value: text[quote_start + 1..quote_end].to_string() })
+}
+
 fn unescaped_quote_state(text: &str, base_offset: usize) -> (usize, Option<usize>) {
     let mut count = 0;
     let mut last = None;
@@ -288,6 +352,21 @@ fn unescaped_quote_state(text: &str, base_offset: usize) -> (usize, Option<usize
     }
 
     (count, last)
+}
+
+fn next_unescaped_quote(text: &str, base_offset: usize) -> Option<usize> {
+    let mut escaped = false;
+    for (idx, byte) in text.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else if byte == b'"' {
+            return Some(base_offset + idx);
+        }
+    }
+
+    None
 }
 
 fn manifest_assignment_key_before_offset(

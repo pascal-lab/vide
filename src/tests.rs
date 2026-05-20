@@ -1918,6 +1918,82 @@ fn project_manifest_completes_path_values() {
 }
 
 #[test]
+fn project_manifest_goes_to_path_values() {
+    let temp_dir = TempDir::new("manifest-path-definition");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+    let target_path = rtl_dir.join("top.sv");
+    fs::write(&target_path, "module top; endmodule\n").unwrap();
+    let manifest_text = "sources = [\"rtl/top.sv\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        ClientCapabilities::default(),
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    let target_uri = to_proto::url_from_abs_path(target_path.as_path()).unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            GotoDefinition::METHOD.to_string(),
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: manifest_uri },
+                    position: Position { line: 0, character: 16 },
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let definition: Option<GotoDefinitionResponse> =
+        recv_response(&client, request_id, "manifest path definition");
+    let definition = definition.expect("path definition should resolve");
+    let location = match definition {
+        GotoDefinitionResponse::Scalar(location) => location,
+        other => panic!("expected scalar location, got {other:?}"),
+    };
+    assert_eq!(location.uri, target_uri);
+    assert_eq!(location.range.start, Position { line: 0, character: 0 });
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn project_manifest_hovers_top_level_fields() {
     let temp_dir = TempDir::new("manifest-hover");
     let manifest_text = "sources = [\"rtl\"]\n";
