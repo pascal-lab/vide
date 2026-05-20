@@ -1,0 +1,51 @@
+:root {
+  --vizsla-accent-hsl: 186, 74%, 52%;
+  --vizsla-accent: hsl(var(--vizsla-accent-hsl));
+  --vizsla-overlay: hsla(var(--vizsla-accent-hsl), 0.18);
+}
+
+:root[data-theme='light'] {
+  --vizsla-accent-hsl: 190, 84%, 38%;
+  --vizsla-overlay: hsla(var(--vizsla-accent-hsl), 0.14);
+}
+
+[data-has-hero] .page {
+  background:
+    linear-gradient(215deg, var(--vizsla-overlay), transparent 40%),
+    radial-gradient(var(--vizsla-overlay), transparent 42%) no-repeat -55vw -45vh / 105vw 195vh,
+    radial-gradient(hsla(255, 60%, 60%, 0.16), transparent 65%) no-repeat 58%
+      calc(100% + 18rem) / 62rem 32rem;
+}
+
+[data-has-hero] header {
+  border-bottom: 1px solid transparent;
+  background-color: transparent;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+[data-has-hero] .site-title {
+  color: var(--sl-color-gray-2);
+}
+
+[data-has-hero] .hero {
+  padding-block-start: clamp(3rem, 8vw, 7rem);
+}
+
+[data-has-hero] .hero h1 {
+  letter-spacing: 0;
+}
+
+[data-has-hero] .hero .tagline {
+  color: var(--sl-color-gray-2);
+}
+
+[data-has-hero] .sl-link-button.primary {
+  box-shadow: 0 0 2rem hsla(var(--vizsla-accent-hsl), 0.28);
+}
+
+[data-has-hero] .card {
+  background:
+    linear-gradient(180deg, hsla(var(--vizsla-accent-hsl), 0.08), transparent),
+    var(--sl-color-black);
+}

@@ -1,4 +1,7 @@
-# 检查服务器
+---
+title: 检查服务器
+description: 检查 Vizsla bundled server 或 custom server 是否正常启动。
+---
 
 ## 看状态栏
 
