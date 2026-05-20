@@ -51,7 +51,7 @@ include_dirs = []
 
 这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的清单和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
 
-编辑清单时, 语言服务器会对 `vizsla.toml` 和 `vizsla_config.toml` 提供 TOML/schema diagnostics、顶层字段补全、字段 hover、路径补全, 以及路径字符串的跳转到定义。路径补全和跳转适用于 `sources`, `include_dirs`, `libraries`, `exclude` 这些路径字段。
+编辑清单时, 语言服务器会对 `vizsla.toml` 和 `vizsla_config.toml` 提供 TOML/schema diagnostics、缺失路径 warning、顶层字段补全、字段 hover、路径补全、路径 document links, 以及路径字符串的跳转到定义。路径补全、链接和跳转适用于 `sources`, `include_dirs`, `libraries`, `exclude` 这些路径字段; 缺失路径 warning 不会报告 `exclude`。
 
 ## 字段说明
 
