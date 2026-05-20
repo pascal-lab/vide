@@ -1,4 +1,7 @@
-# 从源码构建
+---
+title: 从源码构建
+description: 从源码构建 Vizsla 服务器、VS Code 扩展和本地 VSIX。
+---
 
 这一页面向需要本地开发、调试或打包 VSIX 的用户。
 

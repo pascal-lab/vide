@@ -1,4 +1,7 @@
-# 项目配置
+---
+title: 项目配置
+description: 配置 vizsla.toml 工程清单、源文件、include 目录和宏定义。
+---
 
 Vizsla 的工程清单文件名固定为 `vizsla_config.toml`。它必须放在 workspace root 下, 或者被显式作为工程路径传入。字段名必须使用当前支持的名字, 旧字段或未知字段会被拒绝。
 
