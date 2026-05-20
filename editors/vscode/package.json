@@ -15,7 +15,12 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:verilog",
+    "onLanguage:systemverilog",
+    "workspaceContains:vizsla.toml",
+    "workspaceContains:vizsla_config.toml"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [

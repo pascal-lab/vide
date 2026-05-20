@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   LEGACY_PROJECT_CONFIG_FILE_NAME,
+  PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
   PROJECT_CONFIG_FILE_NAMES,
   getProjectConfigPath,
@@ -15,6 +16,13 @@ test('uses the Vizsla project config file name', () => {
   assert.equal(PROJECT_CONFIG_FILE_NAME, 'vizsla.toml');
   assert.equal(LEGACY_PROJECT_CONFIG_FILE_NAME, 'vizsla_config.toml');
   assert.deepEqual(PROJECT_CONFIG_FILE_NAMES, ['vizsla.toml', 'vizsla_config.toml']);
+});
+
+test('selects project configs as LSP documents by file name', () => {
+  assert.deepEqual(PROJECT_CONFIG_DOCUMENT_SELECTORS, [
+    { scheme: 'file', pattern: '**/vizsla.toml' },
+    { scheme: 'file', pattern: '**/vizsla_config.toml' },
+  ]);
 });
 
 test('resolves project config paths under workspace roots', () => {

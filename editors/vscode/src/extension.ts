@@ -13,6 +13,7 @@ import {
 import { getBundledServerPath, getPlatformFolder } from './platform';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
   getProjectConfigPath,
   getProjectConfigPaths,
@@ -444,6 +445,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
     documentSelector: [
       { scheme: 'file', language: 'verilog' },
       { scheme: 'file', language: 'systemverilog' },
+      ...PROJECT_CONFIG_DOCUMENT_SELECTORS,
     ],
     synchronize: {
       configurationSection: ['vizsla'],
