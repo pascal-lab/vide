@@ -57,7 +57,10 @@ pub enum SourceFileKind {
 impl SourceFileKind {
     pub fn from_path(path: &VfsPath) -> Self {
         match path.name_and_extension() {
-            Some(("vizsla_config", Some(ext))) if ext.eq_ignore_ascii_case("toml") => {
+            Some((name, Some(ext)))
+                if (name == "vizsla" || name == "vizsla_config")
+                    && ext.eq_ignore_ascii_case("toml") =>
+            {
                 Self::ProjectManifest
             }
             Some((_, Some(ext))) if ext.eq_ignore_ascii_case("map") => Self::LibraryMap,
@@ -407,5 +410,16 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::SystemVerilog);
         assert!(kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn project_manifests_are_not_slang_parse_diagnostic_units() {
+        for file_name in ["vizsla.toml", "vizsla_config.toml"] {
+            let kind =
+                SourceFileKind::from_path(&VfsPath::new_virtual_path(format!("/root/{file_name}")));
+
+            assert_eq!(kind, SourceFileKind::ProjectManifest);
+            assert!(!kind.is_slang_parse_unit());
+        }
     }
 }
