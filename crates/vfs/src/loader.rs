@@ -6,7 +6,7 @@ use utils::{
     paths::{AbsPath, AbsPathBuf},
 };
 
-use crate::PathSelection;
+use crate::{PathGlobMatcher, PathMatcher};
 
 #[derive(Debug, Clone)]
 pub enum Entry {
@@ -17,8 +17,9 @@ pub enum Entry {
 #[derive(Debug, Clone, Default)]
 pub struct Directories {
     pub extensions: Vec<String>,
-    pub include: Vec<PathSelection>,
+    pub include: Vec<PathMatcher>,
     pub exclude: Vec<AbsPathBuf>,
+    pub exclude_globs: Option<PathGlobMatcher>,
 }
 
 #[derive(Debug)]
@@ -85,7 +86,7 @@ impl Directories {
     }
 
     pub fn include_roots(&self) -> impl Iterator<Item = &AbsPathBuf> {
-        self.include.iter().flat_map(PathSelection::roots)
+        self.include.iter().flat_map(PathMatcher::scan_roots)
     }
 
     /// Returns `true` if `path` is included in `self`.
@@ -104,6 +105,7 @@ impl Directories {
 
     fn is_excluded(&self, path: &AbsPath) -> bool {
         self.exclude.iter().any(|excl| path.starts_with(excl))
+            || self.exclude_globs.as_ref().is_some_and(|exclude| exclude.is_match(path))
     }
 }
 

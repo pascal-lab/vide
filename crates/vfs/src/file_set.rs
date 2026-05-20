@@ -5,6 +5,7 @@ use utils::paths::{AbsPath, AbsPathBuf};
 
 use crate::{
     anchored_path::AnchoredPath,
+    path_glob::PathGlobMatcher,
     vfs::{FileId, Vfs},
     vfs_path::VfsPath,
 };
@@ -65,38 +66,64 @@ pub struct PartitionedFileSet {
     pub source_files: Option<FxHashSet<FileId>>,
 }
 
-#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
-pub struct PathSelection {
-    pub roots: Vec<AbsPathBuf>,
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct PathMatcher {
+    scan_roots: Vec<AbsPathBuf>,
+    kind: PathMatcherKind,
 }
 
-impl PathSelection {
-    pub fn all(roots: Vec<AbsPathBuf>) -> Self {
-        Self { roots }
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum PathMatcherKind {
+    AllUnderRoots,
+    Glob(PathGlobMatcher),
+}
+
+impl Default for PathMatcher {
+    fn default() -> Self {
+        Self::all_under_roots(Vec::new())
+    }
+}
+
+impl PathMatcher {
+    pub fn all_under_roots(scan_roots: Vec<AbsPathBuf>) -> Self {
+        Self { scan_roots, kind: PathMatcherKind::AllUnderRoots }
+    }
+
+    pub fn glob(scan_roots: Vec<AbsPathBuf>, matcher: PathGlobMatcher) -> Self {
+        Self { scan_roots, kind: PathMatcherKind::Glob(matcher) }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.roots.is_empty()
+        self.scan_roots.is_empty()
     }
 
     pub fn contains_file(&self, path: &AbsPath) -> bool {
-        self.roots.iter().any(|root| path.starts_with(root))
+        self.contains_scan_root(path)
+            && match &self.kind {
+                PathMatcherKind::AllUnderRoots => true,
+                PathMatcherKind::Glob(matcher) => matcher.is_match(path),
+            }
     }
 
     pub fn contains_dir(&self, path: &AbsPath) -> bool {
-        self.roots.iter().any(|root| path.starts_with(root))
+        self.contains_scan_root(path)
     }
 
-    pub fn roots(&self) -> impl Iterator<Item = &AbsPathBuf> {
-        self.roots.iter()
+    pub fn scan_roots(&self) -> impl Iterator<Item = &AbsPathBuf> {
+        self.scan_roots.iter()
+    }
+
+    fn contains_scan_root(&self, path: &AbsPath) -> bool {
+        self.scan_roots.iter().any(|root| path.starts_with(root))
     }
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct FileSetFilter {
-    pub include: Vec<PathSelection>,
-    pub source: Option<Vec<PathSelection>>,
+    pub include: Vec<PathMatcher>,
+    pub source: Option<Vec<PathMatcher>>,
     pub exclude_paths: Vec<AbsPathBuf>,
+    pub exclude_globs: Option<PathGlobMatcher>,
 }
 
 impl FileSetFilter {
@@ -106,6 +133,7 @@ impl FileSetFilter {
         };
         self.include.iter().any(|include| include.contains_file(path))
             && !self.exclude_paths.iter().any(|exclude| path.starts_with(exclude))
+            && !self.exclude_globs.as_ref().is_some_and(|exclude| exclude.is_match(path))
     }
 
     fn is_source(&self, path: &VfsPath) -> bool {
@@ -117,6 +145,7 @@ impl FileSetFilter {
         };
         source.iter().any(|source| source.contains_file(path))
             && !self.exclude_paths.iter().any(|exclude| path.starts_with(exclude))
+            && !self.exclude_globs.as_ref().is_some_and(|exclude| exclude.is_match(path))
     }
 }
 
@@ -200,7 +229,7 @@ impl FileSetConfigBuilder {
         let include = if include_paths.is_empty() {
             Vec::new()
         } else {
-            vec![PathSelection::all(include_paths)]
+            vec![PathMatcher::all_under_roots(include_paths)]
         };
         self.add_filtered_file_set(roots, FileSetFilter { include, ..FileSetFilter::default() });
     }

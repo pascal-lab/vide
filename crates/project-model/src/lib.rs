@@ -4,7 +4,7 @@ mod toml_workspace;
 
 use std::collections::VecDeque;
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use base_db::{
     project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRootConfig, SourceRootId},
@@ -17,8 +17,8 @@ pub use toml_workspace::{
     generated_toml_manifest_schema,
 };
 use triomphe::Arc;
-use utils::paths::{AbsPathBuf, sort_and_remove_subfolders};
-use vfs::{FileSetConfig, FileSetFilter, PathSelection, VfsPath};
+use utils::paths::{AbsPathBuf, Utf8Component, Utf8Path, sort_and_remove_subfolders};
+use vfs::{FileSetConfig, FileSetFilter, PathGlobMatcher, PathMatcher, VfsPath};
 
 use crate::{
     macro_def::MacroDef, project_manifest::ProjectManifest, toml_workspace::TomlWorkspace,
@@ -29,9 +29,9 @@ pub struct Workspace {
     top_modules: Vec<String>,
     workspace_root: AbsPathBuf,
     macro_defs: MacroDef,
-    source: PathSelection,
+    source: PathMatcher,
     include_dirs: Vec<AbsPathBuf>,
-    exclude: Vec<AbsPathBuf>,
+    exclude_globs: Option<PathGlobMatcher>,
     library_paths: Vec<AbsPathBuf>,
     is_lib: bool,
     configures_semantic_diagnostics: bool,
@@ -45,15 +45,15 @@ pub struct ProjectModel {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct WorkspaceRoot {
     pub is_lib: bool,
-    pub source: PathSelection,
+    pub source: PathMatcher,
     pub include_dirs: Vec<AbsPathBuf>,
-    pub exclude: Vec<AbsPathBuf>,
+    pub exclude_globs: Option<PathGlobMatcher>,
 }
 
 impl WorkspaceRoot {
     pub fn load_paths(&self) -> Vec<AbsPathBuf> {
         let mut paths = self.include_dirs.clone();
-        paths.extend(self.source.roots.iter().cloned());
+        paths.extend(self.source.scan_roots().cloned());
         sort_and_remove_subfolders(&mut paths);
         paths
     }
@@ -84,31 +84,27 @@ impl Workspace {
             top_modules,
             workspace_root,
             macro_defs,
-            sources,
+            source_patterns,
             include_dirs,
             libraries,
-            mut exclude,
+            exclude_patterns,
         } = toml;
 
-        sort_and_remove_subfolders(&mut exclude);
-        let mut source_paths = Vec::new();
-        let mut library_paths = libraries;
-        for path in sources {
-            if is_excluded(&path, &exclude) {
-                continue;
-            }
-            if path.starts_with(&workspace_root) {
-                source_paths.push(path);
-            } else {
-                library_paths.push(path);
-            }
-        }
-        sort_and_remove_subfolders(&mut source_paths);
+        let source_patterns = validate_manifest_patterns(source_patterns, "sources")?;
+        let exclude_patterns = validate_manifest_patterns(exclude_patterns, "exclude")?;
+        let exclude_globs = compile_manifest_globs(&workspace_root, exclude_patterns, "exclude")?;
 
-        let include_dirs = resolve_include_dirs(include_dirs, &source_paths, &exclude);
-        let library_paths = resolve_library_paths(library_paths, &exclude);
+        let mut source_paths = source_roots_for_patterns(&workspace_root, &source_patterns);
+        sort_and_remove_subfolders(&mut source_paths);
+        let source = compile_manifest_globs(&workspace_root, source_patterns, "sources")?
+            .map_or_else(
+                || PathMatcher::all_under_roots(Vec::new()),
+                |matcher| PathMatcher::glob(source_paths.clone(), matcher),
+            );
+
+        let include_dirs = resolve_include_dirs(include_dirs, &source_paths);
+        let library_paths = resolve_library_paths(libraries);
         let configures_semantic_diagnostics = !source_paths.is_empty() || !include_dirs.is_empty();
-        let source = PathSelection::all(source_paths);
 
         Ok(Self {
             top_modules,
@@ -116,7 +112,7 @@ impl Workspace {
             macro_defs,
             source,
             include_dirs,
-            exclude,
+            exclude_globs,
             library_paths,
             is_lib,
             configures_semantic_diagnostics,
@@ -130,9 +126,9 @@ impl Workspace {
             top_modules: Vec::new(),
             workspace_root: path.clone(),
             macro_defs: MacroDef::default(),
-            source: PathSelection::all(source_roots),
+            source: PathMatcher::all_under_roots(source_roots),
             include_dirs,
-            exclude: Vec::new(),
+            exclude_globs: None,
             library_paths: Vec::new(),
             is_lib,
             configures_semantic_diagnostics: false,
@@ -144,7 +140,7 @@ impl Workspace {
             is_lib: self.is_lib,
             source: self.source.clone(),
             include_dirs: self.include_dirs.clone(),
-            exclude: self.exclude.clone(),
+            exclude_globs: self.exclude_globs.clone(),
         }]
     }
 
@@ -179,22 +175,82 @@ impl Workspace {
 fn resolve_include_dirs(
     configured: Option<Vec<AbsPathBuf>>,
     source_paths: &[AbsPathBuf],
-    exclude: &[AbsPathBuf],
 ) -> Vec<AbsPathBuf> {
     let mut include_dirs = configured.unwrap_or_else(|| source_paths.to_vec());
-    include_dirs.retain(|path| !is_excluded(path, exclude));
     sort_and_remove_subfolders(&mut include_dirs);
     include_dirs
 }
 
-fn resolve_library_paths(mut paths: Vec<AbsPathBuf>, exclude: &[AbsPathBuf]) -> Vec<AbsPathBuf> {
-    paths.retain(|path| !is_excluded(path, exclude));
+fn resolve_library_paths(mut paths: Vec<AbsPathBuf>) -> Vec<AbsPathBuf> {
     sort_and_remove_subfolders(&mut paths);
     paths
 }
 
-fn is_excluded(path: &AbsPathBuf, exclude: &[AbsPathBuf]) -> bool {
-    exclude.iter().any(|excluded| path.starts_with(excluded))
+fn validate_manifest_patterns(patterns: Vec<String>, field: &str) -> anyhow::Result<Vec<String>> {
+    for pattern in &patterns {
+        if pattern.is_empty() {
+            bail!("manifest {field} glob pattern must not be empty");
+        }
+        if pattern.contains('\\') {
+            bail!(
+                "manifest {field} glob pattern {pattern:?} uses backslashes; use '/' as the path separator"
+            );
+        }
+
+        let path = Utf8Path::new(pattern);
+        if path.is_absolute() {
+            bail!(
+                "manifest {field} glob pattern {pattern:?} must be relative to the workspace root"
+            );
+        }
+        if path.components().any(|component| {
+            matches!(
+                component,
+                Utf8Component::Prefix(_) | Utf8Component::RootDir | Utf8Component::ParentDir
+            )
+        }) {
+            bail!("manifest {field} glob pattern {pattern:?} must stay inside the workspace root");
+        }
+    }
+
+    Ok(patterns)
+}
+
+fn compile_manifest_globs(
+    workspace_root: &AbsPathBuf,
+    patterns: Vec<String>,
+    field: &str,
+) -> anyhow::Result<Option<PathGlobMatcher>> {
+    if patterns.is_empty() {
+        return Ok(None);
+    }
+
+    PathGlobMatcher::new(workspace_root.clone(), patterns)
+        .map(Some)
+        .with_context(|| format!("failed to compile manifest {field} glob patterns"))
+}
+
+fn source_roots_for_patterns(workspace_root: &AbsPathBuf, patterns: &[String]) -> Vec<AbsPathBuf> {
+    patterns.iter().map(|pattern| source_root_for_pattern(workspace_root, pattern)).collect()
+}
+
+fn source_root_for_pattern(workspace_root: &AbsPathBuf, pattern: &str) -> AbsPathBuf {
+    let root = literal_root_prefix(pattern);
+    if root.is_empty() { workspace_root.clone() } else { workspace_root.absolutize(root) }
+}
+
+fn literal_root_prefix(pattern: &str) -> &str {
+    let Some(meta_idx) = pattern.find(['*', '?', '[', '{']) else {
+        return pattern.trim_end_matches('/');
+    };
+
+    let prefix = &pattern[..meta_idx];
+    let trimmed = prefix.trim_end_matches('/');
+    if prefix.ends_with('/') {
+        return trimmed;
+    }
+
+    trimmed.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
 impl ProjectModel {
@@ -253,7 +309,7 @@ pub fn get_workspace_folder(
                 continue;
             }
             let root_file_set = load_paths.iter().cloned().map(VfsPath::from).collect_vec();
-            let mut exclude_paths = root.exclude.clone();
+            let mut exclude_paths = Vec::new();
             for excl in global_excludes {
                 if load_paths.iter().any(|incl| incl.starts_with(excl) || excl.starts_with(incl)) {
                     exclude_paths.push(excl.clone());
@@ -261,7 +317,7 @@ pub fn get_workspace_folder(
             }
             let mut include = Vec::new();
             if !root.include_dirs.is_empty() {
-                include.push(PathSelection::all(root.include_dirs.clone()));
+                include.push(PathMatcher::all_under_roots(root.include_dirs.clone()));
             }
             if !root.source.is_empty() {
                 include.push(root.source.clone());
@@ -274,6 +330,7 @@ pub fn get_workspace_folder(
                     extensions: ["v", "sv", "vh", "svh", "svi", "map"].map(String::from).into(),
                     include: include.clone(),
                     exclude: exclude_paths.clone(),
+                    exclude_globs: root.exclude_globs.clone(),
                 };
                 vfs::loader::Entry::Directories(dirs)
             };
@@ -284,7 +341,12 @@ pub fn get_workspace_folder(
 
             fsc.add_filtered_file_set(
                 root_file_set,
-                FileSetFilter { include, source: Some(source), exclude_paths },
+                FileSetFilter {
+                    include,
+                    source: Some(source),
+                    exclude_paths,
+                    exclude_globs: root.exclude_globs.clone(),
+                },
             );
 
             if !root.is_lib {
@@ -411,12 +473,12 @@ mod tests {
         fs::write(
             root.join(project_manifest::MANIFEST_FILE_NAME),
             r#"top_modules = ["top"]
-sources = ["rtl"]
+sources = ["rtl/**"]
 libraries = ["../pkg"]
 "#,
         )
         .unwrap();
-        fs::write(package.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl"]"#)
+        fs::write(package.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl/**"]"#)
             .unwrap();
 
         let manifest = ProjectManifest::from_path(&root).unwrap();
@@ -441,7 +503,7 @@ libraries = ["../pkg"]
         fs::write(
             root.join(project_manifest::MANIFEST_FILE_NAME),
             r#"top_modules = ["top"]
-sources = ["rtl"]
+sources = ["rtl/**"]
 libraries = ["../pkg/rtl"]
 "#,
         )
@@ -538,7 +600,7 @@ include_dirs = ["include"]
         fs::create_dir_all(rtl.join("nested")).unwrap();
         fs::write(
             root.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 "#,
         )
         .unwrap();
@@ -561,29 +623,35 @@ include_dirs = ["include"]
     }
 
     #[test]
-    fn excluded_source_roots_are_not_loaded() {
+    fn exclude_globs_filter_loaded_source_files() {
         let base = TestDir::new("project-model-excluded-source-root");
         let root = base.join("root");
         fs::create_dir_all(root.join("rtl")).unwrap();
         fs::write(
             root.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
-exclude = ["rtl"]
+            r#"sources = ["rtl/**"]
+exclude = ["rtl/**"]
 "#,
         )
         .unwrap();
 
+        let top = root.join("rtl/top.sv");
         let manifest = ProjectManifest::from_path(&root).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
         let (load, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        assert!(load.is_empty());
-        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
+        assert_eq!(load.len(), 1);
+        let dirs = match &load[0] {
+            vfs::loader::Entry::Directories(dirs) => dirs,
+            other => panic!("expected directory loader entry, got {other:?}"),
+        };
+        assert!(!dirs.contains_file(top.as_path()));
+        assert!(project_config.profile_for_root(SourceRootId(0)).is_some());
     }
 
     #[test]
-    fn source_and_exclude_paths_filter_loaded_and_open_files() {
+    fn source_and_exclude_globs_filter_loaded_and_open_files() {
         let base = TestDir::new("project-model-source-paths");
         let root = base.join("root");
         let rtl = root.join("rtl");
@@ -592,9 +660,9 @@ exclude = ["rtl"]
         fs::create_dir_all(&excluded).unwrap();
         fs::write(
             root.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 include_dirs = []
-exclude = ["rtl/excluded"]
+exclude = ["rtl/excluded/**"]
 "#,
         )
         .unwrap();
@@ -629,6 +697,94 @@ exclude = ["rtl/excluded"]
     }
 
     #[test]
+    fn source_globs_use_shell_separator_semantics() {
+        let base = TestDir::new("project-model-source-globs");
+        let root = base.join("root");
+        let rtl = root.join("rtl");
+        fs::create_dir_all(rtl.join("nested")).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl/*.sv"]
+include_dirs = []
+"#,
+        )
+        .unwrap();
+
+        let top = rtl.join("top.sv");
+        let nested_top = rtl.join("nested/top.sv");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, _, _) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        let dirs = match &load[0] {
+            vfs::loader::Entry::Directories(dirs) => dirs,
+            other => panic!("expected directory loader entry, got {other:?}"),
+        };
+        assert!(dirs.contains_file(top.as_path()));
+        assert!(!dirs.contains_file(nested_top.as_path()));
+    }
+
+    #[test]
+    fn exclude_globs_match_shell_patterns_across_source_roots() {
+        let base = TestDir::new("project-model-exclude-globs");
+        let root = base.join("root");
+        let rtl = root.join("rtl");
+        fs::create_dir_all(&rtl).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl/**"]
+include_dirs = []
+exclude = ["**/*_bb.v"]
+"#,
+        )
+        .unwrap();
+
+        let top = rtl.join("top.sv");
+        let blackbox = rtl.join("top_bb.v");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        let dirs = match &load[0] {
+            vfs::loader::Entry::Directories(dirs) => dirs,
+            other => panic!("expected directory loader entry, got {other:?}"),
+        };
+        assert!(dirs.contains_file(top.as_path()));
+        assert!(!dirs.contains_file(blackbox.as_path()));
+
+        let mut vfs = Vfs::default();
+        for file in [&top, &blackbox] {
+            vfs.set_file_contents(
+                &VfsPath::from(file.clone()),
+                LoadResult::Loaded(String::new(), LineEnding::Unix),
+            );
+        }
+
+        let roots = source_root_config.partition(&vfs);
+        assert!(roots[0].file_for_path(&VfsPath::from(top)).is_some());
+        assert_eq!(roots[1].role(), SourceRootRole::Ignored);
+        assert!(roots[1].file_for_path(&VfsPath::from(blackbox)).is_some());
+    }
+
+    #[test]
+    fn manifest_globs_must_be_portable_workspace_relative_patterns() {
+        let root = TestDir::new("project-model-invalid-globs");
+        for (name, manifest_text) in [
+            ("parent", "sources = [\"../rtl/**\"]\n"),
+            ("backslash", "sources = [\"rtl\\\\**\"]\n"),
+        ] {
+            fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), manifest_text).unwrap();
+
+            let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+            let (_model, errors) = ProjectModel::load(vec![manifest]);
+
+            assert!(!errors.is_empty(), "{name} pattern should be rejected");
+        }
+    }
+
+    #[test]
     fn workspace_profiles_include_only_dependency_library_roots() {
         let base = TestDir::new("project-model-dependency-closure");
         let root_a = base.join("root_a");
@@ -640,21 +796,21 @@ exclude = ["rtl/excluded"]
         }
         fs::write(
             root_a.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 libraries = ["../pkg_a"]
 "#,
         )
         .unwrap();
         fs::write(
             root_b.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 libraries = ["../pkg_b"]
 "#,
         )
         .unwrap();
-        fs::write(pkg_a.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl"]"#)
+        fs::write(pkg_a.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl/**"]"#)
             .unwrap();
-        fs::write(pkg_b.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl"]"#)
+        fs::write(pkg_b.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl/**"]"#)
             .unwrap();
 
         let (model, errors) = ProjectModel::load(vec![
@@ -685,26 +841,26 @@ libraries = ["../pkg_b"]
         }
         fs::write(
             app.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 libraries = ["../lib_a", "../lib_b"]
 "#,
         )
         .unwrap();
         fs::write(
             lib_a.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 libraries = ["../common"]
 "#,
         )
         .unwrap();
         fs::write(
             lib_b.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 libraries = ["../common"]
 "#,
         )
         .unwrap();
-        fs::write(common.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl"]"#)
+        fs::write(common.join(project_manifest::MANIFEST_FILE_NAME), r#"sources = ["rtl/**"]"#)
             .unwrap();
 
         let (model, errors) = ProjectModel::load(vec![ProjectManifest::Toml(
@@ -742,14 +898,14 @@ libraries = ["../common"]
         fs::create_dir_all(pkg.join("rtl")).unwrap();
         fs::write(
             app.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 libraries = ["../pkg"]
 "#,
         )
         .unwrap();
         fs::write(
             pkg.join(project_manifest::MANIFEST_FILE_NAME),
-            r#"sources = ["rtl"]
+            r#"sources = ["rtl/**"]
 "#,
         )
         .unwrap();

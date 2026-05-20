@@ -16,7 +16,7 @@ description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
+# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```

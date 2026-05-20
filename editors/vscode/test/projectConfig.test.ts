@@ -57,7 +57,7 @@ test('default project config keeps startup diagnostics syntax-only', () => {
     [
       `#:schema ${PROJECT_CONFIG_SCHEMA_URL}`,
       '# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.',
-      '# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.',
+      '# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.',
       'sources = []',
       'include_dirs = []',
       '',
