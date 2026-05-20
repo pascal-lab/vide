@@ -20,4 +20,6 @@ triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
 
 [dev-dependencies]
+schemars = { version = "1.2.1", features = ["preserve_order"] }
+serde_json.workspace = true
 utils = { workspace = true, features = ["camino_serde1", "test-support"] }
