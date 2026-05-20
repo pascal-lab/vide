@@ -11,7 +11,7 @@ readme = "README.md"
 description = "Language server for Verilog and System-Verilog"
 
 [workspace]
-members = [".", "crates/*"]
+members = [".", "crates/*", "xtask"]
 
 [workspace.package]
 edition = "2024"
