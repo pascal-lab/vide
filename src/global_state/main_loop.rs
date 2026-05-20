@@ -273,6 +273,7 @@ impl GlobalState {
             .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)
             .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)
             .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)
+            .on_sync_mut::<SetTrace>(handle_set_trace)
             .finish();
     }
 

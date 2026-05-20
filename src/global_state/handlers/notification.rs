@@ -191,6 +191,15 @@ pub(crate) fn handle_did_change_watched_files(
     Ok(())
 }
 
+pub(crate) fn handle_set_trace(
+    _state: &mut GlobalState,
+    _params: lsp_types::SetTraceParams,
+) -> anyhow::Result<()> {
+    // TODO: We don't support the Trace feature of LSP, so we can ignore this
+    // notification.
+    Ok(())
+}
+
 fn set_vfs_file_contents(
     state: &mut GlobalState,
     path: &VfsPath,
