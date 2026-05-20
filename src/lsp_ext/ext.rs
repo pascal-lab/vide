@@ -73,7 +73,7 @@ define_semantic_token_kind! {
 
     custom {
         (CLK_PORT, "port_clock") => KEYWORD,
-        (RST_PORT, "port_reset") => KEYWORD,
+        (RST_PORT, "port_reset") => PROPERTY,
         (OTHERS_PORT, "port_generic") => PARAMETER,
         (INSTANCE, "instance") => VARIABLE,
         (TYPE_ALIAS, "type_alias") => TYPE,
@@ -104,8 +104,8 @@ define_semantic_token_kind! {
         DEFAULT_LIBRARY,
     }
     custom {
-        (READ, "read") => READONLY,
-        (WRITE, "write") => MODIFICATION,
+        (READ, "read"),
+        (WRITE, "write"),
         (REF, "ref") => MODIFICATION,
         (DEF, "definition"),
     }
