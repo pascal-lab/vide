@@ -8,6 +8,7 @@ import {
   PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
   PROJECT_CONFIG_FILE_NAMES,
+  PROJECT_SOURCE_FILE_GLOB_PATTERN,
   getProjectConfigPath,
   getProjectConfigPaths,
 } from '../src/projectConfig';
@@ -23,6 +24,10 @@ test('selects project configs as LSP documents by file name', () => {
     { scheme: 'file', pattern: '**/vizsla.toml' },
     { scheme: 'file', pattern: '**/vizsla_config.toml' },
   ]);
+});
+
+test('uses the VS Code language contribution source glob for startup config creation', () => {
+  assert.equal(PROJECT_SOURCE_FILE_GLOB_PATTERN, '**/*.{v,vh,sv,svh,svi}');
 });
 
 test('resolves project config paths under workspace roots', () => {

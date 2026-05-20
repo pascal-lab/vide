@@ -15,6 +15,7 @@ import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
+  PROJECT_SOURCE_FILE_GLOB_PATTERN,
   getProjectConfigPath,
   getProjectConfigPaths,
 } from './projectConfig';
@@ -371,6 +372,13 @@ async function createMissingProjectConfigs(): Promise<void> {
       continue;
     }
 
+    if (!(await workspaceContainsProjectSource(folder))) {
+      log(
+        `[INFO] Skipping project config creation for workspace without Verilog/SystemVerilog sources: ${folder.uri.fsPath}`,
+      );
+      continue;
+    }
+
     const configPath = getProjectConfigPath(folder.uri.fsPath);
     try {
       await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
@@ -411,6 +419,15 @@ async function createMissingProjectConfigs(): Promise<void> {
       log(`[WARN] Failed to open ${PROJECT_CONFIG_FILE_NAME}: ${(error as Error).message}`);
     }
   });
+}
+
+async function workspaceContainsProjectSource(folder: vscode.WorkspaceFolder): Promise<boolean> {
+  const files = await vscode.workspace.findFiles(
+    new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB_PATTERN),
+    undefined,
+    1,
+  );
+  return files.length > 0;
 }
 
 async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {

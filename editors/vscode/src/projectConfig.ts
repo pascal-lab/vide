@@ -10,6 +10,7 @@ export const PROJECT_CONFIG_DOCUMENT_SELECTORS = PROJECT_CONFIG_FILE_NAMES.map((
   scheme: 'file',
   pattern: `**/${fileName}`,
 }));
+export const PROJECT_SOURCE_FILE_GLOB_PATTERN = '**/*.{v,vh,sv,svh,svi}';
 
 export const DEFAULT_PROJECT_CONFIG_TEXT = `# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
