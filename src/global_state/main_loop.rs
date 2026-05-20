@@ -149,17 +149,14 @@ impl GlobalState {
         let was_stuck = self.is_stuck();
 
         match event {
-            Event::Lsp(msg) => {
-                self.trace_incoming_lsp_message(&msg);
-                match msg {
-                    Message::Request(req) => {
-                        self.register_request(loop_start, &req);
-                        self.handle_request(req);
-                    }
-                    Message::Notification(notif) => self.handle_notification(notif),
-                    Message::Response(res) => self.handle_response(res),
+            Event::Lsp(msg) => match msg {
+                Message::Request(req) => {
+                    self.register_request(loop_start, &req);
+                    self.handle_request(req);
                 }
-            }
+                Message::Notification(notif) => self.handle_notification(notif),
+                Message::Response(res) => self.handle_response(res),
+            },
             Event::Task(task) => self.handle_task(task),
             Event::Vfs(msg) => self.handle_vfs_msg(msg),
         }

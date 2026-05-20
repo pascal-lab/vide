@@ -19,15 +19,10 @@ impl Progress {
 }
 
 impl GlobalState {
-    pub(super) fn send_raw(&self, message: lsp_server::Message) {
+    pub(crate) fn send(&self, message: lsp_server::Message) {
         if self.sender.send(message).is_err() {
             tracing::debug!("LSP message dropped because client connection is closed");
         }
-    }
-
-    pub(crate) fn send(&self, message: lsp_server::Message) {
-        self.trace_outgoing_lsp_message(&message);
-        self.send_raw(message);
     }
 
     pub(crate) fn send_notification<N: notification::Notification>(&self, params: N::Params) {

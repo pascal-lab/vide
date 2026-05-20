@@ -283,11 +283,8 @@ fn apply_document_changes(
 mod tests {
     use std::time::Duration;
 
-    use lsp_server::{Connection, Message};
-    use lsp_types::{
-        SetTraceParams, TextDocumentContentChangeEvent, TraceValue,
-        notification::{LogTrace, Notification as _},
-    };
+    use lsp_server::Connection;
+    use lsp_types::{SetTraceParams, TextDocumentContentChangeEvent, TraceValue};
     use utils::{lines::PositionEncoding, paths::AbsPathBuf};
 
     use super::{handle_set_trace, update_document_text};
@@ -356,13 +353,7 @@ mod tests {
 
         handle_set_trace(&mut state, SetTraceParams { value: TraceValue::Verbose }).unwrap();
 
-        let message = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        let Message::Notification(notification) = message else {
-            panic!("expected logTrace notification, got {message:?}");
-        };
-        assert_eq!(notification.method, LogTrace::METHOD);
-        let params: lsp_types::LogTraceParams =
-            serde_json::from_value(notification.params).unwrap();
-        assert_eq!(params.message, "trace level set to verbose");
+        assert_eq!(state.lsp_trace.level(), TraceValue::Verbose);
+        assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
     }
 }
