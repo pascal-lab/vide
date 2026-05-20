@@ -1,7 +1,8 @@
 use base_db::{change::Change, source_db::SourceDb};
 use itertools::Itertools;
 use project_model::{
-    ProjectModel, Workspace, get_workspace_folder, project_manifest::MANIFEST_FILE_NAME,
+    ProjectModel, Workspace, get_workspace_folder,
+    project_manifest::{MANIFEST_FILE_NAMES, is_manifest_file_name},
 };
 use triomphe::Arc;
 use utils::{paths::AbsPath, thread::ThreadIntent};
@@ -149,14 +150,16 @@ impl GlobalState {
             .filter(|it| !it.is_lib)
             .flat_map(|root| {
                 root.load_paths().into_iter().flat_map(|it| {
-                    [
+                    let source_globs = [
                         format!("{it}/**/*.v"),
                         format!("{it}/**/*.sv"),
                         format!("{it}/**/*.vh"),
                         format!("{it}/**/*.svh"),
                         format!("{it}/**/*.svi"),
-                        format!("{it}/**/{}", MANIFEST_FILE_NAME),
-                    ]
+                    ];
+                    source_globs.into_iter().chain(
+                        MANIFEST_FILE_NAMES.iter().map(move |name| format!("{it}/**/{name}")),
+                    )
                 })
             })
             .collect_vec();
@@ -230,7 +233,7 @@ pub(crate) fn should_refresh_for_change(path: &AbsPath, has_structure_change: bo
         return false;
     };
 
-    if file_name == MANIFEST_FILE_NAME {
+    if is_manifest_file_name(file_name) {
         return true;
     }
 

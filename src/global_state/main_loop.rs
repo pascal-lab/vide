@@ -1,7 +1,6 @@
 use std::time::{Duration, Instant};
 
 use always_assert::always;
-use const_format::formatcp;
 use crossbeam_channel::{Receiver, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::notification::Notification as _;
@@ -93,20 +92,19 @@ impl GlobalState {
         let save_registration_options = lsp_types::TextDocumentSaveRegistrationOptions {
             include_text: false.into(),
             text_document_registration_options: lsp_types::TextDocumentRegistrationOptions {
-                document_selector: vec![
+                document_selector: std::iter::once(lsp_types::DocumentFilter {
+                    language: None,
+                    scheme: None,
+                    pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
+                })
+                .chain(project_manifest::MANIFEST_FILE_NAMES.iter().map(|file_name| {
                     lsp_types::DocumentFilter {
                         language: None,
                         scheme: None,
-                        pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
-                    },
-                    lsp_types::DocumentFilter {
-                        language: None,
-                        scheme: None,
-                        pattern: Some(
-                            formatcp!("**/{}", project_manifest::MANIFEST_FILE_NAME).into(),
-                        ),
-                    },
-                ]
+                        pattern: Some(format!("**/{file_name}")),
+                    }
+                }))
+                .collect::<Vec<_>>()
                 .into(),
             },
         };

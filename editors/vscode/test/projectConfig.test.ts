@@ -4,12 +4,17 @@ import * as path from 'node:path';
 
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  LEGACY_PROJECT_CONFIG_FILE_NAME,
   PROJECT_CONFIG_FILE_NAME,
+  PROJECT_CONFIG_FILE_NAMES,
   getProjectConfigPath,
+  getProjectConfigPaths,
 } from '../src/projectConfig';
 
 test('uses the Vizsla project config file name', () => {
-  assert.equal(PROJECT_CONFIG_FILE_NAME, 'vizsla_config.toml');
+  assert.equal(PROJECT_CONFIG_FILE_NAME, 'vizsla.toml');
+  assert.equal(LEGACY_PROJECT_CONFIG_FILE_NAME, 'vizsla_config.toml');
+  assert.deepEqual(PROJECT_CONFIG_FILE_NAMES, ['vizsla.toml', 'vizsla_config.toml']);
 });
 
 test('resolves project config paths under workspace roots', () => {
@@ -19,6 +24,15 @@ test('resolves project config paths under workspace roots', () => {
     getProjectConfigPath(workspaceRoot),
     path.join(workspaceRoot, PROJECT_CONFIG_FILE_NAME),
   );
+});
+
+test('resolves all supported project config paths under workspace roots', () => {
+  const workspaceRoot = path.join('tmp', 'workspace');
+
+  assert.deepEqual(getProjectConfigPaths(workspaceRoot), [
+    path.join(workspaceRoot, PROJECT_CONFIG_FILE_NAME),
+    path.join(workspaceRoot, LEGACY_PROJECT_CONFIG_FILE_NAME),
+  ]);
 });
 
 test('default project config keeps startup diagnostics syntax-only', () => {
