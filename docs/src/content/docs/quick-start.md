@@ -14,6 +14,7 @@ description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
 用 VS Code 打开包含 RTL 源码的目录。没有 `vizsla.toml` 或旧版 `vizsla_config.toml` 时, 扩展会创建默认 `vizsla.toml` 并弹出提示:
 
 ```toml
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
@@ -48,3 +49,5 @@ include_dirs = []
 配置变更后, 如果 VS Code 提示重启语言服务器, 选择 `Restart`。
 
 需要跨文件语义诊断、跳转和端口/参数相关能力时, 请在 `vizsla.toml` 中写入实际的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
+
+推荐同时安装 [Tombi](https://github.com/tombi-toml/tombi) 作为 TOML formatter、linter 和 schema-aware completion。Vizsla 文档提供了可给 Tombi 关联的 `vizsla.toml` JSON Schema, 详见 [项目配置](./project-configuration.md#tombi-schema)。

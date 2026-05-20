@@ -11,6 +11,11 @@ use base_db::{
 };
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
+#[cfg(feature = "manifest-schema")]
+pub use toml_workspace::{
+    TOML_MANIFEST_SCHEMA_PATH, TOML_MANIFEST_SCHEMA_URL, TOML_MANIFEST_SCHEMA_VERSION,
+    generated_toml_manifest_schema,
+};
 use triomphe::Arc;
 use utils::paths::{AbsPathBuf, sort_and_remove_subfolders};
 use vfs::{FileSetConfig, VfsPath};

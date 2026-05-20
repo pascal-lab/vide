@@ -12,26 +12,117 @@ use utils::paths::{AbsPathBuf, Utf8PathBuf, sort_and_remove_subfolders};
 use crate::macro_def::{MacroAtom, MacroDef};
 
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
+#[cfg(feature = "manifest-schema")]
+const MACRO_DEFINITION_SCHEMA_RE: &str = r"^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\S* )(?:=.*)?$";
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_VERSION: &str = "v1";
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_PATH: &str =
+    formatcp!("/vizsla/schemas/{TOML_MANIFEST_SCHEMA_VERSION}/vizsla.schema.json");
+#[cfg(feature = "manifest-schema")]
+pub const TOML_MANIFEST_SCHEMA_URL: &str =
+    formatcp!("https://pascal-lab.github.io{TOML_MANIFEST_SCHEMA_PATH}");
+
 static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
 static KV_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})=(.*)$")));
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "manifest-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(
+    feature = "manifest-schema",
+    schemars(
+        title = "Vizsla project manifest",
+        description = "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
+        extend("$id" = TOML_MANIFEST_SCHEMA_URL, "x-tombi-table-keys-order" = "schema")
+    )
+)]
 struct TomlManifestSchema {
+    /// Top-level module names for the compilation profile.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Top-level module names for the compilation profile.",
+            extend("examples" = [["top"]])
+        )
+    )]
     pub top_modules: Vec<String>,
+    /// Predefined macros. Use NAME or NAME=value strings.
     #[serde(deserialize_with = "de_macros", default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Predefined macros. Use NAME or NAME=value strings.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            inner(regex(pattern = MACRO_DEFINITION_SCHEMA_RE)),
+            extend("examples" = [["SYNTHESIS", "DATA_WIDTH=32"]])
+        )
+    )]
     pub defines: MacroDef,
+    /// Source files or directories to scan. Omitted sources do not scan the
+    /// workspace root.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Source files or directories to scan. Omitted sources do not scan the workspace root.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["rtl"]])
+        )
+    )]
     pub sources: Option<Vec<Utf8PathBuf>>,
+    /// Include search directories. When omitted, Vizsla uses the final sources
+    /// as include directories.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Include search directories. When omitted, Vizsla uses the final sources as include directories.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["include", "rtl"]])
+        )
+    )]
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
+    /// External library or dependency workspace paths.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "External library or dependency workspace paths.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["../common_cells"]])
+        )
+    )]
     pub libraries: Vec<Utf8PathBuf>,
+    /// Paths to remove from sources, include directories, and libraries.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "manifest-schema",
+        schemars(
+            description = "Paths to remove from sources, include directories, and libraries.",
+            with = "Vec::<String>",
+            default = "empty_string_vec",
+            extend("examples" = [["build", "sim/work"]])
+        )
+    )]
     pub exclude: Vec<Utf8PathBuf>,
+}
+
+#[cfg(feature = "manifest-schema")]
+fn empty_string_vec() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(feature = "manifest-schema")]
+pub fn generated_toml_manifest_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap()
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>

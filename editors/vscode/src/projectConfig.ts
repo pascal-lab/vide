@@ -1,5 +1,17 @@
 import * as path from 'node:path';
 
+import {
+  PROJECT_CONFIG_SCHEMA_PATH,
+  PROJECT_CONFIG_SCHEMA_URL,
+  PROJECT_CONFIG_SCHEMA_VERSION,
+} from './generated/projectConfigSchema';
+
+export {
+  PROJECT_CONFIG_SCHEMA_PATH,
+  PROJECT_CONFIG_SCHEMA_URL,
+  PROJECT_CONFIG_SCHEMA_VERSION,
+} from './generated/projectConfigSchema';
+
 export const PROJECT_CONFIG_FILE_NAME = 'vizsla.toml';
 export const LEGACY_PROJECT_CONFIG_FILE_NAME = 'vizsla_config.toml';
 export const PROJECT_CONFIG_FILE_NAMES = [
@@ -15,7 +27,8 @@ export const PROJECT_SOURCE_FILE_EXTENSIONS = [
 ] as const;
 export const PROJECT_SOURCE_FILE_GLOB = '**/*.{v,sv,vh,svh,svi}';
 
-export const DEFAULT_PROJECT_CONFIG_TEXT = `# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+export const DEFAULT_PROJECT_CONFIG_TEXT = `#:schema ${PROJECT_CONFIG_SCHEMA_URL}
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
