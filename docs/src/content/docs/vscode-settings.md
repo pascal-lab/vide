@@ -39,6 +39,15 @@ description: Vizsla VS Code 扩展的配置项参考。
 | --- | --- | --- |
 | `vizsla.workspace.auto.reload` | `true` | 工程清单变更后自动刷新工程信息。 |
 
+## Tombi
+
+| 设置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `vizsla.tombi.schemaInjection.enable` | `true` | 检测到 Tombi VS Code 扩展已安装时, 自动把 Vizsla schema 关联写入 Tombi 配置。 |
+| `vizsla.tombi.schemaInjection.scope` | `"user"` | schema 关联写入范围。可选 `"user"`, `"workspace"`。 |
+
+默认的 `"user"` 会写入 Tombi 用户级配置, 避免污染工程目录。`"workspace"` 会写入每个 file workspace folder 下的 Tombi 配置; 如果已有 `.tombi.toml` 则写它, 否则写 `tombi.toml`。未安装 Tombi 扩展时, Vizsla 不会写入配置也不会弹出提示。
+
 ## Scope
 
 | 设置 | 默认值 | 说明 |

@@ -57,13 +57,17 @@ include_dirs = []
 
 推荐安装 [Tombi](https://github.com/tombi-toml/tombi) 来编辑 `vizsla.toml`。Tombi 可以用 JSON Schema 提供 TOML 结构诊断、字段补全、hover 和格式化; Vizsla 语言服务器继续提供工程相关能力。路径补全、链接和跳转适用于 `sources`, `include_dirs`, `libraries`, `exclude` 这些路径字段; 缺失路径 warning 不会报告 `exclude`。
 
-在 workspace 或用户级 `tombi.toml` 中加入下面配置即可关联 Vizsla schema:
+如果 VS Code 中已安装 Tombi 扩展, Vizsla 扩展启动时会自动把下面的 schema 关联写入 Tombi 用户级配置, 并提示已完成配置。没有安装 Tombi 扩展时会静默跳过, 不会提示。Tombi 官方的用户级配置路径是 `$XDG_CONFIG_HOME/tombi/config.toml`, `~/.config/tombi/config.toml`, macOS 的 `~/Library/Application Support/tombi/config.toml`, 或 Windows 的 `%APPDATA%\tombi\config.toml`。
+
+自动配置会写入:
 
 ```toml
 [[schemas]]
 path = "https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json"
 include = ["**/vizsla.toml", "**/vizsla_config.toml"]
 ```
+
+如果你不希望 Vizsla 写入 Tombi 配置, 可以关闭 `vizsla.tombi.schemaInjection.enable`。如果你确实想把 schema 关联写到每个 workspace 的 Tombi 配置, 可以把 `vizsla.tombi.schemaInjection.scope` 从默认的 `"user"` 改成 `"workspace"`; 这会优先写已有的 `.tombi.toml`, 否则写 `tombi.toml`。
 
 也可以只给单个清单文件加 schema directive:
 
