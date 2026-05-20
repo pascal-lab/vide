@@ -1,9 +1,13 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+const isCloudflarePages = process.env.CF_PAGES === '1';
+const site = process.env.ASTRO_SITE ?? process.env.CF_PAGES_URL ?? 'https://pascal-lab.github.io';
+const base = process.env.ASTRO_BASE ?? (isCloudflarePages ? '/' : '/vizsla');
+
 export default defineConfig({
-  site: 'https://pascal-lab.github.io',
-  base: '/vizsla',
+  site,
+  base,
   integrations: [
     starlight({
       title: 'Vizsla 用户手册',
