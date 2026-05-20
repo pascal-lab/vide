@@ -45,7 +45,7 @@ impl Markup {
     }
 
     pub fn newline(&mut self) {
-        self.text.push('\n');
+        self.text.push_str("\n\n");
     }
 
     pub fn horizontal_line(&mut self) {
@@ -74,6 +74,12 @@ impl Markup {
         self.text.push_str("```systemverilog\n"); // hmmm, the highlighting for systemverilog is poor...
         self.text.push_str(contents);
         self.text.push_str("\n```\n");
+    }
+
+    pub fn push_with_backticks(&mut self, contents: &str) {
+        self.text.push('`');
+        self.text.push_str(contents);
+        self.text.push('`');
     }
 
     pub fn is_empty(&self) -> bool {
