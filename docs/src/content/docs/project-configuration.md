@@ -19,8 +19,8 @@ defines = [
 ]
 
 sources = [
-  "rtl",
-  "ip/local_ip/src",
+  "rtl/**",
+  "ip/local_ip/src/**/*.sv",
 ]
 
 include_dirs = [
@@ -34,25 +34,26 @@ libraries = [
 ]
 
 exclude = [
-  "build",
-  "sim/work",
-  "generated/tmp",
+  "build/**",
+  "sim/work/**",
+  "generated/tmp/**",
+  "**/*_bb.v",
 ]
 ```
 
-所有路径都相对于工程清单所在目录解析。
+`sources` 和 `exclude` 使用 workspace-relative shell glob 语义, 统一用 `/` 作为路径分隔符。`include_dirs` 和 `libraries` 仍然是相对于工程清单所在目录解析的路径。
 
 VS Code 在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时会生成 syntax-only 默认 `vizsla.toml`:
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
+# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```
 
-这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的清单和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
+这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的清单和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
 
 编辑清单时, TOML 结构诊断、字段补全、hover 和格式化交给 Tombi。Vizsla 只读取清单来构建工程模型, 并在清单变更后刷新工程信息。
 
@@ -72,14 +73,20 @@ include_dirs = []
 | --- | --- | --- |
 | `top_modules` | 字符串数组 | 声明当前工程的顶层模块名。我们会把它写入编译 profile。 |
 | `defines` | 字符串数组 | 预定义宏。支持 `"NAME"` 和 `"NAME=value"` 两种形式。 |
-| `sources` | 路径数组或省略 | 源文件扫描根目录。省略时等同于 `[]`, 不会扫描 workspace root。 |
-| `include_dirs` | 路径数组或省略 | 预处理 include 搜索目录。省略时默认等于最终的 `sources`。显式写成 `[]` 时不会回退。 |
+| `sources` | shell glob 数组或省略 | 源文件选择模式。省略时等同于 `[]`, 不会扫描 workspace root。 |
+| `include_dirs` | 路径数组或省略 | 预处理 include 搜索目录。省略时默认等于 `sources` 推导出的扫描根目录。显式写成 `[]` 时不会回退。 |
 | `libraries` | 路径数组 | 外部库或依赖工程。我们会把它们作为 library workspace 加载。 |
-| `exclude` | 路径数组 | 从 `sources`, `include_dirs`, `libraries` 中排除的目录。 |
+| `exclude` | shell glob 数组 | 从已加载文件中排除匹配的源文件或头文件。 |
 
 ## sources 和 include_dirs
 
-`sources` 决定我们扫描哪些 Verilog/SystemVerilog 文件。当前工程加载器读取这些扩展名:
+`sources` 决定我们扫描哪些 Verilog/SystemVerilog 文件。它使用 shell glob 语义, 不再把同一个字符串同时解释为路径和 pattern。常用写法:
+
+```toml
+sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
+```
+
+`*`, `?`, `[]`, `{}` 和 `**` 按 shell glob 处理; `*` 不跨 `/`, 递归目录请写 `**`。pattern 必须相对 workspace root, 不能使用绝对路径、`..` 或反斜杠。当前工程加载器读取这些扩展名:
 
 - `.v`
 - `.sv`
@@ -88,7 +95,7 @@ include_dirs = []
 - `.svi`
 - `.map`
 
-`include_dirs` 会进入预处理配置, 用于处理 include 搜索。没有显式配置 `include_dirs` 时, 我们会使用最终的 `sources` 作为 include 目录。
+`include_dirs` 会进入预处理配置, 用于处理 include 搜索。没有显式配置 `include_dirs` 时, 我们会使用 `sources` pattern 推导出的扫描根目录作为 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。显式写成 `include_dirs = []` 时不会回退。
 
 ## defines
 
@@ -114,13 +121,13 @@ defines = [
 
 ## exclude
 
-`exclude` 适合排除生成目录、仿真输出目录、缓存目录。它只接受路径, 不是 glob:
+`exclude` 使用同一套 workspace-relative shell glob 语义, 适合排除生成目录、仿真输出目录、缓存目录或黑盒 stub:
 
 ```toml
-exclude = ["build", "out", "sim/work"]
+exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 ```
 
-如果你还希望 VS Code 自己减少文件监听, 可以同时配置 VS Code 的 `files.watcherExclude`。Vizsla 的 `exclude` 和 VS Code 的 watcher 设置是两套机制。
+`exclude = ["build"]` 只匹配名为 `build` 的路径本身, 不递归排除目录内容; 目录递归请写 `build/**`。如果你还希望 VS Code 自己减少文件监听, 可以同时配置 VS Code 的 `files.watcherExclude`。Vizsla 的 `exclude` 和 VS Code 的 watcher 设置是两套机制。
 
 ## 常见注意事项
 

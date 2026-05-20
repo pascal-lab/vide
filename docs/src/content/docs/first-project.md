@@ -28,12 +28,12 @@ code D:\work\my-rtl
 
 ```toml
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
+# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```
 
-这个默认清单不会扫描 workspace root, 只运行打开文件的 syntax/parse diagnostics, 不运行 semantic diagnostics。这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用语义诊断和跨文件能力。
+这个默认清单不会扫描 workspace root, 只运行打开文件的 syntax/parse diagnostics, 不运行 semantic diagnostics。这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用语义诊断和跨文件能力。
 
 如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla.toml` 或 `vizsla_config.toml`, Vizsla 只保留 syntax/parse diagnostics, 不运行 semantic diagnostics。
 
@@ -52,9 +52,9 @@ include_dirs = []
 ```toml
 top_modules = ["top"]
 defines = ["SYNTHESIS", "DATA_WIDTH=32"]
-sources = ["rtl"]
+sources = ["rtl/**"]
 include_dirs = ["include"]
-exclude = ["build", "out"]
+exclude = ["build/**", "out/**"]
 ```
 
 清单只会从你打开的 workspace root 读取。我们不会自动向父目录或子目录搜索其它清单; 如果 `vizsla.toml` 和 `vizsla_config.toml` 同时存在, 会优先读取 `vizsla.toml`。

@@ -34,7 +34,7 @@
       ]
     },
     "sources": {
-      "description": "Source files or directories to scan. Omitted sources do not scan the workspace root.",
+      "description": "Workspace-relative shell glob patterns for source files to scan. Omitted sources do not scan the workspace root.",
       "type": "array",
       "items": {
         "type": "string"
@@ -42,12 +42,13 @@
       "default": [],
       "examples": [
         [
-          "rtl"
+          "rtl/**",
+          "ip/**/*.sv"
         ]
       ]
     },
     "include_dirs": {
-      "description": "Include search directories. When omitted, Vizsla uses the final sources as include directories.",
+      "description": "Include search directories. When omitted, Vizsla uses the scan roots inferred from sources as include directories.",
       "type": "array",
       "items": {
         "type": "string"
@@ -74,7 +75,7 @@
       ]
     },
     "exclude": {
-      "description": "Paths to remove from sources, include directories, and libraries.",
+      "description": "Workspace-relative shell glob patterns to remove from loaded files.",
       "type": "array",
       "items": {
         "type": "string"
@@ -82,8 +83,9 @@
       "default": [],
       "examples": [
         [
-          "build",
-          "sim/work"
+          "build/**",
+          "sim/work/**",
+          "**/*_bb.v"
         ]
       ]
     }

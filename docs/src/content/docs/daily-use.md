@@ -42,7 +42,7 @@ Vizsla 的诊断分成两层:
 
 诊断会出现在 VS Code 的 `Problems` 面板和编辑器下划线里。部分 quick fix 会读取诊断携带的稳定数据, 因此你通常需要先看到相关诊断, 才会看到对应代码操作。
 
-Semantic diagnostics 需要 workspace root 下的 `vizsla.toml` 配置可加载的工程内容, 例如实际的 `sources` 或 `include_dirs`; `defines`, `libraries` 和 `top_modules` 可以在此基础上补充工程信息。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。VS Code 扩展只会在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时创建 `sources = []` / `include_dirs = []` 的默认清单; 这个默认清单和无清单一样只保留打开文件的 syntax/parse diagnostics。
+Semantic diagnostics 需要 workspace root 下的 `vizsla.toml` 配置可加载的工程内容, 例如实际的 `sources` shell glob 或 `include_dirs`; `defines`, `libraries` 和 `top_modules` 可以在此基础上补充工程信息。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。VS Code 扩展只会在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时创建 `sources = []` / `include_dirs = []` 的默认清单; 这个默认清单和无清单一样只保留打开文件的 syntax/parse diagnostics。
 
 slang warning 相关配置放在 `vizsla.diagnostics.slang.*` 下。warning 名称、warning group 和 `-W...` 语义请看 [VS Code 设置](./vscode-settings.md#diagnostics) 中的 Diagnostics 说明。
 

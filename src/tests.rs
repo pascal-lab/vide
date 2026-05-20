@@ -42,10 +42,10 @@ use crate::{
 type TempDir = TestDir;
 
 const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_TEST_CONFIG: &str = "sources = [\".\"]\ninclude_dirs = [\".\"]\n";
+const DEFAULT_TEST_CONFIG: &str = "sources = [\"**\"]\ninclude_dirs = [\".\"]\n";
 const SYNTAX_ONLY_TEST_CONFIG: &str = "\
 # Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill real paths, for example sources = [\"rtl\"] and include_dirs = [\"include\"], to enable semantic diagnostics.
+# Fill shell globs, for example sources = [\"rtl/**\"] and include_dirs = [\"include\"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ";
@@ -1287,7 +1287,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
         temp_dir.path().join("vizsla_config.toml"),
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"include\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
     fs::write(include_dir.join("common_defs.svh"), "`define ENABLE_COUNTER 1\n").unwrap();
@@ -1372,7 +1372,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::create_dir_all(&package_include_dir).unwrap();
     fs::write(
         app_dir.join("vizsla_config.toml"),
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"../pkg/include\"]\nlibraries = [\"../pkg\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"../pkg/include\"]\nlibraries = [\"../pkg\"]\n",
     )
     .unwrap();
     fs::write(
@@ -1491,7 +1491,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
         temp_dir.path().join("vizsla_config.toml"),
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\ninclude_dirs = [\"include\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
     let header_path = include_dir.join("common_defs.svh");
@@ -1592,7 +1592,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
         ..Default::default()
     };
     let temp_dir = TempDir::new("manifest-diagnostics");
-    let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl\"]\n";
+    let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\n";
     let manifest_path = temp_dir.path().join("vizsla_config.toml");
     fs::write(&manifest_path, manifest_text).unwrap();
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
@@ -1765,7 +1765,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
 
     fs::write(
         &manifest_path,
-        "top_modules = [\"top\"]\nsources = [\"rtl\"]\nexclude = [\"ignored\"]\n",
+        "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\nexclude = [\"ignored/**\"]\n",
     )
     .unwrap();
     client
