@@ -247,6 +247,7 @@ impl Config {
                     ",".into(),
                     "@".into(),
                     "#".into(),
+                    "$".into(),
                     "`".into(),
                     "'".into(),
                     "\n".into(),

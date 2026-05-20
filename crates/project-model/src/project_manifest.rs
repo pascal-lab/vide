@@ -1,25 +1,22 @@
 use std::{collections::BTreeSet, fs, io::ErrorKind};
 
 use anyhow::{Context, bail};
+use const_format::formatcp;
 use itertools::Itertools;
 use utils::paths::AbsPathBuf;
 
-pub const MANIFEST_FILE_NAME: &str = "vizsla.toml";
-pub const LEGACY_MANIFEST_FILE_NAME: &str = "vizsla_config.toml";
+pub const MANIFEST_FILE_NAME: &str = formatcp!("vizsla.toml");
+pub const LEGACY_MANIFEST_FILE_NAME: &str = formatcp!("vizsla_config.toml");
 pub const MANIFEST_FILE_NAMES: [&str; 2] = [MANIFEST_FILE_NAME, LEGACY_MANIFEST_FILE_NAME];
-
-pub fn is_manifest_file_name(file_name: &str) -> bool {
-    MANIFEST_FILE_NAMES.contains(&file_name)
-}
-
-fn manifest_file_names_display() -> String {
-    MANIFEST_FILE_NAMES.join(" or ")
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum ProjectManifest {
     Toml(AbsPathBuf),
     UnconfiguredRoot(AbsPathBuf),
+}
+
+pub fn is_manifest_file_name(file_name: &str) -> bool {
+    MANIFEST_FILE_NAMES.contains(&file_name)
 }
 
 impl ProjectManifest {
@@ -47,11 +44,14 @@ impl ProjectManifest {
         let metadata =
             fs::metadata(path).with_context(|| format!("project path does not exist: {path}"))?;
         if !metadata.is_dir() {
-            bail!("project path must be a directory or {}: {path}", manifest_file_names_display());
+            bail!(
+                "project path must be a directory or one of {}: {path}",
+                MANIFEST_FILE_NAMES.iter().join(", ")
+            );
         }
 
-        for file_name in MANIFEST_FILE_NAMES {
-            let manifest = path.join(file_name);
+        for manifest_file_name in MANIFEST_FILE_NAMES {
+            let manifest = path.join(manifest_file_name);
             match fs::metadata(&manifest) {
                 Ok(metadata) if metadata.is_file() => return Self::from_toml(&manifest),
                 Ok(_) => bail!("project manifest path is not a file: {manifest}"),
@@ -70,8 +70,11 @@ impl ProjectManifest {
             bail!("bad manifest path: {path}");
         }
 
-        if !path.file_name().is_some_and(is_manifest_file_name) {
-            bail!("manifest path must point to {}: {path}", manifest_file_names_display());
+        if !is_manifest_file_name(path.file_name().unwrap_or_default()) {
+            bail!(
+                "manifest path must point to one of {}: {path}",
+                MANIFEST_FILE_NAMES.iter().join(", ")
+            );
         }
 
         let metadata = fs::metadata(path)
@@ -119,9 +122,9 @@ mod tests {
 
     #[test]
     fn from_path_uses_legacy_workspace_root_manifest() {
-        let root = TestDir::new("legacy-manifest-root");
+        let root = TestDir::new("manifest-legacy-root");
         let manifest_path = root.join(LEGACY_MANIFEST_FILE_NAME);
-        fs::write(&manifest_path, r#"top_modules = ["root"]"#).unwrap();
+        fs::write(&manifest_path, r#"top_modules = ["legacy"]"#).unwrap();
 
         let root = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root).unwrap();
@@ -130,11 +133,12 @@ mod tests {
     }
 
     #[test]
-    fn from_path_prefers_canonical_manifest() {
-        let root = TestDir::new("canonical-manifest-root");
+    fn from_path_prefers_workspace_root_manifest_over_legacy_manifest() {
+        let root = TestDir::new("manifest-preferred-root");
         let manifest_path = root.join(MANIFEST_FILE_NAME);
+        let legacy_manifest_path = root.join(LEGACY_MANIFEST_FILE_NAME);
         fs::write(&manifest_path, r#"top_modules = ["root"]"#).unwrap();
-        fs::write(root.join(LEGACY_MANIFEST_FILE_NAME), r#"top_modules = ["legacy"]"#).unwrap();
+        fs::write(&legacy_manifest_path, r#"top_modules = ["legacy"]"#).unwrap();
 
         let root = root.path().to_path_buf();
         let manifest = ProjectManifest::from_path(&root).unwrap();

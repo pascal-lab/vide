@@ -89,23 +89,23 @@ impl GlobalState {
     }
 
     fn register_did_save_cap(&mut self) {
+        let mut document_selector = vec![lsp_types::DocumentFilter {
+            language: None,
+            scheme: None,
+            pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
+        }];
+        document_selector.extend(project_manifest::MANIFEST_FILE_NAMES.iter().map(|file_name| {
+            lsp_types::DocumentFilter {
+                language: None,
+                scheme: None,
+                pattern: Some(format!("**/{file_name}")),
+            }
+        }));
+
         let save_registration_options = lsp_types::TextDocumentSaveRegistrationOptions {
             include_text: false.into(),
             text_document_registration_options: lsp_types::TextDocumentRegistrationOptions {
-                document_selector: std::iter::once(lsp_types::DocumentFilter {
-                    language: None,
-                    scheme: None,
-                    pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
-                })
-                .chain(project_manifest::MANIFEST_FILE_NAMES.iter().map(|file_name| {
-                    lsp_types::DocumentFilter {
-                        language: None,
-                        scheme: None,
-                        pattern: Some(format!("**/{file_name}")),
-                    }
-                }))
-                .collect::<Vec<_>>()
-                .into(),
+                document_selector: document_selector.into(),
             },
         };
 
