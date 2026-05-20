@@ -51,11 +51,11 @@ include_dirs = []
 
 这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的清单和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
 
-编辑清单时, Vizsla 语言服务器会对 `vizsla.toml` 和 `vizsla_config.toml` 提供工程相关的缺失路径 warning、路径补全、路径 document links, 以及路径字符串的跳转到定义。
+编辑清单时, TOML 结构诊断、字段补全、hover 和格式化交给 Tombi。Vizsla 只读取清单来构建工程模型, 并在清单变更后刷新工程信息。
 
 ## Tombi Schema
 
-推荐安装 [Tombi](https://github.com/tombi-toml/tombi) 来编辑 `vizsla.toml`。Tombi 可以用 JSON Schema 提供 TOML 结构诊断、字段补全、hover 和格式化; Vizsla 语言服务器继续提供工程相关能力。路径补全、链接和跳转适用于 `sources`, `include_dirs`, `libraries`, `exclude` 这些路径字段; 缺失路径 warning 不会报告 `exclude`。
+推荐安装 [Tombi](https://github.com/tombi-toml/tombi) 来编辑 `vizsla.toml`。Tombi 可以用 JSON Schema 提供 TOML 结构诊断、字段补全、hover 和格式化; Vizsla 扩展负责在检测到 Tombi 扩展时自动配置 schema 关联。
 
 如果 VS Code 中已安装 Tombi 扩展, Vizsla 扩展启动时会自动把下面的 schema 关联写入 Tombi 用户级配置, 并提示已完成配置。没有安装 Tombi 扩展时会静默跳过, 不会提示。Tombi 官方的用户级配置路径是 `$XDG_CONFIG_HOME/tombi/config.toml`, `~/.config/tombi/config.toml`, macOS 的 `~/Library/Application Support/tombi/config.toml`, 或 Windows 的 `%APPDATA%\tombi\config.toml`。
 

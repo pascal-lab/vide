@@ -37,7 +37,7 @@ impl ProjectManifest {
     }
 
     pub fn from_path(path: &AbsPathBuf) -> anyhow::Result<ProjectManifest> {
-        if path.file_name().is_some_and(is_manifest_file_name) {
+        if is_manifest_file_name(path.file_name().unwrap_or_default()) {
             return Self::from_toml(path);
         }
 

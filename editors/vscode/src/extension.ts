@@ -13,11 +13,10 @@ import {
 import { getBundledServerPath, getPlatformFolder } from './platform';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
-  PROJECT_CONFIG_DOCUMENT_SELECTORS,
+  PROJECT_CONFIG_FILE_NAMES,
   PROJECT_CONFIG_FILE_NAME,
   PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
-  getProjectConfigPaths,
 } from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
 import {
@@ -390,17 +389,22 @@ async function createMissingProjectConfigs(): Promise<void> {
       continue;
     }
 
-    const existingConfigPath = getProjectConfigPaths(folder.uri.fsPath).find((configPath) =>
-      fs.existsSync(configPath),
-    );
-    if (existingConfigPath !== undefined) {
+    const existingConfigPath = PROJECT_CONFIG_FILE_NAMES
+      .map((fileName) => getProjectConfigPath(folder.uri.fsPath, fileName))
+      .find((configPath) => fs.existsSync(configPath));
+    if (existingConfigPath) {
       log(`[INFO] Found project config: ${existingConfigPath}`);
       continue;
     }
 
-    if (!(await workspaceContainsProjectSource(folder))) {
+    const sourceFiles = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB),
+      undefined,
+      1,
+    );
+    if (sourceFiles.length === 0) {
       log(
-        `[INFO] Skipping project config creation for workspace without Verilog/SystemVerilog sources: ${folder.uri.fsPath}`,
+        `[INFO] Skipping project config creation for workspace without Verilog/SystemVerilog files: ${folder.name}`,
       );
       continue;
     }
@@ -516,15 +520,6 @@ async function configureTombiSchemaIfAvailable(): Promise<void> {
     });
 }
 
-async function workspaceContainsProjectSource(folder: vscode.WorkspaceFolder): Promise<boolean> {
-  const files = await vscode.workspace.findFiles(
-    new vscode.RelativePattern(folder, PROJECT_SOURCE_FILE_GLOB),
-    undefined,
-    1,
-  );
-  return files.length > 0;
-}
-
 async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
   const channel = requireOutputChannel();
   log('[INFO] Creating language client...');
@@ -557,7 +552,6 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
     documentSelector: [
       { scheme: 'file', language: 'verilog' },
       { scheme: 'file', language: 'systemverilog' },
-      ...PROJECT_CONFIG_DOCUMENT_SELECTORS,
     ],
     synchronize: {
       configurationSection: ['vizsla'],

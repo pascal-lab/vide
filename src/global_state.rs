@@ -1,7 +1,6 @@
 mod dispatcher;
 mod handlers;
 pub mod main_loop;
-pub(crate) mod manifest_diagnostics;
 mod mem_docs;
 pub(crate) mod process_changes;
 mod qihe;

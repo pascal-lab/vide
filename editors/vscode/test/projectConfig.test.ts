@@ -5,31 +5,15 @@ import * as path from 'node:path';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   LEGACY_PROJECT_CONFIG_FILE_NAME,
-  PROJECT_CONFIG_DOCUMENT_SELECTORS,
   PROJECT_CONFIG_FILE_NAME,
-  PROJECT_CONFIG_FILE_NAMES,
-  PROJECT_SOURCE_FILE_GLOB,
   isProjectConfigFileName,
   isProjectSourceFileName,
   getProjectConfigPath,
-  getProjectConfigPaths,
 } from '../src/projectConfig';
 
 test('uses the Vizsla project config file name', () => {
   assert.equal(PROJECT_CONFIG_FILE_NAME, 'vizsla.toml');
   assert.equal(LEGACY_PROJECT_CONFIG_FILE_NAME, 'vizsla_config.toml');
-  assert.deepEqual(PROJECT_CONFIG_FILE_NAMES, ['vizsla.toml', 'vizsla_config.toml']);
-});
-
-test('selects project configs as LSP documents by file name', () => {
-  assert.deepEqual(PROJECT_CONFIG_DOCUMENT_SELECTORS, [
-    { scheme: 'file', pattern: '**/vizsla.toml' },
-    { scheme: 'file', pattern: '**/vizsla_config.toml' },
-  ]);
-});
-
-test('uses the VS Code language contribution source glob for startup config creation', () => {
-  assert.equal(PROJECT_SOURCE_FILE_GLOB, '**/*.{v,sv,vh,svh,svi}');
 });
 
 test('resolves project config paths under workspace roots', () => {
@@ -39,15 +23,6 @@ test('resolves project config paths under workspace roots', () => {
     getProjectConfigPath(workspaceRoot),
     path.join(workspaceRoot, PROJECT_CONFIG_FILE_NAME),
   );
-});
-
-test('resolves all supported project config paths under workspace roots', () => {
-  const workspaceRoot = path.join('tmp', 'workspace');
-
-  assert.deepEqual(getProjectConfigPaths(workspaceRoot), [
-    path.join(workspaceRoot, PROJECT_CONFIG_FILE_NAME),
-    path.join(workspaceRoot, LEGACY_PROJECT_CONFIG_FILE_NAME),
-  ]);
 });
 
 test('resolves legacy project config paths under workspace roots', () => {

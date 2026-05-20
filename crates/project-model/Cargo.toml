@@ -16,7 +16,6 @@ rustc-hash.workspace = true
 serde.workspace = true
 smol_str.workspace = true
 toml = "0.8.8"
-toml_edit = "0.22.27"
 triomphe.workspace = true
 utils = { workspace = true, features = ["camino_serde1"] }
 

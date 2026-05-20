@@ -6,10 +6,6 @@ export const PROJECT_CONFIG_FILE_NAMES = [
   PROJECT_CONFIG_FILE_NAME,
   LEGACY_PROJECT_CONFIG_FILE_NAME,
 ] as const;
-export const PROJECT_CONFIG_DOCUMENT_SELECTORS = PROJECT_CONFIG_FILE_NAMES.map((fileName) => ({
-  scheme: 'file',
-  pattern: `**/${fileName}`,
-}));
 export const PROJECT_SOURCE_FILE_EXTENSIONS = [
   '.v',
   '.sv',
@@ -42,8 +38,4 @@ export function getProjectConfigPath(
   fileName = PROJECT_CONFIG_FILE_NAME,
 ): string {
   return path.join(workspaceFolderPath, fileName);
-}
-
-export function getProjectConfigPaths(workspaceFolderPath: string): string[] {
-  return PROJECT_CONFIG_FILE_NAMES.map((fileName) => path.join(workspaceFolderPath, fileName));
 }

@@ -15,7 +15,6 @@ use crate::{
 };
 
 mod code_action;
-mod manifest;
 pub(crate) use code_action::{handle_code_action, handle_code_action_resolve};
 
 pub(crate) fn handle_goto_definition(
@@ -23,10 +22,6 @@ pub(crate) fn handle_goto_definition(
     params: lsp_types::GotoDefinitionParams,
 ) -> anyhow::Result<Option<lsp_types::GotoDefinitionResponse>> {
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
-    if snap.is_manifest_file(position.file_id) {
-        return manifest::goto_definition(&snap, position);
-    }
-
     let Some(nav_info) = snap.analysis.goto_definition(position)? else {
         return Ok(None);
     };
@@ -44,10 +39,6 @@ pub(crate) fn handle_completion(
     use lsp_types::CompletionTextEdit;
 
     let position = from_proto::file_position(&snap, params.text_document_position)?;
-    if snap.is_manifest_file(position.file_id) {
-        return manifest::completion(&snap, position);
-    }
-
     let line_info = snap.line_info(position.file_id)?;
 
     let trigger = params
@@ -103,6 +94,7 @@ pub(crate) fn handle_completion(
 
     Ok(Some(lsp_types::CompletionResponse::Array(items)))
 }
+
 pub(crate) fn handle_goto_declaration(
     snap: GlobalStateSnapshot,
     params: lsp_types::request::GotoDeclarationParams,
@@ -184,7 +176,6 @@ pub(crate) fn handle_workspace_diagnostic(
             .into_iter()
             .map(|diag| to_proto::diagnostic(&line_info, diag))
             .collect::<Vec<_>>();
-        diag_items.extend(crate::global_state::manifest_diagnostics::diagnostics(&snap, file_id));
         diag_items.extend(snap.qihe_diagnostics(file_id));
 
         let result_id = snap.diagnostic_result_id(file_id);
@@ -300,10 +291,6 @@ pub(crate) fn handle_document_symbol(
     params: lsp_types::DocumentSymbolParams,
 ) -> anyhow::Result<Option<lsp_types::DocumentSymbolResponse>> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
-    if snap.is_manifest_file(file_id) {
-        return manifest::document_symbols(&snap, file_id);
-    }
-
     let line_info = snap.line_info(file_id)?;
     let symbols = snap.analysis.document_symbol(file_id)?;
 
@@ -323,18 +310,6 @@ pub(crate) fn handle_document_symbol(
     };
 
     Ok(Some(res))
-}
-
-pub(crate) fn handle_document_link(
-    snap: GlobalStateSnapshot,
-    params: lsp_types::DocumentLinkParams,
-) -> anyhow::Result<Option<Vec<lsp_types::DocumentLink>>> {
-    let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
-    if !snap.is_manifest_file(file_id) {
-        return Ok(Some(Vec::new()));
-    }
-
-    manifest::document_link(&snap, file_id)
 }
 
 pub(crate) fn handle_document_highlight(
@@ -522,9 +497,6 @@ pub(crate) fn handle_hover(
     params: lsp_types::HoverParams,
 ) -> anyhow::Result<Option<lsp_types::Hover>> {
     let position = from_proto::file_position(&snap, params.text_document_position_params)?;
-    if snap.is_manifest_file(position.file_id) {
-        return manifest::hover(&snap, position);
-    }
 
     let config = snap.config.hover();
     let hover_format = config.format;

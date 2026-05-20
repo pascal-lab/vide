@@ -5,7 +5,7 @@ use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
-use project_model::{Workspace, project_manifest::is_manifest_file_name};
+use project_model::Workspace;
 use rustc_hash::FxHashMap;
 use triomphe::Arc;
 use utils::{
@@ -14,7 +14,7 @@ use utils::{
 };
 use vfs::{FileId, Vfs, VfsPath};
 
-use super::{manifest_diagnostics, mem_docs::MemDocs};
+use super::mem_docs::MemDocs;
 use crate::{
     config::Config,
     global_state::QiheDiagnosticState,
@@ -108,7 +108,6 @@ impl GlobalStateSnapshot {
                 .collect(),
             _ => Vec::new(),
         };
-        diagnostics.extend(manifest_diagnostics::diagnostics(self, file_id));
         diagnostics.extend(self.qihe_diagnostics(file_id));
         diagnostics
     }
@@ -166,19 +165,6 @@ impl GlobalStateSnapshot {
     pub(crate) fn file_ids(&self) -> Vec<FileId> {
         let vfs = self.vfs.read();
         vfs.0.iter().map(|(file_id, _)| file_id).collect()
-    }
-
-    pub(crate) fn is_manifest_file(&self, file_id: FileId) -> bool {
-        let vfs = self.vfs_read();
-        vfs.file_path(file_id)
-            .and_then(|path| path.as_abs_path())
-            .and_then(|path| path.file_name())
-            .is_some_and(is_manifest_file_name)
-    }
-
-    pub(crate) fn file_abs_path(&self, file_id: FileId) -> Option<AbsPathBuf> {
-        let vfs = self.vfs_read();
-        vfs.file_path(file_id).and_then(|path| path.as_abs_path()).map(|path| path.to_path_buf())
     }
 
     pub(crate) fn url(&self, id: FileId) -> anyhow::Result<Url> {
