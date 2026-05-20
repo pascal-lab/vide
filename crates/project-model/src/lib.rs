@@ -1,5 +1,6 @@
 pub mod macro_def;
 pub mod project_manifest;
+mod toml_manifest;
 mod toml_workspace;
 
 use std::collections::VecDeque;
@@ -11,7 +12,7 @@ use base_db::{
 };
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
-pub use toml_workspace::{
+pub use toml_manifest::{
     TomlManifestDiagnostic, TomlManifestField, TomlManifestPath, toml_manifest_diagnostics,
     toml_manifest_field_at_offset, toml_manifest_fields, toml_manifest_path_at_offset,
     toml_manifest_paths,
