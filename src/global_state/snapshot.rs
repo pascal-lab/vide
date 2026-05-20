@@ -205,7 +205,7 @@ impl GlobalStateSnapshot {
         vfs.0.iter().map(|(file_id, _)| file_id).collect()
     }
 
-    fn is_manifest_file(&self, file_id: FileId) -> bool {
+    pub(crate) fn is_manifest_file(&self, file_id: FileId) -> bool {
         let vfs = self.vfs_read();
         vfs.file_path(file_id)
             .and_then(|path| path.as_abs_path())

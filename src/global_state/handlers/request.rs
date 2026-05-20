@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use ide::{folding_ranges::FoldingConfig, references::References};
 use itertools::Itertools;
 use span::{FilePosition, FileRange};
-use utils::text_edit::TextRange;
+use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
@@ -39,6 +39,10 @@ pub(crate) fn handle_completion(
     use lsp_types::CompletionTextEdit;
 
     let position = from_proto::file_position(&snap, params.text_document_position)?;
+    if snap.is_manifest_file(position.file_id) {
+        return manifest_completion(&snap, position);
+    }
+
     let line_info = snap.line_info(position.file_id)?;
 
     let trigger = params
@@ -93,6 +97,118 @@ pub(crate) fn handle_completion(
 
     Ok(Some(lsp_types::CompletionResponse::Array(items)))
 }
+
+fn manifest_completion(
+    snap: &GlobalStateSnapshot,
+    position: FilePosition,
+) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
+    let text = snap.file_text(position.file_id)?;
+    let offset = usize::try_from(u32::from(position.offset)).unwrap_or(usize::MAX).min(text.len());
+    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    let line_prefix = &text[line_start..offset];
+    if line_prefix.trim_start().starts_with('#')
+        || line_prefix.contains('=')
+        || line_prefix.matches('"').count() % 2 == 1
+    {
+        return Ok(None);
+    }
+
+    let replace_start = line_start
+        + line_prefix
+            .char_indices()
+            .rev()
+            .find_map(|(idx, ch)| (!is_manifest_key_char(ch)).then_some(idx + ch.len_utf8()))
+            .unwrap_or(0);
+    let replacement = TextRange::new(to_text_size(replace_start), to_text_size(offset));
+    let line_info = snap.line_info(position.file_id)?;
+    let snippet_support = snap.config.cli_completion_snippet_support();
+
+    let items = MANIFEST_FIELD_COMPLETIONS
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            let new_text = if snippet_support { item.snippet } else { item.plain };
+            lsp_types::CompletionItem {
+                label: item.key.to_string(),
+                kind: Some(lsp_types::CompletionItemKind::FIELD),
+                detail: Some(item.detail.to_string()),
+                documentation: Some(lsp_types::Documentation::String(
+                    item.documentation.to_string(),
+                )),
+                sort_text: Some(format!("{idx:02}_{}", item.key)),
+                insert_text_format: snippet_support.then_some(lsp_types::InsertTextFormat::SNIPPET),
+                text_edit: Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
+                    range: to_proto::range(&line_info, replacement),
+                    new_text: new_text.to_string(),
+                })),
+                ..Default::default()
+            }
+        })
+        .collect();
+
+    Ok(Some(lsp_types::CompletionResponse::Array(items)))
+}
+
+fn is_manifest_key_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn to_text_size(value: usize) -> TextSize {
+    TextSize::new(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+struct ManifestFieldCompletion {
+    key: &'static str,
+    plain: &'static str,
+    snippet: &'static str,
+    detail: &'static str,
+    documentation: &'static str,
+}
+
+const MANIFEST_FIELD_COMPLETIONS: &[ManifestFieldCompletion] = &[
+    ManifestFieldCompletion {
+        key: "sources",
+        plain: "sources = [\"rtl\"]",
+        snippet: "sources = [\"${1:rtl}\"]",
+        detail: "Source scan roots",
+        documentation: "Directories or files to load as source roots. Omitted sources do not scan the workspace root.",
+    },
+    ManifestFieldCompletion {
+        key: "include_dirs",
+        plain: "include_dirs = [\"include\"]",
+        snippet: "include_dirs = [\"${1:include}\"]",
+        detail: "Include search roots",
+        documentation: "Directories used for preprocessing include lookup. Omitted include_dirs default to the final sources.",
+    },
+    ManifestFieldCompletion {
+        key: "defines",
+        plain: "defines = [\"SYNTHESIS\"]",
+        snippet: "defines = [\"${1:SYNTHESIS}\"]",
+        detail: "Predefined macros",
+        documentation: "Predefine macros as NAME or NAME=value strings.",
+    },
+    ManifestFieldCompletion {
+        key: "libraries",
+        plain: "libraries = [\"../lib\"]",
+        snippet: "libraries = [\"${1:../lib}\"]",
+        detail: "Library workspaces",
+        documentation: "External library or dependency workspace paths.",
+    },
+    ManifestFieldCompletion {
+        key: "top_modules",
+        plain: "top_modules = [\"top\"]",
+        snippet: "top_modules = [\"${1:top}\"]",
+        detail: "Top modules",
+        documentation: "Optional top module names for the compilation profile.",
+    },
+    ManifestFieldCompletion {
+        key: "exclude",
+        plain: "exclude = [\"build\"]",
+        snippet: "exclude = [\"${1:build}\"]",
+        detail: "Excluded paths",
+        documentation: "Paths to remove from sources, include_dirs, and libraries.",
+    },
+];
 
 pub(crate) fn handle_goto_declaration(
     snap: GlobalStateSnapshot,
