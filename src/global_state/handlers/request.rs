@@ -5,6 +5,7 @@ use std::{
 
 use ide::{folding_ranges::FoldingConfig, references::References};
 use itertools::Itertools;
+use project_model::{toml_manifest_field_at_offset, toml_manifest_path_at_offset};
 use span::{FilePosition, FileRange};
 use utils::{
     paths::AbsPath,
@@ -47,7 +48,7 @@ fn manifest_goto_definition(
 ) -> anyhow::Result<Option<lsp_types::GotoDefinitionResponse>> {
     let text = snap.file_text(position.file_id)?;
     let offset = usize::try_from(u32::from(position.offset)).unwrap_or(usize::MAX).min(text.len());
-    let Some(context) = manifest_path_string_context(&text, offset) else {
+    let Some(context) = toml_manifest_path_at_offset(&text, offset) else {
         return Ok(None);
     };
     if context.value.is_empty() {
@@ -204,7 +205,7 @@ fn manifest_path_completion(
     text: &str,
     offset: usize,
 ) -> anyhow::Result<Option<lsp_types::CompletionResponse>> {
-    let Some(context) = manifest_path_completion_context(text, offset) else {
+    let Some(context) = toml_manifest_path_at_offset(text, offset) else {
         return Ok(None);
     };
     let Some(manifest_path) = snap.file_abs_path(file_id) else {
@@ -215,8 +216,14 @@ fn manifest_path_completion(
     };
 
     let line_info = snap.line_info(file_id)?;
-    let replacement = to_proto::range(&line_info, context.replacement);
-    let items = manifest_path_completion_items(manifest_dir, &context.prefix, replacement);
+    let replacement =
+        TextRange::new(to_text_size(context.content_range.start), to_text_size(offset));
+    let prefix = &text[context.content_range.start..offset];
+    let items = manifest_path_completion_items(
+        manifest_dir,
+        prefix,
+        to_proto::range(&line_info, replacement),
+    );
 
     Ok(Some(lsp_types::CompletionResponse::Array(items)))
 }
@@ -277,137 +284,16 @@ fn manifest_path_completion_items(
     items
 }
 
-struct ManifestPathCompletionContext {
-    prefix: String,
-    replacement: TextRange,
-}
-
-fn manifest_path_completion_context(
-    text: &str,
-    offset: usize,
-) -> Option<ManifestPathCompletionContext> {
-    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    let line_end = text[offset..].find('\n').map(|idx| offset + idx).unwrap_or(text.len());
-    let line = &text[line_start..line_end];
-    if line.trim_start().starts_with('#') {
-        return None;
-    }
-
-    let (quote_count, quote_start) = unescaped_quote_state(&text[line_start..offset], line_start);
-    if quote_count % 2 == 0 {
-        return None;
-    }
-    let quote_start = quote_start?;
-    let key = manifest_assignment_key_before_offset(text, line_start, line_end)?;
-    if !MANIFEST_PATH_FIELDS.contains(&key) {
-        return None;
-    }
-
-    Some(ManifestPathCompletionContext {
-        prefix: text[quote_start + 1..offset].to_string(),
-        replacement: TextRange::new(to_text_size(quote_start + 1), to_text_size(offset)),
-    })
-}
-
-struct ManifestPathStringContext {
-    value: String,
-}
-
-fn manifest_path_string_context(text: &str, offset: usize) -> Option<ManifestPathStringContext> {
-    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    let line_end = text[offset..].find('\n').map(|idx| offset + idx).unwrap_or(text.len());
-    let line = &text[line_start..line_end];
-    if line.trim_start().starts_with('#') {
-        return None;
-    }
-
-    let (quote_count, quote_start) = unescaped_quote_state(&text[line_start..offset], line_start);
-    if quote_count % 2 == 0 {
-        return None;
-    }
-    let quote_start = quote_start?;
-    let key = manifest_assignment_key_before_offset(text, line_start, line_end)?;
-    if !MANIFEST_PATH_FIELDS.contains(&key) {
-        return None;
-    }
-
-    let quote_end = next_unescaped_quote(&text[offset..line_end], offset)?;
-    Some(ManifestPathStringContext { value: text[quote_start + 1..quote_end].to_string() })
-}
-
-fn unescaped_quote_state(text: &str, base_offset: usize) -> (usize, Option<usize>) {
-    let mut count = 0;
-    let mut last = None;
-    let mut escaped = false;
-
-    for (idx, byte) in text.bytes().enumerate() {
-        if escaped {
-            escaped = false;
-        } else if byte == b'\\' {
-            escaped = true;
-        } else if byte == b'"' {
-            count += 1;
-            last = Some(base_offset + idx);
-        }
-    }
-
-    (count, last)
-}
-
-fn next_unescaped_quote(text: &str, base_offset: usize) -> Option<usize> {
-    let mut escaped = false;
-    for (idx, byte) in text.bytes().enumerate() {
-        if escaped {
-            escaped = false;
-        } else if byte == b'\\' {
-            escaped = true;
-        } else if byte == b'"' {
-            return Some(base_offset + idx);
-        }
-    }
-
-    None
-}
-
-fn manifest_assignment_key_before_offset(
-    text: &str,
-    line_start: usize,
-    line_end: usize,
-) -> Option<&str> {
-    let current_line = &text[line_start..line_end];
-    if let Some(key) = manifest_assignment_key(current_line) {
-        return Some(key);
-    }
-
-    let mut cursor = line_start;
-    while cursor > 0 {
-        let prev_end = cursor - 1;
-        let prev_start = text[..prev_end].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-        let line = &text[prev_start..prev_end];
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            cursor = prev_start;
-            continue;
-        }
-
-        return manifest_assignment_key(line);
-    }
-
-    None
-}
-
-fn manifest_assignment_key(line: &str) -> Option<&str> {
-    let eq = line.find('=')?;
-    Some(line[..eq].trim())
-}
-
 fn manifest_hover(
     snap: &GlobalStateSnapshot,
     position: FilePosition,
 ) -> anyhow::Result<Option<lsp_types::Hover>> {
     let text = snap.file_text(position.file_id)?;
     let offset = usize::try_from(u32::from(position.offset)).unwrap_or(usize::MAX).min(text.len());
-    let Some((item, range)) = manifest_field_at_offset(&text, offset) else {
+    let Some(field) = toml_manifest_field_at_offset(&text, offset) else {
+        return Ok(None);
+    };
+    let Some(item) = MANIFEST_FIELD_COMPLETIONS.iter().find(|item| item.key == field.key) else {
         return Ok(None);
     };
 
@@ -419,50 +305,15 @@ fn manifest_hover(
             kind: lsp_types::MarkupKind::Markdown,
             value,
         }),
-        range: Some(to_proto::range(&line_info, range)),
+        range: Some(to_proto::range(
+            &line_info,
+            TextRange::new(to_text_size(field.key_range.start), to_text_size(field.key_range.end)),
+        )),
     }))
-}
-
-fn manifest_field_at_offset(
-    text: &str,
-    offset: usize,
-) -> Option<(&'static ManifestFieldCompletion, TextRange)> {
-    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    let line_end = text[offset..].find('\n').map(|idx| offset + idx).unwrap_or(text.len());
-    let line = &text[line_start..line_end];
-    let line_prefix = &text[line_start..offset];
-    if line.trim_start().starts_with('#') || line_prefix.contains('=') {
-        return None;
-    }
-
-    let bytes = text.as_bytes();
-    let at_key = offset < line_end && is_manifest_key_byte(bytes[offset]);
-    let after_key = offset > line_start && is_manifest_key_byte(bytes[offset - 1]);
-    if !at_key && !after_key {
-        return None;
-    }
-
-    let mut start = offset;
-    while start > line_start && is_manifest_key_byte(bytes[start - 1]) {
-        start -= 1;
-    }
-
-    let mut end = offset;
-    while end < line_end && is_manifest_key_byte(bytes[end]) {
-        end += 1;
-    }
-
-    let key = &text[start..end];
-    let item = MANIFEST_FIELD_COMPLETIONS.iter().find(|item| item.key == key)?;
-    Some((item, TextRange::new(to_text_size(start), to_text_size(end))))
 }
 
 fn is_manifest_key_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
-}
-
-fn is_manifest_key_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn to_text_size(value: usize) -> TextSize {
@@ -521,8 +372,6 @@ const MANIFEST_FIELD_COMPLETIONS: &[ManifestFieldCompletion] = &[
         documentation: "Paths to remove from sources, include_dirs, and libraries.",
     },
 ];
-
-const MANIFEST_PATH_FIELDS: &[&str] = &["sources", "include_dirs", "libraries", "exclude"];
 
 pub(crate) fn handle_goto_declaration(
     snap: GlobalStateSnapshot,
