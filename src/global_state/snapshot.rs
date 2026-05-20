@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::Context;
 use ide::{Cancellable, analysis::Analysis};
@@ -7,6 +7,7 @@ use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use project_model::{
     Workspace, project_manifest::is_manifest_file_name, toml_manifest_diagnostics,
+    toml_manifest_paths,
 };
 use rustc_hash::FxHashMap;
 use triomphe::Arc;
@@ -128,24 +129,61 @@ impl GlobalStateSnapshot {
             return Vec::new();
         };
 
-        toml_manifest_diagnostics(&text)
+        let schema_diagnostics = toml_manifest_diagnostics(&text);
+        if !schema_diagnostics.is_empty() {
+            return schema_diagnostics
+                .into_iter()
+                .map(|diag| {
+                    let range = diag
+                        .range
+                        .map(|range| byte_range_to_text_range(range, text.len()))
+                        .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
+                    lsp_types::Diagnostic {
+                        range: to_proto::range(&line_info, range),
+                        severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                        code: Some(lsp_types::NumberOrString::String("manifest".to_string())),
+                        code_description: None,
+                        source: Some("vizsla".to_string()),
+                        message: diag.message,
+                        related_information: None,
+                        tags: None,
+                        data: None,
+                    }
+                })
+                .collect();
+        }
+
+        let Some(manifest_path) = self.file_abs_path(file_id) else {
+            return Vec::new();
+        };
+        let Some(manifest_dir) = manifest_path.parent() else {
+            return Vec::new();
+        };
+
+        toml_manifest_paths(&text)
             .into_iter()
-            .map(|diag| {
-                let range = diag
-                    .range
-                    .map(|range| byte_range_to_text_range(range, text.len()))
-                    .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
-                lsp_types::Diagnostic {
+            .filter(|path| path.key != "exclude")
+            .filter_map(|path| {
+                let target = manifest_dir.absolutize(path.value.replace('\\', "/"));
+                if fs::metadata(target.as_path()).is_ok() {
+                    return None;
+                }
+
+                let range = byte_range_to_text_range(path.content_range.clone(), text.len());
+                Some(lsp_types::Diagnostic {
                     range: to_proto::range(&line_info, range),
-                    severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                    code: Some(lsp_types::NumberOrString::String("manifest".to_string())),
+                    severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                    code: Some(lsp_types::NumberOrString::String("manifest.path".to_string())),
                     code_description: None,
                     source: Some("vizsla".to_string()),
-                    message: diag.message,
+                    message: format!(
+                        "manifest path does not exist for `{}`: {}",
+                        path.key, path.value
+                    ),
                     related_information: None,
                     tags: None,
                     data: None,
-                }
+                })
             })
             .collect()
     }

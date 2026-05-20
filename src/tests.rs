@@ -1756,6 +1756,87 @@ fn project_manifest_reports_toml_schema_diagnostics() {
 }
 
 #[test]
+fn project_manifest_reports_missing_path_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new("manifest-missing-path-diagnostics");
+    let manifest_text = "sources = [\"missing\"]\nexclude = [\"future-generated\"]\n";
+    let manifest_path = temp_dir.path().join("vizsla.toml");
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = thread::spawn(move || main_loop::main_loop(config, server));
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: manifest_uri.clone(),
+                    language_id: "toml".to_string(),
+                    version: 1,
+                    text: manifest_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: manifest_uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert_eq!(
+        diagnostics.iter().filter(|diag| diag.message.contains("path does not exist")).count(),
+        1,
+        "only non-exclude missing paths should be reported: {diagnostics:?}"
+    );
+    let diagnostic = diagnostics
+        .iter()
+        .find(|diag| diag.message.contains("manifest path does not exist for `sources`"))
+        .expect("sources missing path diagnostic expected");
+    assert_eq!(diagnostic.severity, Some(lsp_types::DiagnosticSeverity::WARNING));
+    assert_eq!(diagnostic.range.start, Position { line: 0, character: 12 });
+    assert_eq!(diagnostic.range.end, Position { line: 0, character: 19 });
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn project_manifest_completes_top_level_fields() {
     let temp_dir = TempDir::new("manifest-completion");
     let manifest_text = "sou";
