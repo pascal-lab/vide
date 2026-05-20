@@ -79,7 +79,9 @@ impl SourceRoot {
         let Some(source_files) = &self.source_files else {
             return kind;
         };
-        if matches!(kind, SourceFileKind::LibraryMap) || source_files.contains(file) {
+        if matches!(kind, SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest)
+            || source_files.contains(file)
+        {
             kind
         } else {
             SourceFileKind::IncludeHeader
@@ -150,5 +152,15 @@ mod tests {
 
         assert_eq!(root.role(), SourceRootRole::Ignored);
         assert_eq!(root.file_kind(&file_id), SourceFileKind::SystemVerilog);
+    }
+
+    #[test]
+    fn source_filtered_root_preserves_project_manifest_kind() {
+        let mut file_set = FileSet::default();
+        let file_id = FileId(0);
+        file_set.insert(file_id, VfsPath::new_virtual_path("/root/vizsla.toml".into()));
+        let root = SourceRoot::new_local_with_source_files(file_set, Vec::new());
+
+        assert_eq!(root.file_kind(&file_id), SourceFileKind::ProjectManifest);
     }
 }

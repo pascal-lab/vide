@@ -1593,7 +1593,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
     };
     let temp_dir = TempDir::new("manifest-diagnostics");
     let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\n";
-    let manifest_path = temp_dir.path().join("vizsla_config.toml");
+    let manifest_path = temp_dir.path().join("vizsla.toml");
     fs::write(&manifest_path, manifest_text).unwrap();
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
 
