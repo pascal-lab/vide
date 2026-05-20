@@ -2,8 +2,7 @@ import * as path from 'node:path';
 
 export const PROJECT_CONFIG_FILE_NAME = 'vizsla_config.toml';
 
-export const DEFAULT_PROJECT_CONFIG_TEXT = `# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
-# Do not delete them unless you want omitted fields to default to the workspace root.
+export const DEFAULT_PROJECT_CONFIG_TEXT = `# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []

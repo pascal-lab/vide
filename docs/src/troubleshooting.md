@@ -78,14 +78,13 @@ npm run package
 VS Code 扩展会在缺少清单时创建默认 `vizsla_config.toml`:
 
 ```toml
-# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
-# Do not delete them unless you want omitted fields to default to the workspace root.
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```
 
-这个默认清单和无清单都会保留打开文件的 syntax/parse diagnostics, 但不会扫描工程文件或启用 semantic diagnostics; 需要语义诊断和跨文件能力时, 请写入实际的 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules` 等工程字段。我们不会自动向父目录或子目录搜索清单。
+这个默认清单和无清单都会保留打开文件的 syntax/parse diagnostics, 但不会扫描工程文件或启用 semantic diagnostics; 需要语义诊断和跨文件能力时, 请写入实际的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。我们不会自动向父目录或子目录搜索清单。
 
 ## include 或宏没有生效
 

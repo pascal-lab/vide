@@ -372,7 +372,7 @@ libraries = ["../pkg/rtl"]
     }
 
     #[test]
-    fn empty_manifest_has_compilation_profile() {
+    fn empty_manifest_has_no_compilation_profile() {
         let root = TestDir::new("project-model-empty-manifest");
         fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "").unwrap();
 
@@ -382,7 +382,7 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert!(project_config.profile_for_root(SourceRootId(0)).is_some());
+        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
     }
 
     #[test]

@@ -105,7 +105,6 @@ impl TomlWorkspace {
         let toml_schema: TomlManifestSchema =
             toml::from_str(&toml_file).with_context(|| format!("failed to parse {:?}", toml))?;
 
-        let configures_semantic_diagnostics = true;
         let top_modules = toml_schema.top_modules;
         let workspace_root = toml
             .parent()
@@ -120,7 +119,6 @@ impl TomlWorkspace {
             .collect_vec();
         sort_and_remove_subfolders(&mut exclude);
 
-        let sources_was_configured = toml_schema.sources.is_some();
         let include_dirs_was_configured = toml_schema.include_dirs.is_some();
         let mut sources = Vec::new();
         let mut include_dirs = Vec::new();
@@ -155,12 +153,10 @@ impl TomlWorkspace {
         sort_and_remove_subfolders(&mut include_dirs);
         sort_and_remove_subfolders(&mut package);
 
-        if sources.is_empty() && !sources_was_configured {
-            sources.push(workspace_root.clone());
-        }
         if include_dirs.is_empty() && !include_dirs_was_configured {
             include_dirs = sources.clone();
         }
+        let configures_semantic_diagnostics = !sources.is_empty() || !include_dirs.is_empty();
 
         Ok(TomlWorkspace {
             top_modules,
@@ -236,15 +232,15 @@ defines = [
     }
 
     #[test]
-    fn empty_manifest_loads_root_with_semantic_configuration() {
+    fn empty_manifest_uses_syntax_only_default() {
         let root = TestDir::new("empty-manifest");
         let manifest = root.write("vizsla_config.toml", "");
 
         let workspace = TomlWorkspace::load_from_file(&manifest, false).unwrap();
 
-        assert_eq!(workspace.sources, [root.path().to_path_buf()]);
-        assert_eq!(workspace.include_dirs, [root.path().to_path_buf()]);
-        assert!(workspace.configures_semantic_diagnostics);
+        assert!(workspace.sources.is_empty());
+        assert!(workspace.include_dirs.is_empty());
+        assert!(!workspace.configures_semantic_diagnostics);
     }
 
     #[test]

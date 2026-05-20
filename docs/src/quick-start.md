@@ -11,8 +11,7 @@
 用 VS Code 打开包含 RTL 源码的目录。没有 `vizsla_config.toml` 时, 扩展会创建默认清单并弹出提示:
 
 ```toml
-# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
-# Do not delete them unless you want omitted fields to default to the workspace root.
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
@@ -45,4 +44,4 @@ include_dirs = []
 
 配置变更后, 如果 VS Code 提示重启语言服务器, 选择 `Restart`。
 
-需要跨文件语义诊断、跳转和端口/参数相关能力时, 请在 `vizsla_config.toml` 中写入实际的 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules` 等工程字段。
+需要跨文件语义诊断、跳转和端口/参数相关能力时, 请在 `vizsla_config.toml` 中写入实际的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。

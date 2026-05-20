@@ -44,8 +44,7 @@ type TempDir = TestDir;
 const LSP_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TEST_CONFIG: &str = "sources = [\".\"]\ninclude_dirs = [\".\"]\n";
 const SYNTAX_ONLY_TEST_CONFIG: &str = "\
-# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
-# Do not delete them unless you want omitted fields to default to the workspace root.
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = [\"rtl\"] and include_dirs = [\"include\"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
@@ -107,6 +106,14 @@ fn setup_syntax_only_config_diagnostics_test(
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
     setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(SYNTAX_ONLY_TEST_CONFIG))
+}
+
+fn setup_empty_config_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(""))
 }
 
 fn setup_diagnostics_test_inner(
@@ -1061,6 +1068,52 @@ endmodule
 }
 
 #[test]
+fn empty_config_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_empty_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "empty configs should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn syntax_only_config_workspace_reports_parse_diagnostics() {
     let pull_caps = ClientCapabilities {
         text_document: Some(TextDocumentClientCapabilities {
@@ -1644,7 +1697,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
     let rtl_dir = temp_dir.path().join("rtl");
     fs::create_dir_all(&ignored_dir).unwrap();
     fs::create_dir_all(&rtl_dir).unwrap();
-    fs::write(&manifest_path, "").unwrap();
+    fs::write(&manifest_path, DEFAULT_TEST_CONFIG).unwrap();
     fs::write(ignored_dir.join("ignored.sv"), "module ignored(;\nendmodule\n").unwrap();
     fs::write(rtl_dir.join("top.sv"), "module top;\nendmodule\n").unwrap();
 
@@ -1701,7 +1754,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
                 .any(|diag| diag.message.contains("expected"));
         }
     }
-    assert!(saw_ignored_diagnostic, "empty config should diagnose ignored.sv");
+    assert!(saw_ignored_diagnostic, "root-scanning config should diagnose ignored.sv");
 
     fs::write(
         &manifest_path,

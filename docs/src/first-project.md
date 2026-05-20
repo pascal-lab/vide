@@ -24,14 +24,13 @@ code D:\work\my-rtl
 如果 VS Code 打开的 workspace root 下没有 `vizsla_config.toml`, 扩展会创建默认清单并弹出提示:
 
 ```toml
-# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
-# Do not delete them unless you want omitted fields to default to the workspace root.
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```
 
-这个默认清单不会扫描 workspace root, 只运行打开文件的 syntax/parse diagnostics, 不运行 semantic diagnostics。这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules` 来启用语义诊断和跨文件能力。
+这个默认清单不会扫描 workspace root, 只运行打开文件的 syntax/parse diagnostics, 不运行 semantic diagnostics。这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用语义诊断和跨文件能力。
 
 如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla_config.toml`, Vizsla 只保留 syntax/parse diagnostics, 不运行 semantic diagnostics。
 

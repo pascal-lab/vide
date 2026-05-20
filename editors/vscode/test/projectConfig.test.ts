@@ -25,8 +25,7 @@ test('default project config keeps startup diagnostics syntax-only', () => {
   assert.equal(
     DEFAULT_PROJECT_CONFIG_TEXT,
     [
-      '# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.',
-      '# Do not delete them unless you want omitted fields to default to the workspace root.',
+      '# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.',
       '# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.',
       'sources = []',
       'include_dirs = []',

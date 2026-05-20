@@ -40,14 +40,13 @@ exclude = [
 VS Code 在缺少清单时会生成 syntax-only 默认清单:
 
 ```toml
-# Syntax-only startup config. Keep these empty arrays to avoid scanning the workspace.
-# Do not delete them unless you want omitted fields to default to the workspace root.
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []
 ```
 
-这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。需要 semantic diagnostics 和跨文件能力时, 请把 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules` 改成符合工程结构的实际配置。空文件不是这个默认清单; 如果手动保留空的 `vizsla_config.toml`, 字段会按省略规则处理。
+这个默认清单不扫描工程目录, 也不建立编译 profile; 打开的文件仍会获得 syntax/parse diagnostics。空的 `vizsla_config.toml` 和省略 `sources` 的清单也不会扫描 workspace root。需要 semantic diagnostics 和跨文件能力时, 请写入符合工程结构的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
 
 ## 字段说明
 
@@ -55,8 +54,8 @@ include_dirs = []
 | --- | --- | --- |
 | `top_modules` | 字符串数组 | 声明当前工程的顶层模块名。我们会把它写入编译 profile。 |
 | `defines` | 字符串数组 | 预定义宏。支持 `"NAME"` 和 `"NAME=value"` 两种形式。 |
-| `sources` | 路径数组或省略 | 源文件扫描根目录。省略时默认使用 workspace root。显式写成 `[]` 时不会回退到 workspace root。 |
-| `include_dirs` | 路径数组或省略 | 预处理 include 搜索目录。省略时默认等于 `sources`。显式写成 `[]` 时不会回退。 |
+| `sources` | 路径数组或省略 | 源文件扫描根目录。省略时等同于 `[]`, 不会扫描 workspace root。 |
+| `include_dirs` | 路径数组或省略 | 预处理 include 搜索目录。省略时默认等于最终的 `sources`。显式写成 `[]` 时不会回退。 |
 | `libraries` | 路径数组 | 外部库或依赖工程。我们会把它们作为 library workspace 加载。 |
 | `exclude` | 路径数组 | 从 `sources`, `include_dirs`, `libraries` 中排除的目录。 |
 
