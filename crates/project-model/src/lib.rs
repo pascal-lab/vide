@@ -18,12 +18,24 @@ pub use toml_workspace::{
 };
 use triomphe::Arc;
 use utils::paths::{AbsPathBuf, sort_and_remove_subfolders};
-use vfs::{FileSetConfig, VfsPath};
+use vfs::{FileSetConfig, FileSetFilter, PathSelection, VfsPath};
 
-use crate::{project_manifest::ProjectManifest, toml_workspace::TomlWorkspace};
+use crate::{
+    macro_def::MacroDef, project_manifest::ProjectManifest, toml_workspace::TomlWorkspace,
+};
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Workspace(pub TomlWorkspace);
+pub struct Workspace {
+    top_modules: Vec<String>,
+    workspace_root: AbsPathBuf,
+    macro_defs: MacroDef,
+    source: PathSelection,
+    include_dirs: Vec<AbsPathBuf>,
+    exclude: Vec<AbsPathBuf>,
+    library_paths: Vec<AbsPathBuf>,
+    is_lib: bool,
+    configures_semantic_diagnostics: bool,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProjectModel {
@@ -33,15 +45,15 @@ pub struct ProjectModel {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct WorkspaceRoot {
     pub is_lib: bool,
-    pub sources: Vec<AbsPathBuf>,
+    pub source: PathSelection,
     pub include_dirs: Vec<AbsPathBuf>,
     pub exclude: Vec<AbsPathBuf>,
 }
 
 impl WorkspaceRoot {
     pub fn load_paths(&self) -> Vec<AbsPathBuf> {
-        let mut paths = self.sources.clone();
-        paths.extend(self.include_dirs.iter().cloned());
+        let mut paths = self.include_dirs.clone();
+        paths.extend(self.source.roots.iter().cloned());
         sort_and_remove_subfolders(&mut paths);
         paths
     }
@@ -56,49 +68,133 @@ impl Workspace {
     fn load_helper(manifest: &ProjectManifest, is_lib: bool) -> anyhow::Result<Workspace> {
         match manifest {
             ProjectManifest::Toml(toml) => {
-                let toml_workspaces = TomlWorkspace::load_from_file(toml, is_lib)
+                let toml_workspace = TomlWorkspace::load_from_file(toml)
                     .with_context(|| "failed to load workspace in {manifest:?}")?;
 
-                Ok(Self(toml_workspaces))
+                Self::from_toml(toml_workspace, is_lib)
             }
             ProjectManifest::UnconfiguredRoot(path) => {
-                Ok(Self(TomlWorkspace::from_unconfigured_root(path, is_lib)))
+                Ok(Self::from_unconfigured_root(path, is_lib))
             }
+        }
+    }
+
+    fn from_toml(toml: TomlWorkspace, is_lib: bool) -> anyhow::Result<Self> {
+        let TomlWorkspace {
+            top_modules,
+            workspace_root,
+            macro_defs,
+            sources,
+            include_dirs,
+            libraries,
+            mut exclude,
+        } = toml;
+
+        sort_and_remove_subfolders(&mut exclude);
+        let mut source_paths = Vec::new();
+        let mut library_paths = libraries;
+        for path in sources {
+            if is_excluded(&path, &exclude) {
+                continue;
+            }
+            if path.starts_with(&workspace_root) {
+                source_paths.push(path);
+            } else {
+                library_paths.push(path);
+            }
+        }
+        sort_and_remove_subfolders(&mut source_paths);
+
+        let include_dirs = resolve_include_dirs(include_dirs, &source_paths, &exclude);
+        let library_paths = resolve_library_paths(library_paths, &exclude);
+        let configures_semantic_diagnostics = !source_paths.is_empty() || !include_dirs.is_empty();
+        let source = PathSelection::all(source_paths);
+
+        Ok(Self {
+            top_modules,
+            workspace_root,
+            macro_defs,
+            source,
+            include_dirs,
+            exclude,
+            library_paths,
+            is_lib,
+            configures_semantic_diagnostics,
+        })
+    }
+
+    fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
+        let source_roots = if is_lib { vec![path.clone()] } else { Vec::new() };
+        let include_dirs = source_roots.clone();
+        Self {
+            top_modules: Vec::new(),
+            workspace_root: path.clone(),
+            macro_defs: MacroDef::default(),
+            source: PathSelection::all(source_roots),
+            include_dirs,
+            exclude: Vec::new(),
+            library_paths: Vec::new(),
+            is_lib,
+            configures_semantic_diagnostics: false,
         }
     }
 
     pub fn to_roots(&self) -> Vec<WorkspaceRoot> {
-        let Workspace(TomlWorkspace { sources, include_dirs, exclude, is_lib, .. }) = self;
         vec![WorkspaceRoot {
-            is_lib: *is_lib,
-            sources: sources.to_vec(),
-            include_dirs: include_dirs.to_vec(),
-            exclude: exclude.to_vec(),
+            is_lib: self.is_lib,
+            source: self.source.clone(),
+            include_dirs: self.include_dirs.clone(),
+            exclude: self.exclude.clone(),
         }]
     }
 
     fn top_modules(&self) -> Vec<String> {
-        self.0.top_modules.clone()
+        self.top_modules.clone()
     }
 
     fn root(&self) -> &AbsPathBuf {
-        &self.0.workspace_root
+        &self.workspace_root
     }
 
     fn library_paths(&self) -> &[AbsPathBuf] {
-        &self.0.package
+        &self.library_paths
     }
 
     fn enables_semantic_diagnostics(&self) -> bool {
-        self.0.configures_semantic_diagnostics || self.0.is_lib
+        self.configures_semantic_diagnostics || self.is_lib
+    }
+
+    pub fn is_lib(&self) -> bool {
+        self.is_lib
     }
 
     fn preprocess_config(&self) -> PreprocessConfig {
         PreprocessConfig {
-            predefines: self.0.macro_defs.to_predefine_strings(),
-            include_dirs: self.0.include_dirs.clone(),
+            predefines: self.macro_defs.to_predefine_strings(),
+            include_dirs: self.include_dirs.clone(),
         }
     }
+}
+
+fn resolve_include_dirs(
+    configured: Option<Vec<AbsPathBuf>>,
+    source_paths: &[AbsPathBuf],
+    exclude: &[AbsPathBuf],
+) -> Vec<AbsPathBuf> {
+    let mut include_dirs = configured.unwrap_or_else(|| source_paths.to_vec());
+    include_dirs.retain(|path| !is_excluded(path, exclude));
+    sort_and_remove_subfolders(&mut include_dirs);
+    include_dirs
+}
+
+fn resolve_library_paths(mut paths: Vec<AbsPathBuf>, exclude: &[AbsPathBuf]) -> Vec<AbsPathBuf> {
+    paths.retain(|path| !is_excluded(path, exclude));
+    sort_and_remove_subfolders(&mut paths);
+    paths
+}
+
+fn is_excluded(path: &AbsPathBuf, exclude: &[AbsPathBuf]) -> bool {
+    exclude.iter().any(|excluded| path.starts_with(excluded))
 }
 
 impl ProjectModel {
@@ -122,7 +218,7 @@ impl ProjectModel {
                 }
             };
 
-            for package in &workspace.0.package {
+            for package in workspace.library_paths() {
                 match ProjectManifest::from_path(package) {
                     Ok(manifest) => {
                         if !loaded_manifests.contains(&manifest) {
@@ -149,7 +245,6 @@ pub fn get_workspace_folder(
     let mut fsc = FileSetConfig::builder();
     let mut local_filesets = Vec::new();
     let mut root_workspaces = Vec::new();
-    let mut source_paths_by_fileset = Vec::new();
 
     for (workspace_idx, workspace) in workspaces.iter().enumerate() {
         for root in workspace.to_roots() {
@@ -158,23 +253,28 @@ pub fn get_workspace_folder(
                 continue;
             }
             let root_file_set = load_paths.iter().cloned().map(VfsPath::from).collect_vec();
+            let mut exclude_paths = root.exclude.clone();
+            for excl in global_excludes {
+                if load_paths.iter().any(|incl| incl.starts_with(excl) || excl.starts_with(incl)) {
+                    exclude_paths.push(excl.clone());
+                }
+            }
+            let mut include = Vec::new();
+            if !root.include_dirs.is_empty() {
+                include.push(PathSelection::all(root.include_dirs.clone()));
+            }
+            if !root.source.is_empty() {
+                include.push(root.source.clone());
+            }
+            let source =
+                if root.source.is_empty() { Vec::new() } else { vec![root.source.clone()] };
 
             let entry = {
-                let mut dirs = vfs::loader::Directories {
+                let dirs = vfs::loader::Directories {
                     extensions: ["v", "sv", "vh", "svh", "svi", "map"].map(String::from).into(),
-                    include: load_paths,
-                    exclude: root.exclude,
+                    include: include.clone(),
+                    exclude: exclude_paths.clone(),
                 };
-                for excl in global_excludes {
-                    if dirs
-                        .include
-                        .iter()
-                        .any(|incl| incl.starts_with(excl) || excl.starts_with(incl))
-                    {
-                        dirs.exclude.push(excl.clone());
-                    }
-                }
-
                 vfs::loader::Entry::Directories(dirs)
             };
 
@@ -182,8 +282,10 @@ pub fn get_workspace_folder(
                 local_filesets.push(fsc.len());
             }
 
-            fsc.add_file_set(root_file_set);
-            source_paths_by_fileset.push(root.sources);
+            fsc.add_filtered_file_set(
+                root_file_set,
+                FileSetFilter { include, source: Some(source), exclude_paths },
+            );
 
             if !root.is_lib {
                 watch.push(load.len());
@@ -237,12 +339,7 @@ pub fn get_workspace_folder(
     (
         load,
         watch,
-        SourceRootConfig {
-            fileset_config,
-            local_filesets,
-            ignored_filesets,
-            source_paths_by_fileset,
-        },
+        SourceRootConfig { fileset_config, local_filesets, ignored_filesets },
         project_config,
     )
 }
@@ -295,7 +392,9 @@ fn collect_dependency_roots(
 mod tests {
     use std::fs;
 
-    use utils::test_support::TestDir;
+    use base_db::source_root::SourceRootRole;
+    use utils::{lines::LineEnding, test_support::TestDir};
+    use vfs::{Vfs, loader::LoadResult};
 
     use super::*;
 
@@ -325,8 +424,8 @@ libraries = ["../pkg"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 2);
-        assert!(!model.workspaces[0].0.is_lib);
-        assert!(model.workspaces[1].0.is_lib);
+        assert!(!model.workspaces[0].is_lib());
+        assert!(model.workspaces[1].is_lib());
     }
 
     #[test]
@@ -354,8 +453,8 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 2);
-        assert!(!model.workspaces[0].0.is_lib);
-        assert!(model.workspaces[1].0.is_lib);
+        assert!(!model.workspaces[0].is_lib());
+        assert!(model.workspaces[1].is_lib());
 
         let root_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
         let root_profile = project_config.profile(root_profile_id).unwrap();
@@ -429,6 +528,104 @@ include_dirs = ["include"]
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(load.len(), 1);
         assert_eq!(source_root_config.ignored_filesets, vec![1]);
+    }
+
+    #[test]
+    fn source_paths_default_include_dirs_to_sources() {
+        let base = TestDir::new("project-model-source-path-default-includes");
+        let root = base.join("root");
+        let rtl = root.join("rtl");
+        fs::create_dir_all(rtl.join("nested")).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl"]
+"#,
+        )
+        .unwrap();
+
+        let top = rtl.join("nested/top.sv");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        let dirs = match &load[0] {
+            vfs::loader::Entry::Directories(dirs) => dirs,
+            other => panic!("expected directory loader entry, got {other:?}"),
+        };
+        assert!(dirs.contains_file(top.as_path()));
+
+        let profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
+        let profile = project_config.profile(profile_id).unwrap();
+        assert_eq!(profile.preprocess.include_dirs, [rtl]);
+    }
+
+    #[test]
+    fn excluded_source_roots_are_not_loaded() {
+        let base = TestDir::new("project-model-excluded-source-root");
+        let root = base.join("root");
+        fs::create_dir_all(root.join("rtl")).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl"]
+exclude = ["rtl"]
+"#,
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert!(load.is_empty());
+        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
+    }
+
+    #[test]
+    fn source_and_exclude_paths_filter_loaded_and_open_files() {
+        let base = TestDir::new("project-model-source-paths");
+        let root = base.join("root");
+        let rtl = root.join("rtl");
+        let excluded = rtl.join("excluded");
+        fs::create_dir_all(rtl.join("nested")).unwrap();
+        fs::create_dir_all(&excluded).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl"]
+include_dirs = []
+exclude = ["rtl/excluded"]
+"#,
+        )
+        .unwrap();
+
+        let top = rtl.join("nested/top.sv");
+        let excluded_top = excluded.join("top.sv");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(load.len(), 1);
+        let dirs = match &load[0] {
+            vfs::loader::Entry::Directories(dirs) => dirs,
+            other => panic!("expected directory loader entry, got {other:?}"),
+        };
+        assert!(dirs.contains_file(top.as_path()));
+        assert!(!dirs.contains_file(excluded_top.as_path()));
+
+        let mut vfs = Vfs::default();
+        for file in [&top, &excluded_top] {
+            vfs.set_file_contents(
+                &VfsPath::from(file.clone()),
+                LoadResult::Loaded(String::new(), LineEnding::Unix),
+            );
+        }
+
+        let roots = source_root_config.partition(&vfs);
+        assert!(roots[0].file_for_path(&VfsPath::from(top)).is_some());
+        assert_eq!(roots[1].role(), SourceRootRole::Ignored);
+        assert!(roots[1].file_for_path(&VfsPath::from(excluded_top)).is_some());
     }
 
     #[test]
@@ -565,8 +762,8 @@ libraries = ["../pkg"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 2);
-        assert!(!model.workspaces[0].0.is_lib);
-        assert!(!model.workspaces[1].0.is_lib);
+        assert!(!model.workspaces[0].is_lib());
+        assert!(!model.workspaces[1].is_lib());
 
         let app_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
         let app_profile = project_config.profile(app_profile_id).unwrap();
