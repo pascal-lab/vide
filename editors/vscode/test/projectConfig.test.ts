@@ -21,8 +21,6 @@ test('resolves project config paths under workspace roots', () => {
   );
 });
 
-test('default project config explicitly scans the workspace root', () => {
-  assert.match(DEFAULT_PROJECT_CONFIG_TEXT, /^sources = \["\."\]$/m);
-  assert.match(DEFAULT_PROJECT_CONFIG_TEXT, /^include_dirs = \["\."\]$/m);
-  assert.equal(DEFAULT_PROJECT_CONFIG_TEXT.endsWith('\n'), true);
+test('default project config is empty to keep startup diagnostics syntax-only', () => {
+  assert.equal(DEFAULT_PROJECT_CONFIG_TEXT, '');
 });

@@ -85,7 +85,7 @@ impl Workspace {
     }
 
     fn enables_semantic_diagnostics(&self) -> bool {
-        self.0.has_manifest || self.0.is_lib
+        self.0.configures_semantic_diagnostics || self.0.is_lib
     }
 
     fn preprocess_config(&self) -> PreprocessConfig {
@@ -361,6 +361,20 @@ libraries = ["../pkg/rtl"]
     fn unconfigured_root_has_no_compilation_profile() {
         let root = TestDir::new("project-model-unconfigured-root");
         fs::create_dir_all(root.join("rtl")).unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
+    }
+
+    #[test]
+    fn empty_manifest_has_no_compilation_profile() {
+        let root = TestDir::new("project-model-empty-manifest");
+        fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "").unwrap();
 
         let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);

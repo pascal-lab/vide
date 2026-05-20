@@ -8,7 +8,7 @@
 
 ## 2. 打开工程目录
 
-用 VS Code 打开包含 RTL 源码的目录。没有 `vizsla_config.toml` 时, 扩展会创建默认清单并弹出提示。默认清单会扫描 workspace root 并把它作为 include 目录。
+用 VS Code 打开包含 RTL 源码的目录。没有 `vizsla_config.toml` 时, 扩展会创建空清单并弹出提示。空清单会扫描 workspace root, 但只启用 syntax/parse diagnostics。
 
 ## 3. 确认状态栏
 
@@ -35,4 +35,4 @@
 
 配置变更后, 如果 VS Code 提示重启语言服务器, 选择 `Restart`。
 
-如果你使用的不是 VS Code 扩展, 且工程没有 `vizsla_config.toml`, 服务器只会提供 syntax/parse diagnostics。需要跨文件语义诊断、跳转和端口/参数相关能力时, 请先创建清单。
+需要跨文件语义诊断、跳转和端口/参数相关能力时, 请在 `vizsla_config.toml` 中写入 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules` 等工程字段。

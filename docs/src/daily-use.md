@@ -13,7 +13,7 @@ VS Code 扩展会注册两类语言:
 
 打开这些文件后, VS Code 会应用 Vizsla 提供的 TextMate grammar 和语言配置。语法高亮本身不依赖语言服务器启动成功; 即使服务器还在启动, 你也应该先看到基础高亮、注释规则和括号匹配。
 
-语言服务器启动后, 我们会继续提供语义层能力, 例如诊断、跳转、补全、语义高亮、inlay hints 和 code lens。
+语言服务器启动后会提供基础语言服务。语义层能力, 例如跨文件诊断、跳转、补全、语义高亮、inlay hints 和 code lens, 需要工程清单提供足够的工程信息。
 
 ## 诊断
 
@@ -39,7 +39,7 @@ Vizsla 的诊断分成两层:
 
 诊断会出现在 VS Code 的 `Problems` 面板和编辑器下划线里。部分 quick fix 会读取诊断携带的稳定数据, 因此你通常需要先看到相关诊断, 才会看到对应代码操作。
 
-Semantic diagnostics 需要 workspace root 下有 `vizsla_config.toml`。VS Code 扩展会在缺少清单时创建默认清单; 其它客户端如果没有清单, 只会保留 syntax/parse diagnostics。
+Semantic diagnostics 需要 workspace root 下的 `vizsla_config.toml` 显式配置工程字段, 例如 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules`。VS Code 扩展会在缺少清单时创建空清单; 空清单和无清单一样只保留 syntax/parse diagnostics。
 
 slang warning 相关配置放在 `vizsla.diagnostics.slang.*` 下。warning 名称、warning group 和 `-W...` 语义请看 [VS Code 设置](./vscode-settings.md#diagnostics) 中的 Diagnostics 说明。
 

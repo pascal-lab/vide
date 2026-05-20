@@ -21,14 +21,9 @@ code D:\work\my-rtl
 
 ## 没有清单时会怎样
 
-如果 VS Code 打开的 workspace root 下没有 `vizsla_config.toml`, 扩展会创建一个默认清单并弹出提示。默认清单等价于:
+如果 VS Code 打开的 workspace root 下没有 `vizsla_config.toml`, 扩展会创建一个空清单并弹出提示。空清单会让 Vizsla 扫描 workspace root, 但只运行 syntax/parse diagnostics, 不运行 semantic diagnostics。
 
-```toml
-sources = ["."]
-include_dirs = ["."]
-```
-
-这适合源文件集中、目录不大的工程。你可以之后再按实际目录改成 `rtl`, `include` 或其它路径。
+这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules` 来启用语义诊断和跨文件能力。
 
 如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla_config.toml`, Vizsla 只保留 syntax/parse diagnostics, 不运行 semantic diagnostics。
 

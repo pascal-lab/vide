@@ -391,8 +391,8 @@ async function createMissingProjectConfigs(): Promise<void> {
 
   const message =
     createdConfigs.length === 1
-      ? `No ${PROJECT_CONFIG_FILE_NAME} found. Created a default project config.`
-      : `No ${PROJECT_CONFIG_FILE_NAME} found in ${createdConfigs.length} workspace folders. Created default project configs.`;
+      ? `No ${PROJECT_CONFIG_FILE_NAME} found. Created an empty project config.`
+      : `No ${PROJECT_CONFIG_FILE_NAME} found in ${createdConfigs.length} workspace folders. Created empty project configs.`;
 
   void vscode.window.showInformationMessage(message, 'Open Config').then(async (selection) => {
     if (selection !== 'Open Config') {

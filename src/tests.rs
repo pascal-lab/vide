@@ -83,7 +83,7 @@ fn setup_diagnostics_test(
     user_config: UserConfig,
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
-    setup_diagnostics_test_inner(client_caps, user_config, file_text, false)
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, None)
 }
 
 fn setup_configured_diagnostics_test(
@@ -91,20 +91,28 @@ fn setup_configured_diagnostics_test(
     user_config: UserConfig,
     file_text: &str,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
-    setup_diagnostics_test_inner(client_caps, user_config, file_text, true)
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(DEFAULT_TEST_CONFIG))
+}
+
+fn setup_empty_config_diagnostics_test(
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    file_text: &str,
+) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
+    setup_diagnostics_test_inner(client_caps, user_config, file_text, Some(""))
 }
 
 fn setup_diagnostics_test_inner(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
     file_text: &str,
-    write_config: bool,
+    config_text: Option<&str>,
 ) -> (TempDir, Connection, thread::JoinHandle<anyhow::Result<()>>, Url) {
     let temp_dir = TempDir::new("diag-test");
     let file_path = temp_dir.path().join("broken.sv");
     fs::write(&file_path, file_text).unwrap();
-    if write_config {
-        fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    if let Some(config_text) = config_text {
+        fs::write(temp_dir.path().join("vizsla_config.toml"), config_text).unwrap();
     }
 
     let root_path = temp_dir.path().to_path_buf();
@@ -994,6 +1002,52 @@ endmodule
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
         "unconfigured workspaces should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn empty_config_workspace_reports_only_syntax_diagnostics() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let file_text = "\
+module child(input logic a, input logic b);
+endmodule
+
+module top;
+  logic sig;
+  child u(.a(sig));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_empty_config_diagnostics_test(pull_caps, UserConfig::default(), file_text);
+
+    let request_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, request_id);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
+        "empty configs should suppress semantic diagnostics: {diagnostics:?}"
     );
 
     shutdown_test_server(&client, server_thread);

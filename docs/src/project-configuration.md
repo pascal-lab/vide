@@ -37,6 +37,8 @@ exclude = [
 
 所有路径都相对于 `vizsla_config.toml` 所在目录解析。
 
+空的 `vizsla_config.toml` 只表示“已确认这里是 workspace root”, 不启用 semantic diagnostics。Vizsla 仍会扫描 workspace root 并提供 syntax/parse diagnostics。写入任意工程字段后, 例如 `sources`, `include_dirs`, `defines`, `libraries` 或 `top_modules`, 才会建立编译 profile 并启用 semantic diagnostics。
+
 ## 字段说明
 
 | 字段 | 类型 | 作用 |
