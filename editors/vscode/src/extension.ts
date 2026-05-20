@@ -19,13 +19,6 @@ import {
   getProjectConfigPath,
 } from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
-import {
-  TOMBI_EXTENSION_ID,
-  ensureTombiSchemaConfigFile,
-  type TombiSchemaInjectionScope,
-  userTombiConfigPath,
-  workspaceTombiConfigPath,
-} from './tombi';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -41,9 +34,6 @@ const runQiheAnalysisRequest = 'vizsla.server.runQiheAnalysis';
 const qiheStatusNotification = 'vizsla/qiheStatus';
 const qiheAnalysisIcon = '$(beaker)';
 const versionTimeoutMs = 5000;
-const openTombiConfigAction = 'Open Tombi Config';
-const openFirstTombiConfigAction = 'Open First Tombi Config';
-const disableTombiSchemaInjectionAction = 'Disable Auto-Configure';
 
 const activeQiheTokens = new Set<string>();
 const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
@@ -216,11 +206,6 @@ interface ServerLaunch {
   cwd: string;
 }
 
-interface TombiSchemaInjectionConfiguration {
-  enable: boolean;
-  scope: TombiSchemaInjectionScope;
-}
-
 function asStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
     ? value
@@ -302,16 +287,6 @@ function readConfiguration(): ServerConfiguration {
     additionalArgs,
     cwd: typeof cwd === 'string' && cwd.length > 0 ? cwd : undefined,
     trace,
-  };
-}
-
-function readTombiSchemaInjectionConfiguration(): TombiSchemaInjectionConfiguration {
-  const config = vscode.workspace.getConfiguration('vizsla');
-  const scope = config.get<string>('tombi.schemaInjection.scope');
-
-  return {
-    enable: config.get<boolean>('tombi.schemaInjection.enable') ?? true,
-    scope: scope === 'workspace' ? 'workspace' : 'user',
   };
 }
 
@@ -449,75 +424,6 @@ async function createMissingProjectConfigs(): Promise<void> {
       log(`[WARN] Failed to open ${PROJECT_CONFIG_FILE_NAME}: ${(error as Error).message}`);
     }
   });
-}
-
-function tombiSchemaConfigTargets(scope: TombiSchemaInjectionScope): string[] {
-  if (scope === 'user') {
-    return [userTombiConfigPath()];
-  }
-
-  return (vscode.workspace.workspaceFolders ?? [])
-    .filter((folder) => folder.uri.scheme === 'file')
-    .map((folder) => workspaceTombiConfigPath(folder.uri.fsPath));
-}
-
-async function configureTombiSchemaIfAvailable(): Promise<void> {
-  const config = readTombiSchemaInjectionConfiguration();
-  if (!config.enable) {
-    log('[INFO] Tombi schema auto-configuration is disabled');
-    return;
-  }
-
-  if (!vscode.extensions.getExtension(TOMBI_EXTENSION_ID)) {
-    log('[INFO] Tombi extension is not installed; skipping schema auto-configuration');
-    return;
-  }
-
-  const targets = tombiSchemaConfigTargets(config.scope);
-  if (targets.length === 0) {
-    log('[WARN] No file workspace folder found for Tombi schema auto-configuration');
-    return;
-  }
-
-  const changedConfigs: vscode.Uri[] = [];
-  for (const target of targets) {
-    try {
-      const result = await ensureTombiSchemaConfigFile(target);
-      log(`[INFO] Tombi schema config ${result}: ${target}`);
-      if (result !== 'already-configured') {
-        changedConfigs.push(vscode.Uri.file(target));
-      }
-    } catch (error) {
-      const message = `Failed to configure Tombi schema at ${target}: ${(error as Error).message}`;
-      log(`[WARN] ${message}`);
-      void vscode.window.showWarningMessage(message);
-    }
-  }
-
-  if (changedConfigs.length === 0) {
-    return;
-  }
-
-  const openAction =
-    changedConfigs.length === 1 ? openTombiConfigAction : openFirstTombiConfigAction;
-  const location = config.scope === 'user' ? 'user' : 'workspace';
-  const message = `Tombi is installed. Vizsla configured the ${location} Tombi config to use the Vizsla TOML schema.`;
-
-  void vscode.window
-    .showInformationMessage(message, openAction, disableTombiSchemaInjectionAction)
-    .then(async (selection) => {
-      if (selection === openAction) {
-        try {
-          await vscode.window.showTextDocument(changedConfigs[0]);
-        } catch (error) {
-          log(`[WARN] Failed to open Tombi config: ${(error as Error).message}`);
-        }
-      } else if (selection === disableTombiSchemaInjectionAction) {
-        await vscode.workspace
-          .getConfiguration('vizsla')
-          .update('tombi.schemaInjection.enable', false, vscode.ConfigurationTarget.Global);
-      }
-    });
 }
 
 async function createClient(context: vscode.ExtensionContext): Promise<LanguageClient> {
@@ -748,7 +654,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(configurationRegistration);
 
-  await configureTombiSchemaIfAvailable();
   await createMissingProjectConfigs();
   await startClient(context);
 

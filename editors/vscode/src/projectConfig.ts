@@ -14,8 +14,11 @@ export const PROJECT_SOURCE_FILE_EXTENSIONS = [
   '.svi',
 ] as const;
 export const PROJECT_SOURCE_FILE_GLOB = '**/*.{v,sv,vh,svh,svi}';
+export const PROJECT_CONFIG_SCHEMA_URL =
+  'https://pascal-lab.github.io/vizsla/schemas/vizsla.schema.json';
 
-export const DEFAULT_PROJECT_CONFIG_TEXT = `# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
+export const DEFAULT_PROJECT_CONFIG_TEXT = `#:schema ${PROJECT_CONFIG_SCHEMA_URL}
+# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
 # Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.
 sources = []
 include_dirs = []

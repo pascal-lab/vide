@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
+  PROJECT_CONFIG_SCHEMA_URL,
   LEGACY_PROJECT_CONFIG_FILE_NAME,
   PROJECT_CONFIG_FILE_NAME,
   isProjectConfigFileName,
@@ -51,6 +52,7 @@ test('default project config keeps startup diagnostics syntax-only', () => {
   assert.equal(
     DEFAULT_PROJECT_CONFIG_TEXT,
     [
+      `#:schema ${PROJECT_CONFIG_SCHEMA_URL}`,
       '# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.',
       '# Fill real paths, for example sources = ["rtl"] and include_dirs = ["include"], to enable semantic diagnostics.',
       'sources = []',

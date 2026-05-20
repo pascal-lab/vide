@@ -15,10 +15,7 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "workspaceContains:vizsla.toml",
-    "workspaceContains:vizsla_config.toml"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -154,24 +151,6 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically refresh project information when project manifests change."
-        },
-        "vizsla.tombi.schemaInjection.enable": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Automatically configure the Tombi extension to use Vizsla's `vizsla.toml` JSON Schema when Tombi is installed."
-        },
-        "vizsla.tombi.schemaInjection.scope": {
-          "type": "string",
-          "enum": [
-            "user",
-            "workspace"
-          ],
-          "default": "user",
-          "enumDescriptions": [
-            "Write to Tombi's user-level config.",
-            "Write to a Tombi config in each file workspace folder."
-          ],
-          "description": "Controls where Vizsla injects the Tombi schema association."
         },
         "vizsla.scope.visibility": {
           "type": "string",
