@@ -15,8 +15,6 @@ test('activates when a workspace contains a Vizsla project config', () => {
   const packageJson = readPackageJson();
 
   assert.deepEqual(packageJson.activationEvents, [
-    'onLanguage:verilog',
-    'onLanguage:systemverilog',
     'workspaceContains:vizsla.toml',
     'workspaceContains:vizsla_config.toml',
   ]);

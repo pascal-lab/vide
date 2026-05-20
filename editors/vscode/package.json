@@ -16,8 +16,6 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:verilog",
-    "onLanguage:systemverilog",
     "workspaceContains:vizsla.toml",
     "workspaceContains:vizsla_config.toml"
   ],
