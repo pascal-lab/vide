@@ -20,6 +20,7 @@ import {
   getProjectConfigPaths,
 } from './projectConfig';
 import { getServerStatusPresentation, type ServerStatus } from './status';
+import { TOML_LANGUAGE_CONFIGURATION, TOML_LANGUAGE_ID } from './tomlLanguage';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -39,6 +40,15 @@ const versionTimeoutMs = 5000;
 const activeQiheTokens = new Set<string>();
 const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
 let qiheStatusHideTimer: NodeJS.Timeout | undefined;
+
+function registerTomlLanguageConfiguration(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.languages.setLanguageConfiguration(
+      TOML_LANGUAGE_ID,
+      TOML_LANGUAGE_CONFIGURATION as vscode.LanguageConfiguration,
+    ),
+  );
+}
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
@@ -604,6 +614,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   qiheStatusBarItem = createQiheStatusBarItem();
   context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
+  registerTomlLanguageConfiguration(context);
 
   log('[INFO] Vizsla extension activating...');
   log(`[INFO] Extension path: ${context.extensionPath}`);
