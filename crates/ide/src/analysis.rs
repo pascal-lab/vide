@@ -5,6 +5,7 @@ use base_db::{
     compilation_plan::CompilationPlan,
     salsa,
     source_db::{SourceDb, SourceRootDb},
+    source_root::SourceRootRole,
 };
 use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use span::{FilePosition, RangeInfo};
@@ -80,6 +81,10 @@ impl Analysis {
 
     pub fn source_root_file_ids(&self, file_id: FileId) -> Cancellable<Vec<FileId>> {
         self.with_db(|db| diagnostics::source_root_file_ids(db, file_id))
+    }
+
+    pub fn source_root_role(&self, file_id: FileId) -> Cancellable<SourceRootRole> {
+        self.with_db(|db| diagnostics::source_root_role(db, file_id))
     }
 
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {

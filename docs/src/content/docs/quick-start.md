@@ -15,13 +15,13 @@ description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
-# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
-sources = []
-include_dirs = []
+# Default startup manifest. Omitting sources enables best-effort indexing for navigation
+# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
+# and include_dirs = ["include"], to enable semantic diagnostics.
+# Set sources = [] to disable workspace indexing.
 ```
 
-这个默认清单不会扫描工程目录, 只启用打开文件的 syntax/parse diagnostics。
+这个默认清单会索引 workspace 下的 Verilog/SystemVerilog 文件, 让跨文件跳转、引用等读能力开箱可用; 但不会建立编译 profile 或运行跨文件 semantic diagnostics。显式写入 `sources = []` 可关闭 workspace 索引。
 
 ## 3. 确认状态栏
 
@@ -48,4 +48,4 @@ include_dirs = []
 
 配置变更后, 如果 VS Code 提示重启语言服务器, 选择 `Restart`。
 
-需要跨文件语义诊断、跳转和端口/参数相关能力时, 请在 `vizsla.toml` 中写入实际的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
+需要跨文件 semantic diagnostics 和更准确的端口/参数相关能力时, 请在 `vizsla.toml` 中写入实际的 `sources` 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。

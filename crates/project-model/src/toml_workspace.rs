@@ -63,14 +63,15 @@ struct TomlManifestSchema {
     )]
     pub defines: MacroDef,
     /// Workspace-relative shell glob patterns for source files to scan. Omitted
-    /// sources do not scan the workspace root.
-    #[serde(default)]
+    /// sources scan the workspace root for best-effort indexing without
+    /// enabling semantic diagnostics. Use an explicit empty array to
+    /// disable workspace indexing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "Workspace-relative shell glob patterns for source files to scan. Omitted sources do not scan the workspace root.",
+            description = "Workspace-relative shell glob patterns for source files to scan. Omitted sources scan the workspace root for best-effort indexing without enabling semantic diagnostics. Use an explicit empty array to disable workspace indexing.",
             with = "Vec::<String>",
-            default = "empty_string_vec",
             extend("examples" = [["rtl/**", "ip/**/*.sv"]])
         )
     )]
@@ -179,7 +180,7 @@ pub struct TomlWorkspace {
     pub top_modules: Vec<String>,
     pub workspace_root: AbsPathBuf,
     pub macro_defs: MacroDef,
-    pub source_patterns: Vec<String>,
+    pub source_patterns: Option<Vec<String>>,
     pub include_dirs: Option<Vec<AbsPathBuf>>,
     pub libraries: Vec<AbsPathBuf>,
     pub exclude_patterns: Vec<String>,
@@ -203,7 +204,7 @@ impl TomlWorkspace {
         let include_dirs = toml_schema.include_dirs.map(|paths| {
             paths.into_iter().map(|path| workspace_root.absolutize(path)).collect::<Vec<_>>()
         });
-        let source_patterns = toml_schema.sources.unwrap_or_default();
+        let source_patterns = toml_schema.sources;
         let libraries = toml_schema
             .libraries
             .into_iter()
@@ -267,13 +268,13 @@ defines = [
     }
 
     #[test]
-    fn empty_manifest_uses_syntax_only_default() {
+    fn empty_manifest_omits_source_patterns() {
         let root = TestDir::new("empty-manifest");
         let manifest = root.write("vizsla_config.toml", "");
 
         let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
-        assert!(workspace.source_patterns.is_empty());
+        assert_eq!(workspace.source_patterns, None);
         assert_eq!(workspace.include_dirs, None);
         assert!(workspace.libraries.is_empty());
         assert!(workspace.exclude_patterns.is_empty());
@@ -286,7 +287,7 @@ defines = [
 
         let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
-        assert!(workspace.source_patterns.is_empty());
+        assert_eq!(workspace.source_patterns, Some(Vec::new()));
     }
 
     #[test]
@@ -300,7 +301,7 @@ defines = [
 
         let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
-        assert_eq!(workspace.source_patterns, ["rtl/**"]);
+        assert_eq!(workspace.source_patterns, Some(vec!["rtl/**".to_owned()]));
         assert_eq!(workspace.exclude_patterns, ["build/**", "**/*_bb.v"]);
     }
 

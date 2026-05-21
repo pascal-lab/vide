@@ -27,15 +27,15 @@ code D:\work\my-rtl
 如果 VS Code 打开的 workspace root 下有 Verilog/SystemVerilog 文件, 且没有 `vizsla.toml` 或旧版 `vizsla_config.toml`, 扩展会创建默认 `vizsla.toml` 并弹出提示:
 
 ```toml
-# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
-sources = []
-include_dirs = []
+# Default startup manifest. Omitting sources enables best-effort indexing for navigation
+# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
+# and include_dirs = ["include"], to enable semantic diagnostics.
+# Set sources = [] to disable workspace indexing.
 ```
 
-这个默认清单不会扫描 workspace root, 只运行打开文件的 syntax/parse diagnostics, 不运行 semantic diagnostics。这适合你刚打开陌生工程时快速获得低成本语法反馈。你可以之后再按实际目录写入 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用语义诊断和跨文件能力。
+这个默认清单会以 best-effort 方式索引 workspace root 下的 Verilog/SystemVerilog 文件, 让跳转和引用等读能力开箱可用; 但它不会建立编译 profile, 也不运行跨文件 semantic diagnostics。你可以之后再按实际目录写入 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用更准确的语义诊断。
 
-如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla.toml` 或 `vizsla_config.toml`, Vizsla 只保留 syntax/parse diagnostics, 不运行 semantic diagnostics。
+如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla.toml` 或 `vizsla_config.toml`, Vizsla 同样会进入 best-effort 索引模式。显式写入 `sources = []` 会关闭 workspace 索引, 只保留打开文件的 syntax/parse diagnostics。
 
 ## 什么时候创建清单
 

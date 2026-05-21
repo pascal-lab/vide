@@ -30,8 +30,16 @@ impl CompilationPlan {
     pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
+        // Profile-backed plans are the normal project path. A compile-capable
+        // Local/Library root can still produce a root-scoped plan when it has
+        // no attached profile, for example in a workspace without a manifest.
+        let root_scoped_source_root = db
+            .source_root(source_root_id)
+            .role()
+            .supports_root_scoped_compilation()
+            .then_some(source_root_id);
         let (source_roots, top_modules, include_dirs, predefines) =
-            profile_inputs(&project_config, Some(source_root_id), profile_id);
+            profile_inputs(&project_config, root_scoped_source_root, profile_id);
         Self::from_inputs(db, source_roots, top_modules, include_dirs, predefines)
     }
 
@@ -123,7 +131,7 @@ fn include_buffers_for_plan_with_roots(
 
 fn profile_inputs(
     project_config: &ProjectConfig,
-    fallback_root: Option<SourceRootId>,
+    root_scoped_source_root: Option<SourceRootId>,
     profile_id: Option<CompilationProfileId>,
 ) -> (Vec<SourceRootId>, Vec<String>, Vec<AbsPathBuf>, Vec<String>) {
     if let Some(profile) = profile_id.and_then(|profile_id| project_config.profile(profile_id)) {
@@ -137,7 +145,7 @@ fn profile_inputs(
 
     let preprocess = project_config.preprocess_for_profile(profile_id);
     (
-        fallback_root.into_iter().collect(),
+        root_scoped_source_root.into_iter().collect(),
         Vec::new(),
         preprocess.include_dirs,
         preprocess.predefines,
@@ -148,7 +156,10 @@ fn all_non_ignored_roots(db: &dyn SourceRootDb) -> Vec<SourceRootId> {
     let mut roots = FxHashSet::default();
     for file_id in db.files().iter().copied() {
         if !db.file_is_project_ignored(file_id) {
-            roots.insert(db.source_root_id(file_id));
+            let source_root_id = db.source_root_id(file_id);
+            if db.source_root(source_root_id).role().supports_root_scoped_compilation() {
+                roots.insert(source_root_id);
+            }
         }
     }
     roots.into_iter().collect()

@@ -1,4 +1,7 @@
-use base_db::source_db::SourceRootDb;
+use base_db::{
+    source_db::SourceRootDb,
+    source_root::{SourceRootDiagnosticScope, SourceRootRole},
+};
 use ide_db::root_db::RootDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
@@ -68,9 +71,12 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    if source_root.is_ignored() {
-        return Vec::new();
+    match source_root.role().diagnostic_scope() {
+        SourceRootDiagnosticScope::Disabled => return Vec::new(),
+        SourceRootDiagnosticScope::OpenFile => return parse_diagnostics(db, file_id),
+        SourceRootDiagnosticScope::Workspace => {}
     }
+
     let mut diagnostics = Vec::new();
 
     for file_id in source_root.iter() {
@@ -98,7 +104,15 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    if source_root.is_ignored() { vec![file_id] } else { source_root.iter().collect() }
+    match source_root.role().diagnostic_scope() {
+        SourceRootDiagnosticScope::Workspace => source_root.iter().collect(),
+        SourceRootDiagnosticScope::OpenFile | SourceRootDiagnosticScope::Disabled => vec![file_id],
+    }
+}
+
+pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
+    let source_root_id = db.source_root_id(file_id);
+    db.source_root(source_root_id).role()
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
@@ -205,6 +219,27 @@ mod tests {
             diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
             "unconfigured roots should not run semantic diagnostics: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn best_effort_index_root_does_not_produce_fallback_compilation_plan() {
+        let mut db = RootDb::new(None);
+        let file_id = FileId(0);
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
+
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_best_effort_index(file_set)]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from("module top; endmodule\n"), LineEnding::Unix),
+        });
+        db.apply_change(change);
+
+        let plan = db.compilation_plan_for_root(SourceRootId(0));
+
+        assert!(plan.source_roots.is_empty());
+        assert!(plan.roots.is_empty());
     }
 
     #[test]

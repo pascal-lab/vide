@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use base_db::compilation_plan::CompilationPlan;
 use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, LogMessageParams, MessageType,
     NumberOrString, ShowMessageParams,
@@ -263,24 +264,37 @@ fn qihe_compile_input(
     cwd: &Path,
 ) -> Result<QiheCompileInput> {
     if !cwd.join(MANIFEST_FILE_NAME).is_file() {
-        return Ok(QiheCompileInput {
-            files: vec![active_path.to_path_buf().into()],
-            slang_args: Vec::new(),
-            project_mode: false,
-        });
+        return Ok(single_file_qihe_compile_input(active_path));
     }
 
     let plan = snapshot.analysis.compilation_plan(active_file_id).map_err(|_| qihe_cancelled())?;
-    let mut files = plan
+    let files = plan
         .roots
         .iter()
         .filter_map(|file_id| snapshot.file_path(*file_id).map(PathBuf::from))
         .collect::<Vec<_>>();
+
+    Ok(qihe_compile_input_from_plan(&plan, files, active_path))
+}
+
+fn single_file_qihe_compile_input(active_path: &AbsPath) -> QiheCompileInput {
+    QiheCompileInput {
+        files: vec![active_path.to_path_buf().into()],
+        slang_args: Vec::new(),
+        project_mode: false,
+    }
+}
+
+fn qihe_compile_input_from_plan(
+    plan: &CompilationPlan,
+    mut files: Vec<PathBuf>,
+    active_path: &AbsPath,
+) -> QiheCompileInput {
     files.sort();
     files.dedup();
 
     if files.is_empty() {
-        files.push(active_path.to_path_buf().into());
+        return single_file_qihe_compile_input(active_path);
     }
 
     let mut slang_args = Vec::new();
@@ -296,7 +310,7 @@ fn qihe_compile_input(
         slang_args.push(format!("-D{define}"));
     }
 
-    Ok(QiheCompileInput { files, slang_args, project_mode: true })
+    QiheCompileInput { files, slang_args, project_mode: true }
 }
 
 fn qihe_run_paths(active_path: &AbsPath) -> Result<(PathBuf, PathBuf)> {
@@ -602,9 +616,12 @@ struct QiheJsonSupportInfo {
 mod tests {
     use std::{ffi::OsStr, path::PathBuf, process::Command};
 
+    use base_db::compilation_plan::CompilationPlan;
+    use utils::paths::AbsPathBuf;
+
     use super::{
         QiheCompileInput, has_compile_mode, parse_source_loc, prepare_qihe_compile_command,
-        split_compile_args, strip_ansi,
+        qihe_compile_input_from_plan, split_compile_args, strip_ansi,
     };
     use crate::config::user_config::QiheConfig;
 
@@ -721,6 +738,27 @@ mod tests {
         );
 
         assert_eq!(command_args(&command), ["/repo/top.sv", "-o", "/tmp/in.qh"]);
+    }
+
+    #[test]
+    fn empty_project_plan_falls_back_to_single_file_input() {
+        let active_path = if cfg!(windows) {
+            AbsPathBuf::assert("C:/repo/top.sv".into())
+        } else {
+            AbsPathBuf::assert("/repo/top.sv".into())
+        };
+        let plan = CompilationPlan::default();
+
+        let input = qihe_compile_input_from_plan(&plan, Vec::new(), active_path.as_ref());
+
+        assert_eq!(
+            input,
+            QiheCompileInput {
+                files: vec![active_path.into()],
+                slang_args: Vec::new(),
+                project_mode: false,
+            }
+        );
     }
 
     fn command_args(command: &Command) -> Vec<&str> {

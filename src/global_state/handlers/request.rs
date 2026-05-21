@@ -147,7 +147,9 @@ pub(crate) fn handle_workspace_diagnostic(
     let mut diagnostics_by_file = HashMap::new();
     let mut diagnosed_roots = HashSet::new();
 
-    for file_id in snap.file_ids() {
+    let diagnostic_file_ids = snap.workspace_diagnostic_file_ids();
+
+    for file_id in diagnostic_file_ids.iter().copied() {
         let mut source_root_file_ids = snap.source_root_file_ids(file_id);
         source_root_file_ids.sort_unstable_by_key(|file_id| file_id.0);
         if !diagnosed_roots.insert(source_root_file_ids) {
@@ -159,7 +161,7 @@ pub(crate) fn handle_workspace_diagnostic(
         }
     }
 
-    for file_id in snap.file_ids() {
+    for file_id in diagnostic_file_ids {
         let uri = match to_proto::url(&snap, file_id) {
             Ok(uri) => uri,
             Err(error) => {
@@ -366,6 +368,9 @@ pub(crate) fn handle_prepare_rename(
     params: lsp_types::TextDocumentPositionParams,
 ) -> anyhow::Result<Option<lsp_types::PrepareRenameResponse>> {
     let position = from_proto::file_position(&snap, params)?;
+    if !snap.file_allows_workspace_edits(position.file_id) {
+        return Ok(None);
+    }
     let line_index = snap.line_info(position.file_id)?;
 
     let text_range = snap.analysis.prepare_rename(position)?.map_err(to_proto::rename_error)?;
@@ -378,6 +383,9 @@ pub(crate) fn handle_rename(
     params: lsp_types::RenameParams,
 ) -> anyhow::Result<Option<lsp_types::WorkspaceEdit>> {
     let position = from_proto::file_position(&snap, params.text_document_position)?;
+    if !snap.file_allows_workspace_edits(position.file_id) {
+        return Ok(None);
+    }
     let config = snap.config.rename();
     let change = snap
         .analysis

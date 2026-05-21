@@ -143,8 +143,8 @@ impl GlobalState {
         let mut globs = self
             .workspaces
             .iter()
-            .flat_map(|ws| ws.to_roots())
-            .filter(|it| !it.is_lib)
+            .flat_map(|ws| ws.roots())
+            .filter(|it| !it.role.is_library())
             .flat_map(|root| {
                 root.load_paths().into_iter().flat_map(|it| {
                     let mut globs = vec![

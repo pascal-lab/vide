@@ -51,15 +51,15 @@ test('recognizes Verilog and SystemVerilog source file names', () => {
   assert.equal(isProjectSourceFileName('main.ts'), false);
 });
 
-test('default project config keeps startup diagnostics syntax-only', () => {
+test('default project config enables best-effort indexing without semantic diagnostics', () => {
   assert.equal(
     DEFAULT_PROJECT_CONFIG_TEXT,
     [
       `#:schema ${PROJECT_CONFIG_SCHEMA_URL}`,
-      '# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.',
-      '# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.',
-      'sources = []',
-      'include_dirs = []',
+      '# Default startup manifest. Omitting sources enables best-effort indexing for navigation',
+      '# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]',
+      '# and include_dirs = ["include"], to enable semantic diagnostics.',
+      '# Set sources = [] to disable workspace indexing.',
       '',
     ].join('\n'),
   );
