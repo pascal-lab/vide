@@ -29,7 +29,7 @@ use utils::{
     text_edit::{TextRange, TextSize},
 };
 
-use crate::markup::Markup;
+use crate::{markup::Markup, module_resolution::resolve_instantiation_target};
 
 #[derive(Debug)]
 pub struct SignatureHelpConfig {
@@ -137,7 +137,8 @@ fn sig_help_for_instance(
     };
 
     let instantiation = ast::HierarchyInstantiation::cast(instance.syntax().parent()?)?;
-    let target_module_id = sema.nameres_instantiation(instantiation)?;
+    let target_module_id =
+        resolve_instantiation_target(db, file_id.file_id(), instantiation).unique()?;
     let target_module = db.module(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());
@@ -259,7 +260,8 @@ fn sig_help_for_instantiation(
         }
     };
 
-    let target_module_id = sema.nameres_instantiation(instantiation)?;
+    let target_module_id =
+        resolve_instantiation_target(db, file_id.file_id(), instantiation).unique()?;
     let target_module = db.module(target_module_id);
     let target_module_name =
         target_module.name.as_ref().map(|name| name.to_string()).unwrap_or("<module>".to_string());

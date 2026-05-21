@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod analysis_host;
 pub mod definitions;
 pub mod markup;
+pub(crate) mod module_resolution;
 pub mod navigation_target;
 pub mod render;
 pub mod source_change;

@@ -36,6 +36,8 @@ use utils::{
     line_index::TextRange,
 };
 
+use crate::module_resolution::{ModuleResolution, resolve_instantiation_target};
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DefinitionOrigin {
     ModuleId(ModuleId),
@@ -413,6 +415,7 @@ impl Definition {
 pub enum DefinitionClass {
     Definition(Definition),
     PortConnShorthand { port: Definition, local: Definition },
+    Ambiguous(Vec<Definition>),
 }
 
 impl_from! { DefinitionClass =>
@@ -468,6 +471,9 @@ impl DefinitionClass {
             DefinitionClass::PortConnShorthand { port, local } => {
                 port.origins().into_iter().chain(local.origins()).collect()
             }
+            DefinitionClass::Ambiguous(definitions) => {
+                definitions.into_iter().flat_map(|definition| definition.origins()).collect()
+            }
         }
     }
 }
@@ -506,10 +512,18 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        return Some(
-            Definition::from(PathResolution::Module(sema.nameres_instantiation(instantiation)?))
-                .into(),
-        );
+        return match resolve_instantiation_target(sema.db, file_id.file_id(), instantiation) {
+            ModuleResolution::Unique(module_id) => {
+                Some(Definition::from(PathResolution::Module(module_id)).into())
+            }
+            ModuleResolution::Ambiguous(module_ids) => Some(DefinitionClass::Ambiguous(
+                module_ids
+                    .into_iter()
+                    .map(|module_id| Definition::from(PathResolution::Module(module_id)))
+                    .collect(),
+            )),
+            ModuleResolution::Unresolved => None,
+        };
     }
 
     if let Some(instantiation) =

@@ -68,6 +68,7 @@ pub(crate) fn references(
         let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
+            DefinitionClass::Ambiguous(_) => return None,
         };
         Some(vec![search_refs(&sema, def, config)])
     })

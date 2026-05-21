@@ -7,9 +7,13 @@ use syntax::{
 };
 use utils::get::GetRef;
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-    apply_missing_list_edit, missing_member_entry_text, port_names, remaining_ordered_port_names,
+use crate::{
+    code_action::{
+        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+        apply_missing_list_edit, missing_member_entry_text, port_names,
+        remaining_ordered_port_names,
+    },
+    module_resolution::resolve_instantiation_target,
 };
 
 const ID: CodeActionId = CodeActionId {
@@ -40,7 +44,8 @@ pub(super) fn add_missing_connections(
     let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
 
     let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
-    let target_module_id = sema.nameres_instantiation(instantiation)?;
+    let target_module_id =
+        resolve_instantiation_target(db, ctx.file_id(), instantiation).unique()?;
     let target_module = db.module(target_module_id);
 
     let is_ordered = instance

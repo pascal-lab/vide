@@ -72,6 +72,7 @@ pub(crate) fn rename(
         match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
+            DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
         };
 
     let old_name = lower_ident(Some(token.tok)).ok_or(RenameError::NoRefFound)?;

@@ -84,6 +84,13 @@ fn handle_definition(
             res.new_subsection("Local");
             res.merge(render::render_definition(sema, local));
         }
+        DefinitionClass::Ambiguous(definitions) => {
+            res.print("Ambiguous reference");
+            for definition in definitions {
+                res.horizontal_line();
+                res.merge(render::render_definition(sema, definition));
+            }
+        }
     }
 
     Some(res)
