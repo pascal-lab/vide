@@ -12,14 +12,10 @@ use hir::{
         },
     },
     scope::UnitEntry,
-    source_map::{IsSrc, ToAstNode},
+    source_map::IsSrc,
 };
 use ide_db::root_db::RootDb;
-use syntax::{
-    ast::{self, AstNode},
-    has_text_range::HasTextRangeIn,
-    match_ast_kind,
-};
+use syntax::{ast, match_ast_kind};
 use utils::{
     get::{Get, GetRef},
     text_edit::{TextEdit, TextRange, TextSize},
@@ -61,6 +57,44 @@ pub struct InlayHint {
     pub text_edit: Option<TextEdit>,
 }
 
+#[derive(Debug, Copy, Clone)]
+struct HintAnchor {
+    range: TextRange,
+    position: TextSize,
+    kind: InlayKind,
+    padding_left: bool,
+    padding_right: bool,
+}
+
+impl HintAnchor {
+    fn from_src(src: impl IsSrc) -> Option<Self> {
+        let range = src.range();
+        let kind = match_ast_kind! { src.kind(),
+            ast::ParamAssignment => InlayKind::ParamAssign,
+            ast::OrderedPortConnection | ast::EmptyPortConnection => InlayKind::Port,
+            _ => return None,
+        };
+
+        Some(Self {
+            range,
+            position: range.start(),
+            kind,
+            padding_left: false,
+            padding_right: false,
+        })
+    }
+
+    fn module_end(range: TextRange) -> Self {
+        Self {
+            range,
+            position: range.end(),
+            kind: InlayKind::EndStructure,
+            padding_left: true,
+            padding_right: false,
+        }
+    }
+}
+
 struct InlayHintCollector {
     hints: Vec<InlayHint>,
     range: TextRange,
@@ -74,30 +108,14 @@ impl InlayHintCollector {
 
     fn collect_hint(
         &mut self,
-        src: impl IsSrc,
+        anchor: HintAnchor,
         target_src: Option<InFile<impl IsSrc>>,
         label: String,
         text_edit: Option<TextEdit>,
     ) {
-        let range = src.range();
-        assert!(range.intersect(self.range).is_some());
-
-        let kind = match_ast_kind! { src.kind(),
-            ast::ParamAssignment => InlayKind::ParamAssign,
-            ast::OrderedPortConnection | ast::EmptyPortConnection => InlayKind::Port,
-            ast::ModuleDeclaration => InlayKind::EndStructure,
-            _ => return,
-        };
-
-        let position = match_ast_kind! { src.kind(),
-            ast::ModuleDeclaration => range.end(),
-            _ => range.start(),
-        };
-
-        let (padding_left, padding_right) = match_ast_kind! { src.kind(),
-            ast::ModuleDeclaration => (true, false),
-            _ => (false, false),
-        };
+        if !self.intersect(anchor.range) {
+            return;
+        }
 
         let (tooltip, target_location) = if let Some(InFile { value: src, file_id }) = target_src {
             let location = InFile::new(file_id, src.range());
@@ -110,12 +128,24 @@ impl InlayHintCollector {
             label,
             tooltip,
             target_location,
-            padding_left,
-            padding_right,
-            position,
-            kind,
+            padding_left: anchor.padding_left,
+            padding_right: anchor.padding_right,
+            position: anchor.position,
+            kind: anchor.kind,
             text_edit,
         });
+    }
+
+    fn collect_src_hint(
+        &mut self,
+        src: impl IsSrc,
+        target_src: Option<InFile<impl IsSrc>>,
+        label: String,
+        text_edit: Option<TextEdit>,
+    ) {
+        if let Some(anchor) = HintAnchor::from_src(src) {
+            self.collect_hint(anchor, target_src, label, text_edit);
+        }
     }
 
     fn collect_port_hint(
@@ -124,7 +154,7 @@ impl InlayHintCollector {
         conn_src: impl IsSrc,
         target_src: InFile<impl IsSrc>,
     ) {
-        self.collect_hint(
+        self.collect_src_hint(
             conn_src,
             Some(target_src),
             format!("{name}: "),
@@ -132,21 +162,15 @@ impl InlayHintCollector {
         );
     }
 
-    fn collect_end_structure_hint(&mut self, end_range: TextRange, name: &str) {
-        if !self.intersect(end_range) {
-            return;
+    fn collect_module_end_hint(&mut self, module_src: ModuleSrc, name: &str) {
+        if let Some(end_range) = module_src.end_range() {
+            self.collect_hint(
+                HintAnchor::module_end(end_range),
+                None::<InFile<ModuleSrc>>,
+                format!(": {name}"),
+                None,
+            );
         }
-
-        self.hints.push(InlayHint {
-            label: format!(": {name}"),
-            tooltip: None,
-            target_location: None,
-            padding_left: true,
-            padding_right: false,
-            position: end_range.end(),
-            kind: InlayKind::EndStructure,
-            text_edit: None,
-        });
     }
 
     fn into_hints(self) -> Vec<InlayHint> {
@@ -212,16 +236,9 @@ fn collect_module_items(
 
     if collector.config.end_structure
         && let Some(name) = &module.name
-        && let Some(end_range) = endmodule_range(db, module_id.file_id, module_src)
     {
-        collector.collect_end_structure_hint(end_range, name);
+        collector.collect_module_end_hint(module_src, name);
     }
-}
-
-fn endmodule_range(db: &RootDb, file_id: HirFileId, module_src: ModuleSrc) -> Option<TextRange> {
-    let tree = db.parse(file_id);
-    let module_decl = module_src.to_node(&tree)?;
-    module_decl.endmodule()?.text_range_in(module_decl.syntax())
 }
 
 fn process_instantiation(
@@ -431,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn comment_only_range_does_not_return_end_structure_hint() {
+    fn comment_only_range_skips_module_end_hint() {
         let text = "\
 module top;
     // ISSUE_RANGE_START
@@ -452,7 +469,7 @@ endmodule
     }
 
     #[test]
-    fn endmodule_range_returns_end_structure_hint() {
+    fn module_end_range_returns_end_structure_hint() {
         let text = "module top;\nendmodule\n";
         let start = text.find("endmodule").unwrap();
         let end = start + "endmodule".len();
