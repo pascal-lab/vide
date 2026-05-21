@@ -13,7 +13,7 @@
   "configuration.files.watcher.enum.notify": "使用服务器端 notify 监视器。",
   "configuration.files.watcher.enum.server": "使用服务器端监视器。",
   "configuration.files.watcher.description": "控制 Vizsla 如何监视项目文件。",
-  "configuration.workspace.auto.reload.description": "项目清单变化时自动刷新项目信息。",
+  "configuration.workspace.auto.reload.description": "项目配置文件变化时自动刷新项目信息。",
   "configuration.scope.visibility.description": "控制作用域内除端口以外的符号是否在作用域外可见。",
   "configuration.formatter.provider.enum.verible": "使用外部 verible-verilog-format 可执行文件。支持格式化文档和格式化选区。",
   "configuration.formatter.provider.description": "Vizsla 使用的格式化后端。",
