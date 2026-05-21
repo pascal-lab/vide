@@ -12,7 +12,7 @@ use crate::{
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     preproc_index::{self, PreprocFileIndex},
     project::{CompilationProfileId, ProjectConfig},
-    source_root::{SourceRoot, SourceRootId},
+    source_root::{SourceRoot, SourceRootId, SourceRootRole},
 };
 
 pub trait FileLoader {
@@ -284,7 +284,7 @@ fn file_compilation_profile(
     let project_config = db.project_config();
     let profile_id = project_config.profile_for_root(source_root_id);
     let source_root = db.source_root(source_root_id);
-    if profile_id.is_none() && source_root.participates_in_compilation() {
+    if profile_id.is_none() && source_root_can_report_missing_profile(source_root.role()) {
         tracing::debug!(
             ?file_id,
             ?source_root_id,
@@ -293,6 +293,10 @@ fn file_compilation_profile(
         );
     }
     profile_id
+}
+
+fn source_root_can_report_missing_profile(role: SourceRootRole) -> bool {
+    matches!(role, SourceRootRole::Local | SourceRootRole::Library)
 }
 
 fn file_is_project_ignored(db: &dyn SourceRootDb, file_id: FileId) -> bool {

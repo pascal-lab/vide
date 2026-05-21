@@ -172,7 +172,7 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn file_allows_workspace_edits(&self, file_id: FileId) -> bool {
-        self.source_root_role(file_id).is_none_or(SourceRootRole::allows_workspace_edits)
+        self.source_root_role(file_id).is_none_or(source_root_allows_workspace_edits)
     }
 
     pub(crate) fn workspace_diagnostic_file_ids(&self) -> Vec<FileId> {
@@ -183,7 +183,7 @@ impl GlobalStateSnapshot {
                 open_files.contains(file_id)
                     || self
                         .source_root_role(*file_id)
-                        .is_none_or(SourceRootRole::publishes_unopened_workspace_diagnostic_reports)
+                        .is_none_or(source_root_publishes_unopened_workspace_diagnostic_reports)
             })
             .collect()
     }
@@ -207,4 +207,14 @@ impl GlobalStateSnapshot {
         let path = from_proto::vfs_path(url).ok()?;
         self.mem_docs.file_id(&path).and_then(|file_id| self.file_version(file_id))
     }
+}
+
+fn source_root_allows_workspace_edits(role: SourceRootRole) -> bool {
+    !role.is_index_only()
+}
+
+fn source_root_publishes_unopened_workspace_diagnostic_reports(role: SourceRootRole) -> bool {
+    // Ignored files still need empty workspace diagnostic reports so clients can
+    // clear diagnostics that belonged to an earlier configuration.
+    !role.is_index_only()
 }

@@ -28,15 +28,11 @@ const DEFAULT_INDEX_SOURCE_PATTERNS: &[&str] = &["**"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Workspace {
-    top_modules: Vec<String>,
     workspace_root: AbsPathBuf,
-    macro_defs: MacroDef,
-    source: PathMatcher,
-    include_dirs: Vec<AbsPathBuf>,
-    exclude_globs: Option<PathGlobMatcher>,
     library_paths: Vec<AbsPathBuf>,
-    role: SourceRootRole,
-    enables_semantic_diagnostics: bool,
+    kind: WorkspaceKind,
+    roots: Vec<WorkspaceRoot>,
+    semantic_profile: Option<WorkspaceSemanticProfile>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,7 +57,29 @@ impl WorkspaceRoot {
     }
 }
 
-enum SourceSelection {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceKind {
+    Local,
+    Library,
+}
+
+impl WorkspaceKind {
+    fn from_is_lib(is_lib: bool) -> Self {
+        if is_lib { Self::Library } else { Self::Local }
+    }
+
+    fn is_library(self) -> bool {
+        matches!(self, Self::Library)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkspaceSemanticProfile {
+    top_modules: Vec<String>,
+    preprocess: PreprocessConfig,
+}
+
+enum ManifestSourcePolicy {
     /// `sources` was omitted, so load the workspace for best-effort navigation
     /// without using those scan roots as semantic include roots.
     DefaultIndex,
@@ -69,7 +87,7 @@ enum SourceSelection {
     Explicit(Vec<String>),
 }
 
-impl SourceSelection {
+impl ManifestSourcePolicy {
     fn from_manifest(patterns: Option<Vec<String>>) -> Self {
         match patterns {
             Some(patterns) => Self::Explicit(patterns),
@@ -88,7 +106,7 @@ impl SourceSelection {
         matches!(self, Self::Explicit(_))
     }
 
-    fn enables_semantic_diagnostics(&self, source_paths: &[AbsPathBuf]) -> bool {
+    fn provides_semantic_sources(&self, source_paths: &[AbsPathBuf]) -> bool {
         self.defaults_include_dirs_to_sources() && !source_paths.is_empty()
     }
 }
@@ -124,8 +142,9 @@ impl Workspace {
             exclude_patterns,
         } = toml;
 
-        let source_selection = SourceSelection::from_manifest(source_patterns);
-        let source_patterns = validate_manifest_patterns(source_selection.patterns(), "sources")?;
+        let kind = WorkspaceKind::from_is_lib(is_lib);
+        let source_policy = ManifestSourcePolicy::from_manifest(source_patterns);
+        let source_patterns = validate_manifest_patterns(source_policy.patterns(), "sources")?;
         let exclude_patterns = validate_manifest_patterns(exclude_patterns, "exclude")?;
         let exclude_globs = compile_manifest_globs(&workspace_root, exclude_patterns, "exclude")?;
 
@@ -137,61 +156,65 @@ impl Workspace {
                 |matcher| PathMatcher::glob(source_paths.clone(), matcher),
             );
 
-        let default_include_paths = if source_selection.defaults_include_dirs_to_sources() {
+        let default_include_paths = if source_policy.defaults_include_dirs_to_sources() {
             source_paths.as_slice()
         } else {
             &[]
         };
         let include_dirs = resolve_include_dirs(include_dirs, default_include_paths);
         let library_paths = resolve_library_paths(libraries);
-        let configures_semantic_diagnostics = source_selection
-            .enables_semantic_diagnostics(&source_paths)
-            || !include_dirs.is_empty();
-        let role =
-            workspace_role(is_lib, configures_semantic_diagnostics, !source_paths.is_empty());
-        let enables_semantic_diagnostics = configures_semantic_diagnostics || role.is_library();
-
-        Ok(Self {
-            top_modules,
-            workspace_root,
-            macro_defs,
+        let local_profile_sources =
+            source_policy.provides_semantic_sources(&source_paths) || !include_dirs.is_empty();
+        let roots = workspace_roots(
+            kind,
+            kind.is_library() || local_profile_sources,
+            !source_paths.is_empty(),
             source,
-            include_dirs,
+            include_dirs.clone(),
             exclude_globs,
-            library_paths,
-            role,
-            enables_semantic_diagnostics,
-        })
+        );
+        let semantic_profile = if roots.is_empty() {
+            None
+        } else {
+            semantic_profile(kind, local_profile_sources, top_modules, macro_defs, include_dirs)
+        };
+
+        Ok(Self { workspace_root, library_paths, kind, roots, semantic_profile })
     }
 
     fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
+        let kind = WorkspaceKind::from_is_lib(is_lib);
         let source_roots = vec![path.clone()];
-        let include_dirs = if is_lib { source_roots.clone() } else { Vec::new() };
-        let role = if is_lib { SourceRootRole::Library } else { SourceRootRole::IndexOnly };
+        let include_dirs = if kind.is_library() { source_roots.clone() } else { Vec::new() };
+        let roots = workspace_roots(
+            kind,
+            kind.is_library(),
+            true,
+            PathMatcher::all_under_roots(source_roots),
+            include_dirs.clone(),
+            None,
+        );
+        let semantic_profile = if roots.is_empty() {
+            None
+        } else {
+            semantic_profile(kind, false, Vec::new(), MacroDef::default(), include_dirs)
+        };
+
         Self {
-            top_modules: Vec::new(),
             workspace_root: path.clone(),
-            macro_defs: MacroDef::default(),
-            source: PathMatcher::all_under_roots(source_roots),
-            include_dirs,
-            exclude_globs: None,
             library_paths: Vec::new(),
-            role,
-            enables_semantic_diagnostics: role.is_library(),
+            kind,
+            roots,
+            semantic_profile,
         }
     }
 
-    pub fn to_roots(&self) -> Vec<WorkspaceRoot> {
-        vec![WorkspaceRoot {
-            role: self.role,
-            source: self.source.clone(),
-            include_dirs: self.include_dirs.clone(),
-            exclude_globs: self.exclude_globs.clone(),
-        }]
+    pub fn roots(&self) -> &[WorkspaceRoot] {
+        &self.roots
     }
 
-    fn top_modules(&self) -> Vec<String> {
-        self.top_modules.clone()
+    fn semantic_profile(&self) -> Option<&WorkspaceSemanticProfile> {
+        self.semantic_profile.as_ref()
     }
 
     fn root(&self) -> &AbsPathBuf {
@@ -202,42 +225,58 @@ impl Workspace {
         &self.library_paths
     }
 
-    fn enables_semantic_diagnostics(&self) -> bool {
-        self.enables_semantic_diagnostics
-    }
-
     pub fn is_lib(&self) -> bool {
-        self.role.is_library()
+        self.kind.is_library()
     }
+}
 
-    pub fn is_index_only(&self) -> bool {
-        self.role.is_index_only()
-    }
+fn semantic_profile(
+    kind: WorkspaceKind,
+    local_enables_semantic_diagnostics: bool,
+    top_modules: Vec<String>,
+    macro_defs: MacroDef,
+    include_dirs: Vec<AbsPathBuf>,
+) -> Option<WorkspaceSemanticProfile> {
+    (kind.is_library() || local_enables_semantic_diagnostics).then(|| WorkspaceSemanticProfile {
+        top_modules,
+        preprocess: PreprocessConfig {
+            predefines: macro_defs.to_predefine_strings(),
+            include_dirs,
+        },
+    })
+}
 
-    fn preprocess_config(&self) -> PreprocessConfig {
-        PreprocessConfig {
-            predefines: self.macro_defs.to_predefine_strings(),
-            include_dirs: self.include_dirs.clone(),
-        }
+fn workspace_roots(
+    kind: WorkspaceKind,
+    has_semantic_profile: bool,
+    has_source_paths: bool,
+    source: PathMatcher,
+    include_dirs: Vec<AbsPathBuf>,
+    exclude_globs: Option<PathGlobMatcher>,
+) -> Vec<WorkspaceRoot> {
+    let role = root_role(kind, has_semantic_profile, has_source_paths);
+    let root = WorkspaceRoot { role, source, include_dirs, exclude_globs };
+    if root.load_paths().is_empty() { Vec::new() } else { vec![root] }
+}
+
+fn root_role(
+    kind: WorkspaceKind,
+    has_semantic_profile: bool,
+    has_source_paths: bool,
+) -> SourceRootRole {
+    if kind.is_library() {
+        SourceRootRole::Library
+    } else if has_semantic_profile {
+        SourceRootRole::Local
+    } else if has_source_paths {
+        SourceRootRole::IndexOnly
+    } else {
+        SourceRootRole::Local
     }
 }
 
 fn default_index_source_patterns() -> Vec<String> {
     DEFAULT_INDEX_SOURCE_PATTERNS.iter().map(|pattern| (*pattern).to_owned()).collect()
-}
-
-fn workspace_role(
-    is_lib: bool,
-    configures_semantic_diagnostics: bool,
-    has_source_paths: bool,
-) -> SourceRootRole {
-    if is_lib {
-        SourceRootRole::Library
-    } else if !configures_semantic_diagnostics && has_source_paths {
-        SourceRootRole::IndexOnly
-    } else {
-        SourceRootRole::Local
-    }
 }
 
 fn resolve_include_dirs(
@@ -371,7 +410,7 @@ pub fn get_workspace_folder(
     let mut root_workspaces = Vec::new();
 
     for (workspace_idx, workspace) in workspaces.iter().enumerate() {
-        for root in workspace.to_roots() {
+        for root in workspace.roots() {
             let load_paths = root.load_paths();
             if load_paths.is_empty() {
                 continue;
@@ -438,9 +477,9 @@ pub fn get_workspace_folder(
     for (root_idx, workspace_idx) in root_workspaces {
         let source_root_id = SourceRootId(root_idx as u32);
         let workspace = &workspaces[workspace_idx];
-        if !workspace.enables_semantic_diagnostics() {
+        let Some(profile) = workspace.semantic_profile() else {
             continue;
-        }
+        };
 
         let profile_id = CompilationProfileId(profiles.len() as u32);
         root_profiles[root_idx] = Some(profile_id);
@@ -457,8 +496,8 @@ pub fn get_workspace_folder(
 
         profiles.push(CompilationProfile {
             source_roots,
-            top_modules: workspace.top_modules(),
-            preprocess: workspace.preprocess_config(),
+            top_modules: profile.top_modules.clone(),
+            preprocess: profile.preprocess.clone(),
         });
     }
 
@@ -598,7 +637,7 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert!(model.workspaces[0].is_index_only());
+        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::IndexOnly);
         assert_eq!(
             source_root_config.fileset_roles,
             vec![SourceRootRole::IndexOnly, SourceRootRole::Ignored]
@@ -623,7 +662,7 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert!(model.workspaces[0].is_index_only());
+        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::IndexOnly);
         assert_eq!(
             source_root_config.fileset_roles,
             vec![SourceRootRole::IndexOnly, SourceRootRole::Ignored]
@@ -647,7 +686,7 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert!(!model.workspaces[0].is_index_only());
+        assert!(model.workspaces[0].roots().is_empty());
         assert!(load.is_empty());
         assert_eq!(source_root_config.fileset_roles, vec![SourceRootRole::Ignored]);
         assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);

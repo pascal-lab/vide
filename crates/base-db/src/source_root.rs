@@ -13,13 +13,6 @@ pub enum SourceRootRole {
     Ignored,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SourceRootDiagnosticPolicy {
-    Workspace,
-    OpenedFileOnly,
-    Disabled,
-}
-
 impl SourceRootRole {
     pub fn is_library(self) -> bool {
         matches!(self, SourceRootRole::Library)
@@ -31,30 +24,6 @@ impl SourceRootRole {
 
     pub fn is_ignored(self) -> bool {
         matches!(self, SourceRootRole::Ignored)
-    }
-
-    pub fn participates_in_compilation(self) -> bool {
-        matches!(self, SourceRootRole::Local | SourceRootRole::Library)
-    }
-
-    pub fn diagnostic_policy(self) -> SourceRootDiagnosticPolicy {
-        match self {
-            SourceRootRole::Local | SourceRootRole::Library => {
-                SourceRootDiagnosticPolicy::Workspace
-            }
-            SourceRootRole::IndexOnly => SourceRootDiagnosticPolicy::OpenedFileOnly,
-            SourceRootRole::Ignored => SourceRootDiagnosticPolicy::Disabled,
-        }
-    }
-
-    /// Workspace diagnostics still need empty reports for ignored files so
-    /// clients can clear diagnostics that belonged to an earlier configuration.
-    pub fn publishes_unopened_workspace_diagnostic_reports(self) -> bool {
-        !self.is_index_only()
-    }
-
-    pub fn allows_workspace_edits(self) -> bool {
-        !self.is_index_only()
     }
 }
 
@@ -126,18 +95,6 @@ impl SourceRoot {
 
     pub fn is_ignored(&self) -> bool {
         self.role.is_ignored()
-    }
-
-    pub fn participates_in_compilation(&self) -> bool {
-        self.role.participates_in_compilation()
-    }
-
-    pub fn diagnostic_policy(&self) -> SourceRootDiagnosticPolicy {
-        self.role.diagnostic_policy()
-    }
-
-    pub fn allows_workspace_edits(&self) -> bool {
-        self.role.allows_workspace_edits()
     }
 
     pub fn path_for_file(&self, file: &FileId) -> Option<&VfsPath> {

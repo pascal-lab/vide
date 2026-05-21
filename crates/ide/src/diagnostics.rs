@@ -1,7 +1,4 @@
-use base_db::{
-    source_db::SourceRootDb,
-    source_root::{SourceRootDiagnosticPolicy, SourceRootRole},
-};
+use base_db::{source_db::SourceRootDb, source_root::SourceRootRole};
 use ide_db::root_db::RootDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
@@ -11,6 +8,13 @@ use vfs::FileId;
 pub enum DiagnosticSource {
     SlangParse,
     SlangSemantic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceRootDiagnosticScope {
+    Workspace,
+    OpenedFileOnly,
+    Disabled,
 }
 
 #[derive(Debug, Clone)]
@@ -71,10 +75,10 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    match source_root.diagnostic_policy() {
-        SourceRootDiagnosticPolicy::Disabled => return Vec::new(),
-        SourceRootDiagnosticPolicy::OpenedFileOnly => return parse_diagnostics(db, file_id),
-        SourceRootDiagnosticPolicy::Workspace => {}
+    match diagnostic_scope(source_root.role()) {
+        SourceRootDiagnosticScope::Disabled => return Vec::new(),
+        SourceRootDiagnosticScope::OpenedFileOnly => return parse_diagnostics(db, file_id),
+        SourceRootDiagnosticScope::Workspace => {}
     }
 
     let mut diagnostics = Vec::new();
@@ -104,9 +108,9 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    match source_root.diagnostic_policy() {
-        SourceRootDiagnosticPolicy::Workspace => source_root.iter().collect(),
-        SourceRootDiagnosticPolicy::OpenedFileOnly | SourceRootDiagnosticPolicy::Disabled => {
+    match diagnostic_scope(source_root.role()) {
+        SourceRootDiagnosticScope::Workspace => source_root.iter().collect(),
+        SourceRootDiagnosticScope::OpenedFileOnly | SourceRootDiagnosticScope::Disabled => {
             vec![file_id]
         }
     }
@@ -115,6 +119,14 @@ pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> 
 pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
     let source_root_id = db.source_root_id(file_id);
     db.source_root(source_root_id).role()
+}
+
+fn diagnostic_scope(role: SourceRootRole) -> SourceRootDiagnosticScope {
+    match role {
+        SourceRootRole::Local | SourceRootRole::Library => SourceRootDiagnosticScope::Workspace,
+        SourceRootRole::IndexOnly => SourceRootDiagnosticScope::OpenedFileOnly,
+        SourceRootRole::Ignored => SourceRootDiagnosticScope::Disabled,
+    }
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {

@@ -10,7 +10,7 @@ use crate::{
     preproc_index::MacroIncludeTarget,
     project::{CompilationProfileId, ProjectConfig},
     source_db::{SourceFileKind, SourceRootDb},
-    source_root::SourceRootId,
+    source_root::{SourceRootId, SourceRootRole},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -149,12 +149,18 @@ fn all_non_ignored_roots(db: &dyn SourceRootDb) -> Vec<SourceRootId> {
     for file_id in db.files().iter().copied() {
         if !db.file_is_project_ignored(file_id) {
             let source_root_id = db.source_root_id(file_id);
-            if db.source_root(source_root_id).participates_in_compilation() {
+            if source_root_participates_in_fallback_compilation(
+                db.source_root(source_root_id).role(),
+            ) {
                 roots.insert(source_root_id);
             }
         }
     }
     roots.into_iter().collect()
+}
+
+fn source_root_participates_in_fallback_compilation(role: SourceRootRole) -> bool {
+    matches!(role, SourceRootRole::Local | SourceRootRole::Library)
 }
 
 fn compile_roots_for_source_roots(
