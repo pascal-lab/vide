@@ -46,7 +46,6 @@ pub struct WorkspaceRoot {
     pub source: PathMatcher,
     pub include_dirs: Vec<AbsPathBuf>,
     pub exclude_globs: Option<PathGlobMatcher>,
-    pub contributes_to_semantic_profile: bool,
 }
 
 impl WorkspaceRoot {
@@ -55,10 +54,6 @@ impl WorkspaceRoot {
         paths.extend(self.source.scan_roots().cloned());
         sort_and_remove_subfolders(&mut paths);
         paths
-    }
-
-    pub fn contributes_to_semantic_profile(&self) -> bool {
-        self.contributes_to_semantic_profile
     }
 }
 
@@ -174,7 +169,7 @@ impl Workspace {
         );
         let semantic_profile = roots
             .iter()
-            .any(WorkspaceRoot::contributes_to_semantic_profile)
+            .any(|root| root.role.participates_in_semantic_profile())
             .then(|| semantic_profile(top_modules, macro_defs, include_dirs));
 
         Ok(Self { workspace_root, library_paths, kind, roots, semantic_profile })
@@ -194,7 +189,7 @@ impl Workspace {
         );
         let semantic_profile = roots
             .iter()
-            .any(WorkspaceRoot::contributes_to_semantic_profile)
+            .any(|root| root.role.participates_in_semantic_profile())
             .then(|| semantic_profile(Vec::new(), MacroDef::default(), include_dirs));
 
         Self {
@@ -258,7 +253,6 @@ fn workspace_roots(
             source,
             include_dirs,
             exclude_globs,
-            true,
         );
         return roots;
     }
@@ -271,16 +265,14 @@ fn workspace_roots(
                 PathMatcher::all_under_roots(Vec::new()),
                 include_dirs,
                 exclude_globs.clone(),
-                true,
             );
             if has_source_paths {
                 push_workspace_root(
                     &mut roots,
-                    SourceRootRole::IndexOnly,
+                    SourceRootRole::BestEffortIndex,
                     source,
                     Vec::new(),
                     exclude_globs,
-                    false,
                 );
             }
         }
@@ -291,7 +283,6 @@ fn workspace_roots(
                 source,
                 include_dirs,
                 exclude_globs,
-                true,
             );
         }
     }
@@ -305,15 +296,8 @@ fn push_workspace_root(
     source: PathMatcher,
     include_dirs: Vec<AbsPathBuf>,
     exclude_globs: Option<PathGlobMatcher>,
-    contributes_to_semantic_profile: bool,
 ) {
-    let root = WorkspaceRoot {
-        role,
-        source,
-        include_dirs,
-        exclude_globs,
-        contributes_to_semantic_profile,
-    };
+    let root = WorkspaceRoot { role, source, include_dirs, exclude_globs };
     if !root.load_paths().is_empty() {
         roots.push(root);
     }
@@ -443,6 +427,12 @@ impl ProjectModel {
     }
 }
 
+struct LoadedWorkspaceRoot {
+    root_idx: usize,
+    workspace_idx: usize,
+    role: SourceRootRole,
+}
+
 pub fn get_workspace_folder(
     workspaces: &[Workspace],
     global_excludes: &[AbsPathBuf],
@@ -451,7 +441,7 @@ pub fn get_workspace_folder(
     let mut load = Vec::new();
     let mut fsc = FileSetConfig::builder();
     let mut fileset_roles = Vec::new();
-    let mut root_workspaces = Vec::new();
+    let mut loaded_roots = Vec::new();
 
     for (workspace_idx, workspace) in workspaces.iter().enumerate() {
         for root in workspace.roots() {
@@ -499,10 +489,10 @@ pub fn get_workspace_folder(
                 },
             );
 
-            if !root.role.is_library() {
+            if root.role.is_watched() {
                 watch.push(load.len());
             }
-            root_workspaces.push((root_idx, workspace_idx, root.contributes_to_semantic_profile()));
+            loaded_roots.push(LoadedWorkspaceRoot { root_idx, workspace_idx, role: root.role });
             load.push(entry);
         }
     }
@@ -510,12 +500,12 @@ pub fn get_workspace_folder(
     fileset_roles.push(SourceRootRole::Ignored);
     let source_root_count = fsc.len() + 1;
     let mut root_ids_by_workspace = FxHashMap::<usize, Vec<SourceRootId>>::default();
-    for (root_idx, workspace_idx, contributes_to_semantic_profile) in &root_workspaces {
-        if *contributes_to_semantic_profile {
+    for loaded_root in &loaded_roots {
+        if loaded_root.role.participates_in_semantic_profile() {
             root_ids_by_workspace
-                .entry(*workspace_idx)
+                .entry(loaded_root.workspace_idx)
                 .or_default()
-                .push(SourceRootId(*root_idx as u32));
+                .push(SourceRootId(loaded_root.root_idx as u32));
         }
     }
     let dependency_roots_by_workspace =
@@ -523,30 +513,30 @@ pub fn get_workspace_folder(
     let mut root_profiles = vec![None; source_root_count];
     let mut profiles = Vec::new();
 
-    for (root_idx, workspace_idx, contributes_to_semantic_profile) in root_workspaces {
-        if !contributes_to_semantic_profile {
+    for loaded_root in loaded_roots {
+        if !loaded_root.role.participates_in_semantic_profile() {
             continue;
         }
-        let source_root_id = SourceRootId(root_idx as u32);
-        let workspace = &workspaces[workspace_idx];
+        let source_root_id = SourceRootId(loaded_root.root_idx as u32);
+        let workspace = &workspaces[loaded_root.workspace_idx];
         let Some(profile) = workspace.semantic_profile() else {
             continue;
         };
 
         let profile_id = CompilationProfileId(profiles.len() as u32);
-        root_profiles[root_idx] = Some(profile_id);
+        root_profiles[loaded_root.root_idx] = Some(profile_id);
 
         let source_roots = std::iter::once(source_root_id)
             .chain(
                 root_ids_by_workspace
-                    .get(&workspace_idx)
+                    .get(&loaded_root.workspace_idx)
                     .into_iter()
                     .flat_map(|roots| roots.iter().copied())
                     .filter(|root_id| *root_id != source_root_id),
             )
             .chain(
                 dependency_roots_by_workspace
-                    .get(&workspace_idx)
+                    .get(&loaded_root.workspace_idx)
                     .into_iter()
                     .flat_map(|roots| roots.iter().copied()),
             )
@@ -696,10 +686,10 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::IndexOnly);
+        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::BestEffortIndex);
         assert_eq!(
             source_root_config.fileset_roles,
-            vec![SourceRootRole::IndexOnly, SourceRootRole::Ignored]
+            vec![SourceRootRole::BestEffortIndex, SourceRootRole::Ignored]
         );
         let dirs = match &load[0] {
             vfs::loader::Entry::Directories(dirs) => dirs,
@@ -721,10 +711,10 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::IndexOnly);
+        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::BestEffortIndex);
         assert_eq!(
             source_root_config.fileset_roles,
-            vec![SourceRootRole::IndexOnly, SourceRootRole::Ignored]
+            vec![SourceRootRole::BestEffortIndex, SourceRootRole::Ignored]
         );
         assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
     }
@@ -803,7 +793,7 @@ include_dirs = ["include"]
         assert_eq!(load.len(), 2);
         assert_eq!(
             source_root_config.fileset_roles,
-            vec![SourceRootRole::Local, SourceRootRole::IndexOnly, SourceRootRole::Ignored]
+            vec![SourceRootRole::Local, SourceRootRole::BestEffortIndex, SourceRootRole::Ignored]
         );
 
         let include_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
@@ -822,7 +812,7 @@ include_dirs = ["include"]
         let roots = source_root_config.partition(&vfs);
         assert_eq!(roots[0].role(), SourceRootRole::Local);
         assert!(roots[0].file_for_path(&VfsPath::from(header)).is_some());
-        assert_eq!(roots[1].role(), SourceRootRole::IndexOnly);
+        assert_eq!(roots[1].role(), SourceRootRole::BestEffortIndex);
         assert!(roots[1].file_for_path(&VfsPath::from(top)).is_some());
     }
 

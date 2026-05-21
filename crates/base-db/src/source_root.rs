@@ -8,9 +8,16 @@ pub struct SourceRootId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SourceRootRole {
     Local,
-    IndexOnly,
+    BestEffortIndex,
     Library,
     Ignored,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceRootDiagnosticScope {
+    Workspace,
+    OpenFile,
+    Disabled,
 }
 
 impl SourceRootRole {
@@ -18,12 +25,42 @@ impl SourceRootRole {
         matches!(self, SourceRootRole::Library)
     }
 
-    pub fn is_index_only(self) -> bool {
-        matches!(self, SourceRootRole::IndexOnly)
-    }
-
     pub fn is_ignored(self) -> bool {
         matches!(self, SourceRootRole::Ignored)
+    }
+
+    pub fn is_watched(self) -> bool {
+        matches!(self, SourceRootRole::Local | SourceRootRole::BestEffortIndex)
+    }
+
+    pub fn participates_in_semantic_profile(self) -> bool {
+        matches!(self, SourceRootRole::Local | SourceRootRole::Library)
+    }
+
+    pub fn supports_root_scoped_compilation(self) -> bool {
+        self.participates_in_semantic_profile()
+    }
+
+    pub fn reports_missing_profile(self) -> bool {
+        self.participates_in_semantic_profile()
+    }
+
+    pub fn diagnostic_scope(self) -> SourceRootDiagnosticScope {
+        match self {
+            SourceRootRole::Local | SourceRootRole::Library => SourceRootDiagnosticScope::Workspace,
+            SourceRootRole::BestEffortIndex => SourceRootDiagnosticScope::OpenFile,
+            SourceRootRole::Ignored => SourceRootDiagnosticScope::Disabled,
+        }
+    }
+
+    pub fn allows_workspace_edits(self) -> bool {
+        !matches!(self, SourceRootRole::BestEffortIndex)
+    }
+
+    pub fn publishes_unopened_workspace_diagnostics(self) -> bool {
+        // Ignored roots still publish empty reports so clients can clear stale
+        // diagnostics from an earlier configuration.
+        !matches!(self, SourceRootRole::BestEffortIndex)
     }
 }
 
@@ -55,8 +92,8 @@ impl SourceRoot {
         SourceRoot::new(SourceRootRole::Library, file_set)
     }
 
-    pub fn new_index_only(file_set: FileSet) -> SourceRoot {
-        SourceRoot::new(SourceRootRole::IndexOnly, file_set)
+    pub fn new_best_effort_index(file_set: FileSet) -> SourceRoot {
+        SourceRoot::new(SourceRootRole::BestEffortIndex, file_set)
     }
 
     pub fn new_ignored(file_set: FileSet) -> SourceRoot {
@@ -74,11 +111,11 @@ impl SourceRoot {
         SourceRoot::with_source_files(SourceRootRole::Library, file_set, source_files)
     }
 
-    pub fn new_index_only_with_source_files(
+    pub fn new_best_effort_index_with_source_files(
         file_set: FileSet,
         source_files: Vec<FileId>,
     ) -> SourceRoot {
-        SourceRoot::with_source_files(SourceRootRole::IndexOnly, file_set, source_files)
+        SourceRoot::with_source_files(SourceRootRole::BestEffortIndex, file_set, source_files)
     }
 
     pub fn role(&self) -> SourceRootRole {
@@ -87,10 +124,6 @@ impl SourceRoot {
 
     pub fn is_library(&self) -> bool {
         self.role.is_library()
-    }
-
-    pub fn is_index_only(&self) -> bool {
-        self.role.is_index_only()
     }
 
     pub fn is_ignored(&self) -> bool {
@@ -131,21 +164,42 @@ impl SourceRoot {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct SourceRootConfig {
     pub fileset_config: FileSetConfig,
     pub fileset_roles: Vec<SourceRootRole>,
 }
 
+impl Default for SourceRootConfig {
+    fn default() -> Self {
+        Self {
+            fileset_config: FileSetConfig::default(),
+            fileset_roles: vec![SourceRootRole::Ignored],
+        }
+    }
+}
+
 impl SourceRootConfig {
     pub fn partition(&self, vfs: &Vfs) -> Vec<SourceRoot> {
-        self.fileset_config
-            .partition_with_source(vfs)
+        let partitions = self.fileset_config.partition_with_source(vfs);
+        debug_assert_eq!(
+            self.fileset_roles.len(),
+            partitions.len(),
+            "source root roles must track file-set partitions",
+        );
+
+        let partition_len = partitions.len();
+        partitions
             .into_iter()
             .enumerate()
             .map(|(idx, partition)| {
                 let file_set = partition.file_set;
-                let role = self.fileset_roles.get(idx).copied().unwrap_or(SourceRootRole::Library);
+                let fallback_role = if idx + 1 == partition_len {
+                    SourceRootRole::Ignored
+                } else {
+                    SourceRootRole::Library
+                };
+                let role = self.fileset_roles.get(idx).copied().unwrap_or(fallback_role);
                 let source_files =
                     partition.source_files.map(|source_files| source_files.into_iter().collect());
                 if role.is_ignored() {
@@ -193,15 +247,36 @@ mod tests {
     }
 
     #[test]
-    fn index_only_root_preserves_file_kind() {
+    fn best_effort_index_root_preserves_file_kind() {
         let mut file_set = FileSet::default();
         let file_id = FileId(0);
         file_set.insert(file_id, VfsPath::new_virtual_path("/indexed/file.sv".into()));
-        let root = SourceRoot::new_index_only(file_set);
+        let root = SourceRoot::new_best_effort_index(file_set);
 
-        assert_eq!(root.role(), SourceRootRole::IndexOnly);
-        assert!(root.is_index_only());
+        assert_eq!(root.role(), SourceRootRole::BestEffortIndex);
         assert_eq!(root.file_kind(&file_id), SourceFileKind::SystemVerilog);
+    }
+
+    #[test]
+    fn source_root_role_policies_are_explicit() {
+        assert!(SourceRootRole::Local.participates_in_semantic_profile());
+        assert!(SourceRootRole::Library.participates_in_semantic_profile());
+        assert!(!SourceRootRole::BestEffortIndex.participates_in_semantic_profile());
+        assert!(!SourceRootRole::Ignored.participates_in_semantic_profile());
+
+        assert!(SourceRootRole::Local.supports_root_scoped_compilation());
+        assert!(!SourceRootRole::BestEffortIndex.supports_root_scoped_compilation());
+
+        assert_eq!(SourceRootRole::Local.diagnostic_scope(), SourceRootDiagnosticScope::Workspace);
+        assert_eq!(
+            SourceRootRole::BestEffortIndex.diagnostic_scope(),
+            SourceRootDiagnosticScope::OpenFile,
+        );
+        assert_eq!(SourceRootRole::Ignored.diagnostic_scope(), SourceRootDiagnosticScope::Disabled);
+
+        assert!(SourceRootRole::Local.allows_workspace_edits());
+        assert!(!SourceRootRole::BestEffortIndex.allows_workspace_edits());
+        assert!(!SourceRootRole::BestEffortIndex.publishes_unopened_workspace_diagnostics());
     }
 
     #[test]

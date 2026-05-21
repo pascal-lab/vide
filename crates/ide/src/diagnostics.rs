@@ -1,4 +1,7 @@
-use base_db::{source_db::SourceRootDb, source_root::SourceRootRole};
+use base_db::{
+    source_db::SourceRootDb,
+    source_root::{SourceRootDiagnosticScope, SourceRootRole},
+};
 use ide_db::root_db::RootDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::text_edit::{TextRange, TextSize};
@@ -8,13 +11,6 @@ use vfs::FileId;
 pub enum DiagnosticSource {
     SlangParse,
     SlangSemantic,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SourceRootDiagnosticScope {
-    Workspace,
-    OpenedFileOnly,
-    Disabled,
 }
 
 #[derive(Debug, Clone)]
@@ -75,9 +71,9 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
 pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    match diagnostic_scope(source_root.role()) {
+    match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Disabled => return Vec::new(),
-        SourceRootDiagnosticScope::OpenedFileOnly => return parse_diagnostics(db, file_id),
+        SourceRootDiagnosticScope::OpenFile => return parse_diagnostics(db, file_id),
         SourceRootDiagnosticScope::Workspace => {}
     }
 
@@ -108,25 +104,15 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    match diagnostic_scope(source_root.role()) {
+    match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Workspace => source_root.iter().collect(),
-        SourceRootDiagnosticScope::OpenedFileOnly | SourceRootDiagnosticScope::Disabled => {
-            vec![file_id]
-        }
+        SourceRootDiagnosticScope::OpenFile | SourceRootDiagnosticScope::Disabled => vec![file_id],
     }
 }
 
 pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
     let source_root_id = db.source_root_id(file_id);
     db.source_root(source_root_id).role()
-}
-
-fn diagnostic_scope(role: SourceRootRole) -> SourceRootDiagnosticScope {
-    match role {
-        SourceRootRole::Local | SourceRootRole::Library => SourceRootDiagnosticScope::Workspace,
-        SourceRootRole::IndexOnly => SourceRootDiagnosticScope::OpenedFileOnly,
-        SourceRootRole::Ignored => SourceRootDiagnosticScope::Disabled,
-    }
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
@@ -236,14 +222,14 @@ mod tests {
     }
 
     #[test]
-    fn index_only_root_does_not_produce_fallback_compilation_plan() {
+    fn best_effort_index_root_does_not_produce_fallback_compilation_plan() {
         let mut db = RootDb::new(None);
         let file_id = FileId(0);
         let mut file_set = FileSet::default();
         file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
 
         let mut change = Change::new();
-        change.set_roots(vec![SourceRoot::new_index_only(file_set)]);
+        change.set_roots(vec![SourceRoot::new_best_effort_index(file_set)]);
         change.add_changed_file(ChangedFile {
             file_id,
             change_kind: ChangeKind::Create(Arc::from("module top; endmodule\n"), LineEnding::Unix),
