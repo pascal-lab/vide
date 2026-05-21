@@ -22,6 +22,7 @@ use crate::global_state::main_loop;
 
 mod config;
 mod global_state;
+mod i18n;
 mod lsp_ext;
 
 const DEFAULT_PROCESS_NAME: &str = env!("CARGO_PKG_NAME");
@@ -99,6 +100,7 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         workspace_folders,
         initialization_options,
         trace,
+        locale,
         ..
     } = from_json::<lsp_types::InitializeParams>("InitializeParams", &initialize_params)?;
 
@@ -147,7 +149,15 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         Default::default()
     };
 
-    let config = Config::new(opt, root_path, client_caps, workspace_roots, user_config, snippets);
+    let config = Config::new_with_locale(
+        opt,
+        root_path,
+        client_caps,
+        workspace_roots,
+        crate::i18n::Locale::from_lsp(locale.as_deref()),
+        user_config,
+        snippets,
+    );
 
     let initialize_result = lsp_types::InitializeResult {
         capabilities: config.server_caps(),

@@ -188,7 +188,7 @@ impl ReqDispatcher<'_> {
             let response = Response::new_err(
                 req.id,
                 lsp_server::ErrorCode::MethodNotFound as i32,
-                "unknown request".to_string(),
+                self.global_state.config.locale.unknown_request().to_owned(),
             );
             self.global_state.respond(response);
         }

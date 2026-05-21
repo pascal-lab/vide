@@ -34,7 +34,7 @@ use utils::{
 use vfs::FileId;
 
 use super::{
-    ext::{self, CodeLensData, CodeLensDataKind},
+    ext::{self, CodeActionResolveError, CodeLensData, CodeLensDataKind},
     lsp_error::LspError,
 };
 use crate::{
@@ -340,17 +340,22 @@ fn line_col_for_position(index: &LineIndex, offset: TextSize) -> LineCol {
     }
 }
 
-pub(crate) fn rename_error(err: RenameError) -> LspError {
-    LspError::new(lsp_server::ErrorCode::InvalidParams as i32, err.to_string())
+pub(crate) fn rename_error(locale: crate::i18n::Locale, err: RenameError) -> LspError {
+    LspError::new(lsp_server::ErrorCode::InvalidParams as i32, locale.rename_error(err).to_owned())
 }
 
 pub(crate) fn format_error(err: Error) -> LspError {
     LspError::new(lsp_server::ErrorCode::RequestFailed as i32, err.to_string())
 }
 
-#[allow(dead_code)]
-pub(crate) fn code_action_resolve_error(err: Error) -> LspError {
-    LspError::new(lsp_server::ErrorCode::InvalidParams as i32, err.to_string())
+pub(crate) fn code_action_resolve_error(
+    locale: crate::i18n::Locale,
+    err: CodeActionResolveError,
+) -> LspError {
+    LspError::new(
+        lsp_server::ErrorCode::InvalidParams as i32,
+        locale.code_action_resolve_error(err),
+    )
 }
 
 pub(crate) fn workspace_edit(
@@ -572,9 +577,8 @@ pub(crate) fn code_lens_kind(
     let command = match kind {
         CodeLensKind::ModuleInstance { data, .. } => data.map(|ranges| {
             let count = ranges.len();
-            let s = if count == 1 { "" } else { "s" };
             lsp_types::Command {
-                title: format!("{count} instance{s}"),
+                title: snap.config.locale.instance_count(count),
                 command: String::new(),
                 arguments: None,
             }
@@ -809,8 +813,9 @@ pub(crate) fn code_action(
     resolve_data: Option<(usize, lsp_types::CodeActionParams, Option<i32>)>,
     diagnostics: Option<Vec<lsp_types::Diagnostic>>,
 ) -> anyhow::Result<lsp_types::CodeAction> {
+    let title = snap.config.locale.code_action_title(id.name, &label);
     let mut res = lsp_types::CodeAction {
-        title: label,
+        title,
         kind: Some(self::code_action_kind(id.kind)),
         edit: None,
         is_preferred: None,

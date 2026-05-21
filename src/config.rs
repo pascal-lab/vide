@@ -12,7 +12,7 @@ use utils::{
 };
 
 use self::user_config::{FilesWatcherDef, UserConfig};
-use crate::Opt;
+use crate::{Opt, i18n::Locale};
 
 #[derive(Debug, Clone)]
 pub struct FilesConfig {
@@ -61,6 +61,7 @@ pub struct Config {
     pub(crate) workspace_roots: Vec<AbsPathBuf>,
     pub(crate) client_caps: lsp_types::ClientCapabilities,
     pub(crate) root_path: AbsPathBuf,
+    pub(crate) locale: Locale,
     pub(crate) user_config: UserConfig,
     pub(crate) project_manifests: Vec<ProjectManifest>,
 }
@@ -69,6 +70,7 @@ pub struct Config {
 pub struct Snippet {}
 
 impl Config {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn new(
         opt: Opt,
         root_path: AbsPathBuf,
@@ -77,8 +79,36 @@ impl Config {
         user_config: UserConfig,
         _snippets: Vec<Snippet>,
     ) -> Self {
+        Self::new_with_locale(
+            opt,
+            root_path,
+            client_caps,
+            workspace_roots,
+            Locale::default(),
+            user_config,
+            _snippets,
+        )
+    }
+
+    pub(crate) fn new_with_locale(
+        opt: Opt,
+        root_path: AbsPathBuf,
+        client_caps: ClientCapabilities,
+        workspace_roots: Vec<AbsPathBuf>,
+        locale: Locale,
+        user_config: UserConfig,
+        _snippets: Vec<Snippet>,
+    ) -> Self {
         let project_manifests = Self::project_manifests(&workspace_roots);
-        Config { opt, workspace_roots, client_caps, root_path, user_config, project_manifests }
+        Config {
+            opt,
+            workspace_roots,
+            client_caps,
+            root_path,
+            locale,
+            user_config,
+            project_manifests,
+        }
     }
 
     pub(crate) fn update(&mut self, json: serde_json::Value) -> Result<(), ConfigError> {

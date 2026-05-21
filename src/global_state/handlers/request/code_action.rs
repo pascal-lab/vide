@@ -185,18 +185,29 @@ pub(crate) fn handle_code_action_resolve(
     mut code_action: lsp_types::CodeAction,
 ) -> anyhow::Result<lsp_types::CodeAction> {
     let data = from_proto::code_action_data(
-        code_action.data.replace(Default::default()).ok_or(CodeActionResolveError::NoData)?,
+        code_action.data.replace(Default::default()).ok_or_else(|| {
+            to_proto::code_action_resolve_error(snap.config.locale, CodeActionResolveError::NoData)
+        })?,
     )?;
 
     let file_id = from_proto::file_id(&snap, &data.code_action_params.text_document.uri)?;
     if snap.file_version(file_id) != data.version {
-        return Err(CodeActionResolveError::Stable.into());
+        return Err(to_proto::code_action_resolve_error(
+            snap.config.locale,
+            CodeActionResolveError::Stable,
+        )
+        .into());
     }
 
     let line_index = snap.line_info(file_id)?;
     let range = from_proto::text_range(&line_index, data.code_action_params.range)?;
 
-    let (idx, name) = parse_action_id(&data.id).map_err(CodeActionResolveError::InvalidId)?;
+    let (idx, name) = parse_action_id(&data.id).map_err(|err| {
+        to_proto::code_action_resolve_error(
+            snap.config.locale,
+            CodeActionResolveError::InvalidId(err),
+        )
+    })?;
     let resolve_strategy = CodeActionResolveStrategy::Single { name };
 
     let server_diagnostics = server_diagnostics_for_code_action(
@@ -212,7 +223,11 @@ pub(crate) fn handle_code_action_resolve(
     let action = if idx < actions.len() {
         actions.remove(idx)
     } else {
-        return Err(CodeActionResolveError::Stable.into());
+        return Err(to_proto::code_action_resolve_error(
+            snap.config.locale,
+            CodeActionResolveError::Stable,
+        )
+        .into());
     };
 
     let resolved_action = to_proto::code_action(&snap, action, None, None)?;

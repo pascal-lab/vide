@@ -236,11 +236,9 @@ fn handle_qihe_analysis_command(
     state: &mut crate::global_state::GlobalState,
     params: lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<Option<serde_json::Value>> {
-    let args = params
-        .arguments
-        .first()
-        .cloned()
-        .ok_or_else(|| anyhow::format_err!("missing executeCommand arguments"))?;
+    let args = params.arguments.first().cloned().ok_or_else(|| {
+        anyhow::format_err!("{}", state.config.locale.missing_execute_command_arguments())
+    })?;
     let params = serde_json::from_value::<RunQiheAnalysisParams>(args)?;
     state.spawn_qihe_analysis(params);
     Ok(None)
@@ -252,7 +250,7 @@ pub(crate) fn handle_execute_command(
 ) -> anyhow::Result<Option<serde_json::Value>> {
     match params.command.as_str() {
         RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
-        _ => anyhow::bail!("unknown executeCommand: {}", params.command),
+        _ => anyhow::bail!("{}", state.config.locale.unknown_execute_command(&params.command)),
     }
 }
 
@@ -373,7 +371,10 @@ pub(crate) fn handle_prepare_rename(
     }
     let line_index = snap.line_info(position.file_id)?;
 
-    let text_range = snap.analysis.prepare_rename(position)?.map_err(to_proto::rename_error)?;
+    let text_range = snap
+        .analysis
+        .prepare_rename(position)?
+        .map_err(|err| to_proto::rename_error(snap.config.locale, err))?;
     let range = to_proto::range(&line_index, text_range);
     Ok(Some(lsp_types::PrepareRenameResponse::Range(range)))
 }
@@ -390,7 +391,7 @@ pub(crate) fn handle_rename(
     let change = snap
         .analysis
         .rename(position, config, &params.new_name)?
-        .map_err(to_proto::rename_error)?;
+        .map_err(|err| to_proto::rename_error(snap.config.locale, err))?;
 
     let workspace_edit = to_proto::workspace_edit(&snap, change)?;
     Ok(Some(workspace_edit))

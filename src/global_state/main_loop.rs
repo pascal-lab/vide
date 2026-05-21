@@ -220,7 +220,7 @@ impl GlobalState {
                 this.respond(lsp_server::Response::new_err(
                     req.id.clone(),
                     lsp_server::ErrorCode::InvalidRequest as i32,
-                    "Shutdown already requested.".to_owned(),
+                    this.config.locale.shutdown_already_requested().to_owned(),
                 ));
                 return;
             }
@@ -322,7 +322,13 @@ impl GlobalState {
                     }
                 };
 
-                self.report_progress("Fetching Workspaces", state, None, None, None);
+                self.report_progress(
+                    self.config.locale.fetching_workspaces(),
+                    state,
+                    None,
+                    None,
+                    None,
+                );
             }
             Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags, false),
             Task::Qihe(task) => self.handle_qihe_task(task),
@@ -355,7 +361,7 @@ impl GlobalState {
                 };
 
                 self.report_progress(
-                    "Roots Scanning",
+                    self.config.locale.roots_scanning(),
                     state,
                     Some(format!("{n_done}/{n_total}")),
                     Some(Progress::fraction(n_done, n_total)),
