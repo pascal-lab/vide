@@ -347,3 +347,77 @@ macro_rules! define_src_with_name {
         }
     };
 }
+
+#[macro_export]
+macro_rules! define_src_with_name_and_token {
+    ($name:ident(ast:: $ty:ident, $token:ident : $token_getter:ident, $range_getter:ident)) => {
+        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+        pub struct $name {
+            pub node: syntax::ptr::SyntaxNodePtr,
+            pub name: Option<syntax::ptr::SyntaxTokenPtr>,
+            $token: Option<syntax::ptr::SyntaxTokenPtr>,
+        }
+
+        impl $name {
+            pub fn $range_getter(&self) -> Option<utils::text_edit::TextRange> {
+                self.$token.map(|token| token.range())
+            }
+        }
+
+        impl $crate::source_map::IsSrc for $name {
+            fn kind(&self) -> syntax::SyntaxKind {
+                self.node.kind()
+            }
+
+            fn range(&self) -> utils::text_edit::TextRange {
+                self.node.range()
+            }
+        }
+
+        impl $crate::source_map::IsNamedSrc for $name {
+            fn name_kind(&self) -> Option<syntax::TokenKind> {
+                self.name.map(|name| name.kind())
+            }
+
+            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+                self.name.map(|name| name.range())
+            }
+        }
+
+        impl<'a> $crate::source_map::ToAstNode<'a, ast::$ty<'a>> for $name {
+            fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
+                let mut node = self.node.to_node(tree)?;
+                while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) {
+                    node = node.children().find_map(|elem| elem.as_node())?;
+                }
+                <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
+            }
+        }
+
+        impl From<ast::$ty<'_>> for $name {
+            fn from(node: ast::$ty<'_>) -> Self {
+                let syntax = syntax::ast::AstNode::syntax(&node);
+                Self {
+                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
+                        .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
+                    $token: node
+                        .$token_getter()
+                        .map(|token| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, token)),
+                }
+            }
+        }
+
+        impl From<$name> for syntax::ptr::SyntaxNodePtr {
+            fn from(src: $name) -> Self {
+                src.node
+            }
+        }
+
+        impl From<$name> for Option<syntax::ptr::SyntaxTokenPtr> {
+            fn from(src: $name) -> Self {
+                src.name
+            }
+        }
+    };
+}

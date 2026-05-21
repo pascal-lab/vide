@@ -53,7 +53,7 @@ use super::{
 use crate::{
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src_with_name,
+    define_src_with_name_and_token,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
     source_map::{SourceMap, ToAstNode},
@@ -144,7 +144,7 @@ define_container! {
     }
 }
 
-define_src_with_name!(ModuleSrc(ast::ModuleDeclaration));
+define_src_with_name_and_token!(ModuleSrc(ast::ModuleDeclaration, end: endmodule, end_range));
 
 impl Module {
     pub fn param_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
