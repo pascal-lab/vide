@@ -533,11 +533,12 @@ fn resolve_instantiation_type_name(
         && instantiation.type_() == Some(tok)
     {
         return match resolve_instantiation_target(sema.db, file_id.file_id(), instantiation) {
-            ModuleResolution::Unique(module_id) => {
+            ModuleResolution::Unique(module_id)
+            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
                 Some(Definition::from(PathResolution::Module(module_id)).into())
             }
-            ModuleResolution::Ambiguous(module_ids) => Some(DefinitionClass::Ambiguous(
-                module_ids
+            ModuleResolution::Ambiguous { candidates, .. } => Some(DefinitionClass::Ambiguous(
+                candidates
                     .into_iter()
                     .map(|module_id| Definition::from(PathResolution::Module(module_id)))
                     .collect(),

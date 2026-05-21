@@ -63,7 +63,7 @@ Semantic diagnostics 一定要通过 profile。没有 profile 的 root 不会被
 
 - 在 `Local` 和 `Library` root 中, module 名称按编译单元级索引严格解析。多个同名 module 定义会被视为 ambiguous, Vizsla 不会把目录当作隐式命名空间。
 - 在 `BestEffortIndex` root 中, 如果多个同名 module 都可见, Vizsla 会只为 IDE 读能力做一次路径距离推测: 优先同文件, 然后优先共同目录最深的候选, 最后优先同 source root。只有唯一最优候选会被采用; 如果距离打平, 结果仍然保持 ambiguous。
-- 如果 best-effort 下的 module instantiation 仍然 ambiguous, Vizsla 会报告 `ambiguous-module-instantiation` warning。启用 slang semantic diagnostics 的配置化工程会优先使用 slang 的诊断, 不重复报告这条 Vizsla warning。
+- Best-effort 路径距离只是 IDE heuristic, 不是语言级解析规则。能唯一就近选择时不会报告 diagnostic; 如果 best-effort 距离打平、无法唯一选择, Vizsla 会报告 `ambiguous-module-instantiation` information。严格解析下的同名 module ambiguity 仍会报告 `ambiguous-module-instantiation` warning。启用 slang semantic diagnostics 的配置化工程会优先使用 slang 的诊断, 不重复报告这些 Vizsla diagnostics。
 - 如果 include、macro、library 配置缺失, 部分语义能力会降级或缺失。
 - 如果需要和真实工程编译一致, 应该显式配置 `sources`, `include_dirs`, `defines`, `libraries` 和 `top_modules`。
 

@@ -11,7 +11,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::module_resolution::{ModuleResolution, resolve_module_name};
+use crate::module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name};
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VizslaDiagnosticDescriptor =
     VizslaDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
@@ -45,7 +45,13 @@ struct VizslaDiagnosticDescriptor {
 }
 
 impl VizslaDiagnosticDescriptor {
-    fn warning(self, file_id: FileId, range: TextRange, message: String) -> Diagnostic {
+    fn diagnostic(
+        self,
+        file_id: FileId,
+        range: TextRange,
+        severity: DiagnosticSeverity,
+        message: String,
+    ) -> Diagnostic {
         Diagnostic {
             file_id,
             code: self.code,
@@ -55,7 +61,7 @@ impl VizslaDiagnosticDescriptor {
             groups: Vec::new(),
             source: DiagnosticSource::Vizsla,
             range,
-            severity: DiagnosticSeverity::Warning,
+            severity,
             message,
         }
     }
@@ -160,7 +166,7 @@ fn vizsla_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         return Vec::new();
     }
 
-    ambiguous_module_instantiation_diagnostics(db, file_id)
+    module_instantiation_resolution_diagnostics(db, file_id)
 }
 
 fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
@@ -171,7 +177,7 @@ fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
         && db.project_config().profile_for_root(db.source_root_id(file_id)).is_some()
 }
 
-fn ambiguous_module_instantiation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let hir_file_id = file_id.into();
     let hir_file = db.hir_file(hir_file_id);
     let mut diagnostics = Vec::new();
@@ -183,28 +189,52 @@ fn ambiguous_module_instantiation_diagnostics(db: &RootDb, file_id: FileId) -> V
             let Some(module_name) = instantiation.module_name.as_ref() else {
                 continue;
             };
-            let ModuleResolution::Ambiguous(candidates) =
-                resolve_module_name(db, file_id, module_name)
-            else {
-                continue;
-            };
             let range = src_map
                 .get(instantiation_id)
                 .map(|src| src.range())
                 .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
 
-            diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.warning(
-                file_id,
-                range,
-                format!(
-                    "module instantiation '{module_name}' is ambiguous; {} matching definitions are visible",
-                    candidates.len()
-                ),
-            ));
+            match resolve_module_name(db, file_id, module_name) {
+                ModuleResolution::Ambiguous { candidates, kind } => {
+                    let (severity, message) = ambiguous_module_instantiation_diagnostic(
+                        module_name,
+                        candidates.len(),
+                        kind,
+                    );
+                    diagnostics.push(
+                        AMBIGUOUS_MODULE_INSTANTIATION
+                            .diagnostic(file_id, range, severity, message),
+                    );
+                }
+                ModuleResolution::Unique(_)
+                | ModuleResolution::BestEffortProximity { .. }
+                | ModuleResolution::Unresolved => {}
+            }
         }
     }
 
     diagnostics
+}
+
+fn ambiguous_module_instantiation_diagnostic(
+    module_name: &str,
+    candidate_count: usize,
+    kind: ModuleResolutionAmbiguity,
+) -> (DiagnosticSeverity, String) {
+    match kind {
+        ModuleResolutionAmbiguity::Strict => (
+            DiagnosticSeverity::Warning,
+            format!(
+                "module instantiation '{module_name}' is ambiguous; {candidate_count} matching definitions are visible"
+            ),
+        ),
+        ModuleResolutionAmbiguity::BestEffortTie => (
+            DiagnosticSeverity::Note,
+            format!(
+                "module instantiation '{module_name}' is ambiguous in best-effort indexing; {candidate_count} equally preferred definitions are visible"
+            ),
+        ),
+    }
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
@@ -279,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn best_effort_ambiguous_module_instantiation_reports_vizsla_warning() {
+    fn best_effort_ambiguous_module_instantiation_reports_vizsla_information() {
         let db = db_with_files_in_role(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -296,14 +326,15 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vizsla
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.message.contains("2 matching definitions")
+                    && diag.severity == syntax::DiagnosticSeverity::Note
+                    && diag.message.contains("2 equally preferred definitions")
             }),
-            "expected vizsla ambiguous module warning: {diagnostics:?}"
+            "expected vizsla ambiguous module information: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn best_effort_nearest_module_instantiation_does_not_report_ambiguity() {
+    fn best_effort_nearest_module_instantiation_does_not_report_vizsla_diagnostic() {
         let db = db_with_files_in_role(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -317,8 +348,32 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId(1));
 
         assert!(
-            diagnostics.iter().all(|diag| diag.name != AMBIGUOUS_MODULE_INSTANTIATION.name),
-            "nearest best-effort module should not be reported as ambiguous: {diagnostics:?}"
+            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vizsla),
+            "nearest best-effort module should not produce Vizsla diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn strict_ambiguous_module_instantiation_reports_vizsla_warning() {
+        let db = db_with_files(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+                ("/project/top.sv", "module top; child u(); endmodule\n"),
+            ],
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(2));
+
+        assert!(
+            diagnostics.iter().any(|diag| {
+                diag.source == DiagnosticSource::Vizsla
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+                    && diag.severity == syntax::DiagnosticSeverity::Warning
+                    && diag.message.contains("2 matching definitions")
+            }),
+            "expected strict ambiguity warning: {diagnostics:?}"
         );
     }
 

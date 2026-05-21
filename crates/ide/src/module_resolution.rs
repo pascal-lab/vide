@@ -13,15 +13,23 @@ use vfs::{FileId, VfsPath};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
     Unique(ModuleId),
-    Ambiguous(Vec<ModuleId>),
+    BestEffortProximity { selected: ModuleId, candidates: Vec<ModuleId> },
+    Ambiguous { candidates: Vec<ModuleId>, kind: ModuleResolutionAmbiguity },
     Unresolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModuleResolutionAmbiguity {
+    Strict,
+    BestEffortTie,
 }
 
 impl ModuleResolution {
     pub(crate) fn unique(&self) -> Option<ModuleId> {
         match self {
             ModuleResolution::Unique(module_id) => Some(*module_id),
-            ModuleResolution::Ambiguous(_) | ModuleResolution::Unresolved => None,
+            ModuleResolution::BestEffortProximity { selected, .. } => Some(*selected),
+            ModuleResolution::Ambiguous { .. } | ModuleResolution::Unresolved => None,
         }
     }
 }
@@ -81,7 +89,9 @@ impl ModuleResolutionPolicy {
 
     fn resolve_ambiguous(self, db: &RootDb, candidates: Vec<ModuleId>) -> ModuleResolution {
         match self {
-            Self::Strict => ModuleResolution::Ambiguous(candidates),
+            Self::Strict => {
+                ModuleResolution::Ambiguous { candidates, kind: ModuleResolutionAmbiguity::Strict }
+            }
             Self::BestEffortProximity { from_file } => {
                 resolve_by_proximity(db, from_file, candidates)
             }
@@ -92,12 +102,12 @@ impl ModuleResolutionPolicy {
 fn resolve_by_proximity(
     db: &RootDb,
     from_file: FileId,
-    candidates: Vec<ModuleId>,
+    mut candidates: Vec<ModuleId>,
 ) -> ModuleResolution {
     let mut best_score = None;
     let mut best_modules = Vec::new();
 
-    for module_id in candidates {
+    for module_id in candidates.iter().copied() {
         let score = ProximityScore::new(db, from_file, module_id.file_id.file_id());
         match best_score {
             None => {
@@ -116,13 +126,15 @@ fn resolve_by_proximity(
         }
     }
 
+    candidates.sort_by_key(|module_id| module_id.file_id.file_id().0);
+
     match best_modules.as_slice() {
         [] => ModuleResolution::Unresolved,
-        [module_id] => ModuleResolution::Unique(*module_id),
-        _ => {
-            best_modules.sort_by_key(|module_id| module_id.file_id.file_id().0);
-            ModuleResolution::Ambiguous(best_modules)
-        }
+        [selected] => ModuleResolution::BestEffortProximity { selected: *selected, candidates },
+        _ => ModuleResolution::Ambiguous {
+            candidates,
+            kind: ModuleResolutionAmbiguity::BestEffortTie,
+        },
     }
 }
 
@@ -228,13 +240,14 @@ mod tests {
             SourceRoot::new_best_effort_index,
         );
 
-        let ModuleResolution::Unique(module_id) =
+        let ModuleResolution::BestEffortProximity { selected: module_id, candidates } =
             resolve_module_name(&db, FileId(1), &child_name())
         else {
             panic!("expected nearest child module to be selected");
         };
 
         assert_eq!(module_id.file_id.file_id(), FileId(0));
+        assert_eq!(candidates.len(), 2);
     }
 
     #[test]
@@ -248,8 +261,10 @@ mod tests {
             SourceRoot::new_best_effort_index,
         );
 
-        let ModuleResolution::Ambiguous(candidates) =
-            resolve_module_name(&db, FileId(2), &child_name())
+        let ModuleResolution::Ambiguous {
+            candidates,
+            kind: ModuleResolutionAmbiguity::BestEffortTie,
+        } = resolve_module_name(&db, FileId(2), &child_name())
         else {
             panic!("expected equally near child modules to remain ambiguous");
         };
@@ -270,7 +285,7 @@ mod tests {
             SourceRoot::new_local,
         );
 
-        let ModuleResolution::Ambiguous(candidates) =
+        let ModuleResolution::Ambiguous { candidates, kind: ModuleResolutionAmbiguity::Strict } =
             resolve_module_name(&db, FileId(1), &child_name())
         else {
             panic!("expected configured root to preserve duplicate module ambiguity");
