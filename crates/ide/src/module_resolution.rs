@@ -63,6 +63,9 @@ fn resolve_module_name_with_policy(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModuleResolutionPolicy {
     Strict,
+    // Best-effort indexing has no manifest-backed compilation profile. Use
+    // source proximity as an IDE-only tie breaker, but only when it produces a
+    // unique candidate; configured roots keep duplicate module names ambiguous.
     BestEffortProximity { from_file: FileId },
 }
 
