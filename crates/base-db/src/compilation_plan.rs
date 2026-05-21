@@ -148,7 +148,10 @@ fn all_non_ignored_roots(db: &dyn SourceRootDb) -> Vec<SourceRootId> {
     let mut roots = FxHashSet::default();
     for file_id in db.files().iter().copied() {
         if !db.file_is_project_ignored(file_id) {
-            roots.insert(db.source_root_id(file_id));
+            let source_root_id = db.source_root_id(file_id);
+            if !db.source_root(source_root_id).is_index_only() {
+                roots.insert(source_root_id);
+            }
         }
     }
     roots.into_iter().collect()

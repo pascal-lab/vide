@@ -71,6 +71,9 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
     if source_root.is_ignored() {
         return Vec::new();
     }
+    if source_root.is_index_only() {
+        return parse_diagnostics(db, file_id);
+    }
     let mut diagnostics = Vec::new();
 
     for file_id in source_root.iter() {
@@ -98,7 +101,16 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 pub(crate) fn source_root_file_ids(db: &RootDb, file_id: FileId) -> Vec<FileId> {
     let source_root_id = db.source_root_id(file_id);
     let source_root = db.source_root(source_root_id);
-    if source_root.is_ignored() { vec![file_id] } else { source_root.iter().collect() }
+    if source_root.is_ignored() || source_root.is_index_only() {
+        vec![file_id]
+    } else {
+        source_root.iter().collect()
+    }
+}
+
+pub(crate) fn file_is_index_only(db: &RootDb, file_id: FileId) -> bool {
+    let source_root_id = db.source_root_id(file_id);
+    db.source_root(source_root_id).is_index_only()
 }
 
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {

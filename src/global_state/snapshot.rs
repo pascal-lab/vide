@@ -6,7 +6,7 @@ use lsp_types::Url;
 use nohash_hasher::IntMap;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use project_model::Workspace;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::{
     lines::{LineEnding, LineInfo},
@@ -164,6 +164,18 @@ impl GlobalStateSnapshot {
 
     pub(crate) fn source_root_file_ids(&self, file_id: FileId) -> Vec<FileId> {
         self.analysis.source_root_file_ids(file_id).unwrap_or_else(|_| vec![file_id])
+    }
+
+    pub(crate) fn file_is_index_only(&self, file_id: FileId) -> bool {
+        self.analysis.file_is_index_only(file_id).unwrap_or(false)
+    }
+
+    pub(crate) fn diagnostic_file_ids(&self) -> Vec<FileId> {
+        let open_files = self.mem_docs.file_ids().collect::<FxHashSet<_>>();
+        self.file_ids()
+            .into_iter()
+            .filter(|file_id| !self.file_is_index_only(*file_id) || open_files.contains(file_id))
+            .collect()
     }
 
     pub(crate) fn file_ids(&self) -> Vec<FileId> {

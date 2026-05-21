@@ -82,6 +82,10 @@ impl Analysis {
         self.with_db(|db| diagnostics::source_root_file_ids(db, file_id))
     }
 
+    pub fn file_is_index_only(&self, file_id: FileId) -> Cancellable<bool> {
+        self.with_db(|db| diagnostics::file_is_index_only(db, file_id))
+    }
+
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
         self.with_db(|db| db.compilation_plan_for_root(db.source_root_id(file_id)))
     }

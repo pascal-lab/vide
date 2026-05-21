@@ -359,6 +359,18 @@ fn recv_response<T: DeserializeOwned>(
     panic!("{label} response not received");
 }
 
+fn goto_definition_response_uris(response: GotoDefinitionResponse) -> Vec<Url> {
+    match response {
+        GotoDefinitionResponse::Scalar(location) => vec![location.uri],
+        GotoDefinitionResponse::Array(locations) => {
+            locations.into_iter().map(|location| location.uri).collect()
+        }
+        GotoDefinitionResponse::Link(links) => {
+            links.into_iter().map(|location| location.target_uri).collect()
+        }
+    }
+}
+
 fn position_of(text: &str, needle: &str) -> Position {
     let offset = text.find(needle).unwrap_or_else(|| panic!("missing {needle:?}"));
     let line = text[..offset].bytes().filter(|byte| *byte == b'\n').count() as u32;
@@ -1023,6 +1035,211 @@ endmodule
     assert!(
         diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
         "unconfigured workspaces should suppress semantic diagnostics: {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new("unconfigured-index-goto");
+    let child_path = temp_dir.path().join("child.sv");
+    let top_path = temp_dir.path().join("top.sv");
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    fs::write(&child_path, "module child;\nendmodule\n").unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = spawn_default_test_server(config, server);
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: top_uri.clone(),
+                    language_id: "systemverilog".to_string(),
+                    version: 1,
+                    text: top_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let diagnostics_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let _ = recv_document_diagnostics(&client, diagnostics_id);
+
+    let definition_id = lsp_server::RequestId::from(2);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            definition_id.clone(),
+            GotoDefinition::METHOD.to_string(),
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: top_uri },
+                    position: position_of(top_text, "child u"),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let definition: Option<GotoDefinitionResponse> =
+        recv_response(&client, definition_id, "definition");
+    let definition_uris = definition.map(goto_definition_response_uris).unwrap_or_default();
+    assert!(
+        definition_uris.contains(&child_uri),
+        "definition should include unopened child.sv from default index: {definition_uris:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unconfigured_workspace_diagnostics_skip_unopened_indexed_files() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        workspace: Some(WorkspaceClientCapabilities {
+            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+                refresh_support: Some(true),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new("unconfigured-index-diagnostics");
+    let broken_path = temp_dir.path().join("broken.sv");
+    let top_path = temp_dir.path().join("top.sv");
+    let top_text = "module top;\nendmodule\n";
+    fs::write(&broken_path, "module broken(;\nendmodule\n").unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = spawn_default_test_server(config, server);
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let broken_uri = to_proto::url_from_abs_path(broken_path.as_path()).unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidOpenTextDocument::METHOD.to_string(),
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: top_uri.clone(),
+                    language_id: "systemverilog".to_string(),
+                    version: 1,
+                    text: top_text.to_string(),
+                },
+            },
+        )))
+        .unwrap();
+
+    let diagnostics_id = lsp_server::RequestId::from(1);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: top_uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let _ = recv_document_diagnostics(&client, diagnostics_id);
+
+    let request_id = lsp_server::RequestId::from(3);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            WorkspaceDiagnosticRequest::METHOD.to_string(),
+            WorkspaceDiagnosticParams {
+                identifier: None,
+                previous_result_ids: Vec::new(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let result: WorkspaceDiagnosticReportResult =
+        recv_response(&client, request_id, "workspaceDiagnostic");
+    let WorkspaceDiagnosticReportResult::Report(report) = result else {
+        panic!("unexpected workspaceDiagnostic response: {result:?}");
+    };
+    let reported_uris = report
+        .items
+        .into_iter()
+        .filter_map(|item| match item {
+            lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) => Some(full.uri),
+            lsp_types::WorkspaceDocumentDiagnosticReport::Unchanged(unchanged) => {
+                Some(unchanged.uri)
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !reported_uris.contains(&broken_uri),
+        "workspace diagnostics should not report unopened indexed file {broken_uri}: {reported_uris:?}"
     );
 
     shutdown_test_server(&client, server_thread);

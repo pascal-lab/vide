@@ -8,6 +8,7 @@ pub struct SourceRootId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceRootRole {
     Local,
+    IndexOnly,
     Library,
     Ignored,
 }
@@ -28,6 +29,10 @@ impl SourceRoot {
         SourceRoot { role: SourceRootRole::Library, source_files: None, file_set }
     }
 
+    pub fn new_index_only(file_set: FileSet) -> SourceRoot {
+        SourceRoot { role: SourceRootRole::IndexOnly, source_files: None, file_set }
+    }
+
     pub fn new_ignored(file_set: FileSet) -> SourceRoot {
         SourceRoot { role: SourceRootRole::Ignored, source_files: None, file_set }
     }
@@ -43,12 +48,23 @@ impl SourceRoot {
         SourceRoot { role: SourceRootRole::Library, source_files: Some(source_files), file_set }
     }
 
+    pub fn new_index_only_with_source_files(
+        file_set: FileSet,
+        source_files: Vec<FileId>,
+    ) -> SourceRoot {
+        SourceRoot { role: SourceRootRole::IndexOnly, source_files: Some(source_files), file_set }
+    }
+
     pub fn role(&self) -> SourceRootRole {
         self.role
     }
 
     pub fn is_library(&self) -> bool {
         matches!(self.role, SourceRootRole::Library)
+    }
+
+    pub fn is_index_only(&self) -> bool {
+        matches!(self.role, SourceRootRole::IndexOnly)
     }
 
     pub fn is_ignored(&self) -> bool {
@@ -93,6 +109,7 @@ impl SourceRoot {
 pub struct SourceRootConfig {
     pub fileset_config: FileSetConfig,
     pub local_filesets: Vec<usize>,
+    pub index_only_filesets: Vec<usize>,
     pub ignored_filesets: Vec<usize>,
 }
 
@@ -108,6 +125,14 @@ impl SourceRootConfig {
                     partition.source_files.map(|source_files| source_files.into_iter().collect());
                 if self.ignored_filesets.contains(&idx) {
                     return SourceRoot::new_ignored(file_set);
+                }
+                if self.index_only_filesets.contains(&idx) {
+                    return match source_files {
+                        Some(source_files) => {
+                            SourceRoot::new_index_only_with_source_files(file_set, source_files)
+                        }
+                        None => SourceRoot::new_index_only(file_set),
+                    };
                 }
                 match (self.local_filesets.contains(&idx), source_files) {
                     (true, Some(source_files)) => {
@@ -135,6 +160,7 @@ mod tests {
         let config = SourceRootConfig {
             fileset_config: builder.build(),
             local_filesets: Vec::new(),
+            index_only_filesets: Vec::new(),
             ignored_filesets: vec![1],
         };
         let roots = config.partition(&Vfs::default());
@@ -151,6 +177,18 @@ mod tests {
         let root = SourceRoot::new_ignored(file_set);
 
         assert_eq!(root.role(), SourceRootRole::Ignored);
+        assert_eq!(root.file_kind(&file_id), SourceFileKind::SystemVerilog);
+    }
+
+    #[test]
+    fn index_only_root_preserves_file_kind() {
+        let mut file_set = FileSet::default();
+        let file_id = FileId(0);
+        file_set.insert(file_id, VfsPath::new_virtual_path("/indexed/file.sv".into()));
+        let root = SourceRoot::new_index_only(file_set);
+
+        assert_eq!(root.role(), SourceRootRole::IndexOnly);
+        assert!(root.is_index_only());
         assert_eq!(root.file_kind(&file_id), SourceFileKind::SystemVerilog);
     }
 

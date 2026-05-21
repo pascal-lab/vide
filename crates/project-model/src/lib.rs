@@ -24,6 +24,8 @@ use crate::{
     macro_def::MacroDef, project_manifest::ProjectManifest, toml_workspace::TomlWorkspace,
 };
 
+const DEFAULT_INDEX_SOURCE_PATTERNS: &[&str] = &["**"];
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Workspace {
     top_modules: Vec<String>,
@@ -34,6 +36,7 @@ pub struct Workspace {
     exclude_globs: Option<PathGlobMatcher>,
     library_paths: Vec<AbsPathBuf>,
     is_lib: bool,
+    is_index_only: bool,
     configures_semantic_diagnostics: bool,
 }
 
@@ -45,6 +48,7 @@ pub struct ProjectModel {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct WorkspaceRoot {
     pub is_lib: bool,
+    pub is_index_only: bool,
     pub source: PathMatcher,
     pub include_dirs: Vec<AbsPathBuf>,
     pub exclude_globs: Option<PathGlobMatcher>,
@@ -90,6 +94,8 @@ impl Workspace {
             exclude_patterns,
         } = toml;
 
+        let source_patterns_explicit = source_patterns.is_some();
+        let source_patterns = source_patterns.unwrap_or_else(default_index_source_patterns);
         let source_patterns = validate_manifest_patterns(source_patterns, "sources")?;
         let exclude_patterns = validate_manifest_patterns(exclude_patterns, "exclude")?;
         let exclude_globs = compile_manifest_globs(&workspace_root, exclude_patterns, "exclude")?;
@@ -102,9 +108,13 @@ impl Workspace {
                 |matcher| PathMatcher::glob(source_paths.clone(), matcher),
             );
 
-        let include_dirs = resolve_include_dirs(include_dirs, &source_paths);
+        let default_include_paths =
+            if source_patterns_explicit { source_paths.as_slice() } else { &[] };
+        let include_dirs = resolve_include_dirs(include_dirs, default_include_paths);
         let library_paths = resolve_library_paths(libraries);
-        let configures_semantic_diagnostics = !source_paths.is_empty() || !include_dirs.is_empty();
+        let configures_semantic_diagnostics =
+            (source_patterns_explicit && !source_paths.is_empty()) || !include_dirs.is_empty();
+        let is_index_only = !is_lib && !configures_semantic_diagnostics && !source_paths.is_empty();
 
         Ok(Self {
             top_modules,
@@ -115,13 +125,14 @@ impl Workspace {
             exclude_globs,
             library_paths,
             is_lib,
+            is_index_only,
             configures_semantic_diagnostics,
         })
     }
 
     fn from_unconfigured_root(path: &AbsPathBuf, is_lib: bool) -> Self {
-        let source_roots = if is_lib { vec![path.clone()] } else { Vec::new() };
-        let include_dirs = source_roots.clone();
+        let source_roots = vec![path.clone()];
+        let include_dirs = if is_lib { source_roots.clone() } else { Vec::new() };
         Self {
             top_modules: Vec::new(),
             workspace_root: path.clone(),
@@ -131,6 +142,7 @@ impl Workspace {
             exclude_globs: None,
             library_paths: Vec::new(),
             is_lib,
+            is_index_only: !is_lib,
             configures_semantic_diagnostics: false,
         }
     }
@@ -138,6 +150,7 @@ impl Workspace {
     pub fn to_roots(&self) -> Vec<WorkspaceRoot> {
         vec![WorkspaceRoot {
             is_lib: self.is_lib,
+            is_index_only: self.is_index_only,
             source: self.source.clone(),
             include_dirs: self.include_dirs.clone(),
             exclude_globs: self.exclude_globs.clone(),
@@ -164,12 +177,20 @@ impl Workspace {
         self.is_lib
     }
 
+    pub fn is_index_only(&self) -> bool {
+        self.is_index_only
+    }
+
     fn preprocess_config(&self) -> PreprocessConfig {
         PreprocessConfig {
             predefines: self.macro_defs.to_predefine_strings(),
             include_dirs: self.include_dirs.clone(),
         }
     }
+}
+
+fn default_index_source_patterns() -> Vec<String> {
+    DEFAULT_INDEX_SOURCE_PATTERNS.iter().map(|pattern| (*pattern).to_owned()).collect()
 }
 
 fn resolve_include_dirs(
@@ -300,6 +321,7 @@ pub fn get_workspace_folder(
     let mut load = Vec::new();
     let mut fsc = FileSetConfig::builder();
     let mut local_filesets = Vec::new();
+    let mut index_only_filesets = Vec::new();
     let mut root_workspaces = Vec::new();
 
     for (workspace_idx, workspace) in workspaces.iter().enumerate() {
@@ -335,7 +357,9 @@ pub fn get_workspace_folder(
                 vfs::loader::Entry::Directories(dirs)
             };
 
-            if !root.is_lib {
+            if root.is_index_only {
+                index_only_filesets.push(fsc.len());
+            } else if !root.is_lib {
                 local_filesets.push(fsc.len());
             }
 
@@ -401,7 +425,7 @@ pub fn get_workspace_folder(
     (
         load,
         watch,
-        SourceRootConfig { fileset_config, local_filesets, ignored_filesets },
+        SourceRootConfig { fileset_config, local_filesets, index_only_filesets, ignored_filesets },
         project_config,
     )
 }
@@ -527,13 +551,22 @@ libraries = ["../pkg/rtl"]
     fn unconfigured_root_has_no_compilation_profile() {
         let root = TestDir::new("project-model-unconfigured-root");
         fs::create_dir_all(root.join("rtl")).unwrap();
+        let top = root.join("rtl/top.sv");
 
         let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
-        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+        let (load, _, source_root_config, project_config) =
+            get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
+        assert!(model.workspaces[0].is_index_only());
+        assert_eq!(source_root_config.index_only_filesets, vec![0]);
+        let dirs = match &load[0] {
+            vfs::loader::Entry::Directories(dirs) => dirs,
+            other => panic!("expected directory loader entry, got {other:?}"),
+        };
+        assert!(dirs.contains_file(top.as_path()));
         assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
     }
 
@@ -544,10 +577,13 @@ libraries = ["../pkg/rtl"]
 
         let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
-        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+        let (_, _, source_root_config, project_config) =
+            get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
+        assert!(model.workspaces[0].is_index_only());
+        assert_eq!(source_root_config.index_only_filesets, vec![0]);
         assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
     }
 
@@ -562,10 +598,14 @@ libraries = ["../pkg/rtl"]
 
         let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
-        let (_, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
+        let (load, _, source_root_config, project_config) =
+            get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
+        assert!(!model.workspaces[0].is_index_only());
+        assert!(load.is_empty());
+        assert!(source_root_config.index_only_filesets.is_empty());
         assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
     }
 
