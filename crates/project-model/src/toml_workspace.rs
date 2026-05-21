@@ -63,14 +63,15 @@ struct TomlManifestSchema {
     )]
     pub defines: MacroDef,
     /// Workspace-relative shell glob patterns for source files to scan. Omitted
-    /// sources do not scan the workspace root.
-    #[serde(default)]
+    /// sources scan the workspace root for best-effort indexing without
+    /// enabling semantic diagnostics. Use an explicit empty array to
+    /// disable workspace indexing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "Workspace-relative shell glob patterns for source files to scan. Omitted sources do not scan the workspace root.",
+            description = "Workspace-relative shell glob patterns for source files to scan. Omitted sources scan the workspace root for best-effort indexing without enabling semantic diagnostics. Use an explicit empty array to disable workspace indexing.",
             with = "Vec::<String>",
-            default = "empty_string_vec",
             extend("examples" = [["rtl/**", "ip/**/*.sv"]])
         )
     )]

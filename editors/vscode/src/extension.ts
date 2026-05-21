@@ -438,8 +438,8 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
 
   const createdMessage =
     createdConfigs.length === 1
-      ? `Created ${PROJECT_CONFIG_FILE_NAME} with syntax-only defaults.`
-      : `Created syntax-only ${PROJECT_CONFIG_FILE_NAME} files in ${createdConfigs.length} workspace folders.`;
+      ? `Created ${PROJECT_CONFIG_FILE_NAME} with best-effort indexing defaults.`
+      : `Created ${PROJECT_CONFIG_FILE_NAME} files with best-effort indexing defaults in ${createdConfigs.length} workspace folders.`;
   const openConfigAction = createdConfigs.length === 1 ? 'Open Manifest' : 'Open First Manifest';
 
   void vscode.window.showInformationMessage(createdMessage, openConfigAction).then(async (selection) => {

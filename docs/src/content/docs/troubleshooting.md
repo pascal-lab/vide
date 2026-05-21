@@ -73,7 +73,7 @@ npm run package
 检查工程清单:
 
 - `vizsla.toml` 是否位于 workspace root。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。
-- `sources` shell glob 是否能匹配目标文件, 例如递归目录要写成 `rtl/**`。
+- 如果写了 `sources`, shell glob 是否能匹配目标文件, 例如递归目录要写成 `rtl/**`; 显式 `sources = []` 会关闭 workspace 索引。
 - `exclude` shell glob 是否把目标文件排除了, 例如目录递归排除是 `build/**`。
 - 文件扩展名是否是 `.v`, `.sv`, `.vh`, `.svh`, `.svi` 或 `.map`。
 - 你是否打开了子目录, 导致 workspace root 变了。
@@ -81,13 +81,13 @@ npm run package
 VS Code 扩展只会在包含 Verilog/SystemVerilog 文件的 workspace 缺少清单时创建默认 `vizsla.toml`:
 
 ```toml
-# Syntax-only startup config. Keep these arrays empty to avoid scanning the workspace.
-# Fill shell globs, for example sources = ["rtl/**"] and include_dirs = ["include"], to enable semantic diagnostics.
-sources = []
-include_dirs = []
+# Default startup manifest. Omitting sources enables best-effort indexing for navigation
+# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
+# and include_dirs = ["include"], to enable semantic diagnostics.
+# Set sources = [] to disable workspace indexing.
 ```
 
-这个默认清单和无清单都会保留打开文件的 syntax/parse diagnostics, 但不会扫描工程文件或启用 semantic diagnostics; 需要语义诊断和跨文件能力时, 请写入实际的 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。我们不会自动向父目录或子目录搜索清单。
+这个默认清单和无清单都会索引 workspace root 来支持跳转和引用等读能力, 但不会启用跨文件 semantic diagnostics; 需要更准确的语义诊断时, 请写入实际的 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。显式写入 `sources = []` 会关闭 workspace 索引。我们不会自动向父目录或子目录搜索清单。
 
 ## include 或宏没有生效
 
