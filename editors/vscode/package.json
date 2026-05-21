@@ -2,7 +2,7 @@
   "name": "vizsla-lsp",
   "displayName": "Vizsla",
   "description": "Language support for Verilog and SystemVerilog powered by the Vizsla language server.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "vizsla",
   "license": "MIT",
   "repository": {
