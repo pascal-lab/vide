@@ -13,6 +13,9 @@ use vfs::FileId;
 
 use crate::module_resolution::{ModuleResolution, resolve_module_name};
 
+const AMBIGUOUS_MODULE_INSTANTIATION: VizslaDiagnosticDescriptor =
+    VizslaDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
     SlangParse,
@@ -32,6 +35,30 @@ pub struct Diagnostic {
     pub range: TextRange,
     pub severity: DiagnosticSeverity,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VizslaDiagnosticDescriptor {
+    code: u16,
+    subsystem: u16,
+    name: &'static str,
+}
+
+impl VizslaDiagnosticDescriptor {
+    fn warning(self, file_id: FileId, range: TextRange, message: String) -> Diagnostic {
+        Diagnostic {
+            file_id,
+            code: self.code,
+            subsystem: self.subsystem,
+            name: self.name.to_owned(),
+            option_name: None,
+            groups: Vec::new(),
+            source: DiagnosticSource::Vizsla,
+            range,
+            severity: DiagnosticSeverity::Warning,
+            message,
+        }
+    }
 }
 
 pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -166,21 +193,14 @@ fn ambiguous_module_instantiation_diagnostics(db: &RootDb, file_id: FileId) -> V
                 .map(|src| src.range())
                 .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
 
-            diagnostics.push(Diagnostic {
+            diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.warning(
                 file_id,
-                code: 1,
-                subsystem: 0,
-                name: "ambiguous-module-instantiation".to_owned(),
-                option_name: None,
-                groups: Vec::new(),
-                source: DiagnosticSource::Vizsla,
                 range,
-                severity: DiagnosticSeverity::Warning,
-                message: format!(
+                format!(
                     "module instantiation '{module_name}' is ambiguous; {} matching definitions are visible",
                     candidates.len()
                 ),
-            });
+            ));
         }
     }
 
@@ -216,7 +236,9 @@ mod tests {
     use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use super::{DiagnosticSource, diagnostics, source_root_diagnostics};
+    use super::{
+        AMBIGUOUS_MODULE_INSTANTIATION, DiagnosticSource, diagnostics, source_root_diagnostics,
+    };
 
     fn db_with_files(files: &[(&str, &str)], configured: bool) -> RootDb {
         db_with_files_in_role(files, SourceRootRole::Local, configured)
@@ -273,7 +295,7 @@ mod tests {
         assert!(
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vizsla
-                    && diag.name == "ambiguous-module-instantiation"
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.message.contains("2 matching definitions")
             }),
             "expected vizsla ambiguous module warning: {diagnostics:?}"
@@ -295,7 +317,7 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId(1));
 
         assert!(
-            diagnostics.iter().all(|diag| diag.name != "ambiguous-module-instantiation"),
+            diagnostics.iter().all(|diag| diag.name != AMBIGUOUS_MODULE_INSTANTIATION.name),
             "nearest best-effort module should not be reported as ambiguous: {diagnostics:?}"
         );
     }

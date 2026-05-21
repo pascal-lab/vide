@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use base_db::{source_db::SourceRootDb, source_root::SourceRootRole};
 use hir::{
     db::HirDb,
@@ -40,23 +42,48 @@ pub(crate) fn resolve_module_name(
     from_file: FileId,
     name: &Ident,
 ) -> ModuleResolution {
+    let policy = ModuleResolutionPolicy::for_file(db, from_file);
+    resolve_module_name_with_policy(db, name, policy)
+}
+
+fn resolve_module_name_with_policy(
+    db: &RootDb,
+    name: &Ident,
+    policy: ModuleResolutionPolicy,
+) -> ModuleResolution {
     match db.unit_scope().resolve_module(name) {
         ScopeResolution::Unique(module_id) => ModuleResolution::Unique(module_id),
         ScopeResolution::Unresolved => ModuleResolution::Unresolved,
-        ScopeResolution::Ambiguous(candidates)
-            if source_root_role(db, from_file) == SourceRootRole::BestEffortIndex =>
-        {
-            resolve_by_proximity(db, from_file, candidates.into_vec())
-        }
         ScopeResolution::Ambiguous(candidates) => {
-            ModuleResolution::Ambiguous(candidates.into_vec())
+            policy.resolve_ambiguous(db, candidates.into_vec())
         }
     }
 }
 
-fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
-    let source_root_id = db.source_root_id(file_id);
-    db.source_root(source_root_id).role()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModuleResolutionPolicy {
+    Strict,
+    BestEffortProximity { from_file: FileId },
+}
+
+impl ModuleResolutionPolicy {
+    fn for_file(db: &RootDb, file_id: FileId) -> Self {
+        match source_root_role(db, file_id) {
+            SourceRootRole::BestEffortIndex => Self::BestEffortProximity { from_file: file_id },
+            SourceRootRole::Local | SourceRootRole::Library | SourceRootRole::Ignored => {
+                Self::Strict
+            }
+        }
+    }
+
+    fn resolve_ambiguous(self, db: &RootDb, candidates: Vec<ModuleId>) -> ModuleResolution {
+        match self {
+            Self::Strict => ModuleResolution::Ambiguous(candidates),
+            Self::BestEffortProximity { from_file } => {
+                resolve_by_proximity(db, from_file, candidates)
+            }
+        }
+    }
 }
 
 fn resolve_by_proximity(
@@ -64,39 +91,69 @@ fn resolve_by_proximity(
     from_file: FileId,
     candidates: Vec<ModuleId>,
 ) -> ModuleResolution {
-    let mut scored = candidates
-        .into_iter()
-        .map(|module_id| (proximity_score(db, from_file, module_id.file_id.file_id()), module_id))
-        .collect::<Vec<_>>();
-    scored.sort_by_key(|(score, _)| *score);
-    let Some((best_score, best_module)) = scored.pop() else {
-        return ModuleResolution::Unresolved;
-    };
-    if scored.last().is_some_and(|(score, _)| *score == best_score) {
-        let mut ambiguous = scored
-            .into_iter()
-            .filter_map(|(score, module_id)| (score == best_score).then_some(module_id))
-            .collect::<Vec<_>>();
-        ambiguous.push(best_module);
-        ambiguous.sort_by_key(|module_id| module_id.file_id.file_id().0);
-        return ModuleResolution::Ambiguous(ambiguous);
+    let mut best_score = None;
+    let mut best_modules = Vec::new();
+
+    for module_id in candidates {
+        let score = ProximityScore::new(db, from_file, module_id.file_id.file_id());
+        match best_score {
+            None => {
+                best_score = Some(score);
+                best_modules.push(module_id);
+            }
+            Some(best) => match score.preference_cmp(&best) {
+                Ordering::Greater => {
+                    best_score = Some(score);
+                    best_modules.clear();
+                    best_modules.push(module_id);
+                }
+                Ordering::Equal => best_modules.push(module_id),
+                Ordering::Less => {}
+            },
+        }
     }
-    ModuleResolution::Unique(best_module)
+
+    match best_modules.as_slice() {
+        [] => ModuleResolution::Unresolved,
+        [module_id] => ModuleResolution::Unique(*module_id),
+        _ => {
+            best_modules.sort_by_key(|module_id| module_id.file_id.file_id().0);
+            ModuleResolution::Ambiguous(best_modules)
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ProximityScore {
     same_file: bool,
     common_dir_depth: usize,
     same_source_root: bool,
 }
 
-fn proximity_score(db: &RootDb, from_file: FileId, candidate_file: FileId) -> ProximityScore {
-    ProximityScore {
-        same_file: from_file == candidate_file,
-        common_dir_depth: common_dir_depth(file_path(db, from_file), file_path(db, candidate_file)),
-        same_source_root: db.source_root_id(from_file) == db.source_root_id(candidate_file),
+impl ProximityScore {
+    fn new(db: &RootDb, from_file: FileId, candidate_file: FileId) -> Self {
+        Self {
+            same_file: from_file == candidate_file,
+            common_dir_depth: common_dir_depth(
+                file_path(db, from_file),
+                file_path(db, candidate_file),
+            ),
+            same_source_root: db.source_root_id(from_file) == db.source_root_id(candidate_file),
+        }
     }
+
+    fn preference_cmp(&self, other: &Self) -> Ordering {
+        // Prefer exact file matches, then nearest directory, then source-root locality.
+        self.same_file
+            .cmp(&other.same_file)
+            .then_with(|| self.common_dir_depth.cmp(&other.common_dir_depth))
+            .then_with(|| self.same_source_root.cmp(&other.same_source_root))
+    }
+}
+
+fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
+    let source_root_id = db.source_root_id(file_id);
+    db.source_root(source_root_id).role()
 }
 
 fn file_path(db: &RootDb, file_id: FileId) -> Option<VfsPath> {
