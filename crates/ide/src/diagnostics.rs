@@ -1,16 +1,23 @@
 use base_db::{
-    source_db::SourceRootDb,
+    source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
+use hir::{db::HirDb, hir_def::module::ModuleId, source_map::IsSrc};
 use ide_db::root_db::RootDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
-use utils::text_edit::{TextRange, TextSize};
+use utils::{
+    get::Get,
+    text_edit::{TextRange, TextSize},
+};
 use vfs::FileId;
+
+use crate::module_resolution::{ModuleResolution, resolve_module_name};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
     SlangParse,
     SlangSemantic,
+    Vizsla,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +54,7 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
 
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let mut diagnostics = parse_diagnostics(db, file_id);
+    diagnostics.extend(vizsla_diagnostics(db, file_id));
 
     diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().filter_map(
         |(diag_file_id, diag)| {
@@ -73,7 +81,11 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
     let source_root = db.source_root(source_root_id);
     match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Disabled => return Vec::new(),
-        SourceRootDiagnosticScope::OpenFile => return parse_diagnostics(db, file_id),
+        SourceRootDiagnosticScope::OpenFile => {
+            let mut diagnostics = parse_diagnostics(db, file_id);
+            diagnostics.extend(vizsla_diagnostics(db, file_id));
+            return diagnostics;
+        }
         SourceRootDiagnosticScope::Workspace => {}
     }
 
@@ -81,6 +93,7 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 
     for file_id in source_root.iter() {
         diagnostics.extend(parse_diagnostics(db, file_id));
+        diagnostics.extend(vizsla_diagnostics(db, file_id));
     }
 
     diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().map(
@@ -115,6 +128,65 @@ pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
     db.source_root(source_root_id).role()
 }
 
+fn vizsla_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    if slang_semantic_diagnostics_active(db, file_id) {
+        return Vec::new();
+    }
+
+    ambiguous_module_instantiation_diagnostics(db, file_id)
+}
+
+fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
+    let config = db.diagnostics_config();
+    config.enabled
+        && config.semantic.enabled
+        && !db.file_is_project_ignored(file_id)
+        && db.project_config().profile_for_root(db.source_root_id(file_id)).is_some()
+}
+
+fn ambiguous_module_instantiation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    let hir_file_id = file_id.into();
+    let hir_file = db.hir_file(hir_file_id);
+    let mut diagnostics = Vec::new();
+
+    for (local_module_id, _) in hir_file.modules.iter() {
+        let module_id = ModuleId::new(hir_file_id, local_module_id);
+        let (module, src_map) = db.module_with_source_map(module_id);
+        for (instantiation_id, instantiation) in module.instantiations.iter() {
+            let Some(module_name) = instantiation.module_name.as_ref() else {
+                continue;
+            };
+            let ModuleResolution::Ambiguous(candidates) =
+                resolve_module_name(db, file_id, module_name)
+            else {
+                continue;
+            };
+            let range = src_map
+                .get(instantiation_id)
+                .map(|src| src.range())
+                .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
+
+            diagnostics.push(Diagnostic {
+                file_id,
+                code: 1,
+                subsystem: 0,
+                name: "ambiguous-module-instantiation".to_owned(),
+                option_name: None,
+                groups: Vec::new(),
+                source: DiagnosticSource::Vizsla,
+                range,
+                severity: DiagnosticSeverity::Warning,
+                message: format!(
+                    "module instantiation '{module_name}' is ambiguous; {} matching definitions are visible",
+                    candidates.len()
+                ),
+            });
+        }
+    }
+
+    diagnostics
+}
+
 fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
     fn to_text_size(value: usize) -> TextSize {
         let raw = u32::try_from(value).unwrap_or(u32::MAX);
@@ -137,16 +209,24 @@ mod tests {
         change::Change,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         source_db::SourceRootDb,
-        source_root::{SourceRoot, SourceRootId},
+        source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
     use ide_db::root_db::RootDb;
     use triomphe::Arc;
     use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use super::{diagnostics, source_root_diagnostics};
+    use super::{DiagnosticSource, diagnostics, source_root_diagnostics};
 
     fn db_with_files(files: &[(&str, &str)], configured: bool) -> RootDb {
+        db_with_files_in_role(files, SourceRootRole::Local, configured)
+    }
+
+    fn db_with_files_in_role(
+        files: &[(&str, &str)],
+        role: SourceRootRole,
+        configured: bool,
+    ) -> RootDb {
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
         let mut change = Change::new();
@@ -161,7 +241,7 @@ mod tests {
             });
         }
 
-        change.set_roots(vec![SourceRoot::new_local(file_set)]);
+        change.set_roots(vec![SourceRoot::new(role, file_set)]);
         if configured {
             change.set_project_config(Arc::new(ProjectConfig::new(
                 vec![Some(CompilationProfileId(0))],
@@ -174,6 +254,69 @@ mod tests {
         }
         db.apply_change(change);
         db
+    }
+
+    #[test]
+    fn best_effort_ambiguous_module_instantiation_reports_vizsla_warning() {
+        let db = db_with_files_in_role(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+                ("/project/top.sv", "module top; child u(); endmodule\n"),
+            ],
+            SourceRootRole::BestEffortIndex,
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(2));
+
+        assert!(
+            diagnostics.iter().any(|diag| {
+                diag.source == DiagnosticSource::Vizsla
+                    && diag.name == "ambiguous-module-instantiation"
+                    && diag.message.contains("2 matching definitions")
+            }),
+            "expected vizsla ambiguous module warning: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn best_effort_nearest_module_instantiation_does_not_report_ambiguity() {
+        let db = db_with_files_in_role(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+            ],
+            SourceRootRole::BestEffortIndex,
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(1));
+
+        assert!(
+            diagnostics.iter().all(|diag| diag.name != "ambiguous-module-instantiation"),
+            "nearest best-effort module should not be reported as ambiguous: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn semantic_diagnostics_suppress_vizsla_ambiguous_module_warning() {
+        let db = db_with_files(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+            ],
+            true,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(1));
+
+        assert!(
+            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vizsla),
+            "vizsla ambiguity warning should not duplicate active slang semantic diagnostics: {diagnostics:?}"
+        );
     }
 
     #[test]

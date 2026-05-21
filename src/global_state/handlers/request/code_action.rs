@@ -169,10 +169,11 @@ fn code_action_diagnostics_from_ide(
 
 fn code_action_diagnostic_from_ide(diag: &ide_diagnostics::Diagnostic) -> CodeActionDiagnostic {
     CodeActionDiagnostic {
-        source: Some(match diag.source {
-            ide_diagnostics::DiagnosticSource::SlangParse => DiagnosticSource::Parse,
-            ide_diagnostics::DiagnosticSource::SlangSemantic => DiagnosticSource::Semantic,
-        }),
+        source: match diag.source {
+            ide_diagnostics::DiagnosticSource::SlangParse => Some(DiagnosticSource::Parse),
+            ide_diagnostics::DiagnosticSource::SlangSemantic => Some(DiagnosticSource::Semantic),
+            ide_diagnostics::DiagnosticSource::Vizsla => None,
+        },
         code: Some(DiagnosticCode { subsystem: diag.subsystem, code: diag.code }),
         name: Some(diag.name.clone()),
         option: diag.option_name.clone(),

@@ -141,6 +141,7 @@ pub(crate) fn diagnostic(
             match diag.source {
                 ide_diagnostics::DiagnosticSource::SlangParse
                 | ide_diagnostics::DiagnosticSource::SlangSemantic => SLANG_DIAGNOSTIC_SOURCE,
+                ide_diagnostics::DiagnosticSource::Vizsla => "vizsla",
             }
             .to_string(),
         ),
@@ -156,6 +157,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "source": match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => "parse",
             ide_diagnostics::DiagnosticSource::SlangSemantic => "semantic",
+            ide_diagnostics::DiagnosticSource::Vizsla => "vizsla",
         },
         "subsystem": diag.subsystem,
         "code": diag.code,
@@ -179,6 +181,7 @@ fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> 
     selectors.push(match diag.source {
         ide_diagnostics::DiagnosticSource::SlangParse => "source:parse".to_owned(),
         ide_diagnostics::DiagnosticSource::SlangSemantic => "source:semantic".to_owned(),
+        ide_diagnostics::DiagnosticSource::Vizsla => "source:vizsla".to_owned(),
     });
 
     selectors
