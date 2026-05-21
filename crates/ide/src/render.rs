@@ -1,3 +1,4 @@
+use base_db::intern::Lookup;
 use hir::{
     container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
@@ -14,7 +15,7 @@ use hir::{
             ModuleId,
             port::{NonAnsiPortId, Ports},
         },
-        subroutine::{SubroutineId, SubroutineKind, SubroutinePortDir, SubroutinePortId},
+        subroutine::{SubroutineId, SubroutineKind, SubroutinePortId},
     },
     region_tree::RegionParent,
     semantics::Semantics,
@@ -235,18 +236,10 @@ fn render_subroutine_port_signature(
     let subroutine = db.subroutine(port_id.subroutine);
     let port = subroutine.ports.get(port_id.value.0 as usize)?;
     let name = port.name.as_ref()?;
-    let ty = port
-        .ty
-        .and_then(|ty| render_data_ty(db, ContainerId::SubroutineId(port_id.subroutine), ty));
+    let container = port_id.subroutine.lookup(db).cont_id.into();
+    let ty = port.ty.and_then(|ty| render_data_ty(db, container, ty));
+    let dir = port.direction.display_source(db).ok()?;
 
-    let dir = match port.direction {
-        SubroutinePortDir::Input => "input",
-        SubroutinePortDir::Output => "output",
-        SubroutinePortDir::Inout => "inout",
-        SubroutinePortDir::Ref => "ref",
-        SubroutinePortDir::ConstRef => "const ref",
-        SubroutinePortDir::Unknown => "",
-    };
     match (dir.is_empty(), ty) {
         (false, Some(ty)) => Some(format!("{dir} {ty} {name}")),
         (false, None) => Some(format!("{dir} {name}")),
@@ -258,12 +251,11 @@ fn render_subroutine_port_signature(
 fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineId) -> Option<String> {
     let subroutine = db.subroutine(subroutine_id);
     let name = subroutine.name.as_ref()?;
+    let container = subroutine_id.lookup(db).cont_id.into();
     let mut signature = match subroutine.kind {
         SubroutineKind::Task => format!("task {name}"),
         SubroutineKind::Function { return_ty } => {
-            if let Some(return_ty) = return_ty
-                .and_then(|ty| render_data_ty(db, ContainerId::SubroutineId(subroutine_id), ty))
-            {
+            if let Some(return_ty) = return_ty.and_then(|ty| render_data_ty(db, container, ty)) {
                 format!("function {return_ty} {name}")
             } else {
                 format!("function {name}")
