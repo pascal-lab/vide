@@ -433,6 +433,10 @@ impl DefinitionClass {
             return Some(def);
         }
 
+        if let Some(def) = resolve_instantiation_type_name(sema, file_id, tp) {
+            return Some(def);
+        }
+
         let res = match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
                 sema.nameres_named_param_assign(it).map(Definition::from)?.into()
@@ -491,6 +495,31 @@ fn resolve_member_or_scoped_name(
     let expr = ast::Expression::cast(scoped.syntax())?;
     let res = sema.expr_to_def(sema.resolve_expr(file_id, expr)?)?;
     Some(Definition::from(res).into())
+}
+
+fn resolve_instantiation_type_name(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    tp @ SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    if let Some(instantiation) =
+        SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
+        && instantiation.type_() == Some(tok)
+    {
+        return Some(
+            Definition::from(PathResolution::Module(sema.nameres_instantiation(instantiation)?))
+                .into(),
+        );
+    }
+
+    if let Some(instantiation) =
+        SyntaxAncestors::start_from(parent).find_map(ast::PrimitiveInstantiation::cast)
+        && instantiation.type_() == Some(tok)
+    {
+        return Some(Definition::from(sema.nameres_ident(file_id, tp)?).into());
+    }
+
+    None
 }
 
 fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {

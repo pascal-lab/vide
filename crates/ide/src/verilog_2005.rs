@@ -819,6 +819,163 @@ fn verilog_2005_hover_after_truncation_uses_current_syntax_context() {
 }
 
 #[test]
+fn verilog_2005_hover_uses_symbol_specific_renderers() {
+    let text = r#"
+module /*marker:module_def*/child #(parameter WIDTH = 8) (
+  input wire /*marker:port_def*/clk
+);
+  localparam /*marker:param_def*/DEPTH = WIDTH + 1;
+  reg data_valid;
+  reg sink;
+  initial sink = data_valid;
+  task automatic /*marker:task_def*/drive(input reg [3:0] value);
+  endtask
+  function [3:0] /*marker:func_def*/add1(input [3:0] value);
+    begin
+      add1 = value + 1'b1;
+    end
+  endfunction
+endmodule
+
+module top;
+  /*marker:module_ref*/child u_child(.clk());
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let module_hover = analysis
+        .hover(
+            position(file_id, &markers, "module_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("module hover expected");
+    assert!(
+        module_hover.info.as_str().contains(
+            "module child #(\n    parameter logic WIDTH = 8\n) (\n    input wire logic clk\n)"
+        ),
+        "module hover should use module-specific renderer: {}",
+        module_hover.info.as_str()
+    );
+
+    let inst_module_hover = analysis
+        .hover(
+            position(file_id, &markers, "module_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("instantiated module hover expected");
+    assert!(
+        inst_module_hover.info.as_str().contains(
+            "module child #(\n    parameter logic WIDTH = 8\n) (\n    input wire logic clk\n)"
+        ),
+        "instantiation module name hover should reuse module signature: {}",
+        inst_module_hover.info.as_str()
+    );
+
+    let port_hover = analysis
+        .hover(
+            position(file_id, &markers, "port_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("port hover expected");
+    assert!(
+        port_hover.info.as_str().contains("input wire logic clk"),
+        "port hover should use port-specific renderer: {}",
+        port_hover.info.as_str()
+    );
+    assert!(
+        port_hover.info.as_str().contains("---------"),
+        "port hover should separate signature and container: {}",
+        port_hover.info.as_str()
+    );
+
+    let param_hover = analysis
+        .hover(
+            position(file_id, &markers, "param_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("parameter hover expected");
+    assert!(
+        param_hover.info.as_str().contains("parameter logic DEPTH = WIDTH + 1"),
+        "parameter hover should use parameter-specific renderer: {}",
+        param_hover.info.as_str()
+    );
+    assert!(
+        param_hover.info.as_str().contains("---------"),
+        "parameter hover should separate signature and container: {}",
+        param_hover.info.as_str()
+    );
+
+    let task_hover = analysis
+        .hover(
+            position(file_id, &markers, "task_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("task hover expected");
+    assert!(
+        task_hover.info.as_str().contains("task drive(")
+            && task_hover.info.as_str().contains("value"),
+        "task hover should use subroutine-specific renderer: {}",
+        task_hover.info.as_str()
+    );
+
+    let func_hover = analysis
+        .hover(
+            position(file_id, &markers, "func_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("function hover expected");
+    assert!(
+        func_hover.info.as_str().contains("function")
+            && func_hover.info.as_str().contains("add1(")
+            && func_hover.info.as_str().contains("value"),
+        "function hover should use subroutine-specific renderer: {}",
+        func_hover.info.as_str()
+    );
+}
+
+#[test]
+fn verilog_2005_hover_covers_all_definition_kinds() {
+    let (host, file_id, _clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
+    let analysis = host.make_analysis();
+
+    for (marker, expected) in [
+        ("module_ref", "module child"),
+        ("port_ref", "input wire logic a"),
+        ("sig_ref", "wire logic sig"),
+        ("udp_ref", "primitive udp_and"),
+        ("task_ref", "task do_task"),
+        ("genvar_ref", "genvar"),
+        ("gen_label", "generate g_loop"),
+        ("specparam_ref", "specparam"),
+        ("instance_ref", "instance u_child"),
+        ("generate_ref", "generate g_loop"),
+        ("lane_ref", "wire logic lane"),
+        ("block_ref", "block blk"),
+        ("config_def", "config cfg_top"),
+    ] {
+        let hover = analysis
+            .hover(
+                position(file_id, &markers, marker),
+                HoverConfig { format: HoverFormat::PlainText },
+            )
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} hover expected"));
+        assert!(
+            hover.info.as_str().contains(expected),
+            "{marker} hover should contain {expected:?}: {}",
+            hover.info.as_str()
+        );
+    }
+}
+
+#[test]
 fn verilog_2005_block_parameter_declarations_lower_without_fallback() {
     let text = r#"
 module block_param_ctx;

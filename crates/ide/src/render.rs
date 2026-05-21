@@ -1,7 +1,22 @@
+use base_db::intern::Lookup;
 use hir::{
-    container::{ContainerId, ContainerParent, InFile},
+    container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
+    db::HirDb,
     display::HirDisplay,
-    hir_def::{DEFAULT_NAME, literal::Literal},
+    hir_def::{
+        DEFAULT_NAME,
+        declaration::Declaration,
+        expr::{
+            data_ty::DataTy,
+            declarator::{DeclId, DeclaratorParent},
+        },
+        literal::Literal,
+        module::{
+            ModuleId,
+            port::{NonAnsiPortId, Ports},
+        },
+        subroutine::{SubroutineId, SubroutineKind, SubroutinePortId},
+    },
     region_tree::RegionParent,
     semantics::Semantics,
 };
@@ -13,6 +28,7 @@ use syntax::{
     token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
 };
+use utils::get::GetRef;
 
 use crate::{
     definitions::{Definition, DefinitionOrigin},
@@ -117,23 +133,35 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
 
 pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Markup {
     def.def_origins().into_iter().fold(Markup::new(), |mut res, origin| {
-        res.merge(render_def_origin(sema, &origin));
+        let origin = render_def_origin(sema, &origin);
+
+        if !res.is_empty() && !origin.is_empty() {
+            res.newline();
+        }
+
+        res.merge(origin);
         res
     })
 }
 
 fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {
     let mut res = Markup::new();
+    let mut has_signature = false;
 
     if let Some(signature) = render_signature(sema, origin) {
         res.push_with_code_fence(&signature);
+        has_signature = true;
     }
 
-    res.merge(render_containers(sema, origin));
+    let containers = render_containers(sema, origin);
+    if has_signature && !containers.is_empty() {
+        res.horizontal_line();
+    }
+    res.merge(containers);
 
     if let Some(markup) = render_side_comments(sema, origin) {
         if !res.is_empty() {
-            res.newline();
+            res.horizontal_line();
         }
         res.merge(markup);
     }
@@ -144,9 +172,295 @@ fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Mar
 fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Option<String> {
     let db = sema.db;
     match origin {
+        DefinitionOrigin::ModuleId(module_id) => render_module_signature(db, *module_id),
+        DefinitionOrigin::SubroutineId(subroutine_id) => {
+            render_subroutine_signature(db, *subroutine_id)
+        }
+        DefinitionOrigin::SubroutinePort(port_id) => render_subroutine_port_signature(db, *port_id),
+        DefinitionOrigin::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, *port_id),
+        DefinitionOrigin::Decl(decl_id) => render_decl_signature(db, *decl_id),
         DefinitionOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
-        _ => None,
+        _ => render_label_signature(db, origin),
     }
+}
+
+fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
+    let module = db.module(module_id);
+    let name = module.name.as_ref()?;
+    let mut signature = format!("module {name}");
+
+    let params = render_module_param_ports(db, module_id);
+    if !params.is_empty() {
+        signature.push_str(" #(\n");
+        signature.push_str(&render_indented_list(&params));
+        signature.push_str("\n)");
+    }
+
+    let ports = render_module_port_list(db, module_id);
+    if ports.is_empty() {
+        signature.push_str(" ()");
+    } else {
+        signature.push_str(" (\n");
+        signature.push_str(&render_indented_list(&ports));
+        signature.push_str("\n)");
+    }
+    Some(signature)
+}
+
+fn render_module_param_ports(db: &RootDb, module_id: ModuleId) -> Vec<String> {
+    let module = db.module(module_id);
+    let mut params = Vec::new();
+    let mut idx = 0;
+    while let Some(decl_id) = module.param_port_id_by_idx(idx) {
+        let decl = module.get(decl_id);
+        let DeclaratorParent::DeclarationId(parent) = decl.parent else {
+            idx += 1;
+            continue;
+        };
+        let Some(prefix) = render_declaration_prefix(db, module_id.into(), module.get(parent))
+        else {
+            idx += 1;
+            continue;
+        };
+        let Some(decl) = InContainer::new(module_id.into(), decl_id).display_signature(db).ok()
+        else {
+            idx += 1;
+            continue;
+        };
+        let init =
+            render_initializer(db, InContainer::new(module_id.into(), decl_id)).unwrap_or_default();
+        params.push(format!("{prefix} {decl}{init}"));
+        idx += 1;
+    }
+    params
+}
+
+fn render_subroutine_port_signature(
+    db: &RootDb,
+    port_id: InSubroutine<SubroutinePortId>,
+) -> Option<String> {
+    let subroutine = db.subroutine(port_id.subroutine);
+    let port = subroutine.ports.get(port_id.value.0 as usize)?;
+    let name = port.name.as_ref()?;
+    let container = port_id.subroutine.lookup(db).cont_id.into();
+    let ty = port.ty.and_then(|ty| render_data_ty(db, container, ty));
+    let dir = port.direction.display_source(db).ok()?;
+
+    match (dir.is_empty(), ty) {
+        (false, Some(ty)) => Some(format!("{dir} {ty} {name}")),
+        (false, None) => Some(format!("{dir} {name}")),
+        (true, Some(ty)) => Some(format!("{ty} {name}")),
+        (true, None) => Some(name.to_string()),
+    }
+}
+
+fn render_subroutine_signature(db: &RootDb, subroutine_id: SubroutineId) -> Option<String> {
+    let subroutine = db.subroutine(subroutine_id);
+    let name = subroutine.name.as_ref()?;
+    let container = subroutine_id.lookup(db).cont_id.into();
+    let mut signature = match subroutine.kind {
+        SubroutineKind::Task => format!("task {name}"),
+        SubroutineKind::Function { return_ty } => {
+            if let Some(return_ty) = return_ty.and_then(|ty| render_data_ty(db, container, ty)) {
+                format!("function {return_ty} {name}")
+            } else {
+                format!("function {name}")
+            }
+        }
+    };
+
+    let ports = subroutine
+        .ports
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, _)| {
+            render_subroutine_port_signature(
+                db,
+                InSubroutine::new(subroutine_id, SubroutinePortId(idx as u32)),
+            )
+        })
+        .collect_vec();
+    if ports.is_empty() {
+        signature.push_str("()");
+    } else {
+        signature.push_str("(\n");
+        signature.push_str(&render_indented_list(&ports));
+        signature.push_str("\n)");
+    }
+    Some(signature)
+}
+
+fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
+    let module = db.module(module_id);
+    match &module.ports {
+        Ports::NonAnsi { ports, .. } => ports
+            .values()
+            .map(|port| {
+                port.label
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "<missing>".to_string())
+            })
+            .collect_vec(),
+        Ports::Ansi(port_decls) => {
+            let mut ports = Vec::new();
+            for port_decl in port_decls.values() {
+                let header = InModule::new(module_id, port_decl.header).display_source(db).ok();
+                for decl_id in port_decl.decls.clone() {
+                    let name =
+                        InContainer::new(module_id.into(), decl_id).display_signature(db).ok();
+                    match (header.as_deref(), name.as_deref()) {
+                        (Some(header), Some(name)) if !header.is_empty() => {
+                            ports.push(format!("{header} {name}"));
+                        }
+                        (_, Some(name)) => ports.push(name.to_string()),
+                        _ => {}
+                    }
+                }
+            }
+            ports
+        }
+    }
+}
+
+fn render_indented_list(items: &[String]) -> String {
+    items
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            let suffix = if idx + 1 == items.len() { "" } else { "," };
+            format!("    {item}{suffix}")
+        })
+        .collect_vec()
+        .join("\n")
+}
+
+fn render_non_ansi_port_signature(db: &RootDb, port_id: InModule<NonAnsiPortId>) -> Option<String> {
+    let module = db.module(port_id.module_id);
+    let port = module.get(port_id.value);
+    let label = port.label.as_ref()?;
+    Some(format!("port {label}"))
+}
+
+fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
+    let container = decl_id.cont_id.to_container(db);
+    let decl = container.get(decl_id.value);
+    decl.name.as_ref()?;
+
+    match decl.parent {
+        DeclaratorParent::PortDeclId(port_decl_id) => {
+            let ContainerId::ModuleId(module_id) = decl_id.cont_id else {
+                return None;
+            };
+            let module = db.module(module_id);
+            let header = InModule::new(module_id, module.get(port_decl_id).header)
+                .display_source(db)
+                .ok()?;
+            let decl =
+                InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
+            Some(format!("{header} {decl}"))
+        }
+        DeclaratorParent::DeclarationId(parent) => {
+            let declaration = container.get(parent);
+            let prefix = render_declaration_prefix(db, decl_id.cont_id, declaration)?;
+            let decl =
+                InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
+            let initializer = render_initializer(db, decl_id).unwrap_or_default();
+            Some(format!("{prefix} {decl}{initializer}"))
+        }
+        DeclaratorParent::StmtId(_) => {
+            let decl =
+                InContainer::new(decl_id.cont_id, decl_id.value).display_signature(db).ok()?;
+            let initializer = render_initializer(db, decl_id).unwrap_or_default();
+            Some(format!("variable {decl}{initializer}"))
+        }
+    }
+}
+
+fn render_declaration_prefix(
+    db: &RootDb,
+    cont_id: ContainerId,
+    declaration: &Declaration,
+) -> Option<String> {
+    let ty = render_data_ty(db, cont_id, declaration.ty()).unwrap_or_default();
+
+    let prefix = match declaration {
+        Declaration::DataDecl(data_decl) => {
+            let mut prefix = String::new();
+            if data_decl.const_kw {
+                prefix.push_str("const ");
+            }
+            if data_decl.var_kw {
+                prefix.push_str("var ");
+            }
+            prefix.push_str(&ty);
+            prefix
+        }
+        Declaration::NetDecl(net_decl) => {
+            let mut prefix = String::new();
+            if let Some(kind) = net_decl.net_kind {
+                prefix.push_str(&format!(
+                    "{}{}",
+                    kind.display_source(db).ok()?,
+                    if ty.is_empty() { "" } else { " " }
+                ));
+            }
+            prefix.push_str(&ty);
+            prefix
+        }
+        Declaration::ParamDecl(_) => format!("parameter {ty}"),
+        Declaration::GenvarDecl(_) => format!("genvar {ty}"),
+        Declaration::SpecparamDecl(_) => {
+            if ty.is_empty() {
+                "specparam".to_string()
+            } else {
+                format!("specparam {ty}")
+            }
+        }
+    };
+
+    Some(prefix.trim().to_string())
+}
+
+fn render_initializer(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
+    let container = decl_id.cont_id.to_container(db);
+    let decl = container.get(decl_id.value);
+    let init = decl
+        .initializer
+        .map(|expr| InContainer::new(decl_id.cont_id, expr).display_source(db).ok())??;
+    let mut rendered = format!(" = {init}");
+    if let Some(second) = decl
+        .secondary_initializer
+        .and_then(|expr| InContainer::new(decl_id.cont_id, expr).display_source(db).ok())
+    {
+        rendered.push(':');
+        rendered.push_str(&second);
+    }
+    Some(rendered)
+}
+
+fn render_data_ty(db: &RootDb, container: ContainerId, ty: DataTy) -> Option<String> {
+    InContainer::new(container, ty).display_source(db).ok()
+}
+
+fn render_label_signature(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+    let name = origin.name(db)?;
+    let kind = match origin {
+        DefinitionOrigin::Config(_) => "config",
+        DefinitionOrigin::Library(_) => "library",
+        DefinitionOrigin::Udp(_) => "primitive",
+        DefinitionOrigin::BlockId(_) => "block",
+        DefinitionOrigin::GenerateBlockId(_) => "generate",
+        DefinitionOrigin::Instance(_) => "instance",
+        DefinitionOrigin::Stmt(_) => "statement",
+        DefinitionOrigin::Typedef(_) => "typedef",
+        DefinitionOrigin::ModuleId(_)
+        | DefinitionOrigin::SubroutineId(_)
+        | DefinitionOrigin::SubroutinePort(_)
+        | DefinitionOrigin::NonAnsiPort(_)
+        | DefinitionOrigin::Decl(_) => return None,
+    };
+    Some(format!("{kind} {name}"))
 }
 
 fn render_side_comments(sema: &Semantics<'_, RootDb>, origin: &DefinitionOrigin) -> Option<Markup> {
@@ -218,6 +532,10 @@ fn render_containers(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Mar
     }
 
     let mut ans = Markup::new();
-    ans.push_with_code_fence(&containers.into_iter().rev().join(" > "));
+    if containers.is_empty() {
+        return ans;
+    }
+    ans.print("in ");
+    ans.push_with_backticks(&containers.into_iter().rev().join(" > "));
     ans
 }

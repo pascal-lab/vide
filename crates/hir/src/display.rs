@@ -17,6 +17,7 @@ use crate::{
         },
         literal::Literal,
         module::port::{PortDirection, PortHeader},
+        subroutine::SubroutinePortDir,
         ty::{NetKind, NetType},
         typedef::TypedefId,
     },
@@ -83,6 +84,19 @@ impl HirDisplay for PortDirection {
             PortDirection::Output => f.write_str("output"),
             PortDirection::Ref => f.write_str("ref"),
             PortDirection::Inout => f.write_str("inout"),
+        }
+    }
+}
+
+impl HirDisplay for SubroutinePortDir {
+    fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
+        match self {
+            SubroutinePortDir::Input => f.write_str("input"),
+            SubroutinePortDir::Output => f.write_str("output"),
+            SubroutinePortDir::Inout => f.write_str("inout"),
+            SubroutinePortDir::Ref => f.write_str("ref"),
+            SubroutinePortDir::ConstRef => f.write_str("const ref"),
+            SubroutinePortDir::Unknown => Ok(()),
         }
     }
 }
