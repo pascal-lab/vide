@@ -30,8 +30,11 @@ impl CompilationPlan {
     pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
+        let fallback_root =
+            source_root_participates_in_fallback_compilation(db.source_root(source_root_id).role())
+                .then_some(source_root_id);
         let (source_roots, top_modules, include_dirs, predefines) =
-            profile_inputs(&project_config, Some(source_root_id), profile_id);
+            profile_inputs(&project_config, fallback_root, profile_id);
         Self::from_inputs(db, source_roots, top_modules, include_dirs, predefines)
     }
 

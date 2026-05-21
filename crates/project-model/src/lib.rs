@@ -46,6 +46,7 @@ pub struct WorkspaceRoot {
     pub source: PathMatcher,
     pub include_dirs: Vec<AbsPathBuf>,
     pub exclude_globs: Option<PathGlobMatcher>,
+    pub contributes_to_semantic_profile: bool,
 }
 
 impl WorkspaceRoot {
@@ -54,6 +55,10 @@ impl WorkspaceRoot {
         paths.extend(self.source.scan_roots().cloned());
         sort_and_remove_subfolders(&mut paths);
         paths
+    }
+
+    pub fn contributes_to_semantic_profile(&self) -> bool {
+        self.contributes_to_semantic_profile
     }
 }
 
@@ -104,10 +109,6 @@ impl ManifestSourcePolicy {
 
     fn defaults_include_dirs_to_sources(&self) -> bool {
         matches!(self, Self::Explicit(_))
-    }
-
-    fn provides_semantic_sources(&self, source_paths: &[AbsPathBuf]) -> bool {
-        self.defaults_include_dirs_to_sources() && !source_paths.is_empty()
     }
 }
 
@@ -163,21 +164,18 @@ impl Workspace {
         };
         let include_dirs = resolve_include_dirs(include_dirs, default_include_paths);
         let library_paths = resolve_library_paths(libraries);
-        let local_profile_sources =
-            source_policy.provides_semantic_sources(&source_paths) || !include_dirs.is_empty();
         let roots = workspace_roots(
             kind,
-            kind.is_library() || local_profile_sources,
+            &source_policy,
             !source_paths.is_empty(),
             source,
             include_dirs.clone(),
             exclude_globs,
         );
-        let semantic_profile = if roots.is_empty() {
-            None
-        } else {
-            semantic_profile(kind, local_profile_sources, top_modules, macro_defs, include_dirs)
-        };
+        let semantic_profile = roots
+            .iter()
+            .any(WorkspaceRoot::contributes_to_semantic_profile)
+            .then(|| semantic_profile(top_modules, macro_defs, include_dirs));
 
         Ok(Self { workspace_root, library_paths, kind, roots, semantic_profile })
     }
@@ -188,17 +186,16 @@ impl Workspace {
         let include_dirs = if kind.is_library() { source_roots.clone() } else { Vec::new() };
         let roots = workspace_roots(
             kind,
-            kind.is_library(),
+            &ManifestSourcePolicy::DefaultIndex,
             true,
             PathMatcher::all_under_roots(source_roots),
             include_dirs.clone(),
             None,
         );
-        let semantic_profile = if roots.is_empty() {
-            None
-        } else {
-            semantic_profile(kind, false, Vec::new(), MacroDef::default(), include_dirs)
-        };
+        let semantic_profile = roots
+            .iter()
+            .any(WorkspaceRoot::contributes_to_semantic_profile)
+            .then(|| semantic_profile(Vec::new(), MacroDef::default(), include_dirs));
 
         Self {
             workspace_root: path.clone(),
@@ -231,47 +228,94 @@ impl Workspace {
 }
 
 fn semantic_profile(
-    kind: WorkspaceKind,
-    local_enables_semantic_diagnostics: bool,
     top_modules: Vec<String>,
     macro_defs: MacroDef,
     include_dirs: Vec<AbsPathBuf>,
-) -> Option<WorkspaceSemanticProfile> {
-    (kind.is_library() || local_enables_semantic_diagnostics).then(|| WorkspaceSemanticProfile {
+) -> WorkspaceSemanticProfile {
+    WorkspaceSemanticProfile {
         top_modules,
         preprocess: PreprocessConfig {
             predefines: macro_defs.to_predefine_strings(),
             include_dirs,
         },
-    })
+    }
 }
 
 fn workspace_roots(
     kind: WorkspaceKind,
-    has_semantic_profile: bool,
+    source_policy: &ManifestSourcePolicy,
     has_source_paths: bool,
     source: PathMatcher,
     include_dirs: Vec<AbsPathBuf>,
     exclude_globs: Option<PathGlobMatcher>,
 ) -> Vec<WorkspaceRoot> {
-    let role = root_role(kind, has_semantic_profile, has_source_paths);
-    let root = WorkspaceRoot { role, source, include_dirs, exclude_globs };
-    if root.load_paths().is_empty() { Vec::new() } else { vec![root] }
+    let mut roots = Vec::new();
+
+    if kind.is_library() {
+        push_workspace_root(
+            &mut roots,
+            SourceRootRole::Library,
+            source,
+            include_dirs,
+            exclude_globs,
+            true,
+        );
+        return roots;
+    }
+
+    match source_policy {
+        ManifestSourcePolicy::DefaultIndex => {
+            push_workspace_root(
+                &mut roots,
+                SourceRootRole::Local,
+                PathMatcher::all_under_roots(Vec::new()),
+                include_dirs,
+                exclude_globs.clone(),
+                true,
+            );
+            if has_source_paths {
+                push_workspace_root(
+                    &mut roots,
+                    SourceRootRole::IndexOnly,
+                    source,
+                    Vec::new(),
+                    exclude_globs,
+                    false,
+                );
+            }
+        }
+        ManifestSourcePolicy::Explicit(_) => {
+            push_workspace_root(
+                &mut roots,
+                SourceRootRole::Local,
+                source,
+                include_dirs,
+                exclude_globs,
+                true,
+            );
+        }
+    }
+
+    roots
 }
 
-fn root_role(
-    kind: WorkspaceKind,
-    has_semantic_profile: bool,
-    has_source_paths: bool,
-) -> SourceRootRole {
-    if kind.is_library() {
-        SourceRootRole::Library
-    } else if has_semantic_profile {
-        SourceRootRole::Local
-    } else if has_source_paths {
-        SourceRootRole::IndexOnly
-    } else {
-        SourceRootRole::Local
+fn push_workspace_root(
+    roots: &mut Vec<WorkspaceRoot>,
+    role: SourceRootRole,
+    source: PathMatcher,
+    include_dirs: Vec<AbsPathBuf>,
+    exclude_globs: Option<PathGlobMatcher>,
+    contributes_to_semantic_profile: bool,
+) {
+    let root = WorkspaceRoot {
+        role,
+        source,
+        include_dirs,
+        exclude_globs,
+        contributes_to_semantic_profile,
+    };
+    if !root.load_paths().is_empty() {
+        roots.push(root);
     }
 }
 
@@ -458,23 +502,31 @@ pub fn get_workspace_folder(
             if !root.role.is_library() {
                 watch.push(load.len());
             }
-            root_workspaces.push((root_idx, workspace_idx));
+            root_workspaces.push((root_idx, workspace_idx, root.contributes_to_semantic_profile()));
             load.push(entry);
         }
     }
 
     fileset_roles.push(SourceRootRole::Ignored);
     let source_root_count = fsc.len() + 1;
-    let root_id_by_workspace = root_workspaces
-        .iter()
-        .map(|(root_idx, workspace_idx)| (*workspace_idx, SourceRootId(*root_idx as u32)))
-        .collect::<FxHashMap<_, _>>();
+    let mut root_ids_by_workspace = FxHashMap::<usize, Vec<SourceRootId>>::default();
+    for (root_idx, workspace_idx, contributes_to_semantic_profile) in &root_workspaces {
+        if *contributes_to_semantic_profile {
+            root_ids_by_workspace
+                .entry(*workspace_idx)
+                .or_default()
+                .push(SourceRootId(*root_idx as u32));
+        }
+    }
     let dependency_roots_by_workspace =
-        dependency_roots_by_workspace(workspaces, &root_id_by_workspace);
+        dependency_roots_by_workspace(workspaces, &root_ids_by_workspace);
     let mut root_profiles = vec![None; source_root_count];
     let mut profiles = Vec::new();
 
-    for (root_idx, workspace_idx) in root_workspaces {
+    for (root_idx, workspace_idx, contributes_to_semantic_profile) in root_workspaces {
+        if !contributes_to_semantic_profile {
+            continue;
+        }
         let source_root_id = SourceRootId(root_idx as u32);
         let workspace = &workspaces[workspace_idx];
         let Some(profile) = workspace.semantic_profile() else {
@@ -485,6 +537,13 @@ pub fn get_workspace_folder(
         root_profiles[root_idx] = Some(profile_id);
 
         let source_roots = std::iter::once(source_root_id)
+            .chain(
+                root_ids_by_workspace
+                    .get(&workspace_idx)
+                    .into_iter()
+                    .flat_map(|roots| roots.iter().copied())
+                    .filter(|root_id| *root_id != source_root_id),
+            )
             .chain(
                 dependency_roots_by_workspace
                     .get(&workspace_idx)
@@ -509,7 +568,7 @@ pub fn get_workspace_folder(
 
 fn dependency_roots_by_workspace(
     workspaces: &[Workspace],
-    root_id_by_workspace: &FxHashMap<usize, SourceRootId>,
+    root_ids_by_workspace: &FxHashMap<usize, Vec<SourceRootId>>,
 ) -> FxHashMap<usize, Vec<SourceRootId>> {
     let mut dependencies = FxHashMap::default();
     for workspace_idx in 0..workspaces.len() {
@@ -517,7 +576,7 @@ fn dependency_roots_by_workspace(
         let mut roots = Vec::new();
         collect_dependency_roots(
             workspaces,
-            root_id_by_workspace,
+            root_ids_by_workspace,
             workspace_idx,
             &mut seen,
             &mut roots,
@@ -529,7 +588,7 @@ fn dependency_roots_by_workspace(
 
 fn collect_dependency_roots(
     workspaces: &[Workspace],
-    root_id_by_workspace: &FxHashMap<usize, SourceRootId>,
+    root_ids_by_workspace: &FxHashMap<usize, Vec<SourceRootId>>,
     workspace_idx: usize,
     seen: &mut FxHashSet<usize>,
     roots: &mut Vec<SourceRootId>,
@@ -543,10 +602,10 @@ fn collect_dependency_roots(
                 continue;
             }
 
-            if let Some(root_id) = root_id_by_workspace.get(&candidate_idx).copied() {
-                roots.push(root_id);
+            if let Some(root_ids) = root_ids_by_workspace.get(&candidate_idx) {
+                roots.extend(root_ids.iter().copied());
             }
-            collect_dependency_roots(workspaces, root_id_by_workspace, candidate_idx, seen, roots);
+            collect_dependency_roots(workspaces, root_ids_by_workspace, candidate_idx, seen, roots);
         }
     }
 }
@@ -716,6 +775,55 @@ include_dirs = ["include"]
             source_root_config.fileset_roles,
             vec![SourceRootRole::Local, SourceRootRole::Ignored]
         );
+    }
+
+    #[test]
+    fn omitted_sources_with_include_dirs_keeps_default_index_out_of_profile() {
+        let base = TestDir::new("project-model-default-index-with-include-dirs");
+        let root = base.join("root");
+        let include = root.join("include");
+        let rtl = root.join("rtl");
+        fs::create_dir_all(&include).unwrap();
+        fs::create_dir_all(&rtl).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"include_dirs = ["include"]
+"#,
+        )
+        .unwrap();
+
+        let header = include.join("defs.svh");
+        let top = rtl.join("top.sv");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, source_root_config, project_config) =
+            get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(load.len(), 2);
+        assert_eq!(
+            source_root_config.fileset_roles,
+            vec![SourceRootRole::Local, SourceRootRole::IndexOnly, SourceRootRole::Ignored]
+        );
+
+        let include_profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
+        let include_profile = project_config.profile(include_profile_id).unwrap();
+        assert_eq!(include_profile.source_roots, vec![SourceRootId(0)]);
+        assert_eq!(project_config.profile_for_root(SourceRootId(1)), None);
+
+        let mut vfs = Vfs::default();
+        for file in [&header, &top] {
+            vfs.set_file_contents(
+                &VfsPath::from(file.clone()),
+                LoadResult::Loaded(String::new(), LineEnding::Unix),
+            );
+        }
+
+        let roots = source_root_config.partition(&vfs);
+        assert_eq!(roots[0].role(), SourceRootRole::Local);
+        assert!(roots[0].file_for_path(&VfsPath::from(header)).is_some());
+        assert_eq!(roots[1].role(), SourceRootRole::IndexOnly);
+        assert!(roots[1].file_for_path(&VfsPath::from(top)).is_some());
     }
 
     #[test]

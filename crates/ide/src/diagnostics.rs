@@ -236,6 +236,27 @@ mod tests {
     }
 
     #[test]
+    fn index_only_root_does_not_produce_fallback_compilation_plan() {
+        let mut db = RootDb::new(None);
+        let file_id = FileId(0);
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
+
+        let mut change = Change::new();
+        change.set_roots(vec![SourceRoot::new_index_only(file_set)]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from("module top; endmodule\n"), LineEnding::Unix),
+        });
+        db.apply_change(change);
+
+        let plan = db.compilation_plan_for_root(SourceRootId(0));
+
+        assert!(plan.source_roots.is_empty());
+        assert!(plan.roots.is_empty());
+    }
+
+    #[test]
     fn semantic_diagnostics_map_include_header_files() {
         let root = if cfg!(windows) {
             "C:/vizsla-diagnostics-include"
