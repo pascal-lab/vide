@@ -12,10 +12,14 @@ use hir::{
         },
     },
     scope::UnitEntry,
-    source_map::IsSrc,
+    source_map::{IsSrc, ToAstNode},
 };
 use ide_db::root_db::RootDb;
-use syntax::{ast, match_ast_kind};
+use syntax::{
+    ast::{self, AstNode},
+    has_text_range::HasTextRangeIn,
+    match_ast_kind,
+};
 use utils::{
     get::{Get, GetRef},
     text_edit::{TextEdit, TextRange, TextSize},
@@ -128,6 +132,23 @@ impl InlayHintCollector {
         );
     }
 
+    fn collect_end_structure_hint(&mut self, end_range: TextRange, name: &str) {
+        if !self.intersect(end_range) {
+            return;
+        }
+
+        self.hints.push(InlayHint {
+            label: format!(": {name}"),
+            tooltip: None,
+            target_location: None,
+            padding_left: true,
+            padding_right: false,
+            position: end_range.end(),
+            kind: InlayKind::EndStructure,
+            text_edit: None,
+        });
+    }
+
     fn into_hints(self) -> Vec<InlayHint> {
         self.hints
     }
@@ -191,9 +212,16 @@ fn collect_module_items(
 
     if collector.config.end_structure
         && let Some(name) = &module.name
+        && let Some(end_range) = endmodule_range(db, module_id.file_id, module_src)
     {
-        collector.collect_hint(module_src, None::<InFile<ModuleSrc>>, format!(": {name}"), None);
+        collector.collect_end_structure_hint(end_range, name);
     }
+}
+
+fn endmodule_range(db: &RootDb, file_id: HirFileId, module_src: ModuleSrc) -> Option<TextRange> {
+    let tree = db.parse(file_id);
+    let module_decl = module_src.to_node(&tree)?;
+    module_decl.endmodule()?.text_range_in(module_decl.syntax())
 }
 
 fn process_instantiation(
@@ -378,6 +406,10 @@ mod tests {
         InlayHintConfig { port_connection: false, parameter_assignment: true, end_structure: false }
     }
 
+    fn end_structure_config() -> InlayHintConfig {
+        InlayHintConfig { port_connection: false, parameter_assignment: false, end_structure: true }
+    }
+
     fn port_hint_labels(text: &str) -> Vec<String> {
         let (db, file_id) = db_with_file(text);
         let range = TextRange::new(TextSize::from(0), TextSize::of(text));
@@ -396,6 +428,44 @@ mod tests {
             .filter(|hint| matches!(hint.kind, InlayKind::ParamAssign))
             .map(|hint| hint.label)
             .collect()
+    }
+
+    #[test]
+    fn comment_only_range_does_not_return_end_structure_hint() {
+        let text = "\
+module top;
+    // ISSUE_RANGE_START
+    // This comment-only area contains no module ending.
+    // ISSUE_RANGE_END
+
+endmodule
+";
+        let start = text.find("// ISSUE_RANGE_START").unwrap();
+        let end_marker = text.find("// ISSUE_RANGE_END").unwrap();
+        let end = end_marker + text[end_marker..].find('\n').unwrap() + 1;
+        let range = TextRange::new(TextSize::of(&text[..start]), TextSize::of(&text[..end]));
+        let (db, file_id) = db_with_file(text);
+
+        let hints = inlay_hint(&db, file_id, range, end_structure_config());
+
+        assert!(hints.is_empty(), "comment-only range returned hints: {hints:?}");
+    }
+
+    #[test]
+    fn endmodule_range_returns_end_structure_hint() {
+        let text = "module top;\nendmodule\n";
+        let start = text.find("endmodule").unwrap();
+        let end = start + "endmodule".len();
+        let range = TextRange::new(TextSize::of(&text[..start]), TextSize::of(&text[..end]));
+        let (db, file_id) = db_with_file(text);
+
+        let labels = inlay_hint(&db, file_id, range, end_structure_config())
+            .into_iter()
+            .filter(|hint| matches!(hint.kind, InlayKind::EndStructure))
+            .map(|hint| hint.label)
+            .collect::<Vec<_>>();
+
+        assert_eq!(labels, vec![": top"]);
     }
 
     #[test]
