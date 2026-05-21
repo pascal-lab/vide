@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Context;
+use base_db::source_root::SourceRootRole;
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
@@ -166,15 +167,24 @@ impl GlobalStateSnapshot {
         self.analysis.source_root_file_ids(file_id).unwrap_or_else(|_| vec![file_id])
     }
 
-    pub(crate) fn file_is_index_only(&self, file_id: FileId) -> bool {
-        self.analysis.file_is_index_only(file_id).unwrap_or(false)
+    fn source_root_role(&self, file_id: FileId) -> Option<SourceRootRole> {
+        self.analysis.source_root_role(file_id).ok()
     }
 
-    pub(crate) fn diagnostic_file_ids(&self) -> Vec<FileId> {
+    pub(crate) fn file_allows_workspace_edits(&self, file_id: FileId) -> bool {
+        self.source_root_role(file_id).is_none_or(SourceRootRole::allows_workspace_edits)
+    }
+
+    pub(crate) fn workspace_diagnostic_file_ids(&self) -> Vec<FileId> {
         let open_files = self.mem_docs.file_ids().collect::<FxHashSet<_>>();
         self.file_ids()
             .into_iter()
-            .filter(|file_id| !self.file_is_index_only(*file_id) || open_files.contains(file_id))
+            .filter(|file_id| {
+                open_files.contains(file_id)
+                    || self
+                        .source_root_role(*file_id)
+                        .is_none_or(SourceRootRole::publishes_unopened_workspace_diagnostic_reports)
+            })
             .collect()
     }
 

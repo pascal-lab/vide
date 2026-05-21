@@ -5,12 +5,57 @@ use crate::source_db::SourceFileKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceRootId(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SourceRootRole {
     Local,
     IndexOnly,
     Library,
     Ignored,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceRootDiagnosticPolicy {
+    Workspace,
+    OpenedFileOnly,
+    Disabled,
+}
+
+impl SourceRootRole {
+    pub fn is_library(self) -> bool {
+        matches!(self, SourceRootRole::Library)
+    }
+
+    pub fn is_index_only(self) -> bool {
+        matches!(self, SourceRootRole::IndexOnly)
+    }
+
+    pub fn is_ignored(self) -> bool {
+        matches!(self, SourceRootRole::Ignored)
+    }
+
+    pub fn participates_in_compilation(self) -> bool {
+        matches!(self, SourceRootRole::Local | SourceRootRole::Library)
+    }
+
+    pub fn diagnostic_policy(self) -> SourceRootDiagnosticPolicy {
+        match self {
+            SourceRootRole::Local | SourceRootRole::Library => {
+                SourceRootDiagnosticPolicy::Workspace
+            }
+            SourceRootRole::IndexOnly => SourceRootDiagnosticPolicy::OpenedFileOnly,
+            SourceRootRole::Ignored => SourceRootDiagnosticPolicy::Disabled,
+        }
+    }
+
+    /// Workspace diagnostics still need empty reports for ignored files so
+    /// clients can clear diagnostics that belonged to an earlier configuration.
+    pub fn publishes_unopened_workspace_diagnostic_reports(self) -> bool {
+        !self.is_index_only()
+    }
+
+    pub fn allows_workspace_edits(self) -> bool {
+        !self.is_index_only()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,38 +66,50 @@ pub struct SourceRoot {
 }
 
 impl SourceRoot {
+    pub fn new(role: SourceRootRole, file_set: FileSet) -> SourceRoot {
+        SourceRoot { role, source_files: None, file_set }
+    }
+
+    pub fn with_source_files(
+        role: SourceRootRole,
+        file_set: FileSet,
+        source_files: Vec<FileId>,
+    ) -> SourceRoot {
+        SourceRoot { role, source_files: Some(source_files), file_set }
+    }
+
     pub fn new_local(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Local, source_files: None, file_set }
+        SourceRoot::new(SourceRootRole::Local, file_set)
     }
 
     pub fn new_library(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Library, source_files: None, file_set }
+        SourceRoot::new(SourceRootRole::Library, file_set)
     }
 
     pub fn new_index_only(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::IndexOnly, source_files: None, file_set }
+        SourceRoot::new(SourceRootRole::IndexOnly, file_set)
     }
 
     pub fn new_ignored(file_set: FileSet) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Ignored, source_files: None, file_set }
+        SourceRoot::new(SourceRootRole::Ignored, file_set)
     }
 
     pub fn new_local_with_source_files(file_set: FileSet, source_files: Vec<FileId>) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Local, source_files: Some(source_files), file_set }
+        SourceRoot::with_source_files(SourceRootRole::Local, file_set, source_files)
     }
 
     pub fn new_library_with_source_files(
         file_set: FileSet,
         source_files: Vec<FileId>,
     ) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::Library, source_files: Some(source_files), file_set }
+        SourceRoot::with_source_files(SourceRootRole::Library, file_set, source_files)
     }
 
     pub fn new_index_only_with_source_files(
         file_set: FileSet,
         source_files: Vec<FileId>,
     ) -> SourceRoot {
-        SourceRoot { role: SourceRootRole::IndexOnly, source_files: Some(source_files), file_set }
+        SourceRoot::with_source_files(SourceRootRole::IndexOnly, file_set, source_files)
     }
 
     pub fn role(&self) -> SourceRootRole {
@@ -60,15 +117,27 @@ impl SourceRoot {
     }
 
     pub fn is_library(&self) -> bool {
-        matches!(self.role, SourceRootRole::Library)
+        self.role.is_library()
     }
 
     pub fn is_index_only(&self) -> bool {
-        matches!(self.role, SourceRootRole::IndexOnly)
+        self.role.is_index_only()
     }
 
     pub fn is_ignored(&self) -> bool {
-        matches!(self.role, SourceRootRole::Ignored)
+        self.role.is_ignored()
+    }
+
+    pub fn participates_in_compilation(&self) -> bool {
+        self.role.participates_in_compilation()
+    }
+
+    pub fn diagnostic_policy(&self) -> SourceRootDiagnosticPolicy {
+        self.role.diagnostic_policy()
+    }
+
+    pub fn allows_workspace_edits(&self) -> bool {
+        self.role.allows_workspace_edits()
     }
 
     pub fn path_for_file(&self, file: &FileId) -> Option<&VfsPath> {
@@ -108,9 +177,7 @@ impl SourceRoot {
 #[derive(Default, Debug)]
 pub struct SourceRootConfig {
     pub fileset_config: FileSetConfig,
-    pub local_filesets: Vec<usize>,
-    pub index_only_filesets: Vec<usize>,
-    pub ignored_filesets: Vec<usize>,
+    pub fileset_roles: Vec<SourceRootRole>,
 }
 
 impl SourceRootConfig {
@@ -121,28 +188,18 @@ impl SourceRootConfig {
             .enumerate()
             .map(|(idx, partition)| {
                 let file_set = partition.file_set;
+                let role = self.fileset_roles.get(idx).copied().unwrap_or(SourceRootRole::Library);
                 let source_files =
                     partition.source_files.map(|source_files| source_files.into_iter().collect());
-                if self.ignored_filesets.contains(&idx) {
-                    return SourceRoot::new_ignored(file_set);
+                if role.is_ignored() {
+                    return SourceRoot::new(role, file_set);
                 }
-                if self.index_only_filesets.contains(&idx) {
-                    return match source_files {
-                        Some(source_files) => {
-                            SourceRoot::new_index_only_with_source_files(file_set, source_files)
-                        }
-                        None => SourceRoot::new_index_only(file_set),
-                    };
-                }
-                match (self.local_filesets.contains(&idx), source_files) {
-                    (true, Some(source_files)) => {
-                        SourceRoot::new_local_with_source_files(file_set, source_files)
+
+                match source_files {
+                    Some(source_files) => {
+                        SourceRoot::with_source_files(role, file_set, source_files)
                     }
-                    (true, None) => SourceRoot::new_local(file_set),
-                    (false, Some(source_files)) => {
-                        SourceRoot::new_library_with_source_files(file_set, source_files)
-                    }
-                    (false, None) => SourceRoot::new_library(file_set),
+                    None => SourceRoot::new(role, file_set),
                 }
             })
             .collect()
@@ -159,9 +216,7 @@ mod tests {
         builder.add_file_set(vec![VfsPath::new_virtual_path("/lib".into())]);
         let config = SourceRootConfig {
             fileset_config: builder.build(),
-            local_filesets: Vec::new(),
-            index_only_filesets: Vec::new(),
-            ignored_filesets: vec![1],
+            fileset_roles: vec![SourceRootRole::Library, SourceRootRole::Ignored],
         };
         let roots = config.partition(&Vfs::default());
 
