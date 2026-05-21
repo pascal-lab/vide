@@ -55,6 +55,27 @@
         "path": "./syntaxes/systemverilog.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "editor.semanticTokenColorCustomizations": {
+        "enabled": true,
+        "rules": {
+          "*.read:verilog": {
+            "bold": true
+          },
+          "*.write:verilog": {
+            "bold": true,
+            "underline": true
+          },
+          "*.read:systemverilog": {
+            "bold": true
+          },
+          "*.write:systemverilog": {
+            "bold": true,
+            "underline": true
+          }
+        }
+      }
+    },
     "configuration": {
       "title": "Vizsla",
       "properties": {
