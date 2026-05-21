@@ -1,4 +1,5 @@
 unstable_features = true
+edition = "2024"
 style_edition = "2024"
 
 format_macro_matchers = true
