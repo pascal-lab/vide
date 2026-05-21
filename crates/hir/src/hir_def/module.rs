@@ -17,16 +17,13 @@ use specify::{
     SpecifyBlock, SpecifyBlockId, SpecifyBlockSrc, SpecifyItem, SpecifyItemId, SpecifyItemSrc,
 };
 use syntax::{
-    SyntaxKind, TokenKind,
     ast::{self, AstNode, PortList},
-    has_name::HasName,
-    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
+    ptr::SyntaxNodePtr,
 };
 use triomphe::Arc;
 use utils::{
     define_enum_deriving_from,
     get::{Get, GetRef},
-    text_edit::TextRange,
 };
 
 use super::{
@@ -56,9 +53,10 @@ use super::{
 use crate::{
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
+    define_src_with_name_and_token,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{IsNamedSrc, IsSrc, SourceMap, ToAstNode},
+    source_map::{SourceMap, ToAstNode},
 };
 
 pub mod continuous_assgin;
@@ -146,71 +144,7 @@ define_container! {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct ModuleSrc {
-    pub node: SyntaxNodePtr,
-    pub name: Option<SyntaxTokenPtr>,
-    end: Option<SyntaxTokenPtr>,
-}
-
-impl ModuleSrc {
-    pub fn end_range(&self) -> Option<TextRange> {
-        self.end.map(|end| end.range())
-    }
-}
-
-impl IsSrc for ModuleSrc {
-    fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
-    fn range(&self) -> TextRange {
-        self.node.range()
-    }
-}
-
-impl IsNamedSrc for ModuleSrc {
-    fn name_kind(&self) -> Option<TokenKind> {
-        self.name.map(|name| name.kind())
-    }
-
-    fn name_range(&self) -> Option<TextRange> {
-        self.name.map(|name| name.range())
-    }
-}
-
-impl<'a> ToAstNode<'a, ast::ModuleDeclaration<'a>> for ModuleSrc {
-    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ModuleDeclaration<'a>> {
-        let mut node = self.node.to_node(tree)?;
-        while !<ast::ModuleDeclaration<'a> as AstNode>::can_cast(node.kind()) {
-            node = node.children().find_map(|elem| elem.as_node())?;
-        }
-        <ast::ModuleDeclaration<'a> as AstNode>::cast(node)
-    }
-}
-
-impl From<ast::ModuleDeclaration<'_>> for ModuleSrc {
-    fn from(node: ast::ModuleDeclaration<'_>) -> Self {
-        let syntax = node.syntax();
-        Self {
-            node: SyntaxNodePtr::from_node(syntax),
-            name: node.name().map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
-            end: node.endmodule().map(|end| SyntaxTokenPtr::from_token_in(syntax, end)),
-        }
-    }
-}
-
-impl From<ModuleSrc> for SyntaxNodePtr {
-    fn from(src: ModuleSrc) -> Self {
-        src.node
-    }
-}
-
-impl From<ModuleSrc> for Option<SyntaxTokenPtr> {
-    fn from(src: ModuleSrc) -> Self {
-        src.name
-    }
-}
+define_src_with_name_and_token!(ModuleSrc(ast::ModuleDeclaration, end: endmodule, end_range));
 
 impl Module {
     pub fn param_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
