@@ -14,8 +14,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changelog:
+    name: Check changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require changelog entry for release tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          changelog_page="${tag//./-}"
+          changelog="docs/src/content/docs/changelog/${changelog_page}.md"
+
+          if [[ ! -f "$changelog" ]]; then
+            echo "Missing $changelog" >&2
+            echo "Add a changelog page for ${tag} before publishing the release." >&2
+            exit 1
+          fi
+
+          if ! awk '
+            BEGIN { in_frontmatter = 0; found = 0 }
+            NR == 1 && $0 == "---" { in_frontmatter = 1; next }
+            in_frontmatter && $0 == "---" { in_frontmatter = 0; next }
+            !in_frontmatter && $0 ~ /[^[:space:]]/ { found = 1 }
+            END { exit found ? 0 : 1 }
+          ' "$changelog"; then
+            echo "Changelog page for ${tag} has no body content: ${changelog}" >&2
+            exit 1
+          fi
+
+      - name: Skip changelog check for beta release
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "Beta releases do not require a versioned changelog entry."
+
   build-and-package:
     name: Package ${{ matrix.target }}
+    needs: changelog
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +116,7 @@ jobs:
 
   build-alpine-package:
     name: Package ${{ matrix.target }}
+    needs: changelog
     runs-on: ubuntu-22.04
     container: ${{ matrix.image }}
     strategy:

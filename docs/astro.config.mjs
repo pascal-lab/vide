@@ -36,6 +36,10 @@ export default defineConfig({
         'check-server',
         'build-from-source',
         'troubleshooting',
+        {
+          label: 'Changelog',
+          items: ['changelog', 'changelog/v0-1-1', 'changelog/v0-1-2'],
+        },
       ],
     }),
   ],
