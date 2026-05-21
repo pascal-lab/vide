@@ -133,7 +133,13 @@ fn render_svint_as_ieee754(svint: &SVInt) -> Option<String> {
 
 pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Markup {
     def.def_origins().into_iter().fold(Markup::new(), |mut res, origin| {
-        res.merge(render_def_origin(sema, &origin));
+        let origin = render_def_origin(sema, &origin);
+
+        if !res.is_empty() && !origin.is_empty() {
+            res.newline();
+        }
+
+        res.merge(origin);
         res
     })
 }
