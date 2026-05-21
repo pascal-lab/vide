@@ -12,7 +12,6 @@ use crate::{
         expr::{Expr, ExprId},
         module::{ModuleId, generate::GenerateBlockId, instantiation::InstanceId},
     },
-    scope::UnitEntry,
 };
 
 #[derive(Default, Debug)]
@@ -168,9 +167,6 @@ impl Source2DefCtx<'_, '_> {
         let instance = module.get(instance_id);
         let instantiation = module.get(instance.parent);
         let module_name = instantiation.module_name.as_ref()?;
-        match self.db.unit_scope().get(module_name)? {
-            UnitEntry::ModuleId(module_id) => Some(module_id),
-            _ => None,
-        }
+        self.db.unit_scope().resolve_module(module_name).unique()
     }
 }

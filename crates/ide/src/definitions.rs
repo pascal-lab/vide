@@ -26,6 +26,7 @@ use smol_str::SmolStr;
 use syntax::{
     SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
+    has_name::HasName,
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
@@ -35,6 +36,8 @@ use utils::{
     impl_from,
     line_index::TextRange,
 };
+
+use crate::module_resolution::{ModuleResolution, resolve_instantiation_target};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DefinitionOrigin {
@@ -413,6 +416,7 @@ impl Definition {
 pub enum DefinitionClass {
     Definition(Definition),
     PortConnShorthand { port: Definition, local: Definition },
+    Ambiguous(Vec<Definition>),
 }
 
 impl_from! { DefinitionClass =>
@@ -430,6 +434,10 @@ impl DefinitionClass {
         }
 
         if let Some(def) = resolve_member_or_scoped_name(sema, file_id, tp) {
+            return Some(def);
+        }
+
+        if let Some(def) = resolve_declaration_name(sema, file_id, tp) {
             return Some(def);
         }
 
@@ -468,8 +476,26 @@ impl DefinitionClass {
             DefinitionClass::PortConnShorthand { port, local } => {
                 port.origins().into_iter().chain(local.origins()).collect()
             }
+            DefinitionClass::Ambiguous(definitions) => {
+                definitions.into_iter().flat_map(|definition| definition.origins()).collect()
+            }
         }
     }
+}
+
+fn resolve_declaration_name(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    if let Some(module) = SyntaxAncestors::start_from(parent).find_map(ast::ModuleDeclaration::cast)
+        && module.name() == Some(tok)
+    {
+        let module_id = sema.module_to_def(file_id, module)?;
+        return Some(Definition::from(PathResolution::Module(module_id)).into());
+    }
+
+    None
 }
 
 fn resolve_member_or_scoped_name(
@@ -506,10 +532,19 @@ fn resolve_instantiation_type_name(
         SyntaxAncestors::start_from(parent).find_map(ast::HierarchyInstantiation::cast)
         && instantiation.type_() == Some(tok)
     {
-        return Some(
-            Definition::from(PathResolution::Module(sema.nameres_instantiation(instantiation)?))
-                .into(),
-        );
+        return match resolve_instantiation_target(sema.db, file_id.file_id(), instantiation) {
+            ModuleResolution::Unique(module_id)
+            | ModuleResolution::BestEffortProximity { selected: module_id, .. } => {
+                Some(Definition::from(PathResolution::Module(module_id)).into())
+            }
+            ModuleResolution::Ambiguous { candidates, .. } => Some(DefinitionClass::Ambiguous(
+                candidates
+                    .into_iter()
+                    .map(|module_id| Definition::from(PathResolution::Module(module_id)))
+                    .collect(),
+            )),
+            ModuleResolution::Unresolved => None,
+        };
     }
 
     if let Some(instantiation) =

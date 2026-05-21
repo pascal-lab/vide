@@ -21,9 +21,12 @@ use super::{
         value_candidates_in_module,
     },
 };
-use crate::completion::{
-    context::CompletionContext,
-    request::{HashKind, ParenListKind},
+use crate::{
+    completion::{
+        context::CompletionContext,
+        request::{HashKind, ParenListKind},
+    },
+    module_resolution::resolve_instantiation_target,
 };
 
 pub(super) fn complete_in_paren_list(
@@ -138,7 +141,9 @@ fn complete_port_connections(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) = resolve_target_module_id(db, &sema, instantiation) else {
+    let Some(target_module_id) =
+        resolve_target_module_id(db, &sema, position.file_id, instantiation)
+    else {
         return Vec::new();
     };
 
@@ -217,7 +222,9 @@ fn complete_param_value_assignment(
     else {
         return Vec::new();
     };
-    let Some(target_module_id) = resolve_target_module_id(db, &sema, instantiation) else {
+    let Some(target_module_id) =
+        resolve_target_module_id(db, &sema, position.file_id, instantiation)
+    else {
         return Vec::new();
     };
     let Some(params) = instantiation.parameters() else {
@@ -297,9 +304,10 @@ fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
 }
 
 fn resolve_target_module_id(
-    _db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
+    db: &RootDb,
+    _sema: &Semantics<'_, RootDb>,
+    from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<hir::hir_def::module::ModuleId> {
-    sema.nameres_instantiation(instantiation)
+    resolve_instantiation_target(db, from_file, instantiation).unique()
 }

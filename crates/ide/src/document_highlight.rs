@@ -40,6 +40,7 @@ pub(crate) fn document_highlight(
         let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
+            DefinitionClass::Ambiguous(_) => return None,
         };
         highlight_refs(&sema, file_id, def, config)
     })

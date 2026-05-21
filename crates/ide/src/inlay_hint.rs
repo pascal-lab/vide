@@ -11,7 +11,6 @@ use hir::{
             port::Ports,
         },
     },
-    scope::UnitEntry,
     source_map::IsSrc,
 };
 use ide_db::root_db::RootDb;
@@ -22,7 +21,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::markup::Markup;
+use crate::{markup::Markup, module_resolution::resolve_module_name};
 
 #[derive(Debug)]
 pub struct InlayHintConfig {
@@ -229,7 +228,7 @@ fn collect_module_items(
                 continue;
             };
             if collector.intersect(instantiation_src.range()) {
-                process_instantiation(db, module, src_map, instantiation, collector);
+                process_instantiation(db, module_id, module, src_map, instantiation, collector);
             }
         }
     }
@@ -243,16 +242,15 @@ fn collect_module_items(
 
 fn process_instantiation(
     db: &RootDb,
+    module_id: ModuleId,
     module: &Module,
     src_map: &ModuleSourceMap,
     instantiation: &Instantiation,
     collector: &mut InlayHintCollector,
 ) -> Option<()> {
-    let unit_scope = db.unit_scope();
-    let target_module_id = match unit_scope.get(instantiation.module_name.as_ref()?) {
-        Some(UnitEntry::ModuleId(module_id)) => module_id,
-        _ => return None,
-    };
+    let target_module_id =
+        resolve_module_name(db, module_id.file_id.file_id(), instantiation.module_name.as_ref()?)
+            .unique()?;
 
     let target_file = target_module_id.file_id;
     let (target_module, target_src_map) = db.module_with_source_map(target_module_id);

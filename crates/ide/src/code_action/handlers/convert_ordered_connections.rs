@@ -6,9 +6,12 @@ use syntax::{
     has_text_range::HasTextRange,
 };
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-    leading_parameter_names, port_names,
+use crate::{
+    code_action::{
+        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
+        leading_parameter_names, port_names,
+    },
+    module_resolution::resolve_instantiation_target,
 };
 
 const PORTS_ID: CodeActionId = CodeActionId {
@@ -33,7 +36,8 @@ pub(super) fn convert_ordered_ports(
     let db = sema.db;
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
-    let target_module_id = sema.nameres_instantiation(instantiation)?;
+    let target_module_id =
+        resolve_instantiation_target(db, ctx.file_id(), instantiation).unique()?;
     let target_module = db.module(target_module_id);
     let port_names = port_names(&target_module);
 
@@ -70,7 +74,8 @@ pub(super) fn convert_ordered_params(
     let sema = ctx.sema();
     let db = sema.db;
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
-    let target_module_id = sema.nameres_instantiation(ast_instantiation)?;
+    let target_module_id =
+        resolve_instantiation_target(db, ctx.file_id(), ast_instantiation).unique()?;
     let target_module = db.module(target_module_id);
     let param_names = leading_parameter_names(&target_module);
 

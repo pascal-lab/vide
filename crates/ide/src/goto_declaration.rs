@@ -21,8 +21,16 @@ pub(crate) fn goto_declaration(
     let token = root.token_at_offset(offset).pick_bext_token(goto_definition::token_precedence)?;
 
     let origins = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
-        DefinitionClass::Definition(definition) => definition.declaration_origins(),
-        DefinitionClass::PortConnShorthand { port, .. } => port.declaration_origins(),
+        DefinitionClass::Definition(definition) => {
+            definition.declaration_origins().into_iter().collect_vec()
+        }
+        DefinitionClass::PortConnShorthand { port, .. } => {
+            port.declaration_origins().into_iter().collect_vec()
+        }
+        DefinitionClass::Ambiguous(definitions) => definitions
+            .into_iter()
+            .filter_map(|definition| definition.declaration_origins())
+            .collect_vec(),
     };
 
     let navs = origins.into_iter().unique().filter_map(|def| def.to_nav(db)).collect_vec();

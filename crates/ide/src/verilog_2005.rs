@@ -941,6 +941,59 @@ endmodule
 }
 
 #[test]
+fn verilog_2005_module_definition_names_support_references() {
+    let text = r#"
+module /*marker:module_def*/mux2X1(in0, in1, sel, out);
+  input in0, in1;
+  input sel;
+  output out;
+  assign out = sel ? in1 : in0;
+endmodule
+
+module top;
+  wire out;
+  /*marker:module_ref*/mux2X1 u_mux(1'b0, 1'b1, 1'b0, out);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "module_def"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("module definition hover expected");
+    assert!(
+        hover.info.as_str().contains("module mux2X1"),
+        "module definition hover should resolve to the declared module: {}",
+        hover.info.as_str()
+    );
+
+    let refs = analysis
+        .references(
+            position(file_id, &markers, "module_def"),
+            ReferencesConfig::new(ScopeVisibility::Public, Some(SearchScope::single_file(file_id))),
+        )
+        .unwrap()
+        .expect("module definition references expected");
+    let def_count: usize = refs.iter().map(|refs| refs.def.as_ref().map_or(0, Vec::len)).sum();
+    let ref_count: usize = refs.iter().flat_map(|refs| refs.refs.values()).map(Vec::len).sum();
+    assert_eq!(def_count, 1, "module definition should be returned as the declaration");
+    assert_eq!(ref_count, 1, "module instantiation should be returned as a reference: {refs:?}");
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "module_ref"))
+        .unwrap()
+        .expect("module reference definition expected");
+    assert!(
+        nav.info.iter().any(|target| target.name.as_deref() == Some("mux2X1")),
+        "module reference should still resolve to the declaration: {nav:?}"
+    );
+}
+
+#[test]
 fn verilog_2005_hover_covers_all_definition_kinds() {
     let (host, file_id, _clean_text, markers) = setup_marked(VERILOG_2005_NAV_TEXT);
     let analysis = host.make_analysis();

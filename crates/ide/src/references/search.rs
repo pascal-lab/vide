@@ -282,6 +282,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             DefinitionClass::PortConnShorthand { local, port } => {
                 local == *self.def || port == *self.def
             }
+            DefinitionClass::Ambiguous(_) => false,
         }
     }
 }
