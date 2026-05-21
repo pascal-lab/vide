@@ -186,14 +186,14 @@ pub(crate) fn handle_code_action_resolve(
 ) -> anyhow::Result<lsp_types::CodeAction> {
     let data = from_proto::code_action_data(
         code_action.data.replace(Default::default()).ok_or_else(|| {
-            to_proto::code_action_resolve_error(snap.config.locale, CodeActionResolveError::NoData)
+            to_proto::code_action_resolve_error(snap.config.i18n, CodeActionResolveError::NoData)
         })?,
     )?;
 
     let file_id = from_proto::file_id(&snap, &data.code_action_params.text_document.uri)?;
     if snap.file_version(file_id) != data.version {
         return Err(to_proto::code_action_resolve_error(
-            snap.config.locale,
+            snap.config.i18n,
             CodeActionResolveError::Stable,
         )
         .into());
@@ -204,7 +204,7 @@ pub(crate) fn handle_code_action_resolve(
 
     let (idx, name) = parse_action_id(&data.id).map_err(|err| {
         to_proto::code_action_resolve_error(
-            snap.config.locale,
+            snap.config.i18n,
             CodeActionResolveError::InvalidId(err),
         )
     })?;
@@ -224,7 +224,7 @@ pub(crate) fn handle_code_action_resolve(
         actions.remove(idx)
     } else {
         return Err(to_proto::code_action_resolve_error(
-            snap.config.locale,
+            snap.config.i18n,
             CodeActionResolveError::Stable,
         )
         .into());

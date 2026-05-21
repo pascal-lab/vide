@@ -18,7 +18,10 @@ use utils::{
     paths::{AbsPathBuf, patch_path_prefix},
 };
 
-use crate::global_state::main_loop;
+use crate::{
+    global_state::main_loop,
+    i18n::{I18n, Locale},
+};
 
 mod config;
 mod global_state;
@@ -130,13 +133,15 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         .filter(|folders| !folders.is_empty())
         .unwrap_or_else(|| vec![root_path.clone()]);
 
+    let i18n = I18n::new(Locale::from_lsp(locale.as_deref()));
+
     let (user_config, snippets) = if let Some(options) = initialization_options {
         let (user_config, snippets, errors) = Config::parse_initialization_options(options);
         if !errors.is_empty() {
             use lsp_types::notification::{Notification, ShowMessage};
             let noti = lsp_server::Notification::new(
                 ShowMessage::METHOD.to_string(),
-                ShowMessageParams { typ: MessageType::WARNING, message: errors.to_string() },
+                ShowMessageParams { typ: MessageType::WARNING, message: errors.message(i18n) },
             );
             if connection.sender.send(lsp_server::Message::Notification(noti)).is_err() {
                 tracing::debug!(
@@ -149,15 +154,8 @@ fn run_server(opt: Opt) -> anyhow::Result<()> {
         Default::default()
     };
 
-    let config = Config::new_with_locale(
-        opt,
-        root_path,
-        client_caps,
-        workspace_roots,
-        crate::i18n::Locale::from_lsp(locale.as_deref()),
-        user_config,
-        snippets,
-    );
+    let config =
+        Config::new(opt, root_path, client_caps, workspace_roots, i18n, user_config, snippets);
 
     let initialize_result = lsp_types::InitializeResult {
         capabilities: config.server_caps(),

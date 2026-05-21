@@ -1,0 +1,56 @@
+[progress]
+fetching_workspaces = "Fetching Workspaces"
+roots_scanning = "Roots Scanning"
+
+[qihe]
+progress_title = "Running Qihe Analysis"
+finished = "Qihe analysis finished with {total} diagnostic(s)."
+failed = "Qihe analysis failed"
+cancelled = "qihe analysis cancelled"
+location = "Location: {primary_element}"
+convert_diagnostic_failed = "failed to convert qihe diagnostic"
+prepare_workspace_failed = "failed to prepare qihe workspace"
+command_failed_to_start = "{label} failed to start: {command_line}"
+command_failed = "{label} failed with status {status}.\ncommand:\n{command_line}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+read_diagnostics_failed = "failed to read qihe diagnostics at {path}"
+parse_diagnostics_failed = "failed to parse qihe diagnostics at {path}"
+read_diagnostics_dir_failed = "failed to read qihe diagnostics dir {path}"
+
+[server]
+shutdown_already_requested = "Shutdown already requested."
+unknown_request = "unknown request"
+
+[execute_command]
+missing_arguments = "missing executeCommand arguments"
+unknown = "unknown executeCommand: {command}"
+
+[config]
+invalid_value_one = "invalid config value:\n{errors}"
+invalid_value_many = "invalid config values:\n{errors}"
+
+[code_lens]
+instances_one = "{count} instance"
+instances_many = "{count} instances"
+
+[code_action]
+add_missing_connections = "Fill connections"
+add_missing_parameters = "Fill parameters"
+convert_ordered_ports = "Convert ordered port connections to named connections"
+convert_ordered_params = "Convert ordered parameter assignments to named assignments"
+remove_empty_port_connections = "Remove empty port connections"
+add_implicit_named_port_parens = "Add explicit empty port connections"
+add_instance_parens = "Add empty instance port list"
+convert_literal_to_binary = "Convert literal to binary"
+convert_literal_to_octal = "Convert literal to octal"
+convert_literal_to_decimal = "Convert literal to decimal"
+convert_literal_to_hexadecimal = "Convert literal to hexadecimal"
+
+[rename]
+no_ref_found = "No references found at position"
+no_def_found = "No definitions found for the token"
+overlapping_edits = "Generated overlapping edits"
+
+[code_action_resolve]
+no_data = "code action without data"
+stale = "stale code action"
+invalid_id = "invalid action id: {id}"

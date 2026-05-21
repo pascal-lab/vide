@@ -1,6 +1,4 @@
-use ide::rename::RenameError;
-
-use crate::lsp_ext::ext::CodeActionResolveError;
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Locale {
@@ -18,209 +16,127 @@ impl Locale {
         let locale = locale.trim().to_ascii_lowercase().replace('_', "-");
         if locale == "zh" || locale.starts_with("zh-") { Self::ZhCn } else { Self::En }
     }
+}
 
-    pub(crate) fn fetching_workspaces(self) -> &'static str {
-        match self {
-            Self::En => "Fetching Workspaces",
-            Self::ZhCn => "正在获取工作区",
-        }
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct I18n {
+    locale: Locale,
+}
+
+impl I18n {
+    pub(crate) fn new(locale: Locale) -> Self {
+        Self { locale }
     }
 
-    pub(crate) fn roots_scanning(self) -> &'static str {
-        match self {
-            Self::En => "Roots Scanning",
-            Self::ZhCn => "正在扫描根目录",
-        }
+    pub(crate) fn text(self, key: &'static str) -> &'static str {
+        lookup(self.locale, key).or_else(|| lookup(Locale::En, key)).unwrap_or(key)
     }
 
-    pub(crate) fn qihe_progress_title(self) -> &'static str {
-        match self {
-            Self::En => "Running Qihe Analysis",
-            Self::ZhCn => "正在运行 Qihe 分析",
-        }
-    }
-
-    pub(crate) fn qihe_finished(self, total: usize) -> String {
-        match self {
-            Self::En => format!("Qihe analysis finished with {total} diagnostic(s)."),
-            Self::ZhCn => format!("Qihe 分析完成，共 {total} 条诊断。"),
-        }
-    }
-
-    pub(crate) fn qihe_failed(self) -> &'static str {
-        match self {
-            Self::En => "Qihe analysis failed",
-            Self::ZhCn => "Qihe 分析失败",
-        }
-    }
-
-    pub(crate) fn qihe_cancelled(self) -> &'static str {
-        match self {
-            Self::En => "qihe analysis cancelled",
-            Self::ZhCn => "Qihe 分析已取消",
-        }
-    }
-
-    pub(crate) fn qihe_location(self, primary_element: &str) -> String {
-        match self {
-            Self::En => format!("Location: {primary_element}"),
-            Self::ZhCn => format!("位置：{primary_element}"),
-        }
-    }
-
-    pub(crate) fn qihe_convert_diagnostic_failed(self) -> &'static str {
-        match self {
-            Self::En => "failed to convert qihe diagnostic",
-            Self::ZhCn => "无法转换 Qihe 诊断",
-        }
-    }
-
-    pub(crate) fn qihe_prepare_workspace_failed(self) -> &'static str {
-        match self {
-            Self::En => "failed to prepare qihe workspace",
-            Self::ZhCn => "无法准备 Qihe 工作区",
-        }
-    }
-
-    pub(crate) fn qihe_command_failed_to_start(self, label: &str, command_line: &str) -> String {
-        match self {
-            Self::En => format!("{label} failed to start: {command_line}"),
-            Self::ZhCn => format!("{label} 启动失败：{command_line}"),
-        }
-    }
-
-    pub(crate) fn qihe_command_failed(
+    pub(crate) fn format<'a>(
         self,
-        label: &str,
-        status: std::process::ExitStatus,
-        command_line: &str,
-        stdout: &str,
-        stderr: &str,
+        key: &'static str,
+        args: impl IntoIterator<Item = (&'a str, String)>,
     ) -> String {
-        match self {
-            Self::En => format!(
-                "{label} failed with status {status}.\ncommand:\n{command_line}\nstdout:\n{stdout}\nstderr:\n{stderr}"
-            ),
-            Self::ZhCn => format!(
-                "{label} 失败，退出状态为 {status}。\n命令：\n{command_line}\n标准输出：\n{stdout}\n标准错误：\n{stderr}"
-            ),
+        let mut message = self.text(key).to_owned();
+        for (name, value) in args {
+            message = message.replace(&format!("{{{name}}}"), &value);
         }
+        message
     }
+}
 
-    pub(crate) fn qihe_read_diagnostics_failed(self, path: &std::path::Path) -> String {
-        match self {
-            Self::En => format!("failed to read qihe diagnostics at {}", path.display()),
-            Self::ZhCn => format!("无法读取 Qihe 诊断文件 {}", path.display()),
-        }
+pub(crate) mod keys {
+    pub(crate) const PROGRESS_FETCHING_WORKSPACES: &str = "progress.fetching_workspaces";
+    pub(crate) const PROGRESS_ROOTS_SCANNING: &str = "progress.roots_scanning";
+
+    pub(crate) const QIHE_PROGRESS_TITLE: &str = "qihe.progress_title";
+    pub(crate) const QIHE_FINISHED: &str = "qihe.finished";
+    pub(crate) const QIHE_FAILED: &str = "qihe.failed";
+    pub(crate) const QIHE_CANCELLED: &str = "qihe.cancelled";
+    pub(crate) const QIHE_LOCATION: &str = "qihe.location";
+    pub(crate) const QIHE_CONVERT_DIAGNOSTIC_FAILED: &str = "qihe.convert_diagnostic_failed";
+    pub(crate) const QIHE_PREPARE_WORKSPACE_FAILED: &str = "qihe.prepare_workspace_failed";
+    pub(crate) const QIHE_COMMAND_FAILED_TO_START: &str = "qihe.command_failed_to_start";
+    pub(crate) const QIHE_COMMAND_FAILED: &str = "qihe.command_failed";
+    pub(crate) const QIHE_READ_DIAGNOSTICS_FAILED: &str = "qihe.read_diagnostics_failed";
+    pub(crate) const QIHE_PARSE_DIAGNOSTICS_FAILED: &str = "qihe.parse_diagnostics_failed";
+    pub(crate) const QIHE_READ_DIAGNOSTICS_DIR_FAILED: &str = "qihe.read_diagnostics_dir_failed";
+
+    pub(crate) const SERVER_SHUTDOWN_ALREADY_REQUESTED: &str = "server.shutdown_already_requested";
+    pub(crate) const SERVER_UNKNOWN_REQUEST: &str = "server.unknown_request";
+
+    pub(crate) const EXECUTE_COMMAND_MISSING_ARGUMENTS: &str = "execute_command.missing_arguments";
+    pub(crate) const EXECUTE_COMMAND_UNKNOWN: &str = "execute_command.unknown";
+
+    pub(crate) const CONFIG_INVALID_VALUE_ONE: &str = "config.invalid_value_one";
+    pub(crate) const CONFIG_INVALID_VALUE_MANY: &str = "config.invalid_value_many";
+
+    pub(crate) const CODE_LENS_INSTANCES_ONE: &str = "code_lens.instances_one";
+    pub(crate) const CODE_LENS_INSTANCES_MANY: &str = "code_lens.instances_many";
+
+    pub(crate) const CODE_ACTION_ADD_MISSING_CONNECTIONS: &str =
+        "code_action.add_missing_connections";
+    pub(crate) const CODE_ACTION_ADD_MISSING_PARAMETERS: &str =
+        "code_action.add_missing_parameters";
+    pub(crate) const CODE_ACTION_CONVERT_ORDERED_PORTS: &str = "code_action.convert_ordered_ports";
+    pub(crate) const CODE_ACTION_CONVERT_ORDERED_PARAMS: &str =
+        "code_action.convert_ordered_params";
+    pub(crate) const CODE_ACTION_REMOVE_EMPTY_PORT_CONNECTIONS: &str =
+        "code_action.remove_empty_port_connections";
+    pub(crate) const CODE_ACTION_ADD_IMPLICIT_NAMED_PORT_PARENS: &str =
+        "code_action.add_implicit_named_port_parens";
+    pub(crate) const CODE_ACTION_ADD_INSTANCE_PARENS: &str = "code_action.add_instance_parens";
+    pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_BINARY: &str =
+        "code_action.convert_literal_to_binary";
+    pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_OCTAL: &str =
+        "code_action.convert_literal_to_octal";
+    pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_DECIMAL: &str =
+        "code_action.convert_literal_to_decimal";
+    pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_HEXADECIMAL: &str =
+        "code_action.convert_literal_to_hexadecimal";
+
+    pub(crate) const RENAME_NO_REF_FOUND: &str = "rename.no_ref_found";
+    pub(crate) const RENAME_NO_DEF_FOUND: &str = "rename.no_def_found";
+    pub(crate) const RENAME_OVERLAPPING_EDITS: &str = "rename.overlapping_edits";
+
+    pub(crate) const CODE_ACTION_RESOLVE_NO_DATA: &str = "code_action_resolve.no_data";
+    pub(crate) const CODE_ACTION_RESOLVE_STALE: &str = "code_action_resolve.stale";
+    pub(crate) const CODE_ACTION_RESOLVE_INVALID_ID: &str = "code_action_resolve.invalid_id";
+}
+
+static EN_MESSAGES: LazyLock<toml::Table> =
+    LazyLock::new(|| load_messages(include_str!("i18n/en.toml")));
+static ZH_CN_MESSAGES: LazyLock<toml::Table> =
+    LazyLock::new(|| load_messages(include_str!("i18n/zh-CN.toml")));
+
+fn load_messages(text: &str) -> toml::Table {
+    toml::from_str(text).expect("embedded i18n table must be valid TOML")
+}
+
+fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
+    let table = match locale {
+        Locale::En => &*EN_MESSAGES,
+        Locale::ZhCn => &*ZH_CN_MESSAGES,
+    };
+    lookup_in_table(table, key)
+}
+
+fn lookup_in_table<'a>(table: &'a toml::Table, key: &str) -> Option<&'a str> {
+    let mut parts = key.split('.');
+    let mut value = table.get(parts.next()?)?;
+    for part in parts {
+        value = value.as_table()?.get(part)?;
     }
-
-    pub(crate) fn qihe_parse_diagnostics_failed(self, path: &std::path::Path) -> String {
-        match self {
-            Self::En => format!("failed to parse qihe diagnostics at {}", path.display()),
-            Self::ZhCn => format!("无法解析 Qihe 诊断文件 {}", path.display()),
-        }
-    }
-
-    pub(crate) fn qihe_read_diagnostics_dir_failed(self, path: &std::path::Path) -> String {
-        match self {
-            Self::En => format!("failed to read qihe diagnostics dir {}", path.display()),
-            Self::ZhCn => format!("无法读取 Qihe 诊断目录 {}", path.display()),
-        }
-    }
-
-    pub(crate) fn shutdown_already_requested(self) -> &'static str {
-        match self {
-            Self::En => "Shutdown already requested.",
-            Self::ZhCn => "已请求关闭。",
-        }
-    }
-
-    pub(crate) fn unknown_request(self) -> &'static str {
-        match self {
-            Self::En => "unknown request",
-            Self::ZhCn => "未知请求",
-        }
-    }
-
-    pub(crate) fn missing_execute_command_arguments(self) -> &'static str {
-        match self {
-            Self::En => "missing executeCommand arguments",
-            Self::ZhCn => "缺少 executeCommand 参数",
-        }
-    }
-
-    pub(crate) fn unknown_execute_command(self, command: &str) -> String {
-        match self {
-            Self::En => format!("unknown executeCommand: {command}"),
-            Self::ZhCn => format!("未知 executeCommand：{command}"),
-        }
-    }
-
-    pub(crate) fn instance_count(self, count: usize) -> String {
-        match self {
-            Self::En => {
-                let s = if count == 1 { "" } else { "s" };
-                format!("{count} instance{s}")
-            }
-            Self::ZhCn => format!("{count} 个实例"),
-        }
-    }
-
-    pub(crate) fn code_action_title(self, id: &str, label: &str) -> String {
-        if self == Self::En {
-            return label.to_owned();
-        }
-
-        match id {
-            "add_missing_connections" => "补全连接".to_owned(),
-            "add_missing_parameters" => "补全参数".to_owned(),
-            "convert_ordered_ports" => "将有序端口连接转换为命名连接".to_owned(),
-            "convert_ordered_params" => "将有序参数赋值转换为命名赋值".to_owned(),
-            "remove_empty_port_connections" => "移除空端口连接".to_owned(),
-            "add_implicit_named_port_parens" => "添加显式空端口连接".to_owned(),
-            "add_instance_parens" => "添加空实例端口列表".to_owned(),
-            "convert_literal_base" => match label {
-                "Convert literal to binary" => "将字面量转换为二进制",
-                "Convert literal to octal" => "将字面量转换为八进制",
-                "Convert literal to decimal" => "将字面量转换为十进制",
-                "Convert literal to hexadecimal" => "将字面量转换为十六进制",
-                _ => label,
-            }
-            .to_owned(),
-            _ => label.to_owned(),
-        }
-    }
-
-    pub(crate) fn rename_error(self, err: RenameError) -> &'static str {
-        match (self, err) {
-            (Self::En, RenameError::NoRefFound) => "No references found at position",
-            (Self::En, RenameError::NoDefFound) => "No definitions found for the token",
-            (Self::En, RenameError::OverlappingEdits) => "Generated overlapping edits",
-            (Self::ZhCn, RenameError::NoRefFound) => "当前位置未找到引用",
-            (Self::ZhCn, RenameError::NoDefFound) => "未找到该标记的定义",
-            (Self::ZhCn, RenameError::OverlappingEdits) => "生成了相互重叠的编辑",
-        }
-    }
-
-    pub(crate) fn code_action_resolve_error(self, err: CodeActionResolveError) -> String {
-        match (self, err) {
-            (Self::En, CodeActionResolveError::NoData) => "code action without data".to_owned(),
-            (Self::En, CodeActionResolveError::Stable) => "stale code action".to_owned(),
-            (Self::En, CodeActionResolveError::InvalidId(id)) => {
-                format!("invalid action id: {id}")
-            }
-            (Self::ZhCn, CodeActionResolveError::NoData) => "代码操作缺少数据".to_owned(),
-            (Self::ZhCn, CodeActionResolveError::Stable) => "代码操作已过期".to_owned(),
-            (Self::ZhCn, CodeActionResolveError::InvalidId(id)) => {
-                format!("无效的操作 ID：{id}")
-            }
-        }
-    }
+    value.as_str()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Locale;
+    use std::collections::BTreeSet;
+
+    use toml::Value;
+
+    use super::{I18n, Locale, keys};
 
     #[test]
     fn maps_lsp_locales_to_supported_locales() {
@@ -231,22 +147,50 @@ mod tests {
     }
 
     #[test]
-    fn localizes_lsp_code_action_titles() {
+    fn reads_messages_from_embedded_tables() {
         assert_eq!(
-            Locale::ZhCn.code_action_title(
-                "convert_ordered_ports",
-                "Convert ordered port connections to named connections",
-            ),
+            I18n::new(Locale::ZhCn).text(keys::CODE_ACTION_CONVERT_ORDERED_PORTS),
             "将有序端口连接转换为命名连接"
         );
         assert_eq!(
-            Locale::ZhCn
-                .code_action_title("convert_literal_base", "Convert literal to hexadecimal",),
-            "将字面量转换为十六进制"
-        );
-        assert_eq!(
-            Locale::En.code_action_title("add_missing_connections", "Fill connections"),
+            I18n::new(Locale::En).text(keys::CODE_ACTION_ADD_MISSING_CONNECTIONS),
             "Fill connections"
         );
+    }
+
+    #[test]
+    fn formats_named_args() {
+        assert_eq!(
+            I18n::new(Locale::ZhCn).format(keys::QIHE_FINISHED, [("total", 3.to_string())]),
+            "Qihe 分析完成，共 3 条诊断。"
+        );
+    }
+
+    #[test]
+    fn locale_tables_have_matching_keys() {
+        let en_keys = leaf_keys(&super::EN_MESSAGES);
+        let zh_cn_keys = leaf_keys(&super::ZH_CN_MESSAGES);
+
+        assert_eq!(en_keys, zh_cn_keys);
+    }
+
+    fn leaf_keys(table: &toml::Table) -> BTreeSet<String> {
+        let mut keys = BTreeSet::new();
+        collect_leaf_keys("", table, &mut keys);
+        keys
+    }
+
+    fn collect_leaf_keys(prefix: &str, table: &toml::Table, keys: &mut BTreeSet<String>) {
+        for (key, value) in table {
+            let path = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+
+            match value {
+                Value::String(_) => {
+                    keys.insert(path);
+                }
+                Value::Table(table) => collect_leaf_keys(&path, table, keys),
+                _ => panic!("i18n value at {path} must be a string or table"),
+            }
+        }
     }
 }

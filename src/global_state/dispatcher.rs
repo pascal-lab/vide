@@ -10,7 +10,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use utils::{json::from_json, thread::ThreadIntent};
 
 use super::{main_loop::Task, snapshot::GlobalStateSnapshot};
-use crate::{global_state::GlobalState, lsp_ext::lsp_error::LspError};
+use crate::{global_state::GlobalState, i18n::keys, lsp_ext::lsp_error::LspError};
 
 pub(crate) struct ReqDispatcher<'a> {
     pub(crate) req: Option<Request>,
@@ -188,7 +188,7 @@ impl ReqDispatcher<'_> {
             let response = Response::new_err(
                 req.id,
                 lsp_server::ErrorCode::MethodNotFound as i32,
-                self.global_state.config.locale.unknown_request().to_owned(),
+                self.global_state.config.i18n.text(keys::SERVER_UNKNOWN_REQUEST).to_owned(),
             );
             self.global_state.respond(response);
         }

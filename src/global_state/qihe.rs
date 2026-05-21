@@ -33,7 +33,7 @@ use super::{
 use crate::{
     config::user_config::QiheConfig,
     global_state::main_loop::Task,
-    i18n::Locale,
+    i18n::{I18n, keys},
     lsp_ext::{
         ext::{QiheStatusNotification, QiheStatusParams, RunQiheAnalysisParams},
         from_proto, to_proto,
@@ -61,13 +61,17 @@ impl QiheUpdate {
         let mut by_file = FxHashMap::from_iter([(active_file_id, Vec::new())]);
 
         for diagnostic in diagnostics {
-            let (file_id, diagnostic) = converter
-                .convert(diagnostic)
-                .context(converter.snapshot.config.locale.qihe_convert_diagnostic_failed())?;
+            let (file_id, diagnostic) = converter.convert(diagnostic).context(
+                converter.snapshot.config.i18n.text(keys::QIHE_CONVERT_DIAGNOSTIC_FAILED),
+            )?;
             by_file.entry(file_id).or_default().push(diagnostic);
         }
 
-        let summary = converter.snapshot.config.locale.qihe_finished(total);
+        let summary = converter
+            .snapshot
+            .config
+            .i18n
+            .format(keys::QIHE_FINISHED, [("total", total.to_string())]);
         Ok(Self { by_file, summary })
     }
 }
@@ -105,7 +109,7 @@ impl GlobalState {
                     "failed",
                     MessageType::ERROR,
                     message.clone(),
-                    self.config.locale.qihe_failed().to_owned(),
+                    self.config.i18n.text(keys::QIHE_FAILED).to_owned(),
                 );
                 self.send_notification::<lsp_types::notification::ShowMessage>(ShowMessageParams {
                     typ: MessageType::ERROR,
@@ -191,7 +195,7 @@ impl GlobalState {
         token: String,
     ) {
         self.report_progress(
-            self.config.locale.qihe_progress_title(),
+            self.config.i18n.text(keys::QIHE_PROGRESS_TITLE),
             state,
             Some(message),
             fraction,
@@ -238,12 +242,12 @@ fn run_qihe_request(
         .and_then(|path| path.canonicalize().ok())
         .unwrap_or_else(|| snapshot.config.root_path.to_path_buf().into());
     let compile_input = qihe_compile_input(snapshot, active_file_id, active_path.as_path(), &cwd)?;
-    let locale = snapshot.config.locale;
-    let (ir_path, storage_root) =
-        qihe_run_paths(active_path.as_path()).context(locale.qihe_prepare_workspace_failed())?;
-    run_qihe_commands(&qihe_config, &cwd, &compile_input, &ir_path, &storage_root, locale)?;
+    let i18n = snapshot.config.i18n;
+    let (ir_path, storage_root) = qihe_run_paths(active_path.as_path())
+        .context(i18n.text(keys::QIHE_PREPARE_WORKSPACE_FAILED))?;
+    run_qihe_commands(&qihe_config, &cwd, &compile_input, &ir_path, &storage_root, i18n)?;
 
-    let diagnostics = load_latest_diagnostics(&storage_root, locale)?;
+    let diagnostics = load_latest_diagnostics(&storage_root, i18n)?;
     let resolution_base = if compile_input.project_mode {
         cwd.as_path()
     } else {
@@ -278,7 +282,7 @@ fn qihe_compile_input(
     let plan = snapshot
         .analysis
         .compilation_plan(active_file_id)
-        .map_err(|_| qihe_cancelled(snapshot.config.locale))?;
+        .map_err(|_| qihe_cancelled(snapshot.config.i18n))?;
     let files = plan
         .roots
         .iter()
@@ -340,11 +344,11 @@ fn run_qihe_commands(
     compile_input: &QiheCompileInput,
     ir_path: &Path,
     storage_root: &Path,
-    locale: Locale,
+    i18n: I18n,
 ) -> Result<()> {
     let mut command = qihe_command(qihe_config, cwd, "compile");
     prepare_qihe_compile_command(&mut command, qihe_config, compile_input, ir_path);
-    run_command(&mut command, "qihe compile", locale)?;
+    run_command(&mut command, "qihe compile", i18n)?;
 
     let mut command = qihe_command(qihe_config, cwd, "run");
     run_command(
@@ -355,7 +359,7 @@ fn run_qihe_commands(
             .arg("-c")
             .arg(format!("storage.root={}", storage_root.display())),
         "qihe run",
-        locale,
+        i18n,
     )
 }
 
@@ -399,12 +403,15 @@ fn qihe_command(qihe_config: &QiheConfig, cwd: &Path, subcommand: &str) -> Comma
     command
 }
 
-fn run_command(command: &mut Command, label: &str, locale: Locale) -> Result<()> {
+fn run_command(command: &mut Command, label: &str, i18n: I18n) -> Result<()> {
     let command_line = format!("{command:?}");
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = command
-        .output()
-        .with_context(|| locale.qihe_command_failed_to_start(label, &command_line))?;
+    let output = command.output().with_context(|| {
+        i18n.format(
+            keys::QIHE_COMMAND_FAILED_TO_START,
+            [("label", label.to_owned()), ("command_line", command_line.clone())],
+        )
+    })?;
     if output.status.success() {
         return Ok(());
     }
@@ -413,12 +420,15 @@ fn run_command(command: &mut Command, label: &str, locale: Locale) -> Result<()>
     let stderr = strip_ansi(String::from_utf8_lossy(&output.stderr).as_ref());
     bail!(
         "{}",
-        locale.qihe_command_failed(
-            label,
-            output.status,
-            &command_line,
-            stdout.trim(),
-            stderr.trim()
+        i18n.format(
+            keys::QIHE_COMMAND_FAILED,
+            [
+                ("label", label.to_owned()),
+                ("status", output.status.to_string()),
+                ("command_line", command_line),
+                ("stdout", stdout.trim().to_owned()),
+                ("stderr", stderr.trim().to_owned()),
+            ],
         )
     );
 }
@@ -427,26 +437,32 @@ fn strip_ansi(text: &str) -> String {
     ANSI_ESCAPE_RE.replace_all(text, "").into_owned()
 }
 
-fn load_latest_diagnostics(storage_root: &Path, locale: Locale) -> Result<Vec<QiheJsonDiagnostic>> {
+fn load_latest_diagnostics(storage_root: &Path, i18n: I18n) -> Result<Vec<QiheJsonDiagnostic>> {
     let diagnostics_dir = storage_root.join("diagnostics");
-    let Some(latest) = latest_diagnostic_path(&diagnostics_dir, locale)? else {
+    let Some(latest) = latest_diagnostic_path(&diagnostics_dir, i18n)? else {
         return Ok(Vec::new());
     };
 
-    let text = fs::read_to_string(&latest)
-        .with_context(|| locale.qihe_read_diagnostics_failed(&latest))?;
-    serde_json::from_str(&text).with_context(|| locale.qihe_parse_diagnostics_failed(&latest))
+    let text = fs::read_to_string(&latest).with_context(|| {
+        i18n.format(keys::QIHE_READ_DIAGNOSTICS_FAILED, [("path", latest.display().to_string())])
+    })?;
+    serde_json::from_str(&text).with_context(|| {
+        i18n.format(keys::QIHE_PARSE_DIAGNOSTICS_FAILED, [("path", latest.display().to_string())])
+    })
 }
 
-fn latest_diagnostic_path(diagnostics_dir: &Path, locale: Locale) -> Result<Option<PathBuf>> {
+fn latest_diagnostic_path(diagnostics_dir: &Path, i18n: I18n) -> Result<Option<PathBuf>> {
     if !diagnostics_dir.exists() {
         return Ok(None);
     }
 
     let mut latest: Option<((SystemTime, PathBuf), PathBuf)> = None;
-    for entry in fs::read_dir(diagnostics_dir)
-        .with_context(|| locale.qihe_read_diagnostics_dir_failed(diagnostics_dir))?
-    {
+    for entry in fs::read_dir(diagnostics_dir).with_context(|| {
+        i18n.format(
+            keys::QIHE_READ_DIAGNOSTICS_DIR_FAILED,
+            [("path", diagnostics_dir.display().to_string())],
+        )
+    })? {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json") {
@@ -479,7 +495,7 @@ impl<'a> DiagnosticConverter<'a> {
             if let Some((file_id, range)) = self.location_from_element(&info.element)? {
                 related_info.push(DiagnosticRelatedInformation {
                     location: to_proto::location(self.snapshot, FileRange { file_id, range })
-                        .map_err(|_| qihe_cancelled(self.snapshot.config.locale))?,
+                        .map_err(|_| qihe_cancelled(self.snapshot.config.i18n))?,
                     message: info.message.clone(),
                 });
             } else {
@@ -494,7 +510,7 @@ impl<'a> DiagnosticConverter<'a> {
             };
 
         let message = diagnostic_message(
-            self.snapshot.config.locale,
+            self.snapshot.config.i18n,
             message,
             &element,
             location_unknown,
@@ -503,7 +519,7 @@ impl<'a> DiagnosticConverter<'a> {
         let line_info = self
             .snapshot
             .line_info(file_id)
-            .map_err(|_| qihe_cancelled(self.snapshot.config.locale))?;
+            .map_err(|_| qihe_cancelled(self.snapshot.config.i18n))?;
         let range = to_proto::range(&line_info, range);
         let related_info = (!related_info.is_empty()).then_some(related_info);
 
@@ -547,7 +563,7 @@ impl<'a> DiagnosticConverter<'a> {
             .snapshot
             .analysis
             .line_index(file_id)
-            .map_err(|_| qihe_cancelled(self.snapshot.config.locale))?;
+            .map_err(|_| qihe_cancelled(self.snapshot.config.i18n))?;
         let line = location.line.saturating_sub(1);
         let col = location.column.saturating_sub(1);
         let Some(offset) = line_index.offset(LineCol { line, col }) else {
@@ -559,14 +575,16 @@ impl<'a> DiagnosticConverter<'a> {
 }
 
 fn diagnostic_message(
-    locale: Locale,
+    i18n: I18n,
     message: String,
     primary_element: &str,
     location_unknown: bool,
     mut extra_support_lines: Vec<String>,
 ) -> String {
     if location_unknown && !primary_element.is_empty() {
-        extra_support_lines.push(locale.qihe_location(primary_element));
+        extra_support_lines.push(
+            i18n.format(keys::QIHE_LOCATION, [("primary_element", primary_element.to_owned())]),
+        );
     }
     extra_support_lines.insert(0, message);
     extra_support_lines.join("\n")
@@ -576,8 +594,8 @@ fn analysis_code(analysis_class: &str) -> String {
     analysis_class.rsplit('.').next().filter(|code| !code.is_empty()).unwrap_or("Qihe").to_owned()
 }
 
-fn qihe_cancelled(locale: Locale) -> anyhow::Error {
-    anyhow!(locale.qihe_cancelled())
+fn qihe_cancelled(i18n: I18n) -> anyhow::Error {
+    anyhow!(i18n.text(keys::QIHE_CANCELLED))
 }
 
 fn resolve_file_name(base_dir: &Path, file_name: &str) -> Option<PathBuf> {

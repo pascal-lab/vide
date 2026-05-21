@@ -39,6 +39,7 @@ use super::{
 };
 use crate::{
     global_state::snapshot::GlobalStateSnapshot,
+    i18n::{I18n, keys},
     lsp_ext::ext::{
         SEMA_TOKENS_TYPES, SemaTokenModifierSet, sema_token_modifiers, sema_token_types,
     },
@@ -340,22 +341,28 @@ fn line_col_for_position(index: &LineIndex, offset: TextSize) -> LineCol {
     }
 }
 
-pub(crate) fn rename_error(locale: crate::i18n::Locale, err: RenameError) -> LspError {
-    LspError::new(lsp_server::ErrorCode::InvalidParams as i32, locale.rename_error(err).to_owned())
+pub(crate) fn rename_error(i18n: I18n, err: RenameError) -> LspError {
+    let key = match err {
+        RenameError::NoRefFound => keys::RENAME_NO_REF_FOUND,
+        RenameError::NoDefFound => keys::RENAME_NO_DEF_FOUND,
+        RenameError::OverlappingEdits => keys::RENAME_OVERLAPPING_EDITS,
+    };
+    LspError::new(lsp_server::ErrorCode::InvalidParams as i32, i18n.text(key).to_owned())
 }
 
 pub(crate) fn format_error(err: Error) -> LspError {
     LspError::new(lsp_server::ErrorCode::RequestFailed as i32, err.to_string())
 }
 
-pub(crate) fn code_action_resolve_error(
-    locale: crate::i18n::Locale,
-    err: CodeActionResolveError,
-) -> LspError {
-    LspError::new(
-        lsp_server::ErrorCode::InvalidParams as i32,
-        locale.code_action_resolve_error(err),
-    )
+pub(crate) fn code_action_resolve_error(i18n: I18n, err: CodeActionResolveError) -> LspError {
+    let message = match err {
+        CodeActionResolveError::NoData => i18n.text(keys::CODE_ACTION_RESOLVE_NO_DATA).to_owned(),
+        CodeActionResolveError::Stable => i18n.text(keys::CODE_ACTION_RESOLVE_STALE).to_owned(),
+        CodeActionResolveError::InvalidId(id) => {
+            i18n.format(keys::CODE_ACTION_RESOLVE_INVALID_ID, [("id", id)])
+        }
+    };
+    LspError::new(lsp_server::ErrorCode::InvalidParams as i32, message)
 }
 
 pub(crate) fn workspace_edit(
@@ -577,8 +584,13 @@ pub(crate) fn code_lens_kind(
     let command = match kind {
         CodeLensKind::ModuleInstance { data, .. } => data.map(|ranges| {
             let count = ranges.len();
+            let key = if count == 1 {
+                keys::CODE_LENS_INSTANCES_ONE
+            } else {
+                keys::CODE_LENS_INSTANCES_MANY
+            };
             lsp_types::Command {
-                title: snap.config.locale.instance_count(count),
+                title: snap.config.i18n.format(key, [("count", count.to_string())]),
                 command: String::new(),
                 arguments: None,
             }
@@ -813,7 +825,7 @@ pub(crate) fn code_action(
     resolve_data: Option<(usize, lsp_types::CodeActionParams, Option<i32>)>,
     diagnostics: Option<Vec<lsp_types::Diagnostic>>,
 ) -> anyhow::Result<lsp_types::CodeAction> {
-    let title = snap.config.locale.code_action_title(id.name, &label);
+    let title = code_action_title(snap.config.i18n, id.name, &label);
     let mut res = lsp_types::CodeAction {
         title,
         kind: Some(self::code_action_kind(id.kind)),
@@ -843,4 +855,30 @@ pub(crate) fn code_action(
         }
     };
     Ok(res)
+}
+
+fn code_action_title(i18n: I18n, id: &str, label: &str) -> String {
+    code_action_title_key(id, label)
+        .map(|key| i18n.text(key).to_owned())
+        .unwrap_or_else(|| label.to_owned())
+}
+
+fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
+    Some(match id {
+        "add_missing_connections" => keys::CODE_ACTION_ADD_MISSING_CONNECTIONS,
+        "add_missing_parameters" => keys::CODE_ACTION_ADD_MISSING_PARAMETERS,
+        "convert_ordered_ports" => keys::CODE_ACTION_CONVERT_ORDERED_PORTS,
+        "convert_ordered_params" => keys::CODE_ACTION_CONVERT_ORDERED_PARAMS,
+        "remove_empty_port_connections" => keys::CODE_ACTION_REMOVE_EMPTY_PORT_CONNECTIONS,
+        "add_implicit_named_port_parens" => keys::CODE_ACTION_ADD_IMPLICIT_NAMED_PORT_PARENS,
+        "add_instance_parens" => keys::CODE_ACTION_ADD_INSTANCE_PARENS,
+        "convert_literal_base" => match label {
+            "Convert literal to binary" => keys::CODE_ACTION_CONVERT_LITERAL_TO_BINARY,
+            "Convert literal to octal" => keys::CODE_ACTION_CONVERT_LITERAL_TO_OCTAL,
+            "Convert literal to decimal" => keys::CODE_ACTION_CONVERT_LITERAL_TO_DECIMAL,
+            "Convert literal to hexadecimal" => keys::CODE_ACTION_CONVERT_LITERAL_TO_HEXADECIMAL,
+            _ => return None,
+        },
+        _ => return None,
+    })
 }

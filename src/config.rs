@@ -12,7 +12,10 @@ use utils::{
 };
 
 use self::user_config::{FilesWatcherDef, UserConfig};
-use crate::{Opt, i18n::Locale};
+use crate::{
+    Opt,
+    i18n::{I18n, keys},
+};
 
 #[derive(Debug, Clone)]
 pub struct FilesConfig {
@@ -35,16 +38,11 @@ impl std::error::Error for ConfigError {}
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let errors = self.errors.iter().format_with("\n", |(key, e), f| {
-            f(key)?;
-            f(&": ")?;
-            f(e)
-        });
         write!(
             f,
             "invalid config value{}:\n{}",
             if self.errors.len() == 1 { "" } else { "s" },
-            errors
+            self.error_lines()
         )
     }
 }
@@ -52,6 +50,26 @@ impl fmt::Display for ConfigError {
 impl ConfigError {
     pub fn is_empty(&self) -> bool {
         self.errors.is_empty()
+    }
+
+    pub(crate) fn message(&self, i18n: I18n) -> String {
+        let key = if self.errors.len() == 1 {
+            keys::CONFIG_INVALID_VALUE_ONE
+        } else {
+            keys::CONFIG_INVALID_VALUE_MANY
+        };
+        i18n.format(key, [("errors", self.error_lines())])
+    }
+
+    fn error_lines(&self) -> String {
+        self.errors
+            .iter()
+            .format_with("\n", |(key, e), f| {
+                f(key)?;
+                f(&": ")?;
+                f(e)
+            })
+            .to_string()
     }
 }
 
@@ -61,7 +79,7 @@ pub struct Config {
     pub(crate) workspace_roots: Vec<AbsPathBuf>,
     pub(crate) client_caps: lsp_types::ClientCapabilities,
     pub(crate) root_path: AbsPathBuf,
-    pub(crate) locale: Locale,
+    pub(crate) i18n: I18n,
     pub(crate) user_config: UserConfig,
     pub(crate) project_manifests: Vec<ProjectManifest>,
 }
@@ -70,32 +88,12 @@ pub struct Config {
 pub struct Snippet {}
 
 impl Config {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn new(
         opt: Opt,
         root_path: AbsPathBuf,
         client_caps: ClientCapabilities,
         workspace_roots: Vec<AbsPathBuf>,
-        user_config: UserConfig,
-        _snippets: Vec<Snippet>,
-    ) -> Self {
-        Self::new_with_locale(
-            opt,
-            root_path,
-            client_caps,
-            workspace_roots,
-            Locale::default(),
-            user_config,
-            _snippets,
-        )
-    }
-
-    pub(crate) fn new_with_locale(
-        opt: Opt,
-        root_path: AbsPathBuf,
-        client_caps: ClientCapabilities,
-        workspace_roots: Vec<AbsPathBuf>,
-        locale: Locale,
+        i18n: I18n,
         user_config: UserConfig,
         _snippets: Vec<Snippet>,
     ) -> Self {
@@ -105,7 +103,7 @@ impl Config {
             workspace_roots,
             client_caps,
             root_path,
-            locale,
+            i18n,
             user_config,
             project_manifests,
         }
