@@ -284,7 +284,7 @@ fn file_compilation_profile(
     let project_config = db.project_config();
     let profile_id = project_config.profile_for_root(source_root_id);
     let source_root = db.source_root(source_root_id);
-    if profile_id.is_none() && !source_root.is_ignored() && !source_root.is_index_only() {
+    if profile_id.is_none() && source_root.participates_in_compilation() {
         tracing::debug!(
             ?file_id,
             ?source_root_id,
