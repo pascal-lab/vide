@@ -1,4 +1,5 @@
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 use triomphe::Arc;
 use utils::{
     define_enum_deriving_from,
@@ -136,29 +137,104 @@ impl<Entry: Copy> Scope<Entry> {
     }
 }
 
-pub type UnitScope = Scope<UnitEntry>;
 pub type ModuleScope = Scope<ModuleEntry>;
 pub type GenerateBlockScope = Scope<GenerateBlockEntry>;
 pub type BlockScope = Scope<BlockEntry>;
 pub type SubroutineScope = Scope<SubroutineEntry>;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ScopeResolution<Entry> {
+    Unique(Entry),
+    Ambiguous(SmallVec<[Entry; 2]>),
+    Unresolved,
+}
+
+impl<Entry> ScopeResolution<Entry> {
+    pub fn unique(self) -> Option<Entry> {
+        match self {
+            ScopeResolution::Unique(entry) => Some(entry),
+            ScopeResolution::Ambiguous(_) | ScopeResolution::Unresolved => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct UnitScope {
+    entries: FxHashMap<Ident, SmallVec<[UnitEntry; 1]>>,
+}
+
+impl UnitScope {
+    fn insert(&mut self, ident: &Ident, entry: UnitEntry) {
+        self.entries.entry(ident.clone()).or_default().push(entry);
+    }
+
+    fn insert_opt(&mut self, ident: &Option<Ident>, entry: UnitEntry) {
+        if let Some(ident) = ident {
+            self.insert(ident, entry);
+        }
+    }
+
+    pub fn resolve(&self, ident: &Ident) -> ScopeResolution<UnitEntry> {
+        match self.entries.get(ident).map(SmallVec::as_slice) {
+            Some([entry]) => ScopeResolution::Unique(*entry),
+            Some(entries) => ScopeResolution::Ambiguous(SmallVec::from_slice(entries)),
+            None => ScopeResolution::Unresolved,
+        }
+    }
+
+    pub fn get(&self, ident: &Ident) -> Option<UnitEntry> {
+        self.resolve(ident).unique()
+    }
+
+    pub fn resolve_module(&self, ident: &Ident) -> ScopeResolution<ModuleId> {
+        let entries = self
+            .entries
+            .get(ident)
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter_map(|entry| match entry {
+                UnitEntry::ModuleId(module_id) => Some(*module_id),
+                UnitEntry::FiledConfigDeclId(_)
+                | UnitEntry::FiledLibraryDeclId(_)
+                | UnitEntry::FiledUdpDeclId(_)
+                | UnitEntry::FiledDeclId(_)
+                | UnitEntry::FiledTypedefId(_) => None,
+            })
+            .collect::<SmallVec<[_; 2]>>();
+
+        match entries.as_slice() {
+            [module_id] => ScopeResolution::Unique(*module_id),
+            [] => ScopeResolution::Unresolved,
+            _ => ScopeResolution::Ambiguous(entries),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&Ident, UnitEntry)> + '_ {
+        self.entries
+            .iter()
+            .flat_map(|(ident, entries)| entries.iter().map(move |entry| (ident, *entry)))
+    }
+}
+
 // TODO: diagnostics
 
 impl UnitScope {
     pub fn unit_scope_query(db: &dyn HirDb) -> Arc<UnitScope> {
-        let mut scope = Scope::default();
+        let mut scope = UnitScope::default();
 
         for file_id in db.files().iter() {
             let file_id = HirFileId(*file_id);
             let file_scope = db.file_scope(file_id);
-            scope.entries.extend(file_scope.entries.clone());
+            for (ident, entry) in file_scope.iter() {
+                scope.insert(ident, entry);
+            }
         }
 
         Arc::new(scope)
     }
 
     pub(super) fn file_scope_query(db: &dyn HirDb, file_id: HirFileId) -> Arc<UnitScope> {
-        let mut scope = Scope::default();
+        let mut scope = UnitScope::default();
         let hir_file = db.hir_file(file_id);
 
         for (module_id, module_info) in hir_file.modules.iter() {

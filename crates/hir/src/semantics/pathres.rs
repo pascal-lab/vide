@@ -90,14 +90,7 @@ impl SemanticsImpl<'_> {
         instantiation: ast::HierarchyInstantiation,
     ) -> Option<ModuleId> {
         let module_name = lower_ident_opt(instantiation.type_())?;
-        match self.db.unit_scope().get(&module_name)? {
-            UnitEntry::ModuleId(module_id) => Some(module_id),
-            UnitEntry::FiledConfigDeclId(_)
-            | UnitEntry::FiledLibraryDeclId(_)
-            | UnitEntry::FiledUdpDeclId(_)
-            | UnitEntry::FiledDeclId(_)
-            | UnitEntry::FiledTypedefId(_) => None,
-        }
+        self.db.unit_scope().resolve_module(&module_name).unique()
     }
 
     pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ContainerId {

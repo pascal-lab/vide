@@ -21,7 +21,6 @@ use crate::{
         subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
-    scope::UnitEntry,
     semantics::pathres::PathResolution,
 };
 
@@ -456,10 +455,7 @@ fn instance_target_module_id(
     let instance = module.get(instance_id);
     let instantiation = module.get(instance.parent);
     let module_name = instantiation.module_name.as_ref()?;
-    match db.unit_scope().get(module_name)? {
-        UnitEntry::ModuleId(module_id) => Some(module_id),
-        _ => None,
-    }
+    db.unit_scope().resolve_module(module_name).unique()
 }
 
 fn int_kind_width(kind: IntKind) -> usize {
