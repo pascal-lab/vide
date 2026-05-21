@@ -19,6 +19,7 @@ use crate::{
         Ident,
         block::{BlockId, BlockSrc},
         expr::ExprId,
+        module::{ModuleId, ModuleSrc},
         subroutine::{SubroutineId, SubroutineSrc},
     },
 };
@@ -127,6 +128,15 @@ impl<'db> SemanticsImpl<'db> {
 }
 
 impl SemanticsImpl<'_> {
+    pub fn module_to_def(
+        &self,
+        file_id: HirFileId,
+        module: ast::ModuleDeclaration,
+    ) -> Option<ModuleId> {
+        let module_src = ModuleSrc::from(module);
+        self.with_ctx(|ctx| ctx.module_to_def(InFile::new(file_id, module_src)))
+    }
+
     pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<BlockId> {
         let block_src = BlockSrc::from(block);
         self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))

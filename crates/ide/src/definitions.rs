@@ -26,6 +26,7 @@ use smol_str::SmolStr;
 use syntax::{
     SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
+    has_name::HasName,
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
@@ -436,6 +437,10 @@ impl DefinitionClass {
             return Some(def);
         }
 
+        if let Some(def) = resolve_declaration_name(sema, file_id, tp) {
+            return Some(def);
+        }
+
         if let Some(def) = resolve_instantiation_type_name(sema, file_id, tp) {
             return Some(def);
         }
@@ -476,6 +481,21 @@ impl DefinitionClass {
             }
         }
     }
+}
+
+fn resolve_declaration_name(
+    sema: &Semantics<'_, RootDb>,
+    file_id: HirFileId,
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    if let Some(module) = SyntaxAncestors::start_from(parent).find_map(ast::ModuleDeclaration::cast)
+        && module.name() == Some(tok)
+    {
+        let module_id = sema.module_to_def(file_id, module)?;
+        return Some(Definition::from(PathResolution::Module(module_id)).into());
+    }
+
+    None
 }
 
 fn resolve_member_or_scoped_name(
