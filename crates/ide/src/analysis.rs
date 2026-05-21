@@ -1,6 +1,11 @@
 use std::ops::Range;
 
-use base_db::{Cancelled, salsa, source_db::SourceDb};
+use base_db::{
+    Cancelled,
+    compilation_plan::CompilationPlan,
+    salsa,
+    source_db::{SourceDb, SourceRootDb},
+};
 use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use span::{FilePosition, RangeInfo};
 use triomphe::Arc;
@@ -75,6 +80,10 @@ impl Analysis {
 
     pub fn source_root_file_ids(&self, file_id: FileId) -> Cancellable<Vec<FileId>> {
         self.with_db(|db| diagnostics::source_root_file_ids(db, file_id))
+    }
+
+    pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {
+        self.with_db(|db| db.compilation_plan_for_root(db.source_root_id(file_id)))
     }
 }
 

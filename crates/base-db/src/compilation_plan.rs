@@ -23,24 +23,25 @@ pub struct CompilationPlan {
     pub include_only: FxHashSet<FileId>,
     pub include_dirs: Vec<AbsPathBuf>,
     pub top_modules: Vec<String>,
+    pub predefines: Vec<String>,
 }
 
 impl CompilationPlan {
     pub fn for_source_root(db: &dyn SourceRootDb, source_root_id: SourceRootId) -> Self {
         let project_config = db.project_config();
         let profile_id = project_config.profile_for_root(source_root_id);
-        let (source_roots, top_modules, include_dirs) =
+        let (source_roots, top_modules, include_dirs, predefines) =
             profile_inputs(&project_config, Some(source_root_id), profile_id);
-        Self::from_inputs(db, source_roots, top_modules, include_dirs)
+        Self::from_inputs(db, source_roots, top_modules, include_dirs, predefines)
     }
 
     pub fn for_profile(db: &dyn SourceRootDb, profile_id: Option<CompilationProfileId>) -> Self {
         let project_config = db.project_config();
-        let (source_roots, top_modules, include_dirs) =
+        let (source_roots, top_modules, include_dirs, predefines) =
             profile_inputs(&project_config, None, profile_id);
         let source_roots =
             if source_roots.is_empty() { all_non_ignored_roots(db) } else { source_roots };
-        Self::from_inputs(db, source_roots, top_modules, include_dirs)
+        Self::from_inputs(db, source_roots, top_modules, include_dirs, predefines)
     }
 
     fn from_inputs(
@@ -48,10 +49,11 @@ impl CompilationPlan {
         source_roots: Vec<SourceRootId>,
         top_modules: Vec<String>,
         include_dirs: Vec<AbsPathBuf>,
+        predefines: Vec<String>,
     ) -> Self {
         let include_only = include_targets_for_source_roots(db, &source_roots, &include_dirs);
         let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
-        CompilationPlan { source_roots, roots, include_only, include_dirs, top_modules }
+        CompilationPlan { source_roots, roots, include_only, include_dirs, top_modules, predefines }
     }
 }
 
@@ -123,19 +125,22 @@ fn profile_inputs(
     project_config: &ProjectConfig,
     fallback_root: Option<SourceRootId>,
     profile_id: Option<CompilationProfileId>,
-) -> (Vec<SourceRootId>, Vec<String>, Vec<AbsPathBuf>) {
+) -> (Vec<SourceRootId>, Vec<String>, Vec<AbsPathBuf>, Vec<String>) {
     if let Some(profile) = profile_id.and_then(|profile_id| project_config.profile(profile_id)) {
         return (
             profile.source_roots.clone(),
             profile.top_modules.clone(),
             profile.preprocess.include_dirs.clone(),
+            profile.preprocess.predefines.clone(),
         );
     }
 
+    let preprocess = project_config.preprocess_for_profile(profile_id);
     (
         fallback_root.into_iter().collect(),
         Vec::new(),
-        project_config.preprocess_for_profile(profile_id).include_dirs,
+        preprocess.include_dirs,
+        preprocess.predefines,
     )
 }
 
