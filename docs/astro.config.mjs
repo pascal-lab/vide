@@ -30,6 +30,7 @@ export default defineConfig({
         'installation',
         'first-project',
         'project-configuration',
+        'parsing-and-analysis',
         'daily-use',
         'vscode-settings',
         'commands-status-logs',
