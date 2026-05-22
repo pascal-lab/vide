@@ -7,17 +7,21 @@ import { PROJECT_CONFIG_FILE_NAME } from './projectConfig';
 import {
   asProjectStatus,
   getProjectStatusPresentation,
+  getServerStatusPresentation,
   projectStatusFallback,
   type ProjectStatus,
   type ProjectStatusMessages,
+  type ServerStatus,
+  type ServerStatusMessages,
 } from './status';
 
 export const reloadWorkspaceCommand = 'vizsla.reloadWorkspace';
-export const showProjectStatusCommand = 'vizsla.showProjectStatus';
+export const showOutputCommand = 'vizsla.showOutput';
+export const showStatusCommand = 'vizsla.showStatus';
 export const reloadWorkspaceRequest = 'vizsla.server.reloadWorkspace';
 export const projectStatusNotification = 'vizsla/projectStatus';
 
-export interface ProjectStatusActions {
+export interface VizslaStatusActions {
   createManifest: (rootUris: readonly string[]) => Promise<void>;
   reloadProject: () => Promise<void>;
   restartServer: () => Promise<void>;
@@ -25,25 +29,27 @@ export interface ProjectStatusActions {
   log: (message: string) => void;
 }
 
-export class ProjectStatusController implements vscode.Disposable {
+export class VizslaStatusController implements vscode.Disposable {
   private readonly item: vscode.LanguageStatusItem;
-  private status = projectStatusFallback();
+  private projectStatus = projectStatusFallback();
+  private serverStatus: ServerStatus = 'stopped';
+  private serverDetail: string | undefined;
 
-  constructor(private readonly actions: ProjectStatusActions) {
+  constructor(private readonly actions: VizslaStatusActions) {
     this.item = vscode.languages.createLanguageStatusItem(
-      'vizsla.projectStatus',
+      'vizsla.status',
       vizslaLanguageSelector,
     );
-    this.item.name = vscode.l10n.t('Vizsla Project');
+    this.item.name = vscode.l10n.t('Vizsla');
     this.item.command = this.command();
-    this.update(this.status);
+    this.update();
   }
 
   dispose(): void {
     this.item.dispose();
   }
 
-  handleNotification(params: unknown): void {
+  handleProjectNotification(params: unknown): void {
     const status = asProjectStatus(params);
     if (!status) {
       this.actions.log(
@@ -52,13 +58,22 @@ export class ProjectStatusController implements vscode.Disposable {
       return;
     }
 
-    this.update(status);
+    this.updateProjectStatus(status);
   }
 
-  update(status: ProjectStatus): void {
-    this.status = status;
+  updateProjectStatus(status: ProjectStatus): void {
+    this.projectStatus = status;
+    this.update();
+  }
 
-    const presentation = getProjectStatusPresentation(status, localizedProjectStatusMessages());
+  updateServerStatus(status: ServerStatus, detail?: string): void {
+    this.serverStatus = status;
+    this.serverDetail = detail;
+    this.update();
+  }
+
+  private update(): void {
+    const presentation = this.currentPresentation();
     this.item.text = presentation.text;
     this.item.detail = presentation.detail;
     this.item.busy = presentation.busy;
@@ -67,12 +82,12 @@ export class ProjectStatusController implements vscode.Disposable {
   }
 
   async show(): Promise<void> {
-    const status = this.status;
-    const presentation = getProjectStatusPresentation(status, localizedProjectStatusMessages());
+    const status = this.projectStatus;
+    const presentation = this.currentPresentation();
     const items = this.quickPickItems(status);
 
     const selected = await vscode.window.showQuickPick(items, {
-      title: vscode.l10n.t('Vizsla Project Status'),
+      title: vscode.l10n.t('Vizsla Status'),
       placeHolder: presentation.detail,
     });
     if (!selected) {
@@ -100,13 +115,25 @@ export class ProjectStatusController implements vscode.Disposable {
 
   private command(): vscode.Command {
     return {
-      title: vscode.l10n.t('Show Vizsla Project Status'),
-      command: showProjectStatusCommand,
+      title: vscode.l10n.t('Show Vizsla Status'),
+      command: showStatusCommand,
     };
   }
 
-  private quickPickItems(status: ProjectStatus): ProjectStatusQuickPickItem[] {
-    const items: ProjectStatusQuickPickItem[] = [];
+  private currentPresentation(): VizslaStatusPresentation {
+    if (this.serverStatus === 'ready') {
+      return getProjectStatusPresentation(this.projectStatus, localizedProjectStatusMessages());
+    }
+
+    return getServerStatusPresentation(
+      this.serverStatus,
+      this.serverDetail,
+      localizedServerStatusMessages(),
+    );
+  }
+
+  private quickPickItems(status: ProjectStatus): VizslaStatusQuickPickItem[] {
+    const items: VizslaStatusQuickPickItem[] = [];
 
     if (status.errors.length > 0) {
       items.push({
@@ -160,9 +187,27 @@ export class ProjectStatusController implements vscode.Disposable {
   }
 }
 
-type ProjectStatusQuickPickItem = vscode.QuickPickItem & {
+type VizslaStatusPresentation = {
+  text: string;
+  detail: string;
+  severity: 'information' | 'warning' | 'error';
+  busy: boolean;
+};
+
+type VizslaStatusQuickPickItem = vscode.QuickPickItem & {
   action: 'openManifest' | 'createManifest' | 'reloadProject' | 'restartServer' | 'showOutput';
 };
+
+function localizedServerStatusMessages(): ServerStatusMessages {
+  return {
+    text: vscode.l10n.t('Vizsla'),
+    startingDetail: vscode.l10n.t('Vizsla language server is starting.'),
+    readyDetail: vscode.l10n.t('Vizsla language server is running.'),
+    stoppingDetail: vscode.l10n.t('Vizsla language server is stopping.'),
+    stoppedDetail: vscode.l10n.t('Vizsla language server is stopped.'),
+    errorDetail: vscode.l10n.t('Vizsla language server failed.'),
+  };
+}
 
 function localizedProjectStatusMessages(): ProjectStatusMessages {
   return {
