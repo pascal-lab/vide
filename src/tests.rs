@@ -717,7 +717,11 @@ endmodule
     let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 220);
     assert!(
         diagnostics.iter().any(|diag| {
-            diag.source.as_deref() == Some("vizsla") && diag.message.contains("模块实例化")
+            diag.source.as_deref() == Some("vizsla")
+                && diag.message.contains("模块实例化")
+                && diag.message.contains("无法确定应使用哪一个")
+                && !diag.message.contains("最佳努力索引")
+                && !diag.message.contains("存在歧义")
         }),
         "expected localized Vizsla diagnostic message, got {diagnostics:?}"
     );
