@@ -114,6 +114,7 @@ pub(crate) struct GlobalState {
 
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) diagnostics: FxHashMap<FileId, Vec<lsp_types::Diagnostic>>,
+    pub(crate) diagnostics_revision: u64,
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
@@ -168,6 +169,7 @@ impl GlobalState {
 
             semantic_tokens_cache: Arc::new(Default::default()),
             diagnostics: FxHashMap::default(),
+            diagnostics_revision: 0,
             qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
 
             vfs_loader,
@@ -190,6 +192,7 @@ impl GlobalState {
             mem_docs: self.mem_docs.clone(),
             sema_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
             qihe_diagnostics: Arc::clone(&self.qihe_diagnostics),
+            diagnostics_revision: self.diagnostics_revision,
         }
     }
 }
