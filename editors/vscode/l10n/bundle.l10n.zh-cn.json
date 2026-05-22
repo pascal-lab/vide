@@ -21,6 +21,8 @@
   "Create Manifest": "创建项目配置文件",
   "Create Manifests": "创建项目配置文件",
   "Creating a manifest will restart the Vizsla language server so the workspace can reload it.": "创建项目配置文件会重启 Vizsla 语言服务器，以便工作区重新加载它。",
+  "Downgrade diagnostic {0} to warning in user settings": "在用户设置中将诊断 {0} 降级为 warning",
+  "Downgrade diagnostic {0} to warning in workspace settings": "在工作区设置中将诊断 {0} 降级为 warning",
   "No Vizsla project manifest was detected in {0}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}": "未在 {0} 中检测到 Vizsla 项目配置文件。语义诊断、导航和引用等项目感知功能可能严重受限。{1}",
   "No Vizsla project manifest was detected in {0} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}": "未在 {0} 个工作区文件夹中检测到 Vizsla 项目配置文件。语义诊断、导航和引用等项目感知功能可能严重受限。{1}",
   "Failed to create {0} in {1}: {2}": "无法在 {1} 中创建 {0}：{2}",
@@ -34,10 +36,13 @@
   "Vizsla server: {0}": "Vizsla 服务器：{0}",
   "Failed to query Vizsla server version: {0}": "无法查询 Vizsla 服务器版本：{0}",
   "Show Output": "显示输出",
+  "Ignore diagnostic {0} in user settings": "在用户设置中忽略诊断 {0}",
+  "Ignore diagnostic {0} in workspace settings": "在工作区设置中忽略诊断 {0}",
   "Open a Verilog or SystemVerilog file first.": "请先打开 Verilog 或 SystemVerilog 文件。",
   "Qihe analysis is only available for Verilog files.": "Qihe 分析仅适用于 Verilog 文件。",
   "Vizsla language server is not running.": "Vizsla 语言服务器未运行。",
   "Failed to run Qihe analysis: {0}": "无法运行 Qihe 分析：{0}",
+  "Unable to update Vizsla diagnostic rules: {0}": "无法更新 Vizsla 诊断规则：{0}",
   "Restart": "重启",
   "Vizsla server configuration changed. Restart the language server to apply it.": "Vizsla 服务器配置已更改。请重启语言服务器以应用更改。"
 }

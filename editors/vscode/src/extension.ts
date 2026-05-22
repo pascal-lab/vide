@@ -11,6 +11,7 @@ import {
 } from 'vscode-languageclient/node';
 
 import { getBundledServerPath, getPlatformFolder } from './platform';
+import { registerDiagnosticActions } from './diagnosticActions';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_FILE_NAMES,
@@ -722,6 +723,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(runQiheRegistration);
+  registerDiagnosticActions(context);
 
   const configurationRegistration = vscode.workspace.onDidChangeConfiguration(
     async (event) => {
