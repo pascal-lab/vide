@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 
 import {
   diagnosticCodeSelector,
-  diagnosticOptionName,
   type DiagnosticRule,
   type DiagnosticRuleSeverity,
   type DiagnosticRuleTarget,
@@ -48,11 +47,6 @@ class DiagnosticRuleCodeActionProvider implements vscode.CodeActionProvider {
     const diagnosticsBySelector = new Map<string, vscode.Diagnostic>();
 
     for (const diagnostic of context.diagnostics) {
-      const locationAction = createInlineDiagnosticPragmaAction(document, diagnostic);
-      if (locationAction) {
-        actions.push(locationAction);
-      }
-
       const selector = diagnosticCodeSelector(diagnostic);
       if (!selector) {
         continue;
@@ -98,37 +92,6 @@ function createDiagnosticRuleAction(
     title,
     arguments: [{ selector, severity, target } satisfies ConfigureDiagnosticRuleArgs],
   };
-  return action;
-}
-
-function createInlineDiagnosticPragmaAction(
-  document: vscode.TextDocument,
-  diagnostic: vscode.Diagnostic,
-): vscode.CodeAction | undefined {
-  const option = diagnosticOptionName(diagnostic);
-  if (!option) {
-    return undefined;
-  }
-
-  const title = vscode.l10n.t('Ignore this diagnostic here');
-  const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
-  const edit = new vscode.WorkspaceEdit();
-  const line = document.lineAt(diagnostic.range.end.line);
-  const popPrefix = line.rangeIncludingLineBreak.isEqual(line.range) ? '\n' : '';
-
-  edit.insert(document.uri, new vscode.Position(diagnostic.range.start.line, 0), [
-    '`pragma diagnostic push',
-    `\`pragma diagnostic ignore="-W${option}"`,
-    '',
-  ].join('\n'));
-  edit.insert(
-    document.uri,
-    line.rangeIncludingLineBreak.end,
-    `${popPrefix}\`pragma diagnostic pop\n`,
-  );
-
-  action.edit = edit;
-  action.diagnostics = [diagnostic];
   return action;
 }
 
