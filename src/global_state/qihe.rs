@@ -258,10 +258,7 @@ fn run_qihe_request(
     let active_path = from_proto::abs_path(&params.uri)?;
     let active_file_id = snapshot.file_id(&params.uri)?;
     let qihe_config = snapshot.config.qihe();
-    let cwd = params
-        .cwd
-        .and_then(|path| path.canonicalize().ok())
-        .unwrap_or_else(|| snapshot.config.root_path.to_path_buf().into());
+    let cwd = qihe_working_directory(params.cwd, snapshot.config.root_path.as_path());
     let compile_input = qihe_compile_input(snapshot, active_file_id, active_path.as_path(), &cwd)?;
     let i18n = snapshot.config.i18n;
     let (ir_path, storage_root) = qihe_run_paths(active_path.as_path())
@@ -281,6 +278,12 @@ fn run_qihe_request(
     let converter =
         DiagnosticConverter { snapshot, default_file_id: active_file_id, resolution_base };
     QiheUpdate::from_json_diagnostics(active_file_id, diagnostics, &converter)
+}
+
+fn qihe_working_directory(params_cwd: Option<PathBuf>, root_path: &AbsPath) -> PathBuf {
+    params_cwd
+        .and_then(|path| dunce::canonicalize(path).ok())
+        .unwrap_or_else(|| root_path.to_path_buf().into())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -781,7 +784,7 @@ mod tests {
     use super::{
         QiheCompileInput, QiheLogSink, command_line, has_compile_mode, join_command_output,
         parse_source_loc, prepare_qihe_compile_command, qihe_compile_input_from_plan,
-        split_compile_args, stream_command_output, strip_ansi,
+        qihe_working_directory, split_compile_args, stream_command_output, strip_ansi,
     };
     use crate::{
         config::user_config::QiheConfig,
@@ -824,6 +827,20 @@ mod tests {
         assert!(rendered.contains("qihe"));
         assert!(rendered.contains("compile"));
         assert!(rendered.contains("\"rtl/top module.sv\""));
+    }
+
+    #[test]
+    fn qihe_working_directory_uses_normal_windows_path() {
+        let cwd = std::env::current_dir().expect("current dir");
+        let root = AbsPathBuf::assert_utf8(cwd.clone());
+
+        let resolved = qihe_working_directory(Some(cwd), root.as_path());
+
+        assert!(resolved.is_absolute());
+        if cfg!(windows) {
+            let rendered = resolved.to_string_lossy().replace('\\', "/");
+            assert!(!rendered.starts_with("//?/"), "{rendered}");
+        }
     }
 
     #[test]
