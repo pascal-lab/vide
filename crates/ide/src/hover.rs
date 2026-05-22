@@ -88,7 +88,7 @@ fn handle_definition(
             res.print("Ambiguous reference");
             for definition in definitions {
                 res.horizontal_line();
-                res.merge(render::render_definition(sema, definition));
+                res.merge(render::render_definition_location(sema, definition));
             }
         }
     }

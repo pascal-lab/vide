@@ -1,4 +1,7 @@
-use base_db::intern::Lookup;
+use base_db::{
+    intern::Lookup,
+    source_db::{SourceDb, SourceRootDb},
+};
 use hir::{
     container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
@@ -20,7 +23,7 @@ use hir::{
     region_tree::RegionParent,
     semantics::Semantics,
 };
-use ide_db::root_db::RootDb;
+use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use itertools::Itertools;
 use syntax::{
     SVInt, SyntaxCursorExt, SyntaxNodeExt,
@@ -142,6 +145,40 @@ pub(crate) fn render_definition(sema: &Semantics<RootDb>, def: Definition) -> Ma
         res.merge(origin);
         res
     })
+}
+
+pub(crate) fn render_definition_location(sema: &Semantics<RootDb>, def: Definition) -> Markup {
+    let db = sema.db;
+    let mut locations = def
+        .def_origins()
+        .into_iter()
+        .filter_map(|origin| render_def_origin_location(db, &origin))
+        .collect_vec();
+    locations.sort();
+    locations.dedup();
+
+    let mut res = Markup::new();
+    for (idx, location) in locations.into_iter().enumerate() {
+        if idx > 0 {
+            res.print("\n");
+        }
+        res.print(&location);
+    }
+    res
+}
+
+fn render_def_origin_location(db: &RootDb, origin: &DefinitionOrigin) -> Option<String> {
+    let InFile { value: range, file_id } = origin.range(db)?;
+    let file_id = file_id.file_id();
+    let source_root = db.source_root(db.source_root_id(file_id));
+    let path = source_root
+        .path_for_file(&file_id)
+        .map(ToString::to_string)
+        .or_else(|| db.file_path(file_id).map(|path| path.to_string()))
+        .unwrap_or_else(|| format!("{file_id:?}"));
+    let line = db.line_index(file_id).try_line_col(range.start())?.line + 1;
+
+    Some(format!("{path}:{line}"))
 }
 
 fn render_def_origin(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Markup {

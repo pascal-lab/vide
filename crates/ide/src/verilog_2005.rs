@@ -941,6 +941,45 @@ endmodule
 }
 
 #[test]
+fn ambiguous_instantiation_hover_lists_locations_without_expanding_signatures() {
+    let text = r#"
+module child(input logic a);
+endmodule
+
+module child(output logic y);
+endmodule
+
+module top;
+  /*marker:child_ref*/child u();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "child_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("ambiguous module hover expected");
+    let info = hover.info.as_str();
+
+    assert!(
+        info.contains("Ambiguous reference"),
+        "ambiguous hover should identify the ambiguity: {info}"
+    );
+    assert!(
+        info.contains("feature.v:2") && info.contains("feature.v:5"),
+        "ambiguous hover should list declaration locations: {info}"
+    );
+    assert!(
+        !info.contains("input logic a") && !info.contains("output logic y"),
+        "ambiguous hover should not expand candidate signatures: {info}"
+    );
+}
+
+#[test]
 fn verilog_2005_module_definition_names_support_references() {
     let text = r#"
 module /*marker:module_def*/mux2X1(in0, in1, sel, out);
