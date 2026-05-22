@@ -6,13 +6,14 @@ import { toLanguageStatusSeverity, vizslaLanguageSelector } from './languageStat
 import { PROJECT_CONFIG_FILE_NAME } from './projectConfig';
 import {
   asProjectStatus,
-  getProjectStatusPresentation,
-  getServerStatusPresentation,
-  projectStatusFallback,
+  getVizslaStatusPresentation,
+  initialProjectStatus,
+  type LanguageStatusPresentation,
   type ProjectStatus,
   type ProjectStatusMessages,
   type ServerStatus,
   type ServerStatusMessages,
+  type VizslaStatusMessages,
 } from './status';
 
 export const reloadWorkspaceCommand = 'vizsla.reloadWorkspace';
@@ -31,7 +32,7 @@ export interface VizslaStatusActions {
 
 export class VizslaStatusController implements vscode.Disposable {
   private readonly item: vscode.LanguageStatusItem;
-  private projectStatus = projectStatusFallback();
+  private projectStatus = initialProjectStatus();
   private serverStatus: ServerStatus = 'stopped';
   private serverDetail: string | undefined;
 
@@ -120,15 +121,14 @@ export class VizslaStatusController implements vscode.Disposable {
     };
   }
 
-  private currentPresentation(): VizslaStatusPresentation {
-    if (this.serverStatus === 'ready') {
-      return getProjectStatusPresentation(this.projectStatus, localizedProjectStatusMessages());
-    }
-
-    return getServerStatusPresentation(
-      this.serverStatus,
-      this.serverDetail,
-      localizedServerStatusMessages(),
+  private currentPresentation(): LanguageStatusPresentation {
+    return getVizslaStatusPresentation(
+      {
+        serverStatus: this.serverStatus,
+        serverDetail: this.serverDetail,
+        projectStatus: this.projectStatus,
+      },
+      localizedVizslaStatusMessages(),
     );
   }
 
@@ -187,13 +187,6 @@ export class VizslaStatusController implements vscode.Disposable {
   }
 }
 
-type VizslaStatusPresentation = {
-  text: string;
-  detail: string;
-  severity: 'information' | 'warning' | 'error';
-  busy: boolean;
-};
-
 type VizslaStatusQuickPickItem = vscode.QuickPickItem & {
   action: 'openManifest' | 'createManifest' | 'reloadProject' | 'restartServer' | 'showOutput';
 };
@@ -206,6 +199,13 @@ function localizedServerStatusMessages(): ServerStatusMessages {
     stoppingDetail: vscode.l10n.t('Vizsla language server is stopping.'),
     stoppedDetail: vscode.l10n.t('Vizsla language server is stopped.'),
     errorDetail: vscode.l10n.t('Vizsla language server failed.'),
+  };
+}
+
+function localizedVizslaStatusMessages(): VizslaStatusMessages {
+  return {
+    server: localizedServerStatusMessages(),
+    project: localizedProjectStatusMessages(),
   };
 }
 

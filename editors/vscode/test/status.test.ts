@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
   asProjectStatus,
+  defaultProjectStatusMessages,
+  defaultServerStatusMessages,
   getProjectStatusPresentation,
   getServerStatusPresentation,
-  projectStatusFallback,
+  getVizslaStatusPresentation,
+  initialProjectStatus,
+  selectVizslaStatusPhase,
   type ProjectStatus,
   type ServerStatus,
 } from '../src/status';
@@ -110,12 +114,57 @@ test('parses project status notifications defensively', () => {
   assert.equal(asProjectStatus({ ...status, manifestUris: [1] }), undefined);
 });
 
-test('uses loading as the project status fallback', () => {
-  assert.deepEqual(projectStatusFallback(), {
+test('uses loading as the initial project status', () => {
+  assert.deepEqual(initialProjectStatus(), {
     state: 'loading',
     manifestUris: [],
     unconfiguredRootUris: [],
     workspaceCount: 0,
     errors: [],
   });
+});
+
+test('selects the main Vizsla status from lifecycle order', () => {
+  const projectStatus: ProjectStatus = {
+    state: 'loaded',
+    manifestUris: ['file:///workspace/vizsla.toml'],
+    unconfiguredRootUris: [],
+    workspaceCount: 1,
+    errors: [],
+  };
+
+  assert.deepEqual(
+    selectVizslaStatusPhase({
+      serverStatus: 'starting',
+      projectStatus,
+    }),
+    {
+      kind: 'server',
+      status: 'starting',
+    },
+  );
+  assert.deepEqual(
+    selectVizslaStatusPhase({
+      serverStatus: 'ready',
+      projectStatus,
+    }),
+    {
+      kind: 'project',
+      status: projectStatus,
+    },
+  );
+
+  assert.equal(
+    getVizslaStatusPresentation(
+      {
+        serverStatus: 'ready',
+        projectStatus: { ...projectStatus, state: 'none', manifestUris: [] },
+      },
+      {
+        server: defaultServerStatusMessages,
+        project: defaultProjectStatusMessages,
+      },
+    ).detail,
+    'No project manifest',
+  );
 });

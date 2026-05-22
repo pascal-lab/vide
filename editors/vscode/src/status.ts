@@ -1,11 +1,13 @@
 export type ServerStatus = 'starting' | 'ready' | 'stopping' | 'stopped' | 'error';
 
-export interface ServerStatusPresentation {
+export interface LanguageStatusPresentation {
   text: string;
   detail: string;
   severity: 'information' | 'warning' | 'error';
   busy: boolean;
 }
+
+export type ServerStatusPresentation = LanguageStatusPresentation;
 
 export interface ServerStatusMessages {
   text: string;
@@ -82,7 +84,7 @@ export interface ProjectStatus {
   message?: string;
 }
 
-export function projectStatusFallback(): ProjectStatus {
+export function initialProjectStatus(): ProjectStatus {
   return {
     state: 'loading',
     manifestUris: [],
@@ -133,12 +135,7 @@ export function asProjectStatus(value: unknown): ProjectStatus | undefined {
   };
 }
 
-export interface ProjectStatusPresentation {
-  text: string;
-  detail: string;
-  severity: 'information' | 'warning' | 'error';
-  busy: boolean;
-}
+export type ProjectStatusPresentation = LanguageStatusPresentation;
 
 export interface ProjectStatusMessages {
   text: string;
@@ -194,6 +191,64 @@ export function getProjectStatusPresentation(
         severity: 'error',
         busy: false,
       };
+  }
+}
+
+export interface VizslaStatusInput {
+  serverStatus: ServerStatus;
+  serverDetail?: string;
+  projectStatus: ProjectStatus;
+}
+
+export type VizslaStatusPhase =
+  | {
+      kind: 'server';
+      status: Exclude<ServerStatus, 'ready'>;
+      detail?: string;
+    }
+  | {
+      kind: 'project';
+      status: ProjectStatus;
+    };
+
+export interface VizslaStatusMessages {
+  server: ServerStatusMessages;
+  project: ProjectStatusMessages;
+}
+
+export function selectVizslaStatusPhase(status: VizslaStatusInput): VizslaStatusPhase {
+  if (status.serverStatus === 'ready') {
+    return {
+      kind: 'project',
+      status: status.projectStatus,
+    };
+  }
+
+  if (status.serverDetail === undefined) {
+    return {
+      kind: 'server',
+      status: status.serverStatus,
+    };
+  }
+
+  return {
+    kind: 'server',
+    status: status.serverStatus,
+    detail: status.serverDetail,
+  };
+}
+
+export function getVizslaStatusPresentation(
+  status: VizslaStatusInput,
+  messages: VizslaStatusMessages,
+): LanguageStatusPresentation {
+  const phase = selectVizslaStatusPhase(status);
+
+  switch (phase.kind) {
+    case 'server':
+      return getServerStatusPresentation(phase.status, phase.detail, messages.server);
+    case 'project':
+      return getProjectStatusPresentation(phase.status, messages.project);
   }
 }
 
