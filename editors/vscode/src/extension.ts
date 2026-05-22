@@ -32,6 +32,7 @@ import type { ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
+let qiheOutputChannel: vscode.OutputChannel | undefined;
 let vizslaStatusController: VizslaStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
@@ -41,7 +42,11 @@ const showServerVersionCommand = 'vizsla.showServerVersion';
 const runQiheAnalysisCommand = 'vizsla.runQiheAnalysis';
 const runQiheAnalysisRequest = 'vizsla.server.runQiheAnalysis';
 const qiheStatusNotification = 'vizsla/qiheStatus';
+const qiheLogNotification = 'vizsla/qiheLog';
 const qiheAnalysisIcon = '$(beaker)';
+// Output channel names are stable identifiers in the Output view.
+const languageServerOutputChannelName = 'Vizsla Language Server';
+const qiheOutputChannelName = 'Vizsla Qihe';
 const versionTimeoutMs = 5000;
 
 const activeQiheTokens = new Set<string>();
@@ -50,6 +55,10 @@ let qiheStatusHideTimer: NodeJS.Timeout | undefined;
 
 function log(message: string): void {
   outputChannel?.appendLine(message);
+}
+
+function logQihe(message: string): void {
+  qiheOutputChannel?.appendLine(message);
 }
 
 function requireOutputChannel(): vscode.OutputChannel {
@@ -102,7 +111,7 @@ function updateQiheStatus(
 
 function createQiheStatusBarItem(): vscode.StatusBarItem {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  item.name = vscode.l10n.t('Vizsla Qihe');
+  item.name = vscode.l10n.t('Qihe Analysis Status');
   item.command = runQiheAnalysisCommand;
   item.hide();
   return item;
@@ -145,6 +154,20 @@ function finishQiheNotification(token: string): void {
 }
 
 function registerQiheNotifications(languageClient: LanguageClient): void {
+  languageClient.onNotification(
+    qiheLogNotification,
+    (params: { token?: unknown; message?: unknown }) => {
+      const message =
+        typeof params.message === 'string' ? params.message : undefined;
+
+      if (!message) {
+        return;
+      }
+
+      logQihe(message);
+    },
+  );
+
   languageClient.onNotification(
     qiheStatusNotification,
     (params: { token?: unknown; state?: unknown; message?: unknown }) => {
@@ -695,7 +718,10 @@ async function runQiheAnalysis(): Promise<void> {
     cwd: workspaceFolder?.uri.fsPath,
   };
 
-  log(`[INFO] Running Qihe analysis: ${JSON.stringify(payload)}`);
+  const target = workspaceFolder
+    ? `workspace ${workspaceFolder.uri.fsPath}`
+    : `file ${editor.document.uri.fsPath}`;
+  logQihe(`[INFO] Starting Qihe analysis for ${target}`);
 
   try {
     await client.sendRequest('workspace/executeCommand', {
@@ -720,8 +746,10 @@ function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  outputChannel = vscode.window.createOutputChannel(vscode.l10n.t('Vizsla Language Server'));
+  outputChannel = vscode.window.createOutputChannel(languageServerOutputChannelName);
   context.subscriptions.push(outputChannel);
+  qiheOutputChannel = vscode.window.createOutputChannel(qiheOutputChannelName);
+  context.subscriptions.push(qiheOutputChannel);
   vizslaStatusController = new VizslaStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
     reloadProject: reloadWorkspace,

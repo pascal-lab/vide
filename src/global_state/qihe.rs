@@ -1,16 +1,19 @@
 use std::{
+    ffi::OsStr,
     fs,
+    io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::LazyLock,
+    thread::{self, JoinHandle},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use base_db::compilation_plan::CompilationPlan;
 use lsp_types::{
-    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, LogMessageParams, MessageType,
-    NumberOrString, ShowMessageParams,
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, MessageType, NumberOrString,
+    ShowMessageParams,
 };
 use project_model::project_manifest::MANIFEST_FILE_NAME;
 use regex::Regex;
@@ -35,7 +38,10 @@ use crate::{
     global_state::main_loop::Task,
     i18n::{I18n, keys},
     lsp_ext::{
-        ext::{QiheStatusNotification, QiheStatusParams, RunQiheAnalysisParams},
+        ext::{
+            QiheLogNotification, QiheLogParams, QiheStatusNotification, QiheStatusParams,
+            RunQiheAnalysisParams,
+        },
         from_proto, to_proto,
     },
 };
@@ -50,6 +56,25 @@ const QIHE: &str = "qihe";
 
 static ANSI_ESCAPE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1B\[[0-?]*[ -/]*[@-~]").unwrap());
+
+#[derive(Clone)]
+struct QiheLogSink {
+    sender: crossbeam_channel::Sender<Task>,
+    token: String,
+}
+
+impl QiheLogSink {
+    fn new(sender: crossbeam_channel::Sender<Task>, token: String) -> Self {
+        Self { sender, token }
+    }
+
+    fn log(&self, message: impl Into<String>) {
+        let task = Task::Qihe(QiheTask::Log { token: self.token.clone(), message: message.into() });
+        if self.sender.send(task).is_err() {
+            tracing::debug!("qihe log dropped because main loop receiver is closed");
+        }
+    }
+}
 
 impl QiheUpdate {
     fn from_json_diagnostics(
@@ -84,30 +109,28 @@ impl GlobalState {
 
         self.begin_qihe_progress(&progress_token, progress_label);
 
-        self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
-            Task::Qihe(run_qihe_task(snapshot, params, progress_token))
+        self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, move |sender| {
+            let log_sink = QiheLogSink::new(sender.clone(), progress_token.clone());
+            let task = Task::Qihe(run_qihe_task(snapshot, params, progress_token, log_sink));
+            if sender.send(task).is_err() {
+                tracing::debug!("qihe result dropped because main loop receiver is closed");
+            }
         });
     }
 
     pub(crate) fn handle_qihe_task(&mut self, task: QiheTask) {
         match task {
+            QiheTask::Log { token, message } => self.log_qihe_message(token, message),
             QiheTask::Finished { update, progress_token } => {
                 let summary = update.summary.clone();
                 let changed_files = self.replace_qihe_diagnostics(update.by_file);
                 self.publish_qihe_diagnostics(changed_files);
-                self.end_qihe_progress(
-                    progress_token,
-                    "end",
-                    MessageType::INFO,
-                    summary.clone(),
-                    summary,
-                );
+                self.end_qihe_progress(progress_token, "end", summary.clone(), summary);
             }
             QiheTask::Failed { message, progress_token } => {
                 self.end_qihe_progress(
                     progress_token,
                     "failed",
-                    MessageType::ERROR,
                     message.clone(),
                     self.config.i18n.text(keys::QIHE_FAILED).to_owned(),
                 );
@@ -178,12 +201,11 @@ impl GlobalState {
         &mut self,
         token: String,
         state: &str,
-        typ: MessageType,
         message: String,
         progress_message: String,
     ) {
         self.send_qihe_status(&token, state, Some(message.clone()));
-        self.log_qihe_message(typ, message);
+        self.log_qihe_message(token.clone(), message);
         self.report_qihe_progress(Progress::End, progress_message, Some(1.0), token);
     }
 
@@ -211,11 +233,8 @@ impl GlobalState {
         });
     }
 
-    fn log_qihe_message(&mut self, typ: MessageType, message: String) {
-        self.send_notification::<lsp_types::notification::LogMessage>(LogMessageParams {
-            typ,
-            message,
-        });
+    fn log_qihe_message(&mut self, token: String, message: String) {
+        self.send_notification::<QiheLogNotification>(QiheLogParams { token, message });
     }
 }
 
@@ -223,8 +242,9 @@ fn run_qihe_task(
     snapshot: GlobalStateSnapshot,
     params: RunQiheAnalysisParams,
     progress_token: String,
+    log_sink: QiheLogSink,
 ) -> QiheTask {
-    match run_qihe_request(&snapshot, params) {
+    match run_qihe_request(&snapshot, params, &log_sink) {
         Ok(update) => QiheTask::Finished { update, progress_token },
         Err(err) => QiheTask::Failed { message: err.to_string(), progress_token },
     }
@@ -233,6 +253,7 @@ fn run_qihe_task(
 fn run_qihe_request(
     snapshot: &GlobalStateSnapshot,
     params: RunQiheAnalysisParams,
+    log_sink: &QiheLogSink,
 ) -> Result<QiheUpdate> {
     let active_path = from_proto::abs_path(&params.uri)?;
     let active_file_id = snapshot.file_id(&params.uri)?;
@@ -245,7 +266,7 @@ fn run_qihe_request(
     let i18n = snapshot.config.i18n;
     let (ir_path, storage_root) = qihe_run_paths(active_path.as_path())
         .context(i18n.text(keys::QIHE_PREPARE_WORKSPACE_FAILED))?;
-    run_qihe_commands(&qihe_config, &cwd, &compile_input, &ir_path, &storage_root, i18n)?;
+    run_qihe_commands(&qihe_config, &cwd, &compile_input, &ir_path, &storage_root, i18n, log_sink)?;
 
     let diagnostics = load_latest_diagnostics(&storage_root, i18n)?;
     let resolution_base = if compile_input.project_mode {
@@ -345,10 +366,11 @@ fn run_qihe_commands(
     ir_path: &Path,
     storage_root: &Path,
     i18n: I18n,
+    log_sink: &QiheLogSink,
 ) -> Result<()> {
     let mut command = qihe_command(qihe_config, cwd, "compile");
     prepare_qihe_compile_command(&mut command, qihe_config, compile_input, ir_path);
-    run_command(&mut command, "qihe compile", i18n)?;
+    run_command(&mut command, "qihe compile", i18n, log_sink)?;
 
     let mut command = qihe_command(qihe_config, cwd, "run");
     run_command(
@@ -360,6 +382,7 @@ fn run_qihe_commands(
             .arg(format!("storage.root={}", storage_root.display())),
         "qihe run",
         i18n,
+        log_sink,
     )
 }
 
@@ -403,34 +426,122 @@ fn qihe_command(qihe_config: &QiheConfig, cwd: &Path, subcommand: &str) -> Comma
     command
 }
 
-fn run_command(command: &mut Command, label: &str, i18n: I18n) -> Result<()> {
-    let command_line = format!("{command:?}");
+fn run_command(
+    command: &mut Command,
+    label: &str,
+    i18n: I18n,
+    log_sink: &QiheLogSink,
+) -> Result<()> {
+    let command_line = command_line(command);
+    log_sink.log(format!("{label} command:\n{command_line}"));
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = command.output().with_context(|| {
+    let mut child = command.spawn().with_context(|| {
         i18n.format(
             keys::QIHE_COMMAND_FAILED_TO_START,
             [("label", label.to_owned()), ("command_line", command_line.clone())],
         )
     })?;
-    if output.status.success() {
+
+    let stdout = child
+        .stdout
+        .take()
+        .map(|stdout| stream_command_output(stdout, label.to_owned(), "stdout", log_sink.clone()));
+    let stderr = child
+        .stderr
+        .take()
+        .map(|stderr| stream_command_output(stderr, label.to_owned(), "stderr", log_sink.clone()));
+
+    let status = child.wait()?;
+    let stdout = join_command_output(stdout);
+    let stderr = join_command_output(stderr);
+    log_sink.log(format!("{label} finished with status {status}"));
+
+    if status.success() {
         return Ok(());
     }
 
-    let stdout = strip_ansi(String::from_utf8_lossy(&output.stdout).as_ref());
-    let stderr = strip_ansi(String::from_utf8_lossy(&output.stderr).as_ref());
     bail!(
         "{}",
         i18n.format(
             keys::QIHE_COMMAND_FAILED,
             [
                 ("label", label.to_owned()),
-                ("status", output.status.to_string()),
+                ("status", status.to_string()),
                 ("command_line", command_line),
                 ("stdout", stdout.trim().to_owned()),
                 ("stderr", stderr.trim().to_owned()),
             ],
         )
     );
+}
+
+fn stream_command_output<R: Read + Send + 'static>(
+    stream: R,
+    label: String,
+    stream_name: &'static str,
+    log_sink: QiheLogSink,
+) -> JoinHandle<String> {
+    thread::spawn(move || {
+        let mut output = String::new();
+        let mut reader = BufReader::new(stream);
+        let mut bytes = Vec::new();
+
+        loop {
+            bytes.clear();
+            let read = match reader.read_until(b'\n', &mut bytes) {
+                Ok(read) => read,
+                Err(error) => {
+                    log_sink.log(format!("{label} {stream_name} read failed: {error}"));
+                    break;
+                }
+            };
+            if read == 0 {
+                break;
+            }
+
+            let chunk = strip_ansi(String::from_utf8_lossy(&bytes).as_ref());
+            output.push_str(&chunk);
+            log_command_output_line(&label, stream_name, &chunk, &log_sink);
+        }
+
+        output
+    })
+}
+
+fn log_command_output_line(label: &str, stream_name: &str, output: &str, log_sink: &QiheLogSink) {
+    let text = output.trim_end_matches(&['\r', '\n'][..]);
+    log_sink.log(format!("{label} {stream_name}: {text}"));
+}
+
+fn join_command_output(handle: Option<JoinHandle<String>>) -> String {
+    let Some(handle) = handle else {
+        return String::new();
+    };
+    handle.join().unwrap_or_default()
+}
+
+fn command_line(command: &Command) -> String {
+    let mut parts = Vec::new();
+    if let Some(cwd) = command.get_current_dir() {
+        parts.push(format!("cwd={}", quote_command_arg(cwd.as_os_str())));
+    }
+    parts.push(quote_command_arg(command.get_program()));
+    parts.extend(command.get_args().map(quote_command_arg));
+    parts.join(" ")
+}
+
+fn quote_command_arg(arg: &OsStr) -> String {
+    let text = arg.to_string_lossy();
+    if !text.is_empty()
+        && text.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(byte, b'/' | b':' | b'.' | b'_' | b'-' | b'=' | b'+')
+        })
+    {
+        return text.into_owned();
+    }
+
+    format!("{text:?}")
 }
 
 fn strip_ansi(text: &str) -> String {
@@ -661,16 +772,21 @@ struct QiheJsonSupportInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsStr, path::PathBuf, process::Command};
+    use std::{ffi::OsStr, io::Cursor, path::PathBuf, process::Command};
 
     use base_db::compilation_plan::CompilationPlan;
+    use crossbeam_channel::unbounded;
     use utils::paths::AbsPathBuf;
 
     use super::{
-        QiheCompileInput, has_compile_mode, parse_source_loc, prepare_qihe_compile_command,
-        qihe_compile_input_from_plan, split_compile_args, strip_ansi,
+        QiheCompileInput, QiheLogSink, command_line, has_compile_mode, join_command_output,
+        parse_source_loc, prepare_qihe_compile_command, qihe_compile_input_from_plan,
+        split_compile_args, stream_command_output, strip_ansi,
     };
-    use crate::config::user_config::QiheConfig;
+    use crate::{
+        config::user_config::QiheConfig,
+        global_state::main_loop::{QiheTask, Task},
+    };
 
     #[test]
     fn parses_line_col_only_locations() {
@@ -694,6 +810,44 @@ mod tests {
     #[test]
     fn strips_ansi_escape_sequences() {
         assert_eq!(strip_ansi("\u{1b}[32mINFO\u{1b}[m hello"), "INFO hello");
+    }
+
+    #[test]
+    fn command_line_includes_cwd_program_and_arguments() {
+        let cwd = if cfg!(windows) { "C:/repo with space" } else { "/repo with space" };
+        let mut command = Command::new("qihe");
+        command.current_dir(cwd).arg("compile").arg("rtl/top module.sv");
+
+        let rendered = command_line(&command);
+
+        assert!(rendered.contains("cwd="));
+        assert!(rendered.contains("qihe"));
+        assert!(rendered.contains("compile"));
+        assert!(rendered.contains("\"rtl/top module.sv\""));
+    }
+
+    #[test]
+    fn command_output_streamer_strips_ansi_and_logs_lines() {
+        let (sender, receiver) = unbounded();
+        let sink = QiheLogSink::new(sender, "test-token".to_owned());
+        let handle = stream_command_output(
+            Cursor::new("\u{1b}[32mfirst\u{1b}[m\nsecond\n".as_bytes().to_vec()),
+            "qihe run".to_owned(),
+            "stdout",
+            sink,
+        );
+
+        let output = join_command_output(Some(handle));
+
+        assert_eq!(output, "first\nsecond\n");
+        let messages = receiver
+            .try_iter()
+            .filter_map(|task| match task {
+                Task::Qihe(QiheTask::Log { message, .. }) => Some(message),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(messages, ["qihe run stdout: first", "qihe run stdout: second"]);
     }
 
     #[test]

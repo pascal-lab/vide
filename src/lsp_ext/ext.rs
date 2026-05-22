@@ -170,6 +170,21 @@ impl Notification for QiheStatusNotification {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct QiheLogParams {
+    pub token: String,
+    pub message: String,
+}
+
+pub enum QiheLogNotification {}
+
+impl Notification for QiheLogNotification {
+    type Params = QiheLogParams;
+
+    const METHOD: &'static str = "vizsla/qiheLog";
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ProjectStatusState {
     Loading,
     Loaded,

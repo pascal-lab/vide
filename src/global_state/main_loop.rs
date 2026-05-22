@@ -45,6 +45,7 @@ pub(crate) enum Task {
 
 #[derive(Debug)]
 pub(crate) enum QiheTask {
+    Log { token: String, message: String },
     Finished { update: QiheUpdate, progress_token: String },
     Failed { message: String, progress_token: String },
 }
