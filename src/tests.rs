@@ -36,6 +36,7 @@ use crate::{
         user_config::{DiagnosticsUpdateUserConfig, UserConfig},
     },
     global_state::main_loop,
+    i18n::I18n,
     lsp_ext::to_proto,
 };
 
@@ -106,6 +107,7 @@ fn test_server_config(
         root_path.clone(),
         client_caps,
         vec![root_path],
+        I18n::default(),
         user_config,
         Vec::new(),
     )
@@ -1461,6 +1463,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
         root_path.clone(),
         pull_caps,
         vec![root_path],
+        I18n::default(),
         UserConfig::default(),
         Vec::new(),
     );
@@ -1555,6 +1558,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
         root_path.clone(),
         pull_caps,
         vec![app_root, package_root],
+        I18n::default(),
         UserConfig::default(),
         Vec::new(),
     );
@@ -1667,6 +1671,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
         root_path.clone(),
         pull_caps,
         vec![root_path],
+        I18n::default(),
         UserConfig::default(),
         Vec::new(),
     );
@@ -1763,6 +1768,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
         root_path.clone(),
         pull_caps,
         vec![root_path],
+        I18n::default(),
         UserConfig::default(),
         Vec::new(),
     );
@@ -1874,6 +1880,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         root_path.clone(),
         pull_caps,
         vec![root_path],
+        I18n::default(),
         UserConfig::default(),
         Vec::new(),
     );
@@ -2005,6 +2012,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         root_path.clone(),
         pull_caps,
         vec![root_path],
+        I18n::default(),
         UserConfig::default(),
         Vec::new(),
     );

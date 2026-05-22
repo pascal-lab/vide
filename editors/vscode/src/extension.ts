@@ -18,7 +18,7 @@ import {
   PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
 } from './projectConfig';
-import { getServerStatusPresentation, type ServerStatus } from './status';
+import { getServerStatusPresentation, type ServerStatus, type ServerStatusMessages } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -45,10 +45,25 @@ function log(message: string): void {
 
 function requireOutputChannel(): vscode.OutputChannel {
   if (!outputChannel) {
-    throw new Error('Vizsla output channel has not been initialized.');
+    throw new Error(vscode.l10n.t('Vizsla output channel has not been initialized.'));
   }
 
   return outputChannel;
+}
+
+function localizedServerStatusMessages(): ServerStatusMessages {
+  return {
+    startingText: vscode.l10n.t('$(sync~spin) Vizsla Starting'),
+    startingTooltip: vscode.l10n.t('Vizsla language server is starting.'),
+    readyText: vscode.l10n.t('$(check) Vizsla Ready'),
+    readyTooltip: vscode.l10n.t('Vizsla language server is running.'),
+    stoppingText: vscode.l10n.t('$(debug-stop) Vizsla Stopping'),
+    stoppingTooltip: vscode.l10n.t('Vizsla language server is stopping.'),
+    stoppedText: vscode.l10n.t('$(circle-slash) Vizsla Stopped'),
+    stoppedTooltip: vscode.l10n.t('Vizsla language server is stopped.'),
+    errorText: vscode.l10n.t('$(error) Vizsla Error'),
+    errorTooltip: vscode.l10n.t('Vizsla language server failed.'),
+  };
 }
 
 function showOutput(): void {
@@ -60,9 +75,12 @@ function updateServerStatus(status: ServerStatus, detail?: string): void {
     return;
   }
 
-  const presentation = getServerStatusPresentation(status, detail);
+  const presentation = getServerStatusPresentation(status, detail, localizedServerStatusMessages());
   statusBarItem.text = presentation.text;
-  statusBarItem.tooltip = `${presentation.tooltip}\n\nClick to show output.`;
+  statusBarItem.tooltip = vscode.l10n.t(
+    '{0}\n\nClick to show output.',
+    presentation.tooltip,
+  );
   statusBarItem.command = showOutputCommand;
   statusBarItem.color = presentation.color
     ? new vscode.ThemeColor(presentation.color)
@@ -107,7 +125,7 @@ function updateQiheStatus(
 
 function createQiheStatusBarItem(): vscode.StatusBarItem {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  item.name = 'Vizsla Qihe';
+  item.name = vscode.l10n.t('Vizsla Qihe');
   item.command = runQiheAnalysisCommand;
   item.hide();
   return item;
@@ -128,7 +146,7 @@ function startQiheNotification(token: string, message?: string): void {
   void vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: 'Running Qihe analysis',
+      title: vscode.l10n.t('Running Qihe analysis'),
     },
     async (progress) => {
       if (message) {
@@ -167,21 +185,21 @@ function registerQiheNotifications(languageClient: LanguageClient): void {
       switch (state) {
         case 'begin':
           activeQiheTokens.add(token);
-          updateQiheStatus(message ?? 'Qihe analysis is running');
+          updateQiheStatus(message ?? vscode.l10n.t('Qihe analysis is running'));
           startQiheNotification(token, message);
           break;
         case 'end':
           activeQiheTokens.delete(token);
           finishQiheNotification(token);
           if (activeQiheTokens.size === 0) {
-            updateQiheStatus(message ?? 'Qihe analysis finished', 4000);
+            updateQiheStatus(message ?? vscode.l10n.t('Qihe analysis finished'), 4000);
           }
           break;
         case 'failed':
           activeQiheTokens.delete(token);
           finishQiheNotification(token);
           if (activeQiheTokens.size === 0) {
-            updateQiheStatus(message ?? 'Qihe analysis failed', 6000);
+            updateQiheStatus(message ?? vscode.l10n.t('Qihe analysis failed'), 6000);
           }
           break;
         default:
@@ -271,7 +289,9 @@ function readConfiguration(): ServerConfiguration {
   const trace = config.get<'off' | 'messages' | 'verbose'>('trace.server') ?? 'off';
 
   if (!args || !additionalArgs) {
-    vscode.window.showErrorMessage('vizsla server arguments settings must be arrays of strings.');
+    vscode.window.showErrorMessage(
+      vscode.l10n.t('vizsla server arguments settings must be arrays of strings.'),
+    );
     return {
       command: undefined,
       args: [],
@@ -320,8 +340,9 @@ function resolveServerLaunch(
   if (!serverCommand) {
     serverCommand = getServerPath(context);
     if (!serverCommand) {
-      const message =
-        'Bundled Vizsla Language Server binary not found. Install the VSIX that matches your platform or configure "vizsla.server.command".';
+      const message = vscode.l10n.t(
+        'Bundled Vizsla Language Server binary not found. Install the VSIX that matches your platform or configure "vizsla.server.command".',
+      );
       log(`[ERROR] ${message}`);
       throw new Error(message);
     }
@@ -393,13 +414,24 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
   }
 
   const createConfigAction =
-    missingConfigs.length === 1 ? 'Create Manifest' : 'Create Manifests';
-  const restartNotice =
-    'Creating a manifest will restart the Vizsla language server so the workspace can reload it.';
+    missingConfigs.length === 1
+      ? vscode.l10n.t('Create Manifest')
+      : vscode.l10n.t('Create Manifests');
+  const restartNotice = vscode.l10n.t(
+    'Creating a manifest will restart the Vizsla language server so the workspace can reload it.',
+  );
   const promptMessage =
     missingConfigs.length === 1
-      ? `No Vizsla project manifest was detected in ${missingConfigs[0].folder.name}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. ${restartNotice}`
-      : `No Vizsla project manifest was detected in ${missingConfigs.length} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. ${restartNotice}`;
+      ? vscode.l10n.t(
+          'No Vizsla project manifest was detected in {0}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
+          missingConfigs[0].folder.name,
+          restartNotice,
+        )
+      : vscode.l10n.t(
+          'No Vizsla project manifest was detected in {0} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
+          missingConfigs.length,
+          restartNotice,
+        );
 
   const selection = await vscode.window.showWarningMessage(promptMessage, createConfigAction);
   if (selection !== createConfigAction) {
@@ -422,7 +454,12 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
         continue;
       }
 
-      const errorMessage = `Failed to create ${PROJECT_CONFIG_FILE_NAME} in ${folder.name}: ${(error as Error).message}`;
+      const errorMessage = vscode.l10n.t(
+        'Failed to create {0} in {1}: {2}',
+        PROJECT_CONFIG_FILE_NAME,
+        folder.name,
+        (error as Error).message,
+      );
       log(`[WARN] ${errorMessage}`);
       void vscode.window.showWarningMessage(errorMessage);
     }
@@ -438,9 +475,19 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
 
   const createdMessage =
     createdConfigs.length === 1
-      ? `Created ${PROJECT_CONFIG_FILE_NAME} with best-effort indexing defaults.`
-      : `Created ${PROJECT_CONFIG_FILE_NAME} files with best-effort indexing defaults in ${createdConfigs.length} workspace folders.`;
-  const openConfigAction = createdConfigs.length === 1 ? 'Open Manifest' : 'Open First Manifest';
+      ? vscode.l10n.t(
+          'Created {0} with best-effort indexing defaults.',
+          PROJECT_CONFIG_FILE_NAME,
+        )
+      : vscode.l10n.t(
+          'Created {0} files with best-effort indexing defaults in {1} workspace folders.',
+          PROJECT_CONFIG_FILE_NAME,
+          createdConfigs.length,
+        );
+  const openConfigAction =
+    createdConfigs.length === 1
+      ? vscode.l10n.t('Open Manifest')
+      : vscode.l10n.t('Open First Manifest');
 
   void vscode.window.showInformationMessage(createdMessage, openConfigAction).then(async (selection) => {
     if (selection !== openConfigAction) {
@@ -499,7 +546,12 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
   };
 
   log('[INFO] Creating LanguageClient instance...');
-  return new LanguageClient('vizsla', 'Vizsla Language Server', serverOptions, clientOptions);
+  return new LanguageClient(
+    'vizsla',
+    vscode.l10n.t('Vizsla Language Server'),
+    serverOptions,
+    clientOptions,
+  );
 }
 
 async function startClient(context: vscode.ExtensionContext): Promise<void> {
@@ -518,7 +570,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     log(`[ERROR] ${(error as Error).stack}`);
     updateServerStatus('error', message);
     vscode.window.showErrorMessage(
-      `Failed to start Vizsla Language Server: ${message}`,
+      vscode.l10n.t('Failed to start Vizsla Language Server: {0}', message),
     );
   }
 }
@@ -559,15 +611,19 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
       env: createServerEnv(),
       timeout: versionTimeoutMs,
     });
-    const output = `${stdout}${stderr}`.trim() || 'No version output';
+    const output = `${stdout}${stderr}`.trim() || vscode.l10n.t('No version output');
     const firstLine = output.split(/\r?\n/, 1)[0] ?? output;
     log(`[INFO] Server version output:\n${output}`);
-    vscode.window.showInformationMessage(`Vizsla server: ${firstLine}`);
+    vscode.window.showInformationMessage(vscode.l10n.t('Vizsla server: {0}', firstLine));
   } catch (error) {
-    const message = `Failed to query Vizsla server version: ${(error as Error).message}`;
+    const message = vscode.l10n.t(
+      'Failed to query Vizsla server version: {0}',
+      (error as Error).message,
+    );
     log(`[ERROR] ${message}`);
-    const selection = await vscode.window.showErrorMessage(message, 'Show Output');
-    if (selection === 'Show Output') {
+    const showOutputAction = vscode.l10n.t('Show Output');
+    const selection = await vscode.window.showErrorMessage(message, showOutputAction);
+    if (selection === showOutputAction) {
       showOutput();
     }
   }
@@ -576,17 +632,19 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
 async function runQiheAnalysis(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    vscode.window.showWarningMessage('Open a Verilog or SystemVerilog file first.');
+    vscode.window.showWarningMessage(vscode.l10n.t('Open a Verilog or SystemVerilog file first.'));
     return;
   }
 
   if (!['verilog', 'systemverilog'].includes(editor.document.languageId)) {
-    vscode.window.showWarningMessage('Qihe analysis is only available for Verilog files.');
+    vscode.window.showWarningMessage(
+      vscode.l10n.t('Qihe analysis is only available for Verilog files.'),
+    );
     return;
   }
 
   if (!client) {
-    vscode.window.showErrorMessage('Vizsla language server is not running.');
+    vscode.window.showErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
     return;
   }
 
@@ -604,7 +662,7 @@ async function runQiheAnalysis(): Promise<void> {
       arguments: [payload],
     });
   } catch (error) {
-    const message = `Failed to run Qihe analysis: ${(error as Error).message}`;
+    const message = vscode.l10n.t('Failed to run Qihe analysis: {0}', (error as Error).message);
     log(`[ERROR] ${message}`);
     vscode.window.showErrorMessage(message);
   }
@@ -621,7 +679,7 @@ function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  outputChannel = vscode.window.createOutputChannel('Vizsla Language Server');
+  outputChannel = vscode.window.createOutputChannel(vscode.l10n.t('Vizsla Language Server'));
   context.subscriptions.push(outputChannel);
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBarItem);
@@ -672,11 +730,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       log('[INFO] Server launch configuration changed');
+      const restartAction = vscode.l10n.t('Restart');
       const selection = await vscode.window.showInformationMessage(
-        'Vizsla server configuration changed. Restart the language server to apply it.',
-        'Restart',
+        vscode.l10n.t(
+          'Vizsla server configuration changed. Restart the language server to apply it.',
+        ),
+        restartAction,
       );
-      if (selection === 'Restart') {
+      if (selection === restartAction) {
         await restartClient(context);
       }
     },

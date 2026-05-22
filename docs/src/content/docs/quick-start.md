@@ -21,7 +21,7 @@ description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
 # Set sources = [] to disable workspace indexing.
 ```
 
-这个默认清单会索引 workspace 下的 Verilog/SystemVerilog 文件, 让跨文件跳转、引用等读能力开箱可用; 但不会建立编译 profile 或运行跨文件 semantic diagnostics。显式写入 `sources = []` 可关闭 workspace 索引。
+这个默认项目配置文件会索引 workspace 下的 Verilog/SystemVerilog 文件, 让跨文件跳转、引用等读能力开箱可用; 但不会建立编译 profile 或运行跨文件 semantic diagnostics。显式写入 `sources = []` 可关闭 workspace 索引。
 
 ## 3. 确认状态栏
 

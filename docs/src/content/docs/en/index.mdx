@@ -1,0 +1,110 @@
+---
+title: Vizsla User Guide
+description: User guide for the Verilog/SystemVerilog language server and VS Code extension.
+template: splash
+editUrl: false
+lastUpdated: false
+hero:
+  title: Vizsla
+  tagline: A language server and VS Code extension for Verilog and SystemVerilog that brings common RTL IDE features into your editor.
+  actions:
+    - text: Quick Start
+      link: ./quick-start/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/pascal-lab/vizsla
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+  <Card title="RTL-aware language intelligence" icon="code-branch">
+    Reads project manifests, source files, include directories, and macro definitions to maintain Verilog/SystemVerilog semantic information.
+  </Card>
+  <Card title="Ready inside VS Code" icon="vscode">
+    The extension contributes language configuration, syntax highlighting, commands, a status bar item, and starts the bundled language server.
+  </Card>
+  <Card title="Navigation and diagnostics" icon="magnifier">
+    Supports semantic diagnostics, go to declaration/definition, references, document highlights, outlines, and folding.
+  </Card>
+  <Card title="RTL editing assistance" icon="rocket">
+    Provides completion, hover, signature help, rename, formatting, code actions, and inlay hints.
+  </Card>
+</CardGrid>
+
+## Start Reading
+
+<CardGrid>
+  <LinkCard
+    title="Quick Start"
+    href="./quick-start/"
+    description="Install the extension, open an RTL project, confirm that the server starts, and try the core IDE features."
+  />
+  <LinkCard
+    title="Installation"
+    href="./installation/"
+    description="Learn how to install the VS Code extension, offline VSIX packages, and custom servers."
+  />
+  <LinkCard
+    title="First Project"
+    href="./first-project/"
+    description="Prepare a recommended directory layout and understand the default scanning behavior when no manifest exists."
+  />
+  <LinkCard
+    title="Project Configuration"
+    href="./project-configuration/"
+    description="Write vizsla.toml and configure sources, include_dirs, defines, and libraries."
+  />
+</CardGrid>
+
+## Common References
+
+<CardGrid>
+  <LinkCard
+    title="Daily Use"
+    href="./daily-use/"
+    description="Learn diagnostics, navigation, completion, formatting, code actions, semantic highlighting, and code lens by feature."
+  />
+  <LinkCard
+    title="VS Code Settings"
+    href="./vscode-settings/"
+    description="Reference server, files, workspace, diagnostics, formatter, and other settings."
+  />
+  <LinkCard
+    title="Commands, Status, and Logs"
+    href="./commands-status-logs/"
+    description="See command palette commands, status bar states, and output channel behavior."
+  />
+  <LinkCard
+    title="Troubleshooting"
+    href="./troubleshooting/"
+    description="Debug server startup failures, stale diagnostics, file watching, and formatting issues."
+  />
+  <LinkCard
+    title="Changelog"
+    href="./changelog/"
+    description="Read user-visible breaking changes, fixes, and improvements for released versions."
+  />
+</CardGrid>
+
+## Project Layout
+
+Vizsla has two main parts:
+
+- `vizsla`: the Rust LSP server. It reads projects, parses source files, maintains semantic information, and responds to editor requests.
+- `editors/vscode`: the VS Code extension. It contributes Verilog/SystemVerilog language configuration, syntax highlighting, commands, a status bar item, and starts the language server.
+
+Support for more editors is planned.
+
+## Supported Files
+
+The VS Code extension currently recognizes these file types:
+
+| Language | Extensions |
+| --- | --- |
+| Verilog | `.v`, `.vh` |
+| SystemVerilog | `.sv`, `.svh`, `.svi` |
+
+The server also reads `.map` files when loading a project to support library maps and related project inputs.

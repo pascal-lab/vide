@@ -6,14 +6,23 @@ export default defineConfig({
   base: '/vizsla',
   integrations: [
     starlight({
-      title: 'Vizsla 用户手册',
-      description: 'Vizsla Verilog/SystemVerilog 语言服务器和 VS Code 扩展用户手册。',
+      title: {
+        'zh-CN': 'Vizsla 用户手册',
+        en: 'Vizsla User Guide',
+      },
+      description:
+        'User guide for the Vizsla Verilog/SystemVerilog language server and VS Code extension.',
       locales: {
         root: {
           label: '简体中文',
           lang: 'zh-CN',
         },
+        en: {
+          label: 'English',
+          lang: 'en',
+        },
       },
+      defaultLocale: 'root',
       editLink: {
         baseUrl: 'https://github.com/pascal-lab/vizsla/edit/master/docs/',
       },
@@ -38,7 +47,8 @@ export default defineConfig({
         'build-from-source',
         'troubleshooting',
         {
-          label: 'Changelog',
+          label: '更新日志',
+          translations: { en: 'Changelog' },
           items: ['changelog', 'changelog/v0-1-1', 'changelog/v0-1-2'],
         },
       ],

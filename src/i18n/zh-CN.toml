@@ -1,0 +1,56 @@
+[progress]
+fetching_workspaces = "正在获取工作区"
+roots_scanning = "正在扫描根目录"
+
+[qihe]
+progress_title = "正在运行 Qihe 分析"
+finished = "Qihe 分析完成，共 {total} 条诊断。"
+failed = "Qihe 分析失败"
+cancelled = "Qihe 分析已取消"
+location = "位置：{primary_element}"
+convert_diagnostic_failed = "无法转换 Qihe 诊断"
+prepare_workspace_failed = "无法准备 Qihe 工作区"
+command_failed_to_start = "{label} 启动失败：{command_line}"
+command_failed = "{label} 失败，退出状态为 {status}。\n命令：\n{command_line}\n标准输出：\n{stdout}\n标准错误：\n{stderr}"
+read_diagnostics_failed = "无法读取 Qihe 诊断文件 {path}"
+parse_diagnostics_failed = "无法解析 Qihe 诊断文件 {path}"
+read_diagnostics_dir_failed = "无法读取 Qihe 诊断目录 {path}"
+
+[server]
+shutdown_already_requested = "已请求关闭。"
+unknown_request = "未知请求"
+
+[execute_command]
+missing_arguments = "缺少 executeCommand 参数"
+unknown = "未知 executeCommand：{command}"
+
+[config]
+invalid_value_one = "配置项无效：\n{errors}"
+invalid_value_many = "配置项无效：\n{errors}"
+
+[code_lens]
+instances_one = "{count} 个实例"
+instances_many = "{count} 个实例"
+
+[code_action]
+add_missing_connections = "补全连接"
+add_missing_parameters = "补全参数"
+convert_ordered_ports = "将有序端口连接转换为命名连接"
+convert_ordered_params = "将有序参数赋值转换为命名赋值"
+remove_empty_port_connections = "移除空端口连接"
+add_implicit_named_port_parens = "添加显式空端口连接"
+add_instance_parens = "添加空实例端口列表"
+convert_literal_to_binary = "将字面量转换为二进制"
+convert_literal_to_octal = "将字面量转换为八进制"
+convert_literal_to_decimal = "将字面量转换为十进制"
+convert_literal_to_hexadecimal = "将字面量转换为十六进制"
+
+[rename]
+no_ref_found = "当前位置未找到引用"
+no_def_found = "未找到该标记的定义"
+overlapping_edits = "生成了相互重叠的编辑"
+
+[code_action_resolve]
+no_data = "代码操作缺少数据"
+stale = "代码操作已过期"
+invalid_id = "无效的操作 ID：{id}"

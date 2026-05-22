@@ -28,7 +28,7 @@ description: Vizsla VS Code 扩展的配置项参考。
 
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `vizsla.files.excludeDirs` | `[]` | workspace 相对目录排除列表。不支持 glob; 文件选择 glob 写在 manifest 的 `sources` / `exclude` 中。 |
+| `vizsla.files.excludeDirs` | `[]` | workspace 相对目录排除列表。不支持 glob; 文件选择 glob 写在项目配置文件的 `sources` / `exclude` 中。 |
 | `vizsla.files.watcher` | `"client"` | 文件监听方式, 可选 `"client"`, `"notify"`, `"server"`。 |
 
 `client` 会优先使用 VS Code 的 watched-file notifications。当前服务器配置中, 客户端不支持动态 watched files 时会回退到 server-side watcher; `notify` 和 `server` 都会走服务端监听路径。
@@ -37,7 +37,7 @@ description: Vizsla VS Code 扩展的配置项参考。
 
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `vizsla.workspace.auto.reload` | `true` | 工程清单变更后自动刷新工程信息。 |
+| `vizsla.workspace.auto.reload` | `true` | 项目配置文件变更后自动刷新工程信息。 |
 
 ## Scope
 

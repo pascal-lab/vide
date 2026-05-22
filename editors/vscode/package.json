@@ -1,7 +1,7 @@
 {
   "name": "vizsla-lsp",
   "displayName": "Vizsla",
-  "description": "Language support for Verilog and SystemVerilog powered by the Vizsla language server.",
+  "description": "%extension.description%",
   "version": "0.1.2",
   "publisher": "vizsla",
   "license": "MIT",
@@ -17,6 +17,7 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
+  "l10n": "./l10n",
   "contributes": {
     "languages": [
       {
@@ -87,7 +88,7 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the language server."
+          "description": "%configuration.trace.server.description%"
         },
         "vizsla.server.command": {
           "type": [
@@ -95,7 +96,7 @@
             "null"
           ],
           "default": null,
-          "description": "Override command used to launch the Vizsla language server. Leave empty to use the bundled binary."
+          "description": "%configuration.server.command.description%"
         },
         "vizsla.server.args": {
           "type": "array",
@@ -103,7 +104,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Arguments passed before any additional arguments when a custom command is provided."
+          "description": "%configuration.server.args.description%"
         },
         "vizsla.server.cwd": {
           "type": [
@@ -111,7 +112,7 @@
             "null"
           ],
           "default": null,
-          "description": "Working directory for the Vizsla language server process. Defaults to the first workspace folder."
+          "description": "%configuration.server.cwd.description%"
         },
         "vizsla.server.additionalArgs": {
           "type": "array",
@@ -119,12 +120,12 @@
             "type": "string"
           },
           "default": [],
-          "description": "Additional arguments appended when launching the Vizsla language server."
+          "description": "%configuration.server.additionalArgs.description%"
         },
         "vizsla.qihe.command": {
           "type": "string",
           "default": "qihe",
-          "description": "Command used to invoke Qihe. It must be available in the environment PATH seen by VS Code."
+          "description": "%configuration.qihe.command.description%"
         },
         "vizsla.qihe.compileArgs": {
           "type": "array",
@@ -132,7 +133,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Arguments inserted after `qihe compile`. Use this for compile mode selection or forwarded `slang` options such as `--mode sv -- -I include`."
+          "description": "%configuration.qihe.compileArgs.description%"
         },
         "vizsla.qihe.runArgs": {
           "type": "array",
@@ -143,7 +144,7 @@
             "-g",
             "std"
           ],
-          "description": "Arguments inserted after `qihe run` when the Qihe analysis button is used."
+          "description": "%configuration.qihe.runArgs.description%"
         },
         "vizsla.files.excludeDirs": {
           "type": "array",
@@ -151,7 +152,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Workspace-relative directories ignored by Vizsla. Globs are not supported; add matching patterns to VS Code `files.watcherExclude` if needed."
+          "markdownDescription": "%configuration.files.excludeDirs.markdownDescription%"
         },
         "vizsla.files.watcher": {
           "type": "string",
@@ -162,16 +163,16 @@
           ],
           "default": "client",
           "enumDescriptions": [
-            "Use VS Code watched-file notifications when supported.",
-            "Use the server-side notify watcher.",
-            "Use the server-side watcher."
+            "%configuration.files.watcher.enum.client%",
+            "%configuration.files.watcher.enum.notify%",
+            "%configuration.files.watcher.enum.server%"
           ],
-          "description": "Controls how Vizsla watches project files."
+          "description": "%configuration.files.watcher.description%"
         },
         "vizsla.workspace.auto.reload": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically refresh project information when project manifests change."
+          "description": "%configuration.workspace.auto.reload.description%"
         },
         "vizsla.scope.visibility": {
           "type": "string",
@@ -180,7 +181,7 @@
             "public"
           ],
           "default": "private",
-          "description": "Controls whether symbols inside scopes, except ports, are visible outside those scopes."
+          "description": "%configuration.scope.visibility.description%"
         },
         "vizsla.formatter.provider": {
           "type": "string",
@@ -189,9 +190,9 @@
           ],
           "default": "verible",
           "enumDescriptions": [
-            "Use an external verible-verilog-format executable. Supports Format Document and Format Selection."
+            "%configuration.formatter.provider.enum.verible%"
           ],
-          "description": "Formatter backend used by Vizsla."
+          "description": "%configuration.formatter.provider.description%"
         },
         "vizsla.formatter.path": {
           "type": [
@@ -199,7 +200,7 @@
             "null"
           ],
           "default": null,
-          "description": "Path to verible-verilog-format when vizsla.formatter.provider is verible. Leave empty to find it on PATH."
+          "description": "%configuration.formatter.path.description%"
         },
         "vizsla.formatter.args": {
           "type": "array",
@@ -209,58 +210,58 @@
           "default": [
             "--failsafe_success=false"
           ],
-          "description": "Arguments passed to verible-verilog-format when vizsla.formatter.provider is verible."
+          "description": "%configuration.formatter.args.description%"
         },
         "vizsla.formatting.on.enter": {
           "type": "boolean",
           "default": true,
-          "description": "Enable formatting behavior when pressing Enter."
+          "description": "%configuration.formatting.on.enter.description%"
         },
         "vizsla.formatting.in.comments": {
           "type": "boolean",
           "default": true,
-          "description": "Enable formatting inside comments."
+          "description": "%configuration.formatting.in.comments.description%"
         },
         "vizsla.formatting.indent.width": {
           "type": "integer",
           "minimum": 0,
           "default": 4,
-          "description": "Fallback indentation width used when editor formatting options are unavailable."
+          "description": "%configuration.formatting.indent.width.description%"
         },
         "vizsla.inlayHints.port.connection.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Show inlay hints for port connections."
+          "description": "%configuration.inlayHints.port.connection.enable.description%"
         },
         "vizsla.inlayHints.parameter.assignment.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Show inlay hints for parameter assignments."
+          "description": "%configuration.inlayHints.parameter.assignment.enable.description%"
         },
         "vizsla.inlayHints.end.structure.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Show inlay hints for ending structure names."
+          "description": "%configuration.inlayHints.end.structure.enable.description%"
         },
         "vizsla.lens.instantiations.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Show code lenses for module instantiations."
+          "description": "%configuration.lens.instantiations.enable.description%"
         },
         "vizsla.semantic.tokens.port.clk.rst.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Highlight clock and reset ports with dedicated semantic token modifiers."
+          "description": "%configuration.semantic.tokens.port.clk.rst.enable.description%"
         },
         "vizsla.semantic.tokens.port.input.output.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Highlight input and output ports with dedicated semantic token modifiers."
+          "description": "%configuration.semantic.tokens.port.input.output.enable.description%"
         },
         "vizsla.diagnostics.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable all Vizsla diagnostics."
+          "description": "%configuration.diagnostics.enable.description%"
         },
         "vizsla.diagnostics.update": {
           "type": "string",
@@ -269,17 +270,17 @@
             "onType"
           ],
           "default": "onSave",
-          "markdownDescription": "Controls when diagnostics are refreshed. `onSave` avoids running expensive diagnostics on every edit; `onType` refreshes diagnostics after document changes."
+          "markdownDescription": "%configuration.diagnostics.update.markdownDescription%"
         },
         "vizsla.diagnostics.parse.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable syntax and parse diagnostics."
+          "description": "%configuration.diagnostics.parse.enable.description%"
         },
         "vizsla.diagnostics.semantic.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable compilation and semantic diagnostics."
+          "description": "%configuration.diagnostics.semantic.enable.description%"
         },
         "vizsla.diagnostics.slang.warnings": {
           "type": "array",
@@ -287,12 +288,12 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "slang warning options, equivalent to command-line warning names such as `default`, `everything`, `none`, `error`, `no-<name>`, or `error=<name>`."
+          "markdownDescription": "%configuration.diagnostics.slang.warnings.markdownDescription%"
         },
         "vizsla.diagnostics.slang.rules": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Rules that filter or override diagnostic severities. Supported selectors: `code:<subsystem>:<code>`, `option:<name>`, `group:<name>`, `source:parse`, `source:semantic`.",
+          "markdownDescription": "%configuration.diagnostics.slang.rules.markdownDescription%",
           "items": {
             "type": "object",
             "required": [
@@ -303,7 +304,7 @@
               "selector": {
                 "type": "string",
                 "pattern": "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$",
-                "markdownDescription": "Diagnostic selector. Examples: `code:1:2`, `option:unconnected-port`, `group:default`, `source:semantic`."
+                "markdownDescription": "%configuration.diagnostics.slang.rules.selector.markdownDescription%"
               },
               "severity": {
                 "type": "string",
@@ -314,12 +315,12 @@
                   "error",
                   "fatal"
                 ],
-                "description": "Severity to apply when this rule matches. Use ignore to hide the diagnostic."
+                "description": "%configuration.diagnostics.slang.rules.severity.description%"
               },
               "force": {
                 "type": "boolean",
                 "default": false,
-                "description": "Reserved for future support for overriding in-source diagnostic pragmas."
+                "description": "%configuration.diagnostics.slang.rules.force.description%"
               }
             },
             "additionalProperties": false
@@ -328,26 +329,26 @@
         "vizsla.signature.help.params.only": {
           "type": "boolean",
           "default": false,
-          "description": "Show signature help for parameters only."
+          "description": "%configuration.signature.help.params.only.description%"
         }
       }
     },
     "commands": [
       {
         "command": "vizsla.showOutput",
-        "title": "Vizsla: Show Language Server Output"
+        "title": "%command.showOutput.title%"
       },
       {
         "command": "vizsla.restartServer",
-        "title": "Vizsla: Restart Language Server"
+        "title": "%command.restartServer.title%"
       },
       {
         "command": "vizsla.showServerVersion",
-        "title": "Vizsla: Show Server Version"
+        "title": "%command.showServerVersion.title%"
       },
       {
         "command": "vizsla.runQiheAnalysis",
-        "title": "Vizsla: Run Qihe Analysis",
+        "title": "%command.runQiheAnalysis.title%",
         "icon": "$(beaker)"
       }
     ],

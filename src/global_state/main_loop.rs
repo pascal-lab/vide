@@ -17,7 +17,7 @@ use super::{
     reload::FetchWorkspaceProgress,
     respond::Progress,
 };
-use crate::{config::Config, global_state::DEFAULT_REQ_HANDLER};
+use crate::{config::Config, global_state::DEFAULT_REQ_HANDLER, i18n::keys};
 
 #[derive(Debug)]
 enum Event {
@@ -220,7 +220,7 @@ impl GlobalState {
                 this.respond(lsp_server::Response::new_err(
                     req.id.clone(),
                     lsp_server::ErrorCode::InvalidRequest as i32,
-                    "Shutdown already requested.".to_owned(),
+                    this.config.i18n.text(keys::SERVER_SHUTDOWN_ALREADY_REQUESTED).to_owned(),
                 ));
                 return;
             }
@@ -322,7 +322,13 @@ impl GlobalState {
                     }
                 };
 
-                self.report_progress("Fetching Workspaces", state, None, None, None);
+                self.report_progress(
+                    self.config.i18n.text(keys::PROGRESS_FETCHING_WORKSPACES),
+                    state,
+                    None,
+                    None,
+                    None,
+                );
             }
             Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags, false),
             Task::Qihe(task) => self.handle_qihe_task(task),
@@ -355,7 +361,7 @@ impl GlobalState {
                 };
 
                 self.report_progress(
-                    "Roots Scanning",
+                    self.config.i18n.text(keys::PROGRESS_ROOTS_SCANNING),
                     state,
                     Some(format!("{n_done}/{n_total}")),
                     Some(Progress::fraction(n_done, n_total)),

@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 type PackageJson = {
+  l10n?: string;
   contributes?: {
     configuration?: {
       properties?: Record<string, unknown>;
@@ -11,12 +12,52 @@ type PackageJson = {
   };
 };
 
+function readJson<T>(fileName: string): T {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', fileName), 'utf8')) as T;
+}
+
+function readPackageJson(): PackageJson {
+  return readJson<PackageJson>('package.json');
+}
+
 function readConfigurationProperties(): Record<string, unknown> {
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
-  ) as PackageJson;
+  const packageJson = readPackageJson();
 
   return packageJson.contributes?.configuration?.properties ?? {};
+}
+
+function collectNlsPlaceholders(value: unknown, keys = new Set<string>()): Set<string> {
+  if (typeof value === 'string') {
+    const match = /^%([^%]+)%$/.exec(value);
+    if (match) {
+      keys.add(match[1]);
+    }
+    return keys;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectNlsPlaceholders(item, keys);
+    }
+    return keys;
+  }
+
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) {
+      collectNlsPlaceholders(item, keys);
+    }
+  }
+
+  return keys;
+}
+
+function collectRuntimeL10nMessages(): string[] {
+  const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'extension.ts'), 'utf8');
+  const matches = extensionSource.matchAll(/vscode\.l10n\.t\(\s*'((?:\\'|[^'])*)'/g);
+  const messages = [...matches].map((match) =>
+    match[1].replace(/\\n/g, '\n').replace(/\\'/g, "'"),
+  );
+  return [...new Set(messages)].sort();
 }
 
 test('contributes settings for the complete Vizsla user configuration surface', () => {
@@ -63,4 +104,26 @@ test('does not expose the old vizslaLsp settings namespace', () => {
   const oldSettings = Object.keys(properties).filter((key) => key.startsWith('vizslaLsp.'));
 
   assert.deepEqual(oldSettings, []);
+});
+
+test('localizes package contribution strings for English and Simplified Chinese', () => {
+  const packageJson = readPackageJson();
+  const placeholderKeys = [...collectNlsPlaceholders(packageJson)].sort();
+  const englishKeys = Object.keys(readJson<Record<string, string>>('package.nls.json')).sort();
+  const chineseKeys = Object.keys(readJson<Record<string, string>>('package.nls.zh-cn.json')).sort();
+
+  assert.deepEqual(englishKeys, placeholderKeys);
+  assert.deepEqual(chineseKeys, placeholderKeys);
+});
+
+test('localizes runtime extension strings for Simplified Chinese', () => {
+  const packageJson = readPackageJson();
+  assert.equal(packageJson.l10n, './l10n');
+
+  const messages = collectRuntimeL10nMessages();
+  const chineseBundle = readJson<Record<string, string>>(
+    path.join('l10n', 'bundle.l10n.zh-cn.json'),
+  );
+
+  assert.deepEqual(Object.keys(chineseBundle).sort(), messages);
 });

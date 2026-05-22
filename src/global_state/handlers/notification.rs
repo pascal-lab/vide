@@ -292,6 +292,7 @@ mod tests {
         Opt,
         config::{self, user_config::UserConfig},
         global_state::GlobalState,
+        i18n::I18n,
     };
 
     fn test_state() -> (GlobalState, Connection) {
@@ -305,6 +306,7 @@ mod tests {
             root_path.clone(),
             lsp_types::ClientCapabilities::default(),
             vec![root_path],
+            I18n::default(),
             UserConfig::default(),
             Vec::new(),
         );

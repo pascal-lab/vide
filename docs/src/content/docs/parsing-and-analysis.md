@@ -3,7 +3,7 @@ title: 解析与分析模型
 description: 说明 Vizsla 如何从文件发现、解析、索引到语义分析和诊断。
 ---
 
-Vizsla 会把“看见文件”和“把文件当作工程编译单元”分开处理。这样缺少完整配置时仍然可以开箱即用地阅读代码, 而写入清单后又能得到更准确的语义分析。
+Vizsla 会把“看见文件”和“把文件当作工程编译单元”分开处理。这样缺少完整配置时仍然可以开箱即用地阅读代码, 而写入项目配置文件后又能得到更准确的语义分析。
 
 ## 分层模型
 
@@ -25,14 +25,14 @@ Vizsla 的工程分析分成四层:
 
 `BestEffortIndex` 是默认可读性的关键: 它让跳转、引用等功能尽量能用, 但不会把这些文件假装成一个准确的编译工程。
 
-## Manifest 行为
+## 项目配置文件行为
 
 `vizsla.toml` 控制工程模型, 但不是直接控制某一条 diagnostics 入口。不同配置会生成不同 root 和 profile:
 
 | 配置状态 | 文件加载 | Semantic profile |
 | --- | --- | --- |
-| 没有清单 | 默认索引 workspace root | 不生成 |
-| 清单存在但省略 `sources` | 默认索引 workspace root | 不生成 |
+| 没有项目配置文件 | 默认索引 workspace root | 不生成 |
+| 项目配置文件存在但省略 `sources` | 默认索引 workspace root | 不生成 |
 | 省略 `sources`, 但写了 `include_dirs` | 默认索引 workspace root, 另加载 include root | include root 生成 profile; 默认索引 root 不进入 profile |
 | `sources = []` | 不做默认 workspace 索引 | 不生成 |
 | `sources = []` 且写了 `include_dirs` | 只加载 include root | include root 生成 profile |
@@ -67,7 +67,7 @@ Semantic diagnostics 一定要通过 profile。没有 profile 的 root 不会被
 - 如果 include、macro、library 配置缺失, 部分语义能力会降级或缺失。
 - 如果需要和真实工程编译一致, 应该显式配置 `sources`, `include_dirs`, `defines`, `libraries` 和 `top_modules`。
 
-这种设计的目标是先让工程可读, 再通过清单把结果变准。
+这种设计的目标是先让工程可读, 再通过项目配置文件把结果变准。
 
 ## Qihe project mode
 
