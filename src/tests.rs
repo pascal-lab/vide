@@ -22,9 +22,9 @@ use lsp_types::{
         Exit, Notification as _,
     },
     request::{
-        CodeActionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest, FoldingRangeRequest,
-        GotoDefinition, HoverRequest, Request as _, SemanticTokensFullRequest, Shutdown,
-        WorkspaceDiagnosticRequest,
+        CodeActionRequest, CodeLensRequest, CodeLensResolve, DocumentDiagnosticRequest,
+        DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition, HoverRequest, References,
+        Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceDiagnosticRequest,
     },
 };
 use serde::de::DeserializeOwned;
@@ -362,6 +362,36 @@ fn request_goto_definition_uris(
     definition.map(goto_definition_response_uris).unwrap_or_default()
 }
 
+fn request_reference_uris(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+) -> Vec<Url> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            References::METHOD.to_string(),
+            lsp_types::ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, needle),
+                },
+                context: lsp_types::ReferenceContext { include_declaration: true },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    let references: Option<Vec<lsp_types::Location>> =
+        recv_response(client, request_id, "references");
+    references.unwrap_or_default().into_iter().map(|location| location.uri).collect()
+}
+
 fn request_workspace_diagnostic_report(
     client: &Connection,
     request_id: i32,
@@ -526,6 +556,42 @@ fn request_code_actions(
         .unwrap();
 
     recv_response(client, request_id, "codeAction")
+}
+
+fn request_code_lenses(client: &Connection, uri: Url, request_id: i32) -> Vec<lsp_types::CodeLens> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CodeLensRequest::METHOD.to_string(),
+            lsp_types::CodeLensParams {
+                text_document: TextDocumentIdentifier { uri },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+
+    recv_response(client, request_id, "codeLens")
+}
+
+fn resolve_code_lens(
+    client: &Connection,
+    lens: lsp_types::CodeLens,
+    request_id: i32,
+) -> lsp_types::CodeLens {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CodeLensResolve::METHOD.to_string(),
+            lens,
+        )))
+        .unwrap();
+
+    recv_response(client, request_id, "codeLens/resolve")
 }
 
 fn code_action_titles(actions: &[CodeActionOrCommand]) -> Vec<String> {
@@ -2434,6 +2500,59 @@ fn legacy_publish_diagnostics_refreshes_dependent_open_files() {
         second_top_diags.is_empty(),
         "top.sv diagnostics should refresh when child.sv changes: {second_top_diags:?}"
     );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn include_expanded_parameter_decls_keep_module_navigation_available() {
+    let temp_dir = TempDir::new("include-param-module-nav");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+
+    let top_text = "module top;\n  child #(.WIDTH(64)) u_child();\nendmodule\n";
+    let child_text = "module child #(\n`include \"params.vh\"\n) ();\nendmodule\n";
+
+    fs::write(
+        temp_dir.path().join("vizsla.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.v\"]\ninclude_dirs = [\"rtl\"]\n",
+    )
+    .unwrap();
+    fs::write(rtl_dir.join("params.vh"), "parameter WIDTH = 32\n").unwrap();
+    let top_path = rtl_dir.join("top.v");
+    let child_path = rtl_dir.join("child.v");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let (client, server_thread) =
+        spawn_test_workspace(root_path, ClientCapabilities::default(), UserConfig::default());
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+
+    open_test_document(&client, top_uri.clone(), top_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let definition_uris =
+        request_goto_definition_uris(&client, top_uri.clone(), top_text, "child #", 2);
+    assert!(
+        definition_uris.contains(&child_uri),
+        "go to definition should reach child.v despite include-expanded parameters: {definition_uris:?}"
+    );
+
+    let reference_uris =
+        request_reference_uris(&client, child_uri.clone(), child_text, "child #", 3);
+    assert!(
+        reference_uris.contains(&child_uri) && reference_uris.contains(&top_uri),
+        "references should include the module declaration and instantiation: {reference_uris:?}"
+    );
+
+    let lenses = request_code_lenses(&client, child_uri, 4);
+    let lens = lenses.into_iter().next().expect("child module should have an instance code lens");
+    let resolved = resolve_code_lens(&client, lens, 5);
+    let title = resolved.command.expect("resolved code lens should have a command").title;
+    assert_eq!(title, "1 instance");
 
     shutdown_test_server(&client, server_thread);
 }

@@ -10,7 +10,7 @@ use utils::text_edit::TextRange;
 use super::{Ident, aggregate::StructId, expr::data_ty::DataTy};
 use crate::{
     container::{ContainerId, InContainer},
-    source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode, root_token_in},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -69,6 +69,17 @@ impl From<ast::TypedefDeclaration<'_>> for TypedefSrc {
             node: AstNodeExt::to_ptr(&node),
             name: name_token.map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
         }
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::TypedefDeclaration<'a>> for TypedefSrc {
+    fn from_source_ast(node: SourceAst<ast::TypedefDeclaration<'a>>) -> Self {
+        let node = node.into_inner();
+        let syntax = node.syntax();
+        let name = node
+            .name()
+            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
+        TypedefSrc { node: AstNodeExt::to_ptr(&node), name }
     }
 }
 

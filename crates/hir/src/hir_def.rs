@@ -39,8 +39,12 @@ pub(crate) fn lower_named_label_opt(label: Option<ast::NamedLabel>) -> Option<Id
 
 macro alloc_idx_and_src($hir:expr => $arena:expr, $ast:expr => $src_map:expr $(,)?) {{
     let idx = $arena.alloc($hir.into());
-    let src = $ast.into();
-    $src_map.insert(src, idx);
+    // HIR lowering can consume include-expanded AST nodes, but source maps only
+    // store locations that can be navigated in the parsed root file.
+    if let Some(ast) = $crate::source_map::SourceAst::new($ast) {
+        let src = $crate::source_map::FromSourceAst::from_source_ast(ast);
+        $src_map.insert(src, idx);
+    }
     idx
 }}
 
