@@ -1,6 +1,6 @@
 [progress]
 fetching_workspaces = "正在获取工作区"
-roots_scanning = "正在扫描根目录"
+roots_scanning = "正在扫描工作区文件"
 
 [qihe]
 progress_title = "正在运行 Qihe 分析"
@@ -27,6 +27,10 @@ unknown = "未知 executeCommand：{command}"
 [config]
 invalid_value_one = "配置项无效：\n{errors}"
 invalid_value_many = "配置项无效：\n{errors}"
+
+[diagnostic.ambiguous_module]
+strict = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"
+best_effort = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"
 
 [code_lens]
 instances_one = "{count} 个实例"

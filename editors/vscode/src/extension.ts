@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import * as vscode from 'vscode';
@@ -19,15 +20,22 @@ import {
   PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
 } from './projectConfig';
-import { getServerStatusPresentation, type ServerStatus, type ServerStatusMessages } from './status';
+import {
+  projectStatusNotification,
+  reloadWorkspaceCommand,
+  reloadWorkspaceRequest,
+  showOutputCommand,
+  showStatusCommand,
+  VizslaStatusController,
+} from './vizslaStatus';
+import type { ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
-let statusBarItem: vscode.StatusBarItem | undefined;
+let vizslaStatusController: VizslaStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
 const execFileAsync = promisify(execFile);
-const showOutputCommand = 'vizsla.showOutput';
 const restartServerCommand = 'vizsla.restartServer';
 const showServerVersionCommand = 'vizsla.showServerVersion';
 const runQiheAnalysisCommand = 'vizsla.runQiheAnalysis';
@@ -52,44 +60,12 @@ function requireOutputChannel(): vscode.OutputChannel {
   return outputChannel;
 }
 
-function localizedServerStatusMessages(): ServerStatusMessages {
-  return {
-    startingText: vscode.l10n.t('$(sync~spin) Vizsla Starting'),
-    startingTooltip: vscode.l10n.t('Vizsla language server is starting.'),
-    readyText: vscode.l10n.t('$(check) Vizsla Ready'),
-    readyTooltip: vscode.l10n.t('Vizsla language server is running.'),
-    stoppingText: vscode.l10n.t('$(debug-stop) Vizsla Stopping'),
-    stoppingTooltip: vscode.l10n.t('Vizsla language server is stopping.'),
-    stoppedText: vscode.l10n.t('$(circle-slash) Vizsla Stopped'),
-    stoppedTooltip: vscode.l10n.t('Vizsla language server is stopped.'),
-    errorText: vscode.l10n.t('$(error) Vizsla Error'),
-    errorTooltip: vscode.l10n.t('Vizsla language server failed.'),
-  };
-}
-
 function showOutput(): void {
   requireOutputChannel().show(true);
 }
 
 function updateServerStatus(status: ServerStatus, detail?: string): void {
-  if (!statusBarItem) {
-    return;
-  }
-
-  const presentation = getServerStatusPresentation(status, detail, localizedServerStatusMessages());
-  statusBarItem.text = presentation.text;
-  statusBarItem.tooltip = vscode.l10n.t(
-    '{0}\n\nClick to show output.',
-    presentation.tooltip,
-  );
-  statusBarItem.command = showOutputCommand;
-  statusBarItem.color = presentation.color
-    ? new vscode.ThemeColor(presentation.color)
-    : undefined;
-  statusBarItem.backgroundColor = presentation.backgroundColor
-    ? new vscode.ThemeColor(presentation.backgroundColor)
-    : undefined;
-  statusBarItem.show();
+  vizslaStatusController?.updateServerStatus(status, detail);
 }
 
 function clearQiheStatusHideTimer(): void {
@@ -208,6 +184,12 @@ function registerQiheNotifications(languageClient: LanguageClient): void {
       }
     },
   );
+}
+
+function registerProjectStatusNotifications(languageClient: LanguageClient): void {
+  languageClient.onNotification(projectStatusNotification, (params: unknown) => {
+    vizslaStatusController?.handleProjectNotification(params);
+  });
 }
 
 interface ServerConfiguration {
@@ -374,14 +356,19 @@ function createServerEnv(
   };
 }
 
-async function promptForMissingProjectConfigs(context: vscode.ExtensionContext): Promise<void> {
+type ProjectConfigTarget = {
+  folderName: string;
+  configPath: string;
+};
+
+async function findMissingProjectConfigTargets(): Promise<ProjectConfigTarget[]> {
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-  const missingConfigs: { folder: vscode.WorkspaceFolder; configPath: string }[] = [];
+  const targets: ProjectConfigTarget[] = [];
 
   for (const folder of workspaceFolders) {
     if (folder.uri.scheme !== 'file') {
       log(
-        `[WARN] Skipping project config prompt for non-file workspace: ${folder.uri.toString()}`,
+        `[WARN] Skipping project config creation for non-file workspace: ${folder.uri.toString()}`,
       );
       continue;
     }
@@ -407,30 +394,46 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
     }
 
     const configPath = getProjectConfigPath(folder.uri.fsPath);
-    missingConfigs.push({ folder, configPath });
+    targets.push({ folderName: folder.name, configPath });
   }
 
-  if (missingConfigs.length === 0) {
+  return targets;
+}
+
+function projectConfigTargetsFromRootUris(rootUris: readonly string[]): ProjectConfigTarget[] {
+  return rootUris.map((rootUri) => {
+    const uri = vscode.Uri.parse(rootUri);
+    return {
+      folderName: path.basename(uri.fsPath),
+      configPath: getProjectConfigPath(uri.fsPath),
+    };
+  });
+}
+
+async function promptForMissingProjectConfigs(context: vscode.ExtensionContext): Promise<void> {
+  const targets = await findMissingProjectConfigTargets();
+
+  if (targets.length === 0) {
     return;
   }
 
   const createConfigAction =
-    missingConfigs.length === 1
+    targets.length === 1
       ? vscode.l10n.t('Create Manifest')
       : vscode.l10n.t('Create Manifests');
   const restartNotice = vscode.l10n.t(
     'Creating a manifest will restart the Vizsla language server so the workspace can reload it.',
   );
   const promptMessage =
-    missingConfigs.length === 1
+    targets.length === 1
       ? vscode.l10n.t(
           'No Vizsla project manifest was detected in {0}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
-          missingConfigs[0].folder.name,
+          targets[0].folderName,
           restartNotice,
         )
       : vscode.l10n.t(
           'No Vizsla project manifest was detected in {0} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
-          missingConfigs.length,
+          targets.length,
           restartNotice,
         );
 
@@ -439,9 +442,27 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
     return;
   }
 
+  await createProjectConfigs(context, targets);
+}
+
+async function createProjectConfigsFromRootUris(
+  context: vscode.ExtensionContext,
+  rootUris: readonly string[],
+): Promise<void> {
+  await createProjectConfigs(context, projectConfigTargetsFromRootUris(rootUris));
+}
+
+async function createProjectConfigs(
+  context: vscode.ExtensionContext,
+  targets: readonly ProjectConfigTarget[],
+): Promise<void> {
+  if (targets.length === 0) {
+    return;
+  }
+
   const createdConfigs: vscode.Uri[] = [];
 
-  for (const { folder, configPath } of missingConfigs) {
+  for (const { folderName, configPath } of targets) {
     try {
       await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
         encoding: 'utf8',
@@ -458,7 +479,7 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
       const errorMessage = vscode.l10n.t(
         'Failed to create {0} in {1}: {2}',
         PROJECT_CONFIG_FILE_NAME,
-        folder.name,
+        folderName,
         (error as Error).message,
       );
       log(`[WARN] ${errorMessage}`);
@@ -476,12 +497,9 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
 
   const createdMessage =
     createdConfigs.length === 1
-      ? vscode.l10n.t(
-          'Created {0} with best-effort indexing defaults.',
-          PROJECT_CONFIG_FILE_NAME,
-        )
+      ? vscode.l10n.t('Created {0}.', PROJECT_CONFIG_FILE_NAME)
       : vscode.l10n.t(
-          'Created {0} files with best-effort indexing defaults in {1} workspace folders.',
+          'Created {0} in {1} workspace folders.',
           PROJECT_CONFIG_FILE_NAME,
           createdConfigs.length,
         );
@@ -560,6 +578,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     updateServerStatus('starting');
     log('[INFO] Starting language server...');
     client = await createClient(context);
+    registerProjectStatusNotifications(client);
     registerQiheNotifications(client);
     await client.start();
     log('[INFO] Language server started successfully');
@@ -630,6 +649,27 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
   }
 }
 
+async function reloadWorkspace(): Promise<void> {
+  if (!client) {
+    vscode.window.showErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
+    return;
+  }
+
+  try {
+    await client.sendRequest('workspace/executeCommand', {
+      command: reloadWorkspaceRequest,
+      arguments: [],
+    });
+  } catch (error) {
+    const message = vscode.l10n.t(
+      'Failed to reload Vizsla project configuration: {0}',
+      (error as Error).message,
+    );
+    log(`[ERROR] ${message}`);
+    vscode.window.showErrorMessage(message);
+  }
+}
+
 async function runQiheAnalysis(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -682,8 +722,14 @@ function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel(vscode.l10n.t('Vizsla Language Server'));
   context.subscriptions.push(outputChannel);
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  context.subscriptions.push(statusBarItem);
+  vizslaStatusController = new VizslaStatusController({
+    createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
+    reloadProject: reloadWorkspace,
+    restartServer: () => restartClient(context),
+    showOutput,
+    log,
+  });
+  context.subscriptions.push(vizslaStatusController);
   qiheStatusBarItem = createQiheStatusBarItem();
   context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
@@ -723,6 +769,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(runQiheRegistration);
+
+  const reloadWorkspaceRegistration = vscode.commands.registerCommand(
+    reloadWorkspaceCommand,
+    async () => {
+      await reloadWorkspace();
+    },
+  );
+  context.subscriptions.push(reloadWorkspaceRegistration);
+
+  const showStatusRegistration = vscode.commands.registerCommand(
+    showStatusCommand,
+    async () => {
+      await vizslaStatusController?.show();
+    },
+  );
+  context.subscriptions.push(showStatusRegistration);
   registerDiagnosticActions(context);
 
   const configurationRegistration = vscode.workspace.onDidChangeConfiguration(

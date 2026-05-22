@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 
 import {
   diagnosticCodeSelector,
-  diagnosticSelectorLabel,
   type DiagnosticRule,
   type DiagnosticRuleSeverity,
   type DiagnosticRuleTarget,
@@ -85,8 +84,7 @@ function createDiagnosticRuleAction(
   severity: DiagnosticRuleSeverity,
   target: DiagnosticRuleTarget,
 ): vscode.CodeAction {
-  const label = diagnosticSelectorLabel(selector);
-  const title = diagnosticRuleActionTitle(label, severity, target);
+  const title = diagnosticRuleActionTitle(severity, target);
   const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
   action.diagnostics = [diagnostic];
   action.command = {
@@ -98,19 +96,18 @@ function createDiagnosticRuleAction(
 }
 
 function diagnosticRuleActionTitle(
-  label: string,
   severity: DiagnosticRuleSeverity,
   target: DiagnosticRuleTarget,
 ): string {
   if (target === 'workspace') {
     return severity === 'ignore'
-      ? vscode.l10n.t('Ignore diagnostic {0} in workspace settings', label)
-      : vscode.l10n.t('Downgrade diagnostic {0} to warning in workspace settings', label);
+      ? vscode.l10n.t('Ignore this diagnostic type in workspace settings')
+      : vscode.l10n.t('Downgrade this diagnostic type to warning in workspace settings');
   }
 
   return severity === 'ignore'
-    ? vscode.l10n.t('Ignore diagnostic {0} in user settings', label)
-    : vscode.l10n.t('Downgrade diagnostic {0} to warning in user settings', label);
+    ? vscode.l10n.t('Ignore this diagnostic type in user settings')
+    : vscode.l10n.t('Downgrade this diagnostic type to warning in user settings');
 }
 
 async function configureDiagnosticRule(args: ConfigureDiagnosticRuleArgs): Promise<void> {

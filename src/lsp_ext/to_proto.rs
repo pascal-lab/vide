@@ -130,10 +130,12 @@ pub(crate) fn document_highlight(
 const SLANG_DIAGNOSTIC_SOURCE: &str = "slang";
 const VIZSLA_DIAGNOSTIC_SOURCE: &str = "vizsla";
 pub(crate) fn diagnostic(
+    i18n: I18n,
     line_info: &LineInfo,
     diag: ide_diagnostics::Diagnostic,
 ) -> lsp_types::Diagnostic {
     let data = diagnostic_data(&diag);
+    let message = diagnostic_message(i18n, &diag);
     lsp_types::Diagnostic {
         range: self::range(line_info, diag.range),
         severity: diagnostic_severity(diag.severity),
@@ -147,10 +149,19 @@ pub(crate) fn diagnostic(
             }
             .to_string(),
         ),
-        message: diag.message,
+        message,
         related_information: None,
         tags: None,
         data: Some(data),
+    }
+}
+
+fn diagnostic_message(i18n: I18n, diag: &ide_diagnostics::Diagnostic) -> String {
+    match diag.message_key {
+        Some(key) if diag.source == ide_diagnostics::DiagnosticSource::Vizsla => {
+            i18n.format(key, diag.message_args.iter().map(|(name, value)| (*name, value.clone())))
+        }
+        _ => diag.message.clone(),
     }
 }
 

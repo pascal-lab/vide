@@ -126,6 +126,7 @@ impl ops::BitOrAssign<lsp_types::SemanticTokenModifier> for SemaTokenModifierSet
 pub struct CodeActionData {
     pub code_action_params: lsp_types::CodeActionParams,
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
 }
 
@@ -140,12 +141,13 @@ pub enum CodeActionResolveError {
 }
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vizsla.server.runQiheAnalysis";
+pub const RELOAD_WORKSPACE_COMMAND: &str = "vizsla.server.reloadWorkspace";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunQiheAnalysisParams {
     pub uri: lsp_types::Url,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<std::path::PathBuf>,
 }
 
@@ -154,6 +156,7 @@ pub struct RunQiheAnalysisParams {
 pub struct QiheStatusParams {
     pub token: String,
     pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
@@ -163,4 +166,34 @@ impl Notification for QiheStatusNotification {
     type Params = QiheStatusParams;
 
     const METHOD: &'static str = "vizsla/qiheStatus";
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectStatusState {
+    Loading,
+    Loaded,
+    #[serde(rename = "none")]
+    NoManifest,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStatusParams {
+    pub state: ProjectStatusState,
+    pub manifest_uris: Vec<lsp_types::Url>,
+    pub unconfigured_root_uris: Vec<lsp_types::Url>,
+    pub workspace_count: usize,
+    pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+pub enum ProjectStatusNotification {}
+
+impl Notification for ProjectStatusNotification {
+    type Params = ProjectStatusParams;
+
+    const METHOD: &'static str = "vizsla/projectStatus";
 }

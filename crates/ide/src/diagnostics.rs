@@ -15,6 +15,8 @@ use crate::module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, reso
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VizslaDiagnosticDescriptor =
     VizslaDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
+pub const DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT: &str = "diagnostic.ambiguous_module.strict";
+pub const DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT: &str = "diagnostic.ambiguous_module.best_effort";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
@@ -35,6 +37,8 @@ pub struct Diagnostic {
     pub range: TextRange,
     pub severity: DiagnosticSeverity,
     pub message: String,
+    pub message_key: Option<&'static str>,
+    pub message_args: Vec<(&'static str, String)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +55,8 @@ impl VizslaDiagnosticDescriptor {
         range: TextRange,
         severity: DiagnosticSeverity,
         message: String,
+        message_key: &'static str,
+        message_args: Vec<(&'static str, String)>,
     ) -> Diagnostic {
         Diagnostic {
             file_id,
@@ -63,6 +69,8 @@ impl VizslaDiagnosticDescriptor {
             range,
             severity,
             message,
+            message_key: Some(message_key),
+            message_args,
         }
     }
 }
@@ -81,6 +89,8 @@ pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic>
             range: to_text_range(diag),
             severity: diag.severity,
             message: diag.message.clone(),
+            message_key: None,
+            message_args: Vec::new(),
         })
         .collect()
 }
@@ -102,6 +112,8 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
                 range: to_text_range(diag),
                 severity: diag.severity,
                 message: diag.message.clone(),
+                message_key: None,
+                message_args: Vec::new(),
             })
         },
     ));
@@ -141,6 +153,8 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
             range: to_text_range(diag),
             severity: diag.severity,
             message: diag.message.clone(),
+            message_key: None,
+            message_args: Vec::new(),
         },
     ));
 
@@ -196,15 +210,20 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
 
             match resolve_module_name(db, file_id, module_name) {
                 ModuleResolution::Ambiguous { candidates, kind } => {
-                    let (severity, message) = ambiguous_module_instantiation_diagnostic(
-                        module_name,
-                        candidates.len(),
-                        kind,
-                    );
-                    diagnostics.push(
-                        AMBIGUOUS_MODULE_INSTANTIATION
-                            .diagnostic(file_id, range, severity, message),
-                    );
+                    let (severity, message, message_key, message_args) =
+                        ambiguous_module_instantiation_diagnostic(
+                            module_name,
+                            candidates.len(),
+                            kind,
+                        );
+                    diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.diagnostic(
+                        file_id,
+                        range,
+                        severity,
+                        message,
+                        message_key,
+                        message_args,
+                    ));
                 }
                 ModuleResolution::Unique(_)
                 | ModuleResolution::BestEffortProximity { .. }
@@ -220,19 +239,29 @@ fn ambiguous_module_instantiation_diagnostic(
     module_name: &str,
     candidate_count: usize,
     kind: ModuleResolutionAmbiguity,
-) -> (DiagnosticSeverity, String) {
+) -> (DiagnosticSeverity, String, &'static str, Vec<(&'static str, String)>) {
+    let message_args = || {
+        vec![
+            ("module_name", module_name.to_owned()),
+            ("candidate_count", candidate_count.to_string()),
+        ]
+    };
     match kind {
         ModuleResolutionAmbiguity::Strict => (
             DiagnosticSeverity::Warning,
             format!(
-                "module instantiation '{module_name}' is ambiguous; {candidate_count} matching definitions are visible"
+                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
             ),
+            DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT,
+            message_args(),
         ),
         ModuleResolutionAmbiguity::BestEffortTie => (
             DiagnosticSeverity::Note,
             format!(
-                "module instantiation '{module_name}' is ambiguous in best-effort indexing; {candidate_count} equally preferred definitions are visible"
+                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
             ),
+            DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT,
+            message_args(),
         ),
     }
 }
@@ -327,7 +356,7 @@ mod tests {
                 diag.source == DiagnosticSource::Vizsla
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.severity == syntax::DiagnosticSeverity::Note
-                    && diag.message.contains("2 equally preferred definitions")
+                    && diag.message.contains("matches 2 module definitions")
             }),
             "expected vizsla ambiguous module information: {diagnostics:?}"
         );
@@ -371,7 +400,7 @@ mod tests {
                 diag.source == DiagnosticSource::Vizsla
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.severity == syntax::DiagnosticSeverity::Warning
-                    && diag.message.contains("2 matching definitions")
+                    && diag.message.contains("matches 2 module definitions")
             }),
             "expected strict ambiguity warning: {diagnostics:?}"
         );

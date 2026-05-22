@@ -109,7 +109,9 @@ impl GlobalStateSnapshot {
         let mut diagnostics = match (self.diagnostics(file_id), self.line_info(file_id)) {
             (Ok(diagnostics), Ok(line_info)) => diagnostics
                 .into_iter()
-                .map(|diag| crate::lsp_ext::to_proto::diagnostic(&line_info, diag))
+                .map(|diag| {
+                    crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag)
+                })
                 .collect(),
             _ => Vec::new(),
         };

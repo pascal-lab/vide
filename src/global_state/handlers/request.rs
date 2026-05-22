@@ -10,7 +10,7 @@ use crate::{
     global_state::snapshot::GlobalStateSnapshot,
     i18n::keys,
     lsp_ext::{
-        ext::{RUN_QIHE_ANALYSIS_COMMAND, RunQiheAnalysisParams},
+        ext::{RELOAD_WORKSPACE_COMMAND, RUN_QIHE_ANALYSIS_COMMAND, RunQiheAnalysisParams},
         from_proto, to_proto,
     },
 };
@@ -177,7 +177,7 @@ pub(crate) fn handle_workspace_diagnostic(
         let line_info = snap.line_info(file_id)?;
         let mut diag_items = diagnostics
             .into_iter()
-            .map(|diag| to_proto::diagnostic(&line_info, diag))
+            .map(|diag| to_proto::diagnostic(snap.config.i18n, &line_info, diag))
             .collect::<Vec<_>>();
         diag_items.extend(snap.qihe_diagnostics(file_id));
 
@@ -245,12 +245,22 @@ fn handle_qihe_analysis_command(
     Ok(None)
 }
 
+fn handle_reload_workspace_command(
+    state: &mut crate::global_state::GlobalState,
+) -> anyhow::Result<Option<serde_json::Value>> {
+    let config = triomphe::Arc::make_mut(&mut state.config);
+    config.refresh_project_manifests();
+    state.fetch_workspaces_task.request("workspace reload command".to_string());
+    Ok(None)
+}
+
 pub(crate) fn handle_execute_command(
     state: &mut crate::global_state::GlobalState,
     params: lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<Option<serde_json::Value>> {
     match params.command.as_str() {
         RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
+        RELOAD_WORKSPACE_COMMAND => handle_reload_workspace_command(state),
         _ => anyhow::bail!(
             "{}",
             state

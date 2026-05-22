@@ -41,5 +41,7 @@
   "command.showOutput.title": "Vizsla：显示语言服务器输出",
   "command.restartServer.title": "Vizsla：重启语言服务器",
   "command.showServerVersion.title": "Vizsla：显示服务器版本",
+  "command.reloadWorkspace.title": "Vizsla：重新加载项目配置",
+  "command.showStatus.title": "Vizsla：显示状态",
   "command.runQiheAnalysis.title": "Vizsla：运行 Qihe 分析"
 }

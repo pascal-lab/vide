@@ -11,6 +11,7 @@ export type DiagnosticRuleTarget = 'user' | 'workspace';
 export interface DiagnosticLike {
   source?: string;
   code?: unknown;
+  data?: unknown;
 }
 
 const slangDiagnosticSource = 'slang';
@@ -25,7 +26,7 @@ export function diagnosticCodeSelector(diagnostic: DiagnosticLike): string | und
 }
 
 export function diagnosticSelectorLabel(selector: string): string {
-  return selector.startsWith('code:') ? selector.slice('code:'.length) : selector;
+  return selector.startsWith('code:') ? 'this diagnostic type' : selector;
 }
 
 export function upsertDiagnosticRule(

@@ -25,7 +25,7 @@ test('ignores diagnostics that cannot be configured by slang code', () => {
 });
 
 test('renders concise diagnostic selector labels', () => {
-  assert.equal(diagnosticSelectorLabel('code:6:129'), '6:129');
+  assert.equal(diagnosticSelectorLabel('code:6:129'), 'this diagnostic type');
 });
 
 test('upserts diagnostic severity rules by selector', () => {

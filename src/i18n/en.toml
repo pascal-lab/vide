@@ -1,6 +1,6 @@
 [progress]
 fetching_workspaces = "Fetching Workspaces"
-roots_scanning = "Roots Scanning"
+roots_scanning = "Scanning Workspace Files"
 
 [qihe]
 progress_title = "Running Qihe Analysis"
@@ -27,6 +27,10 @@ unknown = "unknown executeCommand: {command}"
 [config]
 invalid_value_one = "invalid config value:\n{errors}"
 invalid_value_many = "invalid config values:\n{errors}"
+
+[diagnostic.ambiguous_module]
+strict = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
+best_effort = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
 
 [code_lens]
 instances_one = "{count} instance"

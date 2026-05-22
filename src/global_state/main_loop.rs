@@ -308,8 +308,15 @@ impl GlobalState {
             }
             Task::FetchWorkspace(process) => {
                 let state = match process {
-                    FetchWorkspaceProgress::Begin => Progress::Begin,
+                    FetchWorkspaceProgress::Begin(cause) => {
+                        self.send_loading_project_status(cause);
+                        Progress::Begin
+                    }
                     FetchWorkspaceProgress::End(workspaces, errors) => {
+                        let workspace_count = workspaces.len();
+                        let error_messages =
+                            errors.iter().map(|err| format!("{err:#}")).collect::<Vec<_>>();
+
                         self.fetch_workspaces_task.complete(Some((Arc::new(workspaces), errors)));
 
                         if let Err(e) = self.fetch_workspace_error_stringify() {
@@ -317,6 +324,7 @@ impl GlobalState {
                         }
 
                         self.switch_workspaces("fetched new workspaces".into());
+                        self.send_project_status_for_result(workspace_count, &error_messages);
 
                         Progress::End
                     }

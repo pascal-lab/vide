@@ -103,7 +103,10 @@ impl Vfs {
                 }
             },
             LoadError => match state {
-                Exists(_, _) => ChangeKind::Delete,
+                Exists(_, _) => {
+                    *state = Deleted;
+                    ChangeKind::Delete
+                }
                 Deleted => return,
             },
             DecodeError => return,
@@ -148,5 +151,33 @@ impl Vfs {
 impl fmt::Debug for Vfs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Vfs").field("n_files", &self.file_states.len()).finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use utils::lines::LineEnding;
+
+    use super::*;
+
+    #[test]
+    fn load_error_marks_existing_file_deleted() {
+        let mut vfs = Vfs::default();
+        let path = VfsPath::new_virtual_path("/workspace/vizsla.toml".to_owned());
+
+        vfs.set_file_contents(
+            &path,
+            LoadResult::Loaded("sources = []\n".to_owned(), LineEnding::Unix),
+        );
+        let file_id = vfs.file_id(&path).unwrap();
+        vfs.take_changes();
+
+        vfs.set_file_contents(&path, LoadResult::LoadError);
+
+        assert!(!vfs.exists(file_id));
+        assert_eq!(vfs.file_id(&path), None);
+        let changes = vfs.take_changes();
+        assert_eq!(changes.len(), 1);
+        assert!(matches!(changes[0].change_kind, ChangeKind::Delete));
     }
 }

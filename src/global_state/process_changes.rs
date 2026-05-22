@@ -47,7 +47,7 @@ impl GlobalState {
             {
                 let created_or_deleted = changed_file.is_created_or_deleted();
                 has_structure_changes |= created_or_deleted;
-                if created_or_deleted || should_refresh_for_change(&path, created_or_deleted) {
+                if should_refresh_for_change(&path, created_or_deleted) {
                     workspace_structure_change = Some(path.clone());
                 }
             }
@@ -68,6 +68,8 @@ impl GlobalState {
         }
 
         if let Some(path) = workspace_structure_change {
+            let config = triomphe::Arc::make_mut(&mut self.config);
+            config.refresh_project_manifests();
             self.fetch_workspaces_task.request(format!("workspace vfs change: {:?}", path));
         }
 
@@ -230,5 +232,53 @@ impl GlobalState {
             }
             Task::Diagnostics(results)
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_server::Connection;
+    use lsp_types::{ClientCapabilities, TraceValue};
+    use utils::{lines::LineEnding, test_support::TestDir};
+    use vfs::{VfsPath, loader::LoadResult};
+
+    use crate::{
+        Opt,
+        config::{self, user_config::UserConfig},
+        global_state::GlobalState,
+        i18n::I18n,
+    };
+
+    #[test]
+    fn ordinary_file_creation_does_not_request_workspace_reload() {
+        let root = TestDir::new("ordinary-file-no-workspace-reload");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        let file_path = root.join("top.sv");
+
+        state.vfs.write().0.set_file_contents(
+            &VfsPath::from(file_path),
+            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+
+        assert!(state.process_changes());
+        assert!(
+            !state.fetch_workspaces_task.has_op_requested(),
+            "loading an ordinary source file should not queue a project configuration reload"
+        );
     }
 }

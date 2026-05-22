@@ -102,6 +102,8 @@ pub(crate) fn handle_did_save_text_document(
         && reload::should_refresh_for_change(abs_path, false)
     {
         // Re-fetch workspaces if a workspace related file has changed
+        let config = Arc::make_mut(&mut state.config);
+        config.refresh_project_manifests();
         state.fetch_workspaces_task.request(format!("DidSaveTextDocument {abs_path}"));
     }
 
@@ -182,12 +184,29 @@ pub(crate) fn handle_did_change_watched_files(
     state: &mut GlobalState,
     params: DidChangeWatchedFilesParams,
 ) -> anyhow::Result<()> {
+    let mut workspace_structure_change = None;
+
     for change in params.changes {
         if let Ok(path) = from_proto::abs_path(&change.uri) {
+            if reload::should_refresh_for_change(
+                &path,
+                change.typ != lsp_types::FileChangeType::CHANGED,
+            ) {
+                workspace_structure_change.get_or_insert(path);
+                continue;
+            }
+
             // invalidate the file in the VFS so that it's reloaded later
             state.vfs_loader.handle.invalidate(path);
         }
     }
+
+    if let Some(path) = workspace_structure_change {
+        let config = Arc::make_mut(&mut state.config);
+        config.refresh_project_manifests();
+        state.fetch_workspaces_task.request(format!("DidChangeWatchedFiles {path}"));
+    }
+
     Ok(())
 }
 
@@ -284,10 +303,14 @@ mod tests {
     use std::time::Duration;
 
     use lsp_server::Connection;
-    use lsp_types::{SetTraceParams, TextDocumentContentChangeEvent, TraceValue};
-    use utils::{lines::PositionEncoding, paths::AbsPathBuf};
+    use lsp_types::{
+        DidChangeWatchedFilesParams, FileChangeType, FileEvent, SetTraceParams,
+        TextDocumentContentChangeEvent, TraceValue, Url,
+    };
+    use project_model::project_manifest;
+    use utils::{lines::PositionEncoding, paths::AbsPathBuf, test_support::TestDir};
 
-    use super::{handle_set_trace, update_document_text};
+    use super::{handle_did_change_watched_files, handle_set_trace, update_document_text};
     use crate::{
         Opt,
         config::{self, user_config::UserConfig},
@@ -297,6 +320,10 @@ mod tests {
 
     fn test_state() -> (GlobalState, Connection) {
         let root_path = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
+        test_state_with_root(root_path)
+    }
+
+    fn test_state_with_root(root_path: AbsPathBuf) -> (GlobalState, Connection) {
         let config = config::Config::new(
             Opt {
                 process_name: "vizsla-test".to_string(),
@@ -357,5 +384,23 @@ mod tests {
 
         assert_eq!(state.lsp_trace.level(), TraceValue::Verbose);
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+    }
+
+    #[test]
+    fn watched_manifest_delete_requests_workspace_reload() {
+        let root = TestDir::new("watched-manifest-delete");
+        let (mut state, _client) = test_state_with_root(root.path().to_path_buf());
+        let manifest_path = root.join(project_manifest::MANIFEST_FILE_NAME);
+        let manifest_uri = Url::from_file_path(manifest_path.as_path()).unwrap();
+
+        handle_did_change_watched_files(
+            &mut state,
+            DidChangeWatchedFilesParams {
+                changes: vec![FileEvent::new(manifest_uri, FileChangeType::DELETED)],
+            },
+        )
+        .unwrap();
+
+        assert!(state.fetch_workspaces_task.has_op_requested());
     }
 }

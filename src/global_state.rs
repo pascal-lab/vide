@@ -3,6 +3,7 @@ mod handlers;
 pub mod main_loop;
 mod mem_docs;
 pub(crate) mod process_changes;
+mod project_status;
 mod qihe;
 pub mod reload;
 pub mod respond;

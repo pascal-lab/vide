@@ -41,5 +41,7 @@
   "command.showOutput.title": "Vizsla: Show Language Server Output",
   "command.restartServer.title": "Vizsla: Restart Language Server",
   "command.showServerVersion.title": "Vizsla: Show Server Version",
+  "command.reloadWorkspace.title": "Vizsla: Reload Project Configuration",
+  "command.showStatus.title": "Vizsla: Show Status",
   "command.runQiheAnalysis.title": "Vizsla: Run Qihe Analysis"
 }
