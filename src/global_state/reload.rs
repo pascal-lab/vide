@@ -114,12 +114,21 @@ impl GlobalState {
         };
 
         self.vfs_config_version += 1;
+        let vfs_config_version = self.vfs_config_version;
+        let to_load_len = to_load.len();
 
         self.vfs_loader.handle.set_config(vfs::loader::Config {
             to_load,
             to_watch,
-            version: self.vfs_config_version,
+            version: vfs_config_version,
         });
+        if to_load_len == 0 {
+            self.vfs_progress = crate::global_state::VfsProgress {
+                config_version: vfs_config_version,
+                n_done: 0,
+                n_total: 0,
+            };
+        }
 
         self.source_root_config = source_root_config;
 
