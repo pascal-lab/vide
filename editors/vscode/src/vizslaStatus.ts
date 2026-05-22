@@ -2,7 +2,6 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { toLanguageStatusSeverity, vizslaLanguageSelector } from './languageStatus';
 import { PROJECT_CONFIG_FILE_NAME } from './projectConfig';
 import {
   asProjectStatus,
@@ -15,6 +14,8 @@ import {
   type ServerStatusMessages,
   type VizslaStatusMessages,
 } from './status';
+
+const statusBarPriority = 101;
 
 export const reloadWorkspaceCommand = 'vizsla.reloadWorkspace';
 export const showOutputCommand = 'vizsla.showOutput';
@@ -31,15 +32,16 @@ export interface VizslaStatusActions {
 }
 
 export class VizslaStatusController implements vscode.Disposable {
-  private readonly item: vscode.LanguageStatusItem;
+  private readonly item: vscode.StatusBarItem;
   private projectStatus = initialProjectStatus();
   private serverStatus: ServerStatus = 'stopped';
   private serverDetail: string | undefined;
 
   constructor(private readonly actions: VizslaStatusActions) {
-    this.item = vscode.languages.createLanguageStatusItem(
+    this.item = vscode.window.createStatusBarItem(
       'vizsla.status',
-      vizslaLanguageSelector,
+      vscode.StatusBarAlignment.Right,
+      statusBarPriority,
     );
     this.item.name = vscode.l10n.t('Vizsla');
     this.item.command = this.command();
@@ -75,11 +77,11 @@ export class VizslaStatusController implements vscode.Disposable {
 
   private update(): void {
     const presentation = this.currentPresentation();
-    this.item.text = presentation.text;
-    this.item.detail = presentation.detail;
-    this.item.busy = presentation.busy;
-    this.item.severity = toLanguageStatusSeverity(presentation.severity);
+    this.item.text = statusBarText(presentation);
+    this.item.tooltip = presentation.detail;
+    this.item.backgroundColor = statusBarBackgroundColor(presentation.severity);
     this.item.command = this.command();
+    this.item.show();
   }
 
   async show(): Promise<void> {
@@ -190,6 +192,34 @@ export class VizslaStatusController implements vscode.Disposable {
 type VizslaStatusQuickPickItem = vscode.QuickPickItem & {
   action: 'openManifest' | 'createManifest' | 'reloadProject' | 'restartServer' | 'showOutput';
 };
+
+function statusBarText(presentation: LanguageStatusPresentation): string {
+  if (presentation.busy) {
+    return `$(sync~spin) ${presentation.text}`;
+  }
+
+  switch (presentation.severity) {
+    case 'error':
+      return `$(error) ${presentation.text}`;
+    case 'warning':
+      return `$(warning) ${presentation.text}`;
+    case 'information':
+      return presentation.text;
+  }
+}
+
+function statusBarBackgroundColor(
+  severity: LanguageStatusPresentation['severity'],
+): vscode.ThemeColor | undefined {
+  switch (severity) {
+    case 'error':
+      return new vscode.ThemeColor('statusBarItem.errorBackground');
+    case 'warning':
+      return new vscode.ThemeColor('statusBarItem.warningBackground');
+    case 'information':
+      return undefined;
+  }
+}
 
 function localizedServerStatusMessages(): ServerStatusMessages {
   return {
