@@ -49,7 +49,7 @@ export default defineConfig({
         {
           label: '更新日志',
           translations: { en: 'Changelog' },
-          items: ['changelog', 'changelog/v0-1-1', 'changelog/v0-1-2'],
+          items: ['changelog', 'changelog/v0-1-1', 'changelog/v0-1-2', 'changelog/v0-1-3'],
         },
       ],
     }),
