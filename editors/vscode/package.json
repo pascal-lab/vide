@@ -351,8 +351,8 @@
         "title": "%command.reloadWorkspace.title%"
       },
       {
-        "command": "vizsla.showProjectStatus",
-        "title": "%command.showProjectStatus.title%"
+        "command": "vizsla.showStatus",
+        "title": "%command.showStatus.title%"
       },
       {
         "command": "vizsla.runQiheAnalysis",

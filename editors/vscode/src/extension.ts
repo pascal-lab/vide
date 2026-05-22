@@ -21,19 +21,18 @@ import {
   getProjectConfigPath,
 } from './projectConfig';
 import {
-  ProjectStatusController,
   projectStatusNotification,
   reloadWorkspaceCommand,
   reloadWorkspaceRequest,
-  showProjectStatusCommand,
-} from './projectStatus';
-import { ServerStatusController, showOutputCommand } from './serverStatus';
+  showOutputCommand,
+  showStatusCommand,
+  VizslaStatusController,
+} from './vizslaStatus';
 import type { ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
-let serverStatusController: ServerStatusController | undefined;
-let projectStatusController: ProjectStatusController | undefined;
+let vizslaStatusController: VizslaStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
 const execFileAsync = promisify(execFile);
@@ -66,7 +65,7 @@ function showOutput(): void {
 }
 
 function updateServerStatus(status: ServerStatus, detail?: string): void {
-  serverStatusController?.update(status, detail);
+  vizslaStatusController?.updateServerStatus(status, detail);
 }
 
 function clearQiheStatusHideTimer(): void {
@@ -189,7 +188,7 @@ function registerQiheNotifications(languageClient: LanguageClient): void {
 
 function registerProjectStatusNotifications(languageClient: LanguageClient): void {
   languageClient.onNotification(projectStatusNotification, (params: unknown) => {
-    projectStatusController?.handleNotification(params);
+    vizslaStatusController?.handleProjectNotification(params);
   });
 }
 
@@ -723,16 +722,14 @@ function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel(vscode.l10n.t('Vizsla Language Server'));
   context.subscriptions.push(outputChannel);
-  serverStatusController = new ServerStatusController();
-  context.subscriptions.push(serverStatusController);
-  projectStatusController = new ProjectStatusController({
+  vizslaStatusController = new VizslaStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
     reloadProject: reloadWorkspace,
     restartServer: () => restartClient(context),
     showOutput,
     log,
   });
-  context.subscriptions.push(projectStatusController);
+  context.subscriptions.push(vizslaStatusController);
   qiheStatusBarItem = createQiheStatusBarItem();
   context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
@@ -781,13 +778,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(reloadWorkspaceRegistration);
 
-  const showProjectStatusRegistration = vscode.commands.registerCommand(
-    showProjectStatusCommand,
+  const showStatusRegistration = vscode.commands.registerCommand(
+    showStatusCommand,
     async () => {
-      await projectStatusController?.show();
+      await vizslaStatusController?.show();
     },
   );
-  context.subscriptions.push(showProjectStatusRegistration);
+  context.subscriptions.push(showStatusRegistration);
   registerDiagnosticActions(context);
 
   const configurationRegistration = vscode.workspace.onDidChangeConfiguration(
