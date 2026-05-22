@@ -126,6 +126,7 @@ impl ops::BitOrAssign<lsp_types::SemanticTokenModifier> for SemaTokenModifierSet
 pub struct CodeActionData {
     pub code_action_params: lsp_types::CodeActionParams,
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
 }
 
@@ -146,7 +147,7 @@ pub const RELOAD_WORKSPACE_COMMAND: &str = "vizsla.server.reloadWorkspace";
 #[serde(rename_all = "camelCase")]
 pub struct RunQiheAnalysisParams {
     pub uri: lsp_types::Url,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<std::path::PathBuf>,
 }
 
@@ -155,6 +156,7 @@ pub struct RunQiheAnalysisParams {
 pub struct QiheStatusParams {
     pub token: String,
     pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
@@ -184,6 +186,7 @@ pub struct ProjectStatusParams {
     pub unconfigured_root_uris: Vec<lsp_types::Url>,
     pub workspace_count: usize,
     pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
