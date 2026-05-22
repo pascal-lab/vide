@@ -2,35 +2,27 @@ export type ServerStatus = 'starting' | 'ready' | 'stopping' | 'stopped' | 'erro
 
 export interface ServerStatusPresentation {
   text: string;
-  tooltip: string;
-  color?: string;
-  backgroundColor?: string;
+  detail: string;
+  severity: 'information' | 'warning' | 'error';
+  busy: boolean;
 }
 
 export interface ServerStatusMessages {
-  startingText: string;
-  startingTooltip: string;
-  readyText: string;
-  readyTooltip: string;
-  stoppingText: string;
-  stoppingTooltip: string;
-  stoppedText: string;
-  stoppedTooltip: string;
-  errorText: string;
-  errorTooltip: string;
+  text: string;
+  startingDetail: string;
+  readyDetail: string;
+  stoppingDetail: string;
+  stoppedDetail: string;
+  errorDetail: string;
 }
 
 export const defaultServerStatusMessages: ServerStatusMessages = {
-  startingText: '$(loading~spin) Vizsla',
-  startingTooltip: 'Vizsla language server is starting.',
-  readyText: 'Vizsla',
-  readyTooltip: 'Vizsla language server is running.',
-  stoppingText: '$(loading~spin) Vizsla',
-  stoppingTooltip: 'Vizsla language server is stopping.',
-  stoppedText: '$(circle-slash) Vizsla',
-  stoppedTooltip: 'Vizsla language server is stopped.',
-  errorText: '$(error) Vizsla',
-  errorTooltip: 'Vizsla language server failed.',
+  text: 'Vizsla',
+  startingDetail: 'Vizsla language server is starting.',
+  readyDetail: 'Vizsla language server is running.',
+  stoppingDetail: 'Vizsla language server is stopping.',
+  stoppedDetail: 'Vizsla language server is stopped.',
+  errorDetail: 'Vizsla language server failed.',
 };
 
 export function getServerStatusPresentation(
@@ -43,29 +35,38 @@ export function getServerStatusPresentation(
   switch (status) {
     case 'starting':
       return {
-        text: messages.startingText,
-        tooltip: `${messages.startingTooltip}${suffix}`,
+        text: messages.text,
+        detail: `${messages.startingDetail}${suffix}`,
+        severity: 'information',
+        busy: true,
       };
     case 'ready':
       return {
-        text: messages.readyText,
-        tooltip: `${messages.readyTooltip}${suffix}`,
+        text: messages.text,
+        detail: `${messages.readyDetail}${suffix}`,
+        severity: 'information',
+        busy: false,
       };
     case 'stopping':
       return {
-        text: messages.stoppingText,
-        tooltip: `${messages.stoppingTooltip}${suffix}`,
+        text: messages.text,
+        detail: `${messages.stoppingDetail}${suffix}`,
+        severity: 'information',
+        busy: true,
       };
     case 'stopped':
       return {
-        text: messages.stoppedText,
-        tooltip: `${messages.stoppedTooltip}${suffix}`,
+        text: messages.text,
+        detail: `${messages.stoppedDetail}${suffix}`,
+        severity: 'information',
+        busy: false,
       };
     case 'error':
       return {
-        text: messages.errorText,
-        tooltip: `${messages.errorTooltip}${suffix}`,
-        backgroundColor: 'statusBarItem.errorBackground',
+        text: messages.text,
+        detail: `${messages.errorDetail}${suffix}`,
+        severity: 'error',
+        busy: false,
       };
   }
 }

@@ -27,20 +27,16 @@ import {
   reloadWorkspaceRequest,
   showProjectStatusCommand,
 } from './projectStatus';
-import {
-  getServerStatusPresentation,
-  type ServerStatus,
-  type ServerStatusMessages,
-} from './status';
+import { ServerStatusController, showOutputCommand } from './serverStatus';
+import type { ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
-let statusBarItem: vscode.StatusBarItem | undefined;
+let serverStatusController: ServerStatusController | undefined;
 let projectStatusController: ProjectStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
 const execFileAsync = promisify(execFile);
-const showOutputCommand = 'vizsla.showOutput';
 const restartServerCommand = 'vizsla.restartServer';
 const showServerVersionCommand = 'vizsla.showServerVersion';
 const runQiheAnalysisCommand = 'vizsla.runQiheAnalysis';
@@ -65,44 +61,12 @@ function requireOutputChannel(): vscode.OutputChannel {
   return outputChannel;
 }
 
-function localizedServerStatusMessages(): ServerStatusMessages {
-  return {
-    startingText: vscode.l10n.t('$(loading~spin) Vizsla'),
-    startingTooltip: vscode.l10n.t('Vizsla language server is starting.'),
-    readyText: vscode.l10n.t('Vizsla'),
-    readyTooltip: vscode.l10n.t('Vizsla language server is running.'),
-    stoppingText: vscode.l10n.t('$(loading~spin) Vizsla'),
-    stoppingTooltip: vscode.l10n.t('Vizsla language server is stopping.'),
-    stoppedText: vscode.l10n.t('$(circle-slash) Vizsla'),
-    stoppedTooltip: vscode.l10n.t('Vizsla language server is stopped.'),
-    errorText: vscode.l10n.t('$(error) Vizsla'),
-    errorTooltip: vscode.l10n.t('Vizsla language server failed.'),
-  };
-}
-
 function showOutput(): void {
   requireOutputChannel().show(true);
 }
 
 function updateServerStatus(status: ServerStatus, detail?: string): void {
-  if (!statusBarItem) {
-    return;
-  }
-
-  const presentation = getServerStatusPresentation(status, detail, localizedServerStatusMessages());
-  statusBarItem.text = presentation.text;
-  statusBarItem.tooltip = vscode.l10n.t(
-    '{0}\n\nClick to show output.',
-    presentation.tooltip,
-  );
-  statusBarItem.command = showOutputCommand;
-  statusBarItem.color = presentation.color
-    ? new vscode.ThemeColor(presentation.color)
-    : undefined;
-  statusBarItem.backgroundColor = presentation.backgroundColor
-    ? new vscode.ThemeColor(presentation.backgroundColor)
-    : undefined;
-  statusBarItem.show();
+  serverStatusController?.update(status, detail);
 }
 
 function clearQiheStatusHideTimer(): void {
@@ -759,8 +723,8 @@ function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel(vscode.l10n.t('Vizsla Language Server'));
   context.subscriptions.push(outputChannel);
-  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  context.subscriptions.push(statusBarItem);
+  serverStatusController = new ServerStatusController();
+  context.subscriptions.push(serverStatusController);
   projectStatusController = new ProjectStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
     reloadProject: reloadWorkspace,

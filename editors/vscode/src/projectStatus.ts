@@ -2,6 +2,7 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
+import { toLanguageStatusSeverity, vizslaLanguageSelector } from './languageStatus';
 import { PROJECT_CONFIG_FILE_NAME } from './projectConfig';
 import {
   asProjectStatus,
@@ -29,10 +30,10 @@ export class ProjectStatusController implements vscode.Disposable {
   private status = projectStatusFallback();
 
   constructor(private readonly actions: ProjectStatusActions) {
-    this.item = vscode.languages.createLanguageStatusItem('vizsla.projectStatus', [
-      { scheme: 'file', language: 'verilog' },
-      { scheme: 'file', language: 'systemverilog' },
-    ]);
+    this.item = vscode.languages.createLanguageStatusItem(
+      'vizsla.projectStatus',
+      vizslaLanguageSelector,
+    );
     this.item.name = vscode.l10n.t('Vizsla Project');
     this.item.command = this.command();
     this.update(this.status);
@@ -173,19 +174,6 @@ function localizedProjectStatusMessages(): ProjectStatusMessages {
     noManifestDetail: vscode.l10n.t('No project manifest'),
     errorDetail: vscode.l10n.t('Project configuration failed'),
   };
-}
-
-function toLanguageStatusSeverity(
-  severity: 'information' | 'warning' | 'error',
-): vscode.LanguageStatusSeverity {
-  switch (severity) {
-    case 'information':
-      return vscode.LanguageStatusSeverity.Information;
-    case 'warning':
-      return vscode.LanguageStatusSeverity.Warning;
-    case 'error':
-      return vscode.LanguageStatusSeverity.Error;
-  }
 }
 
 function uriDisplayPath(uriString: string): string {
