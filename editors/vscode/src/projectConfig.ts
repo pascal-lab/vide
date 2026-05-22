@@ -28,10 +28,13 @@ export const PROJECT_SOURCE_FILE_EXTENSIONS = [
 export const PROJECT_SOURCE_FILE_GLOB = '**/*.{v,sv,vh,svh,svi}';
 
 export const DEFAULT_PROJECT_CONFIG_TEXT = `#:schema ${PROJECT_CONFIG_SCHEMA_URL}
-# Default startup manifest. Omitting sources enables best-effort indexing for navigation
-# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
-# and include_dirs = ["include"], to enable semantic diagnostics.
-# Set sources = [] to disable workspace indexing.
+sources = []
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
 `;
 
 export function isProjectConfigFileName(fileName: string): boolean {

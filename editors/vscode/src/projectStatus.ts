@@ -17,7 +17,7 @@ export const reloadWorkspaceRequest = 'vizsla.server.reloadWorkspace';
 export const projectStatusNotification = 'vizsla/projectStatus';
 
 export interface ProjectStatusActions {
-  createManifest: () => Promise<void>;
+  createManifest: (rootUris: readonly string[]) => Promise<void>;
   reloadProject: () => Promise<void>;
   restartServer: () => Promise<void>;
   showOutput: () => void;
@@ -83,7 +83,7 @@ export class ProjectStatusController implements vscode.Disposable {
         await openProjectManifest(status);
         break;
       case 'createManifest':
-        await this.actions.createManifest();
+        await this.actions.createManifest(status.unconfiguredRootUris);
         break;
       case 'reloadProject':
         await this.actions.reloadProject();

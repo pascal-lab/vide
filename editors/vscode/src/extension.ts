@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import * as vscode from 'vscode';
@@ -392,14 +393,19 @@ function createServerEnv(
   };
 }
 
-async function promptForMissingProjectConfigs(context: vscode.ExtensionContext): Promise<void> {
+type ProjectConfigTarget = {
+  folderName: string;
+  configPath: string;
+};
+
+async function findMissingProjectConfigTargets(): Promise<ProjectConfigTarget[]> {
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-  const missingConfigs: { folder: vscode.WorkspaceFolder; configPath: string }[] = [];
+  const targets: ProjectConfigTarget[] = [];
 
   for (const folder of workspaceFolders) {
     if (folder.uri.scheme !== 'file') {
       log(
-        `[WARN] Skipping project config prompt for non-file workspace: ${folder.uri.toString()}`,
+        `[WARN] Skipping project config creation for non-file workspace: ${folder.uri.toString()}`,
       );
       continue;
     }
@@ -425,30 +431,46 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
     }
 
     const configPath = getProjectConfigPath(folder.uri.fsPath);
-    missingConfigs.push({ folder, configPath });
+    targets.push({ folderName: folder.name, configPath });
   }
 
-  if (missingConfigs.length === 0) {
+  return targets;
+}
+
+function projectConfigTargetsFromRootUris(rootUris: readonly string[]): ProjectConfigTarget[] {
+  return rootUris.map((rootUri) => {
+    const uri = vscode.Uri.parse(rootUri);
+    return {
+      folderName: path.basename(uri.fsPath),
+      configPath: getProjectConfigPath(uri.fsPath),
+    };
+  });
+}
+
+async function promptForMissingProjectConfigs(context: vscode.ExtensionContext): Promise<void> {
+  const targets = await findMissingProjectConfigTargets();
+
+  if (targets.length === 0) {
     return;
   }
 
   const createConfigAction =
-    missingConfigs.length === 1
+    targets.length === 1
       ? vscode.l10n.t('Create Manifest')
       : vscode.l10n.t('Create Manifests');
   const restartNotice = vscode.l10n.t(
     'Creating a manifest will restart the Vizsla language server so the workspace can reload it.',
   );
   const promptMessage =
-    missingConfigs.length === 1
+    targets.length === 1
       ? vscode.l10n.t(
           'No Vizsla project manifest was detected in {0}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
-          missingConfigs[0].folder.name,
+          targets[0].folderName,
           restartNotice,
         )
       : vscode.l10n.t(
           'No Vizsla project manifest was detected in {0} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
-          missingConfigs.length,
+          targets.length,
           restartNotice,
         );
 
@@ -457,9 +479,27 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
     return;
   }
 
+  await createProjectConfigs(context, targets);
+}
+
+async function createProjectConfigsFromRootUris(
+  context: vscode.ExtensionContext,
+  rootUris: readonly string[],
+): Promise<void> {
+  await createProjectConfigs(context, projectConfigTargetsFromRootUris(rootUris));
+}
+
+async function createProjectConfigs(
+  context: vscode.ExtensionContext,
+  targets: readonly ProjectConfigTarget[],
+): Promise<void> {
+  if (targets.length === 0) {
+    return;
+  }
+
   const createdConfigs: vscode.Uri[] = [];
 
-  for (const { folder, configPath } of missingConfigs) {
+  for (const { folderName, configPath } of targets) {
     try {
       await fs.promises.writeFile(configPath, DEFAULT_PROJECT_CONFIG_TEXT, {
         encoding: 'utf8',
@@ -476,7 +516,7 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
       const errorMessage = vscode.l10n.t(
         'Failed to create {0} in {1}: {2}',
         PROJECT_CONFIG_FILE_NAME,
-        folder.name,
+        folderName,
         (error as Error).message,
       );
       log(`[WARN] ${errorMessage}`);
@@ -494,12 +534,9 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
 
   const createdMessage =
     createdConfigs.length === 1
-      ? vscode.l10n.t(
-          'Created {0} with best-effort indexing defaults.',
-          PROJECT_CONFIG_FILE_NAME,
-        )
+      ? vscode.l10n.t('Created {0}.', PROJECT_CONFIG_FILE_NAME)
       : vscode.l10n.t(
-          'Created {0} files with best-effort indexing defaults in {1} workspace folders.',
+          'Created {0} in {1} workspace folders.',
           PROJECT_CONFIG_FILE_NAME,
           createdConfigs.length,
         );
@@ -725,7 +762,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBarItem);
   projectStatusController = new ProjectStatusController({
-    createManifest: () => promptForMissingProjectConfigs(context),
+    createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
     reloadProject: reloadWorkspace,
     restartServer: () => restartClient(context),
     showOutput,

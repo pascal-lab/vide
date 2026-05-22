@@ -51,15 +51,18 @@ test('recognizes Verilog and SystemVerilog source file names', () => {
   assert.equal(isProjectSourceFileName('main.ts'), false);
 });
 
-test('default project config enables best-effort indexing without semantic diagnostics', () => {
+test('default project config starts with empty analysis', () => {
   assert.equal(
     DEFAULT_PROJECT_CONFIG_TEXT,
     [
       `#:schema ${PROJECT_CONFIG_SCHEMA_URL}`,
-      '# Default startup manifest. Omitting sources enables best-effort indexing for navigation',
-      '# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]',
-      '# and include_dirs = ["include"], to enable semantic diagnostics.',
-      '# Set sources = [] to disable workspace indexing.',
+      'sources = []',
+      '',
+      '# include_dirs = ["include"]',
+      '# defines = ["SYNTHESIS"]',
+      '# top_modules = ["top"]',
+      '# libraries = ["../common_cells"]',
+      '# exclude = ["build/**"]',
       '',
     ].join('\n'),
   );
