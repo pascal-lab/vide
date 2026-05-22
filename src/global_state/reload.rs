@@ -132,6 +132,7 @@ impl GlobalState {
 
         self.source_root_config = source_root_config;
 
+        self.diagnostics_revision += 1;
         self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
 
         tracing::info!("did switch workspaces");
@@ -144,6 +145,7 @@ impl GlobalState {
             diagnostics_config,
             base_db::salsa::Durability::HIGH,
         );
+        self.diagnostics_revision += 1;
         self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         // TODO: update LRU capacity
     }

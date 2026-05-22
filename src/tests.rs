@@ -10,15 +10,16 @@ use lsp_types::{
     CodeActionOrCommand, CodeActionParams, DiagnosticClientCapabilities,
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
-    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
-    PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
+    DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position,
+    ProgressParams, PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
     WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
     WorkspaceDiagnosticReportResult,
     notification::{
-        DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit, Notification as _,
+        DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument, DidSaveTextDocument,
+        Exit, Notification as _,
     },
     request::{
         CodeActionRequest, DocumentDiagnosticRequest, DocumentSymbolRequest, FoldingRangeRequest,
@@ -361,7 +362,11 @@ fn request_goto_definition_uris(
     definition.map(goto_definition_response_uris).unwrap_or_default()
 }
 
-fn request_workspace_diagnostic_uris(client: &Connection, request_id: i32) -> Vec<Url> {
+fn request_workspace_diagnostic_report(
+    client: &Connection,
+    request_id: i32,
+    previous_result_ids: Vec<lsp_types::PreviousResultId>,
+) -> lsp_types::WorkspaceDiagnosticReport {
     let request_id = lsp_server::RequestId::from(request_id);
     client
         .sender
@@ -370,7 +375,7 @@ fn request_workspace_diagnostic_uris(client: &Connection, request_id: i32) -> Ve
             WorkspaceDiagnosticRequest::METHOD.to_string(),
             WorkspaceDiagnosticParams {
                 identifier: None,
-                previous_result_ids: Vec::new(),
+                previous_result_ids,
                 work_done_progress_params: WorkDoneProgressParams::default(),
                 partial_result_params: Default::default(),
             },
@@ -383,6 +388,10 @@ fn request_workspace_diagnostic_uris(client: &Connection, request_id: i32) -> Ve
         panic!("unexpected workspaceDiagnostic response: {result:?}");
     };
     report
+}
+
+fn request_workspace_diagnostic_uris(client: &Connection, request_id: i32) -> Vec<Url> {
+    request_workspace_diagnostic_report(client, request_id, Vec::new())
         .items
         .into_iter()
         .map(|item| match item {
@@ -1943,26 +1952,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         to_proto::url_from_abs_path(ignored_dir.join("ignored.sv").as_path()).unwrap();
     let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
 
-    let first_id = lsp_server::RequestId::from(1);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            first_id.clone(),
-            WorkspaceDiagnosticRequest::METHOD.to_string(),
-            WorkspaceDiagnosticParams {
-                identifier: None,
-                previous_result_ids: Vec::new(),
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
-    let first: WorkspaceDiagnosticReportResult =
-        recv_response(&client, first_id, "workspaceDiagnostic");
-    let first_report = match first {
-        WorkspaceDiagnosticReportResult::Report(report) => report,
-        other => panic!("unexpected workspace diagnostic response: {other:?}"),
-    };
+    let first_report = request_workspace_diagnostic_report(&client, 1, Vec::new());
     let mut saw_ignored_diagnostic = false;
     for item in first_report.items {
         if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
@@ -2190,6 +2180,129 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
     }
 
     panic!("workspaceDiagnostic response not received");
+}
+
+#[test]
+fn deleted_workspace_file_requests_diagnostic_refresh() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        workspace: Some(WorkspaceClientCapabilities {
+            diagnostic: Some(lsp_types::DiagnosticWorkspaceClientCapabilities {
+                refresh_support: Some(true),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let temp_dir = TempDir::new("workspace-delete-diagnostic-refresh");
+    let broken_path = temp_dir.path().join("broken.sv");
+    fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    fs::write(&broken_path, "module broken(;\nendmodule\n").unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let opt = Opt {
+        process_name: "vizsla-test".to_string(),
+        log: "error".to_string(),
+        log_filename: None,
+    };
+    let config = config::Config::new(
+        opt,
+        root_path.clone(),
+        pull_caps,
+        vec![root_path],
+        I18n::default(),
+        UserConfig::default(),
+        Vec::new(),
+    );
+
+    let (server, client) = Connection::memory();
+    let server_thread = spawn_default_test_server(config, server);
+    let broken_uri = to_proto::url_from_abs_path(broken_path.as_path()).unwrap();
+
+    let first_report = request_workspace_diagnostic_report(&client, 1, Vec::new());
+    let mut saw_broken_diagnostic = false;
+    let mut broken_result_id = None;
+    for item in first_report.items {
+        if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
+            && full.uri == broken_uri
+        {
+            broken_result_id = full.full_document_diagnostic_report.result_id.clone();
+            saw_broken_diagnostic = full
+                .full_document_diagnostic_report
+                .items
+                .iter()
+                .any(|diag| diag.message.contains("expected"));
+        }
+    }
+    assert!(saw_broken_diagnostic, "expected broken.sv diagnostics before deletion");
+    let broken_result_id =
+        broken_result_id.expect("workspace diagnostics need result ids to clear deleted files");
+
+    fs::remove_file(&broken_path).unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidChangeWatchedFiles::METHOD.to_string(),
+            lsp_types::DidChangeWatchedFilesParams {
+                changes: vec![FileEvent::new(broken_uri.clone(), FileChangeType::DELETED)],
+            },
+        )))
+        .unwrap();
+
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut saw_refresh = false;
+    while let Some(message) =
+        recv_lsp_message_until(&client, deadline, "workspace diagnostic refresh")
+    {
+        match message {
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkspaceDiagnosticRefresh::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+                saw_refresh = true;
+                break;
+            }
+            Message::Request(request)
+                if request.method == lsp_types::request::WorkDoneProgressCreate::METHOD =>
+            {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(request.id, ())))
+                    .unwrap();
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            other => panic!("unexpected message while waiting for diagnostic refresh: {other:?}"),
+        }
+    }
+    assert!(saw_refresh, "deleting a diagnosed workspace file should refresh pulled diagnostics");
+
+    let second_report = request_workspace_diagnostic_report(
+        &client,
+        2,
+        vec![lsp_types::PreviousResultId { uri: broken_uri.clone(), value: broken_result_id }],
+    );
+    for item in second_report.items {
+        if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
+            && full.uri == broken_uri
+        {
+            assert!(
+                full.full_document_diagnostic_report.items.is_empty(),
+                "deleted file diagnostics should be cleared: {:?}",
+                full.full_document_diagnostic_report.items
+            );
+            shutdown_test_server(&client, server_thread);
+            return;
+        }
+    }
+
+    panic!("workspace diagnostics should include an empty report for deleted broken.sv");
 }
 
 #[test]

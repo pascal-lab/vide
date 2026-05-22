@@ -40,6 +40,7 @@ impl GlobalState {
         let mut has_structure_changes = false; // Any file was added or deleted
         let mut bytes = vec![];
         let mut changed_file_ids = FxHashSet::default();
+        let mut deleted_file_ids = FxHashSet::default();
         for changed_file in changed_files {
             let path = vfs.file_path(changed_file.file_id);
             if let Some(path) =
@@ -52,6 +53,9 @@ impl GlobalState {
                 }
             }
 
+            if matches!(&changed_file.change_kind, vfs::ChangeKind::Delete) {
+                deleted_file_ids.insert(changed_file.file_id);
+            }
             changed_file_ids.insert(changed_file.file_id);
             bytes.push(changed_file);
         }
@@ -63,7 +67,13 @@ impl GlobalState {
         std::mem::drop(write_guard);
 
         self.analysis_host.apply_change(change);
-        if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType {
+        self.diagnostics_revision += 1;
+        self.remove_deleted_qihe_diagnostics(&deleted_file_ids);
+        self.clear_deleted_push_diagnostics(&deleted_file_ids);
+        if has_structure_changes {
+            self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
+        } else if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType
+        {
             self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(changed_file_ids));
         }
 
@@ -81,9 +91,12 @@ impl GlobalState {
     }
 
     pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {
-        if matches!(invalidation, DiagnosticInvalidation::WorkspaceChanged)
-            && self.config.cli_pull_diagnostics_support()
+        if self.config.cli_pull_diagnostics_support()
             && self.config.cli_workspace_diagnostic_refresh_support()
+            && match &invalidation {
+                DiagnosticInvalidation::FileChanges(file_ids) => !file_ids.is_empty(),
+                DiagnosticInvalidation::WorkspaceChanged => true,
+            }
         {
             self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
             return;
@@ -108,6 +121,48 @@ impl GlobalState {
             DiagnosticInvalidation::WorkspaceChanged => self.open_mem_doc_file_ids(),
         };
         self.request_diagnostics(file_ids);
+    }
+
+    fn remove_deleted_qihe_diagnostics(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
+        if deleted_file_ids.is_empty() {
+            return;
+        }
+
+        let mut qihe_diagnostics = self.qihe_diagnostics.lock();
+        for file_id in deleted_file_ids {
+            qihe_diagnostics.remove(file_id);
+        }
+    }
+
+    fn clear_deleted_push_diagnostics(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
+        if deleted_file_ids.is_empty() || self.config.cli_pull_diagnostics_support() {
+            return;
+        }
+
+        let snapshot = self.make_snapshot();
+        let diagnostics = deleted_file_ids
+            .iter()
+            .filter_map(|file_id| {
+                let uri = match snapshot.url(*file_id) {
+                    Ok(uri) => uri,
+                    Err(error) => {
+                        tracing::debug!(
+                            ?file_id,
+                            "skipping deleted diagnostic clear for file without URI: {error:#}"
+                        );
+                        return None;
+                    }
+                };
+                Some(PublishDiagnosticsTask {
+                    file_id: *file_id,
+                    uri,
+                    version: None,
+                    diagnostics: Vec::new(),
+                })
+            })
+            .collect();
+
+        self.publish_diagnostics_tasks(diagnostics, false);
     }
 
     fn collect_changes(

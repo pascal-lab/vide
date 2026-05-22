@@ -29,6 +29,7 @@ pub(crate) struct GlobalStateSnapshot {
     // pub(crate) check_fixes: CheckFixes,
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    pub(crate) diagnostics_revision: u64,
     pub(crate) mem_docs: MemDocs,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     #[allow(dead_code)]
@@ -148,10 +149,6 @@ impl GlobalStateSnapshot {
             .filter_map(|file_id| self.file_version(file_id).map(|version| (file_id.0, version)))
             .collect::<Vec<_>>();
 
-        if versions.is_empty() {
-            return None;
-        }
-
         versions.sort_unstable();
         let file_versions = versions
             .into_iter()
@@ -159,8 +156,9 @@ impl GlobalStateSnapshot {
             .collect::<Vec<_>>()
             .join(",");
         Some(format!(
-            "diag:{}:{file_versions}:qihe:{}",
+            "diag:{}:rev:{}:{file_versions}:qihe:{}",
             diagnostics_config.revision,
+            self.diagnostics_revision,
             self.qihe_generation(file_id)
         ))
     }
