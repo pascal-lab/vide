@@ -250,7 +250,7 @@ mod tests {
     use utils::paths::AbsPathBuf;
 
     use super::*;
-    use crate::{Opt, config::user_config::UserConfig};
+    use crate::{Opt, config::user_config::UserConfig, i18n::I18n};
 
     fn test_state() -> (GlobalState, Connection) {
         let root_path = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
@@ -263,6 +263,7 @@ mod tests {
             root_path.clone(),
             lsp_types::ClientCapabilities::default(),
             vec![root_path],
+            I18n::default(),
             UserConfig::default(),
             Vec::new(),
         );

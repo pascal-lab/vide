@@ -12,7 +12,10 @@ use utils::{
 };
 
 use self::user_config::{FilesWatcherDef, UserConfig};
-use crate::Opt;
+use crate::{
+    Opt,
+    i18n::{I18n, keys},
+};
 
 #[derive(Debug, Clone)]
 pub struct FilesConfig {
@@ -35,16 +38,11 @@ impl std::error::Error for ConfigError {}
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let errors = self.errors.iter().format_with("\n", |(key, e), f| {
-            f(key)?;
-            f(&": ")?;
-            f(e)
-        });
         write!(
             f,
             "invalid config value{}:\n{}",
             if self.errors.len() == 1 { "" } else { "s" },
-            errors
+            self.error_lines()
         )
     }
 }
@@ -52,6 +50,26 @@ impl fmt::Display for ConfigError {
 impl ConfigError {
     pub fn is_empty(&self) -> bool {
         self.errors.is_empty()
+    }
+
+    pub(crate) fn message(&self, i18n: I18n) -> String {
+        let key = if self.errors.len() == 1 {
+            keys::CONFIG_INVALID_VALUE_ONE
+        } else {
+            keys::CONFIG_INVALID_VALUE_MANY
+        };
+        i18n.format(key, [("errors", self.error_lines())])
+    }
+
+    fn error_lines(&self) -> String {
+        self.errors
+            .iter()
+            .format_with("\n", |(key, e), f| {
+                f(key)?;
+                f(&": ")?;
+                f(e)
+            })
+            .to_string()
     }
 }
 
@@ -61,6 +79,7 @@ pub struct Config {
     pub(crate) workspace_roots: Vec<AbsPathBuf>,
     pub(crate) client_caps: lsp_types::ClientCapabilities,
     pub(crate) root_path: AbsPathBuf,
+    pub(crate) i18n: I18n,
     pub(crate) user_config: UserConfig,
     pub(crate) project_manifests: Vec<ProjectManifest>,
 }
@@ -74,11 +93,20 @@ impl Config {
         root_path: AbsPathBuf,
         client_caps: ClientCapabilities,
         workspace_roots: Vec<AbsPathBuf>,
+        i18n: I18n,
         user_config: UserConfig,
         _snippets: Vec<Snippet>,
     ) -> Self {
         let project_manifests = Self::project_manifests(&workspace_roots);
-        Config { opt, workspace_roots, client_caps, root_path, user_config, project_manifests }
+        Config {
+            opt,
+            workspace_roots,
+            client_caps,
+            root_path,
+            i18n,
+            user_config,
+            project_manifests,
+        }
     }
 
     pub(crate) fn update(&mut self, json: serde_json::Value) -> Result<(), ConfigError> {
