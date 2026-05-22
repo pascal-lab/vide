@@ -52,12 +52,25 @@ function collectNlsPlaceholders(value: unknown, keys = new Set<string>()): Set<s
 }
 
 function collectRuntimeL10nMessages(): string[] {
-  const extensionSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'extension.ts'), 'utf8');
-  const matches = extensionSource.matchAll(/vscode\.l10n\.t\(\s*'((?:\\'|[^'])*)'/g);
-  const messages = [...matches].map((match) =>
-    match[1].replace(/\\n/g, '\n').replace(/\\'/g, "'"),
-  );
+  const messages: string[] = [];
+  for (const sourceFile of readSourceFiles(path.join(__dirname, '..', 'src'))) {
+    const source = fs.readFileSync(sourceFile, 'utf8');
+    const matches = source.matchAll(/vscode\.l10n\.t\(\s*'((?:\\'|[^'])*)'/g);
+    messages.push(
+      ...[...matches].map((match) => match[1].replace(/\\n/g, '\n').replace(/\\'/g, "'")),
+    );
+  }
   return [...new Set(messages)].sort();
+}
+
+function readSourceFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return readSourceFiles(entryPath);
+    }
+    return entry.isFile() && entry.name.endsWith('.ts') ? [entryPath] : [];
+  });
 }
 
 test('contributes settings for the complete Vizsla user configuration surface', () => {
