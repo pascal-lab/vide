@@ -29,20 +29,6 @@ export function diagnosticSelectorLabel(selector: string): string {
   return selector.startsWith('code:') ? 'this diagnostic type' : selector;
 }
 
-export function diagnosticOptionName(diagnostic: DiagnosticLike): string | undefined {
-  if (diagnostic.source !== slangDiagnosticSource) {
-    return undefined;
-  }
-
-  const data = diagnostic.data;
-  if (!data || typeof data !== 'object' || !('option' in data)) {
-    return undefined;
-  }
-
-  const option = data.option;
-  return typeof option === 'string' && option.length > 0 ? option : undefined;
-}
-
 export function upsertDiagnosticRule(
   rules: readonly DiagnosticRule[],
   selector: string,

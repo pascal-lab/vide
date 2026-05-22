@@ -150,5 +150,4 @@ test('diagnostic action labels use diagnostic scope wording', async () => {
   assert.ok(messages.includes('Downgrade this diagnostic type to warning in workspace settings'));
   assert.ok(messages.includes('Ignore this diagnostic type in user settings'));
   assert.ok(messages.includes('Downgrade this diagnostic type to warning in user settings'));
-  assert.ok(messages.includes('Ignore this diagnostic here'));
 });

@@ -52,7 +52,6 @@
   "$(output) Show Output": "$(output) 显示输出",
   "Open the Vizsla language server log": "打开 Vizsla 语言服务器日志",
   "Vizsla Status": "Vizsla 状态",
-  "Ignore this diagnostic here": "忽略此处诊断",
   "Ignore this diagnostic type in user settings": "在用户设置中忽略此类诊断",
   "Ignore this diagnostic type in workspace settings": "在工作区设置中忽略此类诊断",
   "Open a Verilog or SystemVerilog file first.": "请先打开 Verilog 或 SystemVerilog 文件。",
