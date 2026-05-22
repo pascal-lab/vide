@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import {
   diagnosticCodeSelector,
-  diagnosticSelectorLabel,
+  diagnosticOptionName,
   type DiagnosticRule,
   type DiagnosticRuleSeverity,
   type DiagnosticRuleTarget,
@@ -48,6 +48,11 @@ class DiagnosticRuleCodeActionProvider implements vscode.CodeActionProvider {
     const diagnosticsBySelector = new Map<string, vscode.Diagnostic>();
 
     for (const diagnostic of context.diagnostics) {
+      const locationAction = createInlineDiagnosticPragmaAction(document, diagnostic);
+      if (locationAction) {
+        actions.push(locationAction);
+      }
+
       const selector = diagnosticCodeSelector(diagnostic);
       if (!selector) {
         continue;
@@ -85,8 +90,7 @@ function createDiagnosticRuleAction(
   severity: DiagnosticRuleSeverity,
   target: DiagnosticRuleTarget,
 ): vscode.CodeAction {
-  const label = diagnosticSelectorLabel(selector);
-  const title = diagnosticRuleActionTitle(label, severity, target);
+  const title = diagnosticRuleActionTitle(severity, target);
   const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
   action.diagnostics = [diagnostic];
   action.command = {
@@ -97,20 +101,50 @@ function createDiagnosticRuleAction(
   return action;
 }
 
+function createInlineDiagnosticPragmaAction(
+  document: vscode.TextDocument,
+  diagnostic: vscode.Diagnostic,
+): vscode.CodeAction | undefined {
+  const option = diagnosticOptionName(diagnostic);
+  if (!option) {
+    return undefined;
+  }
+
+  const title = vscode.l10n.t('Ignore this diagnostic here');
+  const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+  const edit = new vscode.WorkspaceEdit();
+  const line = document.lineAt(diagnostic.range.end.line);
+  const popPrefix = line.rangeIncludingLineBreak.isEqual(line.range) ? '\n' : '';
+
+  edit.insert(document.uri, new vscode.Position(diagnostic.range.start.line, 0), [
+    '`pragma diagnostic push',
+    `\`pragma diagnostic ignore="-W${option}"`,
+    '',
+  ].join('\n'));
+  edit.insert(
+    document.uri,
+    line.rangeIncludingLineBreak.end,
+    `${popPrefix}\`pragma diagnostic pop\n`,
+  );
+
+  action.edit = edit;
+  action.diagnostics = [diagnostic];
+  return action;
+}
+
 function diagnosticRuleActionTitle(
-  label: string,
   severity: DiagnosticRuleSeverity,
   target: DiagnosticRuleTarget,
 ): string {
   if (target === 'workspace') {
     return severity === 'ignore'
-      ? vscode.l10n.t('Ignore diagnostic {0} in workspace settings', label)
-      : vscode.l10n.t('Downgrade diagnostic {0} to warning in workspace settings', label);
+      ? vscode.l10n.t('Ignore this diagnostic type in workspace settings')
+      : vscode.l10n.t('Downgrade this diagnostic type to warning in workspace settings');
   }
 
   return severity === 'ignore'
-    ? vscode.l10n.t('Ignore diagnostic {0} in user settings', label)
-    : vscode.l10n.t('Downgrade diagnostic {0} to warning in user settings', label);
+    ? vscode.l10n.t('Ignore this diagnostic type in user settings')
+    : vscode.l10n.t('Downgrade this diagnostic type to warning in user settings');
 }
 
 async function configureDiagnosticRule(args: ConfigureDiagnosticRuleArgs): Promise<void> {

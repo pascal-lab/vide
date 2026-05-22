@@ -141,3 +141,14 @@ test('localizes runtime extension strings for Simplified Chinese', async () => {
 
   assert.deepEqual(Object.keys(chineseBundle).sort(), messages);
 });
+
+test('diagnostic action labels use diagnostic scope wording', async () => {
+  const messages = await collectRuntimeL10nMessages();
+
+  assert.equal(messages.some((message) => message.includes('diagnostic {0}')), false);
+  assert.ok(messages.includes('Ignore this diagnostic type in workspace settings'));
+  assert.ok(messages.includes('Downgrade this diagnostic type to warning in workspace settings'));
+  assert.ok(messages.includes('Ignore this diagnostic type in user settings'));
+  assert.ok(messages.includes('Downgrade this diagnostic type to warning in user settings'));
+  assert.ok(messages.includes('Ignore this diagnostic here'));
+});

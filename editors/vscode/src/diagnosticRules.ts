@@ -11,6 +11,7 @@ export type DiagnosticRuleTarget = 'user' | 'workspace';
 export interface DiagnosticLike {
   source?: string;
   code?: unknown;
+  data?: unknown;
 }
 
 const slangDiagnosticSource = 'slang';
@@ -25,7 +26,21 @@ export function diagnosticCodeSelector(diagnostic: DiagnosticLike): string | und
 }
 
 export function diagnosticSelectorLabel(selector: string): string {
-  return selector.startsWith('code:') ? selector.slice('code:'.length) : selector;
+  return selector.startsWith('code:') ? 'this diagnostic type' : selector;
+}
+
+export function diagnosticOptionName(diagnostic: DiagnosticLike): string | undefined {
+  if (diagnostic.source !== slangDiagnosticSource) {
+    return undefined;
+  }
+
+  const data = diagnostic.data;
+  if (!data || typeof data !== 'object' || !('option' in data)) {
+    return undefined;
+  }
+
+  const option = data.option;
+  return typeof option === 'string' && option.length > 0 ? option : undefined;
 }
 
 export function upsertDiagnosticRule(

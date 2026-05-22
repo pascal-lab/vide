@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   diagnosticCodeSelector,
+  diagnosticOptionName,
   diagnosticSelectorLabel,
   upsertDiagnosticRule,
 } from '../src/diagnosticRules';
@@ -25,7 +26,16 @@ test('ignores diagnostics that cannot be configured by slang code', () => {
 });
 
 test('renders concise diagnostic selector labels', () => {
-  assert.equal(diagnosticSelectorLabel('code:6:129'), '6:129');
+  assert.equal(diagnosticSelectorLabel('code:6:129'), 'this diagnostic type');
+});
+
+test('reads slang diagnostic option names for source-local actions', () => {
+  assert.equal(
+    diagnosticOptionName({ source: 'slang', data: { option: 'unconnected-port' } }),
+    'unconnected-port',
+  );
+  assert.equal(diagnosticOptionName({ source: 'vizsla', data: { option: 'foo' } }), undefined);
+  assert.equal(diagnosticOptionName({ source: 'slang', data: { option: null } }), undefined);
 });
 
 test('upserts diagnostic severity rules by selector', () => {
