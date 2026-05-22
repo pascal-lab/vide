@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { getL10nJson, type IScriptFile } from '@vscode/l10n-dev';
+
 type PackageJson = {
   l10n?: string;
   contributes?: {
@@ -51,16 +53,15 @@ function collectNlsPlaceholders(value: unknown, keys = new Set<string>()): Set<s
   return keys;
 }
 
-function collectRuntimeL10nMessages(): string[] {
-  const messages: string[] = [];
-  for (const sourceFile of readSourceFiles(path.join(__dirname, '..', 'src'))) {
-    const source = fs.readFileSync(sourceFile, 'utf8');
-    const matches = source.matchAll(/vscode\.l10n\.t\(\s*'((?:\\'|[^'])*)'/g);
-    messages.push(
-      ...[...matches].map((match) => match[1].replace(/\\n/g, '\n').replace(/\\'/g, "'")),
-    );
-  }
-  return [...new Set(messages)].sort();
+async function collectRuntimeL10nMessages(): Promise<string[]> {
+  const sourceFiles = readSourceFiles(path.join(__dirname, '..', 'src'));
+  const scriptFiles: IScriptFile[] = sourceFiles.map((sourceFile) => ({
+    contents: fs.readFileSync(sourceFile, 'utf8'),
+    extension: path.extname(sourceFile),
+  }));
+  const messages = await getL10nJson(scriptFiles);
+
+  return Object.keys(messages).sort();
 }
 
 function readSourceFiles(dir: string): string[] {
@@ -129,11 +130,11 @@ test('localizes package contribution strings for English and Simplified Chinese'
   assert.deepEqual(chineseKeys, placeholderKeys);
 });
 
-test('localizes runtime extension strings for Simplified Chinese', () => {
+test('localizes runtime extension strings for Simplified Chinese', async () => {
   const packageJson = readPackageJson();
   assert.equal(packageJson.l10n, './l10n');
 
-  const messages = collectRuntimeL10nMessages();
+  const messages = await collectRuntimeL10nMessages();
   const chineseBundle = readJson<Record<string, string>>(
     path.join('l10n', 'bundle.l10n.zh-cn.json'),
   );
