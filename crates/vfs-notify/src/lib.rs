@@ -185,10 +185,10 @@ impl NotifyActor {
                         .into_iter()
                         .filter_map(|path| AbsPathBuf::try_from(path).ok())
                         .filter_map(|path| {
-                            let meta = fs::metadata(&path).ok()?;
-                            let file_type = meta.file_type();
-                            let is_file = file_type.is_file();
-                            let is_dir = file_type.is_dir();
+                            let metadata = fs::metadata(&path).ok();
+                            let file_type = metadata.as_ref().map(|meta| meta.file_type());
+                            let is_file = file_type.as_ref().is_some_and(|it| it.is_file());
+                            let is_dir = file_type.as_ref().is_some_and(|it| it.is_dir());
 
                             if is_dir && self.watched_dirs.iter().any(|dir| dir.contains_dir(&path))
                             {
@@ -196,7 +196,7 @@ impl NotifyActor {
                                 return None;
                             }
 
-                            if !is_file {
+                            if metadata.is_some() && !is_file {
                                 return None;
                             }
 
