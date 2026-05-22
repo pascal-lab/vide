@@ -250,7 +250,7 @@ fn ambiguous_module_instantiation_diagnostic(
         ModuleResolutionAmbiguity::Strict => (
             DiagnosticSeverity::Warning,
             format!(
-                "module instantiation '{module_name}' is ambiguous; {candidate_count} matching definitions are visible"
+                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
             ),
             DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT,
             message_args(),
@@ -258,7 +258,7 @@ fn ambiguous_module_instantiation_diagnostic(
         ModuleResolutionAmbiguity::BestEffortTie => (
             DiagnosticSeverity::Note,
             format!(
-                "module instantiation '{module_name}' is ambiguous in best-effort indexing; {candidate_count} equally preferred definitions are visible"
+                "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
             ),
             DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT,
             message_args(),
@@ -356,7 +356,7 @@ mod tests {
                 diag.source == DiagnosticSource::Vizsla
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.severity == syntax::DiagnosticSeverity::Note
-                    && diag.message.contains("2 equally preferred definitions")
+                    && diag.message.contains("matches 2 module definitions")
             }),
             "expected vizsla ambiguous module information: {diagnostics:?}"
         );
@@ -400,7 +400,7 @@ mod tests {
                 diag.source == DiagnosticSource::Vizsla
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.severity == syntax::DiagnosticSeverity::Warning
-                    && diag.message.contains("2 matching definitions")
+                    && diag.message.contains("matches 2 module definitions")
             }),
             "expected strict ambiguity warning: {diagnostics:?}"
         );
