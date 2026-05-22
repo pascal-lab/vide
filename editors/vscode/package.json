@@ -347,6 +347,14 @@
         "title": "%command.showServerVersion.title%"
       },
       {
+        "command": "vizsla.reloadWorkspace",
+        "title": "%command.reloadWorkspace.title%"
+      },
+      {
+        "command": "vizsla.showProjectStatus",
+        "title": "%command.showProjectStatus.title%"
+      },
+      {
         "command": "vizsla.runQiheAnalysis",
         "title": "%command.runQiheAnalysis.title%",
         "icon": "$(beaker)"

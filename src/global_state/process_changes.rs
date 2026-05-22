@@ -68,6 +68,8 @@ impl GlobalState {
         }
 
         if let Some(path) = workspace_structure_change {
+            let config = triomphe::Arc::make_mut(&mut self.config);
+            config.refresh_project_manifests();
             self.fetch_workspaces_task.request(format!("workspace vfs change: {:?}", path));
         }
 

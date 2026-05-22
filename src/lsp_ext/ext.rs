@@ -140,6 +140,7 @@ pub enum CodeActionResolveError {
 }
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vizsla.server.runQiheAnalysis";
+pub const RELOAD_WORKSPACE_COMMAND: &str = "vizsla.server.reloadWorkspace";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,4 +164,33 @@ impl Notification for QiheStatusNotification {
     type Params = QiheStatusParams;
 
     const METHOD: &'static str = "vizsla/qiheStatus";
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectStatusState {
+    Loading,
+    Loaded,
+    #[serde(rename = "none")]
+    NoManifest,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStatusParams {
+    pub state: ProjectStatusState,
+    pub manifest_uris: Vec<lsp_types::Url>,
+    pub unconfigured_root_uris: Vec<lsp_types::Url>,
+    pub workspace_count: usize,
+    pub errors: Vec<String>,
+    pub message: Option<String>,
+}
+
+pub enum ProjectStatusNotification {}
+
+impl Notification for ProjectStatusNotification {
+    type Params = ProjectStatusParams;
+
+    const METHOD: &'static str = "vizsla/projectStatus";
 }

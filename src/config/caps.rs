@@ -14,7 +14,7 @@ use utils::{line_index::WideEncoding, lines::PositionEncoding, try_, try_or_defa
 
 use crate::{
     config::Config,
-    lsp_ext::ext::{self, RUN_QIHE_ANALYSIS_COMMAND},
+    lsp_ext::ext::{self, RELOAD_WORKSPACE_COMMAND, RUN_QIHE_ANALYSIS_COMMAND},
 };
 
 impl Config {
@@ -297,7 +297,10 @@ impl Config {
             color_provider: None,
             folding_range_provider: Some(true.into()),
             execute_command_provider: Some(lsp_types::ExecuteCommandOptions {
-                commands: vec![RUN_QIHE_ANALYSIS_COMMAND.to_string()],
+                commands: vec![
+                    RUN_QIHE_ANALYSIS_COMMAND.to_string(),
+                    RELOAD_WORKSPACE_COMMAND.to_string(),
+                ],
                 work_done_progress_options: Default::default(),
             }),
             workspace: WorkspaceServerCapabilities {

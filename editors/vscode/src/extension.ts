@@ -19,11 +19,23 @@ import {
   PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
 } from './projectConfig';
-import { getServerStatusPresentation, type ServerStatus, type ServerStatusMessages } from './status';
+import {
+  ProjectStatusController,
+  projectStatusNotification,
+  reloadWorkspaceCommand,
+  reloadWorkspaceRequest,
+  showProjectStatusCommand,
+} from './projectStatus';
+import {
+  getServerStatusPresentation,
+  type ServerStatus,
+  type ServerStatusMessages,
+} from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let projectStatusController: ProjectStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
 const execFileAsync = promisify(execFile);
@@ -54,15 +66,15 @@ function requireOutputChannel(): vscode.OutputChannel {
 
 function localizedServerStatusMessages(): ServerStatusMessages {
   return {
-    startingText: vscode.l10n.t('$(sync~spin) Vizsla Starting'),
+    startingText: vscode.l10n.t('$(loading~spin) Vizsla'),
     startingTooltip: vscode.l10n.t('Vizsla language server is starting.'),
-    readyText: vscode.l10n.t('$(check) Vizsla Ready'),
+    readyText: vscode.l10n.t('Vizsla'),
     readyTooltip: vscode.l10n.t('Vizsla language server is running.'),
-    stoppingText: vscode.l10n.t('$(debug-stop) Vizsla Stopping'),
+    stoppingText: vscode.l10n.t('$(loading~spin) Vizsla'),
     stoppingTooltip: vscode.l10n.t('Vizsla language server is stopping.'),
-    stoppedText: vscode.l10n.t('$(circle-slash) Vizsla Stopped'),
+    stoppedText: vscode.l10n.t('$(circle-slash) Vizsla'),
     stoppedTooltip: vscode.l10n.t('Vizsla language server is stopped.'),
-    errorText: vscode.l10n.t('$(error) Vizsla Error'),
+    errorText: vscode.l10n.t('$(error) Vizsla'),
     errorTooltip: vscode.l10n.t('Vizsla language server failed.'),
   };
 }
@@ -208,6 +220,12 @@ function registerQiheNotifications(languageClient: LanguageClient): void {
       }
     },
   );
+}
+
+function registerProjectStatusNotifications(languageClient: LanguageClient): void {
+  languageClient.onNotification(projectStatusNotification, (params: unknown) => {
+    projectStatusController?.handleNotification(params);
+  });
 }
 
 interface ServerConfiguration {
@@ -560,6 +578,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     updateServerStatus('starting');
     log('[INFO] Starting language server...');
     client = await createClient(context);
+    registerProjectStatusNotifications(client);
     registerQiheNotifications(client);
     await client.start();
     log('[INFO] Language server started successfully');
@@ -630,6 +649,27 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
   }
 }
 
+async function reloadWorkspace(): Promise<void> {
+  if (!client) {
+    vscode.window.showErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
+    return;
+  }
+
+  try {
+    await client.sendRequest('workspace/executeCommand', {
+      command: reloadWorkspaceRequest,
+      arguments: [],
+    });
+  } catch (error) {
+    const message = vscode.l10n.t(
+      'Failed to reload Vizsla project configuration: {0}',
+      (error as Error).message,
+    );
+    log(`[ERROR] ${message}`);
+    vscode.window.showErrorMessage(message);
+  }
+}
+
 async function runQiheAnalysis(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -684,6 +724,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(outputChannel);
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   context.subscriptions.push(statusBarItem);
+  projectStatusController = new ProjectStatusController({
+    createManifest: () => promptForMissingProjectConfigs(context),
+    reloadProject: reloadWorkspace,
+    restartServer: () => restartClient(context),
+    showOutput,
+    log,
+  });
+  context.subscriptions.push(projectStatusController);
   qiheStatusBarItem = createQiheStatusBarItem();
   context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
@@ -723,6 +771,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(runQiheRegistration);
+
+  const reloadWorkspaceRegistration = vscode.commands.registerCommand(
+    reloadWorkspaceCommand,
+    async () => {
+      await reloadWorkspace();
+    },
+  );
+  context.subscriptions.push(reloadWorkspaceRegistration);
+
+  const showProjectStatusRegistration = vscode.commands.registerCommand(
+    showProjectStatusCommand,
+    async () => {
+      await projectStatusController?.show();
+    },
+  );
+  context.subscriptions.push(showProjectStatusRegistration);
   registerDiagnosticActions(context);
 
   const configurationRegistration = vscode.workspace.onDidChangeConfiguration(

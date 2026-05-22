@@ -15,7 +15,7 @@ const CLIENT_FILE_WATCHER_METHOD: &str = "workspace/didChangeWatchedFiles";
 
 #[derive(Debug)]
 pub(crate) enum FetchWorkspaceProgress {
-    Begin,
+    Begin(String),
     // workspaces
     End(Vec<Workspace>, Vec<anyhow::Error>),
 }
@@ -40,7 +40,7 @@ impl GlobalState {
             let manifests = self.config.project_manifests.clone();
 
             move |sender| {
-                if sender.send(FetchWorkspaceProgress::Begin.into()).is_err() {
+                if sender.send(FetchWorkspaceProgress::Begin(cause.clone()).into()).is_err() {
                     tracing::debug!("workspace fetch start dropped because main loop is gone");
                     return;
                 }

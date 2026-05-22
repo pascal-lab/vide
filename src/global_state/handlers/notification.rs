@@ -102,6 +102,8 @@ pub(crate) fn handle_did_save_text_document(
         && reload::should_refresh_for_change(abs_path, false)
     {
         // Re-fetch workspaces if a workspace related file has changed
+        let config = Arc::make_mut(&mut state.config);
+        config.refresh_project_manifests();
         state.fetch_workspaces_task.request(format!("DidSaveTextDocument {abs_path}"));
     }
 
