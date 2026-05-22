@@ -1,6 +1,6 @@
 [progress]
 fetching_workspaces = "Fetching Workspaces"
-roots_scanning = "Roots Scanning"
+roots_scanning = "Scanning Workspace Files"
 
 [qihe]
 progress_title = "Running Qihe Analysis"

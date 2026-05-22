@@ -1,6 +1,6 @@
 [progress]
 fetching_workspaces = "正在获取工作区"
-roots_scanning = "正在扫描根目录"
+roots_scanning = "正在扫描工作区文件"
 
 [qihe]
 progress_title = "正在运行 Qihe 分析"

@@ -121,7 +121,13 @@ impl NotifyActor {
 
                         let config_version = config.version;
                         let n_total = config.to_load.len();
-                        self.send(loader::Message::Progress { n_total, n_done: 0, config_version });
+                        if n_total > 0 {
+                            self.send(loader::Message::Progress {
+                                n_total,
+                                n_done: 0,
+                                config_version,
+                            });
+                        }
 
                         self.watched_files.clear();
                         self.watched_dirs.clear();
