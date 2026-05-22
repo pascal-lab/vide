@@ -11,7 +11,7 @@ use utils::text_edit::TextRange;
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
 use crate::{
     container::{ContainerId, InContainer},
-    source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode, root_token_in},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -105,6 +105,12 @@ impl From<ast::StructUnionType<'_>> for StructSrc {
     }
 }
 
+impl<'a> FromSourceAst<'a, ast::StructUnionType<'a>> for StructSrc {
+    fn from_source_ast(node: SourceAst<ast::StructUnionType<'a>>) -> Self {
+        StructSrc { node: AstNodeExt::to_ptr(&node.into_inner()) }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassMemberKind {
     Property,
@@ -173,6 +179,17 @@ impl From<ast::ClassDeclaration<'_>> for ClassSrc {
     fn from(node: ast::ClassDeclaration<'_>) -> Self {
         let syntax = node.syntax();
         let name = node.name().map(|name| SyntaxTokenPtr::from_token_in(syntax, name));
+        ClassSrc { node: AstNodeExt::to_ptr(&node), name }
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::ClassDeclaration<'a>> for ClassSrc {
+    fn from_source_ast(node: SourceAst<ast::ClassDeclaration<'a>>) -> Self {
+        let node = node.into_inner();
+        let syntax = node.syntax();
+        let name = node
+            .name()
+            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
         ClassSrc { node: AstNodeExt::to_ptr(&node), name }
     }
 }

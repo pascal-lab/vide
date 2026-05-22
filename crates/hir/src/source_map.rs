@@ -2,7 +2,10 @@ use std::{fmt::Debug, hash::Hash};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
-use syntax::{SyntaxKind, TokenKind, ast::AstNode};
+use syntax::{
+    SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
+    has_text_range::HasTextRange,
+};
 pub(crate) use utils::get::Get;
 use utils::{get::GetRef, text_edit::TextRange};
 
@@ -94,6 +97,65 @@ pub trait ToAstNode<'a, Output: AstNode<'a>> {
     fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<Output>;
 }
 
+/// AST node that is valid as an IDE source-map location in the parsed root
+/// file.
+///
+/// Slang can expose semantic AST nodes that originate from include or macro
+/// expansion. Those nodes are still valid input for HIR lowering, but they do
+/// not have a stable text range in the root buffer, so they must not become
+/// source-map keys. Use `SourceAst::new` at the HIR allocation/source-map
+/// boundary when HIR should still be allocated but the source-map entry may be
+/// absent.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SourceAst<Ast> {
+    ast: Ast,
+}
+
+impl<'a, Ast> SourceAst<Ast>
+where
+    Ast: AstNode<'a>,
+{
+    /// Returns `None` when the AST node has no root-buffer text range.
+    ///
+    /// Callers should treat that as "no navigable source location", not as a
+    /// lowering failure.
+    pub(crate) fn new(ast: Ast) -> Option<Self> {
+        ast.syntax().text_range()?;
+        Some(Self { ast })
+    }
+
+    pub(crate) fn into_inner(self) -> Ast {
+        self.ast
+    }
+}
+
+/// Conversion from a root-buffer AST node into a source-map key.
+///
+/// `alloc_idx_and_src!` depends on this trait instead of plain `From<ast::...>`
+/// so adding a new source-map entry point requires an explicit implementation
+/// that is checked by `cargo check`. Keep ordinary `From<ast::...>` impls for
+/// lookup paths that already operate on AST nodes under the cursor in the root
+/// file.
+pub(crate) trait FromSourceAst<'a, Ast: AstNode<'a>> {
+    fn from_source_ast(ast: SourceAst<Ast>) -> Self;
+}
+
+/// Attach a bare token returned by generated AST accessors to a root-buffer
+/// context.
+///
+/// Use this inside `FromSourceAst` implementations for optional focus tokens
+/// such as names or keywords. A token from macro/include expansion is not a
+/// valid root-buffer focus range, so callers should leave that field as `None`
+/// while still keeping the enclosing source-map node.
+pub(crate) fn root_token_in<'a>(
+    context: SyntaxNode<'a>,
+    token: SyntaxToken<'a>,
+) -> Option<SyntaxTokenWithParent<'a>> {
+    let token = SyntaxTokenWithParent { parent: context, tok: token };
+    token.text_range()?;
+    Some(token)
+}
+
 #[macro_export]
 macro_rules! define_src {
     ($name:ident(ast::$ty:ident)) => {
@@ -126,6 +188,12 @@ macro_rules! define_src {
         impl From<ast::$ty<'_>> for $name {
             fn from(node: ast::$ty<'_>) -> Self {
                 Self(syntax::slang_ext::AstNodeExt::to_ptr(&node))
+            }
+        }
+
+        impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
+            fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
+                Self(syntax::slang_ext::AstNodeExt::to_ptr(&node.into_inner()))
             }
         }
 
@@ -182,6 +250,12 @@ macro_rules! define_src {
                     Self::$ty(syntax::slang_ext::AstNodeExt::to_ptr(&node))
                 }
             }
+
+            impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
+                fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
+                    Self::$ty(syntax::slang_ext::AstNodeExt::to_ptr(&node.into_inner()))
+                }
+            }
         )*
     };
 }
@@ -231,7 +305,22 @@ macro_rules! define_src_with_name {
                 Self {
                     node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
                     name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
-                    .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
+                        .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
+                }
+            }
+        }
+
+        impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
+            fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
+                let node = node.into_inner();
+                let syntax = syntax::ast::AstNode::syntax(&node);
+                Self {
+                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node)
+                        .and_then(|name| {
+                            $crate::source_map::root_token_in(syntax, name)
+                                .map(syntax::ptr::SyntaxTokenPtr::from_token)
+                        }),
                 }
             }
         }
@@ -324,6 +413,21 @@ macro_rules! define_src_with_name {
                     }
                 }
             }
+
+            impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
+                fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
+                    let node = node.into_inner();
+                    let syntax = syntax::ast::AstNode::syntax(&node);
+                    Self::$ty {
+                        node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                        name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node)
+                            .and_then(|name| {
+                                $crate::source_map::root_token_in(syntax, name)
+                                    .map(syntax::ptr::SyntaxTokenPtr::from_token)
+                            }),
+                    }
+                }
+            }
         )*
 
         impl From<$name> for syntax::ptr::SyntaxNodePtr {
@@ -404,6 +508,26 @@ macro_rules! define_src_with_name_and_token {
                     $token: node
                         .$token_getter()
                         .map(|token| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, token)),
+                }
+            }
+        }
+
+        impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
+            fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
+                let node = node.into_inner();
+                let syntax = syntax::ast::AstNode::syntax(&node);
+                Self {
+                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node).and_then(
+                        |name| {
+                            $crate::source_map::root_token_in(syntax, name)
+                                .map(syntax::ptr::SyntaxTokenPtr::from_token)
+                        },
+                    ),
+                    $token: node.$token_getter().and_then(|token| {
+                        $crate::source_map::root_token_in(syntax, token)
+                            .map(syntax::ptr::SyntaxTokenPtr::from_token)
+                    }),
                 }
             }
         }

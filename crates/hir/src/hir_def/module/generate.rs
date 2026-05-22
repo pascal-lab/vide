@@ -49,7 +49,9 @@ use crate::{
         typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
     },
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{IsNamedSrc, IsSrc, SourceMap, ToAstNode},
+    source_map::{
+        FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, root_token_in,
+    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -66,8 +68,16 @@ pub enum GenerateRegionSrc {
 }
 
 impl GenerateRegionSrc {
-    pub fn from_direct_member(member: &ast::Member<'_>) -> Self {
-        Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(member))
+    /// Source-map key for synthetic generate regions that wrap a direct member.
+    ///
+    /// Direct generate regions do not have their own AST node, so use the
+    /// member as the navigable location when that member belongs to the
+    /// parsed root file. Include-expanded members still lower into HIR, but
+    /// have no source entry here.
+    pub fn from_direct_member(member: &ast::Member<'_>) -> Option<Self> {
+        SourceAst::new(*member).map(|member| {
+            Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(&member.into_inner()))
+        })
     }
 
     fn ptr(&self) -> SyntaxNodePtr {
@@ -115,6 +125,12 @@ impl<'a> ToAstNode<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
 impl From<ast::GenerateRegion<'_>> for GenerateRegionSrc {
     fn from(region: ast::GenerateRegion<'_>) -> Self {
         Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
+    fn from_source_ast(region: SourceAst<ast::GenerateRegion<'a>>) -> Self {
+        Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region.into_inner()))
     }
 }
 
@@ -228,7 +244,7 @@ impl From<ast::GenerateBlock<'_>> for GenerateBlockSrc {
         GenerateBlockSrc::GenerateBlock {
             node: syntax::slang_ext::AstNodeExt::to_ptr(&block),
             name: generate_block_name(block)
-                .map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
+                .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
         }
     }
 }
@@ -239,8 +255,9 @@ impl From<ast::LoopGenerate<'_>> for GenerateBlockSrc {
         GenerateBlockSrc::LoopGenerate {
             node: syntax::slang_ext::AstNodeExt::to_ptr(&loop_generate),
             name: block.and_then(|block| {
-                generate_block_name(block)
-                    .map(|name| SyntaxTokenPtr::from_token_in(block.syntax(), name))
+                generate_block_name(block).and_then(|name| {
+                    root_token_in(block.syntax(), name).map(SyntaxTokenPtr::from_token)
+                })
             }),
         }
     }
@@ -849,10 +866,11 @@ impl LowerModuleCtx<'_> {
         let mut items = SmallVec::new();
         self.lower_generate_region_member(item, &mut items);
 
-        alloc_idx_and_src! {
-            GenerateRegion { items } => self.module.generate_regions,
-            src => self.module_source_map.generate_region_srcs,
+        let idx = self.module.generate_regions.alloc(GenerateRegion { items });
+        if let Some(src) = src {
+            self.module_source_map.generate_region_srcs.insert(src, idx);
         }
+        idx
     }
 }
 
