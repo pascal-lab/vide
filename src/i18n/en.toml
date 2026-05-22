@@ -28,6 +28,10 @@ unknown = "unknown executeCommand: {command}"
 invalid_value_one = "invalid config value:\n{errors}"
 invalid_value_many = "invalid config values:\n{errors}"
 
+[diagnostic.ambiguous_module]
+strict = "module instantiation '{module_name}' is ambiguous; {candidate_count} matching definitions are visible"
+best_effort = "module instantiation '{module_name}' is ambiguous in best-effort indexing; {candidate_count} equally preferred definitions are visible"
+
 [code_lens]
 instances_one = "{count} instance"
 instances_many = "{count} instances"

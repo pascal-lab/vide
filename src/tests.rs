@@ -36,7 +36,7 @@ use crate::{
         user_config::{DiagnosticsUpdateUserConfig, UserConfig},
     },
     global_state::main_loop,
-    i18n::I18n,
+    i18n::{I18n, Locale},
     lsp_ext::to_proto,
 };
 
@@ -97,6 +97,15 @@ fn test_server_config(
     client_caps: ClientCapabilities,
     user_config: UserConfig,
 ) -> config::Config {
+    test_server_config_with_i18n(root_path, client_caps, user_config, I18n::default())
+}
+
+fn test_server_config_with_i18n(
+    root_path: AbsPathBuf,
+    client_caps: ClientCapabilities,
+    user_config: UserConfig,
+    i18n: I18n,
+) -> config::Config {
     let opt = Opt {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
@@ -107,7 +116,7 @@ fn test_server_config(
         root_path.clone(),
         client_caps,
         vec![root_path],
-        I18n::default(),
+        i18n,
         user_config,
         Vec::new(),
     )
@@ -672,6 +681,45 @@ endmodule
     assert!(
         titles.iter().any(|title| title == "Convert ordered port connections to named connections"),
         "expected mixed connection quickfix without client diagnostic data, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn vizsla_diagnostics_are_localized_for_chinese_locale() {
+    let text = "\
+module child;
+endmodule
+
+module child;
+endmodule
+
+module top;
+  child ambiguous_child();
+endmodule
+";
+    let temp_dir = TempDir::new("vizsla-i18n-diagnostic");
+    let file_path = temp_dir.path().join("ambiguous.sv");
+    fs::write(&file_path, text).unwrap();
+    let root_path = temp_dir.path().to_path_buf();
+    let config = test_server_config_with_i18n(
+        root_path,
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        I18n::new(Locale::ZhCn),
+    );
+    let (server, client) = Connection::memory();
+    let server_thread = spawn_default_test_server(config, server);
+    let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
+    open_test_document(&client, uri.clone(), text);
+
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 220);
+    assert!(
+        diagnostics.iter().any(|diag| {
+            diag.source.as_deref() == Some("vizsla") && diag.message.contains("模块实例化")
+        }),
+        "expected localized Vizsla diagnostic message, got {diagnostics:?}"
     );
 
     shutdown_test_server(&client, server_thread);

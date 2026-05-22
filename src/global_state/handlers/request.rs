@@ -177,7 +177,7 @@ pub(crate) fn handle_workspace_diagnostic(
         let line_info = snap.line_info(file_id)?;
         let mut diag_items = diagnostics
             .into_iter()
-            .map(|diag| to_proto::diagnostic(&line_info, diag))
+            .map(|diag| to_proto::diagnostic(snap.config.i18n, &line_info, diag))
             .collect::<Vec<_>>();
         diag_items.extend(snap.qihe_diagnostics(file_id));
 

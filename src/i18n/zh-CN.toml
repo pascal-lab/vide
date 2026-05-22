@@ -28,6 +28,10 @@ unknown = "未知 executeCommand：{command}"
 invalid_value_one = "配置项无效：\n{errors}"
 invalid_value_many = "配置项无效：\n{errors}"
 
+[diagnostic.ambiguous_module]
+strict = "模块实例化 '{module_name}' 存在歧义；当前可见 {candidate_count} 个匹配定义"
+best_effort = "模块实例化 '{module_name}' 在最佳努力索引中存在歧义；当前可见 {candidate_count} 个同等优先级定义"
+
 [code_lens]
 instances_one = "{count} 个实例"
 instances_many = "{count} 个实例"

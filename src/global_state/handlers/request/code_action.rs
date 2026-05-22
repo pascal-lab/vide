@@ -47,14 +47,18 @@ pub(crate) fn handle_code_action(
     for (id, mut assist) in action.into_iter().enumerate() {
         let resolve_data =
             resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
-        let action_diags = if let Some(filtered) =
-            quick_fix_diagnostics(assist.id.repair, &server_diagnostics)
-        {
-            assist.id.kind = CodeActionKind::QuickFix;
-            Some(filtered.into_iter().map(|diag| to_proto::diagnostic(&line_info, diag)).collect())
-        } else {
-            None
-        };
+        let action_diags =
+            if let Some(filtered) = quick_fix_diagnostics(assist.id.repair, &server_diagnostics) {
+                assist.id.kind = CodeActionKind::QuickFix;
+                Some(
+                    filtered
+                        .into_iter()
+                        .map(|diag| to_proto::diagnostic(snap.config.i18n, &line_info, diag))
+                        .collect(),
+                )
+            } else {
+                None
+            };
         let code_action = to_proto::code_action(&snap, assist, resolve_data, action_diags)?;
         res.push(lsp_types::CodeActionOrCommand::CodeAction(code_action))
     }
@@ -282,6 +286,8 @@ mod tests {
             range: TextRange::empty(TextSize::from(0)),
             severity: DiagnosticSeverity::Error,
             message: "localized message".to_owned(),
+            message_key: None,
+            message_args: Vec::new(),
         }
     }
 
@@ -350,6 +356,8 @@ mod tests {
             range: TextRange::empty(TextSize::from(6)),
             severity: DiagnosticSeverity::Error,
             message: "mixing ordered and named port connections is not allowed".to_owned(),
+            message_key: None,
+            message_args: Vec::new(),
         };
 
         assert_eq!(
@@ -371,6 +379,8 @@ mod tests {
             range: TextRange::empty(TextSize::from(0)),
             severity: DiagnosticSeverity::Error,
             message: "localized message".to_owned(),
+            message_key: None,
+            message_args: Vec::new(),
         };
 
         let diagnostics = code_action_diagnostics_from_ide(&[diag]);
