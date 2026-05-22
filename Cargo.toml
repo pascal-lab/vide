@@ -33,6 +33,7 @@ anyhow.workspace = true
 clap = { version = "4.4.6", features = ["derive"] }
 const_format.workspace = true
 crossbeam-channel.workspace = true
+dunce.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 lsp-server = "0.7.6"
