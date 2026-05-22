@@ -141,28 +141,32 @@ impl GlobalState {
 
     fn client_file_watcher_globs(&self) -> Vec<String> {
         let mut globs = self
-            .workspaces
+            .config
+            .workspace_roots
             .iter()
-            .flat_map(|ws| ws.roots())
-            .filter(|it| !it.role.is_library())
             .flat_map(|root| {
-                root.load_paths().into_iter().flat_map(|it| {
-                    let mut globs = vec![
-                        format!("{it}/**/*.v"),
-                        format!("{it}/**/*.sv"),
-                        format!("{it}/**/*.vh"),
-                        format!("{it}/**/*.svh"),
-                        format!("{it}/**/*.svi"),
-                    ];
-                    globs.extend(
-                        project_manifest::MANIFEST_FILE_NAMES
-                            .iter()
-                            .map(|file_name| format!("{it}/**/{file_name}")),
-                    );
-                    globs
-                })
+                project_manifest::MANIFEST_FILE_NAMES
+                    .iter()
+                    .map(move |file_name| format!("{root}/{file_name}"))
             })
             .collect_vec();
+        globs.extend(
+            self.workspaces
+                .iter()
+                .flat_map(|ws| ws.roots())
+                .filter(|it| !it.role.is_library())
+                .flat_map(|root| {
+                    root.load_paths().into_iter().flat_map(|it| {
+                        [
+                            format!("{it}/**/*.v"),
+                            format!("{it}/**/*.sv"),
+                            format!("{it}/**/*.vh"),
+                            format!("{it}/**/*.svh"),
+                            format!("{it}/**/*.svi"),
+                        ]
+                    })
+                }),
+        );
         globs.sort();
         globs.dedup();
         globs
@@ -247,13 +251,18 @@ pub(crate) fn should_refresh_for_change(path: &AbsPath, has_structure_change: bo
 #[cfg(test)]
 mod tests {
     use lsp_server::{Connection, Message, Request as LspRequest};
-    use utils::paths::AbsPathBuf;
+    use project_model::project_manifest;
+    use utils::{paths::AbsPathBuf, test_support::TestDir};
 
     use super::*;
     use crate::{Opt, config::user_config::UserConfig, i18n::I18n};
 
     fn test_state() -> (GlobalState, Connection) {
         let root_path = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap());
+        test_state_with_root(root_path)
+    }
+
+    fn test_state_with_root(root_path: AbsPathBuf) -> (GlobalState, Connection) {
         let config = Config::new(
             Opt {
                 process_name: "vizsla-test".to_string(),
@@ -325,5 +334,19 @@ mod tests {
         let methods =
             drain_client_requests(&client).into_iter().map(|request| request.method).collect_vec();
         assert_eq!(methods, vec!["client/registerCapability", "client/unregisterCapability"]);
+    }
+
+    #[test]
+    fn client_file_watchers_include_workspace_root_manifests() {
+        let root = TestDir::new("client-manifest-watchers");
+        let root_path = root.path().to_path_buf();
+        let (state, _client) = test_state_with_root(root_path.clone());
+
+        let globs = state.client_file_watcher_globs();
+
+        assert!(globs.contains(&format!("{root_path}/{}", project_manifest::MANIFEST_FILE_NAME)));
+        assert!(
+            globs.contains(&format!("{root_path}/{}", project_manifest::LEGACY_MANIFEST_FILE_NAME))
+        );
     }
 }
