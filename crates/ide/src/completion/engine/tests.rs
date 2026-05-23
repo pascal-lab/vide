@@ -389,6 +389,18 @@ fn statement_completion_uses_slang_system_task_facts() {
 }
 
 #[test]
+fn system_task_snippet_preserves_dollar_prefixed_name() {
+    let items =
+        completions_in_text("module m; initial begin\n  $di/*caret*/\nend endmodule\n", None);
+    let display = items.iter().find(|item| item.label == "$display").unwrap();
+    let mut text = "module m; initial begin\n  $di\nend endmodule\n".to_string();
+
+    display.snippet_edit.as_ref().unwrap().apply_on(&mut text);
+
+    assert_eq!(text, "module m; initial begin\n  \\$display(${1:args})\nend endmodule\n");
+}
+
+#[test]
 fn standalone_dollar_completion_suggests_system_tasks_and_functions() {
     let items = completions_in_text("module m; initial begin\n  $/*caret*/\nend endmodule\n", None);
     let item_labels = labels(&items);

@@ -32,11 +32,12 @@ fn collect_system_subroutines(
         .iter()
         .filter(|name| name.starts_with(prefix))
         .map(|name| {
+            let snippet_name = name.replacen('$', r"\$", 1);
             CompletionCandidate::semantic_snippet(
                 name.clone(),
                 ctx.replacement,
                 format!("{name}()"),
-                format!("{name}(${{1:args}})"),
+                format!("{snippet_name}(${{1:args}})"),
             )
         })
         .collect()
