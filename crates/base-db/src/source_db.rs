@@ -34,6 +34,11 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
     fn preproc_file_index(&self, file_id: FileId) -> Arc<PreprocFileIndex>;
+    fn preproc_file_index_with_predefines(
+        &self,
+        file_id: FileId,
+        predefines: Vec<String>,
+    ) -> Arc<PreprocFileIndex>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -102,9 +107,21 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
 }
 
 fn preproc_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocFileIndex> {
+    preproc_file_index_with_predefines(db, file_id, Vec::new())
+}
+
+fn preproc_file_index_with_predefines(
+    db: &dyn SourceDb,
+    file_id: FileId,
+    predefines: Vec<String>,
+) -> Arc<PreprocFileIndex> {
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            Arc::new(preproc_index::preproc_file_index(&db.parse_src(file_id)))
+            let options = syntax::SyntaxTreeOptions {
+                predefines,
+                ..syntax::SyntaxTreeOptions::without_include_expansion()
+            };
+            Arc::new(preproc_index::preproc_file_index_from_text(&db.file_text(file_id), &options))
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
             Arc::new(PreprocFileIndex::default())

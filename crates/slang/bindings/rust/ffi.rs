@@ -72,6 +72,40 @@ mod slang_ffi {
         has_token: bool,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorToken {
+        raw_text: String,
+        value_text: String,
+        range_start: usize,
+        range_end: usize,
+        has_range: bool,
+        has_token: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorMacroParam {
+        name: RawPreprocessorToken,
+        default_tokens: Vec<RawPreprocessorToken>,
+        has_default: bool,
+        range_start: usize,
+        range_end: usize,
+        has_range: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorDirective {
+        kind: u16,
+        range_start: usize,
+        range_end: usize,
+        has_range: bool,
+        directive: RawPreprocessorToken,
+        name: RawPreprocessorToken,
+        include_file_name: RawPreprocessorToken,
+        params: Vec<RawPreprocessorMacroParam>,
+        body_tokens: Vec<RawPreprocessorToken>,
+        expr_tokens: Vec<RawPreprocessorToken>,
+    }
+
     #[namespace = "slang"]
     unsafe extern "C++" {
         include!("slang/bindings/rust/ffi/wrapper.h");
@@ -420,6 +454,14 @@ mod slang_ffi {
         ) -> RawLexedTokenAtOffset;
 
         #[namespace = "wrapper::syntax"]
+        fn SyntaxTree_preprocessorDirectives(
+            text: CxxSV,
+            name: CxxSV,
+            path: CxxSV,
+            predefines: Vec<String>,
+        ) -> Vec<RawPreprocessorDirective>;
+
+        #[namespace = "wrapper::syntax"]
         fn SyntaxTree_buffer_id(tree: &SyntaxTree) -> u32;
     }
 
@@ -548,6 +590,7 @@ impl_functions! {
         fn libraryMapExpectedSyntaxAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> Vec<RawExpectedSyntax> |> SyntaxTree_libraryMapExpectedSyntaxAtOffset;
         fn directiveAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_directiveAtOffset;
         fn tokenWordAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_tokenWordAtOffset;
+        fn preprocessorDirectives(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>) -> Vec<RawPreprocessorDirective> |> SyntaxTree_preprocessorDirectives;
         fn buffer_id(&self) -> u32 |> SyntaxTree_buffer_id;
     }
 }
