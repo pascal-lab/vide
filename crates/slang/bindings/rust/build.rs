@@ -42,6 +42,18 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
         .profile(cmake_profile)
         .define("CMAKE_VERBOSE_MAKEFILE", "ON");
 
+    if !debug && cfg!(target_env = "msvc") {
+        // cmake-rs still sets config-specific MSVC flags for Visual Studio
+        // generators to preserve /MD or /MT. That replaces CMake's built-in
+        // Release defaults, while cmake-rs has already filtered optimization
+        // args out of Cargo's compiler flags. Restore the optimized Release
+        // settings explicitly until cmake-rs can rely on
+        // CMAKE_MSVC_RUNTIME_LIBRARY for this path.
+        config
+            .define("CMAKE_C_FLAGS_RELEASE", "/O2 /Ob2 /DNDEBUG")
+            .define("CMAKE_CXX_FLAGS_RELEASE", "/O2 /Ob2 /DNDEBUG");
+    }
+
     config.build()
 }
 
