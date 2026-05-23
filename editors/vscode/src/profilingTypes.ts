@@ -35,7 +35,6 @@ export type ProfileArtifacts = {
   trace: string;
   summary: string;
   folded: string;
-  html: string;
   svg: string;
   log: string;
 };
@@ -51,8 +50,7 @@ export type ProfileRunSummary = {
   artifacts: {
     trace: string;
     folded: string;
-    flamegraph_html: string;
-    flamegraph: string;
+    flamegraph_svg: string;
     server_log: string;
   };
   trace_summary: Record<string, unknown>;

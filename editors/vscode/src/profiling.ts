@@ -19,6 +19,7 @@ import type {
   ProfilingDependencies,
   ServerLaunch,
 } from './profilingTypes';
+import { SpeedscopeProfileViewer } from './profilingViewer';
 
 export const profileDiagnosticsCommand = 'vizsla.profileDiagnostics';
 
@@ -43,10 +44,12 @@ export function registerProfilingCommand(
   deps: ProfilingDependencies,
 ): vscode.Disposable {
   const channel = vscode.window.createOutputChannel(profileOutputChannelName);
+  const viewer = new SpeedscopeProfileViewer(context);
   context.subscriptions.push(channel);
+  context.subscriptions.push(viewer);
 
   return vscode.commands.registerCommand(profileDiagnosticsCommand, async () => {
-    await runProfileDiagnostics(context, deps, channel);
+    await runProfileDiagnostics(context, deps, channel, viewer);
   });
 }
 
@@ -54,6 +57,7 @@ async function runProfileDiagnostics(
   context: vscode.ExtensionContext,
   deps: ProfilingDependencies,
   channel: vscode.OutputChannel,
+  viewer: SpeedscopeProfileViewer,
 ): Promise<void> {
   const target = await selectProfileTarget();
   if (!target) {
@@ -89,7 +93,7 @@ async function runProfileDiagnostics(
       },
     );
 
-    await showProfileCompleteMessage(artifacts);
+    await showProfileCompleteMessage(artifacts, viewer);
   } catch (error) {
     const message = vscode.l10n.t(
       'Failed to profile diagnostics: {0}',
@@ -187,7 +191,6 @@ function profileArtifacts(context: vscode.ExtensionContext, target: ProfileTarge
     trace: path.join(dir, 'trace.json'),
     summary: path.join(dir, 'summary.json'),
     folded: path.join(dir, 'trace.folded'),
-    html: path.join(dir, 'flamegraph.html'),
     svg: path.join(dir, 'flamegraph.svg'),
     log: path.join(dir, 'server.log'),
   };
@@ -262,23 +265,17 @@ async function runProfileSession(
       artifacts: {
         trace: artifacts.trace,
         folded: artifacts.folded,
-        flamegraph_html: artifacts.html,
-        flamegraph: artifacts.svg,
+        flamegraph_svg: artifacts.svg,
         server_log: artifacts.log,
       },
-      trace_summary: await summarizeTraceFile(
-        artifacts.trace,
-        artifacts.folded,
-        artifacts.svg,
-        artifacts.html,
-      ),
+      trace_summary: await summarizeTraceFile(artifacts.trace, artifacts.folded, artifacts.svg),
     };
     await writeJsonFile(artifacts.summary, summary);
     channel.appendLine(`Request: ${diagnosticRequest.method}`);
     channel.appendLine(`Diagnostic request: ${requestElapsedMs} ms`);
     channel.appendLine(`Diagnostics: ${diagnostics.length}`);
     channel.appendLine(`Summary: ${artifacts.summary}`);
-    channel.appendLine(`Interactive flamegraph: ${artifacts.html}`);
+    channel.appendLine(`Speedscope input trace: ${artifacts.trace}`);
     channel.appendLine(`Static flamegraph: ${artifacts.svg}`);
   } finally {
     session.dispose();
@@ -326,18 +323,25 @@ async function stopProfileSession(
   await session.waitForExit(shutdownTimeoutMs);
 }
 
-async function showProfileCompleteMessage(artifacts: ProfileArtifacts): Promise<void> {
-  const openFlamegraph = vscode.l10n.t('Open Flamegraph');
+async function showProfileCompleteMessage(
+  artifacts: ProfileArtifacts,
+  viewer: SpeedscopeProfileViewer,
+): Promise<void> {
+  const openSpeedscope = vscode.l10n.t('Open in Speedscope');
   const openSummary = vscode.l10n.t('Open Summary');
   const showInFolder = vscode.l10n.t('Show in Folder');
   const selection = await vscode.window.showInformationMessage(
     vscode.l10n.t('Vizsla diagnostics profile complete.'),
-    openFlamegraph,
+    openSpeedscope,
     openSummary,
     showInFolder,
   );
-  if (selection === openFlamegraph) {
-    await vscode.env.openExternal(vscode.Uri.file(artifacts.html));
+  if (selection === openSpeedscope) {
+    await viewer.open(artifacts).catch((error: unknown) => {
+      vscode.window.showErrorMessage(
+        vscode.l10n.t('Failed to open Speedscope: {0}', (error as Error).message),
+      );
+    });
   } else if (selection === openSummary) {
     await vscode.window.showTextDocument(vscode.Uri.file(artifacts.summary));
   } else if (selection === showInFolder) {

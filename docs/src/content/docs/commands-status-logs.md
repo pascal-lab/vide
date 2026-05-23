@@ -55,11 +55,10 @@ VS Code 扩展贡献了这些命令:
 
 | 文件 | 说明 |
 | --- | --- |
-| `trace.json` | Chrome/Perfetto/speedscope 兼容 trace。 |
+| `trace.json` | Chrome/Perfetto/Speedscope 兼容 trace, 也就是 Speedscope 的交互式输入文件。 |
 | `summary.json` | 请求耗时、diagnostics 汇总和 top span 汇总。 |
 | `trace.folded` | 从 trace 生成的 folded stack。 |
-| `flamegraph.html` | 可点击缩放和搜索的交互式火焰图。 |
-| `flamegraph.svg` | 静态火焰图备用文件。 |
+| `flamegraph.svg` | 静态火焰图备用文件。交互式查看由扩展内置的本地 Speedscope viewer 打开 `trace.json`。 |
 | `server.log` | 临时语言服务器日志。 |
 
 ## 查询服务器版本
