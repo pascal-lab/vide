@@ -266,7 +266,7 @@ fn run_qihe_request(
     run_qihe_commands(&qihe_config, &cwd, &compile_input, &ir_path, &storage_root, i18n, log_sink)?;
 
     let diagnostics = load_latest_diagnostics(&storage_root, i18n)?;
-    let resolution_base = if compile_input.project_mode {
+    let resolution_base = if compile_input.uses_manifest() {
         cwd.as_path()
     } else {
         active_path
@@ -289,8 +289,20 @@ fn qihe_working_directory(params_cwd: Option<PathBuf>, root_path: &AbsPath) -> P
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct QiheCompileInput {
     files: Vec<PathBuf>,
-    slang_args: Vec<String>,
-    project_mode: bool,
+    manifest_slang_args: Vec<String>,
+    source: QiheCompileInputSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QiheCompileInputSource {
+    SingleFile,
+    Manifest,
+}
+
+impl QiheCompileInput {
+    fn uses_manifest(&self) -> bool {
+        matches!(self.source, QiheCompileInputSource::Manifest)
+    }
 }
 
 fn qihe_compile_input(
@@ -319,8 +331,8 @@ fn qihe_compile_input(
 fn single_file_qihe_compile_input(active_path: &AbsPath) -> QiheCompileInput {
     QiheCompileInput {
         files: vec![active_path.to_path_buf().into()],
-        slang_args: Vec::new(),
-        project_mode: false,
+        manifest_slang_args: Vec::new(),
+        source: QiheCompileInputSource::SingleFile,
     }
 }
 
@@ -349,7 +361,11 @@ fn qihe_compile_input_from_plan(
         slang_args.push(format!("-D{define}"));
     }
 
-    QiheCompileInput { files, slang_args, project_mode: true }
+    QiheCompileInput {
+        files,
+        manifest_slang_args: slang_args,
+        source: QiheCompileInputSource::Manifest,
+    }
 }
 
 fn qihe_run_paths(active_path: &AbsPath) -> Result<(PathBuf, PathBuf)> {
@@ -397,14 +413,19 @@ fn prepare_qihe_compile_command(
 ) {
     let (qihe_args, user_slang_args) = split_compile_args(&qihe_config.compile_args);
     command.args(&qihe_args);
-    if compile_input.project_mode && !has_compile_mode(&qihe_args) {
+    let auto_configure_manifest_args =
+        qihe_config.auto_configure_args_from_manifest && compile_input.uses_manifest();
+    if auto_configure_manifest_args && !has_compile_mode(&qihe_args) {
         command.args(["--mode", "sv"]);
     }
     command.args(&compile_input.files).arg("-o").arg(ir_path);
 
-    let has_slang_args = !user_slang_args.is_empty() || !compile_input.slang_args.is_empty();
+    let manifest_slang_args = auto_configure_manifest_args
+        .then_some(compile_input.manifest_slang_args.as_slice())
+        .unwrap_or(&[]);
+    let has_slang_args = !user_slang_args.is_empty() || !manifest_slang_args.is_empty();
     if has_slang_args {
-        command.arg("--").args(&user_slang_args).args(&compile_input.slang_args);
+        command.arg("--").args(&user_slang_args).args(manifest_slang_args);
     }
 }
 
@@ -782,9 +803,10 @@ mod tests {
     use utils::paths::AbsPathBuf;
 
     use super::{
-        QiheCompileInput, QiheLogSink, command_line, has_compile_mode, join_command_output,
-        parse_source_loc, prepare_qihe_compile_command, qihe_compile_input_from_plan,
-        qihe_working_directory, split_compile_args, stream_command_output, strip_ansi,
+        QiheCompileInput, QiheCompileInputSource, QiheLogSink, command_line, has_compile_mode,
+        join_command_output, parse_source_loc, prepare_qihe_compile_command,
+        qihe_compile_input_from_plan, qihe_working_directory, split_compile_args,
+        stream_command_output, strip_ansi,
     };
     use crate::{
         config::user_config::QiheConfig,
@@ -889,19 +911,20 @@ mod tests {
     fn project_compile_command_synthesizes_sv_mode_and_slang_args() {
         let config = QiheConfig {
             command: "qihe".to_owned(),
+            auto_configure_args_from_manifest: true,
             compile_args: vec!["--flag".to_owned(), "--".to_owned(), "--lint".to_owned()],
             run_args: Vec::new(),
         };
         let input = QiheCompileInput {
             files: vec![PathBuf::from("/repo/rtl/a.sv"), PathBuf::from("/repo/rtl/b.sv")],
-            slang_args: vec![
+            manifest_slang_args: vec![
                 "--top".to_owned(),
                 "top".to_owned(),
                 "-I".to_owned(),
                 "/repo/include".to_owned(),
                 "-DDEBUG".to_owned(),
             ],
-            project_mode: true,
+            source: QiheCompileInputSource::Manifest,
         };
         let mut command = Command::new("qihe");
 
@@ -935,16 +958,65 @@ mod tests {
     }
 
     #[test]
+    fn project_compile_command_can_disable_manifest_args() {
+        let config = QiheConfig {
+            command: "qihe".to_owned(),
+            auto_configure_args_from_manifest: false,
+            compile_args: vec![
+                "--mode".to_owned(),
+                "custom".to_owned(),
+                "--".to_owned(),
+                "--lint".to_owned(),
+            ],
+            run_args: Vec::new(),
+        };
+        let input = QiheCompileInput {
+            files: vec![PathBuf::from("/repo/rtl/a.sv"), PathBuf::from("/repo/rtl/b.sv")],
+            manifest_slang_args: vec![
+                "--top".to_owned(),
+                "top".to_owned(),
+                "-I".to_owned(),
+                "/repo/include".to_owned(),
+                "-DDEBUG".to_owned(),
+            ],
+            source: QiheCompileInputSource::Manifest,
+        };
+        let mut command = Command::new("qihe");
+
+        prepare_qihe_compile_command(
+            &mut command,
+            &config,
+            &input,
+            PathBuf::from("/tmp/in.qh").as_path(),
+        );
+
+        assert_eq!(
+            command_args(&command),
+            [
+                "--mode",
+                "custom",
+                "/repo/rtl/a.sv",
+                "/repo/rtl/b.sv",
+                "-o",
+                "/tmp/in.qh",
+                "--",
+                "--lint",
+            ]
+        );
+    }
+
+    #[test]
     fn single_file_compile_command_does_not_force_sv_mode() {
         let config = QiheConfig {
             command: "qihe".to_owned(),
+            auto_configure_args_from_manifest: true,
             compile_args: Vec::new(),
             run_args: Vec::new(),
         };
         let input = QiheCompileInput {
             files: vec![PathBuf::from("/repo/top.sv")],
-            slang_args: Vec::new(),
-            project_mode: false,
+            manifest_slang_args: Vec::new(),
+            source: QiheCompileInputSource::SingleFile,
         };
         let mut command = Command::new("qihe");
 
@@ -973,8 +1045,8 @@ mod tests {
             input,
             QiheCompileInput {
                 files: vec![active_path.into()],
-                slang_args: Vec::new(),
-                project_mode: false,
+                manifest_slang_args: Vec::new(),
+                source: QiheCompileInputSource::SingleFile,
             }
         );
     }
