@@ -1,0 +1,351 @@
+/** @page user-manual User Manual
+@brief Instructions on how to use the slang tool as an end-user
+
+@tableofcontents
+
+@section quick-start Quick Start
+
+The `slang` binary runs a full compilation of given SystemVerilog source files.
+Eventually it will produce a full simulation binary as output, but for now it
+serves as a checker of source code syntax, types, and various language rules.
+
+Running it on one or more valid SystemVerilog files will note the top level modules
+found, and will return zero:
+
+@code{.sv}
+// test1.sv
+module m;
+	struct { logic a; } s;
+	int i = s.a + 1;
+	initial $display("%d", i);
+endmodule
+@endcode
+
+@code{.ansi}
+> slang test1.sv
+[93mTop level design units:
+[0m    m
+
+[1;32mBuild succeeded: [0m0 errors, 0 warnings
+
+> echo $?
+0
+@endcode
+
+Running it on a file with errors will produce nicely formatted diagnostic output:
+
+@code{.sv}
+// test2.sv
+module m;
+	struct { logic a; } s;
+	int i = s + 1;
+	initial $display("%d", i);
+endmodule
+@endcode
+
+@code{.ansi}
+[93mTop level design units:
+[0m    m
+
+[0;36m../test2.sv[0m:[1;36m4:12[0m: [1;31merror: [0m[1;37minvalid operands to binary expression ('<unnamed unpacked struct>' and 'int')[0m
+        int i = s + 1;
+[1;32m                ~ ^ ~[0m
+
+[31mBuild failed: [0m1 error, 0 warnings
+@endcode
+
+@section file-patterns File Patterns
+
+All inputs to slang that accept a file path also accept a file "pattern", which is
+a wildcarded pattern that can select zero or more files (or directories, for options
+like `-I`). Allowed shortcuts/wildcards are:
+-   `?` matches any single character
+-   `*` matches zero or more characters
+-   `...` recursively matches any number of directories
+-   `..` specifies the parent directory
+-   `.` specifies the current directory
+
+Paths that end in a `/` include all the files in that directory, identical to \c /\*.
+
+@note File patterns provided on the command line will first be seen by your shell;
+be aware that it may be expanded before slang even sees it, which can cause
+unintuitive results.
+
+@section compilation-units Compilation Units
+
+A "compilation unit" is a one or more input source files that are parsed together
+as an independent unit (note that preprocessing, including macro expansion, is performed during
+parsing and so the effects of it are limited in scope to the compilation unit).
+Because they are self contained, each compilation unit can be parsed in parallel with all
+other compilation units. Once all compilation units are parsed, elaboration is performed
+to build the final design. Top-level modules, interfaces, programs, primitives, and packages
+are visible across compilation units, but other declarations are not.
+
+By default `slang` treats all input files as separate SystemVerilog compilation units.
+This is the preferred method both because it keeps the code logically separate (it doesn't
+require a specific ordering of files on the command line in order to compile correctly) and
+because internally the tool can parse files in parallel if it knows they don't have to be
+parsed in a specific order. You can instead choose to have all input files combined into
+a single compilation unit by using the `--single-unit` flag, which mirrors the default behavior
+of many other SystemVerilog tools.
+
+Additionally you can control compilation units at a more fine grained level via several mechanisms.
+Library units, passed via `-v`, discovered via @ref library-search or specified via a `--libmap`,
+are always separate compilation units. Also you can use a @ref unit-listing to specify a
+specific set of files that should form a compilation unit, along with additional flags that
+control parsing behavior at the level of that specific compilation unit.
+
+@section source-libraries Source Libraries
+
+SystemVerilog has a concept of a "source library" which is a named collection of files that
+can be included in a design. All files are part of a source library -- if none is named
+explicitly for a given file, that file will be part of the default library (named "work").
+
+Library files can be specified on the command line using the `-v` option, which accepts
+a file pattern and an optional library name. If the library name is ommitted, the file
+is placed in the default library. For example:
+
+@code{.ansi}
+> slang top_module.sv -v some/lib1.sv -v "my_lib=some/other/lib2.sv"
+@endcode
+
+This includes three files in the design; top_module.sv is a non-library file (though it
+is placed in the default "work" library for purposes of having a library name available),
+lib1.sv is a library file in the "work" library, and lib2.sv is a library file in the
+"my_lib" library.
+
+The distinction between library files and non-library files is that modules in
+library files are never automatically instantiated, unused code elements don't cause
+warnings, and unused modules have no semantic error checking applied (e.g. name lookups
+don't occur, though the files must still be syntactically correct SystemVerilog code).
+Also it is assumed that library files are independent from each other even if the
+`--single-unit` flag is used (and thus can be loaded and parsed in any order).
+If you are using `--single-unit` and need macros declared in the regular files to be
+visible in library files you can use the `--libraries-inherit-macros` flag.
+
+Libraries can also be defined using "library map" files, which are passed to slang
+using the `--libmap` flag. The format of library map files is specified in the
+SystemVerilog LRM, section 33.3. An example map file might look like:
+
+@code{.sv}
+include some/other/lib.map;
+
+// Declare a library called "my_lib" with some files in it
+library my_lib some_file.sv, "all/in/dir/*.sv", other/file2.sv;
+@endcode
+
+All files specified in a library map are loaded and parsed as if they had
+been passed using the `-v` flag.
+
+@section library-search Searching for Library Files
+
+slang can also dynamically search for library files instead of needing them
+provided up front, assuming they are named in a predictable fashion. This is
+accomplished by using the `--libdir` flag to specify directories in which to
+search for library modules, and `--libext` to specify which file extensions
+these module files will have (.v and .sv are included by default).
+
+After parsing all explicitly provided sources, slang will look through all
+module instantiations, package import directives, and interface port declarations
+and build a set of names that are not satisfied by any modules, packages,
+or interfaces already in the design. Then it will search in each provided
+`--libdir` directory for a file with the name of the missing module/interface/package
+and one of the provided extensions. If found, it will load that file as a
+library file and include it in the build. This process continues until all
+missing names are satisfied or all file names have been searched.
+
+@section command-files Command Files
+
+Command files allow specifying tool options in standalone composable files instead of needing
+to pass all of them on the command line. One or more command files can be used by passing them
+via the -F or -f command line flags -- both flags function identically except in the
+treatment of file paths in the command file. -F files treat their paths as relative to the
+command file itself, where as -f files treat paths as relative to the current working directory.
+
+The format of a command file is straightforward; all text is treated as whitespace-delimited
+arguments, similarly to how they might be passed on the command line. Newlines are treated
+like any other form of whitespace. Some important features are as follows:
+
+-  Command files can contain comments. '#' starts a line comment that continues to the end of
+   the line, regardless of where the '#' occurs. '//' similarly starts a line comment, but only
+   if preceeded by whitespace. '/&lowast;' and '&lowast;/' form a C-style multiline block comment.
+-  Single quotes and double quotes group text in a similar fashion to how they work in Bash
+   and other shells.
+-  The backslash character can be used to escape special characters and treat them like normal text.
+-  Environment variables in the command file are expanded. Variables can be specified in one of
+   three styles: $VAR, \$\(VAR), and ${VAR}.
+-  Command files can further include other command files by using -f or -F.
+-  Arguments set in a command file are overridden by anything set on the command line if they would
+   otherwise conflict.
+
+@section unit-listing Compilation Unit Listing
+
+Similar to command files, there exists another type of file called a "compilation unit listing"
+that can be passed to slang using the `-C` command line flag. The syntax of the file is the same
+as for a command file, except that only a limited subset of flags are allowed. The contents of
+the file are used to specify a complete compilation unit, including the files that should comprise
+it as well as flags that control how it should be parsed. Note that paths specified in the file
+are always relative to the file itself.
+
+The flags allowed in compilation unit listings are:
+
+`positional arguments`
+
+Paths to files (using @ref file-patterns "file patterns") that should be included in the compilation unit.
+
+```
+-I,--include-directory <dir-pattern>[,...]
++incdir+<dir>[+<dir>...]
+```
+
+Add the given directory paths to the list of directories searched by \`include directives that use
+quotes to specify the path.
+
+```
+-D,--define-macro <macro>=<value>
++define+<macro>=<value>[+<macro>=<value>...]
+```
+
+Define \<macro\> to \<value\> (or `1` if \<value\> is ommitted) at the start of all source files.
+
+```
+--library <library-name>
+```
+
+Specifies the name of the library in which the compilation unit should be included. If the library
+has already been specified elsewhere this appends the compilation unit to that library. If this flag
+is not provided, the compilation unit is assumed to be in the default library.
+
+
+@section built-in-macros Built-in Macros
+
+There are a handful of slang-specific predefined macros that you can reference in your code:
+Name | Value
+---- | -----
+\`__slang__ | 1
+\`__slang_major__ | *slang major version number*
+\`__slang_minor__ | *slang minor version number*
+
+@section system-funcs Nonstandard Built-in Functions
+
+Besides the system tasks and functions specified in the SystemVerilog LRM, slang also provides
+the following nonstandard built-in functions:
+
+`$static_assert(condition[, message])`
+
+Performs an elaboration-time check of the provided condition (which must be a constant expression)
+and fails with an error if the condition is false. This works very similarly to the $error elaboration
+system task, with the optional message being a string that accepts formatting specifiers in the same
+style as the $sformatf function. If no message is provided it will print a default message about the failure.
+
+$static_assert is usable in all contexts where $error is allowed, and additionally is supported in other
+contexts such as packages. It can also be used in task, function, and other statement blocks.
+
+If the assertion fails and the provided condition contains a comparison operator, slang will print
+additional helpful information about both sides of the comparison to help diagnose the failure.
+
+Example:
+
+@code{.sv}
+// test.sv
+module m;
+    localparam int foo = 12;
+    struct packed { logic [4:1] a, b; } bar;
+    $static_assert(foo < $bits(bar));
+endmodule
+@endcode
+
+@code{.ansi}
+test.sv:5:5: error: static assertion failed
+    $static_assert(foo < $bits(bar));
+    ^
+test.sv:5:24: note: comparison reduces to (12 < 8)
+    $static_assert(foo < $bits(bar));
+                   ~~~~^~~~~~~~~~~~
+@endcode
+
+@section loop-unroll Driver loop unrolling
+
+SystemVerilog specifies various rules about how nets and variables can be driven. These rules all operate on the
+principal of "longest static prefixes" which are described in the LRM in section 11.5.3. Unintuitive behavior can
+result when operating on nested subsets of arrays or structures due to these rules, for example:
+
+@code{.sv}
+module m;
+    int foo[10];
+    initial
+        for (int i = 1; i < 10; i += 2) begin : baz
+            foo[i] = 2;
+        end
+
+    for (genvar i = 0; i < 10; i += 2) begin
+        always_comb foo[i] = 1;
+    end
+endmodule
+@endcode
+
+Under LRM rules, this results in a compilation error because inside a procedural block the for loop variable `i`
+is not constant and therefore the longest static prefix of the assignment is just `foo`, and so all elements
+are assumed assigned by the initial block. Most tools, slang included, implement an extension to attempt to
+unroll all procedural for loops in order to extend the longest static prefix of assignments within those loops,
+making the above example compile successfully. Such unrolling can be disabled with the `--strict-driver-checking`
+command line flag.
+
+The limitations of this feature are as follows:
+- Only for loops are supported -- other kinds of loops are not.
+- The for loop must declare its iteration variables and must provide stop and iteration expressions.
+- The number of iterations of all for loops in a block must be less than the limit given by `--max-constexpr-steps`
+- Only assignment statements are supported -- output args from subroutines are not taken into account.
+- Conditional statements inside of for loops that depend on the iteration variable will work as expected.
+- All other forms of flow control inside each for loop (including break / continue) are ignored.
+
+@section slang-pragmas Pragmas
+
+slang supports the following pragma directives as extensions to the base set specified by the LRM:
+
+`` `pragma once ``
+
+Files that contain this directive will not be included more than once into any given compilation unit,
+regardless of how many times they are specified via a \`include directive. This is analagous to the
+`#pragma once` directive supported widely by C++ compilers, and can replace the more traditional usage
+of preprocessor header guards via `` `ifdef ``.
+
+`` `pragma diagnostic options... ``
+
+A set of pragmas that can control diagnostic warning output for various regions of source text.
+These options mirror those provided on the command line but have the advantage of being scoped
+to specific parts of your code.
+
+The possible values for options are:
+-   `push` and `pop` -- create a scope via `push` for further diagnostic options that can later be reverted
+                        back to their previous state via a `pop` option.
+-   `ignore` -- One or more warning flags to ignore.
+-   `warn` -- One or more warning flags to enable.
+-   `error` -- One or more warning flags to turn into errors.
+-   `fatal` -- One or more warning flags to turn into hard fatal errors.
+
+Example:
+
+@code{.sv}
+module m;
+    ; // warn
+`pragma diagnostic ignore="-Wempty-member"
+    ; // hidden
+`pragma diagnostic push
+    ; // also hidden
+`pragma diagnostic error="-Wempty-member"
+    ; // error
+`pragma diagnostic warn="-Wempty-member"
+    ; // warn
+`pragma diagnostic pop
+`pragma diagnostic pop  // does nothing
+    ; // hidden again
+
+`pragma diagnostic fatal="empty-member" // ok to not use -W
+`pragma diagnostic ignore=("default", "empty-member")
+    ; // ignored
+endmodule
+@endcode
+
+
+*/

@@ -1,0 +1,27 @@
+.vs/
+.vscode/
+.venv/
+.idea/
+.cache/
+.DS_Store
+build/
+install/
+compile_commands.json
+CMakeSettings.json
+*egg-info/
+cmake-build-*/
+prefix/
+CMakeLists.txt.user
+CMakeUserPresets.json
+.ccls
+_version.py
+*.code-workspace
+
+# rust
+debug/
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+tags
+generated.rs
