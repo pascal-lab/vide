@@ -1456,6 +1456,17 @@ impl Compilation {
         self._ptr.semantic_diagnostics().into_iter().map(SyntaxDiagnostic::from_raw).collect()
     }
 
+    pub fn parse_diagnostics_with_options(
+        &self,
+        warning_options: &[String],
+    ) -> Vec<SyntaxDiagnostic> {
+        self._ptr
+            .parse_diagnostics_with_options(warning_options.to_vec())
+            .into_iter()
+            .map(SyntaxDiagnostic::from_raw)
+            .collect()
+    }
+
     pub fn semantic_diagnostics_with_options(
         &self,
         warning_options: &[String],

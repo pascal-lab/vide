@@ -473,6 +473,12 @@ mod slang_ffi {
         fn Compilation_semantic_diagnostics(compilation: &Compilation) -> Vec<RawSyntaxDiagnostic>;
 
         #[namespace = "wrapper::ast"]
+        fn Compilation_parse_diagnostics_with_options(
+            compilation: &Compilation,
+            warning_options: Vec<String>,
+        ) -> Vec<RawSyntaxDiagnostic>;
+
+        #[namespace = "wrapper::ast"]
         fn Compilation_semantic_diagnostics_with_options(
             compilation: &Compilation,
             warning_options: Vec<String>,
@@ -652,6 +658,7 @@ impl_functions! {
         fn add_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> RawSyntaxTreeBufferIds |> Compilation_add_syntax_tree_from_text;
         fn add_library_map_syntax_tree_from_text(self_: Pin<&mut Compilation>, text: CxxSV, name: CxxSV, path: CxxSV) -> RawSyntaxTreeBufferIds |> Compilation_add_library_map_syntax_tree_from_text;
         fn semantic_diagnostics(&self) -> Vec<RawSyntaxDiagnostic> |> Compilation_semantic_diagnostics;
+        fn parse_diagnostics_with_options(&self, warning_options: Vec<String>) -> Vec<RawSyntaxDiagnostic> |> Compilation_parse_diagnostics_with_options;
         fn semantic_diagnostics_with_options(&self, warning_options: Vec<String>) -> Vec<RawSyntaxDiagnostic> |> Compilation_semantic_diagnostics_with_options;
     }
 }

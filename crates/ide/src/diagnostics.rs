@@ -1,4 +1,5 @@
 use base_db::{
+    diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
@@ -78,45 +79,52 @@ impl VizslaDiagnosticDescriptor {
 pub(crate) fn parse_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     db.parse_diagnostics(file_id)
         .iter()
-        .map(|diag| Diagnostic {
-            file_id,
-            code: diag.code,
-            subsystem: diag.subsystem,
-            name: diag.name.clone(),
-            option_name: diag.option_name.clone(),
-            groups: diag.groups.clone(),
-            source: DiagnosticSource::SlangParse,
-            range: to_text_range(diag),
-            severity: diag.severity,
-            message: diag.message.clone(),
-            message_key: None,
-            message_args: Vec::new(),
-        })
+        .map(|diag| slang_diagnostic(file_id, SlangDiagnosticSource::Parse, diag))
         .collect()
 }
 
+fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    db.file_compilation_diagnostics(file_id)
+        .iter()
+        .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .collect()
+}
+
+fn slang_diagnostic(
+    file_id: FileId,
+    source: SlangDiagnosticSource,
+    diag: &SyntaxDiagnostic,
+) -> Diagnostic {
+    Diagnostic {
+        file_id,
+        code: diag.code,
+        subsystem: diag.subsystem,
+        name: diag.name.clone(),
+        option_name: diag.option_name.clone(),
+        groups: diag.groups.clone(),
+        source: match source {
+            SlangDiagnosticSource::Parse => DiagnosticSource::SlangParse,
+            SlangDiagnosticSource::Semantic => DiagnosticSource::SlangSemantic,
+        },
+        range: to_text_range(diag),
+        severity: diag.severity,
+        message: diag.message.clone(),
+        message_key: None,
+        message_args: Vec::new(),
+    }
+}
+
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    let mut diagnostics = parse_diagnostics(db, file_id);
+    let mut diagnostics = if slang_semantic_diagnostics_active(db, file_id) {
+        Vec::new()
+    } else {
+        parse_diagnostics(db, file_id)
+    };
     diagnostics.extend(vizsla_diagnostics(db, file_id));
 
-    diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().filter_map(
-        |(diag_file_id, diag)| {
-            (*diag_file_id == file_id).then_some(Diagnostic {
-                file_id: *diag_file_id,
-                code: diag.code,
-                subsystem: diag.subsystem,
-                name: diag.name.clone(),
-                option_name: diag.option_name.clone(),
-                groups: diag.groups.clone(),
-                source: DiagnosticSource::SlangSemantic,
-                range: to_text_range(diag),
-                severity: diag.severity,
-                message: diag.message.clone(),
-                message_key: None,
-                message_args: Vec::new(),
-            })
-        },
-    ));
+    diagnostics.extend(
+        compilation_diagnostics(db, file_id).into_iter().filter(|diag| diag.file_id == file_id),
+    );
 
     diagnostics
 }
@@ -136,27 +144,20 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 
     let mut diagnostics = Vec::new();
 
-    for file_id in source_root.iter() {
-        diagnostics.extend(parse_diagnostics(db, file_id));
-        diagnostics.extend(vizsla_diagnostics(db, file_id));
-    }
+    if slang_semantic_diagnostics_active(db, file_id) {
+        diagnostics.extend(compilation_diagnostics(db, file_id));
+    } else {
+        for file_id in source_root.iter() {
+            diagnostics.extend(parse_diagnostics(db, file_id));
+            diagnostics.extend(vizsla_diagnostics(db, file_id));
+        }
 
-    diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().map(
-        |(diag_file_id, diag)| Diagnostic {
-            file_id: *diag_file_id,
-            code: diag.code,
-            subsystem: diag.subsystem,
-            name: diag.name.clone(),
-            option_name: diag.option_name.clone(),
-            groups: diag.groups.clone(),
-            source: DiagnosticSource::SlangSemantic,
-            range: to_text_range(diag),
-            severity: diag.severity,
-            message: diag.message.clone(),
-            message_key: None,
-            message_args: Vec::new(),
-        },
-    ));
+        diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().map(
+            |(diag_file_id, diag)| {
+                slang_diagnostic(*diag_file_id, SlangDiagnosticSource::Semantic, diag)
+            },
+        ));
+    }
 
     diagnostics
 }

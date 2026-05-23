@@ -610,6 +610,9 @@ namespace wrapper {
         std::string_view path);
 
     rust::Vec<::RawSyntaxDiagnostic> Compilation_semantic_diagnostics(const Compilation& compilation);
+    rust::Vec<::RawSyntaxDiagnostic> Compilation_parse_diagnostics_with_options(
+        const Compilation& compilation,
+        rust::Vec<rust::String> warning_options);
     rust::Vec<::RawSyntaxDiagnostic> Compilation_semantic_diagnostics_with_options(
         const Compilation& compilation,
         rust::Vec<rust::String> warning_options);
