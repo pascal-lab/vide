@@ -279,6 +279,7 @@ mod tests {
                 process_name: "vizsla-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
+                profile_trace: None,
             },
             root_path.clone(),
             lsp_types::ClientCapabilities::default(),

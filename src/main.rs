@@ -1,5 +1,8 @@
 #![feature(try_blocks)]
-use std::{env, fs, io, path::PathBuf};
+use std::{
+    env, fs, io,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use clap::Parser;
@@ -10,7 +13,7 @@ use lsp_server::Connection;
 use lsp_types::{MessageType, ShowMessageParams};
 use slang as _;
 use tracing_subscriber::{
-    Registry, filter::Targets, fmt::writer::BoxMakeWriter, layer::SubscriberExt,
+    Layer, Registry, filter::Targets, fmt::writer::BoxMakeWriter, layer::SubscriberExt,
     util::SubscriberInitExt,
 };
 use utils::{
@@ -38,6 +41,17 @@ const VERSION: &str = formatcp!(
     env!("VIZSLA_COMMIT_HASH"),
     env!("VIZSLA_BUILD_DATE")
 );
+const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
+    "vizsla=trace,",
+    "base_db=trace,",
+    "hir=trace,",
+    "ide=trace,",
+    "project_model=trace,",
+    "slang=trace,",
+    "utils=trace,",
+    "vfs=trace,",
+    "vfs_notify=trace"
+);
 
 #[derive(Clone, Debug, Parser)]
 #[clap(name = DEFAULT_PROCESS_NAME, version = VERSION)]
@@ -50,9 +64,31 @@ pub struct Opt {
 
     #[clap(long = "log_file", default_value = None)]
     pub log_filename: Option<PathBuf>,
+
+    /// Write a Chrome/Perfetto-compatible tracing profile to this JSON file.
+    ///
+    /// This can also be set with VIZSLA_PROFILE_TRACE. The captured targets
+    /// default to project crates and can be overridden with
+    /// VIZSLA_PROFILE_TRACE_FILTER.
+    #[clap(long = "profile_trace", default_value = None)]
+    pub profile_trace: Option<PathBuf>,
 }
 
-fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
+fn profile_trace_path(opt: &Opt) -> Option<PathBuf> {
+    opt.profile_trace.clone().or_else(|| env::var_os("VIZSLA_PROFILE_TRACE").map(PathBuf::from))
+}
+
+fn create_profile_trace_file(path: &Path) -> anyhow::Result<fs::File> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("could not create profile trace directory: {}", parent.display())
+        })?;
+    }
+    fs::File::create(path)
+        .with_context(|| format!("could not create profile trace file: {}", path.display()))
+}
+
+fn setup_logging(opt: &Opt) -> anyhow::Result<Option<tracing_chrome::FlushGuard>> {
     let target: Targets =
         opt.log.parse().with_context(|| format!("invalid log filter: `{}`", opt.log))?;
 
@@ -70,11 +106,34 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
         None => BoxMakeWriter::new(io::stderr),
     };
 
-    let fmt_layer = tracing_subscriber::fmt::layer().with_writer(writer);
+    let fmt_layer =
+        tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer).with_filter(target);
 
-    Registry::default().with(target).with(fmt_layer).init();
+    let subscriber = Registry::default().with(fmt_layer);
+    let profile_guard = if let Some(path) = profile_trace_path(opt) {
+        let profile_filter_text = env::var("VIZSLA_PROFILE_TRACE_FILTER")
+            .unwrap_or_else(|_| DEFAULT_PROFILE_TRACE_FILTER.to_owned());
+        let profile_filter =
+            profile_filter_text.parse::<Targets>().context("invalid profile trace filter")?;
+        let file = create_profile_trace_file(&path)?;
+        let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .writer(file)
+            .include_args(true)
+            .include_locations(false)
+            .build();
+        subscriber.with(chrome_layer.with_filter(profile_filter)).init();
+        tracing::info!(
+            path = %path.display(),
+            filter = %profile_filter_text,
+            "profile trace enabled"
+        );
+        Some(guard)
+    } else {
+        subscriber.init();
+        None
+    };
 
-    Ok(())
+    Ok(profile_guard)
 }
 
 #[allow(deprecated)]
@@ -189,7 +248,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let opt = Opt::parse();
-    setup_logging(&opt)?;
+    let _profile_guard = setup_logging(&opt)?;
     run_server(opt)?;
     Ok(())
 }

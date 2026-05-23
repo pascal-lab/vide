@@ -358,6 +358,11 @@
         "command": "vizsla.runQiheAnalysis",
         "title": "%command.runQiheAnalysis.title%",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "vizsla.profileDiagnostics",
+        "title": "%command.profileDiagnostics.title%",
+        "icon": "$(pulse)"
       }
     ],
     "menus": {
@@ -366,13 +371,19 @@
           "command": "vizsla.runQiheAnalysis",
           "when": "resourceLangId == verilog || resourceLangId == systemverilog",
           "group": "navigation@10"
+        },
+        {
+          "command": "vizsla.profileDiagnostics",
+          "when": "resourceLangId == verilog || resourceLangId == systemverilog",
+          "group": "navigation@20"
         }
       ]
     }
   },
   "scripts": {
-    "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js && npm run copy-speedscope",
     "clean": "tsx scripts/clean.ts",
+    "copy-speedscope": "tsx scripts/copy-speedscope-assets.ts",
     "typecheck": "tsc -p . --noEmit",
     "compile": "npm run clean && npm run typecheck && npm run bundle",
     "test": "npm run compile && node --import tsx --test \"test/**/*.test.ts\"",
@@ -396,6 +407,7 @@
     "@vscode/l10n-dev": "^0.0.35",
     "@vscode/vsce": "^3.6.2",
     "esbuild": "^0.28.0",
+    "speedscope": "1.25.0",
     "tsx": "^4.22.0",
     "typescript": "^5.9.3"
   }

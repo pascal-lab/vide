@@ -5,13 +5,14 @@ description: Vizsla command palette commands, status bar messages, and output ch
 
 ## Command Palette Commands
 
-The VS Code extension contributes three commands:
+The VS Code extension contributes these commands:
 
 | Command | Purpose |
 | --- | --- |
 | `Vizsla: Show Language Server Output` | Opens the `Vizsla Language Server` output channel. |
 | `Vizsla: Restart Language Server` | Stops and restarts the language server. |
 | `Vizsla: Show Server Version` | Runs the server with `--version` and shows the first output line. |
+| `Vizsla: Profile Diagnostics` | Runs one isolated diagnostics profiling pass for the workspace or current Verilog/SystemVerilog file and writes trace, summary, and flamegraph artifacts. |
 
 ## Status Bar
 
@@ -38,6 +39,27 @@ The extension output channel is named `Vizsla Language Server`. It records:
 - Server command, arguments, and working directory.
 - Bundled server lookup result.
 - Start, stop, restart, and version query results.
+
+When `Vizsla: Profile Diagnostics` runs, the extension also opens the `Vizsla Profiling` output channel. It records the target, artifact directory, diagnostic request time, and generated file paths.
+
+## Profile Diagnostics
+
+Run `Vizsla: Profile Diagnostics`. The extension starts a temporary language server process, then sends one diagnostics request for the selected target:
+
+- Workspace targets send `workspace/diagnostic` to measure the project-level diagnostics path.
+- Current-file targets send `textDocument/diagnostic` to narrow the run to one file.
+
+After the request finishes, the extension shuts the temporary process down. It does not restart or affect the language server used by your editor session.
+
+The command generates:
+
+| File | Description |
+| --- | --- |
+| `trace.json` | Chrome/Perfetto/Speedscope-compatible trace, and the input file for the interactive Speedscope viewer. |
+| `summary.json` | Request timing, diagnostics summary, and top span summary. |
+| `trace.folded` | Folded stack generated from the trace. |
+| `flamegraph.svg` | Static flamegraph fallback. Interactive viewing opens `trace.json` in a VS Code tab backed by the bundled local Speedscope viewer. |
+| `server.log` | Temporary language server log. |
 
 ## Query Server Version
 

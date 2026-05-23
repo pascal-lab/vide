@@ -13,8 +13,11 @@ The command palette also provides:
 - `Vizsla: Show Language Server Output`
 - `Vizsla: Restart Language Server`
 - `Vizsla: Show Server Version`
+- `Vizsla: Profile Diagnostics`
 
 When server launch settings change, the extension prompts you to restart the language server so the new command, arguments, working directory, or trace setting can take effect.
+
+`Vizsla: Profile Diagnostics` starts an isolated temporary language server session, runs either a workspace `workspace/diagnostic` request or a current-file `textDocument/diagnostic` request, writes trace, summary, and flamegraph artifacts, and opens the trace in a VS Code tab backed by the bundled Speedscope viewer when requested.
 
 ## Configuration
 

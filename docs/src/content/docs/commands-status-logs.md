@@ -5,13 +5,14 @@ description: Vizsla 的命令面板命令、状态栏提示和输出通道。
 
 ## 命令面板命令
 
-VS Code 扩展贡献了三个命令:
+VS Code 扩展贡献了这些命令:
 
 | 命令 | 作用 |
 | --- | --- |
 | `Vizsla: Show Language Server Output` | 打开 `Vizsla Language Server` 输出通道。 |
 | `Vizsla: Restart Language Server` | 停止并重新启动语言服务器。 |
 | `Vizsla: Show Server Version` | 执行服务器 `--version`, 并显示第一行版本输出。 |
+| `Vizsla: Profile Diagnostics` | 对工作区或当前 Verilog/SystemVerilog 文件运行一次独立 diagnostics profiling, 并生成 trace、summary 和 flamegraph。 |
 
 ## 状态栏
 
@@ -38,6 +39,27 @@ VS Code 扩展贡献了三个命令:
 - 服务器命令、参数和工作目录。
 - bundled server 查找结果。
 - 启动、停止、重启和版本查询结果。
+
+执行 `Vizsla: Profile Diagnostics` 时, 扩展还会打开 `Vizsla Profiling` 输出通道。这里会显示本次 profiling 的目标、产物目录、诊断请求耗时和生成的文件路径。
+
+## 性能分析诊断
+
+执行 `Vizsla: Profile Diagnostics`。扩展会启动一个独立的临时语言服务器进程, 然后根据选择的目标发送一次诊断请求:
+
+- 工作区目标发送 `workspace/diagnostic`, 用于观察项目级诊断路径。
+- 当前文件目标发送 `textDocument/diagnostic`, 用于缩小到单文件诊断路径。
+
+请求结束后扩展会关闭临时进程; 这个过程不会重启或影响正在使用的语言服务器。
+
+完成后会生成:
+
+| 文件 | 说明 |
+| --- | --- |
+| `trace.json` | Chrome/Perfetto/Speedscope 兼容 trace, 也就是 Speedscope 的交互式输入文件。 |
+| `summary.json` | 请求耗时、diagnostics 汇总和 top span 汇总。 |
+| `trace.folded` | 从 trace 生成的 folded stack。 |
+| `flamegraph.svg` | 静态火焰图备用文件。交互式查看会在 VS Code 标签页中用扩展内置的本地 Speedscope viewer 打开 `trace.json`。 |
+| `server.log` | 临时语言服务器日志。 |
 
 ## 查询服务器版本
 
