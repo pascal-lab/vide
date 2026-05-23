@@ -47,6 +47,8 @@
   "{0} manifests": "{0} 个项目配置文件",
   "$(new-file) Create Manifest": "$(new-file) 创建项目配置文件",
   "Create {0} in missing workspace folders": "在缺失的工作区文件夹中创建 {0}",
+  "$(pulse) Profile Diagnostics": "$(pulse) 分析诊断性能",
+  "Measure current-file or workspace diagnostics performance": "分析当前文件或工作区诊断性能",
   "$(refresh) Reload Project": "$(refresh) 重新加载项目",
   "Refresh project manifests without restarting the server": "不重启服务器并刷新项目配置文件",
   "$(debug-restart) Restart Language Server": "$(debug-restart) 重启语言服务器",

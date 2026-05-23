@@ -376,11 +376,6 @@
           "command": "vizsla.runQiheAnalysis",
           "when": "resourceLangId == verilog || resourceLangId == systemverilog",
           "group": "navigation@10"
-        },
-        {
-          "command": "vizsla.profileDiagnostics",
-          "when": "resourceLangId == verilog || resourceLangId == systemverilog",
-          "group": "navigation@20"
         }
       ]
     }

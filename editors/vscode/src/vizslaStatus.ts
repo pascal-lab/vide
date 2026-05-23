@@ -25,6 +25,7 @@ export const projectStatusNotification = 'vizsla/projectStatus';
 
 export interface VizslaStatusActions {
   createManifest: (rootUris: readonly string[]) => Promise<void>;
+  profileDiagnostics: () => Promise<void>;
   reloadProject: () => Promise<void>;
   restartServer: () => Promise<void>;
   showOutput: () => void;
@@ -104,6 +105,9 @@ export class VizslaStatusController implements vscode.Disposable {
       case 'createManifest':
         await this.actions.createManifest(status.unconfiguredRootUris);
         break;
+      case 'profileDiagnostics':
+        await this.actions.profileDiagnostics();
+        break;
       case 'reloadProject':
         await this.actions.reloadProject();
         break;
@@ -169,6 +173,11 @@ export class VizslaStatusController implements vscode.Disposable {
 
     items.push(
       {
+        label: vscode.l10n.t('$(pulse) Profile Diagnostics'),
+        description: vscode.l10n.t('Measure current-file or workspace diagnostics performance'),
+        action: 'profileDiagnostics',
+      },
+      {
         label: vscode.l10n.t('$(refresh) Reload Project'),
         description: vscode.l10n.t('Refresh project manifests without restarting the server'),
         action: 'reloadProject',
@@ -190,7 +199,13 @@ export class VizslaStatusController implements vscode.Disposable {
 }
 
 type VizslaStatusQuickPickItem = vscode.QuickPickItem & {
-  action: 'openManifest' | 'createManifest' | 'reloadProject' | 'restartServer' | 'showOutput';
+  action:
+    | 'openManifest'
+    | 'createManifest'
+    | 'profileDiagnostics'
+    | 'reloadProject'
+    | 'restartServer'
+    | 'showOutput';
 };
 
 function statusBarText(presentation: LanguageStatusPresentation): string {

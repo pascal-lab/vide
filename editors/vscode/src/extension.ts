@@ -13,7 +13,7 @@ import {
 
 import { getBundledServerPath, getPlatformFolder } from './platform';
 import { registerDiagnosticActions } from './diagnosticActions';
-import { registerProfilingCommand } from './profiling';
+import { profileDiagnosticsCommand, registerProfilingCommand } from './profiling';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_FILE_NAMES,
@@ -796,6 +796,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(qiheOutputChannel);
   vizslaStatusController = new VizslaStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
+    profileDiagnostics: async () => {
+      await vscode.commands.executeCommand(profileDiagnosticsCommand);
+    },
     reloadProject: reloadWorkspace,
     restartServer: () => restartClient(context),
     showOutput,
