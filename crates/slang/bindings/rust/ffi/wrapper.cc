@@ -26,8 +26,7 @@ std::string source_manager_path_key(std::string_view path) {
 
 void apply_warning_options(slang::DiagnosticEngine& engine,
                            const rust::Vec<rust::String>& warning_options) {
-  if (warning_options.empty())
-    return;
+  engine.setDefaultWarnings();
 
   auto options = to_std_strings(warning_options);
   (void)engine.setWarningOptions(options);
@@ -606,6 +605,23 @@ rust::Vec<::RawSyntaxDiagnostic> Compilation_semantic_diagnostics(const Compilat
   if (!source_manager)
     return {};
   slang::DiagnosticEngine engine(*source_manager);
+  rust::Vec<::RawSyntaxDiagnostic> rust_diags;
+  rust_diags.reserve(diags.size());
+  for (const auto& diag : diags)
+    rust_diags.emplace_back(to_rust_syntax_diagnostic(diag, engine, *source_manager));
+  return rust_diags;
+}
+
+rust::Vec<::RawSyntaxDiagnostic> Compilation_parse_diagnostics_with_options(
+    const Compilation& compilation,
+    rust::Vec<rust::String> warning_options) {
+  auto& inner = const_cast<Compilation&>(compilation).inner();
+  auto& diags = inner.getParseDiagnostics();
+  auto source_manager = inner.getSourceManager();
+  if (!source_manager)
+    return {};
+  slang::DiagnosticEngine engine(*source_manager);
+  apply_warning_options(engine, warning_options);
   rust::Vec<::RawSyntaxDiagnostic> rust_diags;
   rust_diags.reserve(diags.size());
   for (const auto& diag : diags)

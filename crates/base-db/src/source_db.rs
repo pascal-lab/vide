@@ -117,6 +117,15 @@ struct SourceFileIdentity {
     path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilationDiagnostic {
+    /// File attribution after mapping slang source buffers back to VFS files.
+    pub file_id: FileId,
+    /// The compilation phase that produced the diagnostic.
+    pub source: DiagnosticSource,
+    pub diagnostic: SyntaxDiagnostic,
+}
+
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
     let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
     let name = if path.is_empty() { "source".to_owned() } else { path.clone() };
@@ -258,6 +267,14 @@ pub trait SourceRootDb: SourceDb {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<CompilationPlan>;
+    /// Diagnostics produced by one slang compilation profile. This is the
+    /// semantic diagnostics path, but it also returns parse diagnostics from
+    /// the same syntax trees so one request does not parse the same roots
+    /// twice.
+    fn compilation_profile_diagnostics(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Arc<[CompilationDiagnostic]>;
     fn include_buffers_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
@@ -269,6 +286,8 @@ pub trait SourceRootDb: SourceDb {
         offset: TextSize,
     ) -> Arc<[ParserExpectedSyntax]>;
     fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
+    /// Diagnostics for the compilation profile that owns `file_id`.
+    fn file_compilation_diagnostics(&self, file_id: FileId) -> Arc<[CompilationDiagnostic]>;
     fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
     fn source_root_semantic_diagnostics(
         &self,
@@ -331,20 +350,33 @@ fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDi
     )
 }
 
-fn source_root_semantic_diagnostics(
+fn file_compilation_diagnostics(
     db: &dyn SourceRootDb,
     file_id: FileId,
-) -> Arc<[(FileId, SyntaxDiagnostic)]> {
+) -> Arc<[CompilationDiagnostic]> {
     let source_root_id = db.source_root_id(file_id);
     let config = db.diagnostics_config();
     if !config.enabled || !config.semantic.enabled || db.file_is_project_ignored(file_id) {
-        return Arc::from(Vec::<(FileId, SyntaxDiagnostic)>::new());
+        return Arc::from(Vec::<CompilationDiagnostic>::new());
     }
 
     let project_config = db.project_config();
     let Some(profile_id) = project_config.profile_for_root(source_root_id) else {
-        return Arc::from(Vec::<(FileId, SyntaxDiagnostic)>::new());
+        return Arc::from(Vec::<CompilationDiagnostic>::new());
     };
+    db.compilation_profile_diagnostics(profile_id)
+}
+
+fn compilation_profile_diagnostics(
+    db: &dyn SourceRootDb,
+    profile_id: CompilationProfileId,
+) -> Arc<[CompilationDiagnostic]> {
+    let config = db.diagnostics_config();
+    if !config.enabled || !config.semantic.enabled {
+        return Arc::from(Vec::<CompilationDiagnostic>::new());
+    }
+
+    let project_config = db.project_config();
     let plan = db.compilation_plan_for_profile(Some(profile_id));
     let compilation_include_buffers =
         compilation_plan::compilation_source_buffers_for_plan(db, &plan);
@@ -376,18 +408,59 @@ fn source_root_semantic_diagnostics(
         insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids, file_id);
     }
 
-    let diagnostics = compilation
-        .semantic_diagnostics_with_options(&config.slang.warnings)
-        .into_iter()
-        .filter_map(|diag| {
-            let diag_file_id =
-                diag.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
-            let diag = config.apply_rules(DiagnosticSource::Semantic, diag)?;
-            Some((diag_file_id, diag))
-        })
-        .collect::<Vec<_>>();
+    let mut diagnostics = Vec::new();
+    if config.parse.enabled {
+        diagnostics.extend(
+            compilation
+                .parse_diagnostics_with_options(&config.slang.warnings)
+                .into_iter()
+                .filter_map(|diag| {
+                    let diag_file_id = diag
+                        .buffer_id
+                        .and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
+                    let diag = config.apply_rules(DiagnosticSource::Parse, diag)?;
+                    Some(CompilationDiagnostic {
+                        file_id: diag_file_id,
+                        source: DiagnosticSource::Parse,
+                        diagnostic: diag,
+                    })
+                }),
+        );
+    }
+
+    diagnostics.extend(
+        compilation
+            .semantic_diagnostics_with_options(&config.slang.warnings)
+            .into_iter()
+            .filter_map(|diag| {
+                let diag_file_id = diag
+                    .buffer_id
+                    .and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
+                let diag = config.apply_rules(DiagnosticSource::Semantic, diag)?;
+                Some(CompilationDiagnostic {
+                    file_id: diag_file_id,
+                    source: DiagnosticSource::Semantic,
+                    diagnostic: diag,
+                })
+            }),
+    );
 
     Arc::from(diagnostics)
+}
+
+fn source_root_semantic_diagnostics(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+) -> Arc<[(FileId, SyntaxDiagnostic)]> {
+    Arc::from(
+        db.file_compilation_diagnostics(file_id)
+            .iter()
+            .filter_map(|diag| {
+                (diag.source == DiagnosticSource::Semantic)
+                    .then_some((diag.file_id, diag.diagnostic.clone()))
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 #[cfg(test)]
