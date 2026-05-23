@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { stripProfileArgs } from './profilingArgs';
+import { diagnosticsProfilingInitializationOptions } from './profilingConfig';
 import {
   type DiagnosticProfileRequest,
   diagnosticsFromProfileResponse,
@@ -309,7 +310,7 @@ function createProfileSession(
     stdio: 'pipe',
   });
 
-  return new LspProfileSession(child, channel, readVizslaInitializationOptions);
+  return new LspProfileSession(child, channel, readDiagnosticsProfilingInitializationOptions);
 }
 
 async function stopProfileSession(
@@ -349,45 +350,8 @@ async function showProfileCompleteMessage(
   }
 }
 
-function readVizslaInitializationOptions(): Record<string, unknown> {
-  const config = vscode.workspace.getConfiguration('vizsla');
-  return {
-    files_excludeDirs: config.get('files.excludeDirs') ?? [],
-    files_watcher: config.get('files.watcher') ?? 'client',
-    workspace_auto_reload: config.get('workspace.auto.reload') ?? true,
-    scope_visibility: config.get('scope.visibility') ?? 'private',
-    formatter_provider: config.get('formatter.provider') ?? 'verible',
-    formatter_path: config.get('formatter.path') ?? null,
-    formatter_args: config.get('formatter.args') ?? ['--failsafe_success=false'],
-    formatting_on_enter: config.get('formatting.on.enter') ?? true,
-    formatting_in_comments: config.get('formatting.in.comments') ?? true,
-    formatting_indent_width: config.get('formatting.indent.width') ?? 4,
-    inlayHints_port_connection_enable: config.get('inlayHints.port.connection.enable') ?? true,
-    inlayHints_parameter_assignment_enable:
-      config.get('inlayHints.parameter.assignment.enable') ?? true,
-    inlayHints_end_structure_enable: config.get('inlayHints.end.structure.enable') ?? true,
-    lens_instantiations_enable: config.get('lens.instantiations.enable') ?? true,
-    semantic_tokens_port_clk_rst_enable:
-      config.get('semantic.tokens.port.clk.rst.enable') ?? true,
-    semantic_tokens_port_input_output_enable:
-      config.get('semantic.tokens.port.input.output.enable') ?? true,
-    diagnostics: {
-      enable: config.get('diagnostics.enable') ?? true,
-      update: config.get('diagnostics.update') ?? 'onSave',
-      parse: { enable: config.get('diagnostics.parse.enable') ?? true },
-      semantic: { enable: config.get('diagnostics.semantic.enable') ?? true },
-      slang: {
-        warnings: config.get('diagnostics.slang.warnings') ?? [],
-        rules: config.get('diagnostics.slang.rules') ?? [],
-      },
-    },
-    signature_help_params_only: config.get('signature.help.params.only') ?? false,
-    qihe_command: config.get('qihe.command') ?? 'qihe',
-    qihe_autoConfigureArgsFromManifest:
-      config.get('qihe.autoConfigureArgsFromManifest') ?? true,
-    qihe_compileArgs: config.get('qihe.compileArgs') ?? [],
-    qihe_runArgs: config.get('qihe.runArgs') ?? ['-g', 'std'],
-  };
+function readDiagnosticsProfilingInitializationOptions(): Record<string, unknown> {
+  return diagnosticsProfilingInitializationOptions(vscode.workspace.getConfiguration('vizsla'));
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
