@@ -124,6 +124,7 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QiheConfig {
     pub(crate) command: String,
+    pub(crate) auto_configure_args_from_manifest: bool,
     pub(crate) compile_args: Vec<String>,
     pub(crate) run_args: Vec<String>,
 }
@@ -194,6 +195,7 @@ config_data! {
         signature_help_params_only: bool = false,
 
         qihe_command: String = DEFAULT_QIHE_COMMAND.to_string(),
+        qihe_autoConfigureArgsFromManifest: bool = true,
         qihe_compileArgs: Vec<String> = vec![],
         qihe_runArgs: Vec<String> =
             DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_string()).collect(),
@@ -219,6 +221,25 @@ impl UserConfig {
             },
         }
         .with_fresh_revision()
+    }
+
+    pub(crate) fn qihe(&self) -> QiheConfig {
+        let command = Some(self.qihe_command.trim())
+            .filter(|cmd| !cmd.is_empty())
+            .unwrap_or(DEFAULT_QIHE_COMMAND)
+            .to_string();
+
+        let run_args =
+            Some(&self.qihe_runArgs).filter(|args| !args.is_empty()).cloned().unwrap_or_else(
+                || DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_string()).collect(),
+            );
+
+        QiheConfig {
+            command,
+            auto_configure_args_from_manifest: self.qihe_autoConfigureArgsFromManifest,
+            compile_args: self.qihe_compileArgs.clone(),
+            run_args,
+        }
     }
 }
 
@@ -322,19 +343,7 @@ impl Config {
     }
 
     pub(crate) fn qihe(&self) -> QiheConfig {
-        let command = Some(self.user_config.qihe_command.trim())
-            .filter(|cmd| !cmd.is_empty())
-            .unwrap_or(DEFAULT_QIHE_COMMAND)
-            .to_string();
-
-        let run_args = Some(&self.user_config.qihe_runArgs)
-            .filter(|args| !args.is_empty())
-            .cloned()
-            .unwrap_or_else(|| {
-                DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_string()).collect()
-            });
-
-        QiheConfig { command, compile_args: self.user_config.qihe_compileArgs.clone(), run_args }
+        self.user_config.qihe()
     }
 }
 
@@ -371,4 +380,23 @@ fn parses_nested_diagnostics_config() {
     assert!(!config.semantic.enabled);
     assert_eq!(config.slang.warnings, ["default", "no-unused"]);
     assert_eq!(config.slang.rules.len(), 2);
+}
+
+#[test]
+fn parses_qihe_manifest_arg_configuration() {
+    let json = serde_json::json!({
+        "qihe": {
+            "autoConfigureArgsFromManifest": false,
+            "compileArgs": ["--mode", "sv2017", "--", "-I", "vendor/include"],
+            "runArgs": ["-g", "std", "--foo"],
+        }
+    });
+    let mut errors = vec![];
+    let user_cfg = UserConfig::from_json(json, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let qihe = user_cfg.qihe();
+    assert!(!qihe.auto_configure_args_from_manifest);
+    assert_eq!(qihe.compile_args, ["--mode", "sv2017", "--", "-I", "vendor/include"]);
+    assert_eq!(qihe.run_args, ["-g", "std", "--foo"]);
 }
