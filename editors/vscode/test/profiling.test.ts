@@ -175,6 +175,7 @@ test('writes trace summary, folded stacks, and flamegraph artifacts', async () =
   const trace = path.join(dir, 'trace.json');
   const folded = path.join(dir, 'trace.folded');
   const svg = path.join(dir, 'flamegraph.svg');
+  const html = path.join(dir, 'flamegraph.html');
 
   await fs.writeFile(
     trace,
@@ -187,9 +188,11 @@ test('writes trace summary, folded stacks, and flamegraph artifacts', async () =
     'utf8',
   );
 
-  const summary = await summarizeTraceFile(trace, folded, svg);
+  const summary = await summarizeTraceFile(trace, folded, svg, html);
 
   assert.equal(summary.event_count, 2);
   assert.match(await fs.readFile(folded, 'utf8'), /thread;outer 150/);
   assert.match(await fs.readFile(svg, 'utf8'), /<svg version="1.1"/);
+  assert.match(await fs.readFile(html, 'utf8'), /Interactive flamegraph/);
+  assert.match(await fs.readFile(html, 'utf8'), /addEventListener\('click'/);
 });

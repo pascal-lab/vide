@@ -187,6 +187,7 @@ function profileArtifacts(context: vscode.ExtensionContext, target: ProfileTarge
     trace: path.join(dir, 'trace.json'),
     summary: path.join(dir, 'summary.json'),
     folded: path.join(dir, 'trace.folded'),
+    html: path.join(dir, 'flamegraph.html'),
     svg: path.join(dir, 'flamegraph.svg'),
     log: path.join(dir, 'server.log'),
   };
@@ -261,17 +262,24 @@ async function runProfileSession(
       artifacts: {
         trace: artifacts.trace,
         folded: artifacts.folded,
+        flamegraph_html: artifacts.html,
         flamegraph: artifacts.svg,
         server_log: artifacts.log,
       },
-      trace_summary: await summarizeTraceFile(artifacts.trace, artifacts.folded, artifacts.svg),
+      trace_summary: await summarizeTraceFile(
+        artifacts.trace,
+        artifacts.folded,
+        artifacts.svg,
+        artifacts.html,
+      ),
     };
     await writeJsonFile(artifacts.summary, summary);
     channel.appendLine(`Request: ${diagnosticRequest.method}`);
     channel.appendLine(`Diagnostic request: ${requestElapsedMs} ms`);
     channel.appendLine(`Diagnostics: ${diagnostics.length}`);
     channel.appendLine(`Summary: ${artifacts.summary}`);
-    channel.appendLine(`Flamegraph: ${artifacts.svg}`);
+    channel.appendLine(`Interactive flamegraph: ${artifacts.html}`);
+    channel.appendLine(`Static flamegraph: ${artifacts.svg}`);
   } finally {
     session.dispose();
   }
@@ -329,7 +337,7 @@ async function showProfileCompleteMessage(artifacts: ProfileArtifacts): Promise<
     showInFolder,
   );
   if (selection === openFlamegraph) {
-    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(artifacts.svg));
+    await vscode.env.openExternal(vscode.Uri.file(artifacts.html));
   } else if (selection === openSummary) {
     await vscode.window.showTextDocument(vscode.Uri.file(artifacts.summary));
   } else if (selection === showInFolder) {

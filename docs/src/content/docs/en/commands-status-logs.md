@@ -55,10 +55,11 @@ The command generates:
 
 | File | Description |
 | --- | --- |
-| `trace.json` | Chrome/Perfetto-compatible trace. |
+| `trace.json` | Chrome/Perfetto/speedscope-compatible trace. |
 | `summary.json` | Request timing, diagnostics summary, and top span summary. |
 | `trace.folded` | Folded stack generated from the trace. |
-| `flamegraph.svg` | Flamegraph view that can be opened directly. |
+| `flamegraph.html` | Interactive flamegraph with click-to-zoom and search. |
+| `flamegraph.svg` | Static flamegraph fallback. |
 | `server.log` | Temporary language server log. |
 
 ## Query Server Version

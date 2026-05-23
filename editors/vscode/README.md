@@ -17,7 +17,7 @@ The command palette also provides:
 
 When server launch settings change, the extension prompts you to restart the language server so the new command, arguments, working directory, or trace setting can take effect.
 
-`Vizsla: Profile Diagnostics` starts an isolated temporary language server session, runs either a workspace `workspace/diagnostic` request or a current-file `textDocument/diagnostic` request, writes trace and summary artifacts, and opens the `Vizsla Profiling` output channel with the generated paths.
+`Vizsla: Profile Diagnostics` starts an isolated temporary language server session, runs either a workspace `workspace/diagnostic` request or a current-file `textDocument/diagnostic` request, writes trace, summary, and interactive flamegraph artifacts, and opens the `Vizsla Profiling` output channel with the generated paths.
 
 ## Configuration
 

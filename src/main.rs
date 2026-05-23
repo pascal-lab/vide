@@ -106,7 +106,8 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<tracing_chrome::FlushGuard>
         None => BoxMakeWriter::new(io::stderr),
     };
 
-    let fmt_layer = tracing_subscriber::fmt::layer().with_writer(writer).with_filter(target);
+    let fmt_layer =
+        tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer).with_filter(target);
 
     let subscriber = Registry::default().with(fmt_layer);
     let profile_guard = if let Some(path) = profile_trace_path(opt) {

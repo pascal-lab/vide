@@ -28,16 +28,24 @@ type FlameNode = {
   children: Map<string, FlameNode>;
 };
 
+type FlameNodeJson = {
+  name: string;
+  value: number;
+  children: FlameNodeJson[];
+};
+
 export async function summarizeTraceFile(
   tracePath: string,
   foldedPath: string,
   svgPath: string,
+  htmlPath: string,
 ): Promise<Record<string, unknown>> {
   const text = await fs.promises.readFile(tracePath, 'utf8');
   const parsed = JSON.parse(text) as unknown;
   const summary = summarizeTraceEvents(traceEvents(parsed), 100);
   await writeFoldedFile(foldedPath, summary.folded);
   await writeFlamegraphSvg(foldedPath, svgPath, path.basename(tracePath));
+  await writeFlamegraphHtml(foldedPath, htmlPath, path.basename(tracePath));
   return traceSummaryJson(summary, 30);
 }
 
@@ -189,6 +197,21 @@ async function writeFlamegraphSvg(
   svgPath: string,
   title: string,
 ): Promise<void> {
+  const root = await flameRootFromFoldedFile(foldedPath);
+  const output = renderFlamegraphSvg(root, title);
+  await fs.promises.writeFile(svgPath, `${output.join('\n')}\n`, 'utf8');
+}
+
+async function writeFlamegraphHtml(
+  foldedPath: string,
+  htmlPath: string,
+  title: string,
+): Promise<void> {
+  const root = await flameRootFromFoldedFile(foldedPath);
+  await fs.promises.writeFile(htmlPath, flamegraphHtml(root, title), 'utf8');
+}
+
+async function flameRootFromFoldedFile(foldedPath: string): Promise<FlameNode> {
   const folded = await fs.promises.readFile(foldedPath, 'utf8');
   const root: FlameNode = { name: 'all', value: 0, children: new Map() };
   for (const line of folded.split(/\r?\n/).filter((item) => item.trim().length > 0)) {
@@ -202,7 +225,10 @@ async function writeFlamegraphSvg(
       insertFlameStack(root, stack, value);
     }
   }
+  return root;
+}
 
+function renderFlamegraphSvg(root: FlameNode, title: string): string[] {
   const width = 1400;
   const marginLeft = 10;
   const marginTop = 38;
@@ -225,7 +251,132 @@ async function writeFlamegraphSvg(
   output.push(`<text class="title" x="${marginLeft}" y="22">${escapeXml(title)}</text>`);
   renderFlameNode(root, marginLeft, 0, height, marginBottom, frameHeight, scale, output);
   output.push('</svg>');
-  await fs.promises.writeFile(svgPath, `${output.join('\n')}\n`, 'utf8');
+  return output;
+}
+
+function flamegraphHtml(root: FlameNode, title: string): string {
+  const data = JSON.stringify(flameNodeJson(root)).replace(/</g, '\\u003c');
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)} flamegraph</title>
+<style>
+:root{color-scheme:light dark;font-family:Inter,Segoe UI,Arial,sans-serif;background:#f7f7f4;color:#161616}
+body{margin:0}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #d7d4cc;background:#fff}
+h1{font-size:16px;margin:0;font-weight:650}
+.controls{display:flex;gap:8px;align-items:center}
+button,input{font:inherit;border:1px solid #bbb7ae;border-radius:4px;background:#fff;color:#161616;padding:6px 9px}
+input{width:260px}
+main{height:calc(100vh - 58px);overflow:auto;background:#fff}
+#chart{display:block;min-width:1200px}
+.frame{cursor:pointer;stroke:#fff;stroke-width:.5}
+.frame:hover{stroke:#111;stroke-width:1}
+.hit{stroke:#111;stroke-width:1.5}
+text{font-size:11px;pointer-events:none;fill:#111}
+.crumbs{font-size:12px;color:#5d574d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (prefers-color-scheme:dark){:root{background:#171717;color:#f3f0ea}header,main,button,input{background:#202020;color:#f3f0ea;border-color:#4a4740}text{fill:#101010}.crumbs{color:#b9b2a6}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>${escapeHtml(title)}</h1>
+    <div class="crumbs" id="crumbs">all</div>
+  </div>
+  <div class="controls">
+    <input id="search" type="search" placeholder="Search frames">
+    <button id="reset" type="button">Reset</button>
+  </div>
+</header>
+<main><svg id="chart" role="img" aria-label="Interactive flamegraph"></svg></main>
+<script>
+const root = ${data};
+const chart = document.getElementById('chart');
+const crumbs = document.getElementById('crumbs');
+const search = document.getElementById('search');
+const reset = document.getElementById('reset');
+let current = root;
+let path = [root.name];
+const width = 1400;
+const frameHeight = 18;
+const topPad = 8;
+const bottomPad = 18;
+function color(name){
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash + (i + 1) * name.charCodeAt(i)) >>> 0;
+  return 'rgb(' + (180 + hash % 60) + ',' + (80 + Math.floor(hash / 7) % 90) + ',' + (40 + Math.floor(hash / 13) % 60) + ')';
+}
+function depth(node){
+  return 1 + node.children.reduce((max, child) => Math.max(max, depth(child)), 0);
+}
+function label(text, rectWidth){
+  const max = Math.floor(rectWidth / 7);
+  if (max <= 3) return '';
+  return text.length > max ? text.slice(0, max - 3) + '...' : text;
+}
+function render(){
+  const height = topPad + bottomPad + depth(current) * frameHeight;
+  const scale = current.value > 0 ? (width - 20) / current.value : 1;
+  const query = search.value.trim().toLowerCase();
+  chart.setAttribute('width', String(width));
+  chart.setAttribute('height', String(height));
+  chart.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+  chart.innerHTML = '';
+  crumbs.textContent = path.join(' / ');
+  drawChildren(current, 10, 0, scale, height, query);
+}
+function drawChildren(node, startX, level, scale, height, query){
+  const y = height - bottomPad - (level + 1) * frameHeight;
+  let x = startX;
+  for (const child of [...node.children].sort((a,b) => b.value - a.value || a.name.localeCompare(b.name))) {
+    const rectWidth = child.value * scale;
+    if (rectWidth < .5) { x += rectWidth; continue; }
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = child.name + ' (' + (child.value / 1000).toFixed(3) + ' ms)';
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('class', 'frame' + (query && child.name.toLowerCase().includes(query) ? ' hit' : ''));
+    rect.setAttribute('x', x.toFixed(3));
+    rect.setAttribute('y', y.toFixed(3));
+    rect.setAttribute('width', rectWidth.toFixed(3));
+    rect.setAttribute('height', String(frameHeight - 1));
+    rect.setAttribute('fill', color(child.name));
+    group.append(title, rect);
+    const visibleLabel = label(child.name, rectWidth);
+    if (visibleLabel) {
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', String(x + 3));
+      text.setAttribute('y', String(y + 12));
+      text.textContent = visibleLabel;
+      group.append(text);
+    }
+    group.addEventListener('click', (event) => {
+      event.stopPropagation();
+      current = child;
+      path.push(child.name);
+      render();
+    });
+    chart.append(group);
+    drawChildren(child, x, level + 1, scale, height, query);
+    x += rectWidth;
+  }
+}
+reset.addEventListener('click', () => { current = root; path = [root.name]; render(); });
+search.addEventListener('input', render);
+chart.addEventListener('click', () => { if (path.length > 1) { path.pop(); current = findByPath(root, path.slice(1)); render(); } });
+function findByPath(node, names){
+  let cursor = node;
+  for (const name of names) cursor = cursor.children.find((child) => child.name === name) || cursor;
+  return cursor;
+}
+render();
+</script>
+</body>
+</html>
+`;
 }
 
 function insertFlameStack(node: FlameNode, stack: string[], value: number): void {
@@ -248,6 +399,14 @@ function flameDepth(node: FlameNode): number {
     0,
   );
   return 1 + childDepth;
+}
+
+function flameNodeJson(node: FlameNode): FlameNodeJson {
+  return {
+    name: node.name,
+    value: node.value,
+    children: [...node.children.values()].map(flameNodeJson),
+  };
 }
 
 function renderFlameNode(
@@ -332,4 +491,8 @@ function escapeXml(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function escapeHtml(text: string): string {
+  return escapeXml(text).replace(/'/g, '&#39;');
 }
