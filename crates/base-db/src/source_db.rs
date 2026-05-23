@@ -88,12 +88,20 @@ impl SourceFileKind {
 }
 
 fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
+    let _span = tracing::info_span!("slang.parse_src", ?file_id).entered();
     let text = db.file_text(file_id);
 
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             // HIR source maps are local to the queried file; project-aware include
             // expansion belongs to parse_src_for_compilation.
+            let _span = tracing::info_span!(
+                "slang.syntax_tree.from_text",
+                ?file_id,
+                bytes = text.len(),
+                include_buffer_count = 0usize
+            )
+            .entered();
             SyntaxTree::from_text_with_options(
                 &text,
                 "",
@@ -180,6 +188,7 @@ fn syntax_tree_options_for_file(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> syntax::SyntaxTreeOptions {
+    let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
     let project_config = db.project_config();
     let profile_id = db.file_compilation_profile(file_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
@@ -202,12 +211,25 @@ fn syntax_tree_options_for_profile(
 }
 
 fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
-    let text = db.file_text(file_id);
+    let _span = tracing::info_span!("slang.parse_for_compilation", ?file_id).entered();
+    let text = {
+        let _span =
+            tracing::info_span!("slang.parse_for_compilation.file_text", ?file_id).entered();
+        db.file_text(file_id)
+    };
     let identity = source_file_identity(db, file_id);
 
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             let options = syntax_tree_options_for_file(db, file_id);
+            let include_buffer_count = options.include_buffers.len();
+            let _span = tracing::info_span!(
+                "slang.parse_for_compilation.from_text",
+                ?file_id,
+                bytes = text.len(),
+                include_buffer_count
+            )
+            .entered();
             SyntaxTree::from_text_with_options(&text, &identity.name, &identity.path, &options)
         }
         SourceFileKind::LibraryMap => {
@@ -257,14 +279,40 @@ fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagn
         return Arc::from(Vec::<SyntaxDiagnostic>::new());
     }
 
-    let tree = db.parse_src_for_compilation(file_id);
+    let _span = tracing::info_span!("slang.parse_diagnostics", ?file_id).entered();
+    let tree = {
+        let _span = tracing::info_span!("slang.parse_diagnostics.parse_tree", ?file_id).entered();
+        db.parse_src_for_compilation(file_id)
+    };
     let root_buffer_id = tree.buffer_id();
-    let diags = tree
-        .diagnostics_with_options(&config.slang.warnings)
-        .into_iter()
-        .filter(|diag| diag.buffer_id.is_none_or(|buffer_id| buffer_id == root_buffer_id))
-        .filter_map(|diag| config.apply_rules(DiagnosticSource::Parse, diag))
-        .collect::<Vec<_>>();
+    let raw_diagnostics = {
+        let _span = tracing::info_span!("slang.parse.raw_diagnostics", ?file_id).entered();
+        tree.diagnostics_with_options(&config.slang.warnings)
+    };
+    let raw_diagnostic_count = raw_diagnostics.len();
+    let mut non_root_buffer_count = 0usize;
+    let mut ignored_diagnostic_count = 0usize;
+    let mut diags = Vec::new();
+
+    for diag in raw_diagnostics {
+        if !diag.buffer_id.is_none_or(|buffer_id| buffer_id == root_buffer_id) {
+            non_root_buffer_count += 1;
+            continue;
+        }
+
+        match config.apply_rules(DiagnosticSource::Parse, diag) {
+            Some(diag) => diags.push(diag),
+            None => ignored_diagnostic_count += 1,
+        }
+    }
+
+    tracing::info!(
+        raw_diagnostic_count,
+        non_root_buffer_count,
+        ignored_diagnostic_count,
+        diagnostic_count = diags.len(),
+        "parse diagnostics complete"
+    );
     Arc::from(diags)
 }
 
@@ -395,8 +443,21 @@ fn compilation_profile_diagnostics(
 
     let project_config = db.project_config();
     let plan = db.compilation_plan_for_profile(Some(profile_id));
-    let compilation_include_buffers =
-        compilation_plan::compilation_source_buffers_for_plan(db, &plan);
+    let compilation_include_buffers = {
+        let _span = tracing::info_span!("slang.semantic.compilation_buffers").entered();
+        compilation_plan::compilation_source_buffers_for_plan(db, &plan)
+    };
+    let root_count = plan.roots.len();
+    let top_module_count = plan.top_modules.len();
+    let include_buffer_count = compilation_include_buffers.len();
+    let _span = tracing::info_span!(
+        "slang.compilation_profile_diagnostics",
+        ?profile_id,
+        root_count,
+        top_module_count,
+        include_buffer_count
+    )
+    .entered();
     let compilation_options = syntax_tree_options_for_profile(
         &project_config,
         Some(profile_id),
@@ -405,61 +466,135 @@ fn compilation_profile_diagnostics(
     let mut compilation = Compilation::new_with_top_modules(&plan.top_modules);
     let mut buffer_file_ids = FxHashMap::default();
     let path_file_ids = path_file_ids(db);
-    for file_id in plan.roots.iter().copied() {
-        let text = db.file_text(file_id);
-        let identity = source_file_identity(db, file_id);
-        let buffer_ids = match db.file_kind(file_id) {
-            SourceFileKind::SystemVerilog => compilation.add_syntax_tree_from_text(
-                &text,
-                &identity.name,
-                &identity.path,
-                &compilation_options,
-            ),
-            SourceFileKind::LibraryMap => compilation.add_library_map_syntax_tree_from_text(
-                &text,
-                &identity.name,
-                &identity.path,
-            ),
-            SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
-        };
-        insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids, file_id);
+    let mut compilation_root_count = 0usize;
+    let mut compilation_buffer_count = 0usize;
+    {
+        let _span = tracing::info_span!("slang.semantic.add_roots", root_count).entered();
+        for file_id in plan.roots.iter().copied() {
+            let text = {
+                let _span =
+                    tracing::info_span!("slang.semantic.add_root.file_text", ?file_id).entered();
+                db.file_text(file_id)
+            };
+            let identity = source_file_identity(db, file_id);
+            let buffer_ids = match db.file_kind(file_id) {
+                SourceFileKind::SystemVerilog => {
+                    let include_buffer_count = compilation_options.include_buffers.len();
+                    let _span = tracing::info_span!(
+                        "slang.semantic.add_root.from_text",
+                        ?file_id,
+                        bytes = text.len(),
+                        include_buffer_count
+                    )
+                    .entered();
+                    compilation.add_syntax_tree_from_text(
+                        &text,
+                        &identity.name,
+                        &identity.path,
+                        &compilation_options,
+                    )
+                }
+                SourceFileKind::LibraryMap => compilation.add_library_map_syntax_tree_from_text(
+                    &text,
+                    &identity.name,
+                    &identity.path,
+                ),
+                SourceFileKind::IncludeHeader | SourceFileKind::ProjectManifest => continue,
+            };
+            compilation_root_count += 1;
+            compilation_buffer_count += 1 + buffer_ids.source_buffers.len();
+            insert_buffer_file_ids(&mut buffer_file_ids, &path_file_ids, buffer_ids, file_id);
+        }
     }
+    tracing::info!(
+        compilation_root_count,
+        compilation_buffer_count,
+        mapped_buffer_count = buffer_file_ids.len(),
+        "semantic compilation roots added"
+    );
 
     let mut diagnostics = Vec::new();
     if config.parse.enabled {
-        diagnostics.extend(
-            compilation
-                .parse_diagnostics_with_options(&config.slang.warnings)
-                .into_iter()
-                .filter_map(|diag| {
-                    let diag_file_id = diag
-                        .buffer_id
-                        .and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
-                    let diag = config.apply_rules(DiagnosticSource::Parse, diag)?;
-                    Some(CompilationDiagnostic {
-                        file_id: diag_file_id,
-                        source: DiagnosticSource::Parse,
-                        diagnostic: diag,
-                    })
-                }),
+        let raw_diagnostics = {
+            let _span = tracing::info_span!("slang.semantic.parse_diagnostics").entered();
+            compilation.parse_diagnostics_with_options(&config.slang.warnings)
+        };
+        let raw_diagnostic_count = raw_diagnostics.len();
+        let mut unmapped_buffer_count = 0usize;
+        let mut ignored_diagnostic_count = 0usize;
+        {
+            let _span =
+                tracing::info_span!("slang.semantic.map_parse_diagnostics", raw_diagnostic_count)
+                    .entered();
+            diagnostics.extend(raw_diagnostics.into_iter().filter_map(|diag| {
+                let diag_file_id = match diag
+                    .buffer_id
+                    .and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())
+                {
+                    Some(file_id) => file_id,
+                    None => {
+                        unmapped_buffer_count += 1;
+                        return None;
+                    }
+                };
+                let diag = match config.apply_rules(DiagnosticSource::Parse, diag) {
+                    Some(diag) => diag,
+                    None => {
+                        ignored_diagnostic_count += 1;
+                        return None;
+                    }
+                };
+                Some(CompilationDiagnostic {
+                    file_id: diag_file_id,
+                    source: DiagnosticSource::Parse,
+                    diagnostic: diag,
+                })
+            }));
+        }
+        tracing::info!(
+            raw_diagnostic_count,
+            unmapped_buffer_count,
+            ignored_diagnostic_count,
+            diagnostic_count = diagnostics.len(),
+            "compilation parse diagnostics complete"
         );
     }
 
-    diagnostics.extend(
-        compilation
-            .semantic_diagnostics_with_options(&config.slang.warnings)
-            .into_iter()
-            .filter_map(|diag| {
-                let diag_file_id = diag
-                    .buffer_id
-                    .and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied())?;
-                let diag = config.apply_rules(DiagnosticSource::Semantic, diag)?;
-                Some(CompilationDiagnostic {
-                    file_id: diag_file_id,
-                    source: DiagnosticSource::Semantic,
-                    diagnostic: diag,
-                })
-            }),
+    let raw_semantic_diagnostics = {
+        let _span = tracing::info_span!("slang.semantic.raw_diagnostics").entered();
+        compilation.semantic_diagnostics_with_options(&config.slang.warnings)
+    };
+    let raw_semantic_diagnostic_count = raw_semantic_diagnostics.len();
+    let mut unmapped_semantic_buffer_count = 0usize;
+    let mut ignored_semantic_diagnostic_count = 0usize;
+    {
+        let _span =
+            tracing::info_span!("slang.semantic.map_diagnostics", raw_semantic_diagnostic_count)
+                .entered();
+        diagnostics.extend(raw_semantic_diagnostics.into_iter().filter_map(|diag| {
+            let diag_file_id =
+                diag.buffer_id.and_then(|buffer_id| buffer_file_ids.get(&buffer_id).copied());
+            let Some(diag_file_id) = diag_file_id else {
+                unmapped_semantic_buffer_count += 1;
+                return None;
+            };
+            let Some(diag) = config.apply_rules(DiagnosticSource::Semantic, diag) else {
+                ignored_semantic_diagnostic_count += 1;
+                return None;
+            };
+            Some(CompilationDiagnostic {
+                file_id: diag_file_id,
+                source: DiagnosticSource::Semantic,
+                diagnostic: diag,
+            })
+        }));
+    }
+    tracing::info!(
+        raw_semantic_diagnostic_count,
+        unmapped_semantic_buffer_count,
+        ignored_semantic_diagnostic_count,
+        diagnostic_count = diagnostics.len(),
+        "semantic diagnostics complete"
     );
 
     Arc::from(diagnostics)

@@ -43,5 +43,6 @@
   "command.showServerVersion.title": "Vizsla: Show Server Version",
   "command.reloadWorkspace.title": "Vizsla: Reload Project Configuration",
   "command.showStatus.title": "Vizsla: Show Status",
-  "command.runQiheAnalysis.title": "Vizsla: Run Qihe Analysis"
+  "command.runQiheAnalysis.title": "Vizsla: Run Qihe Analysis",
+  "command.profileDiagnostics.title": "Vizsla: Profile Diagnostics"
 }

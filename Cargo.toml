@@ -48,6 +48,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 toml = "0.9.8"
 tracing-subscriber = { version = "0.3.17", default-features = false, features = ["registry", "fmt", "tracing-log",] }
+tracing-chrome = "0.7.2"
 tracing.workspace = true
 triomphe.workspace = true
 

@@ -40,10 +40,20 @@ impl ReqDispatcher<'_> {
 
         match from_json(R::METHOD, &req.params) {
             Ok(params) => {
+                tracing::info!(
+                    method = R::METHOD,
+                    id = ?req.id,
+                    "parsed request params"
+                );
                 let panic_context = format!("request: {} {params:#?}", R::METHOD);
                 Some((req, params, panic_context))
             }
             Err(err) => {
+                tracing::warn!(
+                    method = R::METHOD,
+                    id = ?req.id,
+                    "failed to parse request params: {err:#}"
+                );
                 let err_code = lsp_server::ErrorCode::InvalidParams as i32;
                 let response = Response::new_err(req.id, err_code, err.to_string());
                 self.global_state.respond(response);
@@ -61,8 +71,16 @@ impl ReqDispatcher<'_> {
         let Some((req, params, panic_context)) = self.parse::<R>() else {
             return self;
         };
+        let request_id = req.id.clone();
 
         let result = {
+            let _span = tracing::info_span!(
+                "lsp.request.handle",
+                method = R::METHOD,
+                id = ?request_id,
+                mode = "sync_mut"
+            )
+            .entered();
             let _pctx = utils::panic_context::enter(panic_context);
             f(self.global_state, params)
         };
@@ -83,10 +101,18 @@ impl ReqDispatcher<'_> {
         let Some((req, params, panic_context)) = self.parse::<R>() else {
             return self;
         };
+        let request_id = req.id.clone();
 
         let global_state_snapshot = self.global_state.make_snapshot();
 
         let result = panic::catch_unwind(move || {
+            let _span = tracing::info_span!(
+                "lsp.request.handle",
+                method = R::METHOD,
+                id = ?request_id,
+                mode = "sync"
+            )
+            .entered();
             let _pctx = utils::panic_context::enter(panic_context);
             f(global_state_snapshot, params)
         });
@@ -147,9 +173,24 @@ impl ReqDispatcher<'_> {
         };
 
         let world = self.global_state.make_snapshot();
+        let request_id = req.id.clone();
+        tracing::info!(
+            method = R::METHOD,
+            id = ?request_id,
+            ?intent,
+            "queued async request handler"
+        );
 
         self.global_state.task_pool.handle.spawn_and_send(intent, move || {
             let result = panic::catch_unwind(move || {
+                let _span = tracing::info_span!(
+                    "lsp.request.handle",
+                    method = R::METHOD,
+                    id = ?request_id,
+                    mode = "async",
+                    ?intent
+                )
+                .entered();
                 let _pctx = utils::panic_context::enter(panic_context);
                 f(world, params)
             });
@@ -205,17 +246,35 @@ where
     R::Params: DeserializeOwned,
     R::Result: Serialize,
 {
+    let _span = tracing::info_span!("lsp.response.encode", method = R::METHOD, id = ?id).entered();
     match result {
-        Ok(res) => Ok(Response::new_ok(id, &res)),
+        Ok(res) => {
+            let response = Response::new_ok(id, &res);
+            tracing::info!(error = false, "encoded request response");
+            Ok(response)
+        }
         Err(error) => match error.downcast::<LspError>() {
-            Ok(lsp_error) => Ok(Response::new_err(id, lsp_error.code, lsp_error.message)),
+            Ok(lsp_error) => {
+                tracing::info!(error = true, code = lsp_error.code, "encoded LSP error response");
+                Ok(Response::new_err(id, lsp_error.code, lsp_error.message))
+            }
             Err(error) => match error.downcast::<Cancelled>() {
-                Ok(cancelled) => Err(cancelled),
-                Err(error) => Ok(Response::new_err(
-                    id,
-                    lsp_server::ErrorCode::InternalError as i32,
-                    error.to_string(),
-                )),
+                Ok(cancelled) => {
+                    tracing::info!("request response cancelled");
+                    Err(cancelled)
+                }
+                Err(error) => {
+                    tracing::info!(
+                        error = true,
+                        code = lsp_server::ErrorCode::InternalError as i32,
+                        "encoded internal error response"
+                    );
+                    Ok(Response::new_err(
+                        id,
+                        lsp_server::ErrorCode::InternalError as i32,
+                        error.to_string(),
+                    ))
+                }
             },
         },
     }
@@ -245,6 +304,7 @@ where
                 message.push_str(panic_message)
             };
 
+            tracing::error!(method = R::METHOD, "request handler panicked");
             Ok(Response::new_err(id, lsp_server::ErrorCode::InternalError as i32, message))
         }
     }
@@ -275,6 +335,7 @@ impl NotifDispatcher<'_> {
             None => return self,
         };
 
+        let _span = tracing::info_span!("lsp.notification.handle", method = N::METHOD).entered();
         let params = match notif.extract::<N::Params>(N::METHOD) {
             Ok(it) => it,
             Err(ExtractError::JsonError { method, error }) => {

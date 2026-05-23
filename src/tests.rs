@@ -111,6 +111,7 @@ fn test_server_config_with_i18n(
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     config::Config::new(
         opt,
@@ -1584,6 +1585,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
@@ -1679,6 +1681,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
@@ -1792,6 +1795,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
@@ -1889,6 +1893,7 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
@@ -2001,6 +2006,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
@@ -2114,6 +2120,7 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
@@ -2273,6 +2280,7 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
         process_name: "vizsla-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
+        profile_trace: None,
     };
     let config = config::Config::new(
         opt,
