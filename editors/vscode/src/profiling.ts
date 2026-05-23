@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { stripProfileArgs } from './profilingArgs';
+import { diagnosticsProfilingInitializationOptions } from './profilingConfig';
 import {
   type DiagnosticProfileRequest,
   diagnosticsFromProfileResponse,
@@ -350,22 +351,7 @@ async function showProfileCompleteMessage(
 }
 
 function readDiagnosticsProfilingInitializationOptions(): Record<string, unknown> {
-  const config = vscode.workspace.getConfiguration('vizsla');
-  return {
-    files_excludeDirs: config.get('files.excludeDirs') ?? [],
-    files_watcher: config.get('files.watcher') ?? 'client',
-    scope_visibility: config.get('scope.visibility') ?? 'private',
-    diagnostics: {
-      enable: config.get('diagnostics.enable') ?? true,
-      update: config.get('diagnostics.update') ?? 'onSave',
-      parse: { enable: config.get('diagnostics.parse.enable') ?? true },
-      semantic: { enable: config.get('diagnostics.semantic.enable') ?? true },
-      slang: {
-        warnings: config.get('diagnostics.slang.warnings') ?? [],
-        rules: config.get('diagnostics.slang.rules') ?? [],
-      },
-    },
-  };
+  return diagnosticsProfilingInitializationOptions(vscode.workspace.getConfiguration('vizsla'));
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
