@@ -693,14 +693,14 @@ async function reloadWorkspace(): Promise<void> {
   }
 }
 
-async function runQiheAnalysis(): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
+async function runQiheAnalysis(resource: unknown): Promise<void> {
+  const targetUri = qiheAnalysisTargetUri(resource);
+  if (!targetUri) {
     vscode.window.showWarningMessage(vscode.l10n.t('Open a Verilog or SystemVerilog file first.'));
     return;
   }
 
-  if (!['verilog', 'systemverilog'].includes(editor.document.languageId)) {
+  if (!isQiheSourceUri(targetUri)) {
     vscode.window.showWarningMessage(
       vscode.l10n.t('Qihe analysis is only available for Verilog files.'),
     );
@@ -712,15 +712,15 @@ async function runQiheAnalysis(): Promise<void> {
     return;
   }
 
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
   const payload = {
-    uri: editor.document.uri.toString(),
+    uri: targetUri.toString(),
     cwd: workspaceFolder?.uri.fsPath,
   };
 
   const target = workspaceFolder
     ? `workspace ${workspaceFolder.uri.fsPath}`
-    : `file ${editor.document.uri.fsPath}`;
+    : `file ${targetUri.fsPath}`;
   logQihe(`[INFO] Starting Qihe analysis for ${target}`);
 
   try {
@@ -733,6 +733,20 @@ async function runQiheAnalysis(): Promise<void> {
     log(`[ERROR] ${message}`);
     vscode.window.showErrorMessage(message);
   }
+}
+
+function qiheAnalysisTargetUri(resource: unknown): vscode.Uri | undefined {
+  if (resource instanceof vscode.Uri) {
+    return resource;
+  }
+  return vscode.window.activeTextEditor?.document.uri;
+}
+
+function isQiheSourceUri(uri: vscode.Uri): boolean {
+  if (uri.scheme !== 'file') {
+    return false;
+  }
+  return ['.v', '.vh', '.sv', '.svh', '.svi'].includes(path.extname(uri.fsPath).toLowerCase());
 }
 
 function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
@@ -792,8 +806,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const runQiheRegistration = vscode.commands.registerCommand(
     runQiheAnalysisCommand,
-    async () => {
-      await runQiheAnalysis();
+    async (resource) => {
+      await runQiheAnalysis(resource);
     },
   );
   context.subscriptions.push(runQiheRegistration);
