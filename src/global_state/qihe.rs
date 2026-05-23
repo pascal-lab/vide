@@ -420,9 +420,11 @@ fn prepare_qihe_compile_command(
     }
     command.args(&compile_input.files).arg("-o").arg(ir_path);
 
-    let manifest_slang_args = auto_configure_manifest_args
-        .then_some(compile_input.manifest_slang_args.as_slice())
-        .unwrap_or(&[]);
+    let manifest_slang_args = if auto_configure_manifest_args {
+        compile_input.manifest_slang_args.as_slice()
+    } else {
+        &[]
+    };
     let has_slang_args = !user_slang_args.is_empty() || !manifest_slang_args.is_empty();
     if has_slang_args {
         command.arg("--").args(&user_slang_args).args(manifest_slang_args);
