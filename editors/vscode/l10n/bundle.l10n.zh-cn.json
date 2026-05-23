@@ -1,5 +1,6 @@
 {
   "Vizsla output channel has not been initialized.": "Vizsla 输出通道尚未初始化。",
+  "Vizsla Qihe output channel has not been initialized.": "Vizsla Qihe 输出通道尚未初始化。",
   "Vizsla language server is starting.": "Vizsla 语言服务器正在启动。",
   "Vizsla": "Vizsla",
   "Vizsla language server is running.": "Vizsla 语言服务器正在运行。",
@@ -37,6 +38,7 @@
   "Vizsla server: {0}": "Vizsla 服务器：{0}",
   "Failed to query Vizsla server version: {0}": "无法查询 Vizsla 服务器版本：{0}",
   "Show Output": "显示输出",
+  "Show Qihe Output": "显示 Qihe 输出",
   "No Vizsla project manifest is loaded.": "未加载 Vizsla 项目配置文件。",
   "Open Vizsla Project Manifest": "打开 Vizsla 项目配置文件",
   "Failed to reload Vizsla project configuration: {0}": "无法重新加载 Vizsla 项目配置：{0}",

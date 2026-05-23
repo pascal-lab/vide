@@ -40,6 +40,7 @@ let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 const execFileAsync = promisify(execFile);
 const restartServerCommand = 'vizsla.restartServer';
 const showServerVersionCommand = 'vizsla.showServerVersion';
+const showQiheOutputCommand = 'vizsla.showQiheOutput';
 const runQiheAnalysisCommand = 'vizsla.runQiheAnalysis';
 const runQiheAnalysisRequest = 'vizsla.server.runQiheAnalysis';
 const qiheStatusNotification = 'vizsla/qiheStatus';
@@ -70,8 +71,36 @@ function requireOutputChannel(): vscode.OutputChannel {
   return outputChannel;
 }
 
+function requireQiheOutputChannel(): vscode.OutputChannel {
+  if (!qiheOutputChannel) {
+    throw new Error(vscode.l10n.t('Vizsla Qihe output channel has not been initialized.'));
+  }
+
+  return qiheOutputChannel;
+}
+
 function showOutput(): void {
   requireOutputChannel().show(true);
+}
+
+function showQiheOutput(): void {
+  requireQiheOutputChannel().show(true);
+}
+
+async function showLanguageServerErrorMessage(message: string): Promise<void> {
+  const showOutputAction = vscode.l10n.t('Show Output');
+  const selection = await vscode.window.showErrorMessage(message, showOutputAction);
+  if (selection === showOutputAction) {
+    showOutput();
+  }
+}
+
+async function showQiheErrorMessage(message: string): Promise<void> {
+  const showOutputAction = vscode.l10n.t('Show Qihe Output');
+  const selection = await vscode.window.showErrorMessage(message, showOutputAction);
+  if (selection === showOutputAction) {
+    showQiheOutput();
+  }
 }
 
 function updateServerStatus(status: ServerStatus, detail?: string): void {
@@ -90,6 +119,7 @@ function clearQiheStatusHideTimer(): void {
 function updateQiheStatus(
   tooltip: string,
   hideAfterMs?: number,
+  command: string | vscode.Command = runQiheAnalysisCommand,
 ): void {
   if (!qiheStatusBarItem) {
     return;
@@ -98,6 +128,7 @@ function updateQiheStatus(
   clearQiheStatusHideTimer();
   qiheStatusBarItem.text = `${qiheAnalysisIcon} Qihe`;
   qiheStatusBarItem.tooltip = tooltip;
+  qiheStatusBarItem.command = command;
   qiheStatusBarItem.show();
 
   if (!hideAfterMs) {
@@ -200,7 +231,9 @@ function registerQiheNotifications(languageClient: LanguageClient): void {
           activeQiheTokens.delete(token);
           finishQiheNotification(token);
           if (activeQiheTokens.size === 0) {
-            updateQiheStatus(message ?? vscode.l10n.t('Qihe analysis failed'), 6000);
+            const failureMessage = message ?? vscode.l10n.t('Qihe analysis failed');
+            updateQiheStatus(failureMessage, 6000, showQiheOutputCommand);
+            void showQiheErrorMessage(failureMessage);
           }
           break;
         default:
@@ -613,7 +646,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     log(`[ERROR] Failed to start language server: ${message}`);
     log(`[ERROR] ${(error as Error).stack}`);
     updateServerStatus('error', message);
-    vscode.window.showErrorMessage(
+    await showLanguageServerErrorMessage(
       vscode.l10n.t('Failed to start Vizsla Language Server: {0}', message),
     );
   }
@@ -665,17 +698,13 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
       (error as Error).message,
     );
     log(`[ERROR] ${message}`);
-    const showOutputAction = vscode.l10n.t('Show Output');
-    const selection = await vscode.window.showErrorMessage(message, showOutputAction);
-    if (selection === showOutputAction) {
-      showOutput();
-    }
+    await showLanguageServerErrorMessage(message);
   }
 }
 
 async function reloadWorkspace(): Promise<void> {
   if (!client) {
-    vscode.window.showErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
+    await showLanguageServerErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
     return;
   }
 
@@ -690,7 +719,7 @@ async function reloadWorkspace(): Promise<void> {
       (error as Error).message,
     );
     log(`[ERROR] ${message}`);
-    vscode.window.showErrorMessage(message);
+    await showLanguageServerErrorMessage(message);
   }
 }
 
@@ -709,7 +738,7 @@ async function runQiheAnalysis(resource: unknown): Promise<void> {
   }
 
   if (!client) {
-    vscode.window.showErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
+    await showLanguageServerErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
     return;
   }
 
@@ -732,7 +761,7 @@ async function runQiheAnalysis(resource: unknown): Promise<void> {
   } catch (error) {
     const message = vscode.l10n.t('Failed to run Qihe analysis: {0}', (error as Error).message);
     log(`[ERROR] ${message}`);
-    vscode.window.showErrorMessage(message);
+    await showLanguageServerErrorMessage(message);
   }
 }
 
@@ -786,6 +815,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showOutput();
   });
   context.subscriptions.push(showOutputRegistration);
+
+  const showQiheOutputRegistration = vscode.commands.registerCommand(showQiheOutputCommand, () => {
+    showQiheOutput();
+  });
+  context.subscriptions.push(showQiheOutputRegistration);
 
   const restartCommandRegistration = vscode.commands.registerCommand(
     restartServerCommand,

@@ -11,10 +11,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use base_db::compilation_plan::CompilationPlan;
-use lsp_types::{
-    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, MessageType, NumberOrString,
-    ShowMessageParams,
-};
+use lsp_types::{Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString};
 use project_model::project_manifest::MANIFEST_FILE_NAME;
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -134,10 +131,6 @@ impl GlobalState {
                     message.clone(),
                     self.config.i18n.text(keys::QIHE_FAILED).to_owned(),
                 );
-                self.send_notification::<lsp_types::notification::ShowMessage>(ShowMessageParams {
-                    typ: MessageType::ERROR,
-                    message,
-                });
             }
         }
     }
