@@ -1,10 +1,9 @@
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    SyntaxElement, SyntaxNode, SyntaxToken, SyntaxTree, Trivia, WalkEvent,
-    ast::{self, AstNode},
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SyntaxKind,
+    SyntaxTree, SyntaxTreeOptions,
 };
-use utils::line_index::TextRange;
+use utils::line_index::{TextRange, TextSize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PreprocFileIndex {
@@ -95,128 +94,155 @@ pub struct MacroToken {
     pub range: Option<TextRange>,
 }
 
-pub fn preproc_file_index(tree: &SyntaxTree) -> PreprocFileIndex {
-    let Some(root) = tree.root() else {
-        return PreprocFileIndex::default();
-    };
-
+pub fn preproc_file_index_from_text(text: &str, options: &SyntaxTreeOptions) -> PreprocFileIndex {
     let mut index = PreprocFileIndex::default();
-    for node in directive_nodes(root) {
-        collect_directive(&mut index, node);
+    for directive in SyntaxTree::preprocessor_directives(text, "source", "", options) {
+        collect_preprocessor_directive(&mut index, directive);
     }
     index
 }
 
-fn directive_nodes(root: SyntaxNode<'_>) -> Vec<SyntaxNode<'_>> {
-    let mut nodes = Vec::new();
-    for event in root.elem_preorder() {
-        let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
-            continue;
-        };
-
-        for trivia in token.tok.trivias() {
-            if trivia.kind() != Trivia!["`"] {
-                continue;
-            }
-
-            let Some(node) = trivia.syntax() else {
-                continue;
-            };
-            if ast::Directive::cast(node).is_some() {
-                nodes.push(node);
-            }
-        }
-    }
-    nodes
+pub fn literal_include_directives(text: &str) -> Vec<MacroInclude> {
+    preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion())
+        .includes
+        .into_iter()
+        .filter(|include| matches!(include.target, MacroIncludeTarget::Literal { .. }))
+        .collect()
 }
 
-fn collect_directive(index: &mut PreprocFileIndex, node: SyntaxNode<'_>) {
-    let Some(directive) = ast::Directive::cast(node) else {
-        return;
-    };
+fn range_to_text_range(range: std::ops::Range<usize>) -> Option<TextRange> {
+    Some(TextRange::new(
+        TextSize::from(u32::try_from(range.start).ok()?),
+        TextSize::from(u32::try_from(range.end).ok()?),
+    ))
+}
 
-    match directive {
-        ast::Directive::DefineDirective(directive) => {
+fn collect_preprocessor_directive(index: &mut PreprocFileIndex, directive: PreprocessorDirective) {
+    let kind = directive.kind;
+    match kind {
+        SyntaxKind::DEFINE_DIRECTIVE => {
             let directive_index = index.defines.len();
-            index.defines.push(collect_define(directive));
-            push_directive(index, MacroDirectiveKind::Define, node, directive_index);
+            let define = collect_preprocessor_define(directive);
+            let range = define.range;
+            index.defines.push(define);
+            push_preprocessor_directive(index, MacroDirectiveKind::Define, directive_index, range);
         }
-        ast::Directive::UndefDirective(directive) => {
+        SyntaxKind::UNDEF_DIRECTIVE => {
             let directive_index = index.undefs.len();
-            index.undefs.push(collect_undef(directive));
-            push_directive(index, MacroDirectiveKind::Undef, node, directive_index);
+            let range = directive.range.and_then(range_to_text_range);
+            index.undefs.push(MacroUndef {
+                name: directive.name.as_ref().map(preprocessor_token_value),
+                range,
+            });
+            push_preprocessor_directive(index, MacroDirectiveKind::Undef, directive_index, range);
         }
-        ast::Directive::IncludeDirective(directive) => {
+        SyntaxKind::INCLUDE_DIRECTIVE => {
             let directive_index = index.includes.len();
-            index.includes.push(collect_include(directive));
-            push_directive(index, MacroDirectiveKind::Include, node, directive_index);
+            let range = directive.range.and_then(range_to_text_range);
+            let target = directive
+                .include_file_name
+                .map(|token| include_target_from_raw(token.raw_text.to_smolstr()))
+                .unwrap_or_else(|| MacroIncludeTarget::Token { raw: SmolStr::new("") });
+            index.includes.push(MacroInclude { target, range });
+            push_preprocessor_directive(index, MacroDirectiveKind::Include, directive_index, range);
         }
-        ast::Directive::ConditionalBranchDirective(directive) => {
+        SyntaxKind::IF_DEF_DIRECTIVE
+        | SyntaxKind::IF_N_DEF_DIRECTIVE
+        | SyntaxKind::ELS_IF_DIRECTIVE => {
             let directive_index = index.conditionals.len();
-            index.conditionals.push(collect_conditional_branch(directive));
-            push_directive(index, MacroDirectiveKind::Conditional, node, directive_index);
+            let range = directive.range.and_then(range_to_text_range);
+            index.conditionals.push(MacroConditional {
+                kind: preprocessor_conditional_kind(kind),
+                expr: directive
+                    .expr_tokens
+                    .into_iter()
+                    .map(macro_token_from_preprocessor)
+                    .collect(),
+                range,
+            });
+            push_preprocessor_directive(
+                index,
+                MacroDirectiveKind::Conditional,
+                directive_index,
+                range,
+            );
         }
-        ast::Directive::UnconditionalBranchDirective(directive) => {
+        SyntaxKind::ELSE_DIRECTIVE | SyntaxKind::END_IF_DIRECTIVE => {
             let directive_index = index.conditionals.len();
-            index.conditionals.push(collect_unconditional_branch(directive));
-            push_directive(index, MacroDirectiveKind::Branch, node, directive_index);
+            let range = directive.range.and_then(range_to_text_range);
+            index.conditionals.push(MacroConditional {
+                kind: preprocessor_conditional_kind(kind),
+                expr: Vec::new(),
+                range,
+            });
+            push_preprocessor_directive(index, MacroDirectiveKind::Branch, directive_index, range);
         }
-        ast::Directive::MacroUsage(directive) => {
+        SyntaxKind::MACRO_USAGE => {
             let directive_index = index.usages.len();
-            index.usages.push(collect_usage(directive));
-            push_directive(index, MacroDirectiveKind::Usage, node, directive_index);
+            let range = directive.range.and_then(range_to_text_range);
+            index.usages.push(MacroUsage {
+                name: directive.name.map(|token| macro_name(token.value_text)),
+                range,
+            });
+            push_preprocessor_directive(index, MacroDirectiveKind::Usage, directive_index, range);
         }
         _ => {}
     }
 }
 
-fn push_directive(
-    index: &mut PreprocFileIndex,
-    kind: MacroDirectiveKind,
-    node: SyntaxNode<'_>,
-    directive_index: usize,
-) {
-    index.directives.push(MacroDirective {
-        kind,
-        range: node.text_range(),
-        index: directive_index,
-    });
-}
-
-fn collect_define(directive: ast::DefineDirective<'_>) -> MacroDefine {
-    let params = directive.formal_arguments().map(|args| {
-        args.args()
-            .children()
-            .map(|arg| MacroParam {
-                name: token_value(arg.name()),
-                default: arg.default_value().map(|default| collect_token_list(default.tokens())),
-                range: arg.syntax().text_range(),
-            })
-            .collect()
-    });
-
+fn collect_preprocessor_define(directive: PreprocessorDirective) -> MacroDefine {
     MacroDefine {
-        name: token_value(directive.name()),
-        params,
-        body: collect_token_list(directive.body()),
-        range: directive.syntax().text_range(),
+        name: directive.name.as_ref().map(preprocessor_token_value),
+        params: (!directive.params.is_empty())
+            .then(|| directive.params.into_iter().map(macro_param_from_preprocessor).collect()),
+        body: directive.body_tokens.into_iter().map(macro_token_from_preprocessor).collect(),
+        range: directive.range.and_then(range_to_text_range),
     }
 }
 
-fn collect_undef(directive: ast::UndefDirective<'_>) -> MacroUndef {
-    MacroUndef { name: token_value(directive.name()), range: directive.syntax().text_range() }
+fn macro_param_from_preprocessor(param: PreprocessorMacroParam) -> MacroParam {
+    MacroParam {
+        name: param.name.as_ref().map(preprocessor_token_value),
+        default: param
+            .default_tokens
+            .map(|tokens| tokens.into_iter().map(macro_token_from_preprocessor).collect()),
+        range: param.range.and_then(range_to_text_range),
+    }
 }
 
-fn collect_include(directive: ast::IncludeDirective<'_>) -> MacroInclude {
-    let target = directive
-        .file_name()
-        .map(include_target)
-        .unwrap_or_else(|| MacroIncludeTarget::Token { raw: SmolStr::new("") });
-    MacroInclude { target, range: directive.syntax().text_range() }
+fn macro_token_from_preprocessor(token: PreprocessorDirectiveToken) -> MacroToken {
+    MacroToken {
+        raw: token.raw_text.to_smolstr(),
+        value: token.value_text.to_smolstr(),
+        range: token.range.and_then(range_to_text_range),
+    }
 }
 
-fn include_target(token: SyntaxToken<'_>) -> MacroIncludeTarget {
-    let raw = token.raw_text().to_string().to_smolstr();
+fn preprocessor_token_value(token: &PreprocessorDirectiveToken) -> SmolStr {
+    token.value_text.to_smolstr()
+}
+
+fn preprocessor_conditional_kind(kind: SyntaxKind) -> MacroConditionalKind {
+    match kind {
+        SyntaxKind::IF_DEF_DIRECTIVE => MacroConditionalKind::IfDef,
+        SyntaxKind::IF_N_DEF_DIRECTIVE => MacroConditionalKind::IfNDef,
+        SyntaxKind::ELS_IF_DIRECTIVE => MacroConditionalKind::ElsIf,
+        SyntaxKind::ELSE_DIRECTIVE => MacroConditionalKind::Else,
+        SyntaxKind::END_IF_DIRECTIVE => MacroConditionalKind::EndIf,
+        _ => unreachable!(),
+    }
+}
+
+fn push_preprocessor_directive(
+    index: &mut PreprocFileIndex,
+    kind: MacroDirectiveKind,
+    directive_index: usize,
+    range: Option<TextRange>,
+) {
+    index.directives.push(MacroDirective { kind, range, index: directive_index });
+}
+
+fn include_target_from_raw(raw: SmolStr) -> MacroIncludeTarget {
     if let Some(path) = strip_include_delimiters(&raw) {
         MacroIncludeTarget::Literal { path: path.to_smolstr(), raw }
     } else {
@@ -233,65 +259,6 @@ fn strip_include_delimiters(raw: &str) -> Option<&str> {
     }
 }
 
-fn collect_conditional_branch(directive: ast::ConditionalBranchDirective<'_>) -> MacroConditional {
-    let kind = if directive.as_if_def_directive().is_some() {
-        MacroConditionalKind::IfDef
-    } else if directive.as_if_n_def_directive().is_some() {
-        MacroConditionalKind::IfNDef
-    } else {
-        MacroConditionalKind::ElsIf
-    };
-    MacroConditional {
-        kind,
-        expr: collect_node_tokens(directive.expr().syntax()),
-        range: directive.syntax().text_range(),
-    }
-}
-
-fn collect_unconditional_branch(
-    directive: ast::UnconditionalBranchDirective<'_>,
-) -> MacroConditional {
-    let kind = if directive.as_else_directive().is_some() {
-        MacroConditionalKind::Else
-    } else {
-        MacroConditionalKind::EndIf
-    };
-    MacroConditional { kind, expr: Vec::new(), range: directive.syntax().text_range() }
-}
-
-fn collect_usage(directive: ast::MacroUsage<'_>) -> MacroUsage {
-    MacroUsage {
-        name: directive.directive().map(|token| macro_name(token.value_text().to_string())),
-        range: directive.syntax().text_range(),
-    }
-}
-
-fn collect_token_list(list: ast::TokenList<'_>) -> Vec<MacroToken> {
-    let context = list.syntax();
-    list.children().map(|token| macro_token(token, context)).collect()
-}
-
-fn collect_node_tokens(node: SyntaxNode<'_>) -> Vec<MacroToken> {
-    node.elem_preorder()
-        .filter_map(|event| match event {
-            WalkEvent::Enter(SyntaxElement::Token(token)) => Some(macro_token(token.tok, node)),
-            _ => None,
-        })
-        .collect()
-}
-
-fn macro_token(token: SyntaxToken<'_>, context: SyntaxNode<'_>) -> MacroToken {
-    MacroToken {
-        raw: token.raw_text().to_string().to_smolstr(),
-        value: token.value_text().to_string().to_smolstr(),
-        range: token.text_range_in(context),
-    }
-}
-
-fn token_value(token: Option<SyntaxToken<'_>>) -> Option<SmolStr> {
-    token.map(|token| token.value_text().to_string().to_smolstr())
-}
-
 fn macro_name(name: String) -> SmolStr {
     name.strip_prefix('`').unwrap_or(&name).to_smolstr()
 }
@@ -301,8 +268,18 @@ mod tests {
     use super::*;
 
     fn index(text: &str) -> PreprocFileIndex {
-        let tree = SyntaxTree::from_text(text, "source", "");
-        preproc_file_index(&tree)
+        preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion())
+    }
+
+    fn literal_includes(text: &str) -> Vec<MacroInclude> {
+        literal_include_directives(text)
+    }
+
+    fn index_with_predefines(text: &str, predefines: Vec<String>) -> PreprocFileIndex {
+        preproc_file_index_from_text(
+            text,
+            &SyntaxTreeOptions { predefines, ..SyntaxTreeOptions::without_include_expansion() },
+        )
     }
 
     #[test]
@@ -368,5 +345,79 @@ endmodule
             ]
         );
         assert_eq!(index.conditionals[0].expr[0].value.as_str(), "USE_A");
+    }
+
+    #[test]
+    fn scans_literal_include_directives_without_full_parse() {
+        let includes = literal_includes(
+            r#"`include "defs.svh"
+`include <vendor/pkg.svh>
+`include SOME_MACRO
+"`include \"string.svh\""
+// `include "comment.svh"
+/* `include "block_comment.svh" */
+"#,
+        );
+
+        assert_eq!(
+            includes.iter().map(|include| &include.target).collect::<Vec<_>>(),
+            vec![
+                &MacroIncludeTarget::Literal {
+                    path: SmolStr::new("defs.svh"),
+                    raw: SmolStr::new("\"defs.svh\"")
+                },
+                &MacroIncludeTarget::Literal {
+                    path: SmolStr::new("vendor/pkg.svh"),
+                    raw: SmolStr::new("<vendor/pkg.svh>")
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_scan_include_target_past_line_end() {
+        let includes = literal_includes(
+            r#"`include
+"next_line.svh"
+`include "same_line.svh"
+"#,
+        );
+
+        assert_eq!(includes.len(), 1);
+        assert_eq!(
+            includes[0].target,
+            MacroIncludeTarget::Literal {
+                path: SmolStr::new("same_line.svh"),
+                raw: SmolStr::new("\"same_line.svh\"")
+            }
+        );
+    }
+
+    #[test]
+    fn preprocessor_index_honors_predefined_conditional_includes() {
+        let text = r#"`ifdef USE_A
+`include "a.svh"
+`else
+`include "b.svh"
+`endif
+"#;
+
+        let without_define = index_with_predefines(text, Vec::new());
+        let with_define = index_with_predefines(text, vec!["USE_A=1".to_owned()]);
+
+        assert_eq!(
+            without_define.includes[0].target,
+            MacroIncludeTarget::Literal {
+                path: SmolStr::new("b.svh"),
+                raw: SmolStr::new("\"b.svh\"")
+            }
+        );
+        assert_eq!(
+            with_define.includes[0].target,
+            MacroIncludeTarget::Literal {
+                path: SmolStr::new("a.svh"),
+                raw: SmolStr::new("\"a.svh\"")
+            }
+        );
     }
 }
