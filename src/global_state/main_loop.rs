@@ -26,6 +26,40 @@ enum Event {
     Vfs(vfs_loader::Message),
 }
 
+impl Event {
+    fn kind(&self) -> &'static str {
+        match self {
+            Event::Lsp(Message::Request(_)) => "lsp.request",
+            Event::Lsp(Message::Notification(_)) => "lsp.notification",
+            Event::Lsp(Message::Response(_)) => "lsp.response",
+            Event::Task(task) => task.kind(),
+            Event::Vfs(vfs_loader::Message::Progress { .. }) => "vfs.progress",
+            Event::Vfs(vfs_loader::Message::Loaded { .. }) => "vfs.loaded",
+        }
+    }
+
+    fn summary(&self) -> String {
+        match self {
+            Event::Lsp(Message::Request(req)) => {
+                format!("request method={} id={:?}", req.method, req.id)
+            }
+            Event::Lsp(Message::Notification(notif)) => {
+                format!("notification method={}", notif.method)
+            }
+            Event::Lsp(Message::Response(res)) => {
+                format!("response id={:?} error={}", res.id, res.error.is_some())
+            }
+            Event::Task(task) => task.summary(),
+            Event::Vfs(vfs_loader::Message::Progress { n_done, n_total, .. }) => {
+                format!("vfs progress {n_done}/{n_total}")
+            }
+            Event::Vfs(vfs_loader::Message::Loaded { files }) => {
+                format!("vfs loaded files={}", files.len())
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct PublishDiagnosticsTask {
     pub(crate) file_id: FileId,
@@ -48,6 +82,71 @@ pub(crate) enum QiheTask {
     Log { token: String, message: String },
     Finished { update: QiheUpdate, progress_token: String },
     Failed { message: String, progress_token: String },
+}
+
+impl Task {
+    fn kind(&self) -> &'static str {
+        match self {
+            Task::Response(_) => "task.response",
+            Task::Retry(_) => "task.retry",
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin(_)) => "task.fetch_workspace.begin",
+            Task::FetchWorkspace(FetchWorkspaceProgress::End(_, _)) => "task.fetch_workspace.end",
+            Task::Diagnostics(_) => "task.diagnostics",
+            Task::Qihe(task) => task.kind(),
+        }
+    }
+
+    fn summary(&self) -> String {
+        match self {
+            Task::Response(res) => {
+                format!("task response id={:?} error={}", res.id, res.error.is_some())
+            }
+            Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin(cause)) => {
+                format!("task fetch workspace begin cause={cause}")
+            }
+            Task::FetchWorkspace(FetchWorkspaceProgress::End(workspaces, errors)) => {
+                format!(
+                    "task fetch workspace end workspaces={} errors={}",
+                    workspaces.len(),
+                    errors.len()
+                )
+            }
+            Task::Diagnostics(tasks) => {
+                let diagnostic_count = diagnostic_task_item_count(tasks);
+                format!("task diagnostics files={} diagnostics={diagnostic_count}", tasks.len())
+            }
+            Task::Qihe(task) => task.summary(),
+        }
+    }
+}
+
+impl QiheTask {
+    fn kind(&self) -> &'static str {
+        match self {
+            QiheTask::Log { .. } => "task.qihe.log",
+            QiheTask::Finished { .. } => "task.qihe.finished",
+            QiheTask::Failed { .. } => "task.qihe.failed",
+        }
+    }
+
+    fn summary(&self) -> String {
+        match self {
+            QiheTask::Log { token, message } => {
+                format!("task qihe log token={token} bytes={}", message.len())
+            }
+            QiheTask::Finished { progress_token, .. } => {
+                format!("task qihe finished token={progress_token}")
+            }
+            QiheTask::Failed { progress_token, message } => {
+                format!("task qihe failed token={progress_token} message={message}")
+            }
+        }
+    }
+}
+
+fn diagnostic_task_item_count(tasks: &[PublishDiagnosticsTask]) -> usize {
+    tasks.iter().map(|task| task.diagnostics.len()).sum()
 }
 
 pub fn main_loop(
@@ -141,11 +240,28 @@ impl GlobalState {
 
     fn handle_event(&mut self, event: Event) -> anyhow::Result<()> {
         let loop_start = Instant::now();
+        let event_kind = event.kind();
+        let event_summary = event.summary();
 
-        let event_dbg_msg = format!("{event:?}");
-        tracing::debug!("{} [handle_event]: {}", format!("{loop_start:?}"), event_dbg_msg);
+        let event_dbg_msg = {
+            let _span = tracing::info_span!(
+                "main_loop.event_debug_format",
+                event.kind = event_kind,
+                event.summary = %event_summary
+            )
+            .entered();
+            format!("{event:?}")
+        };
+        tracing::debug!(event.summary = %event_summary, "handle_event start");
 
         let was_stuck = self.is_stuck();
+        let event_span = tracing::info_span!(
+            "main_loop.handle_event",
+            event.kind = event_kind,
+            event.summary = %event_summary,
+            was_stuck
+        );
+        let _event_span = event_span.enter();
 
         match event {
             Event::Lsp(msg) => match msg {
@@ -188,11 +304,20 @@ impl GlobalState {
         let loop_duration = loop_start.elapsed();
         if loop_duration > Duration::from_millis(100) && was_stuck {
             tracing::warn!(
-                "overly long loop turn took {loop_duration:?} (event handling took {event_handling_duration:?}): {event_dbg_msg}"
+                event.summary = %event_summary,
+                event.debug_len = event_dbg_msg.len(),
+                ?loop_duration,
+                ?event_handling_duration,
+                "overly long loop turn"
             );
         }
 
-        tracing::debug!("{loop_start:?} [handle_event]: {event_dbg_msg} done in {loop_duration:?}");
+        tracing::debug!(
+            event.summary = %event_summary,
+            event.debug_len = event_dbg_msg.len(),
+            ?loop_duration,
+            "handle_event done"
+        );
 
         Ok(())
     }
@@ -300,6 +425,15 @@ impl GlobalState {
     }
 
     fn process_task(&mut self, task: Task) {
+        let task_kind = task.kind();
+        let task_summary = task.summary();
+        let _span = tracing::info_span!(
+            "main_loop.process_task",
+            task.kind = task_kind,
+            task.summary = %task_summary
+        )
+        .entered();
+
         match task {
             Task::Response(res) => self.respond(res),
             Task::Retry(req) => {
@@ -395,17 +529,29 @@ impl GlobalState {
         diagnostics: Vec<PublishDiagnosticsTask>,
         force_push: bool,
     ) {
+        let task_count = diagnostics.len();
+        let diagnostic_count = diagnostic_task_item_count(&diagnostics);
+        let _span =
+            tracing::info_span!("diagnostics.publish", task_count, diagnostic_count, force_push)
+                .entered();
+
         if self.config.cli_pull_diagnostics_support() && !force_push {
+            tracing::info!("skipping push diagnostics for pull-capable client");
             return;
         }
 
+        let mut published_files = 0usize;
+        let mut published_diagnostics = 0usize;
+        let mut skipped_files = 0usize;
         for diag in diagnostics {
+            let file_diagnostics = diag.diagnostics.len();
             let should_publish = match self.diagnostics.get(&diag.file_id) {
                 Some(prev) => prev != &diag.diagnostics,
                 None => !diag.diagnostics.is_empty(),
             };
 
             if !should_publish {
+                skipped_files += 1;
                 continue;
             }
 
@@ -422,6 +568,14 @@ impl GlobalState {
                     version: diag.version,
                 },
             );
+            published_files += 1;
+            published_diagnostics += file_diagnostics;
         }
+        tracing::info!(
+            published_files,
+            published_diagnostics,
+            skipped_files,
+            "publish diagnostics complete"
+        );
     }
 }

@@ -358,6 +358,11 @@
         "command": "vizsla.runQiheAnalysis",
         "title": "%command.runQiheAnalysis.title%",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "vizsla.profileDiagnostics",
+        "title": "%command.profileDiagnostics.title%",
+        "icon": "$(pulse)"
       }
     ],
     "menus": {
@@ -366,6 +371,11 @@
           "command": "vizsla.runQiheAnalysis",
           "when": "resourceLangId == verilog || resourceLangId == systemverilog",
           "group": "navigation@10"
+        },
+        {
+          "command": "vizsla.profileDiagnostics",
+          "when": "resourceLangId == verilog || resourceLangId == systemverilog",
+          "group": "navigation@20"
         }
       ]
     }
