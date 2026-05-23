@@ -1,0 +1,13 @@
+unstable_features = true
+style_edition = "2024"
+
+format_macro_matchers = true
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+wrap_comments = true
+
+use_small_heuristics = "Max"
+reorder_impl_items = true
+
+use_field_init_shorthand = true
+trailing_semicolon = true

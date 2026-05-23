@@ -1,0 +1,190 @@
+/** @page building Building & Installation
+@brief Instructions for building and installing the slang library and tools
+
+@tableofcontents
+
+@section source Getting the Source
+
+All source code is hosted on [GitHub](https://github.com/MikePopoloski/slang)
+
+@code{.ansi}
+git clone https://github.com/MikePopoloski/slang.git
+@endcode
+
+@section build-requirements Build Requirements
+
+slang requires the following tools in order to build:
+- [python 3](https://www.python.org/)
+- [CMake](https://cmake.org/) (3.20 or later)
+- C++20 compatible compiler. Minimum supported compiler versions:
+    - GCC 11
+    - clang 16
+    - Xcode 15
+    - MSVC support is tested only against the most recent update of VS 2022
+
+@section building-start Quick Start
+
+The build should work out of the box on all supported platforms with the same set of steps:
+
+@code{.ansi}
+cmake -B build
+cmake --build build -j8
+@endcode
+
+Tests are included in the configuration by default. You can run them via ctest:
+
+@code{.ansi}
+cd build && ctest --output-on-failure
+@endcode
+
+@section dependencies Dependencies
+
+slang depends on several 3rd party libraries. By default, if not found installed on your local
+machine the build will fetch and include them from GitHub via CMake's FetchContent feature,
+to preserve the ability to always build fresh out of the box.
+
+It's generally recommended to install dependencies locally instead of relying on fetching them
+every time you reconfigure. One easy way to do this is by using the [conan.io](https://conan.io/)
+package manager. slang includes a conanfile.py listing dependencies which should let you get
+up and running with something like the following set of commands (assuming you've already installed
+conan and have configured a default profile to your liking):
+
+@code{.ansi}
+git clone https://github.com/MikePopoloski/slang.git
+cd slang
+conan install . -b missing
+cmake --preset conan-gcc-x86_64-release
+cmake --build --preset conan-gcc-x86_64-release -j8
+@endcode
+
+Note that the preset name here, "conan-gcc-x86_64-release" will vary based on your conan profile.
+The install step will tell you what the name is, or you can get it from `cmake --list-presets`
+
+The conan install step will generate a CMakeUserPresets.txt file in the source directory that you
+can use to create custom configurations of the slang build with overrides for options that you
+may want to set and keep in a convenient location.
+
+@section build-options Build Options
+
+Besides the built-in CMake options, there are slang-specific options that may be
+set to customize the build:
+Option | Description | Default
+------ | ----------- | -------
+SLANG_INCLUDE_TOOLS | Include tools targets in the build (such as the slang driver executable) | ON
+SLANG_INCLUDE_TESTS | Include tests in the build | ON
+SLANG_INCLUDE_INSTALL | Include installation targets in the build | ON
+SLANG_INCLUDE_DOCS | Include docs in the build | OFF
+SLANG_INCLUDE_PYLIB | Include Python bindings in the build | OFF
+SLANG_INCLUDE_COVERAGE | Include code coverage targets in the build | OFF
+BUILD_SHARED_LIBS | Build a shared library instead of static | OFF
+SLANG_USE_MIMALLOC | Enable use of the mimalloc library. Can be turned off, the resulting library will be slightly slower. | ON
+SLANG_FUZZ_TARGET | Turn on to enable some changes to make binaries easier to fuzz test | OFF
+SLANG_CI_BUILD | Enable additional longer-running tests for automated builds | OFF
+SLANG_CLANG_TIDY | The path to a clang-tidy binary to run against the slang sources | ""
+SLANG_WARN_FLAGS | Extra compiler warning flags to enable when building slang | ""
+SLANG_CMAKECONFIG_INSTALL_DIR | If install rules are included, this path is used to install the generated CMake config for the slang package | ${CMAKE_INSTALL_LIBDIR}/cmake/slang
+
+@section build-scripts Build Scripts
+
+This section documents scripts that are invoked during the build that may be of
+general interest or useful to know if you're modifying how the build works.
+
+## Version info
+
+On every build, the current git revision hash is queried and included in the `Version.cpp`
+header to expose to the rest of the library. If the revision is unchanged from the last
+build no additional work will be done.
+
+## Syntax generation
+
+Syntax nodes in slang are expressed in the `scripts/syntax.txt` file and processed
+during the build into generated C++ classes by the `syntax_gen.py` script.
+
+## Diagnostic generation
+
+Diagnostics, similarly to syntax nodes, are expressed in the `scripts/diagnostics.txt`
+file and processed into C++ definitions by the `diagnostic_gen.py` script.
+
+@section doc-builds Building Documentation
+
+This section contains instructions for building the documentation.
+
+## Dependencies
+
+- [doxygen](http://www.doxygen.nl/) - at least 1.9
+
+## Steps
+
+Run CMake with docs enabled:
+
+@code{.ansi}
+cmake -B build -DSLANG_INCLUDE_DOCS=ON
+cmake --build build --target docs
+@endcode
+
+The output website is located at `build/docs/html/`
+
+@section installation Installation
+
+CMake can be used to install slang.
+
+@code{.ansi}
+cmake --install build --strip
+@endcode
+
+You can use the `--prefix` option to control where the installation gets placed in case you
+want something other than the default on your system.
+
+@section integration Integration
+
+Integrating the slang library into your own build is straightforward if you use CMake.
+Link your target to the `slang::slang` CMake target and everything else should be
+set up for you automatically.
+
+Some possible options for locating the slang package are as follows:
+
+## External Package
+
+If you followed the installation steps above and installed the slang package on your system
+in one of the default locations, you should be able to use a simple `find_package` to pull
+it into your build.
+
+```
+cmake_minimum_required(VERSION 3.20)
+project(example)
+
+find_package(slang 1.0.0)
+
+add_executable(example example.cpp)
+target_link_libraries(example PRIVATE slang::slang)
+```
+
+See [this GitHub project](https://github.com/MikePopoloski/slang_package_example) as an example of integrating slang using this method.
+
+## FetchContent
+
+Instead of installing the slang package on your system, you can instead instruct CMake to pull the source
+from GitHub and build it as part of your own project.
+
+```
+cmake_minimum_required(VERSION 3.20)
+project(example)
+
+# Note: this example just pulls the head master branch
+# for slang, but a real project would very likely pin
+# this to a specific tag and only update when ready
+# to accept a new version.
+include(FetchContent)
+FetchContent_Declare(
+  slang
+  GIT_REPOSITORY https://github.com/MikePopoloski/slang.git
+  GIT_SHALLOW ON)
+FetchContent_MakeAvailable(slang)
+
+add_executable(example example.cpp)
+target_link_libraries(example PRIVATE slang::slang)
+```
+
+See [this GitHub project](https://github.com/MikePopoloski/slang_subproject_example) as an example of integrating slang using this method.
+
+*/

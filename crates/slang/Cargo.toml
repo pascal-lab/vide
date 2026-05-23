@@ -1,0 +1,45 @@
+[package]
+name = "slang"
+description = "SystemVerilog compiler and language services"
+version = "0.0.1"
+keywords = ["parsing", "verilog"]
+categories = ["parsing", "text-editors"]
+repository = "https://github.com/MikePopoloski/slang"
+edition = "2024"
+license = "MIT"
+
+build = "bindings/rust/build.rs"
+
+include = [
+  "CMakeLists.txt",
+  "bindings/**/*",
+  "cmake/*",
+  "external/*",
+  "include/**/*",
+  "scripts/*",
+  "source/**/*",
+]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+cmake = "0.1.50"
+cxx = "1.0.124"
+expect-test = "1.5.0"
+itertools = "0.13.0"
+smol_str = "0.3.1"
+
+
+[build-dependencies]
+Inflector = "0.11.4"
+cmake = "0.1.50"
+cxx-build = "1.0.124"
+itertools = "0.14.0"
+proc-macro2 = "1.0.86"
+quote = "1.0.36"
+regex = "1.11.1"
+which = "7.0.2"
+
+[dev-dependencies]
+utils = { workspace = true, features = ["test-support"] }

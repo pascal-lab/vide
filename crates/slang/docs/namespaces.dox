@@ -1,0 +1,75 @@
+/** @dir include/slang
+@brief Root of the @ref slang library
+*/
+
+/** @dir include/slang/ast
+@brief The SystemVerilog AST
+*/
+
+/** @dir include/slang/ast/expressions
+@brief Expression definitions
+*/
+
+/** @dir include/slang/ast/symbols
+@brief Symbol definitions
+*/
+
+/** @dir include/slang/ast/types
+@brief Type definitions
+*/
+
+/** @dir include/slang/diagnostics
+@brief Diagnostic definitions
+*/
+
+/** @dir include/slang/driver
+@brief Frontend tool driver
+*/
+
+/** @dir include/slang/numeric
+@brief Numeric-related utility types
+*/
+
+/** @dir include/slang/parsing
+@brief Lexing, preprocessing, and parsing functionality
+*/
+
+/** @dir include/slang/syntax
+@brief Syntax tree manipulation
+*/
+
+/** @dir include/slang/text
+@brief Source file and text manipulation
+*/
+
+/** @dir include/slang/util
+@brief Various generic utility types
+*/
+
+/** @namespace slang
+@brief Root namespace
+*/
+
+/** @namespace slang::assert
+@brief Assertion-related utilities
+*/
+
+/** @namespace slang::ast
+@brief The SystemVerilog AST
+*/
+
+/** @namespace slang::::SFormat
+@brief Utility methods for formatting strings using SystemVerilog formatting styles
+*/
+
+/** @namespace slang::driver
+@brief Frontend tool driver
+*/
+
+/** @namespace slang::parsing
+@brief Lexing, preprocessing, and parsing functionality
+*/
+
+/** @namespace slang::syntax
+@brief Syntax tree manipulation
+*/
