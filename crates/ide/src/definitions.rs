@@ -37,7 +37,10 @@ use utils::{
     line_index::TextRange,
 };
 
-use crate::module_resolution::{ModuleResolution, resolve_instantiation_target};
+use crate::module_resolution::{
+    ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
+    resolve_named_port_connection,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DefinitionOrigin {
@@ -447,10 +450,12 @@ impl DefinitionClass {
 
         let res = match_ast! { parent,
             ast::NamedParamAssignment[it] if it.name() == Some(tok) => {
-                sema.nameres_named_param_assign(it).map(Definition::from)?.into()
+                resolve_named_param_assignment(sema.db, file_id.file_id(), it)
+                    .map(Definition::from)?.into()
             },
             ast::NamedPortConnection[it] if it.name() == Some(tok) => {
-                let port = sema.nameres_named_port_conn(it).map(Definition::from);
+                let port = resolve_named_port_connection(sema.db, file_id.file_id(), it)
+                    .map(Definition::from);
 
                 if it.open_paren().is_none() && it.close_paren().is_none() {
                     let local = sema.nameres_ident(file_id, tp).map(Definition::from);
