@@ -38,7 +38,7 @@ export class SpeedscopeProfileViewer implements vscode.Disposable {
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
-  async open(artifacts: ProfileArtifacts): Promise<void> {
+  async open(artifacts: ProfileArtifacts): Promise<vscode.Uri> {
     const port = await this.ensureServer();
     const id = randomUUID();
     const title = `Vizsla ${path.basename(artifacts.dir)}`;
@@ -54,18 +54,10 @@ export class SpeedscopeProfileViewer implements vscode.Disposable {
       externalProfileUri.toString(),
       title,
     );
+    const targetUri = vscode.Uri.parse(targetUrl);
 
-    const panel = vscode.window.createWebviewPanel(
-      'vizslaSpeedscopeProfile',
-      vscode.l10n.t('Vizsla Profile'),
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-      },
-    );
-    panel.webview.html = webviewHtml(targetUrl, new URL(targetUrl).origin, title);
-    panel.onDidDispose(() => this.profiles.delete(id));
+    await vscode.env.openExternal(targetUri);
+    return targetUri;
   }
 
   dispose(): void {
@@ -235,31 +227,4 @@ function pipeFile(filePath: string, response: http.ServerResponse): Promise<void
     stream.once('end', resolve);
     stream.pipe(response);
   });
-}
-
-function webviewHtml(speedscopeUrl: string, frameOrigin: string, title: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${escapeHtmlAttribute(frameOrigin)}; style-src 'unsafe-inline';">
-<title>${escapeHtmlText(title)}</title>
-<style>
-html,body,iframe{width:100%;height:100%;margin:0;padding:0;border:0;overflow:hidden}
-body{background:var(--vscode-editor-background)}
-</style>
-</head>
-<body>
-<iframe src="${escapeHtmlAttribute(speedscopeUrl)}" title="${escapeHtmlAttribute(title)}" sandbox="allow-downloads allow-forms allow-same-origin allow-scripts"></iframe>
-</body>
-</html>`;
-}
-
-function escapeHtmlAttribute(text: string): string {
-  return escapeHtmlText(text).replace(/"/g, '&quot;');
-}
-
-function escapeHtmlText(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
