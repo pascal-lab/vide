@@ -2,10 +2,9 @@
   "name": "SystemVerilog",
   "scopeName": "source.systemverilog",
   "fileTypes": [
-    "v",
-    "vh",
     "sv",
-    "svh"
+    "svh",
+    "svi"
   ],
   "patterns": [
     {
@@ -24,6 +23,9 @@
       "include": "#functions"
     },
     {
+      "include": "#covergroup-declaration"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -31,6 +33,9 @@
     },
     {
       "include": "#function-task"
+    },
+    {
+      "include": "#modport-declaration"
     },
     {
       "include": "#module-declaration"
@@ -382,6 +387,105 @@
       },
       "name": "meta.sequence.systemverilog"
     },
+    "covergroup-declaration": {
+      "begin": "[ \\t\\r\\n]*\\b(covergroup)\\b[ \\t\\r\\n]+([a-zA-Z_][a-zA-Z0-9_$]*)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.systemverilog"
+        },
+        "2": {
+          "name": "entity.name.type.systemverilog"
+        }
+      },
+      "end": "[ \\t\\r\\n]*\\b(endgroup)\\b(?:[ \\t\\r\\n]*(:)[ \\t\\r\\n]*([a-zA-Z_][a-zA-Z0-9_$]*))?",
+      "endCaptures": {
+        "1": {
+          "name": "keyword.control.systemverilog"
+        },
+        "2": {
+          "name": "punctuation.definition.label.systemverilog"
+        },
+        "3": {
+          "name": "entity.name.type.systemverilog"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#compiler-directives"
+        },
+        {
+          "include": "#parameters"
+        },
+        {
+          "include": "#covergroup-items"
+        },
+        {
+          "include": "#port-net-parameter"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#constants"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#identifiers"
+        }
+      ],
+      "name": "meta.covergroup.systemverilog"
+    },
+    "covergroup-items": {
+      "patterns": [
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_$]*)[ \\t\\r\\n]*(:)[ \\t\\r\\n]*\\b(coverpoint|cross)\\b",
+          "captures": {
+            "1": {
+              "name": "entity.name.section.systemverilog"
+            },
+            "2": {
+              "name": "punctuation.definition.label.systemverilog"
+            },
+            "3": {
+              "name": "keyword.cover.systemverilog"
+            }
+          },
+          "name": "meta.covergroup.item.systemverilog"
+        },
+        {
+          "match": "\\b(coverpoint|cross)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.cover.systemverilog"
+            }
+          },
+          "name": "meta.covergroup.item.systemverilog"
+        },
+        {
+          "match": "\\b(option|type_option)\\b[ \\t\\r\\n]*(\\.)[ \\t\\r\\n]*([a-zA-Z_][a-zA-Z0-9_$]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.cover.systemverilog"
+            },
+            "2": {
+              "name": "keyword.operator.systemverilog"
+            },
+            "3": {
+              "name": "variable.other.identifier.systemverilog"
+            }
+          },
+          "name": "meta.covergroup.option.systemverilog"
+        }
+      ]
+    },
     "bind-directive": {
       "match": "[ \\t\\r\\n]*\\b(bind)[ \\t\\r\\n]+([a-zA-Z_][a-zA-Z0-9_$\\.]*)\\b",
       "captures": {
@@ -395,15 +499,18 @@
       "name": "meta.definition.systemverilog"
     },
     "assertion": {
-      "match": "\\b([a-zA-Z_][a-zA-Z0-9_$]*)[ \\t\\r\\n]*(:)[ \\t\\r\\n]*(assert|assume|cover|restrict)\\b",
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_$]*)[ \\t\\r\\n]*(:)[ \\t\\r\\n]*(assert|assume|cover|restrict|expect)\\b(?:[ \\t\\r\\n]+(property|sequence)\\b)?",
       "captures": {
         "1": {
-          "name": "entity.name.goto-label.php"
+          "name": "entity.name.section.systemverilog"
         },
         "2": {
-          "name": "keyword.operator.systemverilog"
+          "name": "punctuation.definition.label.systemverilog"
         },
         "3": {
+          "name": "keyword.sva.systemverilog"
+        },
+        "4": {
           "name": "keyword.sva.systemverilog"
         }
       }
@@ -636,7 +743,7 @@
           "match": "[ \\t\\r\\n]+\\b([a-zA-Z_][a-zA-Z0-9_$]*)[ \\t\\r\\n]*(#)\\(",
           "captures": {
             "1": {
-              "name": "storage.type.userdefined.systemverilog"
+              "name": "storage.type.user-defined.systemverilog"
             },
             "2": {
               "name": "keyword.operator.param.systemverilog"
@@ -659,8 +766,57 @@
       ],
       "name": "meta.class.systemverilog"
     },
+    "modport-declaration": {
+      "begin": "[ \\t\\r\\n]*\\b(modport)\\b[ \\t\\r\\n]+\\b([a-zA-Z_][a-zA-Z0-9_$]*)\\b(?=[ \\t\\r\\n]*\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.modport.systemverilog"
+        },
+        "2": {
+          "name": "entity.name.type.modport.systemverilog"
+        }
+      },
+      "end": ";",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.modport.end.systemverilog"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#compiler-directives"
+        },
+        {
+          "match": "(,)[ \\t\\r\\n]*\\b([a-zA-Z_][a-zA-Z0-9_$]*)\\b(?=[ \\t\\r\\n]*\\()",
+          "captures": {
+            "1": {
+              "name": "punctuation.separator.modport.systemverilog"
+            },
+            "2": {
+              "name": "entity.name.type.modport.systemverilog"
+            }
+          }
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#selects"
+        },
+        {
+          "include": "#identifiers"
+        }
+      ],
+      "name": "meta.modport.systemverilog"
+    },
     "system-tf": {
-      "match": "\\$[a-zA-Z0-9_$][a-zA-Z0-9_$]*\\b",
+      "match": "\\$(?:acos|acosh|asin|asinh|assertcontrol|assertfailoff|assertfailon|assertkill|assertnonvacuouson|assertoff|asserton|assertpassoff|assertpasson|assertvacuousoff|async\\$and\\$array|async\\$and\\$plane|async\\$nand\\$array|async\\$nand\\$plane|async\\$nor\\$array|async\\$nor\\$plane|async\\$or\\$array|async\\$or\\$plane|atan|atan2|atanh|bits|bitstoreal|bitstoshortreal|cast|ceil|changed|changed_gclk|changing_gclk|clog2|cos|cosh|countbits|countdrivers|countones|coverage_control|coverage_get|coverage_get_max|coverage_merge|coverage_save|dimensions|display|displayb|displayh|displayo|dist_chi_square|dist_erlang|dist_exponential|dist_normal|dist_poisson|dist_t|dist_uniform|dumpall|dumpfile|dumpflush|dumplimit|dumpoff|dumpon|dumpports|dumpportsall|dumpportsflush|dumpportslimit|dumpportsoff|dumpportson|dumpvars|error|exit|exp|falling_gclk|fatal|fclose|fdisplay|fdisplayb|fdisplayh|fdisplayo|fell|fell_gclk|feof|ferror|fflush|fgetc|fgets|finish|floor|fmonitor|fmonitorb|fmonitorh|fmonitoro|fopen|fread|fscanf|fseek|fstrobe|fstrobeb|fstrobeh|fstrobeo|ftell|future_gclk|fwrite|fwriteb|fwriteh|fwriteo|get_coverage|getpattern|global_clock|high|hypot|increment|incsave|inferred_clock|inferred_disable|info|input|isunbounded|isunknown|itor|key|left|list|ln|load_coverage_db|log|log10|low|monitor|monitorb|monitorh|monitoro|monitoroff|monitoron|nokey|nolog|onehot|onehot0|past|past_gclk|pow|printtimescale|psprintf|q_add|q_exam|q_full|q_initialize|q_remove|random|readmemb|readmemh|realtime|realtobits|reset|reset_count|reset_value|restart|rewind|right|rising_gclk|rose|rose_gclk|rtoi|sampled|save|scale|scope|sdf_annotate|set_coverage_db_name|sformat|sformatf|shortrealtobits|showscopes|showvars|signed|sin|sinh|size|sqrt|sreadmemb|sreadmemh|sscanf|stable|stable_gclk|stacktrace|static_assert|steady_gclk|stime|stop|strobe|strobeb|strobeh|strobeo|swrite|swriteb|swriteh|swriteo|sync\\$and\\$array|sync\\$and\\$plane|sync\\$nand\\$array|sync\\$nand\\$plane|sync\\$nor\\$array|sync\\$nor\\$plane|sync\\$or\\$array|sync\\$or\\$plane|system|tan|tanh|test\\$plusargs|time|timeformat|timeprecision|timeunit|typename|ungetc|unpacked_dimensions|unsigned|urandom|urandom_range|value\\$plusargs|warning|write|writeb|writeh|writememb|writememh|writeo)(?=$|[^a-zA-Z0-9_$])",
       "name": "support.function.systemverilog"
     },
     "cast-operator": {

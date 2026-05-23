@@ -126,6 +126,9 @@
               "include": "#comments"
             },
             {
+              "include": "#keywords"
+            },
+            {
               "include": "#constants"
             },
             {
@@ -162,11 +165,11 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(always|and|assign|attribute|begin|buf|bufif0|bufif1|case[xz]?|cmos|deassign|default|defparam|disable|edge|else|end(attribute|case|function|generate|module|primitive|specify|table|task)?|event|for|force|forever|fork|function|generate|genvar|highz(01)|if(none)?|initial|inout|input|integer|join|localparam|medium|module|large|macromodule|nand|negedge|nmos|nor|not|notif(01)|or|output|parameter|pmos|posedge|primitive|pull0|pull1|pulldown|pullup|rcmos|real|realtime|reg|release|repeat|rnmos|rpmos|rtran|rtranif(01)|scalared|signed|small|specify|specparam|strength|strong0|strong1|supply0|supply1|table|task|time|tran|tranif(01)|tri(01)?|tri(and|or|reg)|unsigned|vectored|wait|wand|weak(01)|while|wire|wor|xnor|xor)\\b",
+          "match": "\\b(always|and|assign|automatic|begin|buf|bufif0|bufif1|case|casex|casez|cell|cmos|config|deassign|default|defparam|design|disable|edge|else|end|endcase|endconfig|endfunction|endgenerate|endmodule|endprimitive|endspecify|endtable|endtask|event|for|force|forever|fork|function|generate|genvar|highz0|highz1|if|ifnone|incdir|include|initial|inout|input|instance|integer|join|large|liblist|library|localparam|macromodule|medium|module|nand|negedge|nmos|nor|noshowcancelled|not|notif0|notif1|or|output|parameter|pmos|posedge|primitive|pull0|pull1|pulldown|pullup|pulsestyle_ondetect|pulsestyle_onevent|rcmos|real|realtime|reg|release|repeat|rnmos|rpmos|rtran|rtranif0|rtranif1|scalared|showcancelled|signed|small|specify|specparam|strong0|strong1|supply0|supply1|table|task|time|tran|tranif0|tranif1|tri|tri0|tri1|triand|trior|trireg|unsigned|use|uwire|vectored|wait|wand|weak0|weak1|while|wire|wor|xnor|xor)\\b",
           "name": "keyword.other.verilog"
         },
         {
-          "match": "^\\s*`((cell)?define|default_(decay_time|nettype|trireg_strength)|delay_mode_(path|unit|zero)|ifdef|ifndef|include|end(if|celldefine)|else|(no)?unconnected_drive|resetall|timescale|undef)\\b",
+          "match": "^\\s*`(begin_keywords|celldefine|default_decay_time|default_nettype|default_trireg_strength|define|delay_mode_distributed|delay_mode_path|delay_mode_unit|delay_mode_zero|else|elsif|end_keywords|endcelldefine|endif|ifdef|ifndef|include|line|nounconnected_drive|pragma|resetall|timescale|unconnected_drive|undef|undefineall)\\b",
           "name": "keyword.other.compiler.directive.verilog"
         },
         {
@@ -196,6 +199,10 @@
         {
           "match": "\\$(countdrivers|list|input|scope|showscopes|(no)?(key|log)|reset(_count|_value)?|(inc)?save|restart|showvars|getpattern|sreadmem(b|h)|scale)",
           "name": "support.function.non-standard.tasks.verilog"
+        },
+        {
+          "match": "\\$(?:acos|acosh|asin|asinh|assertcontrol|assertfailoff|assertfailon|assertkill|assertnonvacuouson|assertoff|asserton|assertpassoff|assertpasson|assertvacuousoff|async\\$and\\$array|async\\$and\\$plane|async\\$nand\\$array|async\\$nand\\$plane|async\\$nor\\$array|async\\$nor\\$plane|async\\$or\\$array|async\\$or\\$plane|atan|atan2|atanh|bits|bitstoreal|bitstoshortreal|cast|ceil|changed|changed_gclk|changing_gclk|clog2|cos|cosh|countbits|countdrivers|countones|coverage_control|coverage_get|coverage_get_max|coverage_merge|coverage_save|dimensions|display|displayb|displayh|displayo|dist_chi_square|dist_erlang|dist_exponential|dist_normal|dist_poisson|dist_t|dist_uniform|dumpall|dumpfile|dumpflush|dumplimit|dumpoff|dumpon|dumpports|dumpportsall|dumpportsflush|dumpportslimit|dumpportsoff|dumpportson|dumpvars|error|exit|exp|falling_gclk|fatal|fclose|fdisplay|fdisplayb|fdisplayh|fdisplayo|fell|fell_gclk|feof|ferror|fflush|fgetc|fgets|finish|floor|fmonitor|fmonitorb|fmonitorh|fmonitoro|fopen|fread|fscanf|fseek|fstrobe|fstrobeb|fstrobeh|fstrobeo|ftell|future_gclk|fwrite|fwriteb|fwriteh|fwriteo|get_coverage|getpattern|global_clock|high|hypot|increment|incsave|inferred_clock|inferred_disable|info|input|isunbounded|isunknown|itor|key|left|list|ln|load_coverage_db|log|log10|low|monitor|monitorb|monitorh|monitoro|monitoroff|monitoron|nokey|nolog|onehot|onehot0|past|past_gclk|pow|printtimescale|psprintf|q_add|q_exam|q_full|q_initialize|q_remove|random|readmemb|readmemh|realtime|realtobits|reset|reset_count|reset_value|restart|rewind|right|rising_gclk|rose|rose_gclk|rtoi|sampled|save|scale|scope|sdf_annotate|set_coverage_db_name|sformat|sformatf|shortrealtobits|showscopes|showvars|signed|sin|sinh|size|sqrt|sreadmemb|sreadmemh|sscanf|stable|stable_gclk|stacktrace|static_assert|steady_gclk|stime|stop|strobe|strobeb|strobeh|strobeo|swrite|swriteb|swriteh|swriteo|sync\\$and\\$array|sync\\$and\\$plane|sync\\$nand\\$array|sync\\$nand\\$plane|sync\\$nor\\$array|sync\\$nor\\$plane|sync\\$or\\$array|sync\\$or\\$plane|system|tan|tanh|test\\$plusargs|time|timeformat|timeprecision|timeunit|typename|ungetc|unpacked_dimensions|unsigned|urandom|urandom_range|value\\$plusargs|warning|write|writeb|writeh|writememb|writememh|writeo)(?=$|[^a-zA-Z0-9_$])",
+          "name": "support.function.system.tasks.verilog"
         }
       ]
     },
