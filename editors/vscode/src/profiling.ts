@@ -383,6 +383,8 @@ function readVizslaInitializationOptions(): Record<string, unknown> {
     },
     signature_help_params_only: config.get('signature.help.params.only') ?? false,
     qihe_command: config.get('qihe.command') ?? 'qihe',
+    qihe_autoConfigureArgsFromManifest:
+      config.get('qihe.autoConfigureArgsFromManifest') ?? true,
     qihe_compileArgs: config.get('qihe.compileArgs') ?? [],
     qihe_runArgs: config.get('qihe.runArgs') ?? ['-g', 'std'],
   };

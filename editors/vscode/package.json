@@ -127,6 +127,11 @@
           "default": "qihe",
           "description": "%configuration.qihe.command.description%"
         },
+        "vizsla.qihe.autoConfigureArgsFromManifest": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.qihe.autoConfigureArgsFromManifest.description%"
+        },
         "vizsla.qihe.compileArgs": {
           "type": "array",
           "items": {
