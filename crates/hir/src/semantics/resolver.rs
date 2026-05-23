@@ -50,7 +50,7 @@ impl SemanticsImpl<'_> {
         Some(InModule::new(module_id, instantiation_id))
     }
 
-    pub fn resolve_named_port_conn(
+    pub fn resolve_port_connection(
         &self,
         file_id: HirFileId,
         conn: ast::PortConnection,

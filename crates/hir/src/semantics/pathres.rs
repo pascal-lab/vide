@@ -1,8 +1,4 @@
-use syntax::{
-    SyntaxNode, SyntaxToken, SyntaxTokenWithParent,
-    ast::{self, AstNode},
-};
-use utils::get::GetRef;
+use syntax::{SyntaxNode, SyntaxTokenWithParent};
 
 use super::SemanticsImpl;
 use crate::{
@@ -12,8 +8,7 @@ use crate::{
     file::HirFileId,
     hir_def::{
         block::BlockId,
-        declaration::Declaration,
-        expr::declarator::{DeclId, DeclaratorParent},
+        expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
         lower_ident_opt,
         module::{
@@ -37,60 +32,6 @@ impl SemanticsImpl<'_> {
             let container = ctx.find_container(InFile::new(file_id, parent));
             ctx.name_to_def(InContainer::new(container, ident))
         })
-    }
-
-    pub fn nameres_named_port_conn(
-        &self,
-        conn: ast::NamedPortConnection,
-    ) -> Option<PathResolution> {
-        let entry = self.nameres_instance_conn(conn.name(), conn.syntax())?;
-
-        if matches!(entry.value, ModuleEntry::AnsiPortEntry(_) | ModuleEntry::NonAnsiPortEntry(_)) {
-            Some(entry.into())
-        } else {
-            None
-        }
-    }
-
-    pub fn nameres_named_param_assign(
-        &self,
-        conn: ast::NamedParamAssignment,
-    ) -> Option<PathResolution> {
-        let entry = self.nameres_instance_conn(conn.name(), conn.syntax())?;
-        let module = self.db.module(entry.module_id);
-        if let ModuleEntry::DeclId(decl_id) = entry.value
-            && let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id).parent
-            && let Declaration::ParamDecl(_) = module.get(declaration_id)
-        {
-            Some(entry.into())
-        } else {
-            None
-        }
-    }
-
-    fn nameres_instance_conn(
-        &self,
-        name: Option<SyntaxToken>,
-        node: SyntaxNode,
-    ) -> Option<InModule<ModuleEntry>> {
-        let db = self.db;
-        let conn_name = lower_ident_opt(name)?;
-
-        let instantiation = ast::HierarchyInstantiation::cast(node.parent()?.parent()?)?;
-        let module_id = self.nameres_instantiation(instantiation)?;
-
-        let module_scope = db.module_scope(module_id);
-        let entry = module_scope.get(&conn_name)?;
-
-        Some(InModule::new(module_id, entry))
-    }
-
-    pub fn nameres_instantiation(
-        &self,
-        instantiation: ast::HierarchyInstantiation,
-    ) -> Option<ModuleId> {
-        let module_name = lower_ident_opt(instantiation.type_())?;
-        self.db.unit_scope().resolve_module(&module_name).unique()
     }
 
     pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ContainerId {

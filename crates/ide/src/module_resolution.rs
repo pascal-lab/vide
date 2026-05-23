@@ -2,12 +2,20 @@ use std::cmp::Ordering;
 
 use base_db::{source_db::SourceRootDb, source_root::SourceRootRole};
 use hir::{
+    container::InModule,
     db::HirDb,
-    hir_def::{Ident, module::ModuleId},
-    scope::ScopeResolution,
+    hir_def::{
+        Ident, declaration::Declaration, expr::declarator::DeclaratorParent, module::ModuleId,
+    },
+    scope::{ModuleEntry, ScopeResolution},
+    semantics::pathres::PathResolution,
 };
 use ide_db::root_db::RootDb;
-use syntax::ast;
+use syntax::{
+    SyntaxAncestors,
+    ast::{self, AstNode},
+};
+use utils::get::GetRef;
 use vfs::{FileId, VfsPath};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +60,79 @@ pub(crate) fn resolve_module_name(
 ) -> ModuleResolution {
     let policy = ModuleResolutionPolicy::for_file(db, from_file);
     resolve_module_name_with_policy(db, name, policy)
+}
+
+pub(crate) fn resolve_named_port_connection(
+    db: &RootDb,
+    from_file: FileId,
+    conn: ast::NamedPortConnection,
+) -> Option<PathResolution> {
+    let name = hir::hir_def::lower_ident_opt(conn.name())?;
+    let instantiation =
+        SyntaxAncestors::start_from(conn.syntax()).find_map(ast::HierarchyInstantiation::cast)?;
+    resolve_named_port_in_instantiation(db, from_file, instantiation, &name)
+}
+
+pub(crate) fn resolve_named_param_assignment(
+    db: &RootDb,
+    from_file: FileId,
+    assign: ast::NamedParamAssignment,
+) -> Option<PathResolution> {
+    let name = hir::hir_def::lower_ident_opt(assign.name())?;
+    let instantiation =
+        SyntaxAncestors::start_from(assign.syntax()).find_map(ast::HierarchyInstantiation::cast)?;
+    resolve_named_param_in_instantiation(db, from_file, instantiation, &name)
+}
+
+fn resolve_named_port_in_instantiation(
+    db: &RootDb,
+    from_file: FileId,
+    instantiation: ast::HierarchyInstantiation,
+    port_name: &Ident,
+) -> Option<PathResolution> {
+    let target_module_id = resolve_instantiation_target(db, from_file, instantiation).unique()?;
+    resolve_named_port_in_module(db, target_module_id, port_name)
+}
+
+fn resolve_named_param_in_instantiation(
+    db: &RootDb,
+    from_file: FileId,
+    instantiation: ast::HierarchyInstantiation,
+    param_name: &Ident,
+) -> Option<PathResolution> {
+    let target_module_id = resolve_instantiation_target(db, from_file, instantiation).unique()?;
+    resolve_named_param_in_module(db, target_module_id, param_name)
+}
+
+fn resolve_named_port_in_module(
+    db: &RootDb,
+    module_id: ModuleId,
+    port_name: &Ident,
+) -> Option<PathResolution> {
+    let entry = db.module_scope(module_id).get(port_name)?;
+    if matches!(entry, ModuleEntry::AnsiPortEntry(_) | ModuleEntry::NonAnsiPortEntry(_)) {
+        Some(PathResolution::from(InModule::new(module_id, entry)))
+    } else {
+        None
+    }
+}
+
+fn resolve_named_param_in_module(
+    db: &RootDb,
+    module_id: ModuleId,
+    param_name: &Ident,
+) -> Option<PathResolution> {
+    let ModuleEntry::DeclId(decl_id) = db.module_scope(module_id).get(param_name)? else {
+        return None;
+    };
+    let module = db.module(module_id);
+    if let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id).parent
+        && let Declaration::ParamDecl(_) = module.get(declaration_id)
+    {
+        Some(PathResolution::ParamDecl(InModule::new(module_id, decl_id)))
+    } else {
+        None
+    }
 }
 
 fn resolve_module_name_with_policy(
@@ -198,10 +279,12 @@ fn dir_ancestors(path: VfsPath) -> Vec<VfsPath> {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_root::SourceRoot};
+    use base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot};
+    use hir::{container::InModule, semantics::pathres::PathResolution};
     use smol_str::SmolStr;
+    use syntax::{SyntaxNodeExt, ast};
     use triomphe::Arc;
-    use utils::lines::LineEnding;
+    use utils::{lines::LineEnding, text_edit::TextSize};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet};
 
     use super::*;
@@ -248,6 +331,76 @@ mod tests {
 
         assert_eq!(module_id.file_id.file_id(), FileId(0));
         assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn named_port_resolution_uses_same_proximity_policy_as_module_resolution() {
+        let top = "module top; child #(.WIDTH(1)) u(.a(sig)); endmodule\n";
+        let db = db_with_root(
+            &[
+                (
+                    "/project/a/child.sv",
+                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
+                ),
+                ("/project/a/top.sv", top),
+                (
+                    "/project/b/child.sv",
+                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
+                ),
+            ],
+            SourceRoot::new_best_effort_index,
+        );
+
+        let tree = db.parse_src(FileId(1));
+        let root = tree.root().expect("test source should parse");
+        let port_conn = root
+            .find_node_at_offset::<ast::NamedPortConnection>(TextSize::from(
+                top.find(".a").unwrap() as u32 + 1,
+            ))
+            .expect("named port connection should parse");
+
+        let Some(PathResolution::AnsiPort(InModule { module_id, .. })) =
+            resolve_named_port_connection(&db, FileId(1), port_conn)
+        else {
+            panic!("expected named port connection to resolve to nearest child port");
+        };
+
+        assert_eq!(module_id.file_id.file_id(), FileId(0));
+    }
+
+    #[test]
+    fn named_param_resolution_uses_same_proximity_policy_as_module_resolution() {
+        let top = "module top; child #(.WIDTH(1)) u(.a(sig)); endmodule\n";
+        let db = db_with_root(
+            &[
+                (
+                    "/project/a/child.sv",
+                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
+                ),
+                ("/project/a/top.sv", top),
+                (
+                    "/project/b/child.sv",
+                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
+                ),
+            ],
+            SourceRoot::new_best_effort_index,
+        );
+
+        let tree = db.parse_src(FileId(1));
+        let root = tree.root().expect("test source should parse");
+        let param_assign = root
+            .find_node_at_offset::<ast::NamedParamAssignment>(TextSize::from(
+                top.find(".WIDTH").unwrap() as u32 + 1,
+            ))
+            .expect("named parameter assignment should parse");
+
+        let Some(PathResolution::ParamDecl(InModule { module_id, .. })) =
+            resolve_named_param_assignment(&db, FileId(1), param_assign)
+        else {
+            panic!("expected named parameter assignment to resolve to nearest child parameter");
+        };
+
+        assert_eq!(module_id.file_id.file_id(), FileId(0));
     }
 
     #[test]
