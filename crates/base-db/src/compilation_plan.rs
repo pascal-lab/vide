@@ -59,7 +59,8 @@ impl CompilationPlan {
         include_dirs: Vec<AbsPathBuf>,
         predefines: Vec<String>,
     ) -> Self {
-        let include_only = include_targets_for_source_roots(db, &source_roots, &include_dirs);
+        let include_only =
+            include_targets_for_source_roots(db, &source_roots, &include_dirs, &predefines);
         let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
         CompilationPlan { source_roots, roots, include_only, include_dirs, top_modules, predefines }
     }
@@ -214,6 +215,7 @@ fn include_targets_for_source_roots(
     db: &dyn SourceRootDb,
     roots: &[SourceRootId],
     include_dirs: &[AbsPathBuf],
+    predefines: &[String],
 ) -> FxHashSet<FileId> {
     let path_file_ids = path_file_ids(db);
     let mut included = FxHashSet::default();
@@ -241,7 +243,8 @@ fn include_targets_for_source_roots(
             continue;
         };
 
-        for include in &db.preproc_file_index(file_id).includes {
+        let preproc_index = db.preproc_file_index_with_predefines(file_id, predefines.to_vec());
+        for include in &preproc_index.includes {
             let MacroIncludeTarget::Literal { path, .. } = &include.target else {
                 continue;
             };
