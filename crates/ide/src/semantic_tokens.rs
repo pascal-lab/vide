@@ -16,16 +16,18 @@ use hir::{
     },
     scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
-    source_map::{IsNamedSrc, IsSrc},
+    source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
-use syntax::has_text_range::HasTextRange;
+use syntax::{ast, has_text_range::HasTextRange};
 use utils::{
     get::{Get, GetRef},
     text_edit::TextRange,
 };
 use vfs::FileId;
+
+use crate::module_resolution::{resolve_named_param_assignment, resolve_named_port_connection};
 
 mod collector;
 mod port;
@@ -240,34 +242,8 @@ fn collect_module(
         };
     }
 
-    for (param_assign_id, param_assign) in module.inst_param_assigns.iter() {
-        let Some(range) = module_src_map.get(param_assign_id).and_then(|src| src.name_range())
-        else {
-            continue;
-        };
-        check_range!(collector, range);
-
-        match param_assign {
-            ParamAssign::Named(Some(name), _) => {
-                check_range!(collector, range);
-                collect_ident_like(name, range, collector);
-            }
-            ParamAssign::Named(..) | ParamAssign::Ordered(_) => {}
-        }
-    }
-
-    for (conn_id, conn) in module.inst_port_conns.iter() {
-        match conn {
-            PortConn::Named(Some(name), _) => {
-                let Some(range) = module_src_map.get(conn_id).map(|src| src.range()) else {
-                    continue;
-                };
-                check_range!(collector, range);
-                collect_ident_like(name, range, collector);
-            }
-            PortConn::Named(..) | PortConn::Empty | PortConn::Ordered(_) | PortConn::Wildcard => {}
-        }
-    }
+    collect_named_param_assignments(sema, module_id, collector);
+    collect_named_port_connections(sema, module_id, collector);
 
     for (expr_id, expr) in module.exprs.iter() {
         match expr {
@@ -378,14 +354,89 @@ fn collect_block(
     }
 }
 
+fn collect_named_port_connections(
+    sema: &Semantics<'_, RootDb>,
+    module_id: ModuleId,
+    collector: &mut SemaTokenCollector,
+) {
+    let db = sema.db;
+    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let tree = db.parse(module_id.file_id);
+
+    for (conn_id, conn) in module.inst_port_conns.iter() {
+        let PortConn::Named(Some(_), _) = conn else {
+            continue;
+        };
+        let Some(src) = module_src_map.get(conn_id) else {
+            continue;
+        };
+        let Some(range) = src.name_range() else {
+            continue;
+        };
+        check_range!(collector, range);
+
+        let Some(named) =
+            src.to_node(&tree).and_then(ast::PortConnection::as_named_port_connection)
+        else {
+            continue;
+        };
+        if let Some(res) = resolve_named_port_connection(db, module_id.file_id.file_id(), named) {
+            collect_resolved_path(sema, res, range, collector);
+        }
+    }
+}
+
+fn collect_named_param_assignments(
+    sema: &Semantics<'_, RootDb>,
+    module_id: ModuleId,
+    collector: &mut SemaTokenCollector,
+) {
+    let db = sema.db;
+    let (module, module_src_map) = db.module_with_source_map(module_id);
+    let (module, module_src_map) = (module.as_ref(), module_src_map.as_ref());
+    let tree = db.parse(module_id.file_id);
+
+    for (assign_id, assign) in module.inst_param_assigns.iter() {
+        let ParamAssign::Named(Some(_), _) = assign else {
+            continue;
+        };
+        let Some(src) = module_src_map.get(assign_id) else {
+            continue;
+        };
+        let Some(range) = src.name_range() else {
+            continue;
+        };
+        check_range!(collector, range);
+
+        let Some(named) =
+            src.to_node(&tree).and_then(ast::ParamAssignment::as_named_param_assignment)
+        else {
+            continue;
+        };
+        if let Some(res) = resolve_named_param_assignment(db, module_id.file_id.file_id(), named) {
+            collect_resolved_path(sema, res, range, collector);
+        }
+    }
+}
+
 fn collect_ident_like(
     sema: &Semantics<'_, RootDb>,
     in_cont: InContainer<Ident>,
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) -> Option<()> {
-    let db = sema.db;
     let res = sema.name_to_def(in_cont)?;
+    collect_resolved_path(sema, res, range, collector)
+}
+
+fn collect_resolved_path(
+    sema: &Semantics<'_, RootDb>,
+    res: PathResolution,
+    range: TextRange,
+    collector: &mut SemaTokenCollector,
+) -> Option<()> {
+    let db = sema.db;
 
     match res {
         PathResolution::NonAnsiPort { label, port_decl, data_decl, module } => {
@@ -433,7 +484,10 @@ mod tests {
     use base_db::{change::Change, source_root::SourceRoot};
     use insta::assert_debug_snapshot;
     use triomphe::Arc;
-    use utils::{lines::LineEnding, text_edit::TextRange};
+    use utils::{
+        lines::LineEnding,
+        text_edit::{TextRange, TextSize},
+    };
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
@@ -498,5 +552,87 @@ mod tests {
                 .unwrap();
             assert_debug_snapshot!(name, tokens);
         }
+    }
+
+    #[test]
+    fn named_port_connection_labels_use_target_module_ports() {
+        let text = r#"
+module darksocv
+(
+    input        UART_RXD,
+    output [31:0] LED,
+    input  [31:0] IPORT,
+    output [31:0] OPORT,
+    output [3:0]  DEBUG
+);
+    wire [31:0] iport;
+    wire [31:0] oport;
+
+    darkio io0 (
+        .RXD    (UART_RXD),
+        .TXD    (UART_TXD),
+        .LED    (LED),
+        .IPORT  (iport),
+        .OPORT  (oport),
+        .DEBUG  (IODEBUG)
+    );
+endmodule
+
+module darkio
+(
+    input         RXD,
+    output        TXD,
+    output [31:0] LED,
+    input  [31:0] IPORT,
+    output [31:0] OPORT,
+    output  [3:0] DEBUG
+);
+endmodule
+"#;
+        let (host, file_id) = setup(text);
+        let tokens = host
+            .make_analysis()
+            .semantic_tokens(
+                file_id,
+                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: true, io: true } },
+                Some(TextRange::up_to(TextSize::of(text))),
+            )
+            .unwrap();
+
+        let token = |needle: &str| {
+            let start = text.find(needle).expect("connection label should exist") + 1;
+            let end = start + needle.len() - 1;
+            let range = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
+            tokens
+                .iter()
+                .find(|token| !token.is_empty() && token.range == range)
+                .copied()
+                .unwrap_or_else(|| panic!("expected token at {range:?} for {needle}"))
+        };
+
+        assert_eq!(
+            (token(".RXD").tag, token(".RXD").mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::READ)
+        );
+        assert_eq!(
+            (token(".TXD").tag, token(".TXD").mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
+        );
+        assert_eq!(
+            (token(".LED").tag, token(".LED").mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
+        );
+        assert_eq!(
+            (token(".IPORT").tag, token(".IPORT").mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::READ)
+        );
+        assert_eq!(
+            (token(".OPORT").tag, token(".OPORT").mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
+        );
+        assert_eq!(
+            (token(".DEBUG").tag, token(".DEBUG").mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
+        );
     }
 }

@@ -138,7 +138,7 @@ fn edits_from_refs(
                     }
                     (None, None) => {
                         if let Some(port_conn) = ast::PortConnection::cast(it.syntax()) {
-                            if let Some(ref_container) = sema.resolve_named_port_conn(hir_file_id, port_conn)
+                            if let Some(ref_container) = sema.resolve_port_connection(hir_file_id, port_conn)
                                 && def
                                     .container_id(sema.db)
                                     .is_some_and(|id| id == ref_container.module_id.into())

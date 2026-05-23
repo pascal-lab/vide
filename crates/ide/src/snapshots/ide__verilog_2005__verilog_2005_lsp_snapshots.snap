@@ -28,6 +28,8 @@ cfg_top Config container=None
 40..41 Port(Others) SemaTokenModifier(WRITE)
 193..196 Port(Clk) SemaTokenModifier(READ)
 219..226 Instance SemaTokenModifier(0x0)
+228..229 Port(Others) SemaTokenModifier(READ)
+237..238 Port(Others) SemaTokenModifier(WRITE)
 253..258 Instance SemaTokenModifier(0x0)
 264..267 Port(Clk) SemaTokenModifier(READ)
 520..523 Port(Clk) SemaTokenModifier(READ)
