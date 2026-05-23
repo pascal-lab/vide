@@ -16,6 +16,7 @@ import {
   summarizeTraceFile,
   traceSummaryFromJson,
 } from '../src/profilingTrace';
+import { buildSpeedscopeUrl } from '../src/profilingViewerUrl';
 
 test('removes profiling-owned server arguments before launching a profile session', () => {
   assert.deepEqual(
@@ -192,4 +193,21 @@ test('writes trace summary, folded stacks, and static flamegraph artifact', asyn
   assert.equal(summary.event_count, 2);
   assert.match(await fs.readFile(folded, 'utf8'), /thread;outer 150/);
   assert.match(await fs.readFile(svg, 'utf8'), /<svg version="1.1"/);
+});
+
+test('builds speedscope URLs without double-encoding the profile URL', () => {
+  const url = buildSpeedscopeUrl(
+    'http://127.0.0.1:56445/index.html',
+    'http://127.0.0.1:56445/profiles/faa0699b-5338-4144-8f87-16399252d266/trace.json',
+    'Vizsla 2026-05-23T15-07-27-892Z-workspace-quick-start',
+  );
+
+  assert.match(url, /profileURL=http%3A%2F%2F127\.0\.0\.1/);
+  assert.doesNotMatch(url, /http%253A%252F%252F127\.0\.0\.1/);
+
+  const params = new URLSearchParams(new URL(url).hash.slice(1));
+  assert.equal(
+    params.get('profileURL'),
+    'http://127.0.0.1:56445/profiles/faa0699b-5338-4144-8f87-16399252d266/trace.json',
+  );
 });

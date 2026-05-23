@@ -58,7 +58,7 @@ The command generates:
 | `trace.json` | Chrome/Perfetto/Speedscope-compatible trace, and the input file for the interactive Speedscope viewer. |
 | `summary.json` | Request timing, diagnostics summary, and top span summary. |
 | `trace.folded` | Folded stack generated from the trace. |
-| `flamegraph.svg` | Static flamegraph fallback. Interactive viewing opens `trace.json` in the bundled local Speedscope viewer. |
+| `flamegraph.svg` | Static flamegraph fallback. Interactive viewing opens `trace.json` in a VS Code tab backed by the bundled local Speedscope viewer. |
 | `server.log` | Temporary language server log. |
 
 ## Query Server Version

@@ -64,6 +64,7 @@
   "Runs textDocument/diagnostic for {0}": "对 {0} 运行 textDocument/diagnostic",
   "Vizsla diagnostics profile complete.": "Vizsla 诊断性能分析已完成。",
   "Open in Speedscope": "用 Speedscope 打开",
+  "Vizsla Profile": "Vizsla 性能分析",
   "Open Summary": "打开摘要",
   "Show in Folder": "在文件夹中显示",
   "Failed to open Speedscope: {0}": "无法打开 Speedscope：{0}",
