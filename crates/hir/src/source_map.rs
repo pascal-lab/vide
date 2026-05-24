@@ -26,14 +26,23 @@ pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
 
     fn kind(&self) -> SyntaxKind;
 
+    /// Returns the full syntactic extent of the mapped AST node.
+    ///
+    /// Use this for containment, folding, diagnostics, and operations that act
+    /// on the whole construct rather than just its defining identifier.
     fn range(&self) -> TextRange;
 }
 
 pub trait IsNamedSrc: IsSrc {
     fn name_kind(&self) -> Option<TokenKind>;
 
+    /// Returns the token range that names this source node, when it has one.
+    ///
+    /// Use this for symbol focus ranges such as navigation targets, document
+    /// symbol selections, rename/reference origins, and semantic tokens.
     fn name_range(&self) -> Option<TextRange>;
 
+    /// Returns the symbol focus range when present, otherwise the full range.
     fn name_or_full_range(&self) -> TextRange {
         self.name_range().unwrap_or_else(|| self.range())
     }
