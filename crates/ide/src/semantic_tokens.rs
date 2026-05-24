@@ -259,7 +259,8 @@ fn collect_module(
     for (conn_id, conn) in module.inst_port_conns.iter() {
         match conn {
             PortConn::Named(Some(name), _) => {
-                let Some(range) = module_src_map.get(conn_id).map(|src| src.range()) else {
+                let Some(range) = module_src_map.get(conn_id).and_then(|src| src.name_range())
+                else {
                     continue;
                 };
                 check_range!(collector, range);
@@ -498,5 +499,49 @@ mod tests {
                 .unwrap();
             assert_debug_snapshot!(name, tokens);
         }
+    }
+
+    #[test]
+    fn named_port_connection_token_uses_name_range() {
+        let text = "\
+module child(output logic instr_req_o);
+endmodule
+
+module top(output logic instr_req_o);
+child u_child (
+    .instr_req_o (instr_req_o),
+);
+endmodule
+";
+        let (host, file_id) = setup(text);
+        let tokens = host
+            .make_analysis()
+            .semantic_tokens(
+                file_id,
+                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: true } },
+                Some(TextRange::up_to(utils::text_edit::TextSize::of(text))),
+            )
+            .unwrap();
+
+        let named_port_start = text.find(".instr_req_o").unwrap() + 1;
+        let named_port_range = TextRange::new(
+            (named_port_start as u32).into(),
+            ((named_port_start + "instr_req_o".len()) as u32).into(),
+        );
+        let expr_start = text.find("(instr_req_o)").unwrap() + 1;
+        let expr_range = TextRange::new(
+            (expr_start as u32).into(),
+            ((expr_start + "instr_req_o".len()) as u32).into(),
+        );
+
+        assert!(tokens.iter().any(|token| token.range == named_port_range));
+        assert!(tokens.iter().any(|token| token.range == expr_range));
+        assert!(
+            tokens
+                .iter()
+                .all(|token| token.range
+                    != TextRange::new(named_port_range.start(), expr_range.end())),
+            "named port connection must not produce a token spanning the whole connection"
+        );
     }
 }
