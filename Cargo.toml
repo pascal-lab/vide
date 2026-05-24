@@ -1,6 +1,6 @@
 [package]
 name = "vizsla"
-version = "0.1.0"
+version = "0.1.4"
 edition = "2024"
 authors = ["roifewu <roifewu@gmail.com>"]
 repository = "https://github.com/pascal-lab/vizsla"
