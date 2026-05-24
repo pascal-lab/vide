@@ -14,6 +14,7 @@ import {
 import { getBundledServerPath, getPlatformFolder } from './platform';
 import { registerDiagnosticActions } from './diagnosticActions';
 import { profileDiagnosticsCommand, registerProfilingCommand } from './profiling';
+import { serverInitializationOptions } from './initializationOptions';
 import {
   DEFAULT_PROJECT_CONFIG_TEXT,
   PROJECT_CONFIG_FILE_NAMES,
@@ -617,7 +618,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
     outputChannel: channel,
     traceOutputChannel: channel,
     revealOutputChannelOn: RevealOutputChannelOn.Never,
-    initializationOptions: {},
+    initializationOptions: serverInitializationOptions(vscode.workspace.getConfiguration('vizsla')),
     ...(config.trace !== 'off' && { trace: config.trace }),
   };
 
