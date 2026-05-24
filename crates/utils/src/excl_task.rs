@@ -1,10 +1,16 @@
 // Exclusive task, make sure only one long-running operation is being executed
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ExclTask<Output, Cause = String> {
     requested: Option<Cause>,
     in_process: bool,
     last_result: Option<Output>,
+}
+
+impl<Output, Cause> Default for ExclTask<Output, Cause> {
+    fn default() -> Self {
+        Self { requested: None, in_process: false, last_result: None }
+    }
 }
 
 impl<Output, Cause> ExclTask<Output, Cause> {

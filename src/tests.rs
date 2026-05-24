@@ -2072,10 +2072,12 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
 
     let first_report = request_workspace_diagnostic_report(&client, 1, Vec::new());
     let mut saw_ignored_diagnostic = false;
+    let mut ignored_result_id = None;
     for item in first_report.items {
         if let lsp_types::WorkspaceDocumentDiagnosticReport::Full(full) = item
             && full.uri == ignored_uri
         {
+            ignored_result_id = full.full_document_diagnostic_report.result_id.clone();
             saw_ignored_diagnostic = full
                 .full_document_diagnostic_report
                 .items
@@ -2084,6 +2086,8 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         }
     }
     assert!(saw_ignored_diagnostic, "root-scanning config should diagnose ignored.sv");
+    let ignored_result_id =
+        ignored_result_id.expect("ignored.sv should have a workspace diagnostic result id");
 
     fs::write(
         &manifest_path,
@@ -2109,7 +2113,10 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
             WorkspaceDiagnosticRequest::METHOD.to_string(),
             WorkspaceDiagnosticParams {
                 identifier: None,
-                previous_result_ids: Vec::new(),
+                previous_result_ids: vec![lsp_types::PreviousResultId {
+                    uri: ignored_uri.clone(),
+                    value: ignored_result_id,
+                }],
                 work_done_progress_params: WorkDoneProgressParams::default(),
                 partial_result_params: Default::default(),
             },

@@ -15,3 +15,6 @@ tracing.workspace = true
 utils.workspace = true
 vfs.workspace = true
 walkdir = "2.4.0"
+
+[dev-dependencies]
+tempfile.workspace = true

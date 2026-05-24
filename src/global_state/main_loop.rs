@@ -3,17 +3,17 @@ use std::time::{Duration, Instant};
 use always_assert::always;
 use crossbeam_channel::{Receiver, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
-use lsp_types::{TraceValue, notification::Notification as _};
+use lsp_types::{TraceValue, notification::Notification as _, request::Request as _};
 use project_model::project_manifest;
 use rustc_hash::FxHashSet;
 use triomphe::Arc;
-use utils::thread::ThreadIntent;
 use vfs::{FileId, VfsPath, loader as vfs_loader};
 
 use super::{
-    GlobalState, VfsProgress,
+    GlobalState, WorkspaceFetchCompletion,
     dispatcher::{NotifDispatcher, ReqDispatcher},
     handlers,
+    process_changes::DiagnosticInvalidation,
     qihe::{QiheRunId, QiheUpdate},
     reload::FetchWorkspaceProgress,
     respond::Progress,
@@ -66,18 +66,24 @@ impl Event {
 mod tests {
     use std::time::Duration;
 
-    use lsp_server::Connection;
+    use lsp_server::{Connection, Message};
     use lsp_types::{
-        Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Range,
-        notification::Notification as _,
+        ClientCapabilities, Diagnostic, DiagnosticSeverity, Position, ProgressParams,
+        ProgressParamsValue, PublishDiagnosticsParams, Range, WindowClientCapabilities,
+        WorkDoneProgress, notification::Notification as _, request::Request as _,
     };
+    use project_model::{ProjectModel, project_manifest::ProjectManifest};
+    use triomphe::Arc;
     use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
     use vfs::loader::LoadResult;
 
     use super::*;
     use crate::{Opt, config::user_config::UserConfig, i18n::I18n, lsp_ext::to_proto};
 
-    fn test_state(root_path: AbsPathBuf) -> GlobalState {
+    fn test_state_with_caps(
+        root_path: AbsPathBuf,
+        client_caps: ClientCapabilities,
+    ) -> (GlobalState, Connection) {
         let config = Config::new(
             Opt {
                 process_name: "vizsla-test".to_string(),
@@ -86,15 +92,26 @@ mod tests {
                 profile_trace: None,
             },
             root_path.clone(),
-            lsp_types::ClientCapabilities::default(),
+            client_caps,
             vec![root_path],
             I18n::default(),
             UserConfig::default(),
             Vec::new(),
         );
 
-        let (server, _client) = Connection::memory();
-        GlobalState::new(server.sender, config, lsp_types::TraceValue::Off)
+        let (server, client) = Connection::memory();
+        (GlobalState::new(server.sender, config, lsp_types::TraceValue::Off), client)
+    }
+
+    fn test_state(root_path: AbsPathBuf) -> GlobalState {
+        test_state_with_caps(root_path, ClientCapabilities::default()).0
+    }
+
+    fn workspace_model(root_path: AbsPathBuf) -> Vec<project_model::Workspace> {
+        let (model, errors) =
+            ProjectModel::load(vec![ProjectManifest::UnconfiguredRoot(root_path)]);
+        assert!(errors.is_empty(), "{errors:#?}");
+        model.workspaces
     }
 
     fn recv_publish(client: &Connection) -> PublishDiagnosticsParams {
@@ -104,6 +121,20 @@ mod tests {
         };
         assert_eq!(notification.method, lsp_types::notification::PublishDiagnostics::METHOD);
         serde_json::from_value(notification.params).unwrap()
+    }
+
+    fn recv_work_done_progress(client: &Connection) -> WorkDoneProgress {
+        for _ in 0..8 {
+            let message = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            if let Message::Notification(notification) = message
+                && notification.method == lsp_types::notification::Progress::METHOD
+            {
+                let params: ProgressParams = serde_json::from_value(notification.params).unwrap();
+                let ProgressParamsValue::WorkDone(progress) = params.value;
+                return progress;
+            }
+        }
+        panic!("expected work-done progress notification");
     }
 
     fn publish_batch(tasks: Vec<PublishDiagnosticsTask>) -> PublishDiagnosticsBatch {
@@ -278,7 +309,7 @@ mod tests {
         state.publish_diagnostics_tasks(
             PublishDiagnosticsBatch::from_tasks(
                 vec![PublishDiagnosticsTask::for_test(file_id, uri, None, vec![diagnostic])],
-                DiagnosticPublishFreshness::new(1, 0),
+                DiagnosticPublishFreshness::new(1, 0, 0),
             ),
             false,
         );
@@ -293,7 +324,8 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let file_path = root_path.join("stale.sv");
         let mut state = test_state(root_path);
-        state.vfs_config_version = 2;
+        state.workspace_vfs.begin_vfs_load(1);
+        state.workspace_vfs.begin_vfs_load(1);
 
         state.process_vfs_msg(vfs_loader::Message::Loaded {
             files: vec![(
@@ -307,6 +339,249 @@ mod tests {
         let mut vfs = state.vfs.write();
         assert!(vfs.0.file_id(&vfs_path).is_none());
         assert!(vfs.0.take_changes().is_empty());
+    }
+
+    #[test]
+    fn empty_vfs_load_waits_for_loader_ack() {
+        let root = TestDir::new("empty-vfs-load-waits-for-ack");
+        let root_path = root.path().to_path_buf();
+        let (mut state, client) = test_state_with_caps(
+            root_path,
+            ClientCapabilities {
+                window: Some(WindowClientCapabilities {
+                    work_done_progress: Some(true),
+                    ..WindowClientCapabilities::default()
+                }),
+                ..ClientCapabilities::default()
+            },
+        );
+
+        let config_version = state.workspace_vfs.begin_vfs_load(0);
+        assert!(!state.workspace_vfs.is_ready());
+
+        state.process_vfs_msg(vfs_loader::Message::Progress {
+            n_total: 0,
+            n_done: 0,
+            config_version,
+        });
+
+        assert!(state.workspace_vfs.is_ready());
+        assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+    }
+
+    #[test]
+    fn diagnostic_requests_are_parked_until_workspace_ready() {
+        let root = TestDir::new("diagnostic-request-readiness-queue");
+        let root_path = root.path().to_path_buf();
+        let mut state = test_state(root_path);
+        let config_version = state.workspace_vfs.begin_vfs_load(1);
+        let request_id = lsp_server::RequestId::from(7);
+        let req = Request::new(
+            request_id.clone(),
+            lsp_types::request::WorkspaceDiagnosticRequest::METHOD.to_owned(),
+            lsp_types::WorkspaceDiagnosticParams {
+                identifier: None,
+                previous_result_ids: Vec::new(),
+                work_done_progress_params: lsp_types::WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        );
+
+        state.register_request(Instant::now(), &req);
+        state.handle_request(req);
+
+        assert_eq!(state.pending_diagnostic_requests.len(), 1);
+        assert!(state.task_pool.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+
+        state
+            .handle_event(Event::Vfs(vfs_loader::Message::Progress {
+                n_total: 1,
+                n_done: 1,
+                config_version,
+            }))
+            .unwrap();
+
+        assert!(state.pending_diagnostic_requests.is_empty());
+        let task = state.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Task::Response(response) = task else {
+            panic!("expected parked diagnostic request to resume as response task, got {task:?}");
+        };
+        assert_eq!(response.id, request_id);
+    }
+
+    #[test]
+    fn stale_progress_does_not_update_readiness_or_report() {
+        let root = TestDir::new("stale-vfs-progress");
+        let root_path = root.path().to_path_buf();
+        let (mut state, client) = test_state_with_caps(
+            root_path,
+            ClientCapabilities {
+                window: Some(WindowClientCapabilities {
+                    work_done_progress: Some(true),
+                    ..WindowClientCapabilities::default()
+                }),
+                ..ClientCapabilities::default()
+            },
+        );
+        let stale_config = state.workspace_vfs.begin_vfs_load(4);
+        let current_config = state.workspace_vfs.begin_vfs_load(4);
+
+        state.process_vfs_msg(vfs_loader::Message::Progress {
+            n_total: 4,
+            n_done: 4,
+            config_version: stale_config,
+        });
+
+        assert_eq!(
+            state.workspace_vfs.current_vfs_progress(),
+            crate::global_state::VfsProgress {
+                config_version: current_config,
+                n_done: 0,
+                n_total: 4,
+            }
+        );
+        assert!(!state.workspace_vfs.is_ready());
+        assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+
+        state.process_vfs_msg(vfs_loader::Message::Progress {
+            n_total: 4,
+            n_done: 2,
+            config_version: current_config,
+        });
+
+        assert_eq!(
+            state.workspace_vfs.current_vfs_progress(),
+            crate::global_state::VfsProgress {
+                config_version: current_config,
+                n_done: 2,
+                n_total: 4,
+            }
+        );
+        let Message::Notification(notification) =
+            client.receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected progress notification");
+        };
+        assert_eq!(notification.method, lsp_types::notification::Progress::METHOD);
+        let params: ProgressParams = serde_json::from_value(notification.params).unwrap();
+        let ProgressParamsValue::WorkDone(WorkDoneProgress::Report(report)) = params.value else {
+            panic!("expected VFS progress report");
+        };
+        assert_eq!(report.message.as_deref(), Some("2/4"));
+        assert_eq!(report.percentage, Some(50));
+    }
+
+    #[test]
+    fn out_of_order_vfs_progress_does_not_regress_readiness_or_report() {
+        let root = TestDir::new("out-of-order-vfs-progress");
+        let root_path = root.path().to_path_buf();
+        let (mut state, client) = test_state_with_caps(
+            root_path,
+            ClientCapabilities {
+                window: Some(WindowClientCapabilities {
+                    work_done_progress: Some(true),
+                    ..WindowClientCapabilities::default()
+                }),
+                ..ClientCapabilities::default()
+            },
+        );
+        let config_version = state.workspace_vfs.begin_vfs_load(2);
+
+        state.process_vfs_msg(vfs_loader::Message::Progress {
+            n_total: 2,
+            n_done: 2,
+            config_version,
+        });
+
+        assert!(state.workspace_vfs.is_ready());
+        assert_eq!(
+            state.workspace_vfs.current_vfs_progress(),
+            crate::global_state::VfsProgress { config_version, n_done: 2, n_total: 2 }
+        );
+        assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::End(_)));
+
+        state.process_vfs_msg(vfs_loader::Message::Progress {
+            n_total: 2,
+            n_done: 1,
+            config_version,
+        });
+
+        assert!(state.workspace_vfs.is_ready());
+        assert_eq!(
+            state.workspace_vfs.current_vfs_progress(),
+            crate::global_state::VfsProgress { config_version, n_done: 2, n_total: 2 }
+        );
+        assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+    }
+
+    #[test]
+    fn superseded_workspace_fetch_does_not_commit_stale_workspaces() {
+        let root = TestDir::new("superseded-workspace-fetch");
+        let root_path = root.path().to_path_buf();
+        let existing_root = root.join("existing");
+        let stale_root = root.join("stale");
+        std::fs::create_dir_all(&existing_root).unwrap();
+        std::fs::create_dir_all(&stale_root).unwrap();
+        let (mut state, _client) = test_state_with_caps(root_path, ClientCapabilities::default());
+        let existing_workspaces = Arc::new(workspace_model(existing_root));
+        state.workspaces = Arc::clone(&existing_workspaces);
+
+        state.request_workspace_reload("first reload");
+        let first = state.fetch_workspaces_task.should_start().unwrap();
+        state.workspace_vfs.start_workspace_fetch(first.generation);
+        state.request_workspace_reload("second reload");
+
+        state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::End {
+            generation: first.generation,
+            workspaces: workspace_model(stale_root),
+            errors: Vec::new(),
+        }));
+
+        assert!(Arc::ptr_eq(&state.workspaces, &existing_workspaces));
+        assert_eq!(state.workspace_vfs.current_vfs_config_version(), 0);
+        let second = state.fetch_workspaces_task.should_start().unwrap();
+        assert_eq!(second.cause, "second reload");
+        assert_ne!(second.generation, first.generation);
+    }
+
+    #[test]
+    fn superseded_workspace_fetch_ends_reported_progress() {
+        let root = TestDir::new("superseded-workspace-fetch-progress");
+        let root_path = root.path().to_path_buf();
+        let stale_root = root.join("stale");
+        std::fs::create_dir_all(&stale_root).unwrap();
+        let (mut state, client) = test_state_with_caps(
+            root_path,
+            ClientCapabilities {
+                window: Some(WindowClientCapabilities {
+                    work_done_progress: Some(true),
+                    ..WindowClientCapabilities::default()
+                }),
+                ..ClientCapabilities::default()
+            },
+        );
+
+        state.request_workspace_reload("first reload");
+        let first = state.fetch_workspaces_task.should_start().unwrap();
+        state.workspace_vfs.start_workspace_fetch(first.generation);
+        state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::Begin {
+            generation: first.generation,
+            cause: first.cause.clone(),
+        }));
+        assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::Begin(_)));
+
+        state.request_workspace_reload("second reload");
+        state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::End {
+            generation: first.generation,
+            workspaces: workspace_model(stale_root),
+            errors: Vec::new(),
+        }));
+
+        assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::End(_)));
+        assert_eq!(state.workspace_vfs.current_vfs_config_version(), 0);
+        let second = state.fetch_workspaces_task.should_start().unwrap();
+        assert_eq!(second.cause, "second reload");
+        assert_ne!(second.generation, first.generation);
     }
 }
 
@@ -336,11 +611,16 @@ pub(crate) struct PublishDiagnosticsBatch {
 pub(crate) struct DiagnosticPublishFreshness {
     diagnostics_revision: u64,
     target_revision: u64,
+    readiness_revision: u64,
 }
 
 impl DiagnosticPublishFreshness {
-    pub(crate) fn new(diagnostics_revision: u64, target_revision: u64) -> Self {
-        Self { diagnostics_revision, target_revision }
+    pub(crate) fn new(
+        diagnostics_revision: u64,
+        target_revision: u64,
+        readiness_revision: u64,
+    ) -> Self {
+        Self { diagnostics_revision, target_revision, readiness_revision }
     }
 }
 
@@ -471,8 +751,10 @@ impl Task {
         match self {
             Task::Response(_) => "task.response",
             Task::Retry(_) => "task.retry",
-            Task::FetchWorkspace(FetchWorkspaceProgress::Begin(_)) => "task.fetch_workspace.begin",
-            Task::FetchWorkspace(FetchWorkspaceProgress::End(_, _)) => "task.fetch_workspace.end",
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { .. }) => {
+                "task.fetch_workspace.begin"
+            }
+            Task::FetchWorkspace(FetchWorkspaceProgress::End { .. }) => "task.fetch_workspace.end",
             Task::Diagnostics(_) => "task.diagnostics",
             Task::Qihe(task) => task.kind(),
         }
@@ -484,10 +766,10 @@ impl Task {
                 format!("task response id={:?} error={}", res.id, res.error.is_some())
             }
             Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
-            Task::FetchWorkspace(FetchWorkspaceProgress::Begin(cause)) => {
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
                 format!("task fetch workspace begin cause={cause}")
             }
-            Task::FetchWorkspace(FetchWorkspaceProgress::End(workspaces, errors)) => {
+            Task::FetchWorkspace(FetchWorkspaceProgress::End { workspaces, errors, .. }) => {
                 format!(
                     "task fetch workspace end workspaces={} errors={}",
                     workspaces.len(),
@@ -637,12 +919,12 @@ impl GlobalState {
         };
         tracing::debug!(event.summary = %event_summary, "handle_event start");
 
-        let was_stuck = self.is_stuck();
+        let was_workspace_ready = self.is_workspace_ready();
         let event_span = tracing::info_span!(
             "main_loop.handle_event",
             event.kind = event_kind,
             event.summary = %event_summary,
-            was_stuck
+            was_workspace_ready
         );
         let _event_span = event_span.enter();
 
@@ -662,9 +944,13 @@ impl GlobalState {
         let event_handling_duration = loop_start.elapsed();
 
         let state_changed = self.process_changes();
+        if self.workspace_vfs.take_deferred_diagnostics_if_ready() {
+            self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
+            self.drain_pending_diagnostic_requests();
+        }
 
-        if self.is_stuck() {
-            let client_refresh = !was_stuck || state_changed;
+        if self.is_workspace_ready() {
+            let client_refresh = !was_workspace_ready || state_changed;
 
             if client_refresh && self.config.cli_code_lens_refresh_support() {
                 self.send_request::<lsp_types::request::CodeLensRefresh>((), DEFAULT_REQ_HANDLER);
@@ -681,7 +967,7 @@ impl GlobalState {
         self.start_requested_workspace_fetch();
 
         let loop_duration = loop_start.elapsed();
-        if loop_duration > Duration::from_millis(100) && was_stuck {
+        if loop_duration > Duration::from_millis(100) && was_workspace_ready {
             tracing::warn!(
                 event.summary = %event_summary,
                 event.debug_len = event_dbg_msg.len(),
@@ -702,13 +988,9 @@ impl GlobalState {
     }
 
     fn handle_request(&mut self, req: Request) {
-        if matches!(
-            req.method.as_str(),
-            lsp_types::request::DocumentDiagnosticRequest::METHOD
-                | lsp_types::request::WorkspaceDiagnosticRequest::METHOD
-        ) && !self.is_stuck()
-        {
-            self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || Task::Retry(req));
+        if Self::is_pull_diagnostic_request(&req) && !self.is_workspace_ready() {
+            self.workspace_vfs.defer_diagnostics_until_ready();
+            self.pending_diagnostic_requests.push(req);
             return;
         }
 
@@ -792,6 +1074,23 @@ impl GlobalState {
         handler(self, res)
     }
 
+    fn is_pull_diagnostic_request(req: &Request) -> bool {
+        matches!(
+            req.method.as_str(),
+            lsp_types::request::DocumentDiagnosticRequest::METHOD
+                | lsp_types::request::WorkspaceDiagnosticRequest::METHOD
+        )
+    }
+
+    fn drain_pending_diagnostic_requests(&mut self) {
+        let pending_requests = std::mem::take(&mut self.pending_diagnostic_requests);
+        for req in pending_requests {
+            if !self.is_completed(&req) {
+                self.handle_request(req);
+            }
+        }
+    }
+
     fn handle_task(&mut self, task: Task) {
         self.process_task(task);
 
@@ -821,27 +1120,60 @@ impl GlobalState {
                 }
             }
             Task::FetchWorkspace(process) => {
-                let state = match process {
-                    FetchWorkspaceProgress::Begin(cause) => {
+                let Some(state) = (match process {
+                    FetchWorkspaceProgress::Begin { generation, cause } => {
+                        if !self.workspace_vfs.accept_workspace_fetch_begin(generation) {
+                            tracing::debug!(?generation, "stale workspace fetch begin ignored");
+                            return;
+                        }
                         self.send_loading_project_status(cause);
-                        Progress::Begin
+                        Some(Progress::Begin)
                     }
-                    FetchWorkspaceProgress::End(workspaces, errors) => {
+                    FetchWorkspaceProgress::End { generation, workspaces, errors } => {
                         let workspace_count = workspaces.len();
                         let error_messages =
                             errors.iter().map(|err| format!("{err:#}")).collect::<Vec<_>>();
+                        let completion = self
+                            .workspace_vfs
+                            .finish_workspace_fetch(generation, !errors.is_empty());
 
-                        self.fetch_workspaces_task.complete(Some((Arc::new(workspaces), errors)));
+                        match completion {
+                            WorkspaceFetchCompletion::Stale { progress_started } => {
+                                self.fetch_workspaces_task.complete(None);
+                                tracing::debug!(
+                                    ?generation,
+                                    "stale workspace fetch result ignored"
+                                );
+                                progress_started.then_some(Progress::End)
+                            }
+                            WorkspaceFetchCompletion::CurrentFailure => {
+                                self.fetch_workspaces_task
+                                    .complete(Some((Arc::new(workspaces), errors)));
+                                if let Err(e) = self.fetch_workspace_error_stringify() {
+                                    tracing::error!("Fetch workspace error: \n{e}");
+                                }
+                                self.send_project_status_for_result(
+                                    workspace_count,
+                                    &error_messages,
+                                );
+                                Some(Progress::End)
+                            }
+                            WorkspaceFetchCompletion::CurrentSuccess => {
+                                self.fetch_workspaces_task
+                                    .complete(Some((Arc::new(workspaces), errors)));
 
-                        if let Err(e) = self.fetch_workspace_error_stringify() {
-                            tracing::error!("Fetch workspace error: \n{e}");
+                                self.switch_workspaces("fetched new workspaces".into(), generation);
+                                self.send_project_status_for_result(
+                                    workspace_count,
+                                    &error_messages,
+                                );
+
+                                Some(Progress::End)
+                            }
                         }
-
-                        self.switch_workspaces("fetched new workspaces".into());
-                        self.send_project_status_for_result(workspace_count, &error_messages);
-
-                        Progress::End
                     }
+                }) else {
+                    return;
                 };
 
                 self.report_progress(
@@ -869,33 +1201,46 @@ impl GlobalState {
     fn process_vfs_msg(&mut self, msg: vfs_loader::Message) {
         match msg {
             vfs_loader::Message::Progress { n_total, n_done, config_version } => {
-                always!(config_version <= self.vfs_config_version);
+                always!(config_version <= self.workspace_vfs.current_vfs_config_version());
 
-                self.vfs_progress = VfsProgress { config_version, n_done, n_total };
+                let Some(progress) =
+                    self.workspace_vfs.accept_vfs_progress(config_version, n_done, n_total)
+                else {
+                    tracing::debug!(
+                        config_version,
+                        current_config_version = self.workspace_vfs.current_vfs_config_version(),
+                        "stale VFS progress ignored"
+                    );
+                    return;
+                };
 
-                let state = if n_done == 0 {
+                if progress.n_total == 0 {
+                    return;
+                }
+
+                let state = if progress.n_done == 0 {
                     Progress::Begin
-                } else if n_done < n_total {
+                } else if progress.n_done < progress.n_total {
                     Progress::Report
                 } else {
-                    assert_eq!(n_done, n_total);
+                    assert_eq!(progress.n_done, progress.n_total);
                     Progress::End
                 };
 
                 self.report_progress(
                     self.config.i18n.text(keys::PROGRESS_ROOTS_SCANNING),
                     state,
-                    Some(format!("{n_done}/{n_total}")),
-                    Some(Progress::fraction(n_done, n_total)),
+                    Some(format!("{}/{}", progress.n_done, progress.n_total)),
+                    Some(Progress::fraction(progress.n_done, progress.n_total)),
                     None,
                 );
             }
             vfs_loader::Message::Loaded { files, config_version } => {
-                always!(config_version <= self.vfs_config_version);
-                if config_version < self.vfs_config_version {
+                always!(config_version <= self.workspace_vfs.current_vfs_config_version());
+                if !self.workspace_vfs.accepts_vfs_loaded(config_version) {
                     tracing::debug!(
                         config_version,
-                        current_config_version = self.vfs_config_version,
+                        current_config_version = self.workspace_vfs.current_vfs_config_version(),
                         files = files.len(),
                         "stale VFS loaded batch ignored"
                     );
@@ -930,6 +1275,12 @@ impl GlobalState {
 
         if self.config.cli_pull_diagnostics_support() && !force_push {
             tracing::info!("skipping push diagnostics for pull-capable client");
+            return;
+        }
+
+        if !self.workspace_vfs.is_ready() {
+            self.workspace_vfs.defer_diagnostics_until_ready();
+            tracing::debug!("diagnostics publish deferred until workspace/VFS is ready");
             return;
         }
 
