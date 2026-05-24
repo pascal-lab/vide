@@ -11,7 +11,7 @@ use utils::{
     line_index::LineIndex,
     lines::{LineEnding, LineInfo, PositionEncoding},
 };
-use vfs::{VfsPath, loader::LoadResult};
+use vfs::{FileId, VfsPath, loader::LoadResult};
 
 use crate::{
     DEFAULT_PROCESS_NAME,
@@ -38,11 +38,12 @@ pub(crate) fn handle_did_open_text_document(
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
         let file_id = set_vfs_file_contents(state, &path, params.text_document.text.clone())?;
-        if state
-            .mem_docs
-            .insert(file_id, path.clone(), params.text_document.version, params.text_document.text)
-            .is_some()
-        {
+        if state.mem_docs.insert(
+            file_id,
+            path.clone(),
+            params.text_document.version,
+            params.text_document.text,
+        ) {
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
     }
@@ -54,13 +55,16 @@ pub(crate) fn handle_did_change_text_document(
     params: DidChangeTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        let data = match state.mem_docs.get_mut_by_path(&path) {
-            Some(doc) => {
-                // The version in DidChangeTextDocument is the one after all edits,
-                // so we should apply it before the vfs is notified.
-                doc.version = params.text_document.version;
-                &mut doc.data
-            }
+        let Some(file_id) = open_mem_doc_file_id(state, &path) else {
+            tracing::error!("unexpected DidChangeTextDocument: {}", path);
+            return Ok(());
+        };
+        let data = match state.mem_docs.text_mut_for_change(
+            &path,
+            file_id,
+            params.text_document.version,
+        ) {
+            Some(data) => data,
             None => {
                 tracing::error!("unexpected DidChangeTextDocument: {}", path);
                 return Ok(());
@@ -81,7 +85,7 @@ pub(crate) fn handle_did_close_text_document(
     params: DidCloseTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        if state.mem_docs.remove_path(&path).is_none() {
+        if !state.mem_docs.remove_path(&path) {
             tracing::error!("orphan DidCloseTextDocument: {}", path);
         }
 
@@ -227,6 +231,12 @@ fn set_vfs_file_contents(
     let mut vfs = state.vfs.write();
     vfs.0.set_file_contents(path, LoadResult::Loaded(text, endings));
     vfs.0.file_id(path).ok_or_else(|| anyhow::format_err!("loaded file has no FileId: {path}"))
+}
+
+fn open_mem_doc_file_id(state: &GlobalState, path: &VfsPath) -> Option<FileId> {
+    state.mem_docs.file_id(path).or_else(|| {
+        state.vfs.read().0.file_id(path).filter(|file_id| state.mem_docs.contains_file_id(*file_id))
+    })
 }
 
 fn update_document_text(

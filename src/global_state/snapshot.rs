@@ -205,6 +205,6 @@ impl GlobalStateSnapshot {
 
     pub(crate) fn url_file_version(&self, url: &Url) -> Option<i32> {
         let path = from_proto::vfs_path(url).ok()?;
-        self.mem_docs.file_id(&path).and_then(|file_id| self.file_version(file_id))
+        self.mem_docs.version_for_path(&path)
     }
 }

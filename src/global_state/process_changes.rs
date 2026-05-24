@@ -7,14 +7,14 @@ use nohash_hasher::IntMap;
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rustc_hash::{FxHashMap, FxHashSet};
 use utils::{lines::LineEnding, thread::ThreadIntent};
-use vfs::{ChangedFile, FileId, Vfs};
+use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
     main_loop::{PublishDiagnosticsTask, Task},
     reload::should_refresh_for_change,
 };
-use crate::config::user_config::DiagnosticsUpdateUserConfig;
+use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
 
 #[derive(Debug)]
 pub(crate) enum DiagnosticInvalidation {
@@ -30,6 +30,16 @@ impl GlobalState {
         // downgrade earlier to allow more reader
         let read_guard = RwLockWriteGuard::downgrade_to_upgradable(write_guard);
         let vfs = &read_guard.0;
+        let file_id_redirects = changed_files
+            .iter()
+            .filter_map(|changed_file| {
+                let canonical = vfs.canonical_file_id(changed_file.file_id);
+                (canonical != changed_file.file_id).then_some((changed_file.file_id, canonical))
+            })
+            .collect_vec();
+        for (from, to) in file_id_redirects {
+            self.mem_docs.remap_file_id(from, to);
+        }
 
         // collect changes
         let Some(changed_files) = Self::colease_modifications(changed_files) else {
@@ -41,20 +51,30 @@ impl GlobalState {
         let mut bytes = vec![];
         let mut changed_file_ids = FxHashSet::default();
         let mut deleted_file_ids = FxHashSet::default();
+        let mut deleted_push_diagnostics = Vec::new();
         for changed_file in changed_files {
-            let path = vfs.file_path(changed_file.file_id);
+            let is_identity_redirect =
+                vfs.canonical_file_id(changed_file.file_id) != changed_file.file_id;
+            let path = if is_identity_redirect {
+                vfs.original_file_path(changed_file.file_id)
+            } else {
+                vfs.file_path(changed_file.file_id)
+            };
             if let Some(path) =
                 path.and_then(|path| path.as_abs_path()).map(|apath| apath.to_path_buf())
             {
                 let created_or_deleted = changed_file.is_created_or_deleted();
                 has_structure_changes |= created_or_deleted;
-                if should_refresh_for_change(&path, created_or_deleted) {
+                if !is_identity_redirect && should_refresh_for_change(&path, created_or_deleted) {
                     workspace_structure_change = Some(path.clone());
                 }
             }
 
             if matches!(&changed_file.change_kind, vfs::ChangeKind::Delete) {
                 deleted_file_ids.insert(changed_file.file_id);
+                if let Some(path) = path.cloned() {
+                    deleted_push_diagnostics.push((changed_file.file_id, path));
+                }
             }
             changed_file_ids.insert(changed_file.file_id);
             bytes.push(changed_file);
@@ -69,7 +89,7 @@ impl GlobalState {
         self.analysis_host.apply_change(change);
         self.diagnostics_revision += 1;
         self.remove_deleted_qihe_diagnostics(&deleted_file_ids);
-        self.clear_deleted_push_diagnostics(&deleted_file_ids);
+        self.clear_deleted_push_diagnostics(&deleted_push_diagnostics);
         if has_structure_changes {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         } else if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType
@@ -134,20 +154,28 @@ impl GlobalState {
         }
     }
 
-    fn clear_deleted_push_diagnostics(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
-        if deleted_file_ids.is_empty() || self.config.cli_pull_diagnostics_support() {
+    fn clear_deleted_push_diagnostics(&mut self, deleted_files: &[(FileId, VfsPath)]) {
+        if deleted_files.is_empty() || self.config.cli_pull_diagnostics_support() {
             return;
         }
 
-        let snapshot = self.make_snapshot();
-        let diagnostics = deleted_file_ids
+        let diagnostics = deleted_files
             .iter()
-            .filter_map(|file_id| {
-                let uri = match snapshot.url(*file_id) {
+            .filter_map(|(file_id, path)| {
+                let Some(path) = path.as_abs_path() else {
+                    tracing::debug!(
+                        ?file_id,
+                        ?path,
+                        "skipping deleted diagnostic clear for non-file path"
+                    );
+                    return None;
+                };
+                let uri = match to_proto::url_from_abs_path(path) {
                     Ok(uri) => uri,
                     Err(error) => {
                         tracing::debug!(
                             ?file_id,
+                            ?path,
                             "skipping deleted diagnostic clear for file without URI: {error:#}"
                         );
                         return None;
@@ -292,8 +320,13 @@ impl GlobalState {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, time::Duration};
+
     use lsp_server::Connection;
-    use lsp_types::{ClientCapabilities, TraceValue};
+    use lsp_types::{
+        ClientCapabilities, Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams,
+        Range, TraceValue, notification::Notification,
+    };
     use utils::{lines::LineEnding, test_support::TestDir};
     use vfs::{VfsPath, loader::LoadResult};
 
@@ -302,6 +335,7 @@ mod tests {
         config::{self, user_config::UserConfig},
         global_state::GlobalState,
         i18n::I18n,
+        lsp_ext::to_proto,
     };
 
     #[test]
@@ -336,5 +370,92 @@ mod tests {
             !state.fetch_workspaces_task.has_op_requested(),
             "loading an ordinary source file should not queue a project configuration reload"
         );
+    }
+
+    #[test]
+    fn identity_redirect_delete_clears_duplicate_uri_not_canonical_uri() {
+        let root = TestDir::new("identity-redirect-delete-diagnostics");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        let source = root.join("workspace/top.sv");
+        let alias = root.join("alias/top.sv");
+        let source_vfs_path = VfsPath::from(source.clone());
+        let alias_vfs_path = VfsPath::from(alias.clone());
+
+        {
+            let mut vfs = state.vfs.write();
+            vfs.0.set_file_contents(
+                &source_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+            vfs.0.set_file_contents(
+                &alias_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+        }
+        assert!(state.process_changes());
+        let source_file_id = state.vfs.read().0.file_id(&source_vfs_path).unwrap();
+        let alias_file_id = state.vfs.read().0.file_id(&alias_vfs_path).unwrap();
+        assert_ne!(source_file_id, alias_file_id);
+
+        state.diagnostics.insert(
+            alias_file_id,
+            vec![Diagnostic {
+                range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+                severity: Some(DiagnosticSeverity::ERROR),
+                source: Some("test".to_owned()),
+                message: "stale alias diagnostic".to_owned(),
+                ..Diagnostic::default()
+            }],
+        );
+
+        if let Some(parent) = source.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        if let Some(parent) = alias.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&source, "module top; endmodule\n").unwrap();
+        fs::hard_link(&source, &alias).unwrap();
+        {
+            let mut vfs = state.vfs.write();
+            vfs.0.set_file_contents(
+                &source_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+            vfs.0.set_file_contents(
+                &alias_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+        }
+
+        assert!(state.process_changes());
+
+        let message = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let lsp_server::Message::Notification(notification) = message else {
+            panic!("expected publishDiagnostics notification");
+        };
+        assert_eq!(notification.method, lsp_types::notification::PublishDiagnostics::METHOD);
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        let source_uri = to_proto::url_from_abs_path(source.as_path()).unwrap();
+        let alias_uri = to_proto::url_from_abs_path(alias.as_path()).unwrap();
+        assert_eq!(params.uri, alias_uri);
+        assert_ne!(params.uri, source_uri);
+        assert!(params.diagnostics.is_empty());
     }
 }

@@ -8,12 +8,23 @@ use utils::{
 
 use crate::{PathGlobMatcher, PathMatcher};
 
+/// File extensions loaded from recursive directory entries.
+///
+/// Exact file entries are represented by [`Entry::Files`] and do not rely on
+/// extension expansion.
+pub const SOURCE_FILE_EXTENSIONS: &[&str] = &["v", "sv", "vh", "svh", "svi", "map"];
+
+/// A loader input boundary.
+///
+/// Exact files are loaded as listed. Directory entries are expanded using
+/// extension and matcher rules and are also eligible for recursive watching.
 #[derive(Debug, Clone)]
 pub enum Entry {
     Files(Vec<AbsPathBuf>),
     Directories(Directories),
 }
 
+/// Recursive directory load policy.
 #[derive(Debug, Clone, Default)]
 pub struct Directories {
     pub extensions: Vec<String>,
@@ -22,6 +33,7 @@ pub struct Directories {
     pub exclude_globs: Option<PathGlobMatcher>,
 }
 
+/// Complete loader configuration for one generation.
 #[derive(Debug)]
 pub struct Config {
     pub version: u32,
@@ -29,6 +41,7 @@ pub struct Config {
     pub to_watch: Vec<usize>,
 }
 
+/// Messages sent by a loader generation back to the main loop.
 pub enum Message {
     Progress { n_total: usize, n_done: usize, config_version: u32 },
     Loaded { files: Vec<(AbsPathBuf, LoadResult)>, config_version: u32 },
@@ -36,6 +49,7 @@ pub enum Message {
 
 pub type Sender = crossbeam_channel::Sender<Message>;
 
+/// Result of reading one file from the loader.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LoadResult {
     Loaded(String, LineEnding),

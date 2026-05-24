@@ -573,7 +573,10 @@ impl GlobalState {
 
                 for (path, content) in files {
                     let path = VfsPath::from(path);
-                    if !self.mem_docs.contains_path(&path) {
+                    let open_file_id = vfs
+                        .file_id(&path)
+                        .is_some_and(|file_id| self.mem_docs.contains_file_id(file_id));
+                    if !self.mem_docs.contains_path(&path) && !open_file_id {
                         vfs.set_file_contents(&path, content);
                     }
                 }
