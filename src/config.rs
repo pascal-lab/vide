@@ -3,6 +3,7 @@ pub mod user_config;
 
 use std::fmt;
 
+use base_db::diagnostics_config::DiagnosticsConfig;
 use itertools::Itertools;
 use lsp_types::ClientCapabilities;
 use project_model::project_manifest::ProjectManifest;
@@ -81,6 +82,7 @@ pub struct Config {
     pub(crate) root_path: AbsPathBuf,
     pub(crate) i18n: I18n,
     pub(crate) user_config: UserConfig,
+    diagnostics_config: DiagnosticsConfig,
     pub(crate) project_manifests: Vec<ProjectManifest>,
 }
 
@@ -98,6 +100,7 @@ impl Config {
         _snippets: Vec<Snippet>,
     ) -> Self {
         let project_manifests = Self::project_manifests(&workspace_roots);
+        let diagnostics_config = user_config.diagnostics_config().with_fresh_revision();
         Config {
             opt,
             workspace_roots,
@@ -105,19 +108,32 @@ impl Config {
             root_path,
             i18n,
             user_config,
+            diagnostics_config,
             project_manifests,
         }
     }
 
     pub(crate) fn update(&mut self, json: serde_json::Value) -> Result<(), ConfigError> {
         let (user_config, _snippets, errors) = Self::parse_initialization_options(json);
+        let diagnostics_config = self.updated_diagnostics_config(&user_config);
         self.user_config = user_config;
+        self.diagnostics_config = diagnostics_config;
 
         if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 
     pub fn diagnostics_config(&self) -> base_db::diagnostics_config::DiagnosticsConfig {
-        self.user_config.diagnostics_config()
+        self.diagnostics_config.clone()
+    }
+
+    fn updated_diagnostics_config(&self, user_config: &UserConfig) -> DiagnosticsConfig {
+        let mut next = user_config.diagnostics_config();
+        if next.has_same_settings(&self.diagnostics_config) {
+            next.revision = self.diagnostics_config.revision;
+            next
+        } else {
+            next.with_fresh_revision()
+        }
     }
 
     pub(crate) fn parse_initialization_options(

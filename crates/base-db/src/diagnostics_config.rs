@@ -72,6 +72,13 @@ impl DiagnosticsConfig {
         self
     }
 
+    pub fn has_same_settings(&self, other: &Self) -> bool {
+        self.enabled == other.enabled
+            && self.parse == other.parse
+            && self.semantic == other.semantic
+            && self.slang == other.slang
+    }
+
     pub fn apply_rules(
         &self,
         source: DiagnosticSource,

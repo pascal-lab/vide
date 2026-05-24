@@ -8,23 +8,24 @@ use lsp_types::{
     ClientCapabilities, CodeActionCapabilityResolveSupport, CodeActionClientCapabilities,
     CodeActionContext, CodeActionKind, CodeActionKindLiteralSupport, CodeActionLiteralSupport,
     CodeActionOrCommand, CodeActionParams, DiagnosticClientCapabilities,
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
-    DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position,
-    ProgressParams, PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
-    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
-    WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
-    WorkspaceDiagnosticReportResult,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentDiagnosticReportResult, DocumentSymbolParams, DocumentSymbolResponse, FileChangeType,
+    FileEvent, FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverParams, Position, ProgressParams, PublishDiagnosticsParams, Range,
+    SemanticTokensParams, SemanticTokensResult, TextDocumentClientCapabilities,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
+    WorkspaceClientCapabilities, WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
     notification::{
-        DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument, DidSaveTextDocument,
-        Exit, Notification as _,
+        DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument,
+        DidSaveTextDocument, Exit, Notification as _,
     },
     request::{
         CodeActionRequest, CodeLensRequest, CodeLensResolve, DocumentDiagnosticRequest,
         DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition, HoverRequest, References,
-        Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceDiagnosticRequest,
+        Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration,
+        WorkspaceDiagnosticRequest,
     },
 };
 use serde::de::DeserializeOwned;
@@ -316,6 +317,15 @@ fn request_document_diagnostics(
     uri: Url,
     request_id: i32,
 ) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
+    request_document_diagnostics_with_previous_result_id(client, uri, request_id, None)
+}
+
+fn request_document_diagnostics_with_previous_result_id(
+    client: &Connection,
+    uri: Url,
+    request_id: i32,
+    previous_result_id: Option<String>,
+) -> (Option<String>, Vec<lsp_types::Diagnostic>) {
     let request_id = lsp_server::RequestId::from(request_id);
     client
         .sender
@@ -325,13 +335,49 @@ fn request_document_diagnostics(
             DocumentDiagnosticParams {
                 text_document: TextDocumentIdentifier { uri },
                 identifier: None,
-                previous_result_id: None,
+                previous_result_id,
                 work_done_progress_params: WorkDoneProgressParams::default(),
                 partial_result_params: Default::default(),
             },
         )))
         .unwrap();
     recv_document_diagnostics(client, request_id)
+}
+
+fn update_test_configuration(client: &Connection, settings: serde_json::Value) {
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidChangeConfiguration::METHOD.to_string(),
+            DidChangeConfigurationParams { settings: serde_json::Value::Null },
+        )))
+        .unwrap();
+
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    while let Some(message) = recv_lsp_message_until(client, deadline, "configuration update") {
+        match message {
+            Message::Request(request) if request.method == WorkspaceConfiguration::METHOD => {
+                client
+                    .sender
+                    .send(Message::Response(lsp_server::Response::new_ok(
+                        request.id,
+                        vec![settings],
+                    )))
+                    .unwrap();
+                return;
+            }
+            Message::Request(request) => {
+                handle_test_server_request(client, request, "configuration update")
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
+            _ => {}
+        }
+    }
+
+    panic!("workspace configuration request not received");
 }
 
 fn request_goto_definition_uris(
@@ -2377,6 +2423,94 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
     }
 
     panic!("workspace diagnostics should include an empty report for deleted broken.sv");
+}
+
+#[test]
+fn document_diagnostic_result_id_tracks_diagnostics_config_revision() {
+    let pull_caps = ClientCapabilities {
+        text_document: Some(TextDocumentClientCapabilities {
+            diagnostic: Some(DiagnosticClientCapabilities::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let (_temp_dir, client, server_thread, uri) = setup_configured_diagnostics_test(
+        pull_caps,
+        UserConfig::default(),
+        "module top;\nendmodule\n",
+    );
+
+    let (first_result_id, first_items) = request_document_diagnostics(&client, uri.clone(), 1);
+    let first_result_id = first_result_id.expect("expected first diagnostic result id");
+    assert!(
+        first_items.is_empty(),
+        "test fixture should start without diagnostics: {first_items:?}"
+    );
+
+    let (second_result_id, second_items) = request_document_diagnostics_with_previous_result_id(
+        &client,
+        uri.clone(),
+        2,
+        Some(first_result_id.clone()),
+    );
+    assert_eq!(
+        second_result_id.as_deref(),
+        Some(first_result_id.as_str()),
+        "unchanged diagnostics config must keep the previous result id"
+    );
+    assert!(
+        second_items.is_empty(),
+        "unchanged diagnostic reports should not resend items: {second_items:?}"
+    );
+
+    update_test_configuration(
+        &client,
+        serde_json::json!({
+            "diagnostics": {
+                "semantic": { "enable": true }
+            }
+        }),
+    );
+
+    let (same_config_result_id, same_config_items) =
+        request_document_diagnostics_with_previous_result_id(
+            &client,
+            uri.clone(),
+            3,
+            Some(first_result_id.clone()),
+        );
+    assert_eq!(
+        same_config_result_id.as_deref(),
+        Some(first_result_id.as_str()),
+        "configuration refreshes without diagnostic config changes must keep the previous result id"
+    );
+    assert!(
+        same_config_items.is_empty(),
+        "unchanged diagnostic reports should not resend items: {same_config_items:?}"
+    );
+
+    update_test_configuration(
+        &client,
+        serde_json::json!({
+            "diagnostics": {
+                "semantic": { "enable": false }
+            }
+        }),
+    );
+
+    let (third_result_id, _third_items) = request_document_diagnostics_with_previous_result_id(
+        &client,
+        uri,
+        4,
+        Some(first_result_id),
+    );
+    assert_ne!(
+        third_result_id.as_deref(),
+        second_result_id.as_deref(),
+        "diagnostics config changes must invalidate the result id"
+    );
+
+    shutdown_test_server(&client, server_thread);
 }
 
 #[test]

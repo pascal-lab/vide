@@ -220,7 +220,6 @@ impl UserConfig {
                     .collect(),
             },
         }
-        .with_fresh_revision()
     }
 
     pub(crate) fn qihe(&self) -> QiheConfig {
