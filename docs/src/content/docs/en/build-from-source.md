@@ -19,6 +19,11 @@ Release build:
 cargo build --release
 ```
 
+Release builds embed build metadata in the `vizsla --version` output. Local
+builds automatically use the current short Git commit and UTC build time when
+`VIZSLA_COMMIT_HASH` and `VIZSLA_BUILD_DATE` are not set; CI or release scripts
+can still override the defaults with those environment variables.
+
 Verify the version:
 
 ```powershell
@@ -62,7 +67,7 @@ npm run package
 This command:
 
 1. Compiles the extension.
-2. Runs `cargo build --release` for the current host platform.
+2. Runs `cargo build --release` for the current host platform, using the same local build metadata defaults.
 3. Copies `target/release/vizsla` or `vizsla.exe` into the extension's `server/<target>` directory.
 4. Temporarily places the server binary in the runtime `server` directory.
 5. Calls `vsce package --target <target>` to generate `vizsla-vscode-<target>.vsix`.
