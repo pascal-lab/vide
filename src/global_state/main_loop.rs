@@ -53,10 +53,62 @@ impl Event {
             Event::Vfs(vfs_loader::Message::Progress { n_done, n_total, .. }) => {
                 format!("vfs progress {n_done}/{n_total}")
             }
-            Event::Vfs(vfs_loader::Message::Loaded { files }) => {
+            Event::Vfs(vfs_loader::Message::Loaded { files, .. }) => {
                 format!("vfs loaded files={}", files.len())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_server::Connection;
+    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
+    use vfs::loader::LoadResult;
+
+    use super::*;
+    use crate::{Opt, config::user_config::UserConfig, i18n::I18n};
+
+    fn test_state(root_path: AbsPathBuf) -> GlobalState {
+        let config = Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            lsp_types::ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+
+        let (server, _client) = Connection::memory();
+        GlobalState::new(server.sender, config, lsp_types::TraceValue::Off)
+    }
+
+    #[test]
+    fn stale_loaded_batches_do_not_update_vfs() {
+        let root = TestDir::new("stale-loaded-batches");
+        let root_path = root.path().to_path_buf();
+        let file_path = root_path.join("stale.sv");
+        let mut state = test_state(root_path);
+        state.vfs_config_version = 2;
+
+        state.process_vfs_msg(vfs_loader::Message::Loaded {
+            files: vec![(
+                file_path.clone(),
+                LoadResult::Loaded("module stale; endmodule\n".to_string(), LineEnding::Unix),
+            )],
+            config_version: 1,
+        });
+
+        let vfs_path = VfsPath::from(file_path);
+        let mut vfs = state.vfs.write();
+        assert!(vfs.0.file_id(&vfs_path).is_none());
+        assert!(vfs.0.take_changes().is_empty());
     }
 }
 
@@ -505,7 +557,18 @@ impl GlobalState {
                     None,
                 );
             }
-            vfs_loader::Message::Loaded { files } => {
+            vfs_loader::Message::Loaded { files, config_version } => {
+                always!(config_version <= self.vfs_config_version);
+                if config_version < self.vfs_config_version {
+                    tracing::debug!(
+                        config_version,
+                        current_config_version = self.vfs_config_version,
+                        files = files.len(),
+                        "stale VFS loaded batch ignored"
+                    );
+                    return;
+                }
+
                 let vfs = &mut self.vfs.write().0;
 
                 for (path, content) in files {
