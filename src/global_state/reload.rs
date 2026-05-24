@@ -2,7 +2,10 @@ use base_db::{change::Change, source_db::SourceDb};
 use itertools::Itertools;
 use project_model::{ProjectModel, Workspace, get_workspace_folder, project_manifest};
 use triomphe::Arc;
-use utils::{paths::AbsPath, thread::ThreadIntent};
+use utils::{
+    paths::{AbsPath, AbsPathBuf},
+    thread::ThreadIntent,
+};
 
 use super::main_loop::Task;
 use crate::{
@@ -98,7 +101,7 @@ impl GlobalState {
             return;
         };
 
-        if !errors.is_empty() && !self.workspaces.is_empty() {
+        if !errors.is_empty() {
             return;
         }
 
@@ -186,7 +189,7 @@ impl GlobalState {
             .flat_map(|root| {
                 project_manifest::MANIFEST_FILE_NAMES
                     .iter()
-                    .map(move |file_name| format!("{root}/{file_name}"))
+                    .map(move |file_name| client_watch_glob(root, file_name))
             })
             .collect_vec();
         globs.extend(
@@ -195,15 +198,13 @@ impl GlobalState {
                 .flat_map(|ws| ws.roots())
                 .filter(|it| !it.role.is_library())
                 .flat_map(|root| {
-                    root.load_paths().into_iter().flat_map(|it| {
-                        [
-                            format!("{it}/**/*.v"),
-                            format!("{it}/**/*.sv"),
-                            format!("{it}/**/*.vh"),
-                            format!("{it}/**/*.svh"),
-                            format!("{it}/**/*.svi"),
-                        ]
-                    })
+                    let mut globs = root.source_files.iter().map(client_watch_path).collect_vec();
+                    globs.extend(root.directory_load_paths().into_iter().flat_map(|it| {
+                        vfs::loader::SOURCE_FILE_EXTENSIONS
+                            .iter()
+                            .map(move |ext| client_watch_glob(&it, &format!("**/*.{ext}")))
+                    }));
+                    globs
                 }),
         );
         globs.sort();
@@ -271,6 +272,19 @@ impl GlobalState {
     }
 }
 
+fn client_watch_glob(root: &AbsPathBuf, suffix: &str) -> String {
+    let root = client_watch_path(root);
+    format!("{root}/{suffix}")
+}
+
+fn client_watch_path(root: &AbsPathBuf) -> String {
+    let mut root = root.to_string().replace('\\', "/");
+    while root.ends_with('/') {
+        root.pop();
+    }
+    root
+}
+
 pub(crate) fn should_refresh_for_change(path: &AbsPath, has_structure_change: bool) -> bool {
     let Some(file_name) = path.file_name() else {
         return false;
@@ -290,7 +304,7 @@ pub(crate) fn should_refresh_for_change(path: &AbsPath, has_structure_change: bo
 #[cfg(test)]
 mod tests {
     use lsp_server::{Connection, Message, Request as LspRequest};
-    use project_model::project_manifest;
+    use project_model::{ProjectModel, project_manifest, project_manifest::ProjectManifest};
     use utils::{paths::AbsPathBuf, test_support::TestDir};
 
     use super::*;
@@ -384,9 +398,91 @@ mod tests {
 
         let globs = state.client_file_watcher_globs();
 
-        assert!(globs.contains(&format!("{root_path}/{}", project_manifest::MANIFEST_FILE_NAME)));
         assert!(
-            globs.contains(&format!("{root_path}/{}", project_manifest::LEGACY_MANIFEST_FILE_NAME))
+            globs.contains(&client_watch_glob(&root_path, project_manifest::MANIFEST_FILE_NAME))
+        );
+        assert!(
+            globs.contains(&client_watch_glob(
+                &root_path,
+                project_manifest::LEGACY_MANIFEST_FILE_NAME
+            ))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn client_file_watchers_use_lsp_glob_separators() {
+        let root = TestDir::new("client-watch-glob-separators");
+        let root_path = root.path().to_path_buf();
+        let (state, _client) = test_state_with_root(root_path);
+
+        let globs = state.client_file_watcher_globs();
+
+        assert!(
+            globs.iter().all(|glob| !glob.contains('\\')),
+            "client watcher globs must use LSP glob separators: {globs:?}"
+        );
+    }
+
+    #[test]
+    fn client_file_watchers_include_library_map_files() {
+        let root = TestDir::new("client-watch-library-map");
+        let root_path = root.path().to_path_buf();
+        std::fs::create_dir_all(root.join("rtl")).unwrap();
+        std::fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "sources = [\"rtl/**\"]\ninclude_dirs = []\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root_path).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        assert!(errors.is_empty(), "{errors:#?}");
+        let (mut state, _client) = test_state_with_root(root_path);
+        state.workspaces = Arc::new(model.workspaces);
+
+        let globs = state.client_file_watcher_globs();
+
+        assert!(
+            globs.iter().any(|glob| glob.ends_with("/**/*.map")),
+            "client watcher globs must include library map files: {globs:?}"
+        );
+    }
+
+    #[test]
+    fn client_file_watchers_handle_single_file_source_roots() {
+        let root = TestDir::new("client-watch-single-file-source");
+        let root_path = root.path().to_path_buf();
+        std::fs::create_dir_all(root.join("rtl")).unwrap();
+        let top_path = root.join("rtl/top.sv");
+        std::fs::write(&top_path, "module top; endmodule\n").unwrap();
+        std::fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            "sources = [\"rtl/top.sv\"]\ninclude_dirs = []\n",
+        )
+        .unwrap();
+
+        let manifest = ProjectManifest::from_path(&root_path).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        assert!(errors.is_empty(), "{errors:#?}");
+        let (mut state, _client) = test_state_with_root(root_path);
+        state.workspaces = Arc::new(model.workspaces);
+
+        let globs = state.client_file_watcher_globs();
+        let source_file_glob = top_path.to_string().replace('\\', "/");
+        let source_parent_glob = root.join("rtl").to_string().replace('\\', "/") + "/**/*.sv";
+
+        assert!(
+            globs.contains(&source_file_glob),
+            "client watcher globs must watch the explicit source file: {globs:?}"
+        );
+        assert!(
+            !globs.contains(&source_parent_glob),
+            "client watcher globs must not infer a parent directory from an exact source file: {globs:?}"
+        );
+        assert!(
+            globs.iter().all(|glob| !glob.contains("top.sv/**")),
+            "client watcher globs must not treat explicit source files as directories: {globs:?}"
         );
     }
 
@@ -423,5 +519,60 @@ mod tests {
         state.update_configuration(config);
 
         assert!(state.fetch_workspaces_task.has_op_requested());
+    }
+
+    #[test]
+    fn workspace_reload_errors_keep_existing_workspace_model() {
+        let root = TestDir::new("workspace-reload-error-keeps-old-model");
+        let root_path = root.path().to_path_buf();
+        std::fs::create_dir_all(root.join("rtl")).unwrap();
+        std::fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "sources = [\"rtl/**\"]\n")
+            .unwrap();
+        let manifest = ProjectManifest::from_path(&root_path).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        assert!(errors.is_empty(), "{errors:#?}");
+
+        let (mut state, _client) = test_state_with_root(root_path);
+        state.workspaces = Arc::new(model.workspaces);
+        let existing_workspaces = Arc::clone(&state.workspaces);
+
+        state.request_workspace_reload("test reload");
+        assert_eq!(state.fetch_workspaces_task.should_start().as_deref(), Some("test reload"));
+        state.fetch_workspaces_task.complete(Some((
+            Arc::new(Vec::new()),
+            vec![anyhow::anyhow!("failed to reload workspace")],
+        )));
+
+        state.switch_workspaces("failed reload".into());
+
+        assert!(Arc::ptr_eq(&state.workspaces, &existing_workspaces));
+    }
+
+    #[test]
+    fn workspace_reload_errors_do_not_commit_partial_initial_model() {
+        let root = TestDir::new("workspace-reload-error-keeps-empty-model");
+        let root_path = root.path().to_path_buf();
+        std::fs::create_dir_all(root.join("rtl")).unwrap();
+        std::fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "sources = [\"rtl/**\"]\n")
+            .unwrap();
+        let manifest = ProjectManifest::from_path(&root_path).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        assert!(errors.is_empty(), "{errors:#?}");
+
+        let (mut state, _client) = test_state_with_root(root_path);
+        let initial_workspaces = Arc::clone(&state.workspaces);
+        assert!(state.workspaces.is_empty());
+
+        state.request_workspace_reload("test reload");
+        assert_eq!(state.fetch_workspaces_task.should_start().as_deref(), Some("test reload"));
+        state.fetch_workspaces_task.complete(Some((
+            Arc::new(model.workspaces),
+            vec![anyhow::anyhow!("failed to load dependency")],
+        )));
+
+        state.switch_workspaces("partial reload".into());
+
+        assert!(Arc::ptr_eq(&state.workspaces, &initial_workspaces));
+        assert!(state.workspaces.is_empty());
     }
 }

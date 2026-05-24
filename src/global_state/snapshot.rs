@@ -15,12 +15,44 @@ use utils::{
 };
 use vfs::{FileId, Vfs, VfsPath};
 
-use super::mem_docs::MemDocs;
+use super::{main_loop::DiagnosticPublishFreshness, mem_docs::MemDocs};
 use crate::{
     config::Config,
     global_state::QiheDiagnosticState,
     lsp_ext::{from_proto, to_proto},
 };
+
+#[derive(Debug, Clone)]
+pub(crate) struct DiagnosticPublishTarget {
+    /// The analysis identity diagnostics are computed from.
+    file_id: FileId,
+    /// The URI diagnostics will be published for.
+    ///
+    /// Diagnostic code should obtain URI/version pairs from
+    /// [`GlobalStateSnapshot::diagnostic_publish_targets`] instead of pairing
+    /// [`GlobalStateSnapshot::url`] with a file-id-wide document version.
+    uri: Url,
+    /// The document version for `uri`, when that URI is currently open.
+    version: Option<i32>,
+}
+
+impl DiagnosticPublishTarget {
+    fn new(file_id: FileId, uri: Url, version: Option<i32>) -> Self {
+        Self { file_id, uri, version }
+    }
+
+    pub(crate) fn uri(&self) -> &Url {
+        &self.uri
+    }
+
+    pub(crate) fn version(&self) -> Option<i32> {
+        self.version
+    }
+
+    pub(crate) fn into_parts(self) -> (FileId, Url, Option<i32>) {
+        (self.file_id, self.uri, self.version)
+    }
+}
 
 // immutable
 pub(crate) struct GlobalStateSnapshot {
@@ -30,6 +62,7 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) sema_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
     pub(crate) diagnostics_revision: u64,
+    pub(crate) diagnostic_publish_freshness: DiagnosticPublishFreshness,
     pub(crate) mem_docs: MemDocs,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     #[allow(dead_code)]
@@ -132,17 +165,25 @@ impl GlobalStateSnapshot {
         self.qihe_diagnostics.lock().get(&file_id).map(|state| state.generation).unwrap_or(0)
     }
 
-    pub(crate) fn file_version(&self, file_id: FileId) -> Option<i32> {
+    fn file_version(&self, file_id: FileId) -> Option<i32> {
         self.mem_docs.version(file_id)
     }
 
-    pub(crate) fn diagnostic_result_id(&self, file_id: FileId) -> Option<String> {
+    /// Returns a result id scoped to the URI that receives the diagnostics.
+    ///
+    /// The same physical file may be open through an alias URI, so result ids
+    /// must not be derived from [`FileId`] alone.
+    pub(crate) fn diagnostic_result_id(&self, file_id: FileId, target_uri: &Url) -> Option<String> {
         let diagnostics_config = self.config.diagnostics_config();
         let file_ids = if diagnostics_config.semantic.enabled {
             self.analysis.source_root_file_ids(file_id).ok()?
         } else {
             vec![file_id]
         };
+        let target_document = self.url_file_version(target_uri).map_or_else(
+            || target_uri.as_str().to_owned(),
+            |version| format!("{}:{version}", target_uri.as_str()),
+        );
 
         let mut versions = file_ids
             .into_iter()
@@ -156,9 +197,10 @@ impl GlobalStateSnapshot {
             .collect::<Vec<_>>()
             .join(",");
         Some(format!(
-            "diag:{}:rev:{}:{file_versions}:qihe:{}",
+            "diag:{}:rev:{}:target:{}:{file_versions}:qihe:{}",
             diagnostics_config.revision,
             self.diagnostics_revision,
+            target_document,
             self.qihe_generation(file_id)
         ))
     }
@@ -193,6 +235,11 @@ impl GlobalStateSnapshot {
         vfs.0.iter().map(|(file_id, _)| file_id).collect()
     }
 
+    /// Returns the VFS primary URI for a file.
+    ///
+    /// This is suitable for protocol features that need a stable file location.
+    /// Push diagnostics must use [`Self::diagnostic_publish_targets`] so the
+    /// URI and document version come from the same open document spelling.
     pub(crate) fn url(&self, id: FileId) -> anyhow::Result<Url> {
         let vfs = &self.vfs_read();
         let path =
@@ -203,8 +250,49 @@ impl GlobalStateSnapshot {
         to_proto::url_from_abs_path(path)
     }
 
+    /// Returns the open URI/version pairs diagnostics should be published to.
+    ///
+    /// Push diagnostics are scoped to open documents. Workspace diagnostic
+    /// requests use [`GlobalStateSnapshot::workspace_diagnostic_targets`] when
+    /// they need to report unopened workspace files.
+    pub(crate) fn diagnostic_publish_targets(
+        &self,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<DiagnosticPublishTarget>> {
+        self.open_diagnostic_targets(file_id)
+    }
+
+    pub(crate) fn workspace_diagnostic_targets(
+        &self,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<DiagnosticPublishTarget>> {
+        let open_targets = self.open_diagnostic_targets(file_id)?;
+        if !open_targets.is_empty() {
+            return Ok(open_targets);
+        }
+
+        Ok(vec![DiagnosticPublishTarget::new(file_id, self.url(file_id)?, None)])
+    }
+
+    fn open_diagnostic_targets(
+        &self,
+        file_id: FileId,
+    ) -> anyhow::Result<Vec<DiagnosticPublishTarget>> {
+        let open_documents = self.mem_docs.open_documents(file_id);
+        open_documents
+            .into_iter()
+            .map(|document| {
+                let path = document.path.as_abs_path().ok_or_else(|| {
+                    anyhow::format_err!("open file {file_id:?} has no file URI: {}", document.path)
+                })?;
+                let uri = to_proto::url_from_abs_path(path)?;
+                Ok(DiagnosticPublishTarget::new(file_id, uri, Some(document.version)))
+            })
+            .collect()
+    }
+
     pub(crate) fn url_file_version(&self, url: &Url) -> Option<i32> {
         let path = from_proto::vfs_path(url).ok()?;
-        self.mem_docs.file_id(&path).and_then(|file_id| self.file_version(file_id))
+        self.mem_docs.version_for_path(&path)
     }
 }

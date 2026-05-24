@@ -17,13 +17,15 @@ libc = "0.2.150"
 memchr.workspace = true
 nohash-hasher.workspace = true
 rustc-hash.workspace = true
-same-file.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 text-size.workspace = true
 tracing.workspace = true
 triomphe.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1.11"
 
 [features]
 camino_serde1 = ["camino/serde1"]

@@ -2,6 +2,8 @@ pub mod anchored_path;
 mod file_set;
 pub mod loader;
 mod path_glob;
+#[cfg(test)]
+mod test_support;
 mod vfs;
 mod vfs_path;
 

@@ -7,14 +7,14 @@ use nohash_hasher::IntMap;
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rustc_hash::{FxHashMap, FxHashSet};
 use utils::{lines::LineEnding, thread::ThreadIntent};
-use vfs::{ChangedFile, FileId, Vfs};
+use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
-    main_loop::{PublishDiagnosticsTask, Task},
+    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, Task},
     reload::should_refresh_for_change,
 };
-use crate::config::user_config::DiagnosticsUpdateUserConfig;
+use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
 
 #[derive(Debug)]
 pub(crate) enum DiagnosticInvalidation {
@@ -25,14 +25,33 @@ pub(crate) enum DiagnosticInvalidation {
 // Apply changes
 impl GlobalState {
     pub(crate) fn process_changes(&mut self) -> bool {
+        let pending_diagnostic_targets =
+            std::mem::take(&mut self.pending_document_diagnostic_targets);
+        let mut diagnostic_targets_changed = !pending_diagnostic_targets.is_empty();
         let mut write_guard = self.vfs.write();
         let changed_files = write_guard.0.take_changes();
         // downgrade earlier to allow more reader
         let read_guard = RwLockWriteGuard::downgrade_to_upgradable(write_guard);
         let vfs = &read_guard.0;
+        let file_id_redirects = changed_files
+            .iter()
+            .filter_map(|changed_file| {
+                let canonical = vfs.canonical_file_id(changed_file.file_id);
+                (canonical != changed_file.file_id).then_some((changed_file.file_id, canonical))
+            })
+            .collect_vec();
+        diagnostic_targets_changed |= !file_id_redirects.is_empty();
+        for (from, to) in file_id_redirects {
+            self.mem_docs.remap_file_id(from, to);
+        }
 
         // collect changes
         let Some(changed_files) = Self::colease_modifications(changed_files) else {
+            std::mem::drop(read_guard);
+            if !pending_diagnostic_targets.is_empty() {
+                self.diagnostic_target_revision += 1;
+                self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
+            }
             return false;
         };
 
@@ -41,23 +60,36 @@ impl GlobalState {
         let mut bytes = vec![];
         let mut changed_file_ids = FxHashSet::default();
         let mut deleted_file_ids = FxHashSet::default();
+        let mut deleted_push_diagnostics = Vec::new();
         for changed_file in changed_files {
-            let path = vfs.file_path(changed_file.file_id);
+            let is_identity_redirect =
+                vfs.canonical_file_id(changed_file.file_id) != changed_file.file_id;
+            let path = if is_identity_redirect {
+                vfs.original_file_path(changed_file.file_id)
+            } else {
+                vfs.file_path(changed_file.file_id)
+            };
             if let Some(path) =
                 path.and_then(|path| path.as_abs_path()).map(|apath| apath.to_path_buf())
             {
                 let created_or_deleted = changed_file.is_created_or_deleted();
                 has_structure_changes |= created_or_deleted;
-                if should_refresh_for_change(&path, created_or_deleted) {
+                if !is_identity_redirect && should_refresh_for_change(&path, created_or_deleted) {
                     workspace_structure_change = Some(path.clone());
                 }
             }
 
             if matches!(&changed_file.change_kind, vfs::ChangeKind::Delete) {
                 deleted_file_ids.insert(changed_file.file_id);
+                if let Some(path) = path.cloned() {
+                    deleted_push_diagnostics.push((changed_file.file_id, path));
+                }
             }
             changed_file_ids.insert(changed_file.file_id);
             bytes.push(changed_file);
+        }
+        if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType {
+            changed_file_ids.extend(pending_diagnostic_targets.iter().copied());
         }
 
         let mut write_guard = RwLockUpgradableReadGuard::upgrade(read_guard);
@@ -68,13 +100,23 @@ impl GlobalState {
 
         self.analysis_host.apply_change(change);
         self.diagnostics_revision += 1;
+        if diagnostic_targets_changed {
+            self.diagnostic_target_revision += 1;
+        }
         self.remove_deleted_qihe_diagnostics(&deleted_file_ids);
-        self.clear_deleted_push_diagnostics(&deleted_file_ids);
+        self.clear_deleted_push_diagnostics(&deleted_push_diagnostics);
         if has_structure_changes {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         } else if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType
         {
             self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(changed_file_ids));
+        }
+        if !pending_diagnostic_targets.is_empty()
+            && (has_structure_changes
+                || self.config.user_config.diagnostics.update
+                    != DiagnosticsUpdateUserConfig::OnType)
+        {
+            self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
         }
 
         if let Some(path) = workspace_structure_change {
@@ -134,35 +176,41 @@ impl GlobalState {
         }
     }
 
-    fn clear_deleted_push_diagnostics(&mut self, deleted_file_ids: &FxHashSet<FileId>) {
-        if deleted_file_ids.is_empty() || self.config.cli_pull_diagnostics_support() {
+    fn clear_deleted_push_diagnostics(&mut self, deleted_files: &[(FileId, VfsPath)]) {
+        if deleted_files.is_empty() || self.config.cli_pull_diagnostics_support() {
             return;
         }
 
-        let snapshot = self.make_snapshot();
-        let diagnostics = deleted_file_ids
+        let diagnostics = deleted_files
             .iter()
-            .filter_map(|file_id| {
-                let uri = match snapshot.url(*file_id) {
+            .filter_map(|(file_id, path)| {
+                let Some(path) = path.as_abs_path() else {
+                    tracing::debug!(
+                        ?file_id,
+                        ?path,
+                        "skipping deleted diagnostic clear for non-file path"
+                    );
+                    return None;
+                };
+                let uri = match to_proto::url_from_abs_path(path) {
                     Ok(uri) => uri,
                     Err(error) => {
                         tracing::debug!(
                             ?file_id,
+                            ?path,
                             "skipping deleted diagnostic clear for file without URI: {error:#}"
                         );
                         return None;
                     }
                 };
-                Some(PublishDiagnosticsTask {
-                    file_id: *file_id,
-                    uri,
-                    version: None,
-                    diagnostics: Vec::new(),
-                })
+                Some(PublishDiagnosticsTask::clear_stale_uri(*file_id, uri))
             })
             .collect();
 
-        self.publish_diagnostics_tasks(diagnostics, false);
+        self.publish_diagnostics_tasks(
+            PublishDiagnosticsBatch::from_tasks(diagnostics, self.diagnostic_publish_freshness()),
+            false,
+        );
     }
 
     fn collect_changes(
@@ -270,9 +318,10 @@ impl GlobalState {
         let snapshot = self.make_snapshot();
         self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
             let mut results = Vec::with_capacity(files.len());
+            let mut touched_file_ids = FxHashSet::default();
             for file_id in files {
-                let uri = match snapshot.url(file_id) {
-                    Ok(uri) => uri,
+                let targets = match snapshot.diagnostic_publish_targets(file_id) {
+                    Ok(targets) => targets,
                     Err(error) => {
                         tracing::debug!(
                             ?file_id,
@@ -281,27 +330,52 @@ impl GlobalState {
                         continue;
                     }
                 };
-                let version = snapshot.file_version(file_id);
+                touched_file_ids.insert(file_id);
                 let diagnostics = snapshot.lsp_diagnostics(file_id);
-                results.push(PublishDiagnosticsTask { file_id, uri, version, diagnostics });
+                results.extend(targets.into_iter().map(|target| {
+                    PublishDiagnosticsTask::from_target(target, diagnostics.clone())
+                }));
             }
-            Task::Diagnostics(results)
+            Task::Diagnostics(PublishDiagnosticsBatch::for_touched_files(
+                touched_file_ids,
+                results,
+                snapshot.diagnostic_publish_freshness,
+            ))
         });
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, time::Duration};
+
     use lsp_server::Connection;
-    use lsp_types::{ClientCapabilities, TraceValue};
+    use lsp_types::{
+        ClientCapabilities, Diagnostic, DiagnosticSeverity, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, Position, PublishDiagnosticsParams, Range,
+        TextDocumentIdentifier, TextDocumentItem, TraceValue, notification::Notification,
+    };
+    use rustc_hash::FxHashSet;
     use utils::{lines::LineEnding, test_support::TestDir};
     use vfs::{VfsPath, loader::LoadResult};
 
     use crate::{
         Opt,
-        config::{self, user_config::UserConfig},
-        global_state::GlobalState,
+        config::{
+            self,
+            user_config::{DiagnosticsUpdateUserConfig, UserConfig},
+        },
+        global_state::{
+            GlobalState,
+            handlers::notification::{
+                handle_did_close_text_document, handle_did_open_text_document,
+            },
+            main_loop::{
+                DiagnosticPublishKey, PublishDiagnosticsBatch, PublishDiagnosticsTask, Task,
+            },
+        },
         i18n::I18n,
+        lsp_ext::to_proto,
     };
 
     #[test]
@@ -335,6 +409,256 @@ mod tests {
         assert!(
             !state.fetch_workspaces_task.has_op_requested(),
             "loading an ordinary source file should not queue a project configuration reload"
+        );
+    }
+
+    #[test]
+    fn identity_redirect_delete_clears_duplicate_uri_not_canonical_uri() {
+        let root = TestDir::new("identity-redirect-delete-diagnostics");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        let source = root.join("workspace/top.sv");
+        let alias = root.join("alias/top.sv");
+        let source_vfs_path = VfsPath::from(source.clone());
+        let alias_vfs_path = VfsPath::from(alias.clone());
+
+        {
+            let mut vfs = state.vfs.write();
+            vfs.0.set_file_contents(
+                &source_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+            vfs.0.set_file_contents(
+                &alias_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+        }
+        assert!(state.process_changes());
+        let source_file_id = state.vfs.read().0.file_id(&source_vfs_path).unwrap();
+        let alias_file_id = state.vfs.read().0.file_id(&alias_vfs_path).unwrap();
+        assert_ne!(source_file_id, alias_file_id);
+        let alias_uri = to_proto::url_from_abs_path(alias.as_path()).unwrap();
+
+        state.published_diagnostics.insert(
+            DiagnosticPublishKey::for_test(alias_file_id, alias_uri.clone()),
+            vec![Diagnostic {
+                range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+                severity: Some(DiagnosticSeverity::ERROR),
+                source: Some("test".to_owned()),
+                message: "stale alias diagnostic".to_owned(),
+                ..Diagnostic::default()
+            }],
+        );
+
+        if let Some(parent) = source.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        if let Some(parent) = alias.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&source, "module top; endmodule\n").unwrap();
+        fs::hard_link(&source, &alias).unwrap();
+        {
+            let mut vfs = state.vfs.write();
+            vfs.0.set_file_contents(
+                &source_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+            vfs.0.set_file_contents(
+                &alias_vfs_path,
+                LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+            );
+        }
+
+        assert!(state.process_changes());
+
+        let message = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let lsp_server::Message::Notification(notification) = message else {
+            panic!("expected publishDiagnostics notification");
+        };
+        assert_eq!(notification.method, lsp_types::notification::PublishDiagnostics::METHOD);
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        let source_uri = to_proto::url_from_abs_path(source.as_path()).unwrap();
+        assert_eq!(params.uri, alias_uri);
+        assert_ne!(params.uri, source_uri);
+        assert!(params.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn opening_alias_requests_diagnostics_for_every_open_uri() {
+        let root = TestDir::new("diagnostics-target-open-alias");
+        let root_path = root.path().to_path_buf();
+        let mut user_config = UserConfig::default();
+        user_config.diagnostics.update = DiagnosticsUpdateUserConfig::OnType;
+        let config = config::Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            user_config,
+            Vec::new(),
+        );
+        let (server, client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        let source = root.write("workspace/top.sv", "module top; endmodule\n");
+        let alias = root.join("alias/top.sv");
+        if let Some(parent) = alias.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::hard_link(&source, &alias).unwrap();
+        let source_vfs_path = VfsPath::from(source.clone());
+        let source_uri = to_proto::url_from_abs_path(source.as_path()).unwrap();
+        let alias_uri = to_proto::url_from_abs_path(alias.as_path()).unwrap();
+
+        state.vfs.write().0.set_file_contents(
+            &source_vfs_path,
+            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+        assert!(state.process_changes());
+        let file_id = state.vfs.read().0.file_id(&source_vfs_path).unwrap();
+
+        handle_did_open_text_document(
+            &mut state,
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: source_uri.clone(),
+                    language_id: "systemverilog".to_owned(),
+                    version: 3,
+                    text: "module top; endmodule\n".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        assert!(!state.process_changes());
+        let Task::Diagnostics(batch) =
+            state.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected diagnostics task");
+        };
+        let tasks = batch.into_tasks();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].uri(), &source_uri);
+        assert_eq!(tasks[0].version(), Some(3));
+
+        handle_did_open_text_document(
+            &mut state,
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: alias_uri.clone(),
+                    language_id: "systemverilog".to_owned(),
+                    version: 12,
+                    text: "module top; endmodule\n".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+
+        assert!(!state.process_changes());
+        let task = state.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Task::Diagnostics(batch) = task else {
+            panic!("expected diagnostics task");
+        };
+        let mut tasks = batch.into_tasks();
+        tasks.sort_unstable_by(|lhs, rhs| lhs.uri().cmp(rhs.uri()));
+        let targets = tasks
+            .into_iter()
+            .map(|task| {
+                assert_eq!(task.file_id(), file_id);
+                (task.uri().clone(), task.version())
+            })
+            .collect::<Vec<_>>();
+        let mut expected = vec![(source_uri.clone(), Some(3)), (alias_uri.clone(), Some(12))];
+        expected.sort_unstable_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+        assert_eq!(targets, expected);
+        assert_eq!(
+            &*state.make_snapshot().file_text(file_id).unwrap(),
+            "module top; endmodule\n",
+            "second open URI aliases the same FileId but must not replace the canonical analysis buffer"
+        );
+        let stale_alias_batch = PublishDiagnosticsBatch::for_touched_files(
+            FxHashSet::from_iter([file_id]),
+            vec![PublishDiagnosticsTask::for_test(
+                file_id,
+                alias_uri.clone(),
+                Some(12),
+                vec![Diagnostic {
+                    range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    source: Some("test".to_owned()),
+                    message: "stale alias diagnostic".to_owned(),
+                    ..Diagnostic::default()
+                }],
+            )],
+            state.diagnostic_publish_freshness(),
+        );
+        state.published_diagnostics.insert(
+            DiagnosticPublishKey::for_test(file_id, alias_uri.clone()),
+            vec![Diagnostic {
+                range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+                severity: Some(DiagnosticSeverity::ERROR),
+                source: Some("test".to_owned()),
+                message: "stale alias diagnostic".to_owned(),
+                ..Diagnostic::default()
+            }],
+        );
+
+        handle_did_close_text_document(
+            &mut state,
+            DidCloseTextDocumentParams {
+                text_document: TextDocumentIdentifier { uri: alias_uri.clone() },
+            },
+        )
+        .unwrap();
+
+        assert!(!state.process_changes());
+        let task = state.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Task::Diagnostics(batch) = task else {
+            panic!("expected diagnostics task");
+        };
+        assert_eq!(batch.touched_file_ids(), &FxHashSet::from_iter([file_id]));
+        assert_eq!(batch.tasks().len(), 1);
+        assert_eq!(batch.tasks()[0].file_id(), file_id);
+        assert_eq!(batch.tasks()[0].uri(), &source_uri);
+        assert_eq!(batch.tasks()[0].version(), Some(3));
+        state.publish_diagnostics_tasks(batch, false);
+        let message = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let lsp_server::Message::Notification(notification) = message else {
+            panic!("expected publishDiagnostics notification");
+        };
+        assert_eq!(notification.method, lsp_types::notification::PublishDiagnostics::METHOD);
+        let params: PublishDiagnosticsParams = serde_json::from_value(notification.params).unwrap();
+        assert_eq!(params.uri, alias_uri);
+        assert!(params.diagnostics.is_empty());
+        state.publish_diagnostics_tasks(stale_alias_batch, false);
+        assert!(
+            client.receiver.recv_timeout(Duration::from_millis(50)).is_err(),
+            "stale target batch must not republish diagnostics to a closed alias URI"
+        );
+        assert!(
+            !state
+                .published_diagnostics
+                .contains_key(&DiagnosticPublishKey::for_test(file_id, alias_uri))
         );
     }
 }

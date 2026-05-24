@@ -114,7 +114,7 @@ pub(crate) fn handle_document_diagnostic(
     params: lsp_types::DocumentDiagnosticParams,
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
-    let result_id = snap.diagnostic_result_id(file_id);
+    let result_id = snap.diagnostic_result_id(file_id, &params.text_document.uri);
     let items = snap.lsp_diagnostics(file_id);
     Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
 }
@@ -163,14 +163,13 @@ pub(crate) fn handle_workspace_diagnostic(
     }
 
     for file_id in diagnostic_file_ids {
-        let uri = match to_proto::url(&snap, file_id) {
-            Ok(uri) => uri,
+        let targets = match snap.workspace_diagnostic_targets(file_id) {
+            Ok(targets) => targets,
             Err(error) => {
                 tracing::debug!(?file_id, "skipping diagnostics for file without URI: {error:#}");
                 continue;
             }
         };
-        seen.insert(uri.clone());
 
         let diagnostics = diagnostics_by_file.remove(&file_id).unwrap_or_default();
 
@@ -181,17 +180,21 @@ pub(crate) fn handle_workspace_diagnostic(
             .collect::<Vec<_>>();
         diag_items.extend(snap.qihe_diagnostics(file_id));
 
-        let result_id = snap.diagnostic_result_id(file_id);
-        let version = snap.file_version(file_id).map(|version| version as i64);
-        let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
+        for target in targets {
+            let uri = target.uri().clone();
+            seen.insert(uri.clone());
+            let result_id = snap.diagnostic_result_id(file_id, &uri);
+            let version = target.version().map(|version| version as i64);
+            let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
 
-        items.push(workspace_diagnostic_report(
-            uri,
-            version,
-            result_id,
-            diag_items,
-            previous_result_id,
-        ));
+            items.push(workspace_diagnostic_report(
+                uri,
+                version,
+                result_id,
+                diag_items.clone(),
+                previous_result_id,
+            ));
+        }
     }
 
     for (uri, _) in previous_result_ids {

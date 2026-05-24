@@ -11,7 +11,7 @@ use utils::{
     line_index::LineIndex,
     lines::{LineEnding, LineInfo, PositionEncoding},
 };
-use vfs::{VfsPath, loader::LoadResult};
+use vfs::{FileId, VfsPath, loader::LoadResult};
 
 use crate::{
     DEFAULT_PROCESS_NAME,
@@ -37,14 +37,23 @@ pub(crate) fn handle_did_open_text_document(
     params: DidOpenTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        let file_id = set_vfs_file_contents(state, &path, params.text_document.text.clone())?;
-        if state
-            .mem_docs
-            .insert(file_id, path.clone(), params.text_document.version, params.text_document.text)
-            .is_some()
-        {
+        let file_id = open_vfs_file_contents(state, &path, &params.text_document.text)?;
+        if state.mem_docs.text(file_id).is_some_and(|text| text != params.text_document.text) {
+            tracing::warn!(
+                ?file_id,
+                path = %path,
+                "open document alias has different text; keeping canonical analysis buffer"
+            );
+        }
+        if state.mem_docs.insert(
+            file_id,
+            path.clone(),
+            params.text_document.version,
+            params.text_document.text,
+        ) {
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
+        state.pending_document_diagnostic_targets.insert(file_id);
     }
     Ok(())
 }
@@ -54,22 +63,35 @@ pub(crate) fn handle_did_change_text_document(
     params: DidChangeTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        let data = match state.mem_docs.get_mut_by_path(&path) {
-            Some(doc) => {
-                // The version in DidChangeTextDocument is the one after all edits,
-                // so we should apply it before the vfs is notified.
-                doc.version = params.text_document.version;
-                &mut doc.data
-            }
+        let Some(file_id) = open_mem_doc_file_id(state, &path) else {
+            tracing::error!("unexpected DidChangeTextDocument: {}", path);
+            return Ok(());
+        };
+        let text = match state.mem_docs.text_for_change(&path, file_id) {
+            Some(text) => text.to_owned(),
             None => {
                 tracing::error!("unexpected DidChangeTextDocument: {}", path);
                 return Ok(());
             }
         };
 
-        if let Some(text) =
-            update_document_text(state.config.position_encoding(), data, params.content_changes)
+        let text = match update_document_text(
+            state.config.position_encoding(),
+            &text,
+            params.content_changes,
+        ) {
+            Ok(text) => text,
+            Err(error) => {
+                tracing::error!("invalid DidChangeTextDocument for {path}: {error:#}");
+                return Ok(());
+            }
+        };
+        if !state.mem_docs.apply_change(&path, file_id, params.text_document.version, text.clone())
         {
+            tracing::error!("unexpected DidChangeTextDocument: {}", path);
+            return Ok(());
+        }
+        if let Some(text) = text {
             set_vfs_file_contents(state, &path, text)?;
         }
     }
@@ -81,8 +103,12 @@ pub(crate) fn handle_did_close_text_document(
     params: DidCloseTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        if state.mem_docs.remove_path(&path).is_none() {
+        let file_id = state.mem_docs.file_id(&path);
+        if !state.mem_docs.remove_path(&path) {
             tracing::error!("orphan DidCloseTextDocument: {}", path);
+        }
+        if let Some(file_id) = file_id {
+            state.pending_document_diagnostic_targets.insert(file_id);
         }
 
         if let Some(path) = path.as_abs_path() {
@@ -229,26 +255,43 @@ fn set_vfs_file_contents(
     vfs.0.file_id(path).ok_or_else(|| anyhow::format_err!("loaded file has no FileId: {path}"))
 }
 
+fn open_vfs_file_contents(
+    state: &mut GlobalState,
+    path: &VfsPath,
+    text: &str,
+) -> anyhow::Result<vfs::FileId> {
+    let mut vfs = state.vfs.write();
+    let file_id = vfs.0.register_file_ingress(path);
+    if state.mem_docs.contains_file_id(file_id) {
+        return Ok(file_id);
+    }
+
+    let (text, endings) = LineEnding::normalize(text.to_owned());
+    vfs.0.set_file_contents(path, LoadResult::Loaded(text, endings));
+    vfs.0.file_id(path).ok_or_else(|| anyhow::format_err!("loaded file has no FileId: {path}"))
+}
+
+fn open_mem_doc_file_id(state: &GlobalState, path: &VfsPath) -> Option<FileId> {
+    state.mem_docs.file_id(path).or_else(|| {
+        state.vfs.read().0.file_id(path).filter(|file_id| state.mem_docs.contains_file_id(*file_id))
+    })
+}
+
 fn update_document_text(
     encoding: PositionEncoding,
-    data: &mut String,
+    data: &str,
     content_changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
-) -> Option<String> {
-    let text = apply_document_changes(encoding, data, content_changes);
+) -> anyhow::Result<Option<String>> {
+    let text = apply_document_changes(encoding, data, content_changes)?;
 
-    if *data == text {
-        None
-    } else {
-        *data = text.clone();
-        Some(text)
-    }
+    if data == text { Ok(None) } else { Ok(Some(text)) }
 }
 
 fn apply_document_changes(
     encoding: PositionEncoding,
     file_contents: &str,
     content_changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
-) -> String {
+) -> anyhow::Result<String> {
     // Skip to the last full document change and peek at the first content change
     let (mut text, content_changes) = {
         match content_changes.iter().rposition(|change| change.range.is_none()) {
@@ -264,7 +307,7 @@ fn apply_document_changes(
     };
 
     if content_changes.is_empty() {
-        return text;
+        return Ok(text);
     }
 
     // The changes can cross lines so we have to keep our line index updated.
@@ -291,11 +334,10 @@ fn apply_document_changes(
             *Arc::make_mut(&mut line_info.index) = LineIndex::new(&text);
         }
         index_valid_until = range.start.line;
-        if let Ok(range) = from_proto::text_range(&line_info, range) {
-            text.replace_range(Range::<usize>::from(range), &change.text);
-        }
+        let range = from_proto::text_range(&line_info, range)?;
+        text.replace_range(Range::<usize>::from(range), &change.text);
     }
-    text
+    Ok(text)
 }
 
 #[cfg(test)]
@@ -304,13 +346,18 @@ mod tests {
 
     use lsp_server::Connection;
     use lsp_types::{
-        DidChangeWatchedFilesParams, FileChangeType, FileEvent, SetTraceParams,
-        TextDocumentContentChangeEvent, TraceValue, Url,
+        DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidOpenTextDocumentParams,
+        FileChangeType, FileEvent, SetTraceParams, TextDocumentContentChangeEvent,
+        TextDocumentItem, TraceValue, Url, VersionedTextDocumentIdentifier,
     };
     use project_model::project_manifest;
     use utils::{lines::PositionEncoding, paths::AbsPathBuf, test_support::TestDir};
+    use vfs::VfsPath;
 
-    use super::{handle_did_change_watched_files, handle_set_trace, update_document_text};
+    use super::{
+        handle_did_change_text_document, handle_did_change_watched_files,
+        handle_did_open_text_document, handle_set_trace, update_document_text,
+    };
     use crate::{
         Opt,
         config::{self, user_config::UserConfig},
@@ -345,36 +392,159 @@ mod tests {
 
     #[test]
     fn clearing_document_updates_mem_doc_and_vfs_text() {
-        let mut text = "module top;\nendmodule\n".to_owned();
+        let text = "module top;\nendmodule\n".to_owned();
         let vfs_text = update_document_text(
             PositionEncoding::Utf8,
-            &mut text,
+            &text,
             vec![TextDocumentContentChangeEvent {
                 range: None,
                 range_length: None,
                 text: String::new(),
             }],
-        );
+        )
+        .unwrap();
 
-        assert_eq!(text, "");
         assert_eq!(vfs_text.as_deref(), Some(""));
     }
 
     #[test]
     fn unchanged_document_skips_vfs_update() {
-        let mut text = "module top;\nendmodule\n".to_owned();
+        let text = "module top;\nendmodule\n".to_owned();
         let vfs_text = update_document_text(
             PositionEncoding::Utf8,
-            &mut text,
+            &text,
             vec![TextDocumentContentChangeEvent {
                 range: None,
                 range_length: None,
                 text: "module top;\nendmodule\n".to_owned(),
             }],
+        )
+        .unwrap();
+
+        assert!(vfs_text.is_none());
+    }
+
+    #[test]
+    fn invalid_range_change_does_not_apply_partial_text() {
+        let text = "module top;\nendmodule\n".to_owned();
+        let result = update_document_text(
+            PositionEncoding::Utf8,
+            &text,
+            vec![TextDocumentContentChangeEvent {
+                range: Some(lsp_types::Range::new(
+                    lsp_types::Position::new(99, 0),
+                    lsp_types::Position::new(99, 1),
+                )),
+                range_length: None,
+                text: "broken".to_owned(),
+            }],
         );
 
-        assert_eq!(text, "module top;\nendmodule\n");
-        assert!(vfs_text.is_none());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn invalid_did_change_keeps_open_document_version_and_text() {
+        let root = TestDir::new("invalid-did-change");
+        let (mut state, _client) = test_state_with_root(root.path().to_path_buf());
+        let file_path = root.join("top.sv");
+        let uri = Url::from_file_path(file_path.as_path()).unwrap();
+        let vfs_path = VfsPath::from(file_path);
+
+        handle_did_open_text_document(
+            &mut state,
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "systemverilog".to_owned(),
+                    version: 1,
+                    text: "module top;\nendmodule\n".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        let file_id = state.mem_docs.file_id(&vfs_path).unwrap();
+
+        handle_did_change_text_document(
+            &mut state,
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier { uri, version: 2 },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: Some(lsp_types::Range::new(
+                        lsp_types::Position::new(99, 0),
+                        lsp_types::Position::new(99, 1),
+                    )),
+                    range_length: None,
+                    text: "broken".to_owned(),
+                }],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(state.mem_docs.version_for_path(&vfs_path), Some(1));
+        assert_eq!(state.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
+    }
+
+    #[test]
+    fn divergent_alias_did_change_does_not_update_canonical_buffer() {
+        let root = TestDir::new("divergent-alias-change");
+        let (mut state, _client) = test_state_with_root(root.path().to_path_buf());
+        let source_path = root.join("workspace/top.sv");
+        let alias_path = root.join("alias/top.sv");
+        std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(alias_path.parent().unwrap()).unwrap();
+        std::fs::write(&source_path, "module top;\nendmodule\n").unwrap();
+        std::fs::hard_link(&source_path, &alias_path).unwrap();
+        let source_uri = Url::from_file_path(source_path.as_path()).unwrap();
+        let alias_uri = Url::from_file_path(alias_path.as_path()).unwrap();
+        let source_vfs_path = VfsPath::from(source_path);
+        let alias_vfs_path = VfsPath::from(alias_path);
+
+        handle_did_open_text_document(
+            &mut state,
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: source_uri,
+                    language_id: "systemverilog".to_owned(),
+                    version: 1,
+                    text: "module top;\nendmodule\n".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+        let file_id = state.mem_docs.file_id(&source_vfs_path).unwrap();
+        handle_did_open_text_document(
+            &mut state,
+            DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: alias_uri.clone(),
+                    language_id: "systemverilog".to_owned(),
+                    version: 12,
+                    text: "module broken(;\nendmodule\n".to_owned(),
+                },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(state.mem_docs.file_id(&alias_vfs_path), Some(file_id));
+        assert_eq!(state.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
+        assert_eq!(state.mem_docs.open_documents(file_id).len(), 1);
+
+        handle_did_change_text_document(
+            &mut state,
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier { uri: alias_uri, version: 13 },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "module still_broken(;\nendmodule\n".to_owned(),
+                }],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(state.mem_docs.version_for_path(&alias_vfs_path), Some(12));
+        assert_eq!(state.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
     }
 
     #[test]

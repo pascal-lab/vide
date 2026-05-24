@@ -17,7 +17,10 @@ pub use toml_workspace::{
     generated_toml_manifest_schema,
 };
 use triomphe::Arc;
-use utils::paths::{AbsPathBuf, Utf8Component, Utf8Path, sort_and_remove_subfolders};
+use utils::{
+    path_identity::PathIdentitySet,
+    paths::{AbsPathBuf, Utf8Component, Utf8Path, sort_and_remove_subfolders},
+};
 use vfs::{FileSetConfig, FileSetFilter, PathGlobMatcher, PathMatcher, VfsPath};
 
 use crate::{
@@ -40,20 +43,54 @@ pub struct ProjectModel {
     pub workspaces: Vec<Workspace>,
 }
 
+/// A project-model root after manifest policy has been applied.
+///
+/// The fields are split by consumer. `source` classifies VFS files into source
+/// roots, `source_directories` drives recursive loader/watch scans, and
+/// `source_files` carries exact manifest files through
+/// [`vfs::loader::Entry::Files`].
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct WorkspaceRoot {
     pub role: SourceRootRole,
+    /// Files matching this are semantic source files for this root.
     pub source: PathMatcher,
+    /// Source globs that are safe to expand as directories.
+    pub source_directories: PathMatcher,
+    /// Literal source files from the manifest.
+    pub source_files: Vec<AbsPathBuf>,
+    /// Include/search roots loaded as headers and passed to preprocessing.
     pub include_dirs: Vec<AbsPathBuf>,
     pub exclude_globs: Option<PathGlobMatcher>,
 }
 
 impl WorkspaceRoot {
-    pub fn load_paths(&self) -> Vec<AbsPathBuf> {
+    /// Paths used to build the file-set prefix map.
+    ///
+    /// This includes exact source-file paths so a manually opened file can be
+    /// classified without requiring its parent directory to be a load root.
+    pub fn file_set_paths(&self) -> Vec<AbsPathBuf> {
         let mut paths = self.include_dirs.clone();
         paths.extend(self.source.scan_roots().cloned());
         sort_and_remove_subfolders(&mut paths);
         paths
+    }
+
+    /// Roots that should be recursively expanded by the loader or client
+    /// watcher.
+    ///
+    /// Exact source files are intentionally excluded and are handled through
+    /// `source_files`.
+    pub fn directory_load_paths(&self) -> Vec<AbsPathBuf> {
+        let mut paths = self.include_dirs.clone();
+        paths.extend(self.source_directories.scan_roots().cloned());
+        sort_and_remove_subfolders(&mut paths);
+        paths
+    }
+
+    fn has_load_paths(&self) -> bool {
+        !self.source_files.is_empty()
+            || !self.include_dirs.is_empty()
+            || !self.source_directories.is_empty()
     }
 }
 
@@ -144,29 +181,38 @@ impl Workspace {
         let exclude_patterns = validate_manifest_patterns(exclude_patterns, "exclude")?;
         let exclude_globs = compile_manifest_globs(&workspace_root, exclude_patterns, "exclude")?;
 
-        let mut source_paths = source_roots_for_patterns(&workspace_root, &source_patterns);
-        sort_and_remove_subfolders(&mut source_paths);
-        let source = compile_manifest_globs(&workspace_root, source_patterns, "sources")?
+        let source_locations = source_locations_for_patterns(&workspace_root, &source_patterns);
+        let source = compile_manifest_globs(&workspace_root, source_patterns.clone(), "sources")?
             .map_or_else(
                 || PathMatcher::all_under_roots(Vec::new()),
-                |matcher| PathMatcher::glob(source_paths.clone(), matcher),
+                |matcher| PathMatcher::glob(source_locations.matcher_roots.clone(), matcher),
             );
+        let has_source_paths = source_locations.has_load_paths();
+        let source_directories = compile_manifest_globs(
+            &workspace_root,
+            source_locations.directory_patterns,
+            "sources",
+        )?
+        .map_or_else(
+            || PathMatcher::all_under_roots(Vec::new()),
+            |matcher| PathMatcher::glob(source_locations.directory_roots.clone(), matcher),
+        );
 
         let default_include_paths = if source_policy.defaults_include_dirs_to_sources() {
-            source_paths.as_slice()
+            source_locations.default_include_dirs.as_slice()
         } else {
             &[]
         };
         let include_dirs = resolve_include_dirs(include_dirs, default_include_paths);
         let library_paths = resolve_library_paths(libraries);
-        let roots = workspace_roots(
-            kind,
-            &source_policy,
-            !source_paths.is_empty(),
+        let root_parts = WorkspaceRootParts {
             source,
-            include_dirs.clone(),
+            source_directories,
+            source_files: source_locations.source_files,
+            include_dirs: include_dirs.clone(),
             exclude_globs,
-        );
+        };
+        let roots = workspace_roots(kind, &source_policy, has_source_paths, root_parts);
         let semantic_profile = roots
             .iter()
             .any(|root| root.role.participates_in_semantic_profile())
@@ -179,14 +225,15 @@ impl Workspace {
         let kind = WorkspaceKind::from_is_lib(is_lib);
         let source_roots = vec![path.clone()];
         let include_dirs = if kind.is_library() { source_roots.clone() } else { Vec::new() };
-        let roots = workspace_roots(
-            kind,
-            &ManifestSourcePolicy::DefaultIndex,
-            true,
-            PathMatcher::all_under_roots(source_roots),
-            include_dirs.clone(),
-            None,
-        );
+        let source = PathMatcher::all_under_roots(source_roots.clone());
+        let root_parts = WorkspaceRootParts {
+            source: source.clone(),
+            source_directories: source,
+            source_files: Vec::new(),
+            include_dirs: include_dirs.clone(),
+            exclude_globs: None,
+        };
+        let roots = workspace_roots(kind, &ManifestSourcePolicy::DefaultIndex, true, root_parts);
         let semantic_profile = roots
             .iter()
             .any(|root| root.role.participates_in_semantic_profile())
@@ -236,54 +283,65 @@ fn semantic_profile(
     }
 }
 
+/// Root ingredients before default-source policy splits them into separate
+/// local and best-effort roots.
+#[derive(Clone)]
+struct WorkspaceRootParts {
+    source: PathMatcher,
+    source_directories: PathMatcher,
+    source_files: Vec<AbsPathBuf>,
+    include_dirs: Vec<AbsPathBuf>,
+    exclude_globs: Option<PathGlobMatcher>,
+}
+
+impl WorkspaceRootParts {
+    fn include_only(&self) -> Self {
+        Self {
+            source: PathMatcher::all_under_roots(Vec::new()),
+            source_directories: PathMatcher::all_under_roots(Vec::new()),
+            source_files: Vec::new(),
+            include_dirs: self.include_dirs.clone(),
+            exclude_globs: self.exclude_globs.clone(),
+        }
+    }
+
+    fn source_only(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            source_directories: self.source_directories.clone(),
+            source_files: self.source_files.clone(),
+            include_dirs: Vec::new(),
+            exclude_globs: self.exclude_globs.clone(),
+        }
+    }
+}
+
 fn workspace_roots(
     kind: WorkspaceKind,
     source_policy: &ManifestSourcePolicy,
     has_source_paths: bool,
-    source: PathMatcher,
-    include_dirs: Vec<AbsPathBuf>,
-    exclude_globs: Option<PathGlobMatcher>,
+    parts: WorkspaceRootParts,
 ) -> Vec<WorkspaceRoot> {
     let mut roots = Vec::new();
 
     if kind.is_library() {
-        push_workspace_root(
-            &mut roots,
-            SourceRootRole::Library,
-            source,
-            include_dirs,
-            exclude_globs,
-        );
+        push_workspace_root(&mut roots, SourceRootRole::Library, parts);
         return roots;
     }
 
     match source_policy {
         ManifestSourcePolicy::DefaultIndex => {
-            push_workspace_root(
-                &mut roots,
-                SourceRootRole::Local,
-                PathMatcher::all_under_roots(Vec::new()),
-                include_dirs,
-                exclude_globs.clone(),
-            );
+            push_workspace_root(&mut roots, SourceRootRole::Local, parts.include_only());
             if has_source_paths {
                 push_workspace_root(
                     &mut roots,
                     SourceRootRole::BestEffortIndex,
-                    source,
-                    Vec::new(),
-                    exclude_globs,
+                    parts.source_only(),
                 );
             }
         }
         ManifestSourcePolicy::Explicit(_) => {
-            push_workspace_root(
-                &mut roots,
-                SourceRootRole::Local,
-                source,
-                include_dirs,
-                exclude_globs,
-            );
+            push_workspace_root(&mut roots, SourceRootRole::Local, parts);
         }
     }
 
@@ -293,12 +351,17 @@ fn workspace_roots(
 fn push_workspace_root(
     roots: &mut Vec<WorkspaceRoot>,
     role: SourceRootRole,
-    source: PathMatcher,
-    include_dirs: Vec<AbsPathBuf>,
-    exclude_globs: Option<PathGlobMatcher>,
+    parts: WorkspaceRootParts,
 ) {
-    let root = WorkspaceRoot { role, source, include_dirs, exclude_globs };
-    if !root.load_paths().is_empty() {
+    let root = WorkspaceRoot {
+        role,
+        source: parts.source,
+        source_directories: parts.source_directories,
+        source_files: parts.source_files,
+        include_dirs: parts.include_dirs,
+        exclude_globs: parts.exclude_globs,
+    };
+    if root.has_load_paths() {
         roots.push(root);
     }
 }
@@ -365,13 +428,60 @@ fn compile_manifest_globs(
         .with_context(|| format!("failed to compile manifest {field} glob patterns"))
 }
 
-fn source_roots_for_patterns(workspace_root: &AbsPathBuf, patterns: &[String]) -> Vec<AbsPathBuf> {
-    patterns.iter().map(|pattern| source_root_for_pattern(workspace_root, pattern)).collect()
+/// Normalized manifest source-pattern facts, separated by how each consumer
+/// uses them.
+#[derive(Debug, Default)]
+struct SourceLocations {
+    matcher_roots: Vec<AbsPathBuf>,
+    directory_roots: Vec<AbsPathBuf>,
+    directory_patterns: Vec<String>,
+    source_files: Vec<AbsPathBuf>,
+    default_include_dirs: Vec<AbsPathBuf>,
 }
 
-fn source_root_for_pattern(workspace_root: &AbsPathBuf, pattern: &str) -> AbsPathBuf {
-    let root = literal_root_prefix(pattern);
-    if root.is_empty() { workspace_root.clone() } else { workspace_root.absolutize(root) }
+impl SourceLocations {
+    fn finish(mut self) -> Self {
+        sort_and_remove_subfolders(&mut self.matcher_roots);
+        sort_and_remove_subfolders(&mut self.directory_roots);
+        sort_and_remove_subfolders(&mut self.default_include_dirs);
+        self.source_files.sort();
+        self.source_files.dedup();
+        self
+    }
+
+    fn has_load_paths(&self) -> bool {
+        !self.directory_roots.is_empty() || !self.source_files.is_empty()
+    }
+}
+
+fn source_locations_for_patterns(
+    workspace_root: &AbsPathBuf,
+    patterns: &[String],
+) -> SourceLocations {
+    let mut locations = SourceLocations::default();
+    for pattern in patterns {
+        if let Some(source_file) = literal_source_file(workspace_root, pattern) {
+            locations.matcher_roots.push(source_file.clone());
+            locations.source_files.push(source_file.clone());
+            locations.default_include_dirs.push(
+                source_file
+                    .parent()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| workspace_root.clone()),
+            );
+            continue;
+        }
+
+        let root = literal_root_prefix(pattern);
+        let source_root =
+            if root.is_empty() { workspace_root.clone() } else { workspace_root.absolutize(root) };
+        locations.matcher_roots.push(source_root.clone());
+        locations.directory_roots.push(source_root.clone());
+        locations.default_include_dirs.push(source_root);
+        locations.directory_patterns.push(pattern.clone());
+    }
+
+    locations.finish()
 }
 
 fn literal_root_prefix(pattern: &str) -> &str {
@@ -388,16 +498,38 @@ fn literal_root_prefix(pattern: &str) -> &str {
     trimmed.rsplit_once('/').map_or("", |(parent, _)| parent)
 }
 
+fn literal_source_file(workspace_root: &AbsPathBuf, pattern: &str) -> Option<AbsPathBuf> {
+    if pattern.ends_with('/') || pattern.find(['*', '?', '[', '{']).is_some() {
+        return None;
+    }
+
+    let manifest_path = Utf8Path::new(pattern);
+    let absolute_path = workspace_root.absolutize(manifest_path);
+    if let Ok(metadata) = std::fs::metadata(absolute_path.as_path()) {
+        return metadata.is_file().then_some(absolute_path);
+    }
+
+    if manifest_path.extension().is_some_and(|ext| {
+        vfs::loader::SOURCE_FILE_EXTENSIONS
+            .iter()
+            .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+    }) {
+        return Some(absolute_path);
+    }
+
+    None
+}
+
 impl ProjectModel {
     pub fn load(manifests: Vec<ProjectManifest>) -> (ProjectModel, Vec<anyhow::Error>) {
         let mut pending =
             manifests.into_iter().map(|manifest| (manifest, false)).collect::<VecDeque<_>>();
-        let mut loaded_manifests = FxHashSet::default();
+        let mut loaded_manifests = ProjectManifestIdentitySet::default();
         let mut workspaces = Vec::new();
         let mut errors = Vec::new();
 
         while let Some((manifest, is_lib)) = pending.pop_front() {
-            if !loaded_manifests.insert(manifest.clone()) {
+            if !loaded_manifests.insert(&manifest) {
                 continue;
             }
 
@@ -412,9 +544,7 @@ impl ProjectModel {
             for package in workspace.library_paths() {
                 match ProjectManifest::from_path(package) {
                     Ok(manifest) => {
-                        if !loaded_manifests.contains(&manifest) {
-                            pending.push_back((manifest, true));
-                        }
+                        pending.push_back((manifest, true));
                     }
                     Err(error) => errors.push(error),
                 }
@@ -424,6 +554,20 @@ impl ProjectModel {
         }
 
         (ProjectModel { workspaces }, errors)
+    }
+}
+
+#[derive(Default)]
+struct ProjectManifestIdentitySet {
+    paths: PathIdentitySet,
+}
+
+impl ProjectManifestIdentitySet {
+    fn insert(&mut self, manifest: &ProjectManifest) -> bool {
+        let path = match manifest {
+            ProjectManifest::Toml(path) | ProjectManifest::UnconfiguredRoot(path) => path,
+        };
+        self.paths.insert_path(path.as_path())
     }
 }
 
@@ -445,14 +589,17 @@ pub fn get_workspace_folder(
 
     for (workspace_idx, workspace) in workspaces.iter().enumerate() {
         for root in workspace.roots() {
-            let load_paths = root.load_paths();
-            if load_paths.is_empty() {
+            if !root.has_load_paths() {
                 continue;
             }
-            let root_file_set = load_paths.iter().cloned().map(VfsPath::from).collect_vec();
+            let file_set_paths = root.file_set_paths();
+            let root_file_set = file_set_paths.iter().cloned().map(VfsPath::from).collect_vec();
             let mut exclude_paths = Vec::new();
             for excl in global_excludes {
-                if load_paths.iter().any(|incl| incl.starts_with(excl) || excl.starts_with(incl)) {
+                if file_set_paths
+                    .iter()
+                    .any(|incl| incl.starts_with(excl) || excl.starts_with(incl))
+                {
                     exclude_paths.push(excl.clone());
                 }
             }
@@ -466,15 +613,35 @@ pub fn get_workspace_folder(
             let source =
                 if root.source.is_empty() { Vec::new() } else { vec![root.source.clone()] };
 
-            let entry = {
+            let mut load_entries = Vec::new();
+            let source_files = root
+                .source_files
+                .iter()
+                .filter(|path| {
+                    !is_excluded_load_file(path.as_path(), &exclude_paths, &root.exclude_globs)
+                })
+                .cloned()
+                .collect_vec();
+            if !source_files.is_empty() {
+                load_entries.push(vfs::loader::Entry::Files(source_files));
+            }
+
+            let mut directory_include = Vec::new();
+            if !root.include_dirs.is_empty() {
+                directory_include.push(PathMatcher::all_under_roots(root.include_dirs.clone()));
+            }
+            if !root.source_directories.is_empty() {
+                directory_include.push(root.source_directories.clone());
+            }
+            if !directory_include.is_empty() {
                 let dirs = vfs::loader::Directories {
-                    extensions: ["v", "sv", "vh", "svh", "svi", "map"].map(String::from).into(),
-                    include: include.clone(),
+                    extensions: source_file_extensions(),
+                    include: directory_include,
                     exclude: exclude_paths.clone(),
                     exclude_globs: root.exclude_globs.clone(),
                 };
-                vfs::loader::Entry::Directories(dirs)
-            };
+                load_entries.push(vfs::loader::Entry::Directories(dirs));
+            }
 
             let root_idx = fsc.len();
             fileset_roles.push(root.role);
@@ -489,11 +656,13 @@ pub fn get_workspace_folder(
                 },
             );
 
-            if root.role.is_watched() {
-                watch.push(load.len());
-            }
             loaded_roots.push(LoadedWorkspaceRoot { root_idx, workspace_idx, role: root.role });
-            load.push(entry);
+            for entry in load_entries {
+                if root.role.is_watched() {
+                    watch.push(load.len());
+                }
+                load.push(entry);
+            }
         }
     }
 
@@ -556,6 +725,19 @@ pub fn get_workspace_folder(
     (load, watch, SourceRootConfig { fileset_config, fileset_roles }, project_config)
 }
 
+fn source_file_extensions() -> Vec<String> {
+    vfs::loader::SOURCE_FILE_EXTENSIONS.iter().map(|ext| (*ext).to_owned()).collect()
+}
+
+fn is_excluded_load_file(
+    path: &utils::paths::AbsPath,
+    exclude_paths: &[AbsPathBuf],
+    exclude_globs: &Option<PathGlobMatcher>,
+) -> bool {
+    exclude_paths.iter().any(|exclude| path.starts_with(exclude))
+        || exclude_globs.as_ref().is_some_and(|exclude| exclude.is_match(path))
+}
+
 fn dependency_roots_by_workspace(
     workspaces: &[Workspace],
     root_ids_by_workspace: &FxHashMap<usize, Vec<SourceRootId>>,
@@ -604,7 +786,7 @@ fn collect_dependency_roots(
 mod tests {
     use std::fs;
 
-    use base_db::source_root::SourceRootRole;
+    use base_db::{source_db::SourceFileKind, source_root::SourceRootRole};
     use utils::{lines::LineEnding, test_support::TestDir};
     use vfs::{Vfs, loader::LoadResult};
 
@@ -638,6 +820,25 @@ libraries = ["../pkg"]
         assert_eq!(model.workspaces.len(), 2);
         assert!(!model.workspaces[0].is_lib());
         assert!(model.workspaces[1].is_lib());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn project_model_deduplicates_manifest_path_identities() {
+        let root = TestDir::new("project-model-manifest-identity");
+        fs::create_dir_all(root.join("rtl")).unwrap();
+        let manifest_path = root.join(project_manifest::MANIFEST_FILE_NAME);
+        fs::write(&manifest_path, r#"sources = ["rtl/**"]"#).unwrap();
+        let verbatim_manifest_path =
+            AbsPathBuf::try_from(format!(r"\\?\{manifest_path}").as_str()).unwrap();
+
+        let (model, errors) = ProjectModel::load(vec![
+            ProjectManifest::Toml(manifest_path),
+            ProjectManifest::Toml(verbatim_manifest_path),
+        ]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
     }
 
     #[test]
@@ -947,6 +1148,99 @@ include_dirs = []
         };
         assert!(dirs.contains_file(top.as_path()));
         assert!(!dirs.contains_file(nested_top.as_path()));
+    }
+
+    #[test]
+    fn explicit_single_file_source_separates_file_load_from_include_scan_root() {
+        let base = TestDir::new("project-model-single-file-source");
+        let root = base.join("root");
+        let rtl = root.join("rtl");
+        fs::create_dir_all(&rtl).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl/top.sv"]
+"#,
+        )
+        .unwrap();
+
+        let top = rtl.join("top.sv");
+        let sibling = rtl.join("sibling.sv");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, source_root_config, project_config) =
+            get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert!(load.iter().any(|entry| match entry {
+            vfs::loader::Entry::Files(files) => files == std::slice::from_ref(&top),
+            vfs::loader::Entry::Directories(_) => false,
+        }));
+        let dirs = load
+            .iter()
+            .find_map(|entry| match entry {
+                vfs::loader::Entry::Directories(dirs) => Some(dirs),
+                vfs::loader::Entry::Files(_) => None,
+            })
+            .expect("default include dir should add a directory loader entry");
+        assert!(dirs.contains_file(sibling.as_path()));
+
+        let profile_id = project_config.profile_for_root(SourceRootId(0)).unwrap();
+        let profile = project_config.profile(profile_id).unwrap();
+        assert_eq!(profile.preprocess.include_dirs, [rtl]);
+
+        let mut vfs = Vfs::default();
+        for file in [&top, &sibling] {
+            vfs.set_file_contents(
+                &VfsPath::from(file.clone()),
+                LoadResult::Loaded(String::new(), LineEnding::Unix),
+            );
+        }
+
+        let roots = source_root_config.partition(&vfs);
+        let top_file_id = *roots[0].file_for_path(&VfsPath::from(top)).unwrap();
+        let sibling_file_id = *roots[0].file_for_path(&VfsPath::from(sibling)).unwrap();
+        assert_eq!(roots[0].file_kind(&top_file_id), SourceFileKind::SystemVerilog);
+        assert_eq!(roots[0].file_kind(&sibling_file_id), SourceFileKind::IncludeHeader);
+    }
+
+    #[test]
+    fn explicit_single_file_source_without_include_dirs_loads_only_that_file() {
+        let base = TestDir::new("project-model-single-file-source-no-includes");
+        let root = base.join("root");
+        let rtl = root.join("rtl");
+        fs::create_dir_all(&rtl).unwrap();
+        fs::write(
+            root.join(project_manifest::MANIFEST_FILE_NAME),
+            r#"sources = ["rtl/top.sv"]
+include_dirs = []
+"#,
+        )
+        .unwrap();
+
+        let top = rtl.join("top.sv");
+        let sibling = rtl.join("sibling.sv");
+        let manifest = ProjectManifest::from_path(&root).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(load.len(), 1);
+        assert!(
+            matches!(&load[0], vfs::loader::Entry::Files(files) if files == std::slice::from_ref(&top))
+        );
+
+        let mut vfs = Vfs::default();
+        for file in [&top, &sibling] {
+            vfs.set_file_contents(
+                &VfsPath::from(file.clone()),
+                LoadResult::Loaded(String::new(), LineEnding::Unix),
+            );
+        }
+
+        let roots = source_root_config.partition(&vfs);
+        assert!(roots[0].file_for_path(&VfsPath::from(top)).is_some());
+        assert_eq!(roots[1].role(), SourceRootRole::Ignored);
+        assert!(roots[1].file_for_path(&VfsPath::from(sibling)).is_some());
     }
 
     #[test]

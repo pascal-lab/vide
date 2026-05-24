@@ -24,7 +24,7 @@ use lsp_types::{TraceValue, Url};
 use nohash_hasher::IntMap;
 use parking_lot::{Mutex, RwLock};
 use project_model::Workspace;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::{
     excl_task::ExclTask,
@@ -33,7 +33,12 @@ use utils::{
 };
 use vfs::{self, FileId, Vfs};
 
-use self::{main_loop::Task, mem_docs::MemDocs, snapshot::GlobalStateSnapshot, trace::LspTrace};
+use self::{
+    main_loop::{DiagnosticPublishFreshness, DiagnosticPublishKey, Task},
+    mem_docs::MemDocs,
+    snapshot::GlobalStateSnapshot,
+    trace::LspTrace,
+};
 use crate::config::{Config, ConfigError};
 
 pub(crate) struct TaskPool<T> {
@@ -113,9 +118,17 @@ pub(crate) struct GlobalState {
     pub(crate) shutdown_requested: bool,
 
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
-    pub(crate) diagnostics: FxHashMap<FileId, Vec<lsp_types::Diagnostic>>,
+    pub(crate) published_diagnostics: FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
+    // didOpen/didClose can change the URI set for a file without changing its
+    // text. Keep those target changes explicit so push diagnostics converge at
+    // the normal change-processing boundary.
+    pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
     pub(crate) diagnostics_revision: u64,
+    pub(crate) diagnostic_target_revision: u64,
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
+    // Only the latest Qihe run is allowed to commit diagnostics or logs.
+    pub(crate) qihe_run_generation: qihe::QiheRunId,
+    pub(crate) qihe_active_progress_token: Option<String>,
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
@@ -168,9 +181,13 @@ impl GlobalState {
             project_config: Arc::new(ProjectConfig::default()),
 
             semantic_tokens_cache: Arc::new(Default::default()),
-            diagnostics: FxHashMap::default(),
+            published_diagnostics: FxHashMap::default(),
+            pending_document_diagnostic_targets: FxHashSet::default(),
             diagnostics_revision: 0,
+            diagnostic_target_revision: 0,
             qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
+            qihe_run_generation: qihe::QiheRunId::default(),
+            qihe_active_progress_token: None,
 
             vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
@@ -193,7 +210,12 @@ impl GlobalState {
             sema_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
             qihe_diagnostics: Arc::clone(&self.qihe_diagnostics),
             diagnostics_revision: self.diagnostics_revision,
+            diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
         }
+    }
+
+    pub(crate) fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
+        DiagnosticPublishFreshness::new(self.diagnostics_revision, self.diagnostic_target_revision)
     }
 }
 

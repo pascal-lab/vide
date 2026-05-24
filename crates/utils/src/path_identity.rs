@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use same_file::Handle;
 
 use crate::paths::{AbsPath, AbsPathBuf};
 
+/// Normalized path spelling key used before filesystem identity is available.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct PathKey(String);
 
@@ -35,7 +35,7 @@ impl PathKey {
 /// invent another spelling.
 ///
 /// These strings are safe to hand to external parsers as alternate names for
-/// the same VFS text. File identity comparisons use `same-file` separately.
+/// the same VFS text. File identity comparisons use [`FileIdentityKey`].
 pub fn path_alias_paths(path: &AbsPath) -> Vec<AbsPathBuf> {
     let mut paths = vec![path.to_path_buf()];
 
@@ -52,14 +52,45 @@ pub fn path_alias_keys(path: &AbsPath) -> Vec<PathKey> {
     path_alias_paths(path).iter().map(|path| PathKey::from_abs_path(path)).collect()
 }
 
+/// Value identity for an existing filesystem object.
+///
+/// Unlike `same_file::Handle`, this key does not keep the file open after it is
+/// computed.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct FileIdentityKey(FileIdentityKeyRepr);
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+enum FileIdentityKeyRepr {
+    #[cfg(unix)]
+    Unix { dev: u64, ino: u64 },
+    #[cfg(windows)]
+    Windows { volume: u64, index: u64 },
+}
+
+impl FileIdentityKey {
+    /// Returns a stable value identity for an existing filesystem path.
+    ///
+    /// The path may be opened or statted while computing the key, but the key
+    /// itself does not retain any OS file handle.
+    pub fn from_path(path: &AbsPath) -> Option<Self> {
+        platform_file_identity_key(path.as_ref())
+    }
+}
+
+/// Maps filesystem identity evidence to a caller-owned value.
+///
+/// Raw and canonical path aliases cover stable path spellings. OS identity keys
+/// cover aliases that only the filesystem can prove, such as links. Callers
+/// should insert a path again when a formerly missing file is created, because
+/// identity evidence may become available later.
 pub struct PathIdentityIndex<T> {
     aliases: FxHashMap<PathKey, T>,
-    handles: Vec<(Handle, T)>,
+    identities: FxHashMap<FileIdentityKey, T>,
 }
 
 impl<T> Default for PathIdentityIndex<T> {
     fn default() -> Self {
-        Self { aliases: FxHashMap::default(), handles: Vec::new() }
+        Self { aliases: FxHashMap::default(), identities: FxHashMap::default() }
     }
 }
 
@@ -74,7 +105,7 @@ impl<T: Copy> PathIdentityIndex<T> {
         for key in path_alias_keys(path) {
             self.aliases.insert(key, value);
         }
-        self.insert_handle(path, value);
+        self.insert_identity(path, value);
     }
 
     pub fn get(&self, path: impl AsRef<str>) -> Option<T> {
@@ -97,27 +128,22 @@ impl<T: Copy> PathIdentityIndex<T> {
             return Some(value);
         }
 
-        let handle = Handle::from_path(path).ok()?;
-        self.handles.iter().find_map(|(known, value)| (known == &handle).then_some(*value))
+        let identity = platform_file_identity_key(path)?;
+        self.identities.get(&identity).copied()
     }
 
-    fn insert_handle(&mut self, path: &AbsPath, value: T) {
-        let Ok(handle) = Handle::from_path(path) else {
-            return;
-        };
-
-        if let Some((_, existing)) = self.handles.iter_mut().find(|(known, _)| known == &handle) {
-            *existing = value;
-        } else {
-            self.handles.push((handle, value));
+    fn insert_identity(&mut self, path: &AbsPath, value: T) {
+        if let Some(identity) = FileIdentityKey::from_path(path) {
+            self.identities.insert(identity, value);
         }
     }
 }
 
+/// Deduplicates paths by the same evidence model as [`PathIdentityIndex`].
 #[derive(Default)]
 pub struct PathIdentitySet {
     aliases: FxHashSet<PathKey>,
-    handles: Vec<Handle>,
+    identities: FxHashSet<FileIdentityKey>,
 }
 
 impl PathIdentitySet {
@@ -125,17 +151,13 @@ impl PathIdentitySet {
     /// seen.
     pub fn insert_path(&mut self, path: &AbsPath) -> bool {
         let keys = path_alias_keys(path);
-        let handle = Handle::from_path(path).ok();
+        let identity = FileIdentityKey::from_path(path);
         let is_new = keys.iter().all(|key| !self.aliases.contains(key))
-            && handle
-                .as_ref()
-                .is_none_or(|handle| self.handles.iter().all(|known| known != handle));
+            && identity.as_ref().is_none_or(|identity| !self.identities.contains(identity));
 
         self.aliases.extend(keys);
-        if let Some(handle) = handle
-            && self.handles.iter().all(|known| known != &handle)
-        {
-            self.handles.push(handle);
+        if let Some(identity) = identity {
+            self.identities.insert(identity);
         }
 
         is_new
@@ -145,8 +167,31 @@ impl PathIdentitySet {
 fn canonical_path(path: impl AsRef<Path>) -> Option<AbsPathBuf> {
     // `dunce` wraps `std::fs::canonicalize` but smooths over Windows
     // extended-length path spelling. It is still only an optional, OS-proven
-    // spelling; file identity checks use `same-file::Handle`.
+    // spelling; file identity checks use a value key derived from metadata.
     dunce::canonicalize(path).ok().and_then(|path| AbsPathBuf::try_from(path).ok())
+}
+
+#[cfg(unix)]
+fn platform_file_identity_key(path: &Path) -> Option<FileIdentityKey> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::metadata(path).ok()?;
+    Some(FileIdentityKey(FileIdentityKeyRepr::Unix { dev: metadata.dev(), ino: metadata.ino() }))
+}
+
+#[cfg(windows)]
+fn platform_file_identity_key(path: &Path) -> Option<FileIdentityKey> {
+    let handle = winapi_util::Handle::from_path_any(path).ok()?;
+    let info = winapi_util::file::information(&handle).ok()?;
+    Some(FileIdentityKey(FileIdentityKeyRepr::Windows {
+        volume: info.volume_serial_number(),
+        index: info.file_index(),
+    }))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn platform_file_identity_key(_path: &Path) -> Option<FileIdentityKey> {
+    None
 }
 
 fn normalize_path_key(path: &str) -> String {
@@ -214,14 +259,17 @@ mod tests {
     }
 
     #[test]
-    fn path_identity_index_resolves_existing_path_by_handle() {
-        let dir = crate::test_support::TestDir::new("same-file-handle");
+    fn path_identity_index_resolves_existing_path_by_file_identity() {
+        let dir = crate::test_support::TestDir::new("file-identity");
         let path = dir.write("source.sv", "module top; endmodule\n");
+        let alias = dir.join("alias.sv");
         let mut index = PathIdentityIndex::default();
 
         index.insert_path(path.as_path(), 1);
 
-        assert_eq!(index.get_path(path.as_path()), Some(1));
+        std::fs::hard_link(&path, &alias).unwrap();
+
+        assert_eq!(index.get_path(alias.as_path()), Some(1));
     }
 
     #[test]

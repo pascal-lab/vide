@@ -45,8 +45,9 @@ pub(crate) fn handle_code_action(
 
     let mut res = Vec::new();
     for (id, mut assist) in action.into_iter().enumerate() {
-        let resolve_data =
-            resolve_strategy.is_none().then(|| (id, params.clone(), snap.file_version(file_id)));
+        let resolve_data = resolve_strategy
+            .is_none()
+            .then(|| (id, params.clone(), snap.url_file_version(&params.text_document.uri)));
         let action_diags =
             if let Some(filtered) = quick_fix_diagnostics(assist.id.repair, &server_diagnostics) {
                 assist.id.kind = CodeActionKind::QuickFix;
@@ -195,7 +196,7 @@ pub(crate) fn handle_code_action_resolve(
     )?;
 
     let file_id = from_proto::file_id(&snap, &data.code_action_params.text_document.uri)?;
-    if snap.file_version(file_id) != data.version {
+    if snap.url_file_version(&data.code_action_params.text_document.uri) != data.version {
         return Err(to_proto::code_action_resolve_error(
             snap.config.i18n,
             CodeActionResolveError::Stable,
