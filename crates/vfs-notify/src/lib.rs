@@ -64,6 +64,7 @@ type NotifyEvent = notify::Result<notify::Event>;
 
 struct NotifyActor {
     sender: loader::Sender,
+    config_version: u32,
     watched_files: FxHashSet<AbsPathBuf>,
     watched_dirs: Vec<loader::Directories>,
     // Drop order is significant.
@@ -80,6 +81,7 @@ impl NotifyActor {
     fn new(sender: loader::Sender) -> NotifyActor {
         NotifyActor {
             sender,
+            config_version: 0,
             watched_files: FxHashSet::default(),
             watched_dirs: Vec::new(),
             watcher: None,
@@ -120,6 +122,7 @@ impl NotifyActor {
                         }
 
                         let config_version = config.version;
+                        self.config_version = config_version;
                         let n_total = config.to_load.len();
                         if n_total > 0 {
                             self.send(loader::Message::Progress {
@@ -142,7 +145,7 @@ impl NotifyActor {
                                 tracing::debug!("watched entry dropped because receiver is closed");
                             }
                             let files = Self::load_entry(&watch_tx, entry, do_watch);
-                            self.send(loader::Message::Loaded { files });
+                            self.send(loader::Message::Loaded { files, config_version });
                             self.send(loader::Message::Progress {
                                 n_total,
                                 n_done: 1 + processed
@@ -167,7 +170,10 @@ impl NotifyActor {
                     ServerMsg::Invalidate(path) => {
                         let contents = read(path.as_path());
                         let files = vec![(path, contents)];
-                        self.send(loader::Message::Loaded { files });
+                        self.send(loader::Message::Loaded {
+                            files,
+                            config_version: self.config_version,
+                        });
                     }
                 },
                 Event::NotifyEvent(event) => {
@@ -212,7 +218,10 @@ impl NotifyActor {
                         })
                         .collect();
 
-                    self.send(loader::Message::Loaded { files });
+                    self.send(loader::Message::Loaded {
+                        files,
+                        config_version: self.config_version,
+                    });
                 }
             }
         }

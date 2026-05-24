@@ -31,7 +31,7 @@ pub struct Config {
 
 pub enum Message {
     Progress { n_total: usize, n_done: usize, config_version: u32 },
-    Loaded { files: Vec<(AbsPathBuf, LoadResult)> },
+    Loaded { files: Vec<(AbsPathBuf, LoadResult)>, config_version: u32 },
 }
 
 pub type Sender = crossbeam_channel::Sender<Message>;
@@ -112,9 +112,11 @@ impl Directories {
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Message::Loaded { files } => {
-                f.debug_struct("Loaded").field("n_files", &files.len()).finish()
-            }
+            Message::Loaded { files, config_version } => f
+                .debug_struct("Loaded")
+                .field("n_files", &files.len())
+                .field("config_version", config_version)
+                .finish(),
             Message::Progress { n_total, n_done, config_version } => f
                 .debug_struct("Progress")
                 .field("n_total", n_total)
