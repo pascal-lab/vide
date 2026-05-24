@@ -250,7 +250,7 @@ fn handle_reload_workspace_command(
 ) -> anyhow::Result<Option<serde_json::Value>> {
     let config = triomphe::Arc::make_mut(&mut state.config);
     config.refresh_project_manifests();
-    state.fetch_workspaces_task.request("workspace reload command".to_string());
+    state.request_workspace_reload("workspace reload command");
     Ok(None)
 }
 

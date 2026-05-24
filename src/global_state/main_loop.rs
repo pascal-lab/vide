@@ -176,10 +176,8 @@ impl GlobalState {
             self.register_did_save_cap();
         }
 
-        self.fetch_workspaces_task.request("Start".into());
-        if let Some(cause) = self.fetch_workspaces_task.should_start() {
-            self.fetch_workspaces(cause);
-        }
+        self.request_workspace_reload("Start");
+        self.start_requested_workspace_fetch();
 
         while let Some(event) = self.next_event(&client_receiver) {
             if let Event::Lsp(Message::Notification(Notification { method, .. })) = &event
@@ -295,11 +293,7 @@ impl GlobalState {
             }
         }
 
-        if self.config.user_config.workspace_auto_reload
-            && let Some(cause) = self.fetch_workspaces_task.should_start()
-        {
-            self.fetch_workspaces(cause);
-        }
+        self.start_requested_workspace_fetch();
 
         let loop_duration = loop_start.elapsed();
         if loop_duration > Duration::from_millis(100) && was_stuck {

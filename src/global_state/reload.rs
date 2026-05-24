@@ -64,6 +64,22 @@ impl GlobalState {
         })
     }
 
+    pub(crate) fn request_workspace_reload(&mut self, cause: impl Into<String>) {
+        self.fetch_workspaces_task.request(cause.into());
+    }
+
+    pub(crate) fn request_workspace_auto_reload(&mut self, cause: impl Into<String>) {
+        if self.config.user_config.workspace_auto_reload {
+            self.request_workspace_reload(cause);
+        }
+    }
+
+    pub(crate) fn start_requested_workspace_fetch(&mut self) {
+        if let Some(cause) = self.fetch_workspaces_task.should_start() {
+            self.fetch_workspaces(cause);
+        }
+    }
+
     pub(crate) fn fetch_workspace_error_stringify(&self) -> Result<(), String> {
         match self.fetch_workspaces_task.last_op_result() {
             Some((workspaces, _)) if workspaces.is_empty() => Err("no workspace fetched".into()),
@@ -140,6 +156,8 @@ impl GlobalState {
 
     pub(crate) fn update_configuration(&mut self, config: Config) {
         let diagnostics_config = Arc::new(config.diagnostics_config());
+        let workspace_affecting_change =
+            config.workspace_affecting_settings_changed(self.config.as_ref());
         let _old_config = std::mem::replace(&mut self.config, Arc::new(config));
         self.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
             diagnostics_config,
@@ -147,6 +165,11 @@ impl GlobalState {
         );
         self.diagnostics_revision += 1;
         self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
+        if workspace_affecting_change {
+            let config = Arc::make_mut(&mut self.config);
+            config.refresh_project_manifests();
+            self.request_workspace_reload("configuration changed");
+        }
         // TODO: update LRU capacity
     }
 
@@ -360,5 +383,40 @@ mod tests {
         assert!(
             globs.contains(&format!("{root_path}/{}", project_manifest::LEGACY_MANIFEST_FILE_NAME))
         );
+    }
+
+    #[test]
+    fn diagnostics_config_update_does_not_request_workspace_reload() {
+        let (mut state, _client) = test_state();
+        let mut config = (*state.config).clone();
+        config
+            .update(serde_json::json!({
+                "diagnostics": {
+                    "semantic": { "enable": false }
+                }
+            }))
+            .unwrap();
+
+        state.update_configuration(config);
+
+        assert!(!state.fetch_workspaces_task.has_op_requested());
+    }
+
+    #[test]
+    fn structural_config_update_requests_workspace_reload() {
+        let root = TestDir::new("structural-config-reload");
+        let root_path = root.path().to_path_buf();
+        let (mut state, _client) = test_state_with_root(root_path);
+        let mut config = (*state.config).clone();
+        config
+            .update(serde_json::json!({
+                "files": { "excludeDirs": ["build"] },
+                "workspace": { "auto": { "reload": false } }
+            }))
+            .unwrap();
+
+        state.update_configuration(config);
+
+        assert!(state.fetch_workspaces_task.has_op_requested());
     }
 }

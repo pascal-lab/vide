@@ -17,13 +17,13 @@ use crate::{
     i18n::{I18n, keys},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilesConfig {
     pub watcher: FilesWatcher,
     pub exclude: Vec<AbsPathBuf>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilesWatcher {
     Client,
     Server,
@@ -169,6 +169,10 @@ impl Config {
                 .map(|it| self.root_path.join(it))
                 .collect(),
         }
+    }
+
+    pub(crate) fn workspace_affecting_settings_changed(&self, other: &Config) -> bool {
+        self.files() != other.files()
     }
 
     pub fn position_encoding(&self) -> PositionEncoding {

@@ -104,7 +104,7 @@ pub(crate) fn handle_did_save_text_document(
         // Re-fetch workspaces if a workspace related file has changed
         let config = Arc::make_mut(&mut state.config);
         config.refresh_project_manifests();
-        state.fetch_workspaces_task.request(format!("DidSaveTextDocument {abs_path}"));
+        state.request_workspace_auto_reload(format!("DidSaveTextDocument {abs_path}"));
     }
 
     if state.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnSave
@@ -175,7 +175,7 @@ pub(crate) fn handle_did_change_workspace_folders(
 
     // TODO: ??
     config.refresh_project_manifests();
-    state.fetch_workspaces_task.request("client workspaces changed".to_string());
+    state.request_workspace_reload("client workspaces changed");
 
     Ok(())
 }
@@ -204,7 +204,7 @@ pub(crate) fn handle_did_change_watched_files(
     if let Some(path) = workspace_structure_change {
         let config = Arc::make_mut(&mut state.config);
         config.refresh_project_manifests();
-        state.fetch_workspaces_task.request(format!("DidChangeWatchedFiles {path}"));
+        state.request_workspace_auto_reload(format!("DidChangeWatchedFiles {path}"));
     }
 
     Ok(())
