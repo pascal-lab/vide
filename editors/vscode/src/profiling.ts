@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { stripProfileArgs } from './profilingArgs';
-import { diagnosticsProfilingInitializationOptions } from './profilingConfig';
+import { diagnosticsProfilingInitializationOptions } from './initializationOptions';
 import {
   type DiagnosticProfileRequest,
   diagnosticsFromProfileResponse,
