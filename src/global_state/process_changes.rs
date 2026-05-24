@@ -133,6 +133,15 @@ impl GlobalState {
     }
 
     pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {
+        if !self.workspace_vfs.is_ready() {
+            self.workspace_vfs.defer_diagnostics_until_ready();
+            tracing::debug!(
+                ?invalidation,
+                "diagnostics invalidation deferred until workspace/VFS is ready"
+            );
+            return;
+        }
+
         if self.config.cli_pull_diagnostics_support()
             && self.config.cli_workspace_diagnostic_refresh_support()
             && match &invalidation {
@@ -305,6 +314,15 @@ impl GlobalState {
 
     pub(crate) fn request_diagnostics(&mut self, files: Vec<FileId>) {
         if files.is_empty() {
+            return;
+        }
+
+        if !self.workspace_vfs.is_ready() {
+            self.workspace_vfs.defer_diagnostics_until_ready();
+            tracing::debug!(
+                file_count = files.len(),
+                "diagnostics request deferred until workspace/VFS is ready"
+            );
             return;
         }
 

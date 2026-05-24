@@ -9,6 +9,7 @@ pub mod reload;
 pub mod respond;
 pub(crate) mod snapshot;
 mod trace;
+mod workspace_state;
 
 use std::time::Instant;
 
@@ -33,11 +34,17 @@ use utils::{
 };
 use vfs::{self, FileId, Vfs};
 
+#[cfg(test)]
+pub(crate) use self::workspace_state::VfsProgress;
+pub(crate) use self::workspace_state::{
+    WorkspaceFetchCause, WorkspaceFetchCompletion, WorkspaceGeneration,
+};
 use self::{
     main_loop::{DiagnosticPublishFreshness, DiagnosticPublishKey, Task},
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
     trace::LspTrace,
+    workspace_state::WorkspaceVfsReadiness,
 };
 use crate::config::{Config, ConfigError};
 
@@ -83,19 +90,6 @@ pub(crate) struct Handle<H, C> {
     pub(crate) receiver: C,
 }
 
-#[derive(Default)]
-pub(crate) struct VfsProgress {
-    pub(crate) config_version: u32,
-    pub(crate) n_done: usize,
-    pub(crate) n_total: usize,
-}
-
-impl VfsProgress {
-    fn in_progress(&self) -> bool {
-        self.n_done < self.n_total
-    }
-}
-
 pub(crate) type ReqHandler = fn(&mut GlobalState, lsp_server::Response);
 pub(crate) const DEFAULT_REQ_HANDLER: ReqHandler = |_, _| {};
 
@@ -119,6 +113,7 @@ pub(crate) struct GlobalState {
 
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
     pub(crate) published_diagnostics: FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
+    pub(crate) pending_diagnostic_requests: Vec<Request>,
     // didOpen/didClose can change the URI set for a file without changing its
     // text. Keep those target changes explicit so push diagnostics converge at
     // the normal change-processing boundary.
@@ -132,12 +127,12 @@ pub(crate) struct GlobalState {
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
-    pub(crate) vfs_config_version: u32,
-    pub(crate) vfs_progress: VfsProgress,
+    pub(crate) workspace_vfs: WorkspaceVfsReadiness,
 
     // workspaces
     pub(crate) workspaces: Arc<Vec<Workspace>>,
-    pub(crate) fetch_workspaces_task: ExclTask<(Arc<Vec<Workspace>>, Vec<anyhow::Error>)>,
+    pub(crate) fetch_workspaces_task:
+        ExclTask<(Arc<Vec<Workspace>>, Vec<anyhow::Error>), WorkspaceFetchCause>,
     pub(crate) registered_client_file_watcher_globs: Option<Vec<String>>,
 }
 
@@ -182,6 +177,7 @@ impl GlobalState {
 
             semantic_tokens_cache: Arc::new(Default::default()),
             published_diagnostics: FxHashMap::default(),
+            pending_diagnostic_requests: Vec::new(),
             pending_document_diagnostic_targets: FxHashSet::default(),
             diagnostics_revision: 0,
             diagnostic_target_revision: 0,
@@ -191,8 +187,7 @@ impl GlobalState {
 
             vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
-            vfs_config_version: 0,
-            vfs_progress: VfsProgress::default(),
+            workspace_vfs: WorkspaceVfsReadiness::default(),
 
             workspaces: Arc::from(vec![]),
             fetch_workspaces_task: ExclTask::default(),
@@ -215,7 +210,11 @@ impl GlobalState {
     }
 
     pub(crate) fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
-        DiagnosticPublishFreshness::new(self.diagnostics_revision, self.diagnostic_target_revision)
+        DiagnosticPublishFreshness::new(
+            self.diagnostics_revision,
+            self.diagnostic_target_revision,
+            self.workspace_vfs.diagnostic_readiness_revision(),
+        )
     }
 }
 

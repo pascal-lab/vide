@@ -10,7 +10,10 @@ use utils::{
 use super::main_loop::Task;
 use crate::{
     config::{Config, FilesWatcher},
-    global_state::{DEFAULT_REQ_HANDLER, GlobalState, process_changes::DiagnosticInvalidation},
+    global_state::{
+        DEFAULT_REQ_HANDLER, GlobalState, WorkspaceFetchCause, WorkspaceGeneration,
+        process_changes::DiagnosticInvalidation,
+    },
 };
 
 const CLIENT_FILE_WATCHER_REGISTRATION_ID: &str = "workspace/didChangeWatchedFiles";
@@ -18,9 +21,9 @@ const CLIENT_FILE_WATCHER_METHOD: &str = "workspace/didChangeWatchedFiles";
 
 #[derive(Debug)]
 pub(crate) enum FetchWorkspaceProgress {
-    Begin(String),
+    Begin { generation: WorkspaceGeneration, cause: String },
     // workspaces
-    End(Vec<Workspace>, Vec<anyhow::Error>),
+    End { generation: WorkspaceGeneration, workspaces: Vec<Workspace>, errors: Vec<anyhow::Error> },
 }
 
 impl From<FetchWorkspaceProgress> for Task {
@@ -30,20 +33,24 @@ impl From<FetchWorkspaceProgress> for Task {
 }
 
 impl GlobalState {
-    pub(crate) fn is_stuck(&self) -> bool {
-        !(self.fetch_workspaces_task.in_process()
-            || self.vfs_progress.config_version < self.vfs_config_version
-            || self.vfs_progress.in_progress())
+    pub(crate) fn is_workspace_ready(&self) -> bool {
+        self.workspace_vfs.is_ready()
     }
 
-    pub(crate) fn fetch_workspaces(&mut self, cause: String) {
-        tracing::info!(%cause, "will fetch workspaces");
+    pub(crate) fn fetch_workspaces(&mut self, request: WorkspaceFetchCause) {
+        self.workspace_vfs.start_workspace_fetch(request.generation);
+        tracing::info!(cause = %request.cause, generation = ?request.generation, "will fetch workspaces");
 
         self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, {
             let manifests = self.config.project_manifests.clone();
+            let generation = request.generation;
+            let cause = request.cause;
 
             move |sender| {
-                if sender.send(FetchWorkspaceProgress::Begin(cause.clone()).into()).is_err() {
+                if sender
+                    .send(FetchWorkspaceProgress::Begin { generation, cause: cause.clone() }.into())
+                    .is_err()
+                {
                     tracing::debug!("workspace fetch start dropped because main loop is gone");
                     return;
                 }
@@ -58,7 +65,14 @@ impl GlobalState {
                 }
 
                 if sender
-                    .send(FetchWorkspaceProgress::End(all_workspaces, error_sink).into())
+                    .send(
+                        FetchWorkspaceProgress::End {
+                            generation,
+                            workspaces: all_workspaces,
+                            errors: error_sink,
+                        }
+                        .into(),
+                    )
                     .is_err()
                 {
                     tracing::debug!("workspace fetch result dropped because main loop is gone");
@@ -68,7 +82,8 @@ impl GlobalState {
     }
 
     pub(crate) fn request_workspace_reload(&mut self, cause: impl Into<String>) {
-        self.fetch_workspaces_task.request(cause.into());
+        let request = self.workspace_vfs.request_workspace_reload(cause.into());
+        self.fetch_workspaces_task.request(request);
     }
 
     pub(crate) fn request_workspace_auto_reload(&mut self, cause: impl Into<String>) {
@@ -78,8 +93,8 @@ impl GlobalState {
     }
 
     pub(crate) fn start_requested_workspace_fetch(&mut self) {
-        if let Some(cause) = self.fetch_workspaces_task.should_start() {
-            self.fetch_workspaces(cause);
+        if let Some(request) = self.fetch_workspaces_task.should_start() {
+            self.fetch_workspaces(request);
         }
     }
 
@@ -94,8 +109,8 @@ impl GlobalState {
         }
     }
 
-    pub(crate) fn switch_workspaces(&mut self, cause: String) {
-        tracing::info!(%cause, "start switching workspaces");
+    pub(crate) fn switch_workspaces(&mut self, cause: String, generation: WorkspaceGeneration) {
+        tracing::info!(%cause, ?generation, "start switching workspaces");
 
         let Some((workspaces, errors)) = self.fetch_workspaces_task.last_op_result() else {
             return;
@@ -132,22 +147,14 @@ impl GlobalState {
             FilesWatcher::Server => to_watch,
         };
 
-        self.vfs_config_version += 1;
-        let vfs_config_version = self.vfs_config_version;
         let to_load_len = to_load.len();
+        let vfs_config_version = self.workspace_vfs.begin_vfs_load(to_load_len);
 
         self.vfs_loader.handle.set_config(vfs::loader::Config {
             to_load,
             to_watch,
             version: vfs_config_version,
         });
-        if to_load_len == 0 {
-            self.vfs_progress = crate::global_state::VfsProgress {
-                config_version: vfs_config_version,
-                n_done: 0,
-                n_total: 0,
-            };
-        }
 
         self.source_root_config = source_root_config;
 
@@ -537,13 +544,17 @@ mod tests {
         let existing_workspaces = Arc::clone(&state.workspaces);
 
         state.request_workspace_reload("test reload");
-        assert_eq!(state.fetch_workspaces_task.should_start().as_deref(), Some("test reload"));
+        let request = state.fetch_workspaces_task.should_start().unwrap();
+        assert_eq!(request.cause, "test reload");
+        state.workspace_vfs.start_workspace_fetch(request.generation);
+        assert_eq!(
+            state.workspace_vfs.finish_workspace_fetch(request.generation, true),
+            crate::global_state::WorkspaceFetchCompletion::CurrentFailure
+        );
         state.fetch_workspaces_task.complete(Some((
             Arc::new(Vec::new()),
             vec![anyhow::anyhow!("failed to reload workspace")],
         )));
-
-        state.switch_workspaces("failed reload".into());
 
         assert!(Arc::ptr_eq(&state.workspaces, &existing_workspaces));
     }
@@ -564,13 +575,17 @@ mod tests {
         assert!(state.workspaces.is_empty());
 
         state.request_workspace_reload("test reload");
-        assert_eq!(state.fetch_workspaces_task.should_start().as_deref(), Some("test reload"));
+        let request = state.fetch_workspaces_task.should_start().unwrap();
+        assert_eq!(request.cause, "test reload");
+        state.workspace_vfs.start_workspace_fetch(request.generation);
+        assert_eq!(
+            state.workspace_vfs.finish_workspace_fetch(request.generation, true),
+            crate::global_state::WorkspaceFetchCompletion::CurrentFailure
+        );
         state.fetch_workspaces_task.complete(Some((
             Arc::new(model.workspaces),
             vec![anyhow::anyhow!("failed to load dependency")],
         )));
-
-        state.switch_workspaces("partial reload".into());
 
         assert!(Arc::ptr_eq(&state.workspaces, &initial_workspaces));
         assert!(state.workspaces.is_empty());
