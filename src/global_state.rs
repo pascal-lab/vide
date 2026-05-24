@@ -24,7 +24,7 @@ use lsp_types::{TraceValue, Url};
 use nohash_hasher::IntMap;
 use parking_lot::{Mutex, RwLock};
 use project_model::Workspace;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::{
     excl_task::ExclTask,
@@ -33,7 +33,12 @@ use utils::{
 };
 use vfs::{self, FileId, Vfs};
 
-use self::{main_loop::Task, mem_docs::MemDocs, snapshot::GlobalStateSnapshot, trace::LspTrace};
+use self::{
+    main_loop::{DiagnosticPublishKey, Task},
+    mem_docs::MemDocs,
+    snapshot::GlobalStateSnapshot,
+    trace::LspTrace,
+};
 use crate::config::{Config, ConfigError};
 
 pub(crate) struct TaskPool<T> {
@@ -113,7 +118,11 @@ pub(crate) struct GlobalState {
     pub(crate) shutdown_requested: bool,
 
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
-    pub(crate) diagnostics: FxHashMap<FileId, Vec<lsp_types::Diagnostic>>,
+    pub(crate) published_diagnostics: FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
+    // didOpen/didClose can change the URI set for a file without changing its
+    // text. Keep those target changes explicit so push diagnostics converge at
+    // the normal change-processing boundary.
+    pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
     pub(crate) diagnostics_revision: u64,
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
 
@@ -168,7 +177,8 @@ impl GlobalState {
             project_config: Arc::new(ProjectConfig::default()),
 
             semantic_tokens_cache: Arc::new(Default::default()),
-            diagnostics: FxHashMap::default(),
+            published_diagnostics: FxHashMap::default(),
+            pending_document_diagnostic_targets: FxHashSet::default(),
             diagnostics_revision: 0,
             qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
 

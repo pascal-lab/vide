@@ -13,6 +13,13 @@ impl OpenBuffer {
     }
 }
 
+/// One open URI spelling and its LSP document version.
+#[derive(Debug, Clone)]
+pub(crate) struct OpenDocument {
+    pub(crate) path: VfsPath,
+    pub(crate) version: i32,
+}
+
 #[derive(Debug, Clone)]
 struct OpenDocumentAlias {
     file_id: FileId,
@@ -113,6 +120,17 @@ impl MemDocs {
     pub(crate) fn version(&self, file_id: FileId) -> Option<i32> {
         let path = &self.buffers.get(&file_id)?.path;
         self.version_for_path(path)
+    }
+
+    pub(crate) fn open_documents(&self, file_id: FileId) -> Vec<OpenDocument> {
+        let mut documents = self
+            .open_paths
+            .iter()
+            .filter(|(_, alias)| alias.file_id == file_id)
+            .map(|(path, alias)| OpenDocument { path: path.clone(), version: alias.version })
+            .collect::<Vec<_>>();
+        documents.sort_unstable_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
+        documents
     }
 
     pub(crate) fn version_for_path(&self, path: &VfsPath) -> Option<i32> {
@@ -255,5 +273,23 @@ mod tests {
         assert_eq!(docs.version_for_path(&canonical_path), Some(1));
         assert_eq!(docs.version_for_path(&alias_path), Some(8));
         assert_eq!(docs.version(canonical), Some(1));
+    }
+
+    #[test]
+    fn open_documents_return_every_uri_version() {
+        let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
+        let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
+        let canonical = FileId(0);
+        let mut docs = MemDocs::default();
+        docs.insert(canonical, canonical_path.clone(), 1, "module top; endmodule\n".to_owned());
+        docs.insert(canonical, alias_path.clone(), 7, "module top; endmodule\n".to_owned());
+
+        let documents = docs
+            .open_documents(canonical)
+            .into_iter()
+            .map(|document| (document.path, document.version))
+            .collect::<Vec<_>>();
+
+        assert_eq!(documents, vec![(alias_path, 7), (canonical_path, 1)]);
     }
 }

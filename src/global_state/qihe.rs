@@ -26,7 +26,7 @@ use vfs::FileId;
 
 use super::{
     GlobalState, QiheDiagnosticState,
-    main_loop::{PublishDiagnosticsTask, QiheTask},
+    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, QiheTask},
     respond::Progress,
     snapshot::GlobalStateSnapshot,
 };
@@ -163,9 +163,9 @@ impl GlobalState {
 
         let snapshot = self.make_snapshot();
         let mut publish_tasks = Vec::with_capacity(changed_files.len());
-        for file_id in changed_files {
-            let uri = match snapshot.url(file_id) {
-                Ok(uri) => uri,
+        for file_id in changed_files.iter().copied() {
+            let targets = match snapshot.diagnostic_publish_targets(file_id) {
+                Ok(targets) => targets,
                 Err(error) => {
                     tracing::debug!(
                         ?file_id,
@@ -174,15 +174,19 @@ impl GlobalState {
                     continue;
                 }
             };
+            let diagnostics = snapshot.lsp_diagnostics(file_id);
 
-            publish_tasks.push(PublishDiagnosticsTask {
-                file_id,
-                uri,
-                version: snapshot.file_version(file_id),
-                diagnostics: snapshot.lsp_diagnostics(file_id),
-            });
+            publish_tasks.extend(targets.into_iter().map(|target| PublishDiagnosticsTask {
+                file_id: target.file_id,
+                uri: target.uri,
+                version: target.version,
+                diagnostics: diagnostics.clone(),
+            }));
         }
-        self.publish_diagnostics_tasks(publish_tasks, true);
+        self.publish_diagnostics_tasks(
+            PublishDiagnosticsBatch { touched_file_ids: changed_files, tasks: publish_tasks },
+            true,
+        );
     }
 
     fn begin_qihe_progress(&mut self, progress_token: &str, label: String) {

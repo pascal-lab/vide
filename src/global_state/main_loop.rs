@@ -5,6 +5,7 @@ use crossbeam_channel::{Receiver, select};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{TraceValue, notification::Notification as _};
 use project_model::project_manifest;
+use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use utils::thread::ThreadIntent;
 use vfs::{FileId, VfsPath, loader as vfs_loader};
@@ -62,12 +63,18 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use lsp_server::Connection;
+    use lsp_types::{
+        Diagnostic, DiagnosticSeverity, Position, PublishDiagnosticsParams, Range,
+        notification::Notification as _,
+    };
     use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
     use vfs::loader::LoadResult;
 
     use super::*;
-    use crate::{Opt, config::user_config::UserConfig, i18n::I18n};
+    use crate::{Opt, config::user_config::UserConfig, i18n::I18n, lsp_ext::to_proto};
 
     fn test_state(root_path: AbsPathBuf) -> GlobalState {
         let config = Config::new(
@@ -87,6 +94,151 @@ mod tests {
 
         let (server, _client) = Connection::memory();
         GlobalState::new(server.sender, config, lsp_types::TraceValue::Off)
+    }
+
+    fn recv_publish(client: &Connection) -> PublishDiagnosticsParams {
+        let message = client.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let lsp_server::Message::Notification(notification) = message else {
+            panic!("expected publishDiagnostics notification");
+        };
+        assert_eq!(notification.method, lsp_types::notification::PublishDiagnostics::METHOD);
+        serde_json::from_value(notification.params).unwrap()
+    }
+
+    fn publish_batch(tasks: Vec<PublishDiagnosticsTask>) -> PublishDiagnosticsBatch {
+        PublishDiagnosticsBatch::from_tasks(tasks)
+    }
+
+    #[test]
+    fn publish_diagnostics_cache_is_scoped_by_file_and_uri() {
+        let root = TestDir::new("diagnostics-cache-by-uri");
+        let root_path = root.path().to_path_buf();
+        let config = Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            lsp_types::ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
+        let file_id = FileId(0);
+        let primary_uri =
+            to_proto::url_from_abs_path(root.write("workspace/top.sv", "").as_path()).unwrap();
+        let alias_uri =
+            to_proto::url_from_abs_path(root.write("alias/top.sv", "").as_path()).unwrap();
+        let diagnostic = Diagnostic {
+            range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+            severity: Some(DiagnosticSeverity::ERROR),
+            source: Some("test".to_owned()),
+            message: "same diagnostic".to_owned(),
+            ..Diagnostic::default()
+        };
+
+        state.publish_diagnostics_tasks(
+            publish_batch(vec![PublishDiagnosticsTask {
+                file_id,
+                uri: primary_uri.clone(),
+                version: None,
+                diagnostics: vec![diagnostic.clone()],
+            }]),
+            false,
+        );
+        let first = recv_publish(&client);
+        assert_eq!(first.uri, primary_uri);
+        assert_eq!(first.diagnostics, vec![diagnostic.clone()]);
+
+        state.publish_diagnostics_tasks(
+            publish_batch(vec![PublishDiagnosticsTask {
+                file_id,
+                uri: alias_uri.clone(),
+                version: Some(7),
+                diagnostics: vec![diagnostic.clone()],
+            }]),
+            false,
+        );
+
+        let clear_primary = recv_publish(&client);
+        assert_eq!(clear_primary.uri, primary_uri);
+        assert!(clear_primary.diagnostics.is_empty());
+        let publish_alias = recv_publish(&client);
+        assert_eq!(publish_alias.uri, alias_uri);
+        assert_eq!(publish_alias.version, Some(7));
+        assert_eq!(publish_alias.diagnostics, vec![diagnostic]);
+        assert!(
+            state
+                .published_diagnostics
+                .contains_key(&DiagnosticPublishKey { file_id, uri: alias_uri })
+        );
+    }
+
+    #[test]
+    fn publish_diagnostics_clears_stale_targets_when_target_set_is_empty() {
+        let root = TestDir::new("diagnostics-clear-empty-target-set");
+        let root_path = root.path().to_path_buf();
+        let config = Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            lsp_types::ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
+        let file_id = FileId(0);
+        let alias_uri =
+            to_proto::url_from_abs_path(root.write("alias/top.sv", "").as_path()).unwrap();
+        let diagnostic = Diagnostic {
+            range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+            severity: Some(DiagnosticSeverity::ERROR),
+            source: Some("test".to_owned()),
+            message: "stale alias diagnostic".to_owned(),
+            ..Diagnostic::default()
+        };
+
+        state.publish_diagnostics_tasks(
+            publish_batch(vec![PublishDiagnosticsTask {
+                file_id,
+                uri: alias_uri.clone(),
+                version: Some(9),
+                diagnostics: vec![diagnostic],
+            }]),
+            false,
+        );
+        let published = recv_publish(&client);
+        assert_eq!(published.uri, alias_uri);
+        assert!(!published.diagnostics.is_empty());
+
+        state.publish_diagnostics_tasks(
+            PublishDiagnosticsBatch {
+                touched_file_ids: FxHashSet::from_iter([file_id]),
+                tasks: Vec::new(),
+            },
+            false,
+        );
+
+        let cleared = recv_publish(&client);
+        assert_eq!(cleared.uri, alias_uri);
+        assert!(cleared.diagnostics.is_empty());
+        assert!(
+            !state
+                .published_diagnostics
+                .contains_key(&DiagnosticPublishKey { file_id, uri: alias_uri })
+        );
     }
 
     #[test]
@@ -121,11 +273,39 @@ pub(crate) struct PublishDiagnosticsTask {
 }
 
 #[derive(Debug)]
+pub(crate) struct PublishDiagnosticsBatch {
+    pub(crate) touched_file_ids: FxHashSet<FileId>,
+    pub(crate) tasks: Vec<PublishDiagnosticsTask>,
+}
+
+impl PublishDiagnosticsBatch {
+    pub(crate) fn from_tasks(tasks: Vec<PublishDiagnosticsTask>) -> Self {
+        let touched_file_ids = tasks.iter().map(|task| task.file_id).collect();
+        Self { touched_file_ids, tasks }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct DiagnosticPublishKey {
+    /// Diagnostics are computed per analysis file but delivered per LSP URI.
+    /// Keeping both parts in the cache key prevents an alias URI from being
+    /// skipped just because the same diagnostic list was sent to another URI.
+    pub(crate) file_id: FileId,
+    pub(crate) uri: lsp_types::Url,
+}
+
+impl PublishDiagnosticsTask {
+    fn cache_key(&self) -> DiagnosticPublishKey {
+        DiagnosticPublishKey { file_id: self.file_id, uri: self.uri.clone() }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum Task {
     Response(lsp_server::Response),
     Retry(lsp_server::Request),
     FetchWorkspace(FetchWorkspaceProgress),
-    Diagnostics(Vec<PublishDiagnosticsTask>),
+    Diagnostics(PublishDiagnosticsBatch),
     Qihe(QiheTask),
 }
 
@@ -165,8 +345,11 @@ impl Task {
                 )
             }
             Task::Diagnostics(tasks) => {
-                let diagnostic_count = diagnostic_task_item_count(tasks);
-                format!("task diagnostics files={} diagnostics={diagnostic_count}", tasks.len())
+                let diagnostic_count = diagnostic_task_item_count(&tasks.tasks);
+                format!(
+                    "task diagnostics files={} diagnostics={diagnostic_count}",
+                    tasks.touched_file_ids.len()
+                )
             }
             Task::Qihe(task) => task.summary(),
         }
@@ -586,11 +769,11 @@ impl GlobalState {
 
     pub(super) fn publish_diagnostics_tasks(
         &mut self,
-        diagnostics: Vec<PublishDiagnosticsTask>,
+        batch: PublishDiagnosticsBatch,
         force_push: bool,
     ) {
-        let task_count = diagnostics.len();
-        let diagnostic_count = diagnostic_task_item_count(&diagnostics);
+        let task_count = batch.touched_file_ids.len();
+        let diagnostic_count = diagnostic_task_item_count(&batch.tasks);
         let _span =
             tracing::info_span!("diagnostics.publish", task_count, diagnostic_count, force_push)
                 .entered();
@@ -603,9 +786,31 @@ impl GlobalState {
         let mut published_files = 0usize;
         let mut published_diagnostics = 0usize;
         let mut skipped_files = 0usize;
-        for diag in diagnostics {
+        let PublishDiagnosticsBatch { touched_file_ids, tasks } = batch;
+        let current_targets =
+            tasks.iter().map(PublishDiagnosticsTask::cache_key).collect::<FxHashSet<_>>();
+        let stale_targets = self
+            .published_diagnostics
+            .keys()
+            .filter(|key| touched_file_ids.contains(&key.file_id) && !current_targets.contains(key))
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in stale_targets {
+            self.published_diagnostics.remove(&key);
+            self.send_notification::<lsp_types::notification::PublishDiagnostics>(
+                lsp_types::PublishDiagnosticsParams {
+                    uri: key.uri,
+                    diagnostics: Vec::new(),
+                    version: None,
+                },
+            );
+            published_files += 1;
+        }
+
+        for diag in tasks {
             let file_diagnostics = diag.diagnostics.len();
-            let should_publish = match self.diagnostics.get(&diag.file_id) {
+            let cache_key = diag.cache_key();
+            let should_publish = match self.published_diagnostics.get(&cache_key) {
                 Some(prev) => prev != &diag.diagnostics,
                 None => !diag.diagnostics.is_empty(),
             };
@@ -616,9 +821,9 @@ impl GlobalState {
             }
 
             if diag.diagnostics.is_empty() {
-                self.diagnostics.remove(&diag.file_id);
+                self.published_diagnostics.remove(&cache_key);
             } else {
-                self.diagnostics.insert(diag.file_id, diag.diagnostics.clone());
+                self.published_diagnostics.insert(cache_key, diag.diagnostics.clone());
             }
 
             self.send_notification::<lsp_types::notification::PublishDiagnostics>(

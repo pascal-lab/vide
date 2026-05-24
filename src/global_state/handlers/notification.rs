@@ -46,6 +46,7 @@ pub(crate) fn handle_did_open_text_document(
         ) {
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
+        state.pending_document_diagnostic_targets.insert(file_id);
     }
     Ok(())
 }
@@ -85,8 +86,12 @@ pub(crate) fn handle_did_close_text_document(
     params: DidCloseTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
+        let file_id = state.mem_docs.file_id(&path);
         if !state.mem_docs.remove_path(&path) {
             tracing::error!("orphan DidCloseTextDocument: {}", path);
+        }
+        if let Some(file_id) = file_id {
+            state.pending_document_diagnostic_targets.insert(file_id);
         }
 
         if let Some(path) = path.as_abs_path() {
