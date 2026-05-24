@@ -155,16 +155,21 @@ impl GlobalState {
     }
 
     pub(crate) fn update_configuration(&mut self, config: Config) {
-        let diagnostics_config = Arc::new(config.diagnostics_config());
+        let diagnostics_config = config.diagnostics_config();
+        let diagnostics_config_changed =
+            !self.config.diagnostics_config().has_same_settings(&diagnostics_config);
         let workspace_affecting_change =
             config.workspace_affecting_settings_changed(self.config.as_ref());
         let _old_config = std::mem::replace(&mut self.config, Arc::new(config));
-        self.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
-            diagnostics_config,
-            base_db::salsa::Durability::HIGH,
-        );
-        self.diagnostics_revision += 1;
-        self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
+
+        if diagnostics_config_changed {
+            self.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
+                Arc::new(diagnostics_config),
+                base_db::salsa::Durability::HIGH,
+            );
+            self.diagnostics_revision += 1;
+            self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
+        }
         if workspace_affecting_change {
             let config = Arc::make_mut(&mut self.config);
             config.refresh_project_manifests();
