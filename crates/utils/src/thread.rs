@@ -8,10 +8,21 @@ pub struct Pool {
     // `_handles` is never read: the field is present only for its `Drop` impl.
     // The worker threads exit once the channel closes;
     //
-    // <ake sure to keep `job_sender` above `handles` so that the channel is
+    // Make sure to keep `job_senders` above `handles` so that the channels are
     // actually closed before we join the worker threads!
-    job_sender: Sender<Job>,
+    job_senders: JobSenders,
     _handles: Vec<JoinHandle>,
+}
+
+#[derive(Clone)]
+struct JobSenders {
+    worker: Sender<Job>,
+    latency_sensitive: Sender<Job>,
+}
+
+struct JobReceivers {
+    worker: Receiver<Job>,
+    latency_sensitive: Receiver<Job>,
 }
 
 struct Job {
@@ -24,7 +35,12 @@ impl Pool {
         const STACK_SIZE: usize = 8 * 1024 * 1024;
         const INITIAL_INTENT: ThreadIntent = ThreadIntent::Worker;
 
-        let (job_sender, job_receiver) = crossbeam_channel::unbounded();
+        let (worker_sender, worker_receiver) = crossbeam_channel::unbounded();
+        let (latency_sensitive_sender, latency_sensitive_receiver) = crossbeam_channel::unbounded();
+        let job_senders =
+            JobSenders { worker: worker_sender, latency_sensitive: latency_sensitive_sender };
+        let job_receivers =
+            JobReceivers { worker: worker_receiver, latency_sensitive: latency_sensitive_receiver };
 
         let mut handles = Vec::with_capacity(threads);
         for _ in 0..threads {
@@ -32,10 +48,10 @@ impl Pool {
                 .stack_size(STACK_SIZE)
                 .name("Worker".into())
                 .spawn({
-                    let job_receiver: Receiver<Job> = job_receiver.clone();
+                    let job_receivers = job_receivers.clone();
                     move || {
                         let mut current_intent = INITIAL_INTENT;
-                        for job in job_receiver {
+                        while let Some(job) = job_receivers.recv() {
                             if job.requested_intent != current_intent {
                                 job.requested_intent.apply_to_current_thread();
                                 current_intent = job.requested_intent;
@@ -54,7 +70,7 @@ impl Pool {
             handles.push(handle);
         }
 
-        Pool { _handles: handles, job_sender }
+        Pool { _handles: handles, job_senders }
     }
 
     pub fn spawn<F>(&self, intent: ThreadIntent, f: F)
@@ -69,10 +85,40 @@ impl Pool {
         });
 
         let job = Job { requested_intent: intent, f };
-        if let Err(err) = self.job_sender.send(job) {
+        if let Err(err) = self.job_senders.send(job) {
             let job = err.into_inner();
             tracing::debug!("worker pool is closed; executing job inline");
             (job.f)();
+        }
+    }
+}
+
+impl JobSenders {
+    fn send(&self, job: Job) -> Result<(), crossbeam_channel::SendError<Job>> {
+        match job.requested_intent {
+            ThreadIntent::Worker => self.worker.send(job),
+            ThreadIntent::LatencySensitive => self.latency_sensitive.send(job),
+        }
+    }
+}
+
+impl Clone for JobReceivers {
+    fn clone(&self) -> Self {
+        Self { worker: self.worker.clone(), latency_sensitive: self.latency_sensitive.clone() }
+    }
+}
+
+impl JobReceivers {
+    fn recv(&self) -> Option<Job> {
+        crossbeam_channel::select_biased! {
+            recv(self.latency_sensitive) -> msg => match msg {
+                Ok(job) => Some(job),
+                Err(_) => self.worker.recv().ok(),
+            },
+            recv(self.worker) -> msg => match msg {
+                Ok(job) => Some(job),
+                Err(_) => self.latency_sensitive.recv().ok(),
+            },
         }
     }
 }
@@ -396,5 +442,51 @@ mod imp {
 
     pub(super) fn thread_intent_to_qos_class(_: ThreadIntent) -> QoSClass {
         QoSClass::Default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crossbeam_channel::bounded;
+
+    use super::{Pool, ThreadIntent};
+
+    #[test]
+    fn latency_sensitive_jobs_are_not_blocked_by_worker_fifo() {
+        let pool = Pool::new(1);
+        let (started_tx, started_rx) = bounded(1);
+        let (release_tx, release_rx) = bounded(1);
+
+        pool.spawn(ThreadIntent::Worker, move || {
+            started_tx.send(()).expect("worker start signal should send");
+            release_rx.recv().expect("worker release signal should receive");
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(5)).expect("initial worker job should start");
+
+        let (done_tx, done_rx) = bounded(8);
+
+        for job in 0..4 {
+            let done_tx = done_tx.clone();
+            pool.spawn(ThreadIntent::Worker, move || {
+                let _ = done_tx.send(format!("worker-{job}"));
+            });
+        }
+
+        let latency_done_tx = done_tx.clone();
+        pool.spawn(ThreadIntent::LatencySensitive, move || {
+            latency_done_tx
+                .send("latency-sensitive".to_owned())
+                .expect("latency-sensitive job completion should send");
+        });
+
+        release_tx.send(()).expect("worker release signal should send");
+
+        let first_completed =
+            done_rx.recv_timeout(Duration::from_secs(5)).expect("a queued job should complete");
+
+        assert_eq!(first_completed, "latency-sensitive");
     }
 }
