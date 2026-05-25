@@ -1,11 +1,15 @@
 ---
-title: Troubleshooting
-description: Troubleshoot Vizsla status bar errors, server startup failures, diagnostics, and file watching.
+title: Troubleshooting by Symptom
+description: Troubleshoot status bar, startup, Qihe, diagnostics, project scanning, and file watching symptoms.
 ---
 
-## Status Bar Shows an Error or Warning Icon
+This page starts from symptoms. To confirm whether the server can launch, use [Server Self-Check Flow](./check-server.md). For command, status item, and output channel entry points, use the [operations reference](./commands-status-logs.md).
 
-First click the `Vizsla` status bar item to open the status menu. Project configuration errors appear at the top of that menu. You can also choose `Show Output` from the menu or run `Vizsla: Show Language Server Output` directly. Focus on:
+## `Vizsla` Status Bar Shows Error or Warning
+
+Click the `Vizsla` status item to open the status menu. Project configuration errors appear at the top of that menu; you can also choose `Show Output` or run `Vizsla: Show Language Server Output`.
+
+Focus on these output lines:
 
 - `Bundled Vizsla Language Server binary not found`
 - `Unsupported platform-architecture combination`
@@ -14,14 +18,15 @@ First click the `Vizsla` status bar item to open the status menu. Project config
 - `Server args`
 - `Working directory`
 
-If the bundled server is missing, install the VSIX for the right platform or configure `vizsla.server.command` to point to a local server.
+If the error comes from project configuration, open or fix the `vizsla.toml` at the workspace root first.
 
 ## Bundled Server Not Found
 
-The extension looks for `server/vizsla.exe` or `server/vizsla` under its own installation directory. During local development, if you only ran `npm run compile`, you usually do not have a bundled server yet. You can package the extension:
+The extension looks for `server/vizsla.exe` or `server/vizsla` under its own installation directory. During local development, running only `npm run compile` does not create a bundled server.
+
+Package a debug VSIX under `editors/vscode`:
 
 ```powershell
-cd editors\vscode
 npm run package:debug
 ```
 
@@ -33,15 +38,16 @@ Or configure a local server directly:
 }
 ```
 
-## Custom command/args/cwd Startup Fails
+After saving, accept the `Restart` prompt.
+
+## Custom command, args, or cwd Startup Fails
 
 Check these points:
 
-- `vizsla.server.command` should use an absolute path.
-- `vizsla.server.args` must be an array of strings.
-- `vizsla.server.additionalArgs` must be an array of strings.
-- If `vizsla.server.cwd` is set, it must point to an existing directory.
-- Restart the language server after changing startup arguments.
+- `vizsla.server.command` uses an absolute path and can run `--version` in a terminal.
+- `vizsla.server.args` and `vizsla.server.additionalArgs` are arrays of strings.
+- If `vizsla.server.cwd` is set, it points to an existing directory.
+- After changing `vizsla.server.command`, `vizsla.server.args`, `vizsla.server.additionalArgs`, `vizsla.server.cwd`, or `vizsla.trace.server`, accept the extension's `Restart` prompt.
 
 Example:
 
@@ -54,11 +60,27 @@ Example:
 }
 ```
 
+## Qihe Command Is Unavailable or the Button Does Nothing
+
+`Vizsla: Run Qihe Analysis` is available only for local Verilog/SystemVerilog files. The target must be a `file:` URI whose extension is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`.
+
+If the Qihe process cannot start:
+
+- Confirm that `vizsla.qihe.command` is an executable name or absolute path, not a project directory.
+- If it is `qihe`, confirm that it is on the `PATH` seen by the VS Code process.
+- On Windows, VS Code launched from the desktop may see a different `PATH` than your terminal; use an absolute path when unsure.
+
+## Qihe Analysis Fails
+
+While Qihe runs, a separate `Qihe` status item appears. After a failure, clicking that status item opens the `Vizsla Qihe` output channel; the `Show Qihe Output` action in the error notification opens the same channel.
+
+In `Vizsla Qihe`, check the target file, Qihe compile/run arguments, Qihe output, and final failure details. Qihe arguments are derived from `vizsla.toml` by default; projects that already manage those arguments through scripts can disable automatic derivation and configure compile/run arguments explicitly in [VS Code Settings](./vscode-settings.md#qihe).
+
 ## Diagnostics Are Too Frequent or Stale
 
-The default `vizsla.diagnostics.update` is `onSave`, so diagnostics refresh when you save. This default is recommended for large projects.
+The default `vizsla.diagnostics.update` is `onSave`, so diagnostics refresh when you save. Keep this default for large projects.
 
-If you want diagnostics while editing:
+If you need diagnostics while editing:
 
 ```json
 {
@@ -66,36 +88,47 @@ If you want diagnostics while editing:
 }
 ```
 
-If diagnostics do not update, save the file first. Then run `Vizsla: Restart Language Server` and check the output channel for project loading errors.
+If diagnostics do not update, save the file first, then run `Vizsla: Reload Project Configuration`. If they still do not update, run `Vizsla: Restart Language Server` and check for project configuration errors.
+
+## Instance Ports or Parameters Report Errors
+
+If the `Problems` panel reports instance connection or parameter problems, place the cursor near the instance and open the lightbulb menu. Vizsla currently supports these cases:
+
+- Missing port connections: use `Fill connections`.
+- Parameters without values: use `Fill parameters`.
+- Mixed ordered and named port connections: use `Convert ordered port connections to named connections`, or `Remove empty port connections` when the problem is an extra empty connection.
+- Mixed ordered and named parameter assignments: use `Convert ordered parameter assignments to named assignments`.
+- A `.port` shorthand missing explicit `()`: use `Add explicit empty port connection`.
+- An instance with no port list: use `Add empty instance port list`.
+
+If these actions are missing, confirm that Vizsla can resolve the target module first. A direct check is `Go to Definition` on the instance module name. If that does not jump, fix `sources`, `include_dirs`, `defines`, or `libraries` first. Vizsla currently does not provide a dedicated automatic fix for unresolved modules, missing includes, or unresolved imports.
+
+## You Want to Hide or Downgrade a Diagnostic Type
+
+Place the cursor on the diagnostic and open the lightbulb menu. For slang diagnostics with an identifiable code, Vizsla provides quick fixes that write a rule to user or workspace settings, such as ignoring that diagnostic type or downgrading an error to a warning.
+
+If those actions are not available, edit `vizsla.diagnostics.slang.rules` manually. See [VS Code Settings](./vscode-settings.md#diagnostics) for the rule format.
 
 ## Project Files Are Not Scanned
 
 Check the project manifest:
 
 - Is `vizsla.toml` located at the workspace root? The legacy `vizsla_config.toml` still works, but `vizsla.toml` takes precedence when both exist.
-- If `sources` is set, does the shell glob match the target files? For recursive directories, use `rtl/**`; explicit `sources = []` disables workspace indexing.
-- Does an `exclude` shell glob exclude the target file? Recursive directory exclusion uses `build/**`.
+- If `sources` is set, does the path pattern match the target files? `rtl/*.sv` only matches `.sv` files directly under `rtl`; recursive directories use `rtl/**`.
+- Explicit `sources = []` disables workspace indexing.
+- Does an `exclude` path pattern exclude the target file? Recursive directory exclusion uses `build/**`.
 - Is the file extension `.v`, `.sv`, `.vh`, `.svh`, `.svi`, or `.map`?
 - Did you open a subdirectory, changing the workspace root?
 
-The VS Code extension only creates a default `vizsla.toml` when the workspace contains Verilog/SystemVerilog files and has no manifest:
+These path patterns use glob syntax with `*` and `**`: `*` does not cross directories, while `**` can. Use `/` as the separator in `sources` and `exclude`, even on Windows.
 
-```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
-sources = []
+Trailing `/` depends on the field. `include_dirs = ["include"]` and `include_dirs = ["include/"]` both describe an include search directory, and the docs prefer the version without `/`. But `sources = ["rtl/"]` is not the recursive “all files under `rtl`” pattern; use `sources = ["rtl/**"]` for that.
 
-# include_dirs = ["include"]
-# defines = ["SYNTHESIS"]
-# top_modules = ["top"]
-# libraries = ["../common_cells"]
-# exclude = ["build/**"]
-```
+The default `vizsla.toml` created by the extension writes `sources = []`. To index project files, add real `sources` patterns and add `include_dirs`, `defines`, `libraries`, or `top_modules` as needed. If a hand-written manifest omits `sources`, Vizsla scans the workspace as a best effort for basic reading and navigation, but it does not enable the full cross-file diagnostics view.
 
-This default manifest explicitly sets `sources = []`, so it does not scan the workspace root. To index project files or enable more accurate semantic diagnostics, add real `sources` shell globs or `include_dirs`, plus `defines`, `libraries`, or `top_modules` as needed. If a hand-written manifest omits `sources`, Vizsla enters best-effort workspace indexing mode. Vizsla does not automatically search parent or child directories for manifests.
+## Includes or Macros Do Not Work
 
-## include or Macros Do Not Work
-
-Add include directories and macros to the manifest:
+Add include directories and macros to the project manifest:
 
 ```toml
 defines = ["SYNTHESIS", "WIDTH=32"]
@@ -114,9 +147,9 @@ The default formatter provider calls `verible-verilog-format`. If it is not inst
 }
 ```
 
-Formatter failures usually come from formatter stderr. You can also reduce custom `vizsla.formatter.args` and verify with the default arguments first.
+Formatter failures usually come from formatter stderr. Reduce custom `vizsla.formatter.args` first and verify with the default arguments.
 
-## File Watching Issues
+## File Changes Do Not Trigger Refresh
 
 The default `vizsla.files.watcher` is `client`, so Vizsla prefers VS Code watched-file notifications. If the client does not support dynamic watched files, Vizsla falls back to the server-side watcher.
 
@@ -128,21 +161,8 @@ If project file changes do not trigger a refresh:
 }
 ```
 
-`vizsla.files.excludeDirs` only accepts workspace-relative directories and does not support globs. Prefer the manifest's `sources` / `exclude` shell globs for file selection. If you also want to reduce VS Code watcher events, configure VS Code's `files.watcherExclude` separately.
+`vizsla.files.excludeDirs` only accepts workspace-relative directories and does not support globs. Prefer the project manifest's `sources` / `exclude` shell globs for file selection. If you also want to reduce VS Code watcher events, configure VS Code's `files.watcherExclude` separately.
 
-## Debug with Logs
+## Need More Detailed Server Logs
 
-Write server logs to a file:
-
-```json
-{
-  "vizsla.server.additionalArgs": [
-    "--log",
-    "debug",
-    "--log_file",
-    "D:\\work\\chip\\.vizsla\\server.log"
-  ]
-}
-```
-
-Then run `Vizsla: Restart Language Server`. If the server fails before reading arguments, still start with the VS Code `Vizsla Language Server` output channel.
+If the process starts but you need server-side logs, add `--log` and `--log_file` through `vizsla.server.additionalArgs`, then restart the language server. See [Server Self-Check Flow](./check-server.md) for the steps.

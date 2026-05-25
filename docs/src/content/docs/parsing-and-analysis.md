@@ -1,76 +1,69 @@
 ---
 title: 解析与分析模型
-description: 说明 Vizsla 如何从文件发现、解析、索引到语义分析和诊断。
+description: 解释 Vizsla 为什么有时只能读文件，有时可以做完整项目分析。
 ---
 
-Vizsla 会把“看见文件”和“把文件当作工程编译单元”分开处理。这样缺少完整配置时仍然可以开箱即用地阅读代码, 而写入项目配置文件后又能得到更准确的语义分析。
+这页适合在你遇到下面问题时阅读：
 
-## 分层模型
+- 为什么没有 `vizsla.toml` 时，跳转还能工作，但跨文件诊断不一定完整？
+- 为什么写了 `sources = []` 后，Vizsla 不再自动扫描工作区？
+- 为什么头文件只放进 `include_dirs`，不一定会单独出现在诊断里？
+- 为什么 Qihe 有时按工程分析，有时退回单文件分析？
 
-Vizsla 的工程分析分成四层:
+先解释三个词：
 
-1. 文件发现和加载: 根据 workspace、`vizsla.toml`、`libraries` 和全局排除项决定哪些文件进入 VFS。
-2. 单文件解析: 对 Verilog/SystemVerilog 文件建立语法树, 并产生 parse diagnostics。
-3. Best-effort 索引: 对已加载文件建立可用于跳转、引用、悬停等读能力的索引。
-4. Semantic profile: 根据显式工程配置生成编译视图, 用于跨文件 semantic diagnostics、include/define 处理、top module 和 Qihe project mode。
+- 尽力索引：Vizsla 在没有完整项目配置时，尽量读取工作区里的 Verilog/SystemVerilog 文件，让跳转、引用、悬停、补全等阅读功能先可用。
+- 项目分析：Vizsla 根据 `vizsla.toml` 里的 `sources`、`include_dirs`、`defines`、`libraries` 和 `top_modules` 建立的工程视图。跨文件诊断和 Qihe 工程分析依赖它。
+- 诊断：VS Code `Problems` 面板里的错误、警告和提示。单文件语法问题可以不依赖完整项目配置；跨文件语义问题需要项目分析。
 
-每个加载出来的 source root 都会有一个角色:
+## sources 是最重要的开关
 
-| 角色 | 用途 |
-| --- | --- |
-| `Local` | 当前工程的语义 root。通常来自显式 `sources` 或显式 `include_dirs`。 |
-| `BestEffortIndex` | 只做 best-effort 索引, 不进入编译 profile。 |
-| `Library` | 依赖库 root, 会参与引用工程的 semantic profile。 |
-| `Ignored` | 不参与解析、索引或诊断。 |
+`sources` 决定 Vizsla 是否把某些文件当成“这个工程的一部分”。
 
-`BestEffortIndex` 是默认可读性的关键: 它让跳转、引用等功能尽量能用, 但不会把这些文件假装成一个准确的编译工程。
-
-## 项目配置文件行为
-
-`vizsla.toml` 控制工程模型, 但不是直接控制某一条 diagnostics 入口。不同配置会生成不同 root 和 profile:
-
-| 配置状态 | 文件加载 | Semantic profile |
+| 配置状态 | Vizsla 会读什么 | 项目分析 |
 | --- | --- | --- |
-| 没有项目配置文件 | 默认索引 workspace root | 不生成 |
-| 项目配置文件存在但省略 `sources` | 默认索引 workspace root | 不生成 |
-| 省略 `sources`, 但写了 `include_dirs` | 默认索引 workspace root, 另加载 include root | include root 生成 profile; 默认索引 root 不进入 profile |
-| `sources = []` | 不做默认 workspace 索引 | 不生成 |
-| `sources = []` 且写了 `include_dirs` | 只加载 include root | include root 生成 profile |
-| `sources = ["rtl/**"]` | 加载匹配的 source root | 生成 profile |
+| 没有项目配置文件 | 尽力索引工作区 | 不建立 |
+| 有项目配置文件，但省略 `sources` | 尽力索引工作区 | 不为这些默认索引文件建立 |
+| 省略 `sources`，但写了 `include_dirs` | 尽力索引工作区，并加载 include 目录 | include 目录可被项目分析使用；默认索引文件不参与 |
+| `sources = []` | 不自动扫描工作区 | 不建立 |
+| `sources = []` 且写了 `include_dirs` | 只加载 include 目录 | include 目录可被项目分析使用 |
+| `sources = ["rtl/**"]` | 加载匹配的源文件 | 建立 |
 
-显式 `sources = []` 是关闭 workspace 索引的 opt-out 路径。省略 `sources` 表示启用默认 best-effort 索引, 两者语义不同。
+可以把它记成一句话：省略 `sources` 是“先帮我读一下工作区，但不要假装它已经配置好了”；`sources = []` 是“不要自动扫工作区”；`sources = ["rtl/**"]` 是“这些文件属于我的工程”。
 
-当 `sources` 显式非空且 `include_dirs` 省略时, Vizsla 会把 `sources` 推导出的扫描根目录作为默认 include 目录。显式写 `include_dirs = []` 时不会回退。
+`include_dirs` 只负责 include 搜索。如果你显式写了 `sources`，但没有写 `include_dirs`，Vizsla 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。省略 `sources` 时不会做这个推导；显式写成 `include_dirs = []` 时也不会使用回退。
 
-## 解析和诊断
+`libraries` 会作为依赖工作区加载，并参与当前工程的项目分析。`exclude` 是工作区相对 glob，用来从已加载文件中过滤掉生成文件、仿真目录或黑盒文件。glob 的写法见 [项目配置](./project-configuration.md#路径和-glob-怎么写)。
 
-Parse diagnostics 来自单文件解析。它不需要完整 semantic profile, 但会受 source root 角色影响:
+## 诊断为什么会不一样
 
-| Root 角色 | Parse diagnostics 范围 | Semantic diagnostics |
+单文件解析诊断只需要看当前文件，例如少了分号、括号不配对。跨文件语义诊断需要知道更多工程信息，例如 include 目录、宏定义、库路径和哪些文件属于同一个工程。
+
+常见结果如下：
+
+| 文件所在状态 | 单文件解析诊断 | 跨文件语义诊断 |
 | --- | --- | --- |
-| `Local` | workspace root 内文件 | 需要 profile |
-| `Library` | workspace root 内文件 | 需要 profile |
-| `BestEffortIndex` | 只处理打开文件 | 不运行 |
-| `Ignored` | 不运行 | 不运行 |
+| 被 `sources` 明确加载的 `.v` 或 `.sv` 文件 | 可以运行 | 可以运行，前提是项目分析可用 |
+| 通过 `include_dirs` 找到的头文件 | 通过 include 它的源文件参与解析 | 通过 include 它的源文件参与项目分析 |
+| 只在尽力索引里出现的文件 | 通常只处理打开文件 | 不运行 |
+| 被 `exclude` 过滤的文件 | 不运行 | 不运行 |
 
-Semantic diagnostics 一定要通过 profile。没有 profile 的 root 不会被提升成项目编译单元; 默认索引 root 也不会生成项目编译计划。
+头文件（`.vh`、`.svh`、`.svi`）通常不是独立编译入口。它们主要通过被 `.v` 或 `.sv` 文件 include 后参与解析和诊断。只打开头文件，或只把目录写进 `include_dirs`，不等于会为这个头文件单独跑完整诊断。
 
-因此你可能看到多条入口触发诊断刷新, 例如打开文件、保存文件、workspace refresh 或 VS Code 的 Problems 面板请求, 但最终都会落到同一套分层模型上: root 角色决定范围, profile 决定是否能做跨文件语义分析。
+## 跳转和同名模块
 
-## 导航能力
+跳转、引用、悬停、补全和实例数量提示会优先使用已经加载的索引信息。尽力索引能让这些功能尽早可用，但它不是严格的编译配置。
 
-跳转、引用、悬停、补全和 code lens 会尽量使用已加载文件的索引信息。默认索引可以让这些读能力开箱即用, 但它不是准确编译配置:
+在项目分析里，同名 module 会按工程视图处理。如果多个同名 module 同时可见，Vizsla 不会把目录名当成隐式命名空间。
 
-- 在 `Local` 和 `Library` root 中, module 名称按编译单元级索引严格解析。多个同名 module 定义会被视为 ambiguous, Vizsla 不会把目录当作隐式命名空间。
-- 在 `BestEffortIndex` root 中, 如果多个同名 module 都可见, Vizsla 会只为 IDE 读能力做一次路径距离推测: 优先同文件, 然后优先共同目录最深的候选, 最后优先同 source root。只有唯一最优候选会被采用; 如果距离打平, 结果仍然保持 ambiguous。
-- Best-effort 路径距离只是 IDE heuristic, 不是语言级解析规则。能唯一就近选择时不会报告 diagnostic; 如果 best-effort 距离打平、无法唯一选择, Vizsla 会报告 `ambiguous-module-instantiation` information。严格解析下的同名 module ambiguity 仍会报告 `ambiguous-module-instantiation` warning。启用 slang semantic diagnostics 的配置化工程会优先使用 slang 的诊断, 不重复报告这些 Vizsla diagnostics。
-- 如果 include、macro、library 配置缺失, 部分语义能力会降级或缺失。
-- 如果需要和真实工程编译一致, 应该显式配置 `sources`, `include_dirs`, `defines`, `libraries` 和 `top_modules`。
+在尽力索引里，如果多个同名 module 都可见，Vizsla 会只为编辑器阅读功能做一次就近推测：优先同文件，再优先共同目录最深的候选，最后优先同一扫描根。只有出现唯一最优候选时才会采用；如果打平，结果仍然保持 ambiguous。
 
-这种设计的目标是先让工程可读, 再通过项目配置文件把结果变准。
+这种推测不是 SystemVerilog 语言规则。能唯一就近选择时不会报告诊断；无法唯一选择时，会用 `ambiguous-module-instantiation` 这类提示级诊断标出。配置好的工程里，同名 module 的问题仍然按更严格的语义规则处理；如果你开启了第三方 SystemVerilog 编译前端 `slang` 的语义诊断，Vizsla 会优先展示它给出的诊断。
 
-## Qihe project mode
+## Qihe 工程分析
 
-Qihe 的 project mode 使用 semantic profile 生成的编译计划。只有计划里存在实际编译源文件时, Vizsla 才会传入工程文件、`--top`、`-I` 和 `-D` 参数。
+当前 Qihe 自动工程分析要求工作目录下存在 `vizsla.toml`。只有旧版 `vizsla_config.toml` 时，普通 VS Code 功能仍会兼容读取它，但 Qihe 会退回单文件输入。
 
-如果当前文件只属于默认 `BestEffortIndex` root, 或者没有可用的项目编译 root, Vizsla 会回到单文件输入。这样默认索引不会误触发项目模式。
+存在 `vizsla.toml` 时，Qihe 会使用项目分析得到的编译计划。只有计划里存在实际源文件时，Vizsla 才会传入工程文件、`--top`、`-I` 和 `-D` 参数。
+
+如果当前文件只来自尽力索引，或者没有可用的项目编译计划，Vizsla 会让 Qihe 回到单文件输入。这样可以避免默认索引误触发工程分析。

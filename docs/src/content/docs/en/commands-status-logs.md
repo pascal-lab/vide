@@ -1,89 +1,66 @@
 ---
-title: Commands, Status, and Logs
-description: Vizsla command palette commands, status bar messages, and output channel.
+title: "Operations Reference: Commands, Status, and Logs"
+description: Quick reference for Vizsla command IDs, status bar items, and output channels.
 ---
+
+Use this page as an operations reference. To check whether the server starts correctly, follow [Server Self-Check Flow](./check-server.md). For failures, start from the symptom in [Troubleshooting](./troubleshooting.md).
 
 ## Command Palette Commands
 
-The VS Code extension contributes these commands:
+The VS Code extension contributes these commands. Use the Command Palette title in daily work; command IDs are mainly for keybindings or scripts.
 
-| Command | Purpose |
-| --- | --- |
-| `Vizsla: Show Language Server Output` | Opens the `Vizsla Language Server` output channel. |
-| `Vizsla: Restart Language Server` | Stops and restarts the language server. |
-| `Vizsla: Show Server Version` | Runs the server with `--version` and shows the first output line. |
-| `Vizsla: Reload Project Configuration` | Rereads project manifests and refreshes project information without restarting the language server. |
-| `Vizsla: Show Status` | Opens the Vizsla status menu. |
-| `Vizsla: Run Qihe Analysis` | Runs Qihe analysis for the current Verilog/SystemVerilog file. |
-| `Vizsla: Profile Diagnostics` | Runs one isolated diagnostics profiling pass for the workspace or current Verilog/SystemVerilog file and writes trace, summary, and flamegraph artifacts. |
+| Command ID | Command Palette title | Purpose |
+| --- | --- | --- |
+| `vizsla.showOutput` | `Vizsla: Show Language Server Output` | Opens the `Vizsla Language Server` output channel. |
+| `vizsla.restartServer` | `Vizsla: Restart Language Server` | Stops and restarts the current language server. |
+| `vizsla.showServerVersion` | `Vizsla: Show Server Version` | Runs the current server command with the current cwd and environment, combines `vizsla.server.args` with `--version`, and does not append `vizsla.server.additionalArgs`. |
+| `vizsla.reloadWorkspace` | `Vizsla: Reload Project Configuration` | Rereads project manifests and refreshes project information without restarting the server. |
+| `vizsla.showStatus` | `Vizsla: Show Status` | Opens the Vizsla status menu. |
+| `vizsla.runQiheAnalysis` | `Vizsla: Run Qihe Analysis` | Runs Qihe analysis for the current local Verilog/SystemVerilog file. |
+| `vizsla.profileDiagnostics` | `Vizsla: Profile Diagnostics` | Starts a temporary language server and runs one diagnostics profiling pass for the workspace or current file. |
+
+`vizsla.runQiheAnalysis` is available only for local files whose extension is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`.
 
 ## Status Bar
 
-The extension shows a status item named `Vizsla` on the right side of the VS Code status bar. The text is usually `Vizsla`; starting, stopping, or loading project configuration adds a spinner, a missing project manifest adds a warning icon, and server startup or project configuration failures add an error icon. Hover over the status item to see the current detail, such as whether the server is running, whether project configuration is loaded, whether no manifest exists, or whether project configuration failed.
+The main status item is named `Vizsla` and appears on the right side of the VS Code status bar. It reports language server and project configuration state:
 
-Click the status item or run `Vizsla: Show Status` to open the status menu. The menu shows project configuration errors at the top and provides these actions:
+| State | Meaning |
+| --- | --- |
+| Plain `Vizsla` text | The server has started; hover to see project configuration state. |
+| Spinner | Server startup, shutdown, or project configuration loading is in progress. |
+| Warning icon | Usually means the current workspace has no project manifest. |
+| Error icon | Server startup or project configuration loading failed. |
 
-- Open an existing `vizsla.toml`.
-- Create `vizsla.toml` for workspace folders that do not have one.
-- Run diagnostics profiling.
-- Reload project configuration.
-- Restart the language server.
-- Open the `Vizsla Language Server` output channel.
+Click the `Vizsla` status item or run `Vizsla: Show Status` to open the status menu. Depending on the current project state, the menu can show `Open Manifest`, `Create Manifest`, `Profile Diagnostics`, `Reload Project`, `Restart Language Server`, and `Show Output`.
 
-When Qihe analysis runs, a separate `Qihe` status item appears to show running, finished, or failed state. If Qihe fails, clicking that item opens the `Vizsla Qihe` output channel.
+When Qihe analysis runs, a separate `Qihe` status item appears. If Qihe fails, clicking that item opens the `Vizsla Qihe` output channel.
 
-## Output Channel
+## Output Channels
 
-`Vizsla Language Server` records:
+| Output channel | Records |
+| --- | --- |
+| `Vizsla Language Server` | Extension activation, platform, VS Code version, server command, args, cwd, bundled server lookup result, start/stop/restart, and version queries. |
+| `Vizsla Qihe` | Target file, command progress, Qihe output, and failure details for `vizsla.runQiheAnalysis`. |
+| `Vizsla Profiling` | Target, artifact directory, diagnostics request time, and generated file paths for `vizsla.profileDiagnostics`. |
 
-- Extension activation information.
-- Extension installation path.
-- Current platform and architecture.
-- VS Code version.
-- Server command, arguments, and working directory.
-- Bundled server lookup result.
-- Start, stop, restart, and version query results.
+## Advanced: Diagnostics Profiling Artifacts
 
-`Vizsla Qihe` records the target file, command progress, Qihe output, and failure information for `Vizsla: Run Qihe Analysis`. If Qihe fails, the `Show Qihe Output` action in the error notification opens this output channel.
-
-When `Vizsla: Profile Diagnostics` runs, the extension also opens the `Vizsla Profiling` output channel. It records the target, artifact directory, diagnostic request time, and generated file paths.
-
-## Run Qihe Analysis
-
-Open a Verilog/SystemVerilog file and run `Vizsla: Run Qihe Analysis`. The extension sends the request to the current language server and invokes Qihe according to the `vizsla.qihe.*` settings. See [VS Code Settings](./vscode-settings.md#qihe) for the Qihe command, compile arguments, run arguments, and automatic manifest-derived argument behavior.
-
-## Profile Diagnostics
-
-Run `Vizsla: Profile Diagnostics`. The extension starts a temporary language server process, then sends one diagnostics request for the selected target:
-
-- Workspace targets send `workspace/diagnostic` to measure the project-level diagnostics path.
-- Current-file targets send `textDocument/diagnostic` to narrow the run to one file.
-
-After the request finishes, the extension shuts the temporary process down. It does not restart or affect the language server used by your editor session.
-
-The command generates:
+`Vizsla: Profile Diagnostics` is mainly for large-project troubleshooting. It generates:
 
 | File | Description |
 | --- | --- |
-| `trace.json` | Chrome/Perfetto/Speedscope-compatible trace, and the input file for the interactive Speedscope viewer. |
+| `trace.json` | Chrome/Perfetto/Speedscope-compatible trace; the bundled Speedscope viewer opens this file. |
 | `summary.json` | Request timing, diagnostics summary, and top span summary. |
 | `trace.folded` | Folded stack generated from the trace. |
-| `flamegraph.svg` | Static flamegraph fallback. Interactive viewing opens `trace.json` in a VS Code tab backed by the bundled local Speedscope viewer. |
+| `flamegraph.svg` | Static flamegraph. |
 | `server.log` | Temporary language server log. |
 
-## Query Server Version
+Profiling uses an isolated temporary language server process, so it does not restart or affect the language server used by your editor session.
 
-Run `Vizsla: Show Server Version` from the command palette. The extension resolves the current server startup configuration and then runs:
+## Server Launch Setting Changes
 
-```powershell
-vizsla --version
-```
-
-If `vizsla.server.command` is configured, the version query uses that custom command. The extension places `vizsla.server.args` before `--version`.
-
-## Restart After Configuration Changes
-
-After these startup-related settings change, the extension prompts you to restart the language server:
+After these settings change, the extension prompts you to `Restart`:
 
 - `vizsla.server.command`
 - `vizsla.server.args`
@@ -91,4 +68,4 @@ After these startup-related settings change, the extension prompts you to restar
 - `vizsla.server.cwd`
 - `vizsla.trace.server`
 
-Choose `Restart` in the prompt or run `Vizsla: Restart Language Server` manually.
+Choose `Restart` in the prompt or run `vizsla.restartServer` manually.

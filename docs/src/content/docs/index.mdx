@@ -25,16 +25,16 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 <CardGrid stagger>
   <Card title="面向 RTL 的语言理解" icon="code-branch">
-    读取项目配置文件、源文件、include 目录和宏定义，维护 Verilog/SystemVerilog 语义信息。
+    读取打开的 RTL 文件，并在需要时根据项目配置文件、include 目录和宏定义建立更完整的工程语义。
   </Card>
   <Card title="VS Code 内即开即用" icon="vscode">
-    扩展负责语言配置、语法高亮、命令、状态栏，并自动启动 bundled language server。
+    安装扩展后打开 RTL 目录即可使用语法高亮、命令、状态栏和随扩展打包的后台服务。
   </Card>
   <Card title="导航与诊断" icon="magnifier">
     支持语义诊断、跳转到声明/定义、引用查找、文档高亮、符号大纲和折叠。
   </Card>
   <Card title="辅助编写 RTL" icon="rocket">
-    提供补全、悬停说明、签名帮助、重命名、格式化、代码操作和 inlay hints。
+    提供补全、悬停说明、签名帮助、重命名、格式化、代码操作和行内提示。
   </Card>
 </CardGrid>
 
@@ -44,7 +44,12 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="快速开始"
     href="./quick-start/"
-    description="安装扩展、打开 RTL 工程、确认服务器启动，然后试用核心 IDE 功能。"
+    description="按普通用户路径安装扩展、打开 RTL 目录、确认状态栏，然后试用核心 IDE 功能。"
+  />
+  <LinkCard
+    title="Playground"
+    href="./playground/"
+    description="在浏览器里运行多文件 RTL 示例，试用悬停说明、补全、跳转、诊断、行内提示和重命名。"
   />
   <LinkCard
     title="Playground"
@@ -54,12 +59,12 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="安装"
     href="./installation/"
-    description="了解 VS Code 扩展、离线 VSIX 和自定义服务器的安装方式。"
+    description="普通用户安装 VS Code 扩展；离线 VSIX 和自定义服务器只在需要时使用。"
   />
   <LinkCard
     title="第一个工程"
     href="./first-project/"
-    description="准备推荐目录结构，理解没有项目配置文件时的默认扫描行为。"
+    description="准备推荐目录结构，理解什么时候需要 vizsla.toml 以及默认配置的含义。"
   />
   <LinkCard
     title="项目配置"
@@ -74,7 +79,7 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="日常使用"
     href="./daily-use/"
-    description="按功能了解诊断、跳转、补全、格式化、代码操作、语义高亮和 code lens。"
+    description="按功能了解诊断、跳转、补全、格式化、快速修复、语义高亮和实例数量提示。"
   />
   <LinkCard
     title="VS Code 设置"
@@ -85,6 +90,11 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
     title="命令、状态栏和日志"
     href="./commands-status-logs/"
     description="查看命令面板命令、状态栏状态和输出通道行为。"
+  />
+  <LinkCard
+    title="服务器自检流程"
+    href="./check-server/"
+    description="按步骤确认 bundled server 或 custom server 是否能正常启动。"
   />
   <LinkCard
     title="故障排查"
@@ -100,20 +110,20 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## 项目组成
 
-Vizsla 由两个部分组成:
+Vizsla 由两个部分组成：
 
-- `vizsla`: Rust 编写的 LSP 服务器, 负责读取工程、解析源文件、维护语义信息并响应编辑器请求。
-- `editors/vscode`: VS Code 扩展, 负责贡献 Verilog/SystemVerilog 语言配置、语法高亮、命令、状态栏, 并启动语言服务器。
+- `vizsla`：Rust 编写的 LSP 服务器，负责读取工程、解析源文件、维护语义信息并响应编辑器请求。
+- `editors/vscode`：VS Code 扩展，负责贡献 Verilog/SystemVerilog 语言配置、语法高亮、命令、状态栏，并启动语言服务器。
 
 后续我们会支持更多编辑器。
 
 ## 支持的文件
 
-VS Code 扩展当前识别这些文件类型:
+VS Code 扩展当前识别这些文件类型：
 
 | 语言 | 扩展名 |
 | --- | --- |
 | Verilog | `.v`, `.vh` |
 | SystemVerilog | `.sv`, `.svh`, `.svi` |
 
-服务器加载工程时还会读取 `.map` 文件, 以支持库映射等工程输入。
+服务器加载工程时还会读取 `.map` 文件，以支持库映射等工程输入。

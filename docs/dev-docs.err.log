@@ -1,0 +1,194 @@
+[31m[1m00:05:23[22m [ERROR][39m [31m[UnknownFilesystemError][39m 
+  [1mHint:[22m
+[33m    It can be caused by many things, eg. missing permissions or a file not existing we attempt to read. Check the error cause for more details.[39m
+  [1mError reference:[22m
+    [36m[4mhttps://docs.astro.build/en/reference/errors/unknown-filesystem-error/[24m[39m
+  [1mStack trace:[22m
+[2m    at D:\Proj\vizsla\docs\node_modules\astro\dist\content\mutable-data-store.js:367:13
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+  [1mCaused by:[22m
+[2m  ENOENT: no such file or directory, rename 'D:\Proj\vizsla\docs\.astro\data-store.json.tmp' -> 'D:\Proj\vizsla\docs\.astro\data-store.json'
+    at async Object.rename (node:internal/fs/promises:1426:10)
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+The collection "docs" does not exist or is empty. Please check your content config file for errors.
+[31m[1m00:05:34[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+    at useRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:35:20)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\routes\common.astro:18:46)
+[31m[1m00:05:34[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+The collection "docs" does not exist or is empty. Please check your content config file for errors.
+[31m[1m00:05:47[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+    at useRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:35:20)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\routes\common.astro:18:46)
+[31m[1m00:05:47[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+The collection "docs" does not exist or is empty. Please check your content config file for errors.
+[31m[1m00:05:47[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+    at useRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:35:20)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\routes\common.astro:18:46)
+[31m[1m00:05:47[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+The collection "docs" does not exist or is empty. Please check your content config file for errors.
+[31m[1m00:06:00[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+    at useRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:35:20)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\routes\common.astro:18:46)
+[31m[1m00:06:00[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+The collection "docs" does not exist or is empty. Please check your content config file for errors.
+The collection "docs" does not exist or is empty. Please check your content config file for errors.
+[31m[1m00:06:18[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:39)
+    at Array.flatMap (<anonymous>)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:24)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+[31m[1m00:06:18[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+[31m[1m00:06:19[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:39)
+    at Array.flatMap (<anonymous>)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:24)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+[31m[1m00:06:19[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+[31m[1m00:06:20[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:39)
+    at Array.flatMap (<anonymous>)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:24)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+[31m[1m00:06:20[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+[31m[1m00:06:23[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:39)
+    at Array.flatMap (<anonymous>)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:24)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+[31m[1m00:06:23[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+[31m[1m00:06:24[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:39)
+    at Array.flatMap (<anonymous>)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:24)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+[31m[1m00:06:24[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m
+[31m[1m00:06:24[22m [ERROR][39m AstroUserError: The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:85:10)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:39)
+    at Array.flatMap (<anonymous>)
+    at configItemToEntry (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:91:24)
+    at eval (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:43)
+    at Array.flatMap (<anonymous>)
+    at getIntermediateSidebarFromConfig (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:409:24)
+    at getSidebar (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:383:25)
+    at generateRouteData (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\routing\data.ts:47:18)
+[31m[1m00:06:24[22m [ERROR][39m [31m[AstroUserError][39m The slug `"quick-start"` specified in the Starlight sidebar config does not exist.
+  [1mHint:[22m
+[33m    Update the Starlight config to reference a valid entry slug in the docs content collection.
+    Learn more about Astro content collection slugs at [4mhttps://docs.astro.build/en/reference/modules/astro-content/#getentry[24m[39m
+  [1mStack trace:[22m
+[2m    at linkFromInternalSidebarLinkItem (D:\Proj\vizsla\docs\node_modules\@astrojs\starlight\utils\navigation.ts:154:10)
+    [...] See full stack trace in the browser, or rerun with --verbose.[22m

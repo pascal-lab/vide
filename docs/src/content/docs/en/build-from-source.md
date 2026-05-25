@@ -3,7 +3,26 @@ title: Build from Source
 description: Build the Vizsla server, VS Code extension, and local VSIX packages from source.
 ---
 
-This page is for users who need local development, debugging, or VSIX packaging.
+This page is for users who need local development, debugging, or VSIX packaging. After building, use [Server Self-Check Flow](./check-server.md) to verify the server launch.
+
+## Prerequisites
+
+When building Vizsla from source, `cargo build` compiles the vendored
+`crates/slang` tree through a Rust build script, so the build needs a C++
+environment that can compile slang:
+
+- Rust toolchain and Cargo.
+- CMake 3.20 or newer.
+- A Python interpreter for slang's CMake configuration step.
+- A C++20-capable C++ compiler. On Windows, install Visual Studio 2022 Build
+  Tools with the "Desktop development with C++" workload; on Linux/macOS, use a
+  recent GCC or Clang toolchain. slang requires at least GCC 10-level C++20
+  support.
+- Node.js and npm for building the VS Code extension and packaging VSIX files.
+
+You do not need to install a system-level `slang` command first. Vizsla uses the
+vendored slang sources in this repository, and server builds or VSIX packaging
+compile them together with the Rust server.
 
 ## Prerequisites
 
@@ -62,6 +81,8 @@ If you only want the VS Code extension to use the locally built server, configur
   "vizsla.server.command": "D:\\Proj\\vizsla\\target\\release\\vizsla.exe"
 }
 ```
+
+After saving, VS Code prompts you to `Restart`; accept it, then use `Vizsla: Show Server Version` to verify the binary used by the extension.
 
 ## Build the VS Code Extension
 

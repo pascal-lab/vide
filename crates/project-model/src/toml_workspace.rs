@@ -76,25 +76,30 @@ struct TomlManifestSchema {
         )
     )]
     pub sources: Option<Vec<String>>,
-    /// Include search directories. When omitted, Vizsla uses the scan roots
-    /// inferred from sources as include directories.
+    /// Include search directories. When omitted and sources is set explicitly,
+    /// Vizsla uses the scan roots inferred from sources. Explicit
+    /// include_dirs = [] disables this fallback.
     #[serde(default)]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "Include search directories. When omitted, Vizsla uses the scan roots inferred from sources as include directories.",
+            description = "Include search directories. When omitted and sources is set explicitly, Vizsla uses the scan roots inferred from sources. Explicit include_dirs = [] disables this fallback.",
             with = "Vec::<String>",
             default = "empty_string_vec",
             extend("examples" = [["include", "rtl"]])
         )
     )]
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
-    /// External library or dependency workspace paths.
+    /// External library or dependency workspace paths. Paths are resolved
+    /// relative to the manifest directory. Each path is loaded as another
+    /// workspace: if it contains vizsla.toml or vizsla_config.toml, that
+    /// manifest is used; otherwise the path is loaded as an unconfigured
+    /// library dependency.
     #[serde(default)]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "External library or dependency workspace paths.",
+            description = "External library or dependency workspace paths. Paths are resolved relative to the manifest directory. Each path is loaded as another workspace: if it contains vizsla.toml or vizsla_config.toml, that manifest is used; otherwise the path is loaded as an unconfigured library dependency.",
             with = "Vec::<String>",
             default = "empty_string_vec",
             extend("examples" = [["../common_cells"]])

@@ -1,22 +1,26 @@
 ---
-title: Check the Server
-description: Check whether the Vizsla bundled server or custom server starts correctly.
+title: Server Self-Check Flow
+description: Step-by-step checks for the Vizsla bundled server or a custom server launch.
 ---
 
-## Check the Status Bar
+Use this page to confirm that the language server launch is healthy. Command and log entry points are in the [operations reference](./commands-status-logs.md); for a concrete failure, jump to [Troubleshooting](./troubleshooting.md).
 
-The most direct signal is the `Vizsla` status item on the right side of the VS Code status bar:
+## 1. Check the Status Bar
 
-- Plain `Vizsla` text with no error icon: the server has started; hover to see project configuration status.
-- A spinner that stays for a long time: server startup, shutdown, or project configuration loading is stuck, so check the output channel.
-- An error icon: server startup or project configuration loading failed.
-- A warning icon: usually means the current workspace has no project manifest.
+Start with the `Vizsla` status item on the right side of the VS Code status bar:
 
-Click the status item to open the `Vizsla Status` menu. From there, run `Show Output` to open the `Vizsla Language Server` output channel.
+| State | Next step |
+| --- | --- |
+| Plain `Vizsla` text | The server has started. Hover to check whether project configuration loaded. |
+| Spinner that does not finish | Check the `Vizsla Language Server` output channel. |
+| Warning icon | Click the status item to confirm whether the workspace is missing a project manifest. |
+| Error icon | Click the status item for the menu-top error, then open the output channel. |
 
-## Check the Output Channel
+Click the status item or run `Vizsla: Show Status` to open the status menu.
 
-Run `Vizsla: Show Language Server Output` and look for entries like:
+## 2. Open Language Server Output
+
+Run `Vizsla: Show Language Server Output`, or choose `Show Output` from the status menu. A normal startup usually includes:
 
 ```text
 [INFO] Vizsla extension activating...
@@ -28,58 +32,42 @@ Run `Vizsla: Show Language Server Output` and look for entries like:
 [INFO] Language server started successfully
 ```
 
-If you see that the bundled server was not found, the current VSIX does not contain a usable server or the platform does not match. Install the VSIX for the right platform or configure `vizsla.server.command`.
+These lines confirm the platform, final server command, arguments, and working directory seen by the extension.
 
-## Verify the Bundled Server
+## 3. Verify the Server Version
 
-By default, the extension looks for the server under the `server` subdirectory of the extension installation:
+Run `Vizsla: Show Server Version`. The extension uses the current server command, cwd, and environment, combines `vizsla.server.args` with `--version`, and does not append `vizsla.server.additionalArgs`. If `vizsla.server.command` is set, the custom command is used.
 
-- Windows: `vizsla.exe`
-- macOS/Linux: `vizsla`
-
-If it is found, the output channel records the bundled server path. On non-Windows platforms, the extension also checks executable permissions and tries to set them to `755`.
-
-## Verify a Custom Server
-
-After configuring a custom server, the output channel should include:
-
-```text
-[INFO] Using custom server command: ...
-```
-
-We recommend testing it directly in a terminal first:
-
-```powershell
-D:\tools\vizsla\vizsla.exe --version
-```
-
-Then use the same path in settings:
-
-```json
-{
-  "vizsla.server.command": "D:\\tools\\vizsla\\vizsla.exe"
-}
-```
-
-## Use vizsla --version
-
-The server binary supports `--version`:
+You can also test the binary directly in a terminal:
 
 ```powershell
 vizsla --version
 ```
 
-The version format includes the Cargo package version and distinguishes `DEBUG` and `RELEASE` builds.
-
-## Enable Server Logs
-
-The server supports `--log` and `--log_file`:
+Windows custom-server example:
 
 ```powershell
-vizsla --log debug --log_file .\.vizsla\server.log
+D:\tools\vizsla\vizsla.exe --version
 ```
 
-Pass these arguments through the VS Code extension:
+## 4. Check Bundled or Custom Server Selection
+
+The default configuration uses the server bundled with the extension. The extension looks under the extension installation's `server` subdirectory:
+
+- Windows: `vizsla.exe`
+- macOS/Linux: `vizsla`
+
+If `vizsla.server.command` is configured, the output channel should include:
+
+```text
+[INFO] Using custom server command: ...
+```
+
+Prefer an absolute path for custom servers, and validate it with `--version` first.
+
+## 5. Enable a Server Log File When Needed
+
+If the process starts but you need server-side logs, pass logging arguments through `vizsla.server.additionalArgs`:
 
 ```json
 {
@@ -87,9 +75,9 @@ Pass these arguments through the VS Code extension:
     "--log",
     "debug",
     "--log_file",
-    "D:\\work\\my-rtl\\.vizsla\\server.log"
+    "D:\\work\\chip\\.vizsla\\server.log"
   ]
 }
 ```
 
-After changing startup arguments, run `Vizsla: Restart Language Server`.
+After saving, choose `Restart` in the extension prompt or run `Vizsla: Restart Language Server`. If the process fails before it can read arguments, start with the `Vizsla Language Server` output channel.

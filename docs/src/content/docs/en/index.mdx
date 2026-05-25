@@ -25,10 +25,10 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 <CardGrid stagger>
   <Card title="RTL-aware language intelligence" icon="code-branch">
-    Reads project manifests, source files, include directories, and macro definitions to maintain Verilog/SystemVerilog semantic information.
+    Reads opened RTL files and, when needed, builds fuller project semantics from manifests, include directories, and macro definitions.
   </Card>
   <Card title="Ready inside VS Code" icon="vscode">
-    The extension contributes language configuration, syntax highlighting, commands, a status bar item, and starts the bundled language server.
+    Install the extension, open an RTL directory, and use syntax highlighting, commands, the status bar item, and the server bundled with the extension.
   </Card>
   <Card title="Navigation and diagnostics" icon="magnifier">
     Supports semantic diagnostics, go to declaration/definition, references, document highlights, outlines, and folding.
@@ -44,7 +44,12 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="Quick Start"
     href="./quick-start/"
-    description="Install the extension, open an RTL project, confirm that the server starts, and try the core IDE features."
+    description="Follow the normal user path: install the extension, open an RTL directory, check the status bar, and try the core IDE features."
+  />
+  <LinkCard
+    title="Playground"
+    href="./playground/"
+    description="Run multi-file RTL examples in the browser and try hover, completion, navigation, diagnostics, inlay hints, and rename."
   />
   <LinkCard
     title="Playground"
@@ -54,12 +59,12 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="Installation"
     href="./installation/"
-    description="Learn how to install the VS Code extension, offline VSIX packages, and custom servers."
+    description="Install the VS Code extension for normal use; use offline VSIX packages or custom servers only when needed."
   />
   <LinkCard
     title="First Project"
     href="./first-project/"
-    description="Prepare a recommended directory layout and understand the default scanning behavior when no manifest exists."
+    description="Prepare a recommended layout and understand when you need vizsla.toml and what the default configuration means."
   />
   <LinkCard
     title="Project Configuration"
@@ -85,6 +90,11 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
     title="Commands, Status, and Logs"
     href="./commands-status-logs/"
     description="See command palette commands, status bar states, and output channel behavior."
+  />
+  <LinkCard
+    title="Server Self-Check Flow"
+    href="./check-server/"
+    description="Step through bundled-server or custom-server launch checks."
   />
   <LinkCard
     title="Troubleshooting"
