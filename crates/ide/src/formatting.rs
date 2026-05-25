@@ -1,5 +1,4 @@
 use std::{
-    io::Write,
     iter,
     ops::{ControlFlow, Range},
     process::{Command, Stdio},
@@ -18,9 +17,11 @@ use syntax::{
     token::SyntaxTokenWithParentExt, trivia::TriviaKindExt,
 };
 use utils::{
+    cancellation::CancellationToken,
     line_index::{TextRange, TextSize},
     lines::{LineEnding, LineInfo},
     paths::Utf8PathBuf,
+    process::{configure_process_tree, wait_with_input_and_output_and_cancellation},
     text_edit::TextEdit,
 };
 use vfs::FileId;
@@ -59,9 +60,10 @@ pub(crate) fn format(
     line_range: Option<Range<usize>>,
     LineInfo { ending, .. }: &LineInfo,
     config: FmtConfig,
+    cancellation: &CancellationToken,
 ) -> anyhow::Result<Option<TextEdit>> {
     let text = db.file_text(file_id);
-    format_inner(text.as_ref(), line_range, ending, config)
+    format_inner(text.as_ref(), line_range, ending, config, cancellation)
 }
 
 fn format_inner(
@@ -69,10 +71,13 @@ fn format_inner(
     line_range: Option<Range<usize>>,
     ending: &LineEnding,
     config: FmtConfig,
+    cancellation: &CancellationToken,
 ) -> Result<Option<TextEdit>, anyhow::Error> {
+    cancellation.check()?;
     let new_text = match config.provider {
-        FormatterProvider::Verible => format_verible(text, line_range, &config)?,
+        FormatterProvider::Verible => format_verible(text, line_range, &config, cancellation)?,
     };
+    cancellation.check()?;
 
     let (new_text, new_line_endings) = LineEnding::normalize(new_text);
 
@@ -90,6 +95,7 @@ fn format_verible(
     text: &str,
     line_range: Option<Range<usize>>,
     config: &FmtConfig,
+    cancellation: &CancellationToken,
 ) -> anyhow::Result<String> {
     let verible_fmt_path = config
         .executable
@@ -103,16 +109,14 @@ fn format_verible(
     if let Some(lines) = line_range {
         cmd.arg("--lines").arg(format!("{}-{}", lines.start + 1, lines.end));
     }
+    configure_process_tree(&mut cmd);
 
-    let mut fmt =
+    cancellation.check()?;
+    let fmt =
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).arg("-").spawn()?;
 
-    fmt.stdin
-        .as_mut()
-        .ok_or(anyhow::format_err!("verible-verilog-format: could not open stdin"))?
-        .write_all(text.as_bytes())?;
-
-    let output = fmt.wait_with_output()?;
+    let output =
+        wait_with_input_and_output_and_cancellation(fmt, text.as_bytes().to_vec(), cancellation)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)?;
@@ -166,7 +170,9 @@ pub fn format_on_type(
     ch: String,
     line_info: &LineInfo,
     config: FmtConfig,
+    cancellation: &CancellationToken,
 ) -> anyhow::Result<Option<TextEdit>> {
+    cancellation.check()?;
     if ch.as_str() != "\n" {
         return Ok(None);
     }
@@ -207,7 +213,8 @@ pub fn format_on_type(
     if config.on_enter
         && config.provider.supports_range_formatting()
         && let Some(trivias) = trivias.get(..idx.unwrap_or(trivias.len()))
-        && let Some(edits) = format_previous(db, file_id, trivias, &mut cursor, line_info, config)
+        && let Some(edits) =
+            format_previous(db, file_id, trivias, &mut cursor, line_info, config, cancellation)
     {
         res.union(edits)
             .map_err(|_| anyhow::format_err!("on-type formatting produced overlapping edits"))?;
@@ -312,6 +319,7 @@ fn format_previous<'a>(
     cursor: &mut SyntaxCursor<'a>,
     LineInfo { ending, index, .. }: &LineInfo,
     config: FmtConfig,
+    cancellation: &CancellationToken,
 ) -> Option<TextEdit> {
     check!(trivias.iter().filter(|(_, t)| t.kind().is_eol()).count() == 1);
 
@@ -354,7 +362,7 @@ fn format_previous<'a>(
         }
     }
 
-    let Ok(Some(edits)) = format_inner(&text, line_range, ending, config) else {
+    let Ok(Some(edits)) = format_inner(&text, line_range, ending, config, cancellation) else {
         return None;
     };
 
@@ -370,6 +378,7 @@ mod tests {
     use span::FilePosition;
     use triomphe::Arc;
     use utils::{
+        cancellation::CancellationToken,
         lines::{LineEnding, LineInfo, PositionEncoding},
         text_edit::TextSize,
     };
@@ -425,6 +434,7 @@ mod tests {
             ".".to_owned(),
             &line_info(&db, file_id),
             config(),
+            &CancellationToken::new(),
         )
         .unwrap();
 
@@ -441,6 +451,7 @@ mod tests {
             "\n".to_owned(),
             &line_info(&db, file_id),
             config(),
+            &CancellationToken::new(),
         )
         .unwrap();
 

@@ -23,6 +23,7 @@ use itertools::Itertools;
 use span::{FilePosition, FileRange};
 use syntax::DiagnosticSeverity as SlangDiagnosticSeverity;
 use utils::{
+    cancellation::CancellationError,
     line_index::{LineCol, LineIndex, TextRange, TextSize},
     lines::{LineEnding, LineInfo, PositionEncoding},
     paths::{
@@ -362,6 +363,12 @@ pub(crate) fn rename_error(i18n: I18n, err: RenameError) -> LspError {
 }
 
 pub(crate) fn format_error(err: Error) -> LspError {
+    if err.is::<CancellationError>() {
+        return LspError::new(
+            lsp_types::error_codes::REQUEST_CANCELLED as i32,
+            "request cancelled".to_owned(),
+        );
+    }
     LspError::new(lsp_server::ErrorCode::RequestFailed as i32, err.to_string())
 }
 

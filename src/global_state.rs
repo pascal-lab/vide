@@ -8,11 +8,16 @@ mod project_status;
 mod qihe;
 pub mod reload;
 pub mod respond;
+mod response_effect;
 pub(crate) mod snapshot;
 mod trace;
 mod workspace_state;
 
-use std::time::Instant;
+use std::{
+    collections::HashMap,
+    panic::{self, AssertUnwindSafe},
+    time::Instant,
+};
 
 use base_db::{
     project::{ProjectConfig, SharedProjectConfig},
@@ -29,6 +34,7 @@ use project_model::Workspace;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::{
+    cancellation::CancellationToken,
     excl_task::ExclTask,
     lines::LineEnding,
     thread::{Pool, ThreadIntent},
@@ -53,11 +59,53 @@ use crate::config::{Config, ConfigError};
 pub(crate) struct TaskPool<T> {
     pub(crate) sender: Sender<T>,
     pub(crate) pool: Pool,
+    lifecycle_cancel: CancellationToken,
+    request_cancel_tokens: HashMap<lsp_server::RequestId, CancellationToken>,
 }
 
 impl<T> TaskPool<T> {
     pub(crate) fn new_with_threads_num(sender: Sender<T>, threads_num: usize) -> TaskPool<T> {
-        TaskPool { sender, pool: Pool::new(threads_num) }
+        TaskPool {
+            sender,
+            pool: Pool::new(threads_num),
+            lifecycle_cancel: CancellationToken::new(),
+            request_cancel_tokens: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn task_token(&self) -> CancellationToken {
+        self.lifecycle_cancel.child_token()
+    }
+
+    pub(crate) fn register_request(
+        &mut self,
+        request_id: lsp_server::RequestId,
+    ) -> CancellationToken {
+        let token = self.task_token();
+        self.request_cancel_tokens.insert(request_id, token.clone());
+        token
+    }
+
+    pub(crate) fn request_token(
+        &self,
+        request_id: &lsp_server::RequestId,
+    ) -> Option<CancellationToken> {
+        self.request_cancel_tokens.get(request_id).cloned()
+    }
+
+    pub(crate) fn complete_request(&mut self, request_id: &lsp_server::RequestId) {
+        self.request_cancel_tokens.remove(request_id);
+    }
+
+    pub(crate) fn cancel_request(&mut self, request_id: &lsp_server::RequestId) {
+        if let Some(token) = self.request_cancel_tokens.remove(request_id) {
+            token.cancel();
+        }
+    }
+
+    pub(crate) fn cancel_all(&mut self) {
+        self.lifecycle_cancel.cancel();
+        self.request_cancel_tokens.clear();
     }
 
     pub(crate) fn spawn_and_send<F>(&mut self, intent: ThreadIntent, task: F)
@@ -67,10 +115,13 @@ impl<T> TaskPool<T> {
     {
         self.pool.spawn(intent, {
             let sender = self.sender.clone();
-            move || {
-                if sender.send(task()).is_err() {
-                    tracing::debug!("task result dropped because main loop receiver is closed");
+            move || match panic::catch_unwind(AssertUnwindSafe(task)) {
+                Ok(task) => {
+                    if sender.send(task).is_err() {
+                        tracing::debug!("task result dropped because main loop receiver is closed");
+                    }
                 }
+                Err(panic) => log_task_panic(panic),
             }
         })
     }
@@ -82,9 +133,22 @@ impl<T> TaskPool<T> {
     {
         self.pool.spawn(intent, {
             let sender = self.sender.clone();
-            move || task(sender)
+            move || {
+                if let Err(panic) = panic::catch_unwind(AssertUnwindSafe(|| task(sender))) {
+                    log_task_panic(panic);
+                }
+            }
         })
     }
+}
+
+fn log_task_panic(panic: Box<dyn std::any::Any + Send>) {
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("unknown panic payload");
+    tracing::error!(message, "background task panicked");
 }
 
 pub(crate) struct Handle<H, C> {
@@ -127,6 +191,7 @@ pub(crate) struct GlobalState {
     // Only the latest Qihe run is allowed to commit diagnostics or logs.
     pub(crate) qihe_run_generation: qihe::QiheRunId,
     pub(crate) qihe_active_progress_token: Option<String>,
+    pub(crate) qihe_active_cancel_token: Option<CancellationToken>,
 
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
@@ -188,6 +253,7 @@ impl GlobalState {
             qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
             qihe_run_generation: qihe::QiheRunId::default(),
             qihe_active_progress_token: None,
+            qihe_active_cancel_token: None,
 
             vfs_loader,
             vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
@@ -200,6 +266,13 @@ impl GlobalState {
     }
 
     pub(crate) fn make_snapshot(&self) -> GlobalStateSnapshot {
+        self.make_snapshot_with_cancel(self.task_pool.handle.task_token())
+    }
+
+    pub(crate) fn make_snapshot_with_cancel(
+        &self,
+        cancellation: CancellationToken,
+    ) -> GlobalStateSnapshot {
         GlobalStateSnapshot {
             config: Arc::clone(&self.config),
             workspaces: Arc::clone(&self.workspaces),
@@ -210,6 +283,8 @@ impl GlobalState {
             qihe_diagnostics: Arc::clone(&self.qihe_diagnostics),
             diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
             diagnostic_file_revisions: self.diagnostic_file_revisions.clone(),
+            cancellation,
+            accepted_response_effects: Default::default(),
         }
     }
 
@@ -237,6 +312,7 @@ pub(crate) struct QiheDiagnosticState {
 impl GlobalState {
     pub(crate) fn register_request(&mut self, req_received: Instant, req: &Request) {
         self.req_queue.incoming.register(req.id.clone(), (req.method.clone(), req_received));
+        self.task_pool.handle.register_request(req.id.clone());
     }
 
     pub(crate) fn is_completed(&self, req: &Request) -> bool {
@@ -244,8 +320,43 @@ impl GlobalState {
     }
 
     pub(crate) fn cancel(&mut self, req_id: lsp_server::RequestId) {
+        self.task_pool.handle.cancel_request(&req_id);
         if let Some(response) = self.req_queue.incoming.cancel(req_id) {
+            self.task_pool.handle.complete_request(&response.id);
             self.send(response.into());
         }
+    }
+
+    pub(crate) fn cancel_all_tasks(&mut self) {
+        self.task_pool.handle.cancel_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskPool;
+
+    #[test]
+    fn task_pool_request_cancel_signals_registered_token() {
+        let (sender, _receiver) = crossbeam_channel::unbounded::<()>();
+        let mut pool = TaskPool::new_with_threads_num(sender, 0);
+        let request_id = lsp_server::RequestId::from(7);
+        let token = pool.register_request(request_id.clone());
+
+        pool.cancel_request(&request_id);
+
+        assert!(token.is_cancelled());
+        assert!(pool.request_token(&request_id).is_none());
+    }
+
+    #[test]
+    fn task_pool_lifecycle_cancel_signals_child_tokens() {
+        let (sender, _receiver) = crossbeam_channel::unbounded::<()>();
+        let mut pool = TaskPool::new_with_threads_num(sender, 0);
+        let token = pool.task_token();
+
+        pool.cancel_all();
+
+        assert!(token.is_cancelled());
     }
 }
