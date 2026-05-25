@@ -1,5 +1,6 @@
 use base_db::{
     diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
+    project::CompilationProfileId,
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
@@ -90,6 +91,35 @@ fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         .collect()
 }
 
+pub(crate) fn compilation_profile_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+) -> Vec<Diagnostic> {
+    db.compilation_profile_diagnostics(profile_id)
+        .iter()
+        .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .collect()
+}
+
+pub(crate) fn compilation_profile_syntax_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+) -> Vec<Diagnostic> {
+    let plan = db.compilation_plan_for_profile(Some(profile_id));
+    let mut file_ids = plan.roots.clone();
+    file_ids.extend(plan.include_only.iter().copied());
+    file_ids.sort_unstable_by_key(|file_id| file_id.0);
+    file_ids.dedup();
+
+    file_ids.into_iter().flat_map(|file_id| syntax_diagnostics(db, file_id)).collect()
+}
+
+fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    let mut diagnostics = parse_diagnostics(db, file_id);
+    diagnostics.extend(vizsla_diagnostics(db, file_id));
+    diagnostics
+}
+
 fn slang_diagnostic(
     file_id: FileId,
     source: SlangDiagnosticSource,
@@ -118,9 +148,8 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let mut diagnostics = if slang_semantic_diagnostics_active(db, file_id) {
         Vec::new()
     } else {
-        parse_diagnostics(db, file_id)
+        syntax_diagnostics(db, file_id)
     };
-    diagnostics.extend(vizsla_diagnostics(db, file_id));
 
     diagnostics.extend(
         compilation_diagnostics(db, file_id).into_iter().filter(|diag| diag.file_id == file_id),
@@ -135,9 +164,7 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
     match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Disabled => return Vec::new(),
         SourceRootDiagnosticScope::OpenFile => {
-            let mut diagnostics = parse_diagnostics(db, file_id);
-            diagnostics.extend(vizsla_diagnostics(db, file_id));
-            return diagnostics;
+            return syntax_diagnostics(db, file_id);
         }
         SourceRootDiagnosticScope::Workspace => {}
     }
@@ -148,8 +175,7 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
         diagnostics.extend(compilation_diagnostics(db, file_id));
     } else {
         for file_id in source_root.iter() {
-            diagnostics.extend(parse_diagnostics(db, file_id));
-            diagnostics.extend(vizsla_diagnostics(db, file_id));
+            diagnostics.extend(syntax_diagnostics(db, file_id));
         }
 
         diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().map(

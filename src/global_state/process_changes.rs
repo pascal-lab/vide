@@ -93,6 +93,11 @@ impl GlobalState {
         if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType {
             changed_file_ids.extend(pending_diagnostic_targets.iter().copied());
         }
+        let externally_changed_file_ids = content_changed_file_ids
+            .iter()
+            .copied()
+            .filter(|file_id| !self.mem_docs.contains_file_id(*file_id))
+            .collect::<FxHashSet<_>>();
 
         let mut write_guard = RwLockUpgradableReadGuard::upgrade(read_guard);
         let (vfs, line_endings_map) = &mut *write_guard;
@@ -102,8 +107,8 @@ impl GlobalState {
 
         self.analysis_host.apply_change(change);
         self.diagnostics_revision += 1;
-        for file_id in content_changed_file_ids {
-            let revision = self.diagnostic_file_revisions.entry(file_id).or_default();
+        for file_id in &content_changed_file_ids {
+            let revision = self.diagnostic_file_revisions.entry(*file_id).or_default();
             *revision = revision.next();
         }
         if diagnostic_targets_changed {
@@ -113,9 +118,20 @@ impl GlobalState {
         self.clear_deleted_push_diagnostics(&deleted_push_diagnostics);
         if has_structure_changes {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
-        } else if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType
-        {
-            self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(changed_file_ids));
+        } else {
+            match self.config.user_config.diagnostics.update {
+                DiagnosticsUpdateUserConfig::OnType => {
+                    self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(
+                        changed_file_ids,
+                    ));
+                }
+                DiagnosticsUpdateUserConfig::OnSave if !externally_changed_file_ids.is_empty() => {
+                    self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(
+                        externally_changed_file_ids,
+                    ));
+                }
+                DiagnosticsUpdateUserConfig::OnSave => {}
+            }
         }
         if !pending_diagnostic_targets.is_empty()
             && (has_structure_changes
@@ -160,21 +176,11 @@ impl GlobalState {
         }
 
         let file_ids = match invalidation {
-            DiagnosticInvalidation::FileChanges(file_ids) => {
-                if self.config.diagnostics_config().semantic.enabled {
-                    let snapshot = self.make_snapshot();
-                    let open_file_ids =
-                        self.open_mem_doc_file_ids().into_iter().collect::<FxHashSet<_>>();
-                    file_ids
-                        .into_iter()
-                        .flat_map(|file_id| snapshot.source_root_file_ids(file_id))
-                        .filter(|file_id| open_file_ids.contains(file_id))
-                        .unique()
-                        .collect()
-                } else {
-                    file_ids.into_iter().collect()
-                }
-            }
+            DiagnosticInvalidation::FileChanges(file_ids) => self
+                .make_snapshot()
+                .diagnostic_target_file_ids_for_changes(&file_ids, self.open_mem_doc_file_ids())
+                .into_iter()
+                .collect(),
             DiagnosticInvalidation::WorkspaceChanged => self.open_mem_doc_file_ids(),
         };
         self.request_diagnostics(file_ids);
@@ -355,7 +361,21 @@ impl GlobalState {
                     }
                 };
                 touched_file_ids.insert(file_id);
-                let diagnostics = snapshot.lsp_diagnostics(file_id);
+                let diagnostics = match snapshot.lsp_diagnostics(file_id) {
+                    Ok(diagnostics) => diagnostics,
+                    Err(error) if error.is::<ide::Cancelled>() => {
+                        tracing::debug!(?file_id, "diagnostics computation cancelled");
+                        return Task::Diagnostics(PublishDiagnosticsBatch::for_touched_files(
+                            FxHashSet::default(),
+                            Vec::new(),
+                            snapshot.diagnostic_publish_freshness,
+                        ));
+                    }
+                    Err(error) => {
+                        tracing::debug!(?file_id, "diagnostics computation failed: {error:#}");
+                        Vec::new()
+                    }
+                };
                 results.extend(targets.into_iter().map(|target| {
                     PublishDiagnosticsTask::from_target(target, diagnostics.clone())
                 }));

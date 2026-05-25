@@ -274,7 +274,17 @@ impl GlobalState {
                 }
             };
             touched_file_ids.insert(file_id);
-            let diagnostics = snapshot.lsp_diagnostics(file_id);
+            let diagnostics = match snapshot.lsp_diagnostics(file_id) {
+                Ok(diagnostics) => diagnostics,
+                Err(error) if error.is::<ide::Cancelled>() => {
+                    tracing::debug!(?file_id, "qihe diagnostic publish cancelled");
+                    return;
+                }
+                Err(error) => {
+                    tracing::debug!(?file_id, "qihe diagnostic publish failed: {error:#}");
+                    Vec::new()
+                }
+            };
 
             publish_tasks.extend(
                 targets
@@ -1130,7 +1140,6 @@ mod tests {
         state.diagnostics_revision += 1;
         let snapshot = state.make_snapshot();
         assert!(snapshot.qihe_diagnostics(file_id).is_empty());
-        assert_eq!(snapshot.qihe_generation(file_id), 0);
     }
 
     #[test]

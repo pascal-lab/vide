@@ -114,8 +114,8 @@ pub(crate) fn handle_document_diagnostic(
     params: lsp_types::DocumentDiagnosticParams,
 ) -> anyhow::Result<lsp_types::DocumentDiagnosticReportResult> {
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
-    let result_id = snap.diagnostic_result_id(file_id, &params.text_document.uri);
-    let items = snap.lsp_diagnostics(file_id);
+    let result_id = snap.document_diagnostic_result_id(file_id, &params.text_document.uri);
+    let items = snap.lsp_diagnostics(file_id)?;
     Ok(document_diagnostic_report(result_id, items, params.previous_result_id.as_deref()).into())
 }
 
@@ -146,18 +146,11 @@ pub(crate) fn handle_workspace_diagnostic(
     let mut seen = HashSet::new();
     let mut items = Vec::new();
     let mut diagnostics_by_file = HashMap::new();
-    let mut diagnosed_roots = HashSet::new();
 
     let diagnostic_file_ids = snap.workspace_diagnostic_file_ids();
 
-    for file_id in diagnostic_file_ids.iter().copied() {
-        let mut source_root_file_ids = snap.source_root_file_ids(file_id);
-        source_root_file_ids.sort_unstable_by_key(|file_id| file_id.0);
-        if !diagnosed_roots.insert(source_root_file_ids) {
-            continue;
-        }
-
-        for diag in snap.source_root_diagnostics(file_id)? {
+    for producer in snap.workspace_diagnostic_producers(&diagnostic_file_ids) {
+        for diag in snap.workspace_diagnostics_for_producer(&producer)? {
             diagnostics_by_file.entry(diag.file_id).or_insert_with(Vec::new).push(diag);
         }
     }
@@ -183,7 +176,7 @@ pub(crate) fn handle_workspace_diagnostic(
         for target in targets {
             let uri = target.uri().clone();
             seen.insert(uri.clone());
-            let result_id = snap.diagnostic_result_id(file_id, &uri);
+            let result_id = snap.workspace_diagnostic_result_id(file_id, &uri);
             let version = target.version().map(|version| version as i64);
             let previous_result_id = previous_result_ids.get(&uri).map(String::as_str);
 

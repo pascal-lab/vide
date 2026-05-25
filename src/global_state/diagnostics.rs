@@ -49,11 +49,12 @@ impl DiagnosticPublishFreshness {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub(crate) enum DiagnosticOwner {
     File(FileId),
     SourceRoot(SourceRootId),
-    SemanticProfile(CompilationProfileId),
+    CompilationProfile(CompilationProfileId),
+    ExternalQihe { file: FileId },
 }
 
 impl DiagnosticOwner {
@@ -63,10 +64,53 @@ impl DiagnosticOwner {
             DiagnosticOwner::SourceRoot(source_root_id) => {
                 format!("source-root:{}", source_root_id.0)
             }
-            DiagnosticOwner::SemanticProfile(profile_id) => {
-                format!("semantic-profile:{}", profile_id.0)
+            DiagnosticOwner::CompilationProfile(profile_id) => {
+                format!("compilation-profile:{}", profile_id.0)
             }
+            DiagnosticOwner::ExternalQihe { file } => format!("external-qihe:{}", file.0),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum DiagnosticRequestScope {
+    Document,
+    Workspace,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DiagnosticWorkspaceProducer {
+    owner: DiagnosticOwner,
+    representative_file_id: FileId,
+}
+
+impl DiagnosticWorkspaceProducer {
+    pub(crate) fn new(owner: DiagnosticOwner, representative_file_id: FileId) -> Self {
+        Self { owner, representative_file_id }
+    }
+
+    pub(crate) fn owner(&self) -> DiagnosticOwner {
+        self.owner
+    }
+
+    pub(crate) fn representative_file_id(&self) -> FileId {
+        self.representative_file_id
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DiagnosticExternalRevision {
+    owner: DiagnosticOwner,
+    generation: u64,
+}
+
+impl DiagnosticExternalRevision {
+    pub(crate) fn new(owner: DiagnosticOwner, generation: u64) -> Self {
+        Self { owner, generation }
+    }
+
+    fn result_id_fragment(&self) -> String {
+        format!("{}:{}", self.owner.result_id_fragment(), self.generation)
     }
 }
 
@@ -90,7 +134,7 @@ pub(crate) struct DiagnosticSnapshotKey {
     diagnostics_config_revision: u64,
     target: DiagnosticTargetIdentity,
     dependency_revisions: Vec<(FileId, DiagnosticFileRevision)>,
-    external_qihe_generation: u64,
+    external_revisions: Vec<DiagnosticExternalRevision>,
 }
 
 impl DiagnosticSnapshotKey {
@@ -101,16 +145,17 @@ impl DiagnosticSnapshotKey {
         target_uri: &Url,
         target_version: Option<i32>,
         mut dependency_revisions: Vec<(FileId, DiagnosticFileRevision)>,
-        external_qihe_generation: u64,
+        mut external_revisions: Vec<DiagnosticExternalRevision>,
     ) -> Self {
         dependency_revisions.sort_unstable();
+        external_revisions.sort_by_key(|revision| revision.result_id_fragment());
         Self {
             owner,
             readiness_revision,
             diagnostics_config_revision,
             target: DiagnosticTargetIdentity::new(target_uri, target_version),
             dependency_revisions,
-            external_qihe_generation,
+            external_revisions,
         }
     }
 
@@ -121,14 +166,20 @@ impl DiagnosticSnapshotKey {
             .map(|(file_id, revision)| format!("{}:{}", file_id.0, revision.result_id_fragment()))
             .collect::<Vec<_>>()
             .join(",");
+        let external_revisions = self
+            .external_revisions
+            .iter()
+            .map(DiagnosticExternalRevision::result_id_fragment)
+            .collect::<Vec<_>>()
+            .join(",");
         format!(
-            "diag:config:{}:ready:{}:owner:{}:target:{}:deps:{}:qihe:{}",
+            "diag:config:{}:ready:{}:owner:{}:target:{}:deps:{}:external:{}",
             self.diagnostics_config_revision,
             self.readiness_revision,
             self.owner.result_id_fragment(),
             self.target.result_id_fragment(),
             dependency_revisions,
-            self.external_qihe_generation
+            external_revisions
         )
     }
 }

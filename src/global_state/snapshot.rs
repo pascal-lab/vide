@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::Context;
-use base_db::source_root::SourceRootRole;
+use base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;
@@ -17,8 +17,9 @@ use vfs::{FileId, Vfs, VfsPath};
 
 use super::{
     diagnostics::{
-        DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticOwner,
-        DiagnosticPublishFreshness, DiagnosticSnapshotKey,
+        DiagnosticCommitFreshness, DiagnosticExternalRevision, DiagnosticFileRevision,
+        DiagnosticOwner, DiagnosticPublishFreshness, DiagnosticRequestScope, DiagnosticSnapshotKey,
+        DiagnosticWorkspaceProducer,
     },
     mem_docs::MemDocs,
 };
@@ -132,31 +133,18 @@ impl GlobalStateSnapshot {
         Ok(diagnostics)
     }
 
-    pub(crate) fn source_root_diagnostics(
+    pub(crate) fn lsp_diagnostics(
         &self,
         file_id: FileId,
-    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
-        let diagnostics = if self.config.diagnostics_config().semantic.enabled {
-            self.analysis.source_root_diagnostics(file_id)?
-        } else {
-            self.analysis.parse_diagnostics(file_id)?
-        };
-
-        Ok(diagnostics)
-    }
-
-    pub(crate) fn lsp_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
-        let mut diagnostics = match (self.diagnostics(file_id), self.line_info(file_id)) {
-            (Ok(diagnostics), Ok(line_info)) => diagnostics
-                .into_iter()
-                .map(|diag| {
-                    crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag)
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
+    ) -> anyhow::Result<Vec<lsp_types::Diagnostic>> {
+        let diagnostics = self.diagnostics(file_id)?;
+        let line_info = self.line_info(file_id)?;
+        let mut diagnostics = diagnostics
+            .into_iter()
+            .map(|diag| crate::lsp_ext::to_proto::diagnostic(self.config.i18n, &line_info, diag))
+            .collect::<Vec<_>>();
         diagnostics.extend(self.qihe_diagnostics(file_id));
-        diagnostics
+        Ok(diagnostics)
     }
 
     pub(crate) fn qihe_diagnostics(&self, file_id: FileId) -> Vec<lsp_types::Diagnostic> {
@@ -168,13 +156,17 @@ impl GlobalStateSnapshot {
             .unwrap_or_default()
     }
 
-    pub(crate) fn qihe_generation(&self, file_id: FileId) -> u64 {
+    fn qihe_external_revision(&self, file_id: FileId) -> Option<DiagnosticExternalRevision> {
         self.qihe_diagnostics
             .lock()
             .get(&file_id)
             .filter(|state| state.freshness == self.diagnostic_commit_freshness())
-            .map(|state| state.generation)
-            .unwrap_or(0)
+            .map(|state| {
+                DiagnosticExternalRevision::new(
+                    DiagnosticOwner::ExternalQihe { file: file_id },
+                    state.generation,
+                )
+            })
     }
 
     pub(crate) fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness {
@@ -185,29 +177,30 @@ impl GlobalStateSnapshot {
     ///
     /// The same physical file may be open through an alias URI, so result ids
     /// must not be derived from [`FileId`] alone.
-    pub(crate) fn diagnostic_result_id(&self, file_id: FileId, target_uri: &Url) -> Option<String> {
-        let diagnostics_config = self.config.diagnostics_config();
-        let source_root_id = self.analysis.source_root_id(file_id).ok()?;
-        let owner = if diagnostics_config.semantic.enabled
-            && let Some(profile_id) = self.analysis.file_compilation_profile(file_id).ok()?
-        {
-            DiagnosticOwner::SemanticProfile(profile_id)
-        } else if diagnostics_config.semantic.enabled
-            && self
-                .source_root_role(file_id)
-                .is_some_and(SourceRootRole::participates_in_semantic_profile)
-        {
-            DiagnosticOwner::SourceRoot(source_root_id)
-        } else {
-            DiagnosticOwner::File(file_id)
-        };
-        let file_ids = match owner {
-            DiagnosticOwner::SemanticProfile(profile_id) => {
-                self.analysis.compilation_profile_file_ids(profile_id).ok()?
-            }
-            DiagnosticOwner::SourceRoot(_) => self.analysis.source_root_file_ids(file_id).ok()?,
-            DiagnosticOwner::File(_) => vec![file_id],
-        };
+    pub(crate) fn document_diagnostic_result_id(
+        &self,
+        file_id: FileId,
+        target_uri: &Url,
+    ) -> Option<String> {
+        self.diagnostic_result_id(file_id, target_uri, DiagnosticRequestScope::Document)
+    }
+
+    pub(crate) fn workspace_diagnostic_result_id(
+        &self,
+        file_id: FileId,
+        target_uri: &Url,
+    ) -> Option<String> {
+        self.diagnostic_result_id(file_id, target_uri, DiagnosticRequestScope::Workspace)
+    }
+
+    fn diagnostic_result_id(
+        &self,
+        file_id: FileId,
+        target_uri: &Url,
+        scope: DiagnosticRequestScope,
+    ) -> Option<String> {
+        let owner = self.diagnostic_owner(file_id, scope)?;
+        let file_ids = self.diagnostic_owner_file_ids(owner, file_id)?;
         let target_version = self.url_file_version(target_uri);
 
         let revisions = file_ids
@@ -216,22 +209,130 @@ impl GlobalStateSnapshot {
                 (file_id, self.diagnostic_file_revisions.get(&file_id).copied().unwrap_or_default())
             })
             .collect::<Vec<_>>();
+        let external_revisions = self.qihe_external_revision(file_id).into_iter().collect();
         Some(
             DiagnosticSnapshotKey::new(
                 owner,
                 self.diagnostic_publish_freshness.commit().readiness_revision(),
-                diagnostics_config.revision,
+                self.config.diagnostics_config().revision,
                 target_uri,
                 target_version,
                 revisions,
-                self.qihe_generation(file_id),
+                external_revisions,
             )
             .result_id(),
         )
     }
 
-    pub(crate) fn source_root_file_ids(&self, file_id: FileId) -> Vec<FileId> {
-        self.analysis.source_root_file_ids(file_id).unwrap_or_else(|_| vec![file_id])
+    pub(crate) fn diagnostic_owner(
+        &self,
+        file_id: FileId,
+        scope: DiagnosticRequestScope,
+    ) -> Option<DiagnosticOwner> {
+        let source_root_id = self.analysis.source_root_id(file_id).ok()?;
+        let source_root_role = self.source_root_role(file_id)?;
+        match source_root_role.diagnostic_scope() {
+            SourceRootDiagnosticScope::Disabled => return None,
+            SourceRootDiagnosticScope::OpenFile => return Some(DiagnosticOwner::File(file_id)),
+            SourceRootDiagnosticScope::Workspace => {}
+        }
+
+        // Compilation profiles own both semantic and syntax-only diagnostics:
+        // profile preprocessing/include buffers can change syntax trees even
+        // when semantic diagnostics are disabled.
+        if let Some(profile_id) = self.analysis.file_compilation_profile(file_id).ok()? {
+            return Some(DiagnosticOwner::CompilationProfile(profile_id));
+        }
+
+        // Workspace-capable roots without an explicit manifest profile still
+        // need one source-root-scoped producer for workspace diagnostics.
+        if matches!(scope, DiagnosticRequestScope::Workspace) {
+            Some(DiagnosticOwner::SourceRoot(source_root_id))
+        } else {
+            Some(DiagnosticOwner::File(file_id))
+        }
+    }
+
+    fn diagnostic_owner_file_ids(
+        &self,
+        owner: DiagnosticOwner,
+        representative_file_id: FileId,
+    ) -> Option<Vec<FileId>> {
+        let file_ids = match owner {
+            DiagnosticOwner::CompilationProfile(profile_id) => {
+                self.analysis.compilation_profile_file_ids(profile_id).ok()?
+            }
+            DiagnosticOwner::SourceRoot(_) => {
+                self.analysis.source_root_file_ids(representative_file_id).ok()?
+            }
+            DiagnosticOwner::File(file_id) | DiagnosticOwner::ExternalQihe { file: file_id } => {
+                vec![file_id]
+            }
+        };
+        Some(file_ids)
+    }
+
+    pub(crate) fn workspace_diagnostic_producers(
+        &self,
+        file_ids: &[FileId],
+    ) -> Vec<DiagnosticWorkspaceProducer> {
+        let mut owners = FxHashMap::default();
+        for file_id in file_ids {
+            let Some(owner) = self.diagnostic_owner(*file_id, DiagnosticRequestScope::Workspace)
+            else {
+                continue;
+            };
+            owners.entry(owner).or_insert(*file_id);
+        }
+
+        owners
+            .into_iter()
+            .map(|(owner, representative_file_id)| {
+                DiagnosticWorkspaceProducer::new(owner, representative_file_id)
+            })
+            .collect()
+    }
+
+    pub(crate) fn workspace_diagnostics_for_producer(
+        &self,
+        producer: &DiagnosticWorkspaceProducer,
+    ) -> Cancellable<Vec<ide::diagnostics::Diagnostic>> {
+        match producer.owner() {
+            DiagnosticOwner::CompilationProfile(profile_id) => {
+                if self.config.diagnostics_config().semantic.enabled {
+                    self.analysis.compilation_profile_diagnostics(profile_id)
+                } else {
+                    self.analysis.compilation_profile_syntax_diagnostics(profile_id)
+                }
+            }
+            DiagnosticOwner::SourceRoot(_) => {
+                self.analysis.source_root_diagnostics(producer.representative_file_id())
+            }
+            DiagnosticOwner::File(file_id) => self.diagnostics(file_id),
+            DiagnosticOwner::ExternalQihe { .. } => Ok(Vec::new()),
+        }
+    }
+
+    pub(crate) fn diagnostic_target_file_ids_for_changes(
+        &self,
+        changed_file_ids: &FxHashSet<FileId>,
+        candidate_file_ids: impl IntoIterator<Item = FileId>,
+    ) -> FxHashSet<FileId> {
+        let changed_owners = changed_file_ids
+            .iter()
+            .filter_map(|file_id| self.diagnostic_owner(*file_id, DiagnosticRequestScope::Document))
+            .collect::<FxHashSet<_>>();
+        if changed_owners.is_empty() {
+            return FxHashSet::default();
+        }
+
+        candidate_file_ids
+            .into_iter()
+            .filter(|file_id| {
+                self.diagnostic_owner(*file_id, DiagnosticRequestScope::Document)
+                    .is_some_and(|owner| changed_owners.contains(&owner))
+            })
+            .collect()
     }
 
     fn source_root_role(&self, file_id: FileId) -> Option<SourceRootRole> {
