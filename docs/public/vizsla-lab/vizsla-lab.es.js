@@ -763,6 +763,7 @@ var Dt = [te(".monaco-aria-container{position:absolute;left:-999em}::-ms-clear{d
     :host {
       display: block;
       color: #09090b;
+      color-scheme: light;
       font-family:
         "Aptos",
         "Segoe UI",
@@ -771,16 +772,35 @@ var Dt = [te(".monaco-aria-container{position:absolute;left:-999em}::-ms-clear{d
       --vzlab-height: 100dvh;
       --vzlab-background: #fafafa;
       --vzlab-panel: #ffffff;
-      --vzlab-editor: #0a0a0a;
+      --vzlab-editor: #ffffff;
       --vzlab-border: #e4e4e7;
       --vzlab-border-strong: #d4d4d8;
       --vzlab-muted: #71717a;
+      --vzlab-message: #3f3f46;
       --vzlab-muted-surface: #f4f4f5;
       --vzlab-accent: #18181b;
       --vzlab-ring: #a1a1aa;
       --vzlab-danger: #dc2626;
       --vzlab-warning: #b45309;
       --vzlab-success: #16a34a;
+    }
+
+    :host([data-theme="dark"]) {
+      color: #fafafa;
+      color-scheme: dark;
+      --vzlab-background: #09090b;
+      --vzlab-panel: #09090b;
+      --vzlab-editor: #0a0a0a;
+      --vzlab-border: #27272a;
+      --vzlab-border-strong: #3f3f46;
+      --vzlab-muted: #a1a1aa;
+      --vzlab-message: #d4d4d8;
+      --vzlab-muted-surface: #18181b;
+      --vzlab-accent: #fafafa;
+      --vzlab-ring: #71717a;
+      --vzlab-danger: #f87171;
+      --vzlab-warning: #fbbf24;
+      --vzlab-success: #22c55e;
     }
 
     :host([docs]) {
@@ -1195,7 +1215,7 @@ var Dt = [te(".monaco-aria-container{position:absolute;left:-999em}::-ms-clear{d
     .diagnostic p {
       min-width: 0;
       margin: 0;
-      color: #3f3f46;
+      color: var(--vzlab-message);
       font-size: 12px;
       line-height: 1.35;
       overflow: hidden;
@@ -8236,9 +8256,9 @@ var co = (/* @__PURE__ */ a(((e, t) => {
 			return e[r].call(a.exports, a, a.exports, n), a.exports;
 		}(625);
 	})()));
-})))(), fo = !1, po = null;
-function mo() {
-	return fo ||= (Ao(), self.MonacoEnvironment = { getWorker() {
+})))(), fo = !1, po = null, mo = [], ho = "dark";
+function go() {
+	return fo ||= (Po(), self.MonacoEnvironment = { getWorker() {
 		return new so();
 	} }, o.register({
 		id: "systemverilog",
@@ -8252,12 +8272,18 @@ function mo() {
 		id: "verilog",
 		extensions: [".v", ".vh"],
 		aliases: ["Verilog", "verilog"]
-	}), go(ro, []), !0), ro;
+	}), bo(ro, []), !0), ro;
 }
-function ho(e, t) {
-	go(e, _o(t)), e.editor.setTheme("vizsla-lab");
+function _o(e, t, n = ho) {
+	mo = xo(t), bo(e, mo), vo(e, n);
 }
-function go(e, t) {
+function vo(e, t) {
+	ho = t, e.editor.setTheme(yo(t));
+}
+function yo(e) {
+	return e === "dark" ? "vizsla-lab-dark" : "vizsla-lab-light";
+}
+function bo(e, t) {
 	let n = Array.from(new Set(t)).flatMap((e) => [{
 		token: `${e}.read`,
 		fontStyle: "bold"
@@ -8265,7 +8291,7 @@ function go(e, t) {
 		token: `${e}.write`,
 		fontStyle: "bold underline"
 	}]);
-	e.editor.defineTheme("vizsla-lab", {
+	e.editor.defineTheme("vizsla-lab-dark", {
 		base: "vs-dark",
 		inherit: !0,
 		rules: [
@@ -8298,19 +8324,52 @@ function go(e, t) {
 			"editorLineNumber.activeForeground": "#fafafa",
 			"editor.lineHighlightBackground": "#18181b"
 		}
+	}), e.editor.defineTheme("vizsla-lab-light", {
+		base: "vs",
+		inherit: !0,
+		rules: [
+			{
+				token: "keyword",
+				foreground: "2563eb"
+			},
+			{
+				token: "keyword.preprocessor",
+				foreground: "b45309"
+			},
+			{
+				token: "type.identifier",
+				foreground: "0f766e"
+			},
+			{
+				token: "number",
+				foreground: "dc2626"
+			},
+			...n
+		],
+		colors: {
+			"editor.background": "#ffffff",
+			"editor.foreground": "#18181b",
+			"editorLineNumber.foreground": "#a1a1aa",
+			"editorCursor.foreground": "#09090b",
+			"editor.selectionBackground": "#d4d4d8",
+			"editor.inactiveSelectionBackground": "#e4e4e7",
+			"editorGutter.background": "#ffffff",
+			"editorLineNumber.activeForeground": "#18181b",
+			"editor.lineHighlightBackground": "#f4f4f5"
+		}
 	});
 }
-function _o(e) {
-	if (!ko(e) || !ko(e.semanticTokensProvider)) return [];
+function xo(e) {
+	if (!No(e) || !No(e.semanticTokensProvider)) return [];
 	let t = e.semanticTokensProvider.legend;
-	return !ko(t) || !Array.isArray(t.tokenTypes) ? [] : t.tokenTypes.filter((e) => typeof e == "string");
+	return !No(t) || !Array.isArray(t.tokenTypes) ? [] : t.tokenTypes.filter((e) => typeof e == "string");
 }
-async function vo(e, t = "/vscode/") {
+async function So(e, t = "/vscode/") {
 	let n = t.endsWith("/") ? t : `${t}/`;
-	await Promise.all([yo("systemverilog", `${n}language-configuration.json`), yo("verilog", `${n}language-configuration.json`)]), await So(new uo.Registry({
-		onigLib: xo(),
+	await Promise.all([Co("systemverilog", `${n}language-configuration.json`), Co("verilog", `${n}language-configuration.json`)]), await Eo(new uo.Registry({
+		onigLib: To(),
 		loadGrammar: async (e) => {
-			let t = bo(e);
+			let t = wo(e);
 			if (!t) return null;
 			let r = await fetch(`${n}syntaxes/${t}`);
 			if (!r.ok) throw Error(`Missing VS Code grammar asset: ${t}`);
@@ -8318,20 +8377,20 @@ async function vo(e, t = "/vscode/") {
 		}
 	}), new Map([["verilog", "source.verilog"], ["systemverilog", "source.systemverilog"]]));
 }
-async function yo(e, t) {
+async function Co(e, t) {
 	let n = await fetch(t);
 	if (!n.ok) throw Error(`Missing VS Code language configuration: ${t}`);
 	let r = await n.json();
-	o.setLanguageConfiguration(e, To(r));
+	o.setLanguageConfiguration(e, ko(r));
 }
-function bo(e) {
+function wo(e) {
 	switch (e) {
 		case "source.verilog": return "verilog.tmLanguage.json";
 		case "source.systemverilog": return "systemverilog.tmLanguage.json";
 		default: return null;
 	}
 }
-function xo() {
+function To() {
 	return po ??= fetch(lo).then((e) => e.arrayBuffer()).then(async (e) => (await (0, co.loadWASM)(e), {
 		createOnigScanner(e) {
 			return (0, co.createOnigScanner)(e);
@@ -8341,26 +8400,26 @@ function xo() {
 		}
 	})), po;
 }
-async function So(e, t) {
+async function Eo(e, t) {
 	await Promise.all(Array.from(t, async ([t, n]) => {
 		let r = await e.loadGrammar(n);
 		if (!r) throw Error(`Missing TextMate grammar for ${n}`);
 		o.setTokensProvider(t, {
-			getInitialState: () => new Co(uo.INITIAL),
+			getInitialState: () => new Do(uo.INITIAL),
 			tokenize: (e, t) => {
-				let n = t instanceof Co ? t.ruleStack : uo.INITIAL, i = r.tokenizeLine(e, n);
+				let n = t instanceof Do ? t.ruleStack : uo.INITIAL, i = r.tokenizeLine(e, n);
 				return {
-					endState: new Co(i.ruleStack),
+					endState: new Do(i.ruleStack),
 					tokens: i.tokens.map((e) => ({
 						startIndex: e.startIndex,
-						scopes: wo(e.scopes)
+						scopes: Oo(e.scopes)
 					}))
 				};
 			}
 		});
 	}));
 }
-var Co = class e {
+var Do = class e {
 	ruleStack;
 	constructor(e) {
 		this.ruleStack = e;
@@ -8372,14 +8431,14 @@ var Co = class e {
 		return t instanceof e && this.ruleStack.equals(t.ruleStack);
 	}
 };
-function wo(e) {
+function Oo(e) {
 	for (let t = e.length - 1; t >= 0; --t) {
 		let n = e[t];
 		if (!n.startsWith("source.")) return n;
 	}
 	return "";
 }
-function To(e) {
+function ko(e) {
 	return {
 		comments: e.comments ? {
 			lineComment: typeof e.comments.lineComment == "string" ? e.comments.lineComment : e.comments.lineComment?.comment,
@@ -8396,32 +8455,32 @@ function To(e) {
 			end: new RegExp(e.folding.markers.end)
 		} } : void 0,
 		wordPattern: e.wordPattern ? new RegExp(e.wordPattern) : void 0,
-		indentationRules: Eo(e.indentationRules),
+		indentationRules: Ao(e.indentationRules),
 		onEnterRules: e.onEnterRules?.map((e) => ({
 			beforeText: new RegExp(e.beforeText),
-			afterText: Do(e.afterText),
-			previousLineText: Do(e.previousLineText),
+			afterText: jo(e.afterText),
+			previousLineText: jo(e.previousLineText),
 			action: {
-				indentAction: Oo(e.action.indent),
+				indentAction: Mo(e.action.indent),
 				appendText: e.action.appendText,
 				removeText: e.action.removeText
 			}
 		}))
 	};
 }
-function Eo(e) {
-	let t = Do(e?.increaseIndentPattern), n = Do(e?.decreaseIndentPattern);
+function Ao(e) {
+	let t = jo(e?.increaseIndentPattern), n = jo(e?.decreaseIndentPattern);
 	if (!(!t || !n)) return {
 		increaseIndentPattern: t,
 		decreaseIndentPattern: n,
-		indentNextLinePattern: Do(e?.indentNextLinePattern) ?? null,
-		unIndentedLinePattern: Do(e?.unIndentedLinePattern) ?? null
+		indentNextLinePattern: jo(e?.indentNextLinePattern) ?? null,
+		unIndentedLinePattern: jo(e?.unIndentedLinePattern) ?? null
 	};
 }
-function Do(e) {
+function jo(e) {
 	return e ? new RegExp(e) : void 0;
 }
-function Oo(e) {
+function Mo(e) {
 	switch (e) {
 		case "indent": return o.IndentAction.Indent;
 		case "indentOutdent": return o.IndentAction.IndentOutdent;
@@ -8429,23 +8488,23 @@ function Oo(e) {
 		default: return o.IndentAction.None;
 	}
 }
-function ko(e) {
+function No(e) {
 	return typeof e == "object" && !!e;
 }
-function Ao() {
+function Po() {
 	if (!globalThis.ShadowRoot || globalThis.document === void 0) return;
 	let e = globalThis.ShadowRoot.prototype;
 	typeof e.caretRangeFromPoint != "function" && Object.defineProperty(e, "caretRangeFromPoint", {
 		configurable: !0,
 		value(e, t) {
-			let n = jo(this, e, t), r = n ? Mo(n) : null, i = document.createRange();
+			let n = Fo(this, e, t), r = n ? Io(n) : null, i = document.createRange();
 			if (!r) return i.selectNodeContents(this.host), i.collapse(!1), i;
-			let a = No(r, e);
+			let a = Lo(r, e);
 			return i.setStart(r, a), i.setEnd(r, a), i;
 		}
 	});
 }
-function jo(e, t, n) {
+function Fo(e, t, n) {
 	let r = e.elementFromPoint;
 	if (typeof r == "function") return r.call(e, t, n);
 	let i = null, a = Infinity;
@@ -8457,12 +8516,12 @@ function jo(e, t, n) {
 	}
 	return i;
 }
-function Mo(e) {
+function Io(e) {
 	let t = document.createTreeWalker(e, NodeFilter.SHOW_TEXT), n = t.nextNode(), r = null;
 	for (; n;) n.textContent && n.textContent.length > 0 && (r = n), n = t.nextNode();
 	return r;
 }
-function No(e, t) {
+function Lo(e, t) {
 	let n = e.data;
 	if (n.length === 0) return 0;
 	let r = e.parentElement;
@@ -8472,81 +8531,81 @@ function No(e, t) {
 }
 //#endregion
 //#region src/scenarios/bad-port/scenario.json?raw
-var Po = "{\n  \"id\": \"bad-port\",\n  \"order\": 70,\n  \"label\": \"Port Mismatch\",\n  \"entryFile\": \"rtl/top.sv\",\n  \"description\": \"Multi-file semantic diagnostic from a configured source root.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/child.sv\"\n    },\n    {\n      \"path\": \"rtl/top.sv\"\n    }\n  ]\n}\n", Fo = "{\n  \"id\": \"basics\",\n  \"order\": 20,\n  \"label\": \"Basics\",\n  \"entryFile\": \"rtl/control_fsm.sv\",\n  \"description\": \"Single-file hover, symbols, folding, highlighting, and semantic tokens.\",\n  \"files\": [\n    {\n      \"path\": \"rtl/control_fsm.sv\"\n    }\n  ]\n}\n", Io = "{\n  \"id\": \"counter\",\n  \"order\": 10,\n  \"label\": \"Counter\",\n  \"entryFile\": \"rtl/counter.sv\",\n  \"description\": \"Configured workspace with RTL and a small testbench.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/counter.sv\"\n    },\n    {\n      \"path\": \"tb/counter_tb.sv\"\n    }\n  ]\n}\n", Lo = "{\n  \"id\": \"macro-guard\",\n  \"order\": 80,\n  \"label\": \"Macro Include\",\n  \"entryFile\": \"rtl/feature_gate.sv\",\n  \"description\": \"Include directory and macro flow for docs embeds.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"include/feature_defs.svh\"\n    },\n    {\n      \"path\": \"rtl/feature_gate.sv\"\n    }\n  ]\n}\n", Ro = "{\n  \"id\": \"navigation\",\n  \"order\": 30,\n  \"label\": \"Navigation\",\n  \"entryFile\": \"rtl/pipeline_top.sv\",\n  \"description\": \"Unconfigured multi-file workspace for definitions, references, and document highlights.\",\n  \"files\": [\n    {\n      \"path\": \"rtl/pipeline_stage.sv\"\n    },\n    {\n      \"path\": \"rtl/pipeline_top.sv\"\n    }\n  ]\n}\n", zo = "{\n  \"id\": \"rename\",\n  \"order\": 50,\n  \"label\": \"Rename\",\n  \"entryFile\": \"rtl/rename_playground.sv\",\n  \"description\": \"Single-file rename, references, document highlights, and formatting surface.\",\n  \"files\": [\n    {\n      \"path\": \"rtl/rename_playground.sv\"\n    }\n  ]\n}\n", Bo = "{\n  \"id\": \"signature-inlay\",\n  \"order\": 40,\n  \"label\": \"Signature Inlay\",\n  \"entryFile\": \"rtl/packet_path.sv\",\n  \"description\": \"Configured workspace for signature help and positional parameter or port inlay hints.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/packet_fifo.sv\"\n    },\n    {\n      \"path\": \"rtl/packet_path.sv\"\n    }\n  ]\n}\n", Vo = "{\n  \"id\": \"syntax-error\",\n  \"order\": 60,\n  \"label\": \"Syntax Error\",\n  \"entryFile\": \"rtl/broken.sv\",\n  \"description\": \"Configured workspace with a parse error that always produces a diagnostic.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/broken.sv\"\n    }\n  ]\n}\n", Ho = "module child(input logic a, input logic b);\nendmodule\n", Uo = "module top;\n  logic sig;\n\n  child u(.a(sig));\nendmodule\n", Wo = "sources = [\"rtl/**\"]\n", Go = "package control_pkg;\n  typedef enum logic [1:0] {\n    IDLE,\n    BUSY,\n    DONE\n  } state_e;\n\n  function automatic logic is_complete(state_e state);\n    return state == DONE;\n  endfunction\nendpackage\n\nmodule control_fsm (\n  input  logic clk,\n  input  logic rst_n,\n  input  logic start,\n  output control_pkg::state_e state,\n  output logic done\n);\n  import control_pkg::*;\n\n  state_e next_state;\n\n  always_comb begin\n    next_state = state;\n    unique case (state)\n      IDLE: begin\n        if (start) begin\n          next_state = BUSY;\n        end\n      end\n      BUSY: begin\n        next_state = DONE;\n      end\n      DONE: begin\n        next_state = IDLE;\n      end\n    endcase\n  end\n\n  always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n      state <= IDLE;\n    end else begin\n      state <= next_state;\n    end\n  end\n\n  assign done = is_complete(state);\nendmodule\n", Ko = "module counter #(\n  parameter int WIDTH = 8\n) (\n  input  logic clk,\n  input  logic rst_n,\n  output logic [WIDTH-1:0] value\n);\n\n  always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n      value <= '0;\n    end else begin\n      value <= value + 1'b1;\n    end\n  end\nendmodule\n", qo = "module counter_tb;\n  logic clk;\n  logic rst_n;\n  logic [7:0] value;\n\n  counter dut (\n    .clk(clk),\n    .rst_n(rst_n),\n    .value(value)\n  );\nendmodule\n", Jo = "sources = [\"rtl/**\", \"tb/**\"]\n", Yo = "`define VIZSLA_LAB_ENABLE\n", Xo = "`include \"feature_defs.svh\"\n\nmodule feature_gate(input logic clk, output logic pulse);\n`ifdef VIZSLA_LAB_ENABLE\n  always_ff @(posedge clk) begin\n    pulse <= ~pulse;\n  end\n`else\n  assign pulse = 1'b0;\n`endif\nendmodule\n", Zo = "sources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n", Qo = "module pipeline_stage #(\n  parameter int WIDTH = 8\n) (\n  input  logic clk,\n  input  logic valid_i,\n  input  logic [WIDTH-1:0] data_i,\n  output logic valid_o,\n  output logic [WIDTH-1:0] data_o\n);\n\n  always_ff @(posedge clk) begin\n    valid_o <= valid_i;\n    data_o <= data_i;\n  end\nendmodule\n", $o = "module pipeline_top (\n  input  logic clk,\n  input  logic in_valid,\n  input  logic [15:0] in_data,\n  output logic out_valid,\n  output logic [15:0] out_data\n);\n  logic mid_valid;\n  logic [15:0] mid_data;\n\n  pipeline_stage #(\n    .WIDTH(16)\n  ) u_decode (\n    .clk(clk),\n    .valid_i(in_valid),\n    .data_i(in_data),\n    .valid_o(mid_valid),\n    .data_o(mid_data)\n  );\n\n  pipeline_stage #(\n    .WIDTH(16)\n  ) u_execute (\n    .clk(clk),\n    .valid_i(mid_valid),\n    .data_i(mid_data),\n    .valid_o(out_valid),\n    .data_o(out_data)\n  );\nendmodule\n", es = "module rename_playground (\n  input  logic clk,\n  input  logic load,\n  input  logic [7:0] sample_i,\n  output logic [7:0] sample_o,\n  output logic sample_ready\n);\n  logic [7:0] buffered_sample;\n\n  always_ff @(posedge clk) begin\n    if (load) begin\n      buffered_sample <= sample_i;\n    end\n    sample_o <= buffered_sample;\n  end\n\n  assign sample_ready = |buffered_sample;\nendmodule\n", ts = "module packet_fifo #(\n  parameter int DEPTH = 4,\n  parameter int WIDTH = 32\n) (\n  input  logic clk,\n  input  logic rst_n,\n  input  logic push,\n  input  logic pop,\n  input  logic [WIDTH-1:0] data_i,\n  output logic [WIDTH-1:0] data_o,\n  output logic full,\n  output logic empty\n);\n  logic [$clog2(DEPTH+1)-1:0] level;\n\n  assign full = level == DEPTH;\n  assign empty = level == '0;\n  assign data_o = data_i;\n\n  always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n      level <= '0;\n    end else if (push && !pop) begin\n      level <= level + 1'b1;\n    end else if (pop && !push) begin\n      level <= level - 1'b1;\n    end\n  end\nendmodule\n", ns = "module packet_path (\n  input  logic clk,\n  input  logic rst_n,\n  input  logic push,\n  input  logic pop,\n  input  logic [31:0] data_i,\n  output logic [31:0] data_o,\n  output logic stalled\n);\n  logic full;\n  logic empty;\n\n  packet_fifo #(8, 32) u_packet_fifo (\n    clk,\n    rst_n,\n    push,\n    pop,\n    data_i,\n    data_o,\n    full,\n    empty\n  );\n\n  assign stalled = full || empty;\nendmodule\n", rs = "sources = [\"rtl/**\"]\n", is = "module broken(;\nendmodule\n", as = "sources = [\"rtl/**\"]\n", os = /* @__PURE__ */ Object.assign({
-	"./scenarios/bad-port/scenario.json": Po,
-	"./scenarios/basics/scenario.json": Fo,
-	"./scenarios/counter/scenario.json": Io,
-	"./scenarios/macro-guard/scenario.json": Lo,
-	"./scenarios/navigation/scenario.json": Ro,
-	"./scenarios/rename/scenario.json": zo,
-	"./scenarios/signature-inlay/scenario.json": Bo,
-	"./scenarios/syntax-error/scenario.json": Vo
-}), ss = /* @__PURE__ */ Object.assign({
-	"./scenarios/bad-port/rtl/child.sv": Ho,
-	"./scenarios/bad-port/rtl/top.sv": Uo,
-	"./scenarios/bad-port/scenario.json": Po,
-	"./scenarios/bad-port/vizsla.toml": Wo,
-	"./scenarios/basics/rtl/control_fsm.sv": Go,
-	"./scenarios/basics/scenario.json": Fo,
-	"./scenarios/counter/rtl/counter.sv": Ko,
-	"./scenarios/counter/scenario.json": Io,
-	"./scenarios/counter/tb/counter_tb.sv": qo,
-	"./scenarios/counter/vizsla.toml": Jo,
-	"./scenarios/macro-guard/include/feature_defs.svh": Yo,
-	"./scenarios/macro-guard/rtl/feature_gate.sv": Xo,
-	"./scenarios/macro-guard/scenario.json": Lo,
-	"./scenarios/macro-guard/vizsla.toml": Zo,
-	"./scenarios/navigation/rtl/pipeline_stage.sv": Qo,
-	"./scenarios/navigation/rtl/pipeline_top.sv": $o,
-	"./scenarios/navigation/scenario.json": Ro,
-	"./scenarios/rename/rtl/rename_playground.sv": es,
-	"./scenarios/rename/scenario.json": zo,
-	"./scenarios/signature-inlay/rtl/packet_fifo.sv": ts,
-	"./scenarios/signature-inlay/rtl/packet_path.sv": ns,
-	"./scenarios/signature-inlay/scenario.json": Bo,
-	"./scenarios/signature-inlay/vizsla.toml": rs,
-	"./scenarios/syntax-error/rtl/broken.sv": is,
-	"./scenarios/syntax-error/scenario.json": Vo,
-	"./scenarios/syntax-error/vizsla.toml": as
+var Ro = "{\n  \"id\": \"bad-port\",\n  \"order\": 70,\n  \"label\": \"Port Mismatch\",\n  \"entryFile\": \"rtl/top.sv\",\n  \"description\": \"Multi-file semantic diagnostic from a configured source root.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/child.sv\"\n    },\n    {\n      \"path\": \"rtl/top.sv\"\n    }\n  ]\n}\n", zo = "{\n  \"id\": \"basics\",\n  \"order\": 20,\n  \"label\": \"Basics\",\n  \"entryFile\": \"rtl/control_fsm.sv\",\n  \"description\": \"Single-file hover, symbols, folding, highlighting, and semantic tokens.\",\n  \"files\": [\n    {\n      \"path\": \"rtl/control_fsm.sv\"\n    }\n  ]\n}\n", Bo = "{\n  \"id\": \"counter\",\n  \"order\": 10,\n  \"label\": \"Counter\",\n  \"entryFile\": \"rtl/counter.sv\",\n  \"description\": \"Configured workspace with RTL and a small testbench.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/counter.sv\"\n    },\n    {\n      \"path\": \"tb/counter_tb.sv\"\n    }\n  ]\n}\n", Vo = "{\n  \"id\": \"macro-guard\",\n  \"order\": 80,\n  \"label\": \"Macro Include\",\n  \"entryFile\": \"rtl/feature_gate.sv\",\n  \"description\": \"Include directory and macro flow for docs embeds.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"include/feature_defs.svh\"\n    },\n    {\n      \"path\": \"rtl/feature_gate.sv\"\n    }\n  ]\n}\n", Ho = "{\n  \"id\": \"navigation\",\n  \"order\": 30,\n  \"label\": \"Navigation\",\n  \"entryFile\": \"rtl/pipeline_top.sv\",\n  \"description\": \"Unconfigured multi-file workspace for definitions, references, and document highlights.\",\n  \"files\": [\n    {\n      \"path\": \"rtl/pipeline_stage.sv\"\n    },\n    {\n      \"path\": \"rtl/pipeline_top.sv\"\n    }\n  ]\n}\n", Uo = "{\n  \"id\": \"rename\",\n  \"order\": 50,\n  \"label\": \"Rename\",\n  \"entryFile\": \"rtl/rename_playground.sv\",\n  \"description\": \"Single-file rename, references, document highlights, and formatting surface.\",\n  \"files\": [\n    {\n      \"path\": \"rtl/rename_playground.sv\"\n    }\n  ]\n}\n", Wo = "{\n  \"id\": \"signature-inlay\",\n  \"order\": 40,\n  \"label\": \"Signature Inlay\",\n  \"entryFile\": \"rtl/packet_path.sv\",\n  \"description\": \"Configured workspace for signature help and positional parameter or port inlay hints.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/packet_fifo.sv\"\n    },\n    {\n      \"path\": \"rtl/packet_path.sv\"\n    }\n  ]\n}\n", Go = "{\n  \"id\": \"syntax-error\",\n  \"order\": 60,\n  \"label\": \"Syntax Error\",\n  \"entryFile\": \"rtl/broken.sv\",\n  \"description\": \"Configured workspace with a parse error that always produces a diagnostic.\",\n  \"files\": [\n    {\n      \"path\": \"vizsla.toml\",\n      \"languageId\": \"toml\",\n      \"editable\": false\n    },\n    {\n      \"path\": \"rtl/broken.sv\"\n    }\n  ]\n}\n", Ko = "module child(input logic a, input logic b);\nendmodule\n", qo = "module top;\n  logic sig;\n\n  child u(.a(sig));\nendmodule\n", Jo = "sources = [\"rtl/**\"]\n", Yo = "package control_pkg;\n  typedef enum logic [1:0] {\n    IDLE,\n    BUSY,\n    DONE\n  } state_e;\n\n  function automatic logic is_complete(state_e state);\n    return state == DONE;\n  endfunction\nendpackage\n\nmodule control_fsm (\n  input  logic clk,\n  input  logic rst_n,\n  input  logic start,\n  output control_pkg::state_e state,\n  output logic done\n);\n  import control_pkg::*;\n\n  state_e next_state;\n\n  always_comb begin\n    next_state = state;\n    unique case (state)\n      IDLE: begin\n        if (start) begin\n          next_state = BUSY;\n        end\n      end\n      BUSY: begin\n        next_state = DONE;\n      end\n      DONE: begin\n        next_state = IDLE;\n      end\n    endcase\n  end\n\n  always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n      state <= IDLE;\n    end else begin\n      state <= next_state;\n    end\n  end\n\n  assign done = is_complete(state);\nendmodule\n", Xo = "module counter #(\n  parameter int WIDTH = 8\n) (\n  input  logic clk,\n  input  logic rst_n,\n  output logic [WIDTH-1:0] value\n);\n\n  always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n      value <= '0;\n    end else begin\n      value <= value + 1'b1;\n    end\n  end\nendmodule\n", Zo = "module counter_tb;\n  logic clk;\n  logic rst_n;\n  logic [7:0] value;\n\n  counter dut (\n    .clk(clk),\n    .rst_n(rst_n),\n    .value(value)\n  );\nendmodule\n", Qo = "sources = [\"rtl/**\", \"tb/**\"]\n", $o = "`define VIZSLA_LAB_ENABLE\n", es = "`include \"feature_defs.svh\"\n\nmodule feature_gate(input logic clk, output logic pulse);\n`ifdef VIZSLA_LAB_ENABLE\n  always_ff @(posedge clk) begin\n    pulse <= ~pulse;\n  end\n`else\n  assign pulse = 1'b0;\n`endif\nendmodule\n", ts = "sources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n", ns = "module pipeline_stage #(\n  parameter int WIDTH = 8\n) (\n  input  logic clk,\n  input  logic valid_i,\n  input  logic [WIDTH-1:0] data_i,\n  output logic valid_o,\n  output logic [WIDTH-1:0] data_o\n);\n\n  always_ff @(posedge clk) begin\n    valid_o <= valid_i;\n    data_o <= data_i;\n  end\nendmodule\n", rs = "module pipeline_top (\n  input  logic clk,\n  input  logic in_valid,\n  input  logic [15:0] in_data,\n  output logic out_valid,\n  output logic [15:0] out_data\n);\n  logic mid_valid;\n  logic [15:0] mid_data;\n\n  pipeline_stage #(\n    .WIDTH(16)\n  ) u_decode (\n    .clk(clk),\n    .valid_i(in_valid),\n    .data_i(in_data),\n    .valid_o(mid_valid),\n    .data_o(mid_data)\n  );\n\n  pipeline_stage #(\n    .WIDTH(16)\n  ) u_execute (\n    .clk(clk),\n    .valid_i(mid_valid),\n    .data_i(mid_data),\n    .valid_o(out_valid),\n    .data_o(out_data)\n  );\nendmodule\n", is = "module rename_playground (\n  input  logic clk,\n  input  logic load,\n  input  logic [7:0] sample_i,\n  output logic [7:0] sample_o,\n  output logic sample_ready\n);\n  logic [7:0] buffered_sample;\n\n  always_ff @(posedge clk) begin\n    if (load) begin\n      buffered_sample <= sample_i;\n    end\n    sample_o <= buffered_sample;\n  end\n\n  assign sample_ready = |buffered_sample;\nendmodule\n", as = "module packet_fifo #(\n  parameter int DEPTH = 4,\n  parameter int WIDTH = 32\n) (\n  input  logic clk,\n  input  logic rst_n,\n  input  logic push,\n  input  logic pop,\n  input  logic [WIDTH-1:0] data_i,\n  output logic [WIDTH-1:0] data_o,\n  output logic full,\n  output logic empty\n);\n  logic [$clog2(DEPTH+1)-1:0] level;\n\n  assign full = level == DEPTH;\n  assign empty = level == '0;\n  assign data_o = data_i;\n\n  always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n      level <= '0;\n    end else if (push && !pop) begin\n      level <= level + 1'b1;\n    end else if (pop && !push) begin\n      level <= level - 1'b1;\n    end\n  end\nendmodule\n", os = "module packet_path (\n  input  logic clk,\n  input  logic rst_n,\n  input  logic push,\n  input  logic pop,\n  input  logic [31:0] data_i,\n  output logic [31:0] data_o,\n  output logic stalled\n);\n  logic full;\n  logic empty;\n\n  packet_fifo #(8, 32) u_packet_fifo (\n    clk,\n    rst_n,\n    push,\n    pop,\n    data_i,\n    data_o,\n    full,\n    empty\n  );\n\n  assign stalled = full || empty;\nendmodule\n", ss = "sources = [\"rtl/**\"]\n", cs = "module broken(;\nendmodule\n", ls = "sources = [\"rtl/**\"]\n", us = /* @__PURE__ */ Object.assign({
+	"./scenarios/bad-port/scenario.json": Ro,
+	"./scenarios/basics/scenario.json": zo,
+	"./scenarios/counter/scenario.json": Bo,
+	"./scenarios/macro-guard/scenario.json": Vo,
+	"./scenarios/navigation/scenario.json": Ho,
+	"./scenarios/rename/scenario.json": Uo,
+	"./scenarios/signature-inlay/scenario.json": Wo,
+	"./scenarios/syntax-error/scenario.json": Go
+}), ds = /* @__PURE__ */ Object.assign({
+	"./scenarios/bad-port/rtl/child.sv": Ko,
+	"./scenarios/bad-port/rtl/top.sv": qo,
+	"./scenarios/bad-port/scenario.json": Ro,
+	"./scenarios/bad-port/vizsla.toml": Jo,
+	"./scenarios/basics/rtl/control_fsm.sv": Yo,
+	"./scenarios/basics/scenario.json": zo,
+	"./scenarios/counter/rtl/counter.sv": Xo,
+	"./scenarios/counter/scenario.json": Bo,
+	"./scenarios/counter/tb/counter_tb.sv": Zo,
+	"./scenarios/counter/vizsla.toml": Qo,
+	"./scenarios/macro-guard/include/feature_defs.svh": $o,
+	"./scenarios/macro-guard/rtl/feature_gate.sv": es,
+	"./scenarios/macro-guard/scenario.json": Vo,
+	"./scenarios/macro-guard/vizsla.toml": ts,
+	"./scenarios/navigation/rtl/pipeline_stage.sv": ns,
+	"./scenarios/navigation/rtl/pipeline_top.sv": rs,
+	"./scenarios/navigation/scenario.json": Ho,
+	"./scenarios/rename/rtl/rename_playground.sv": is,
+	"./scenarios/rename/scenario.json": Uo,
+	"./scenarios/signature-inlay/rtl/packet_fifo.sv": as,
+	"./scenarios/signature-inlay/rtl/packet_path.sv": os,
+	"./scenarios/signature-inlay/scenario.json": Wo,
+	"./scenarios/signature-inlay/vizsla.toml": ss,
+	"./scenarios/syntax-error/rtl/broken.sv": cs,
+	"./scenarios/syntax-error/scenario.json": Go,
+	"./scenarios/syntax-error/vizsla.toml": ls
 });
-function cs(e) {
+function fs(e) {
 	return e.replace(/\\/g, "/").replace(/^\/+/, "");
 }
-function ls(e) {
+function ps(e) {
 	let t = /^\.\/scenarios\/([^/]+)\/scenario\.json$/.exec(e);
 	if (t === null) throw Error(`Unexpected scenario metadata path: ${e}`);
 	return t[1];
 }
-function us(e, t) {
-	let n = ls(e), r = JSON.parse(t);
+function ms(e, t) {
+	let n = ps(e), r = JSON.parse(t);
 	if (r.id !== n) throw Error(`Scenario metadata id mismatch: expected ${n}, found ${r.id}`);
 	return r;
 }
-function ds(e, t) {
-	let n = `./scenarios/${e}/${cs(t)}`, r = ss[n];
+function hs(e, t) {
+	let n = `./scenarios/${e}/${fs(t)}`, r = ds[n];
 	if (r === void 0) throw Error(`Missing scenario source: ${n}`);
 	return r;
 }
-function fs(e) {
+function gs(e) {
 	return {
 		id: e.id,
 		label: e.label,
-		entryFile: cs(e.entryFile),
+		entryFile: fs(e.entryFile),
 		description: e.description,
 		files: e.files.map((t) => ({
 			...t,
-			path: cs(t.path),
-			source: ds(e.id, t.path)
+			path: fs(t.path),
+			source: hs(e.id, t.path)
 		}))
 	};
 }
-var ps = Object.entries(os).map(([e, t]) => us(e, t)).sort((e, t) => e.order - t.order || e.label.localeCompare(t.label)).map(fs);
-function ms(e) {
-	return ps.find((t) => t.id === e) ?? ps[0];
+var _s = Object.entries(us).map(([e, t]) => ms(e, t)).sort((e, t) => e.order - t.order || e.label.localeCompare(t.label)).map(gs);
+function vs(e) {
+	return _s.find((t) => t.id === e) ?? _s[0];
 }
 //#endregion
 //#region src/components/vizsla-lab.ts
-var hs = 260, gs = class extends Je {
+var ys = 260, bs = class extends Je {
 	static properties = {
 		scenario: { type: String },
 		wasmBaseUrl: {
@@ -8558,6 +8617,7 @@ var hs = 260, gs = class extends Je {
 			attribute: "vscode-assets-url"
 		},
 		height: { type: String },
+		theme: { type: String },
 		docs: {
 			type: Boolean,
 			reflect: !0
@@ -8593,7 +8653,7 @@ var hs = 260, gs = class extends Je {
 	providerDisposables = [];
 	editorDisposables = [];
 	fileStates = /* @__PURE__ */ new Map();
-	activeScenario = ms("counter");
+	activeScenario = vs("counter");
 	workspaceRootUri = `file:///workspace-${Math.random().toString(36).slice(2)}`;
 	activeUri = this.workspaceUri(it(this.activeScenario).path);
 	diagnosticsByUri = /* @__PURE__ */ new Map();
@@ -8608,17 +8668,21 @@ var hs = 260, gs = class extends Je {
 	diagnosticGeneration = 0;
 	clientGeneration = 0;
 	serverCapabilities;
+	colorScheme = "dark";
+	themeObserver;
+	themeMediaQuery;
+	handleThemeChange = () => this.syncColorScheme();
 	constructor() {
-		super(), this.scenario = "counter", this.wasmBaseUrl = "/wasm/", this.vscodeAssetsUrl = "/vscode/", this.height = "", this.docs = !1, this.project = void 0, this.activeFile = "", this.cursorLine = 0, this.cursorColumn = 1, this.selection = "", this.diagnosticsOpen = !1, this.focusEditor = !1;
+		super(), this.scenario = "counter", this.wasmBaseUrl = "/wasm/", this.vscodeAssetsUrl = "/vscode/", this.height = "", this.theme = "auto", this.docs = !1, this.project = void 0, this.activeFile = "", this.cursorLine = 0, this.cursorColumn = 1, this.selection = "", this.diagnosticsOpen = !1, this.focusEditor = !1;
 	}
 	firstUpdated() {
-		this.activeScenario = this.resolvedScenario(), this.activeUri = this.workspaceUri(it(this.activeScenario).path), this.inspectorOpen = this.diagnosticsOpen, this.syncLabHeight(), this.mountEditor(), this.applyConfiguredState(), this.restartClient();
+		this.activeScenario = this.resolvedScenario(), this.activeUri = this.workspaceUri(it(this.activeScenario).path), this.inspectorOpen = this.diagnosticsOpen, this.installThemeSync(), this.syncColorScheme(), this.syncLabHeight(), this.mountEditor(), this.applyConfiguredState(), this.restartClient();
 	}
 	updated(e) {
-		(e.has("height") || e.has("docs")) && this.syncLabHeight(), (e.has("scenario") || e.has("project")) && this.editor && this.setScenario(this.resolvedScenario(), e.has("project")), this.editor && (e.has("activeFile") || e.has("cursorLine") || e.has("cursorColumn") || e.has("selection") || e.has("focusEditor")) && this.applyConfiguredState(), e.has("diagnosticsOpen") && this.inspectorOpen !== this.diagnosticsOpen && (this.inspectorOpen = this.diagnosticsOpen, this.requestUpdate());
+		(e.has("height") || e.has("docs")) && this.syncLabHeight(), e.has("theme") && this.syncColorScheme(), (e.has("scenario") || e.has("project")) && this.editor && this.setScenario(this.resolvedScenario(), e.has("project")), this.editor && (e.has("activeFile") || e.has("cursorLine") || e.has("cursorColumn") || e.has("selection") || e.has("focusEditor")) && this.applyConfiguredState(), e.has("diagnosticsOpen") && this.inspectorOpen !== this.diagnosticsOpen && (this.inspectorOpen = this.diagnosticsOpen, this.requestUpdate());
 	}
 	disconnectedCallback() {
-		super.disconnectedCallback(), this.clearDiagnosticTimer(), this.disposeLanguageFeatures(), this.disposeEditorDisposables(), this.editor?.dispose(), this.disposeModels(), this.client?.dispose();
+		super.disconnectedCallback(), this.clearDiagnosticTimer(), this.disposeLanguageFeatures(), this.disposeEditorDisposables(), this.editor?.dispose(), this.disposeModels(), this.client?.dispose(), this.themeObserver?.disconnect(), this.removeThemeMediaListener();
 	}
 	render() {
 		return Ct({
@@ -8643,11 +8707,11 @@ var hs = 260, gs = class extends Je {
 		});
 	}
 	mountEditor() {
-		this.monaco = mo();
+		this.monaco = go();
 		let e = this.renderRoot.querySelector(".editor");
 		e && (this.createModels(this.activeScenario), this.editor = this.monaco.editor.create(e, {
 			model: this.activeFileState()?.model,
-			theme: "vizsla-lab",
+			theme: yo(this.colorScheme),
 			automaticLayout: !0,
 			fontFamily: "'Cascadia Code', 'SFMono-Regular', Consolas, monospace",
 			fontSize: 14,
@@ -8673,7 +8737,7 @@ var hs = 260, gs = class extends Je {
 		} })), this.editorDisposables.push(this.editor.onDidChangeModelContent(() => {
 			let e = this.activeFileState();
 			!e || !lt(e.file.path) || (e.version += 1, this.openDocument(e), this.client?.didChange(e.uri, e.model.getValue(), e.version), this.scheduleDiagnostics(this.sourceUris(), !0));
-		})), vo(this.editor, this.vscodeAssetsUrl).catch((e) => {
+		})), So(this.editor, this.vscodeAssetsUrl).catch((e) => {
 			console.warn(e instanceof Error ? e.message : "Failed to load VS Code grammar assets.");
 		}));
 	}
@@ -8696,7 +8760,7 @@ var hs = 260, gs = class extends Je {
 	registerLanguageFeatures(e) {
 		let t = this.client;
 		if (!this.monaco || !t || !this.status.ready) return;
-		this.disposeLanguageFeatures(), ho(this.monaco, e);
+		this.disposeLanguageFeatures(), _o(this.monaco, e, this.colorScheme);
 		let n = {
 			monaco: this.monaco,
 			serverCapabilities: e,
@@ -8746,7 +8810,7 @@ var hs = 260, gs = class extends Je {
 	scheduleDiagnostics(e, t) {
 		this.clearDiagnosticTimer(), this.diagnosticTimer = window.setTimeout(() => {
 			this.refreshDiagnostics(e, t);
-		}, hs);
+		}, ys);
 	}
 	async refreshDiagnostics(e, t) {
 		if (!this.client || !this.status.ready || e.length === 0) return;
@@ -8867,7 +8931,7 @@ var hs = 260, gs = class extends Je {
 	}
 	onScenarioChange(e) {
 		let t = e.currentTarget;
-		this.project && t.value !== this.project.id && (this.project = void 0), this.setScenario(ms(t.value));
+		this.project && t.value !== this.project.id && (this.project = void 0), this.setScenario(vs(t.value));
 	}
 	toggleDiagnostics() {
 		this.inspectorOpen = !this.inspectorOpen, this.diagnosticsOpen = this.inspectorOpen, this.requestUpdate();
@@ -8896,13 +8960,36 @@ var hs = 260, gs = class extends Je {
 		return ot(e, this.workspaceRootUri);
 	}
 	resolvedScenario() {
-		return this.project ?? ms(this.scenario);
+		return this.project ?? vs(this.scenario);
 	}
 	availableScenarios() {
-		return !this.project || ps.some((e) => e.id === this.project?.id) ? ps : [this.project, ...ps];
+		return !this.project || _s.some((e) => e.id === this.project?.id) ? _s : [this.project, ..._s];
 	}
 	clearDiagnosticTimer() {
 		this.diagnosticTimer !== void 0 && (window.clearTimeout(this.diagnosticTimer), this.diagnosticTimer = void 0);
+	}
+	installThemeSync() {
+		typeof document < "u" && (this.themeObserver = new MutationObserver(this.handleThemeChange), this.themeObserver.observe(document.documentElement, {
+			attributes: !0,
+			attributeFilter: ["class", "data-theme"]
+		})), typeof window < "u" && "matchMedia" in window && (this.themeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)"), this.themeMediaQuery.addEventListener("change", this.handleThemeChange));
+	}
+	removeThemeMediaListener() {
+		this.themeMediaQuery && this.themeMediaQuery.removeEventListener("change", this.handleThemeChange);
+	}
+	syncColorScheme() {
+		let e = this.resolveColorScheme();
+		this.colorScheme === e && this.getAttribute("data-theme") === e || (this.colorScheme = e, this.setAttribute("data-theme", e), this.monaco && vo(this.monaco, e), this.requestUpdate());
+	}
+	resolveColorScheme() {
+		if (this.theme === "light" || this.theme === "dark") return this.theme;
+		if (typeof document < "u") {
+			let e = document.documentElement, t = (e.dataset.theme ?? e.getAttribute("data-theme") ?? "").toLowerCase();
+			if (t === "light" || t === "dark") return t;
+			if (e.classList.contains("dark")) return "dark";
+			if (e.classList.contains("light")) return "light";
+		}
+		return this.themeMediaQuery?.matches ? "dark" : "light";
 	}
 	syncLabHeight() {
 		this.style.setProperty("--vzlab-height", this.height || (this.docs ? "430px" : "100dvh"));
@@ -8912,6 +8999,6 @@ var hs = 260, gs = class extends Je {
 		this.fileStates.clear();
 	}
 };
-customElements.get("vizsla-lab") || customElements.define("vizsla-lab", gs);
+customElements.get("vizsla-lab") || customElements.define("vizsla-lab", bs);
 //#endregion
-export { gs as VizslaLabElement };
+export { bs as VizslaLabElement };

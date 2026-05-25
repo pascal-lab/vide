@@ -26,6 +26,8 @@ interface Props {
   selection?: string;
   diagnosticsOpen?: boolean;
   focusEditor?: boolean;
+  locale?: string;
+  theme?: "auto" | "light" | "dark";
 }
 
 const {
@@ -46,6 +48,8 @@ const {
   selection,
   diagnosticsOpen = false,
   focusEditor = false,
+  locale,
+  theme = "auto",
 } = Astro.props;
 
 if (files && files.length === 0) {
@@ -67,6 +71,8 @@ const assetVersion = createHash("sha256")
   .update(readFileSync(join(process.cwd(), "public", "vizsla-lab", "vizsla-lab.es.js")))
   .digest("hex")
   .slice(0, 12);
+const inferredLocale = Astro.url.pathname.includes("/en/") ? "" : "zh-cn";
+const monacoLocale = locale ?? inferredLocale;
 const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
 ---
 
@@ -83,6 +89,8 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
   data-selection={selection}
   data-diagnostics-open={diagnosticsOpen ? "true" : undefined}
   data-focus-editor={focusEditor ? "true" : undefined}
+  data-locale={monacoLocale}
+  data-theme={theme}
 >
   <div class="vizsla-lab-placeholder">
     <div class="vizsla-lab-copy">
@@ -95,6 +103,7 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
 
 <script define:vars={{ id, assetVersion, inlineProject }}>
   const root = document.getElementById(id);
+  const monacoLocales = new Set(["cs", "de", "es", "fr", "it", "ja", "ko", "pl", "pt-br", "ru", "tr", "zh-cn", "zh-tw"]);
 
   function versioned(url) {
     const separator = url.includes("?") ? "&" : "?";
@@ -116,6 +125,43 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
       link.addEventListener("load", resolve, { once: true });
       link.addEventListener("error", resolve, { once: true });
       document.head.append(link);
+    });
+  }
+
+  async function ensureMonacoLocale(assetBase, locale) {
+    const normalized = normalizeMonacoLocale(locale);
+    if (!normalized) {
+      return;
+    }
+    if (customElements.get("vizsla-lab") || globalThis._VSCODE_NLS_LANGUAGE === normalized) {
+      return;
+    }
+
+    await loadScript(versioned(`${assetBase}nls.messages.${normalized}.js`), `vizsla-lab-nls-${normalized}`);
+  }
+
+  function normalizeMonacoLocale(locale) {
+    const normalized = (locale || "").toLowerCase().replace("_", "-");
+    if (!normalized || normalized === "en" || normalized === "en-us") {
+      return "";
+    }
+    return monacoLocales.has(normalized) ? normalized : "";
+  }
+
+  function loadScript(src, id) {
+    const existing = document.getElementById(id);
+    if (existing) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.id = id;
+      script.src = src;
+      script.async = false;
+      script.addEventListener("load", resolve, { once: true });
+      script.addEventListener("error", () => reject(new Error(`Could not load Monaco language pack: ${src}`)), { once: true });
+      document.head.append(script);
     });
   }
 
@@ -142,6 +188,7 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
     try {
       const assetBase = root.dataset.assetBase;
       await ensureStyles(assetBase);
+      await ensureMonacoLocale(assetBase, root.dataset.locale);
       await import(versioned(`${assetBase}vizsla-lab.es.js`));
       await customElements.whenDefined("vizsla-lab");
 
@@ -153,6 +200,7 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
         lab.setAttribute("scenario", root.dataset.scenario || "counter");
       }
       lab.setAttribute("height", root.dataset.height || "620px");
+      lab.setAttribute("theme", root.dataset.theme || "auto");
       lab.setAttribute("wasm-base-url", versioned(`${assetBase}wasm/`));
       lab.setAttribute("vscode-assets-url", `${assetBase}vscode/`);
       setOptionalAttribute(lab, "active-file", root.dataset.activeFile);
