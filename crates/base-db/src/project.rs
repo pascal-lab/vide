@@ -51,6 +51,10 @@ impl ProjectConfig {
         self.root_profiles.len()
     }
 
+    pub fn has_compilation_profiles(&self) -> bool {
+        !self.profiles.is_empty()
+    }
+
     pub fn preprocess_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,

@@ -3,9 +3,10 @@ use std::ops::Range;
 use base_db::{
     Cancelled,
     compilation_plan::CompilationPlan,
+    project::CompilationProfileId,
     salsa,
     source_db::{SourceDb, SourceRootDb},
-    source_root::SourceRootRole,
+    source_root::{SourceRootId, SourceRootRole},
 };
 use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use span::{FilePosition, RangeInfo};
@@ -75,6 +76,20 @@ impl Analysis {
         self.with_db(|db| diagnostics::source_root_diagnostics(db, file_id))
     }
 
+    pub fn compilation_profile_diagnostics(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::compilation_profile_diagnostics(db, profile_id))
+    }
+
+    pub fn compilation_profile_syntax_diagnostics(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Cancellable<Vec<diagnostics::Diagnostic>> {
+        self.with_db(|db| diagnostics::compilation_profile_syntax_diagnostics(db, profile_id))
+    }
+
     pub fn parse_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
         self.with_db(|db| diagnostics::parse_diagnostics(db, file_id))
     }
@@ -85,6 +100,35 @@ impl Analysis {
 
     pub fn source_root_role(&self, file_id: FileId) -> Cancellable<SourceRootRole> {
         self.with_db(|db| diagnostics::source_root_role(db, file_id))
+    }
+
+    pub fn source_root_id(&self, file_id: FileId) -> Cancellable<SourceRootId> {
+        self.with_db(|db| db.source_root_id(file_id))
+    }
+
+    pub fn file_compilation_profile(
+        &self,
+        file_id: FileId,
+    ) -> Cancellable<Option<CompilationProfileId>> {
+        self.with_db(|db| db.file_compilation_profile(file_id))
+    }
+
+    pub fn has_compilation_profiles(&self) -> Cancellable<bool> {
+        self.with_db(|db| db.project_config().has_compilation_profiles())
+    }
+
+    pub fn compilation_profile_file_ids(
+        &self,
+        profile_id: CompilationProfileId,
+    ) -> Cancellable<Vec<FileId>> {
+        self.with_db(|db| {
+            let plan = db.compilation_plan_for_profile(Some(profile_id));
+            let mut file_ids = plan.roots.clone();
+            file_ids.extend(plan.include_only.iter().copied());
+            file_ids.sort_unstable_by_key(|file_id| file_id.0);
+            file_ids.dedup();
+            file_ids
+        })
     }
 
     pub fn compilation_plan(&self, file_id: FileId) -> Cancellable<Arc<CompilationPlan>> {

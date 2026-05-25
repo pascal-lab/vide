@@ -11,6 +11,7 @@ use vfs::{FileId, VfsPath, loader as vfs_loader};
 
 use super::{
     GlobalState, WorkspaceFetchCompletion,
+    diagnostics::DiagnosticPublishFreshness,
     dispatcher::{NotifDispatcher, ReqDispatcher},
     handlers,
     process_changes::DiagnosticInvalidation,
@@ -174,28 +175,22 @@ mod tests {
             ..Diagnostic::default()
         };
 
-        state.publish_diagnostics_tasks(
-            publish_batch(vec![PublishDiagnosticsTask::for_test(
-                file_id,
-                primary_uri.clone(),
-                None,
-                vec![diagnostic.clone()],
-            )]),
-            false,
-        );
+        state.publish_diagnostics_tasks(publish_batch(vec![PublishDiagnosticsTask::for_test(
+            file_id,
+            primary_uri.clone(),
+            None,
+            vec![diagnostic.clone()],
+        )]));
         let first = recv_publish(&client);
         assert_eq!(first.uri, primary_uri);
         assert_eq!(first.diagnostics, vec![diagnostic.clone()]);
 
-        state.publish_diagnostics_tasks(
-            publish_batch(vec![PublishDiagnosticsTask::for_test(
-                file_id,
-                alias_uri.clone(),
-                Some(7),
-                vec![diagnostic.clone()],
-            )]),
-            false,
-        );
+        state.publish_diagnostics_tasks(publish_batch(vec![PublishDiagnosticsTask::for_test(
+            file_id,
+            alias_uri.clone(),
+            Some(7),
+            vec![diagnostic.clone()],
+        )]));
 
         let clear_primary = recv_publish(&client);
         assert_eq!(clear_primary.uri, primary_uri);
@@ -242,27 +237,21 @@ mod tests {
             ..Diagnostic::default()
         };
 
-        state.publish_diagnostics_tasks(
-            publish_batch(vec![PublishDiagnosticsTask::for_test(
-                file_id,
-                alias_uri.clone(),
-                Some(9),
-                vec![diagnostic],
-            )]),
-            false,
-        );
+        state.publish_diagnostics_tasks(publish_batch(vec![PublishDiagnosticsTask::for_test(
+            file_id,
+            alias_uri.clone(),
+            Some(9),
+            vec![diagnostic],
+        )]));
         let published = recv_publish(&client);
         assert_eq!(published.uri, alias_uri);
         assert!(!published.diagnostics.is_empty());
 
-        state.publish_diagnostics_tasks(
-            PublishDiagnosticsBatch::for_touched_files(
-                FxHashSet::from_iter([file_id]),
-                Vec::new(),
-                DiagnosticPublishFreshness::default(),
-            ),
-            false,
-        );
+        state.publish_diagnostics_tasks(PublishDiagnosticsBatch::for_touched_files(
+            FxHashSet::from_iter([file_id]),
+            Vec::new(),
+            DiagnosticPublishFreshness::default(),
+        ));
 
         let cleared = recv_publish(&client);
         assert_eq!(cleared.uri, alias_uri);
@@ -306,13 +295,10 @@ mod tests {
             ..Diagnostic::default()
         };
 
-        state.publish_diagnostics_tasks(
-            PublishDiagnosticsBatch::from_tasks(
-                vec![PublishDiagnosticsTask::for_test(file_id, uri, None, vec![diagnostic])],
-                DiagnosticPublishFreshness::new(1, 0, 0),
-            ),
-            false,
-        );
+        state.publish_diagnostics_tasks(PublishDiagnosticsBatch::from_tasks(
+            vec![PublishDiagnosticsTask::for_test(file_id, uri, None, vec![diagnostic])],
+            DiagnosticPublishFreshness::new(1, 0, 0),
+        ));
 
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
         assert!(state.published_diagnostics.is_empty());
@@ -598,30 +584,6 @@ pub(crate) struct PublishDiagnosticsBatch {
     freshness: DiagnosticPublishFreshness,
     touched_file_ids: FxHashSet<FileId>,
     tasks: Vec<PublishDiagnosticsTask>,
-}
-
-/// Freshness token for a diagnostics publish batch.
-///
-/// Diagnostic contents and diagnostic publish targets can change
-/// independently. VFS/content/config changes advance `diagnostics_revision`;
-/// didOpen/didClose and identity remaps advance `target_revision` because they
-/// change which URIs are live publish targets without necessarily changing the
-/// analysis text.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct DiagnosticPublishFreshness {
-    diagnostics_revision: u64,
-    target_revision: u64,
-    readiness_revision: u64,
-}
-
-impl DiagnosticPublishFreshness {
-    pub(crate) fn new(
-        diagnostics_revision: u64,
-        target_revision: u64,
-        readiness_revision: u64,
-    ) -> Self {
-        Self { diagnostics_revision, target_revision, readiness_revision }
-    }
 }
 
 impl PublishDiagnosticsBatch {
@@ -1184,7 +1146,7 @@ impl GlobalState {
                     None,
                 );
             }
-            Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags, false),
+            Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags),
             Task::Qihe(task) => self.handle_qihe_task(task),
         }
     }
@@ -1262,18 +1224,13 @@ impl GlobalState {
         }
     }
 
-    pub(super) fn publish_diagnostics_tasks(
-        &mut self,
-        batch: PublishDiagnosticsBatch,
-        force_push: bool,
-    ) {
+    pub(super) fn publish_diagnostics_tasks(&mut self, batch: PublishDiagnosticsBatch) {
         let task_count = batch.touched_file_ids.len();
         let diagnostic_count = diagnostic_task_item_count(&batch.tasks);
         let _span =
-            tracing::info_span!("diagnostics.publish", task_count, diagnostic_count, force_push)
-                .entered();
+            tracing::info_span!("diagnostics.publish", task_count, diagnostic_count).entered();
 
-        if self.config.cli_pull_diagnostics_support() && !force_push {
+        if self.config.cli_pull_diagnostics_support() {
             tracing::info!("skipping push diagnostics for pull-capable client");
             return;
         }

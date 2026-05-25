@@ -53,6 +53,7 @@ pub(crate) mod keys {
     pub(crate) const QIHE_FINISHED: &str = "qihe.finished";
     pub(crate) const QIHE_FAILED: &str = "qihe.failed";
     pub(crate) const QIHE_CANCELLED: &str = "qihe.cancelled";
+    pub(crate) const QIHE_STALE: &str = "qihe.stale";
     pub(crate) const QIHE_LOCATION: &str = "qihe.location";
     pub(crate) const QIHE_CONVERT_DIAGNOSTIC_FAILED: &str = "qihe.convert_diagnostic_failed";
     pub(crate) const QIHE_PREPARE_WORKSPACE_FAILED: &str = "qihe.prepare_workspace_failed";

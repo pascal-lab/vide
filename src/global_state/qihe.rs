@@ -26,6 +26,7 @@ use vfs::FileId;
 
 use super::{
     GlobalState, QiheDiagnosticState,
+    diagnostics::DiagnosticCommitFreshness,
     main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, QiheTask},
     respond::Progress,
     snapshot::GlobalStateSnapshot,
@@ -47,6 +48,7 @@ use crate::{
 pub(crate) struct QiheUpdate {
     by_file: FxHashMap<FileId, Vec<Diagnostic>>,
     summary: String,
+    freshness: DiagnosticCommitFreshness,
 }
 
 const QIHE: &str = "qihe";
@@ -101,6 +103,7 @@ impl QiheUpdate {
         active_file_id: FileId,
         diagnostics: Vec<QiheJsonDiagnostic>,
         converter: &DiagnosticConverter<'_>,
+        freshness: DiagnosticCommitFreshness,
     ) -> Result<Self> {
         let total = diagnostics.len();
         let mut by_file = FxHashMap::from_iter([(active_file_id, Vec::new())]);
@@ -117,7 +120,7 @@ impl QiheUpdate {
             .config
             .i18n
             .format(keys::QIHE_FINISHED, [("total", total.to_string())]);
-        Ok(Self { by_file, summary })
+        Ok(Self { by_file, summary, freshness })
     }
 }
 
@@ -157,6 +160,17 @@ impl GlobalState {
                         current = ?self.qihe_run_generation,
                         "stale qihe result ignored"
                     );
+                    return;
+                }
+                if update.freshness != self.diagnostic_commit_freshness() {
+                    tracing::debug!(
+                        ?run_id,
+                        freshness = ?update.freshness,
+                        current = ?self.diagnostic_commit_freshness(),
+                        "stale qihe diagnostics ignored"
+                    );
+                    let message = self.config.i18n.text(keys::QIHE_STALE).to_owned();
+                    self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
                     return;
                 }
                 let summary = update.summary.clone();
@@ -220,7 +234,14 @@ impl GlobalState {
             let diagnostics = by_file.remove(file_id).unwrap_or_default();
             let generation =
                 cache.get(file_id).map_or(1, |state| state.generation.saturating_add(1));
-            cache.insert(*file_id, QiheDiagnosticState { generation, diagnostics });
+            cache.insert(
+                *file_id,
+                QiheDiagnosticState {
+                    freshness: self.diagnostic_commit_freshness(),
+                    generation,
+                    diagnostics,
+                },
+            );
         }
 
         changed_files
@@ -252,8 +273,18 @@ impl GlobalState {
                     continue;
                 }
             };
+            let diagnostics = match snapshot.lsp_diagnostics(file_id) {
+                Ok(diagnostics) => diagnostics,
+                Err(error) if error.is::<ide::Cancelled>() => {
+                    tracing::debug!(?file_id, "qihe diagnostic publish cancelled");
+                    continue;
+                }
+                Err(error) => {
+                    tracing::debug!(?file_id, "qihe diagnostic publish failed: {error:#}");
+                    continue;
+                }
+            };
             touched_file_ids.insert(file_id);
-            let diagnostics = snapshot.lsp_diagnostics(file_id);
 
             publish_tasks.extend(
                 targets
@@ -261,14 +292,11 @@ impl GlobalState {
                     .map(|target| PublishDiagnosticsTask::from_target(target, diagnostics.clone())),
             );
         }
-        self.publish_diagnostics_tasks(
-            PublishDiagnosticsBatch::for_touched_files(
-                touched_file_ids,
-                publish_tasks,
-                snapshot.diagnostic_publish_freshness,
-            ),
-            true,
-        );
+        self.publish_diagnostics_tasks(PublishDiagnosticsBatch::for_touched_files(
+            touched_file_ids,
+            publish_tasks,
+            snapshot.diagnostic_publish_freshness,
+        ));
     }
 
     fn begin_qihe_progress(&mut self, progress_token: &str, label: String) {
@@ -357,7 +385,12 @@ fn run_qihe_request(
     };
     let converter =
         DiagnosticConverter { snapshot, default_file_id: active_file_id, resolution_base };
-    QiheUpdate::from_json_diagnostics(active_file_id, diagnostics, &converter)
+    QiheUpdate::from_json_diagnostics(
+        active_file_id,
+        diagnostics,
+        &converter,
+        snapshot.diagnostic_commit_freshness(),
+    )
 }
 
 fn qihe_working_directory(params_cwd: Option<PathBuf>, root_path: &AbsPath) -> PathBuf {
@@ -1014,9 +1047,10 @@ mod tests {
             ..Diagnostic::default()
         };
         let stale = Diagnostic { message: "stale".to_owned(), ..current.clone() };
+        let freshness = state.diagnostic_commit_freshness();
         state.qihe_diagnostics.lock().insert(
             file_id,
-            QiheDiagnosticState { generation: 1, diagnostics: vec![current.clone()] },
+            QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![current.clone()] },
         );
 
         state.handle_qihe_task(QiheTask::Finished {
@@ -1024,6 +1058,7 @@ mod tests {
             update: QiheUpdate {
                 by_file: rustc_hash::FxHashMap::from_iter([(file_id, vec![stale])]),
                 summary: "old run".to_owned(),
+                freshness,
             },
             progress_token: "old".to_owned(),
         });
@@ -1059,10 +1094,98 @@ mod tests {
             update: QiheUpdate {
                 by_file: rustc_hash::FxHashMap::default(),
                 summary: "done".to_owned(),
+                freshness: state.diagnostic_commit_freshness(),
             },
             progress_token: "current".to_owned(),
         });
 
+        assert_eq!(state.qihe_active_progress_token, None);
+    }
+
+    #[test]
+    fn qihe_diagnostics_are_scoped_to_diagnostic_commit_freshness() {
+        let root = TestDir::new("qihe-diagnostic-freshness");
+        let config = config::Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root.path().to_path_buf(),
+            lsp_types::ClientCapabilities::default(),
+            vec![root.path().to_path_buf()],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = lsp_server::Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        let file_id = FileId(0);
+        let diagnostic = Diagnostic {
+            range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+            severity: Some(DiagnosticSeverity::WARNING),
+            source: Some("qihe".to_owned()),
+            message: "current".to_owned(),
+            ..Diagnostic::default()
+        };
+        let freshness = state.diagnostic_commit_freshness();
+        state.qihe_diagnostics.lock().insert(
+            file_id,
+            QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![diagnostic.clone()] },
+        );
+
+        assert_eq!(state.make_snapshot().qihe_diagnostics(file_id), vec![diagnostic]);
+
+        state.diagnostics_revision += 1;
+        let snapshot = state.make_snapshot();
+        assert!(snapshot.qihe_diagnostics(file_id).is_empty());
+    }
+
+    #[test]
+    fn qihe_result_with_stale_diagnostic_freshness_does_not_commit() {
+        let root = TestDir::new("stale-qihe-freshness");
+        let config = config::Config::new(
+            Opt {
+                process_name: "vizsla-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root.path().to_path_buf(),
+            lsp_types::ClientCapabilities::default(),
+            vec![root.path().to_path_buf()],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = lsp_server::Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+        state.qihe_run_generation = QiheRunId::new(1);
+        state.qihe_active_progress_token = Some("current".to_owned());
+        let freshness = state.diagnostic_commit_freshness();
+        state.diagnostics_revision += 1;
+
+        state.handle_qihe_task(QiheTask::Finished {
+            run_id: QiheRunId::new(1),
+            update: QiheUpdate {
+                by_file: rustc_hash::FxHashMap::from_iter([(
+                    FileId(0),
+                    vec![Diagnostic {
+                        range: Range::new(Position::new(0, 0), Position::new(0, 1)),
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        source: Some("qihe".to_owned()),
+                        message: "stale".to_owned(),
+                        ..Diagnostic::default()
+                    }],
+                )]),
+                summary: "old workspace".to_owned(),
+                freshness,
+            },
+            progress_token: "current".to_owned(),
+        });
+
+        assert!(state.qihe_diagnostics.lock().is_empty());
         assert_eq!(state.qihe_active_progress_token, None);
     }
 

@@ -147,6 +147,7 @@ impl MemDocs {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn version(&self, file_id: FileId) -> Option<i32> {
         let path = &self.buffers.get(&file_id)?.path;
         self.version_for_path(path)

@@ -1,5 +1,6 @@
 use base_db::{
     diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
+    project::CompilationProfileId,
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootDiagnosticScope, SourceRootRole},
 };
@@ -90,6 +91,35 @@ fn compilation_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
         .collect()
 }
 
+pub(crate) fn compilation_profile_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+) -> Vec<Diagnostic> {
+    db.compilation_profile_diagnostics(profile_id)
+        .iter()
+        .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
+        .collect()
+}
+
+pub(crate) fn compilation_profile_syntax_diagnostics(
+    db: &RootDb,
+    profile_id: CompilationProfileId,
+) -> Vec<Diagnostic> {
+    let plan = db.compilation_plan_for_profile(Some(profile_id));
+    let mut file_ids = plan.roots.clone();
+    file_ids.extend(plan.include_only.iter().copied());
+    file_ids.sort_unstable_by_key(|file_id| file_id.0);
+    file_ids.dedup();
+
+    file_ids.into_iter().flat_map(|file_id| syntax_diagnostics(db, file_id)).collect()
+}
+
+fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    let mut diagnostics = parse_diagnostics(db, file_id);
+    diagnostics.extend(vizsla_diagnostics(db, file_id));
+    diagnostics
+}
+
 fn slang_diagnostic(
     file_id: FileId,
     source: SlangDiagnosticSource,
@@ -115,12 +145,22 @@ fn slang_diagnostic(
 }
 
 pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    let source_root_id = db.source_root_id(file_id);
+    // Ignored roots in a profiled workspace are explicitly outside the
+    // diagnostic model. Profile-less workspaces still use open-file syntax
+    // diagnostics for ad hoc files.
+    if db.source_root(source_root_id).role().diagnostic_scope()
+        == SourceRootDiagnosticScope::Disabled
+        && db.project_config().has_compilation_profiles()
+    {
+        return Vec::new();
+    }
+
     let mut diagnostics = if slang_semantic_diagnostics_active(db, file_id) {
         Vec::new()
     } else {
-        parse_diagnostics(db, file_id)
+        syntax_diagnostics(db, file_id)
     };
-    diagnostics.extend(vizsla_diagnostics(db, file_id));
 
     diagnostics.extend(
         compilation_diagnostics(db, file_id).into_iter().filter(|diag| diag.file_id == file_id),
@@ -135,9 +175,7 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
     match source_root.role().diagnostic_scope() {
         SourceRootDiagnosticScope::Disabled => return Vec::new(),
         SourceRootDiagnosticScope::OpenFile => {
-            let mut diagnostics = parse_diagnostics(db, file_id);
-            diagnostics.extend(vizsla_diagnostics(db, file_id));
-            return diagnostics;
+            return syntax_diagnostics(db, file_id);
         }
         SourceRootDiagnosticScope::Workspace => {}
     }
@@ -148,8 +186,7 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
         diagnostics.extend(compilation_diagnostics(db, file_id));
     } else {
         for file_id in source_root.iter() {
-            diagnostics.extend(parse_diagnostics(db, file_id));
-            diagnostics.extend(vizsla_diagnostics(db, file_id));
+            diagnostics.extend(syntax_diagnostics(db, file_id));
         }
 
         diagnostics.extend(db.source_root_semantic_diagnostics(file_id).iter().map(
@@ -468,6 +505,22 @@ mod tests {
         assert!(
             diagnostics.iter().all(|diag| !diag.message.contains("port 'b' has no connection")),
             "unconfigured roots should not run semantic diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn ignored_root_disables_document_diagnostics() {
+        let db = db_with_files_in_role(
+            &[("/ignored.sv", "module ignored(;\nendmodule\n")],
+            SourceRootRole::Ignored,
+            true,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(0));
+
+        assert!(
+            diagnostics.is_empty(),
+            "ignored roots must not produce diagnostics: {diagnostics:?}"
         );
     }
 

@@ -1,3 +1,4 @@
+mod diagnostics;
 mod dispatcher;
 mod handlers;
 pub mod main_loop;
@@ -40,7 +41,8 @@ pub(crate) use self::workspace_state::{
     WorkspaceFetchCause, WorkspaceFetchCompletion, WorkspaceGeneration,
 };
 use self::{
-    main_loop::{DiagnosticPublishFreshness, DiagnosticPublishKey, Task},
+    diagnostics::{DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness},
+    main_loop::{DiagnosticPublishKey, Task},
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
     trace::LspTrace,
@@ -120,6 +122,7 @@ pub(crate) struct GlobalState {
     pub(crate) pending_document_diagnostic_targets: FxHashSet<FileId>,
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
+    pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
     // Only the latest Qihe run is allowed to commit diagnostics or logs.
     pub(crate) qihe_run_generation: qihe::QiheRunId,
@@ -181,6 +184,7 @@ impl GlobalState {
             pending_document_diagnostic_targets: FxHashSet::default(),
             diagnostics_revision: 0,
             diagnostic_target_revision: 0,
+            diagnostic_file_revisions: FxHashMap::default(),
             qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
             qihe_run_generation: qihe::QiheRunId::default(),
             qihe_active_progress_token: None,
@@ -204,8 +208,8 @@ impl GlobalState {
             mem_docs: self.mem_docs.clone(),
             sema_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
             qihe_diagnostics: Arc::clone(&self.qihe_diagnostics),
-            diagnostics_revision: self.diagnostics_revision,
             diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
+            diagnostic_file_revisions: self.diagnostic_file_revisions.clone(),
         }
     }
 
@@ -216,10 +220,15 @@ impl GlobalState {
             self.workspace_vfs.diagnostic_readiness_revision(),
         )
     }
+
+    pub(crate) fn diagnostic_commit_freshness(&self) -> DiagnosticCommitFreshness {
+        self.diagnostic_publish_freshness().commit()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct QiheDiagnosticState {
+    pub(crate) freshness: DiagnosticCommitFreshness,
     pub(crate) generation: u64,
     pub(crate) diagnostics: Vec<lsp_types::Diagnostic>,
 }
