@@ -26,6 +26,8 @@ jobs:
   build:
     name: Build Starlight
     runs-on: ubuntu-latest
+    env:
+      ASTRO_BASE: /vizsla
     steps:
       - name: Checkout
         uses: actions/checkout@v6
