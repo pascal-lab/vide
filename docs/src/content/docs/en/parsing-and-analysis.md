@@ -1,74 +1,69 @@
 ---
 title: Parsing and Analysis Model
-description: How Vizsla discovers files, parses, indexes, performs semantic analysis, and reports diagnostics.
+description: Why Vizsla can sometimes only read files and sometimes run full project analysis.
 ---
 
-Vizsla separates "seeing a file" from "treating that file as a project compilation unit." This keeps code readable out of the box when full configuration is missing, and enables more accurate semantic analysis after you add a manifest.
+Read this page when you run into questions like:
 
-## Layered Model
+- Why can navigation work without `vizsla.toml`, while cross-file diagnostics are incomplete?
+- Why does `sources = []` stop Vizsla from scanning the workspace automatically?
+- Why does a header listed through `include_dirs` not always get standalone diagnostics?
+- Why does Qihe sometimes use project analysis and sometimes fall back to single-file analysis?
 
-Vizsla project analysis has four layers:
+Three terms are useful:
 
-1. File discovery and loading: decides which files enter the VFS based on the workspace, `vizsla.toml`, `libraries`, and global exclusions.
-2. Single-file parsing: builds syntax trees for Verilog/SystemVerilog files and produces parse diagnostics.
-3. Best-effort indexing: builds an index for loaded files that can support read-only features such as navigation, references, and hover.
-4. Semantic profile: builds a compile view from explicit project configuration for cross-file semantic diagnostics, include/define handling, top modules, and Qihe project mode.
+- Best-effort indexing: when there is no full project configuration, Vizsla still tries to read Verilog/SystemVerilog files in the workspace so navigation, references, hover, and completion can work where possible.
+- Project analysis: the project view Vizsla builds from `vizsla.toml`, including `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`. Cross-file diagnostics and Qihe project analysis depend on it.
+- Diagnostics: errors, warnings, and hints in the VS Code `Problems` panel. Single-file syntax issues can be reported without full project configuration; cross-file semantic issues need project analysis.
 
-Each loaded source root has a role:
+## sources Is the Main Switch
 
-| Role | Purpose |
-| --- | --- |
-| `Local` | The semantic root of the current project. Usually comes from explicit `sources` or explicit `include_dirs`. |
-| `BestEffortIndex` | Used only for best-effort indexing and excluded from the compile profile. |
-| `Library` | A dependency library root that participates in the referencing project's semantic profile. |
-| `Ignored` | Excluded from parsing, indexing, and diagnostics. |
+`sources` decides whether files are treated as part of the project.
 
-`BestEffortIndex` is the key to default readability: it lets features such as navigation and references work as much as possible without pretending those files form an accurate compile project.
-
-## Manifest Behavior
-
-`vizsla.toml` controls the project model but does not directly control a single diagnostics entry point. Different configurations produce different roots and profiles:
-
-| Configuration | File loading | Semantic profile |
+| Configuration | What Vizsla reads | Project analysis |
 | --- | --- | --- |
-| No manifest | Index the workspace root by default | Not generated |
-| Manifest exists but omits `sources` | Index the workspace root by default | Not generated |
-| Omits `sources`, but sets `include_dirs` | Index the workspace root by default and load include roots | Generate a profile for include roots; the default index root does not enter the profile |
-| `sources = []` | Do not perform default workspace indexing | Not generated |
-| `sources = []` with `include_dirs` | Load only include roots | Generate a profile for include roots |
-| `sources = ["rtl/**"]` | Load matching source roots | Generated |
+| No project manifest | Best-effort indexes the workspace | Not created |
+| Manifest exists but omits `sources` | Best-effort indexes the workspace | Not created for those default-indexed files |
+| Omits `sources`, but sets `include_dirs` | Best-effort indexes the workspace and loads include directories | Include directories can be used by project analysis; default-indexed files do not participate |
+| `sources = []` | Does not scan the workspace automatically | Not created |
+| `sources = []` with `include_dirs` | Loads only include directories | Include directories can be used by project analysis |
+| `sources = ["rtl/**"]` | Loads matching source files | Created |
 
-Explicit `sources = []` is the opt-out path for workspace indexing. Omitting `sources` means enabling default best-effort indexing. These two configurations are intentionally different.
+A short way to remember it: omitted `sources` means "read the workspace for me, but do not pretend it is fully configured"; `sources = []` means "do not scan the workspace automatically"; `sources = ["rtl/**"]` means "these files belong to my project."
 
-When `sources` is explicit and non-empty and `include_dirs` is omitted, Vizsla uses scan roots inferred from `sources` as default include directories. If `include_dirs = []` is set explicitly, no fallback is used.
+`include_dirs` only controls include search. If you set `sources` explicitly but omit `include_dirs`, Vizsla infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory. When `sources` is omitted, Vizsla does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, no fallback is used.
 
-## Parsing and Diagnostics
+`libraries` are loaded as dependency workspaces and participate in the current project's analysis. `exclude` is a workspace-relative glob that filters generated files, simulation output, or black-box files out of loaded files. See [Project Configuration](./project-configuration.md#paths-and-globs) for glob syntax.
 
-Parse diagnostics come from single-file parsing. They do not require a complete semantic profile, but they are affected by the source root role:
+## Why Diagnostics Differ
 
-| Root role | Parse diagnostics scope | Semantic diagnostics |
+Single-file parse diagnostics only need the current file, for example a missing semicolon or unmatched parenthesis. Cross-file semantic diagnostics need more project information: include directories, predefined macros, library paths, and which files belong to the same project.
+
+Common outcomes:
+
+| File state | Single-file parse diagnostics | Cross-file semantic diagnostics |
 | --- | --- | --- |
-| `Local` | Files inside the workspace root | Requires a profile |
-| `Library` | Files inside the workspace root | Requires a profile |
-| `BestEffortIndex` | Opened files only | Not run |
-| `Ignored` | Not run | Not run |
+| `.v` or `.sv` files loaded through explicit `sources` | Can run | Can run when project analysis is available |
+| Headers found through `include_dirs` | Participate through the source file that includes them | Participate through the including source file's project analysis |
+| Files only found through best-effort indexing | Usually opened files only | Not run |
+| Files filtered by `exclude` | Not run | Not run |
 
-Semantic diagnostics always go through a profile. Roots without a profile are not promoted into project compilation units, and default index roots do not generate project compile plans.
+Header files (`.vh`, `.svh`, `.svi`) are usually not standalone compile entries. They mainly participate after a `.v` or `.sv` file includes them. Opening a header directly, or only listing its directory in `include_dirs`, does not mean Vizsla will run full standalone diagnostics for that header.
 
-You may see multiple entry points that trigger a diagnostics refresh, such as opening a file, saving a file, workspace refresh, or a request from the VS Code `Problems` panel. They all eventually use the same layered model: the root role decides the scope, and the profile decides whether cross-file semantic analysis is possible.
+## Navigation and Duplicate Modules
 
-## Navigation Features
+Go to definition, references, hover, completion, and code lens prefer information from loaded indexes. Best-effort indexing makes these features available early, but it is not a strict compile configuration.
 
-Go to definition, references, hover, completion, and code lens use indexed information from loaded files where possible. Default indexing makes these read-only features work out of the box, but it is not an accurate compile configuration:
+In project analysis, duplicate module names are handled through the project view. Vizsla does not treat directory names as implicit namespaces.
 
-- If the workspace has duplicate module names or multiple candidate definitions, the result may require user choice.
-- If include, macro, or library configuration is missing, some semantic features may degrade or be missing.
-- If the behavior must match the real project build, configure `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules` explicitly.
+In best-effort indexing, if several modules with the same name are visible, Vizsla makes an editor-only nearest-candidate guess: same file first, then deepest shared directory, then same scan root. The guess is used only when there is one best candidate; ties stay ambiguous.
 
-The goal is to make the project readable first, then make the results precise through the manifest.
+This guess is not a SystemVerilog language rule. If there is one nearest candidate, Vizsla does not report a diagnostic. If no unique candidate exists, Vizsla reports `ambiguous-module-instantiation` as information. In configured projects, duplicate module names are still handled by stricter semantic rules; when slang semantic diagnostics are enabled, Vizsla prefers slang's diagnostics.
 
-## Qihe Project Mode
+## Qihe Project Analysis
 
-Qihe project mode uses the compile plan generated by the semantic profile. Vizsla only passes project files, `--top`, `-I`, and `-D` arguments when the plan has real compile source files.
+Automatic Qihe project analysis currently requires `vizsla.toml` in the working directory. If only legacy `vizsla_config.toml` exists, normal VS Code features still read it for compatibility, but Qihe falls back to single-file input.
 
-If the current file only belongs to the default `BestEffortIndex` root, or if there is no available project compile root, Vizsla falls back to single-file input. This prevents default indexing from accidentally triggering project mode.
+When `vizsla.toml` exists, Qihe uses the compile plan from project analysis. Vizsla only passes project files, `--top`, `-I`, and `-D` arguments when that plan has real source files.
+
+If the current file only comes from best-effort indexing, or if no project compile plan is available, Vizsla lets Qihe fall back to single-file input. This prevents default indexing from accidentally triggering project analysis.

@@ -61,7 +61,7 @@ endmodule
   },
 ];
 
-Follow these steps to start using Vizsla quickly.
+Follow these steps to confirm that Vizsla works in VS Code.
 
 ## 1. Install the Extension
 
@@ -71,40 +71,33 @@ Search for the display name `Vizsla` in the VS Code Extensions view and install 
 
 ## 2. Open a Project Directory
 
-Open the directory that contains your RTL source code in VS Code.
+Open the directory that contains your RTL source code in VS Code. This directory is the workspace root: the top-level folder you opened in VS Code.
 
-Vizsla uses `vizsla.toml` as the project configuration file. If the workspace does not have a default project configuration file, the extension shows a prompt asking whether to create one.
+If this directory contains Verilog/SystemVerilog source files but has no `vizsla.toml` or legacy `vizsla_config.toml`, the extension prompts you to create a default project manifest. After you choose to create it, the extension writes a conservative `vizsla.toml` and reloads Vizsla.
 
 ![notification on creating manifest](../assets/quick-start/create-manifest-notification.png)
 
-The default project configuration file looks like this:
+The default configuration sets `sources = []`, which means Vizsla does not scan the whole project automatically. You can leave it unchanged while trying syntax highlighting, single-file error reporting, the status bar, and commands. To tell Vizsla where your RTL files are, add the source directory to `sources`, for example:
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
-sources = []
-
-# include_dirs = ["include"]
-# defines = ["SYNTHESIS"]
-# top_modules = ["top"]
-# libraries = ["../common_cells"]
-# exclude = ["build/**"]
+sources = ["rtl/**"]
 ```
 
-> The default configuration is a conservative starting point: Vizsla will not scan the whole project or run semantic diagnostics that need full project information. To let Vizsla understand your project structure, add your source directories to `sources`, for example `sources = ["rtl/**"]`. If your project uses include files or macros, add `include_dirs`, `defines`, `libraries`, or `top_modules` as needed.
+For the full default template and the difference between `sources = []` and omitted `sources`, see [First Project](./first-project/).
 
 ## 3. Check the Status Bar
 
-After the extension activates, the right side of the VS Code status bar shows a status item named `Vizsla`. The item usually displays `Vizsla`; it shows a spinner while starting or stopping, a warning icon when project configuration is missing, and an error icon when the server or project configuration fails. Hover over the status item to see the current details.
+After the extension activates, the right side of the VS Code status bar shows a status item named `Vizsla`. The item usually displays `Vizsla`; it shows a spinner while starting or stopping, a warning icon when the project manifest is missing, and an error icon when startup or project configuration fails. Hover over the status item to see the current details.
 
 ![status bar](../assets/quick-start/status-bar.png)
 
-Click the status item to open the status menu. From there, you can open or create the project configuration file, reload project configuration, restart the language server, profile diagnostic performance, or open the `Vizsla Language Server` output channel.
+Click the status item to open the status menu. Common entries include `Open Manifest`, `Create Manifest`, `Reload Project`, `Restart Language Server`, `Profile Diagnostics`, and `Show Output`.
 
 ![status menu](../assets/quick-start/status-menu.png)
 
 ## 4. Open a Verilog/SystemVerilog File
 
-Open a `.v`, `.vh`, `.sv`, `.svh`, or `.svi` file. VS Code should recognize it as Verilog or SystemVerilog and enable syntax highlighting and language services.
+Open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file. VS Code should recognize the matching language and enable syntax highlighting and language services.
 
 ![example](../assets/quick-start/editor-example.png)
 
@@ -112,7 +105,7 @@ Open a `.v`, `.vh`, `.sv`, `.svh`, or `.svi` file. VS Code should recognize it a
 
 You can verify features in this order:
 
-1. Write an obvious syntax error and check diagnostics in the `Problems` panel.
+1. Write an obvious syntax error and check diagnostics, meaning errors, warnings, and hints, in the `Problems` panel.
 2. Run `Go to Definition` or `Go to Declaration` on a module name, signal name, or instance name.
 3. Trigger completion inside instance port connections, parameter assignments, expressions, or preprocessor positions.
 4. Hover over a symbol to view its information.
@@ -127,9 +120,7 @@ You can verify features in this order:
   selection="16:3-16:4"
   diagnosticsOpen
   title="Start with a small mistake"
-  description="This quick-start project starts with one missing right parenthesis. Check the diagnostics, fix the instance ending to `);`, then try hover, completion, and navigation."
+  description="This quick-start project starts with one missing semicolon. Check the diagnostics, fix the instance ending to `);`, then try hover, completion, and navigation."
 />
 
-If VS Code prompts you to restart the language server after a configuration change, choose `Restart`.
-
-When you need cross-file semantic diagnostics and more accurate port or parameter assistance, add real `sources` or `include_dirs` to `vizsla.toml`, then add `defines`, `libraries`, or `top_modules` as needed.
+If VS Code prompts you to restart Vizsla after changing server launch settings, choose `Restart`.

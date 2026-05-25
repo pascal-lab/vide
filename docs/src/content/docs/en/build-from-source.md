@@ -3,7 +3,7 @@ title: Build from Source
 description: Build the Vizsla server, VS Code extension, and local VSIX packages from source.
 ---
 
-This page is for users who need local development, debugging, or VSIX packaging.
+This page is for users who need local development, debugging, or VSIX packaging. After building, use [Server Self-Check Flow](./check-server.md) to verify the server launch.
 
 ## Prerequisites
 
@@ -62,6 +62,8 @@ If you only want the VS Code extension to use the locally built server, configur
   "vizsla.server.command": "D:\\Proj\\vizsla\\target\\release\\vizsla.exe"
 }
 ```
+
+After saving, VS Code prompts you to `Restart`; accept it, then use `Vizsla: Show Server Version` to verify the binary used by the extension.
 
 ## Build the VS Code Extension
 

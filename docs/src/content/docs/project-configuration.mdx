@@ -54,9 +54,45 @@ endmodule
   },
 ];
 
-Vizsla 的项目配置文件名优先使用 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容, 但当两个文件同时存在时会读取 `vizsla.toml`。项目配置文件必须放在 workspace root 下, 或者被显式作为工程路径传入。字段名必须使用当前支持的名字, 旧字段或未知字段会被拒绝。
+项目配置文件告诉 Vizsla 三件事：哪些 RTL 文件属于这个工程、include 文件去哪找、有哪些宏和依赖。推荐文件名是 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容，但两个文件同时存在时会优先读取 `vizsla.toml`。
 
-## 完整示例
+`vizsla.toml` 通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vizsla 不会自动向父目录或子目录寻找其它项目配置文件。
+
+## 最小可用配置
+
+大多数小工程可以从这几行开始：
+
+```toml
+sources = ["rtl/**"]
+include_dirs = ["include"]
+defines = ["SYNTHESIS"]
+top_modules = ["top"]
+```
+
+- `sources`：告诉 Vizsla 哪些 RTL 文件属于工程。上面的 `rtl/**` 表示递归包含 `rtl` 目录下的文件。
+- `include_dirs`：告诉 Vizsla include 文件去哪找。
+- `defines`：预先定义宏，相当于编译命令里的 `+define+SYNTHESIS` 或 `-D SYNTHESIS`。
+- `top_modules`：声明顶层模块名。它不会决定扫描哪些文件，只帮助项目分析更贴近你的真实入口。
+
+如果你只想先打开文件看看语法高亮和单文件错误提示，也可以暂时使用默认模板里的 `sources = []`。等你准备好工程结构后，再把 `sources` 改成真实目录。
+
+## 路径和 glob 怎么写
+
+`sources` 和 `exclude` 不是普通目录路径，而是工作区相对的 glob。glob 可以理解为“带通配符的路径写法”，比如 `*.sv` 匹配当前目录的一批 `.sv` 文件，`rtl/**` 递归匹配 `rtl` 目录下的内容。想了解这个概念，可以看 [glob 简介](https://en.wikipedia.org/wiki/Glob_(programming))。
+
+Vizsla 对 `sources` 和 `exclude` 有几条固定规则：
+
+- 必须相对工作区根目录，例如 `rtl/**`。
+- 路径分隔符统一写 `/`，不要写 `rtl\**`。
+- 不支持绝对路径，也不支持路径里出现 `..`。
+- `*` 不跨目录，`**` 才表示递归目录。
+
+末尾 `/` 是否有区别，要看字段：
+
+- 在 `sources` 和 `exclude` 里，`rtl/` 不表示递归包含整个目录。想包含 `rtl` 目录下的文件，请写 `rtl/**`；想排除 `build` 目录下的内容，请写 `build/**`。
+- 在 `include_dirs` 和 `libraries` 里，值是普通路径，并且相对 `vizsla.toml` 所在目录解析。`include` 和 `include/` 通常表示同一个目录；为了统一，推荐写成 `include`。
+
+## 常见完整示例
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
@@ -92,47 +128,36 @@ exclude = [
 ]
 ```
 
-`sources` 和 `exclude` 使用 workspace-relative shell glob 语义, 统一用 `/` 作为路径分隔符。`include_dirs` 和 `libraries` 仍然是相对于项目配置文件所在目录解析的路径。
-
-VS Code 在包含 Verilog/SystemVerilog 文件的 workspace 缺少项目配置文件时会生成默认 `vizsla.toml`:
-
-```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
-sources = []
-
-# include_dirs = ["include"]
-# defines = ["SYNTHESIS"]
-# top_modules = ["top"]
-# libraries = ["../common_cells"]
-# exclude = ["build/**"]
-```
-
-这个默认项目配置文件显式写入 `sources = []`, 因此不会扫描 workspace 下的源文件, 也不会建立编译 profile 或运行跨文件 semantic diagnostics。如果手写项目配置时省略 `sources`, Vizsla 会以 best-effort 方式索引 workspace 下的 Verilog/SystemVerilog 文件, 用于跳转、引用等读能力, 但不会建立编译 profile 或运行跨文件 semantic diagnostics。Best-effort 索引遇到重名 module 时只会在唯一最近候选存在时按路径距离推测; 能唯一推测时不报告 diagnostic, 无法唯一推测时会以 `ambiguous-module-instantiation` information 标出。配置化工程不会把目录当作隐式命名空间。需要更准确的 semantic diagnostics 时, 请写入符合工程结构的 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`。
-
-Vizsla 只读取项目配置文件来构建工程模型, 并在项目配置文件变更后刷新工程信息。文件开头的 schema directive 是 TOML 注释, 不会影响 Vizsla 读取项目配置文件。schema URL 带有版本段; 后续项目配置格式变化时, 新版 Vizsla 可以生成指向新版 schema 的 directive, 已有工程仍保留原来的 schema。
-
-如果你想确认省略 `sources`、显式 `sources = []`、解析、索引和诊断之间的关系, 可以阅读 [解析与分析模型](./parsing-and-analysis.md)。
+文件开头的 `#:schema ...` 是 TOML 注释。它只帮助编辑器识别配置格式，不会改变 Vizsla 读取项目配置文件的方式。VS Code 自动创建的默认模板见 [第一个工程](./first-project.md)。
 
 ## 字段说明
 
 | 字段 | 类型 | 作用 |
 | --- | --- | --- |
-| `top_modules` | 字符串数组 | 声明当前工程的顶层模块名。我们会把它写入编译 profile。 |
-| `defines` | 字符串数组 | 预定义宏。支持 `"NAME"` 和 `"NAME=value"` 两种形式。 |
-| `sources` | shell glob 数组或省略 | 源文件选择模式。省略时会默认索引 workspace root, 但不启用 semantic diagnostics; 显式写成 `[]` 时关闭 workspace 索引。 |
-| `include_dirs` | 路径数组或省略 | 预处理 include 搜索目录。省略时默认等于 `sources` 推导出的扫描根目录。显式写成 `[]` 时不会回退。 |
-| `libraries` | 路径数组 | 外部库或依赖工程。我们会把它们作为 library workspace 加载。 |
-| `exclude` | shell glob 数组 | 从已加载文件中排除匹配的源文件或头文件。 |
+| `sources` | glob 数组或省略 | 选择工程源文件。常用写法是 `["rtl/**"]`。 |
+| `include_dirs` | 路径数组或省略 | include 搜索目录，例如 `["include"]`。 |
+| `defines` | 字符串数组 | 预定义宏。支持 `"NAME"` 和 `"NAME=value"`。 |
+| `top_modules` | 字符串数组 | 声明当前工程的顶层模块名。 |
+| `libraries` | 路径数组 | 外部库或依赖工程目录。 |
+| `exclude` | glob 数组 | 从已加载文件中过滤生成目录、仿真输出或黑盒文件。 |
 
 ## sources 和 include_dirs
 
-`sources` 决定我们扫描哪些 Verilog/SystemVerilog 文件。它使用 shell glob 语义, 不再把同一个字符串同时解释为路径和 pattern。常用写法:
+`sources` 有三种常见状态：
+
+| 写法 | 结果 |
+| --- | --- |
+| 省略 | Vizsla 会尽力索引工作区，用于跳转、引用、悬停等阅读功能，但不会把它当成完整工程配置。 |
+| `sources = []` | 不自动扫描工作区。适合先安全打开工程，之后再手动补配置。 |
+| `sources = ["rtl/**"]` | 按 glob 加载匹配文件，并让这些文件进入项目分析。 |
+
+常用写法：
 
 ```toml
 sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 ```
 
-`*`, `?`, `[]`, `{}` 和 `**` 按 shell glob 处理; `*` 不跨 `/`, 递归目录请写 `**`。pattern 必须相对 workspace root, 不能使用绝对路径、`..` 或反斜杠。当前工程加载器读取这些扩展名:
+当前工程加载器读取这些扩展名：
 
 - `.v`
 - `.sv`
@@ -141,7 +166,7 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 - `.svi`
 - `.map`
 
-`include_dirs` 会进入预处理配置, 用于处理 include 搜索。没有显式配置 `include_dirs` 时, 我们会使用 `sources` pattern 推导出的扫描根目录作为 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。显式写成 `include_dirs = []` 时不会回退。
+`include_dirs` 用于处理 `` `include "file.svh" ``。如果没有显式配置 `include_dirs`，但已经显式配置了 `sources`，Vizsla 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。如果 `sources` 被省略，就不会从尽力索引反推 include 目录。显式写成 `include_dirs = []` 时，也不会使用这个回退。
 
 <VizslaLab
   projectId="configuration-include-macro"
@@ -152,12 +177,12 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
   activeFile="rtl/feature_gate.sv"
   selection="5:17-5:31"
   title="include 目录和宏定义"
-  description="这个例子由页面直接传入 vizsla.toml、include 文件和 RTL 文件。试着删除 include_dirs 或宏定义，观察诊断和语义信息变化。"
+  description="这个例子包含 vizsla.toml、include 文件和 RTL 文件。删除 include_dirs 会让 `include` 找不到文件；删除 FEATURE_PIPELINE 宏会改变启用的代码分支。"
 />
 
 ## defines
 
-`defines` 中每一项都是一个宏定义:
+`defines` 中每一项都是一个宏定义：
 
 ```toml
 defines = [
@@ -167,29 +192,31 @@ defines = [
 ]
 ```
 
-宏名需要是合法标识符。带值宏会按 `NAME=value` 解析, `value` 可以包含空格。
+宏名需要是合法标识符。带值宏会按 `NAME=value` 解析，`value` 可以包含空格。
 
 ## libraries
 
-`libraries` 用于声明依赖库。每个库路径会被当作工程路径继续解析:
+`libraries` 用于声明依赖库。路径相对当前 `vizsla.toml` 所在目录解析。每个库路径都会被当作另一个工作区继续加载：
 
-- 如果库目录下有 `vizsla.toml`, 我们会按这个项目配置文件加载库; 否则回退到 `vizsla_config.toml`。
-- 如果库目录没有项目配置文件, 我们会把该目录作为未配置库加载。
-- 依赖会参与当前工程的编译 profile, 并支持传递依赖。
+- 如果库目录下有 `vizsla.toml`，我们会按这个项目配置文件加载库；否则再尝试旧版 `vizsla_config.toml`。
+- 如果库目录没有项目配置文件，我们会把该目录作为未配置库加载。
+- 依赖会参与当前工程的项目分析，并支持传递依赖。
+
+`libraries` 不会替代当前工程自己的 `sources`。当前工作区的 RTL 仍然应该通过 `sources` 声明；`libraries` 只描述被当前工程引用的外部工程或库目录。
 
 ## exclude
 
-`exclude` 使用同一套 workspace-relative shell glob 语义, 适合排除生成目录、仿真输出目录、缓存目录或黑盒 stub:
+`exclude` 使用工作区相对 glob，适合排除生成目录、仿真输出目录、缓存目录或黑盒 stub：
 
 ```toml
 exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 ```
 
-`exclude = ["build"]` 只匹配名为 `build` 的路径本身, 不递归排除目录内容; 目录递归请写 `build/**`。如果你还希望 VS Code 自己减少文件监听, 可以同时配置 VS Code 的 `files.watcherExclude`。Vizsla 的 `exclude` 和 VS Code 的 watcher 设置是两套机制。
+`exclude = ["build"]` 只匹配名为 `build` 的路径本身，不递归排除目录内容；目录递归请写 `build/**`。如果你还希望 VS Code 自己减少文件监听，可以同时配置 VS Code 的 `files.watcherExclude`。Vizsla 的 `exclude` 和 VS Code 的文件监听设置是两套机制。
 
 ## 常见注意事项
 
-- 推荐项目配置文件名是 `vizsla.toml`; `vizsla_config.toml` 仅作为兼容旧工程的 fallback。
-- `top_module`, `include`, `macros` 这类旧字段不会被接受。
-- 我们不会从子目录自动发现项目配置文件。打开 `repo` 时, 只检查 `repo/vizsla.toml`, 再回退检查 `repo/vizsla_config.toml`。
-- 配置了 `sources = []` 的工程可以只加载 include 目录, 适合头文件型 workspace。
+- 推荐项目配置文件名是 `vizsla.toml`；`vizsla_config.toml` 仅作为兼容旧工程的备用文件。
+- `top_module`、`include`、`macros` 这类旧字段不会被接受。
+- 我们不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vizsla.toml`，再回退检查 `repo/vizsla_config.toml`。
+- 配置了 `sources = []` 的工程可以只加载 include 目录，适合头文件型工作区，或暂时不想扫描 RTL 的工作区。

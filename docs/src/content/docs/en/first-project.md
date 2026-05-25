@@ -16,15 +16,17 @@ my-rtl/
     defs.svh
 ```
 
-Open `my-rtl` directly in VS Code:
+Open `my-rtl` directly in VS Code. This directory is the workspace root: the top-level folder currently opened in VS Code.
 
 ```powershell
 code D:\work\my-rtl
 ```
 
+Then open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file. After the extension is installed, VS Code should recognize the language, show syntax highlighting, and start Vizsla in the background.
+
 ## What Happens Without a Manifest
 
-If the opened workspace root contains Verilog/SystemVerilog files and has no `vizsla.toml` or legacy `vizsla_config.toml`, the extension creates a default `vizsla.toml` and shows a prompt:
+If the workspace root contains Verilog/SystemVerilog files and has no `vizsla.toml` or legacy `vizsla_config.toml`, the extension prompts you to create a default `vizsla.toml`. After you choose to create it, the extension writes this file and reloads Vizsla:
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
@@ -37,21 +39,24 @@ sources = []
 # exclude = ["build/**"]
 ```
 
-This default manifest explicitly sets `sources = []`, so it does not scan source files under the workspace root, create a compile profile, or run cross-file semantic diagnostics. Later, you can add `sources` shell globs or `include_dirs`, plus `defines`, `libraries`, or `top_modules` as needed, to enable cross-file indexing and more accurate semantic diagnostics.
+This default manifest sets `sources = []`, which means: do not scan the whole workspace automatically yet. This is a safe way to open a project first, confirm that the extension starts, and then decide which directories should be analyzed.
 
-If the server is started by another client or from the command line and there is no `vizsla.toml` or `vizsla_config.toml`, or if a hand-written manifest omits `sources`, Vizsla enters best-effort indexing mode. Setting `sources = []` explicitly disables workspace indexing and keeps only syntax/parse diagnostics for opened files.
+If you write `vizsla.toml` by hand and omit `sources`, Vizsla best-effort indexes Verilog/SystemVerilog files under the workspace. Best-effort indexing can make read features such as navigation, references, and hover work where possible, but it is still not a full project configuration. Setting `sources = []` explicitly disables automatic workspace scanning.
 
-## When to Create a Manifest
+Header files (`.vh`, `.svh`, `.svi`) usually participate in diagnostics after they are included by a `.v` or `.sv` source file. Opening a header directly, or only listing its directory in `include_dirs`, does not necessarily produce standalone header diagnostics.
 
-As a project grows, we recommend editing `vizsla.toml` in the workspace root when:
+## When to Edit the Project Manifest
 
+Most users can start with the flow above. Edit `vizsla.toml` in the workspace root when:
+
+- You want cross-file navigation, references, completion, and diagnostics to match the real project more closely.
 - You only want to scan `rtl` and `include`, not simulation output, generated directories, or third-party caches.
 - You need to set `defines`.
-- You need to keep include directories separate from source directories.
+- You need to tell Vizsla where include files live.
 - You have external library directories that should participate in analysis as dependencies.
 - You want to declare `top_modules` explicitly.
 
-Example:
+A typical small project can use:
 
 ```toml
 top_modules = ["top"]
@@ -62,3 +67,5 @@ exclude = ["build/**", "out/**"]
 ```
 
 The manifest is only read from the workspace root you opened. Vizsla does not automatically search parent or child directories for other manifests. If both `vizsla.toml` and `vizsla_config.toml` exist, `vizsla.toml` takes precedence.
+
+Next, read [Project Configuration](./project-configuration.md) to describe `sources`, `include_dirs`, `defines`, and exclusion rules for your project layout.
