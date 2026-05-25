@@ -26,7 +26,7 @@ code D:\work\my-rtl
 
 ## 没有项目配置文件时会怎样
 
-如果工作区根目录下有 Verilog/SystemVerilog 文件，但没有 `vizsla.toml` 或旧版 `vizsla_config.toml`，扩展会提示创建默认 `vizsla.toml`。选择创建后，扩展会写入下面的文件并重新加载 Vizsla：
+如果工作区根目录下有 Verilog/SystemVerilog 文件，但没有 `vizsla.toml` 或旧版且已弃用的 `vizsla_config.toml`，扩展会提示创建默认 `vizsla.toml`。选择创建后，扩展会写入下面的文件并重新加载 Vizsla：
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
@@ -66,6 +66,6 @@ include_dirs = ["include"]
 exclude = ["build/**", "out/**"]
 ```
 
-项目配置文件只会从你打开的工作区根目录读取。Vizsla 不会自动向父目录或子目录搜索其它项目配置文件；如果 `vizsla.toml` 和 `vizsla_config.toml` 同时存在，会优先读取 `vizsla.toml`。
+项目配置文件只会从你打开的工作区根目录读取。Vizsla 不会自动向父目录或子目录搜索其它项目配置文件；如果推荐的 `vizsla.toml` 和旧版 `vizsla_config.toml` 同时存在，会优先读取 `vizsla.toml`。`vizsla_config.toml` 仍兼容旧工程，但已弃用。
 
 下一步可以阅读 [项目配置](./project-configuration.md)，把 `sources`、`include_dirs`、`defines` 和排除规则按你的工程结构写清楚。

@@ -54,9 +54,9 @@ endmodule
   },
 ];
 
-The project manifest tells Vizsla three things: which RTL files belong to the project, where include files live, and which macros or dependency libraries should be used. The recommended file name is `vizsla.toml`. The old file name `vizsla_config.toml` is still supported, but if both files exist, Vizsla reads `vizsla.toml`.
+The project manifest tells Vizsla three things: which RTL files belong to the project, where include files live, and which macros or dependency libraries should be used. The recommended file name is `vizsla.toml`. The old file name `vizsla_config.toml` is still supported but deprecated; if both files exist, Vizsla reads `vizsla.toml`.
 
-`vizsla.toml` usually lives in the workspace root: the top-level folder you opened in VS Code. Vizsla does not automatically search parent or child directories for other manifests.
+The project manifest usually lives in the workspace root: the top-level folder you opened in VS Code. Vizsla does not automatically search parent or child directories for other manifests.
 
 ## Minimal Configuration
 
@@ -90,7 +90,7 @@ Vizsla applies these rules to `sources` and `exclude`:
 Whether a trailing `/` matters depends on the field:
 
 - In `sources` and `exclude`, `rtl/` does not mean "recursively include this directory." Use `rtl/**` to include files under `rtl`; use `build/**` to exclude content under `build`.
-- In `include_dirs` and `libraries`, values are normal paths resolved relative to the directory that contains `vizsla.toml`. `include` and `include/` normally refer to the same directory; for consistency, prefer `include`.
+- In `include_dirs` and `libraries`, values are normal paths resolved relative to the directory that contains the current project manifest. `include` and `include/` normally refer to the same directory; for consistency, prefer `include`.
 
 ## Common Complete Example
 
@@ -196,9 +196,9 @@ Macro names must be valid identifiers. Macros with values are parsed as `NAME=va
 
 ## libraries
 
-`libraries` declares dependency libraries. Paths are resolved relative to the directory that contains the current `vizsla.toml`. Each library path is loaded as another workspace:
+`libraries` declares dependency libraries. Paths are resolved relative to the directory that contains the current project manifest. Each library path is loaded as another workspace:
 
-- If the library directory contains `vizsla.toml`, Vizsla loads the library with that manifest; otherwise it falls back to `vizsla_config.toml`.
+- If the library directory contains `vizsla.toml`, Vizsla loads the library with that manifest; otherwise it falls back to the deprecated legacy `vizsla_config.toml`.
 - If the library directory has no manifest, Vizsla loads it as an unconfigured library.
 - Dependencies participate in the current project's analysis, and transitive dependencies are supported.
 
@@ -216,7 +216,7 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 ## Notes
 
-- The recommended manifest file name is `vizsla.toml`; `vizsla_config.toml` is only a fallback for compatibility with old projects.
+- The recommended manifest file name is `vizsla.toml`; `vizsla_config.toml` is only a deprecated fallback for compatibility with old projects.
 - Old fields such as `top_module`, `include`, or `macros` are not accepted.
 - Vizsla does not automatically discover manifests from subdirectories. When you open `repo`, it only checks `repo/vizsla.toml` and then `repo/vizsla_config.toml`.
 - Projects configured with `sources = []` can still load include directories, which is useful for header-only workspaces or workspaces where you do not want to scan RTL yet.

@@ -18,7 +18,7 @@ Focus on these output lines:
 - `Server args`
 - `Working directory`
 
-If the error comes from project configuration, open or fix the `vizsla.toml` at the workspace root first.
+If the error comes from project configuration, open or fix the project manifest at the workspace root first. The recommended file name is `vizsla.toml`; the legacy `vizsla_config.toml` name is still supported but deprecated.
 
 ## Bundled Server Not Found
 
@@ -74,7 +74,7 @@ If the Qihe process cannot start:
 
 While Qihe runs, a separate `Qihe` status item appears. After a failure, clicking that status item opens the `Vizsla Qihe` output channel; the `Show Qihe Output` action in the error notification opens the same channel.
 
-In `Vizsla Qihe`, check the target file, Qihe compile/run arguments, Qihe output, and final failure details. Qihe arguments are derived from `vizsla.toml` by default; projects that already manage those arguments through scripts can disable automatic derivation and configure compile/run arguments explicitly in [VS Code Settings](./vscode-settings.md#qihe).
+In `Vizsla Qihe`, check the target file, Qihe compile/run arguments, Qihe output, and final failure details. Qihe arguments are derived from the current project manifest by default; projects that already manage those arguments through scripts can disable automatic derivation and configure compile/run arguments explicitly in [VS Code Settings](./vscode-settings.md#qihe).
 
 ## Diagnostics Are Too Frequent or Stale
 
@@ -113,7 +113,7 @@ If those actions are not available, edit `vizsla.diagnostics.slang.rules` manual
 
 Check the project manifest:
 
-- Is `vizsla.toml` located at the workspace root? The legacy `vizsla_config.toml` still works, but `vizsla.toml` takes precedence when both exist.
+- Is the project manifest located at the workspace root? Prefer `vizsla.toml`; the legacy `vizsla_config.toml` still works but is deprecated, and `vizsla.toml` takes precedence when both exist.
 - If `sources` is set, does the path pattern match the target files? `rtl/*.sv` only matches `.sv` files directly under `rtl`; recursive directories use `rtl/**`.
 - Explicit `sources = []` disables workspace indexing.
 - Does an `exclude` path pattern exclude the target file? Recursive directory exclusion uses `build/**`.

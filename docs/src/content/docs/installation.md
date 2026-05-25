@@ -9,7 +9,7 @@ description: 通过 VS Code 扩展市场、VSIX 或自定义服务器安装 Vizs
 
 扩展的显示名是 `Vizsla`，扩展 ID 是 `vizsla.vizsla-lsp`。如果它已经出现在你的扩展来源中，直接在 VS Code 扩展面板安装即可。
 
-安装完成后，继续阅读 [快速开始](./quick-start/)：用 VS Code 打开包含 RTL 源码的目录即可。你不需要先手写项目配置文件；当 workspace 有 Verilog/SystemVerilog 源文件但缺少 `vizsla.toml` 或旧版 `vizsla_config.toml` 时，扩展会提示是否创建默认配置。默认配置和后续何时需要 manifest 见 [第一个工程](./first-project/)。
+安装完成后，继续阅读 [快速开始](./quick-start/)：用 VS Code 打开包含 RTL 源码的目录即可。你不需要先手写项目配置文件；当 workspace 有 Verilog/SystemVerilog 源文件但缺少 `vizsla.toml` 或旧版且已弃用的 `vizsla_config.toml` 时，扩展会提示是否创建默认配置。默认配置和后续何时需要 manifest 见 [第一个工程](./first-project/)。
 
 ## 离线或本地 VSIX 安装
 

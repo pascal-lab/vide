@@ -9,7 +9,7 @@ Most users only need to install the VS Code extension. On startup, the extension
 
 The extension display name is `Vizsla` and the extension ID is `vizsla.vizsla-lsp`. If it is already available from your extension sources, install it directly from the VS Code Extensions view.
 
-After installation, continue with [Quick Start](./quick-start/): open the directory that contains your RTL source code in VS Code. You do not need to write a project manifest first. When a workspace contains Verilog/SystemVerilog source files but no `vizsla.toml` or legacy `vizsla_config.toml`, the extension prompts you to create the default configuration. See [First Project](./first-project/) for what that default means and when a manifest becomes useful.
+After installation, continue with [Quick Start](./quick-start/): open the directory that contains your RTL source code in VS Code. You do not need to write a project manifest first. When a workspace contains Verilog/SystemVerilog source files but no `vizsla.toml` or deprecated legacy `vizsla_config.toml`, the extension prompts you to create the default configuration. See [First Project](./first-project/) for what that default means and when a manifest becomes useful.
 
 ## Offline or Local VSIX Installation
 

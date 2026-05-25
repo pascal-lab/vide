@@ -26,7 +26,7 @@ Then open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file.
 
 ## What Happens Without a Manifest
 
-If the workspace root contains Verilog/SystemVerilog files and has no `vizsla.toml` or legacy `vizsla_config.toml`, the extension prompts you to create a default `vizsla.toml`. After you choose to create it, the extension writes this file and reloads Vizsla:
+If the workspace root contains Verilog/SystemVerilog files and has no `vizsla.toml` or deprecated legacy `vizsla_config.toml`, the extension prompts you to create a default `vizsla.toml`. After you choose to create it, the extension writes this file and reloads Vizsla:
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
@@ -66,6 +66,6 @@ include_dirs = ["include"]
 exclude = ["build/**", "out/**"]
 ```
 
-The manifest is only read from the workspace root you opened. Vizsla does not automatically search parent or child directories for other manifests. If both `vizsla.toml` and `vizsla_config.toml` exist, `vizsla.toml` takes precedence.
+The manifest is only read from the workspace root you opened. Vizsla does not automatically search parent or child directories for other manifests. If both the recommended `vizsla.toml` and legacy `vizsla_config.toml` exist, `vizsla.toml` takes precedence. `vizsla_config.toml` remains compatible for old projects, but it is deprecated.
 
 Next, read [Project Configuration](./project-configuration.md) to describe `sources`, `include_dirs`, `defines`, and exclusion rules for your project layout.

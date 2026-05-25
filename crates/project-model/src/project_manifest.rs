@@ -9,6 +9,36 @@ pub const MANIFEST_FILE_NAME: &str = formatcp!("vizsla.toml");
 pub const LEGACY_MANIFEST_FILE_NAME: &str = formatcp!("vizsla_config.toml");
 pub const MANIFEST_FILE_NAMES: [&str; 2] = [MANIFEST_FILE_NAME, LEGACY_MANIFEST_FILE_NAME];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub enum ProjectManifestFileName {
+    Primary,
+    Legacy,
+}
+
+impl ProjectManifestFileName {
+    pub const DISCOVERY_ORDER: [ProjectManifestFileName; 2] =
+        [ProjectManifestFileName::Primary, ProjectManifestFileName::Legacy];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ProjectManifestFileName::Primary => MANIFEST_FILE_NAME,
+            ProjectManifestFileName::Legacy => LEGACY_MANIFEST_FILE_NAME,
+        }
+    }
+
+    pub const fn is_deprecated(self) -> bool {
+        matches!(self, ProjectManifestFileName::Legacy)
+    }
+
+    pub fn from_file_name(file_name: &str) -> Option<Self> {
+        match file_name {
+            MANIFEST_FILE_NAME => Some(ProjectManifestFileName::Primary),
+            LEGACY_MANIFEST_FILE_NAME => Some(ProjectManifestFileName::Legacy),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum ProjectManifest {
     Toml(AbsPathBuf),
@@ -16,7 +46,7 @@ pub enum ProjectManifest {
 }
 
 pub fn is_manifest_file_name(file_name: &str) -> bool {
-    MANIFEST_FILE_NAMES.contains(&file_name)
+    ProjectManifestFileName::from_file_name(file_name).is_some()
 }
 
 impl ProjectManifest {
@@ -50,8 +80,8 @@ impl ProjectManifest {
             );
         }
 
-        for manifest_file_name in MANIFEST_FILE_NAMES {
-            let manifest = path.join(manifest_file_name);
+        for manifest_file_name in ProjectManifestFileName::DISCOVERY_ORDER {
+            let manifest = path.join(manifest_file_name.as_str());
             match fs::metadata(&manifest) {
                 Ok(metadata) if metadata.is_file() => return Self::from_toml(&manifest),
                 Ok(_) => bail!("project manifest path is not a file: {manifest}"),
@@ -65,12 +95,25 @@ impl ProjectManifest {
         Ok(Self::UnconfiguredRoot(path.clone()))
     }
 
+    pub fn toml_file_name(&self) -> Option<ProjectManifestFileName> {
+        match self {
+            ProjectManifest::Toml(path) => {
+                path.file_name().and_then(ProjectManifestFileName::from_file_name)
+            }
+            ProjectManifest::UnconfiguredRoot(_) => None,
+        }
+    }
+
+    pub fn uses_deprecated_toml_file_name(&self) -> bool {
+        self.toml_file_name().is_some_and(ProjectManifestFileName::is_deprecated)
+    }
+
     fn from_toml(path: &AbsPathBuf) -> anyhow::Result<Self> {
         if path.parent().is_none() {
             bail!("bad manifest path: {path}");
         }
 
-        if !is_manifest_file_name(path.file_name().unwrap_or_default()) {
+        if ProjectManifestFileName::from_file_name(path.file_name().unwrap_or_default()).is_none() {
             bail!(
                 "manifest path must point to one of {}: {path}",
                 MANIFEST_FILE_NAMES.iter().join(", ")
@@ -93,7 +136,9 @@ mod tests {
 
     use utils::test_support::TestDir;
 
-    use super::{LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, ProjectManifest};
+    use super::{
+        LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, ProjectManifest, ProjectManifestFileName,
+    };
 
     #[test]
     fn from_path_does_not_use_parent_manifest() {
@@ -130,6 +175,32 @@ mod tests {
         let manifest = ProjectManifest::from_path(&root).unwrap();
 
         assert_eq!(manifest, ProjectManifest::Toml(manifest_path));
+    }
+
+    #[test]
+    fn classifies_manifest_file_names() {
+        assert_eq!(
+            ProjectManifestFileName::from_file_name(MANIFEST_FILE_NAME),
+            Some(ProjectManifestFileName::Primary)
+        );
+        assert_eq!(
+            ProjectManifestFileName::from_file_name(LEGACY_MANIFEST_FILE_NAME),
+            Some(ProjectManifestFileName::Legacy)
+        );
+        assert!(ProjectManifestFileName::Legacy.is_deprecated());
+        assert!(!ProjectManifestFileName::Primary.is_deprecated());
+    }
+
+    #[test]
+    fn reports_legacy_manifest_as_deprecated() {
+        let root = TestDir::new("manifest-legacy-deprecated");
+        let manifest_path = root.join(LEGACY_MANIFEST_FILE_NAME);
+        fs::write(&manifest_path, r#"top_modules = ["legacy"]"#).unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+
+        assert_eq!(manifest.toml_file_name(), Some(ProjectManifestFileName::Legacy));
+        assert!(manifest.uses_deprecated_toml_file_name());
     }
 
     #[test]

@@ -18,7 +18,7 @@ description: 按状态栏、启动、Qihe、诊断、项目扫描和文件监听
 - `Server args`
 - `Working directory`
 
-如果错误来自项目配置，先打开或修正工作区根目录（你用 VS Code 打开的顶层目录）下的 `vizsla.toml`。
+如果错误来自项目配置，先打开或修正工作区根目录（你用 VS Code 打开的顶层目录）下的项目配置文件。推荐文件名是 `vizsla.toml`；旧版 `vizsla_config.toml` 仍兼容但已弃用。
 
 ## 找不到扩展自带服务器
 
@@ -74,7 +74,7 @@ npm run package:debug
 
 运行 Qihe 时会出现独立的 `Qihe` 状态项。失败后点击该状态项会打开 `Vizsla Qihe` 输出通道；错误通知里的 `显示 Qihe 输出` 也会打开同一通道。
 
-在 `Vizsla Qihe` 中检查目标文件、Qihe compile/run 参数、Qihe 输出和最后的失败信息。Qihe 参数默认会从 `vizsla.toml` 推导；已经由脚本管理参数的工程，可以在 [VS Code 设置](./vscode-settings.md#qihe) 中关闭自动推导并显式配置 compile/run 参数。
+在 `Vizsla Qihe` 中检查目标文件、Qihe compile/run 参数、Qihe 输出和最后的失败信息。Qihe 参数默认会从当前项目配置文件推导；已经由脚本管理参数的工程，可以在 [VS Code 设置](./vscode-settings.md#qihe) 中关闭自动推导并显式配置 compile/run 参数。
 
 ## 诊断太频繁或不更新
 
@@ -113,7 +113,7 @@ npm run package:debug
 
 检查项目配置文件：
 
-- `vizsla.toml` 是否位于工作区根目录。旧版 `vizsla_config.toml` 仍可使用，但两个文件同时存在时优先读取 `vizsla.toml`。
+- 项目配置文件是否位于工作区根目录。推荐使用 `vizsla.toml`；旧版 `vizsla_config.toml` 仍可使用但已弃用，且两个文件同时存在时优先读取 `vizsla.toml`。
 - 如果写了 `sources`，路径模式是否能匹配目标文件。例如 `rtl/*.sv` 只匹配 `rtl` 目录下一层的 `.sv` 文件；递归目录要写成 `rtl/**`。
 - 显式 `sources = []` 会关闭工作区索引。
 - `exclude` 路径模式是否把目标文件排除了，例如目录递归排除是 `build/**`。

@@ -13,7 +13,7 @@ Read this page when you run into questions like:
 Three terms are useful:
 
 - Best-effort indexing: when there is no full project configuration, Vizsla still tries to read Verilog/SystemVerilog files in the workspace so navigation, references, hover, and completion can work where possible.
-- Project analysis: the project view Vizsla builds from `vizsla.toml`, including `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`. Cross-file diagnostics and Qihe project analysis depend on it.
+- Project analysis: the project view Vizsla builds from the project manifest, including `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`. The recommended file name is `vizsla.toml`; the legacy `vizsla_config.toml` name is still supported but deprecated. Cross-file diagnostics and Qihe project analysis depend on it.
 - Diagnostics: errors, warnings, and hints in the VS Code `Problems` panel. Single-file syntax issues can be reported without full project configuration; cross-file semantic issues need project analysis.
 
 ## sources Is the Main Switch
@@ -62,8 +62,8 @@ This guess is not a SystemVerilog language rule. If there is one nearest candida
 
 ## Qihe Project Analysis
 
-Automatic Qihe project analysis currently requires `vizsla.toml` in the working directory. If only legacy `vizsla_config.toml` exists, normal VS Code features still read it for compatibility, but Qihe falls back to single-file input.
+Automatic Qihe project analysis uses the same manifest discovery result as Vizsla's project model. If the working directory contains the recommended `vizsla.toml`, Vizsla reads it first; if only legacy `vizsla_config.toml` exists, Qihe still uses project analysis, but that file name is deprecated and should be renamed to `vizsla.toml` when possible.
 
-When `vizsla.toml` exists, Qihe uses the compile plan from project analysis. Vizsla only passes project files, `--top`, `-I`, and `-D` arguments when that plan has real source files.
+When a project manifest exists, Qihe uses the compile plan from project analysis. Vizsla only passes project files, `--top`, `-I`, and `-D` arguments when that plan has real source files.
 
 If the current file only comes from best-effort indexing, or if no project compile plan is available, Vizsla lets Qihe fall back to single-file input. This prevents default indexing from accidentally triggering project analysis.

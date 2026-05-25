@@ -50,11 +50,11 @@ If you do not use `Vizsla: Run Qihe Analysis`, keep these defaults.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `vizsla.qihe.command` | `"qihe"` | Command used to invoke Qihe. It must be available on the `PATH` seen by VS Code, or it can be an absolute path. |
-| `vizsla.qihe.autoConfigureArgsFromManifest` | `true` | Automatically adds the Qihe compile mode and forwarded slang options from `vizsla.toml`. |
+| `vizsla.qihe.autoConfigureArgsFromManifest` | `true` | Automatically adds the Qihe compile mode and forwarded slang options from the current project manifest. |
 | `vizsla.qihe.compileArgs` | `[]` | Arguments inserted after `qihe compile`, used for manual compile mode selection or forwarded slang options. |
 | `vizsla.qihe.runArgs` | `["-g", "std"]` | Arguments appended when `Vizsla: Run Qihe Analysis` runs `qihe run`. |
 
-`Vizsla: Run Qihe Analysis` is available only for local Verilog/SystemVerilog files. By default, Vizsla derives the Qihe compile mode, top module, include directories, and macro definitions from the current `vizsla.toml`; if your project already manages those arguments through scripts, disable automatic derivation and configure `compileArgs` / `runArgs` explicitly.
+`Vizsla: Run Qihe Analysis` is available only for local Verilog/SystemVerilog files. By default, Vizsla derives the Qihe compile mode, top module, include directories, and macro definitions from the current project manifest; the recommended file name is `vizsla.toml`, and the legacy `vizsla_config.toml` name is still supported but deprecated. If your project already manages those arguments through scripts, disable automatic derivation and configure `compileArgs` / `runArgs` explicitly.
 
 Example:
 

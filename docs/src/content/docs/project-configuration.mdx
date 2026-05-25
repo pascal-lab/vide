@@ -54,9 +54,9 @@ endmodule
   },
 ];
 
-项目配置文件告诉 Vizsla 三件事：哪些 RTL 文件属于这个工程、include 文件去哪找、有哪些宏和依赖。推荐文件名是 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容，但两个文件同时存在时会优先读取 `vizsla.toml`。
+项目配置文件告诉 Vizsla 三件事：哪些 RTL 文件属于这个工程、include 文件去哪找、有哪些宏和依赖。推荐文件名是 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容，但已经弃用；两个文件同时存在时会优先读取 `vizsla.toml`。
 
-`vizsla.toml` 通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vizsla 不会自动向父目录或子目录寻找其它项目配置文件。
+项目配置文件通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vizsla 不会自动向父目录或子目录寻找其它项目配置文件。
 
 ## 最小可用配置
 
@@ -90,7 +90,7 @@ Vizsla 对 `sources` 和 `exclude` 有几条固定规则：
 末尾 `/` 是否有区别，要看字段：
 
 - 在 `sources` 和 `exclude` 里，`rtl/` 不表示递归包含整个目录。想包含 `rtl` 目录下的文件，请写 `rtl/**`；想排除 `build` 目录下的内容，请写 `build/**`。
-- 在 `include_dirs` 和 `libraries` 里，值是普通路径，并且相对 `vizsla.toml` 所在目录解析。`include` 和 `include/` 通常表示同一个目录；为了统一，推荐写成 `include`。
+- 在 `include_dirs` 和 `libraries` 里，值是普通路径，并且相对当前项目配置文件所在目录解析。`include` 和 `include/` 通常表示同一个目录；为了统一，推荐写成 `include`。
 
 ## 常见完整示例
 
@@ -196,9 +196,9 @@ defines = [
 
 ## libraries
 
-`libraries` 用于声明依赖库。路径相对当前 `vizsla.toml` 所在目录解析。每个库路径都会被当作另一个工作区继续加载：
+`libraries` 用于声明依赖库。路径相对当前项目配置文件所在目录解析。每个库路径都会被当作另一个工作区继续加载：
 
-- 如果库目录下有 `vizsla.toml`，我们会按这个项目配置文件加载库；否则再尝试旧版 `vizsla_config.toml`。
+- 如果库目录下有 `vizsla.toml`，我们会按这个项目配置文件加载库；否则再尝试旧版且已弃用的 `vizsla_config.toml`。
 - 如果库目录没有项目配置文件，我们会把该目录作为未配置库加载。
 - 依赖会参与当前工程的项目分析，并支持传递依赖。
 
@@ -216,7 +216,7 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 ## 常见注意事项
 
-- 推荐项目配置文件名是 `vizsla.toml`；`vizsla_config.toml` 仅作为兼容旧工程的备用文件。
+- 推荐项目配置文件名是 `vizsla.toml`；`vizsla_config.toml` 仅作为兼容旧工程的已弃用备用文件。
 - `top_module`、`include`、`macros` 这类旧字段不会被接受。
 - 我们不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vizsla.toml`，再回退检查 `repo/vizsla_config.toml`。
 - 配置了 `sources = []` 的工程可以只加载 include 目录，适合头文件型工作区，或暂时不想扫描 RTL 的工作区。

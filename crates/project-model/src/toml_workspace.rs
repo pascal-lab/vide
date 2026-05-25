@@ -9,6 +9,8 @@ use smol_str::SmolStr;
 use utils::paths::{AbsPathBuf, Utf8PathBuf};
 
 use crate::macro_def::{MacroAtom, MacroDef};
+#[cfg(feature = "manifest-schema")]
+use crate::project_manifest::{LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME};
 
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
 #[cfg(feature = "manifest-schema")]
@@ -92,14 +94,13 @@ struct TomlManifestSchema {
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
     /// External library or dependency workspace paths. Paths are resolved
     /// relative to the manifest directory. Each path is loaded as another
-    /// workspace: if it contains vizsla.toml or vizsla_config.toml, that
-    /// manifest is used; otherwise the path is loaded as an unconfigured
-    /// library dependency.
+    /// workspace: if it contains a project manifest, that manifest is used;
+    /// otherwise the path is loaded as an unconfigured library dependency.
     #[serde(default)]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "External library or dependency workspace paths. Paths are resolved relative to the manifest directory. Each path is loaded as another workspace: if it contains vizsla.toml or vizsla_config.toml, that manifest is used; otherwise the path is loaded as an unconfigured library dependency.",
+            description = "External library or dependency workspace paths. Paths are resolved relative to the manifest directory. Each path is loaded as another workspace: if it contains a project manifest, that manifest is used; otherwise the path is loaded as an unconfigured library dependency.",
             with = "Vec::<String>",
             default = "empty_string_vec",
             extend("examples" = [["../common_cells"]])
@@ -127,7 +128,17 @@ fn empty_string_vec() -> Vec<String> {
 
 #[cfg(feature = "manifest-schema")]
 pub fn generated_toml_manifest_schema() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap()
+    let mut schema = serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap();
+    if let Some(root) = schema.as_object_mut() {
+        root.insert(
+            "x-vizsla-manifest-names".to_owned(),
+            serde_json::json!({
+                "primary": MANIFEST_FILE_NAME,
+                "deprecated": [LEGACY_MANIFEST_FILE_NAME],
+            }),
+        );
+    }
+    schema
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>

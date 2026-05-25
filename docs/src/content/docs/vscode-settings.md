@@ -50,11 +50,11 @@ description: Vizsla VS Code 扩展的紧凑配置项参考。
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
 | `vizsla.qihe.command` | `"qihe"` | 调用 Qihe 的命令。必须在 VS Code 可见的 `PATH` 中，也可以写绝对路径。 |
-| `vizsla.qihe.autoConfigureArgsFromManifest` | `true` | 根据 `vizsla.toml` 自动添加 Qihe 编译模式和转发给 slang 的选项。 |
+| `vizsla.qihe.autoConfigureArgsFromManifest` | `true` | 根据当前项目配置文件自动添加 Qihe 编译模式和转发给 slang 的选项。 |
 | `vizsla.qihe.compileArgs` | `[]` | 插入到 `qihe compile` 之后的参数，用于手动选择编译模式或转发 slang 选项。 |
 | `vizsla.qihe.runArgs` | `["-g", "std"]` | 通过 `Vizsla：运行 Qihe 分析` 运行 `qihe run` 时追加的参数。 |
 
-`Vizsla：运行 Qihe 分析` 只对本地 Verilog/SystemVerilog 文件可用。默认会从当前 `vizsla.toml` 推导 Qihe 编译模式、顶层模块、include 目录和宏定义；如果项目已经用脚本管理这些参数，关闭自动推导并显式配置 `compileArgs` / `runArgs`。
+`Vizsla：运行 Qihe 分析` 只对本地 Verilog/SystemVerilog 文件可用。默认会从当前项目配置文件推导 Qihe 编译模式、顶层模块、include 目录和宏定义；推荐文件名是 `vizsla.toml`，旧版 `vizsla_config.toml` 仍兼容但已弃用。如果项目已经用脚本管理这些参数，关闭自动推导并显式配置 `compileArgs` / `runArgs`。
 
 示例：
 
