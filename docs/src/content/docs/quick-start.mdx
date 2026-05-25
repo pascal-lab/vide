@@ -1,0 +1,133 @@
+---
+title: 快速开始
+description: 安装 Vizsla 扩展并确认核心 IDE 功能可用。
+---
+
+import VizslaLab from '../../components/VizslaLab.astro';
+
+export const quickStartFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]\n`,
+  },
+  {
+    path: "rtl/quick_delay.sv",
+    source: `module quick_delay #(
+  parameter int STAGES = 2
+) (
+  input  logic clk,
+  input  logic rst_n,
+  input  logic valid_i,
+  output logic valid_o
+);
+  logic [STAGES-1:0] pipe;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      pipe <= '0;
+    end else begin
+      pipe <= {pipe[STAGES-2:0], valid_i};
+    end
+  end
+
+  assign valid_o = pipe[STAGES-1];
+endmodule
+`,
+  },
+  {
+    path: "rtl/quick_start_top.sv",
+    source: `module quick_start_top (
+  input  logic clk,
+  input  logic rst_n,
+  input  logic start,
+  output logic done
+);
+  logic valid_q;
+
+  quick_delay #(
+    .STAGES(2)
+  ) u_delay (
+    .clk(clk),
+    .rst_n(rst_n),
+    .valid_i(start),
+    .valid_o(valid_q)
+  )
+
+  assign done = valid_q;
+endmodule
+`,
+  },
+];
+
+请根据以下步骤，快速开始体验 Vizsla。
+
+## 1. 安装扩展
+
+在 VS Code 的扩展面板中搜索显示名 `Vizsla` 并安装即可。
+
+![vizsla in extension market](assets/quick-start/extension-marketplace.png)
+
+## 2. 打开工程目录
+
+用 VS Code 打开包含 RTL 源码的目录。
+
+我们使用 `vizsla.toml` 作为项目配置文件。在没有项目默认配置文件时，扩展会弹出提示确认是否要创建配置文件。
+
+![notification on creating manifest](assets/quick-start/create-manifest-notification.png)
+
+默认的项目配置文件如下：
+
+```toml
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+sources = []
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
+```
+
+> 默认配置适合先打开单个文件体验：Vizsla 不会主动扫描整个工程，也不会运行需要完整工程信息的语义诊断。想让 Vizsla 理解你的工程结构，请把源码目录写进 `sources`，例如 `sources = ["rtl/**"]`；如果工程使用了 include 文件或宏，再按需补充 `include_dirs`、`defines`、`libraries` 或 `top_modules`。
+
+## 3. 确认状态栏
+
+扩展激活后，VS Code 右侧状态栏会出现名为 `Vizsla` 的状态项。状态项通常显示 `Vizsla`; 启动或停止时会带旋转图标，项目配置缺失时会带 warning 图标，服务器或项目配置失败时会带 error 图标。将鼠标悬停在状态项上可以查看当前详情。
+
+![status bar](assets/quick-start/status-bar.png)
+
+点击状态项，会打开状态菜单; 这里可以打开或创建项目配置文件、重新加载项目配置、重启语言服务器、分析诊断性能，或打开 `Vizsla Language Server` 输出通道。
+
+![status menu](assets/quick-start/status-menu.png)
+
+## 4. 打开 Verilog/SystemVerilog 文件
+
+打开 `.v`，`.vh`，`.sv`，`.svh` 或 `.svi` 文件。VS Code 应该把它识别为 Verilog 或 SystemVerilog，并启用语法高亮和语言服务。
+
+![example](assets/quick-start/editor-example.png)
+
+## 5. 试用核心功能
+
+你可以按这个顺序验证:
+
+1. 写一处明显语法错误，查看 `Problems` 面板中的诊断。
+2. 在模块名、信号名或实例名上执行 `Go to Definition` 或 `Go to Declaration`。
+3. 在实例端口连接、参数赋值、表达式或预处理位置触发补全。
+4. 把光标放到符号上查看悬停说明。
+
+<VizslaLab
+  projectId="quick-start"
+  projectLabel="Quick Start"
+  entryFile="rtl/quick_start_top.sv"
+  files={quickStartFiles}
+  load="visible"
+  activeFile="rtl/quick_start_top.sv"
+  selection="16:3-16:4"
+  diagnosticsOpen
+  title="从一个小错误开始"
+  description="这个 quick-start 工程一开始少了一个右括号。先查看 diagnostics，把实例结尾修成 `);`，再试用 hover、补全和跳转。"
+/>
+
+配置变更后，如果 VS Code 提示重启语言服务器，选择 `Restart`。

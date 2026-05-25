@@ -3,6 +3,57 @@ title: Project Configuration
 description: Configure the vizsla.toml project manifest, source files, include directories, and macro definitions.
 ---
 
+import VizslaLab from "../../../components/VizslaLab.astro";
+
+export const configuredProjectFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]
+include_dirs = ["include"]
+defines = ["FEATURE_PIPELINE=1"]
+top_modules = ["feature_gate"]
+`,
+  },
+  {
+    path: "include/feature_defs.svh",
+    source: `\`ifndef FEATURE_DEFS_SVH
+\`define FEATURE_DEFS_SVH
+\`define FEATURE_WIDTH 12
+\`endif
+`,
+  },
+  {
+    path: "rtl/feature_gate.sv",
+    source: `\`include "feature_defs.svh"
+
+module feature_gate (
+  input  logic                       clk,
+  input  logic                       rst_n,
+  input  logic [\`FEATURE_WIDTH-1:0] data_i,
+  output logic [\`FEATURE_WIDTH-1:0] data_o
+);
+\`ifdef FEATURE_PIPELINE
+  logic [\`FEATURE_WIDTH-1:0] data_q;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      data_q <= '0;
+    end else begin
+      data_q <= data_i;
+    end
+  end
+
+  assign data_o = data_q;
+\`else
+  assign data_o = data_i;
+\`endif
+endmodule
+`,
+  },
+];
+
 Vizsla prefers the project manifest file name `vizsla.toml`. The old file name `vizsla_config.toml` is still supported, but if both files exist, Vizsla reads `vizsla.toml`. The manifest must live under the workspace root or be passed explicitly as the project path. Field names must be current supported names; old or unknown fields are rejected.
 
 ## Complete Example
@@ -47,13 +98,16 @@ When a workspace contains Verilog/SystemVerilog files but no manifest, VS Code c
 
 ```toml
 #:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
-# Default startup manifest. Omitting sources enables best-effort indexing for navigation
-# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
-# and include_dirs = ["include"], to enable semantic diagnostics.
-# Set sources = [] to disable workspace indexing.
+sources = []
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
 ```
 
-This default manifest lets Vizsla index Verilog/SystemVerilog files under the workspace in best-effort mode for read-only features such as navigation and references. It does not create a compile profile or run cross-file semantic diagnostics. Set `sources = []` explicitly to disable workspace indexing and return to the lower-cost mode that only handles opened files. For more accurate semantic diagnostics, add `sources` shell globs or `include_dirs` that match your project structure, then add `defines`, `libraries`, or `top_modules` as needed.
+This default manifest explicitly sets `sources = []`, so it does not scan source files under the workspace, create a compile profile, or run cross-file semantic diagnostics. If a hand-written manifest omits `sources`, Vizsla indexes Verilog/SystemVerilog files under the workspace in best-effort mode for read-only features such as navigation and references, but still does not create a compile profile or run cross-file semantic diagnostics. For more accurate semantic diagnostics, add `sources` shell globs or `include_dirs` that match your project structure, then add `defines`, `libraries`, or `top_modules` as needed.
 
 Vizsla only reads the manifest to build the project model and refreshes project information after the manifest changes. The schema directive at the top is a TOML comment and does not affect how Vizsla reads the manifest. The schema URL includes a version segment. If the manifest format changes later, newer Vizsla versions can generate a directive pointing to a newer schema while existing projects keep their current schema.
 
@@ -88,6 +142,18 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 - `.map`
 
 `include_dirs` is passed to preprocessing and controls include search. If `include_dirs` is not configured explicitly, Vizsla uses scan roots inferred from `sources` patterns as include directories. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory. If you set `include_dirs = []`, no fallback is used.
+
+<VizslaLab
+  projectId="configuration-include-macro"
+  projectLabel="Project Configuration: Include and Macros"
+  entryFile="rtl/feature_gate.sv"
+  files={configuredProjectFiles}
+  height="360px"
+  activeFile="rtl/feature_gate.sv"
+  selection="5:17-5:31"
+  title="Include Directories and Macros"
+  description="This example passes vizsla.toml, an include file, and RTL files directly from the docs page. Try removing include_dirs or a macro definition and watch diagnostics and semantic information change."
+/>
 
 ## defines
 

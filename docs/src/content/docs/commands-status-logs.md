@@ -12,25 +12,29 @@ VS Code 扩展贡献了这些命令:
 | `Vizsla: Show Language Server Output` | 打开 `Vizsla Language Server` 输出通道。 |
 | `Vizsla: Restart Language Server` | 停止并重新启动语言服务器。 |
 | `Vizsla: Show Server Version` | 执行服务器 `--version`, 并显示第一行版本输出。 |
+| `Vizsla: Reload Project Configuration` | 不重启语言服务器, 重新读取项目配置文件并刷新工程信息。 |
+| `Vizsla: Show Status` | 打开 Vizsla 状态菜单。 |
+| `Vizsla: Run Qihe Analysis` | 对当前 Verilog/SystemVerilog 文件运行 Qihe 分析。 |
 | `Vizsla: Profile Diagnostics` | 对工作区或当前 Verilog/SystemVerilog 文件运行一次独立 diagnostics profiling, 并生成 trace、summary 和 flamegraph。 |
 
 ## 状态栏
 
-扩展会在状态栏左侧显示服务器状态:
+扩展会在 VS Code 右侧状态栏显示名为 `Vizsla` 的状态项。启动、停止或加载项目配置时会带旋转图标, 缺少项目配置文件时会带 warning 图标, 服务器启动失败或项目配置加载失败时会带 error 图标。将鼠标悬停在状态项上可以查看当前详情, 例如服务器是否运行、项目配置是否已加载、是否没有项目配置文件, 或项目配置是否失败。
 
-| 状态 | 含义 |
-| --- | --- |
-| `Vizsla Starting` | 正在创建并启动语言服务器。 |
-| `Vizsla Ready` | 语言服务器已经启动。 |
-| `Vizsla Stopping` | 正在停止语言服务器。 |
-| `Vizsla Stopped` | 语言服务器已停止。 |
-| `Vizsla Error` | 服务器启动失败。 |
+点击状态栏项或执行 `Vizsla: Show Status` 会打开状态菜单。菜单会在顶部显示项目配置错误, 并提供这些操作:
 
-点击状态栏项会打开输出通道。出现 `Vizsla Error` 时, 先看这里。
+- 打开已有 `vizsla.toml`。
+- 为缺少配置的 workspace 创建 `vizsla.toml`。
+- 运行 diagnostics profiling。
+- 重新加载项目配置。
+- 重启语言服务器。
+- 打开 `Vizsla Language Server` 输出通道。
+
+执行 Qihe 分析时还会出现独立的 `Qihe` 状态项, 用于显示运行中、完成或失败状态。Qihe 失败时点击该状态项会打开 `Vizsla Qihe` 输出通道。
 
 ## 输出通道
 
-扩展输出通道名称是 `Vizsla Language Server`。这里会记录:
+`Vizsla Language Server` 会记录:
 
 - 扩展激活信息。
 - 扩展安装路径。
@@ -40,7 +44,13 @@ VS Code 扩展贡献了这些命令:
 - bundled server 查找结果。
 - 启动、停止、重启和版本查询结果。
 
+`Vizsla Qihe` 会记录 `Vizsla: Run Qihe Analysis` 的目标文件、命令进度、Qihe 输出和失败信息。Qihe 运行失败时, 错误通知里的 `Show Qihe Output` 会打开这个输出通道。
+
 执行 `Vizsla: Profile Diagnostics` 时, 扩展还会打开 `Vizsla Profiling` 输出通道。这里会显示本次 profiling 的目标、产物目录、诊断请求耗时和生成的文件路径。
+
+## 运行 Qihe 分析
+
+打开 Verilog/SystemVerilog 文件后执行 `Vizsla: Run Qihe Analysis`。扩展会把请求发给当前语言服务器, 并根据 `vizsla.qihe.*` 设置调用 Qihe。Qihe 命令、compile 参数、run 参数和自动从项目配置补全参数的行为请看 [VS Code 设置](./vscode-settings.md#qihe)。
 
 ## 性能分析诊断
 

@@ -24,6 +24,28 @@ Example:
 }
 ```
 
+## Qihe
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `vizsla.qihe.command` | `"qihe"` | Command used to invoke Qihe. It must be available on the environment `PATH` seen by VS Code, or it can be an absolute path. |
+| `vizsla.qihe.autoConfigureArgsFromManifest` | `true` | Automatically adds the Qihe compile mode and forwarded slang options from `vizsla.toml`. |
+| `vizsla.qihe.compileArgs` | `[]` | Arguments inserted after `qihe compile`, useful for manually selecting the compile mode or forwarding slang options. |
+| `vizsla.qihe.runArgs` | `["-g", "std"]` | Arguments appended when `Vizsla: Run Qihe Analysis` runs `qihe run`. |
+
+By default, the extension derives the Qihe compile mode, top module, include directories, and macro definitions from the current `vizsla.toml`. Projects that already manage Qihe arguments through scripts or custom settings can disable `vizsla.qihe.autoConfigureArgsFromManifest` and rely only on `vizsla.qihe.compileArgs` and `vizsla.qihe.runArgs`.
+
+Example:
+
+```json
+{
+  "vizsla.qihe.command": "D:\\tools\\qihe\\qihe.exe",
+  "vizsla.qihe.autoConfigureArgsFromManifest": false,
+  "vizsla.qihe.compileArgs": ["--mode", "sv", "--", "-I", "include"],
+  "vizsla.qihe.runArgs": ["-g", "std"]
+}
+```
+
 ## Files
 
 | Setting | Default | Description |

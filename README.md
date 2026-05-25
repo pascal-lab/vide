@@ -36,7 +36,7 @@ code --install-extension vizsla.vizsla-lsp
 
 ```powershell
 cd docs
-npm install
+npm ci
 npm run dev
 ```
 

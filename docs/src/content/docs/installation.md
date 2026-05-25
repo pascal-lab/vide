@@ -25,9 +25,13 @@ code --install-extension .\vizsla-vscode-win32-x64.vsix
 
 VSIX 是按平台打包的。当前打包脚本支持这些目标:
 
+- `alpine-arm64`
+- `alpine-x64`
 - `darwin-arm64`
+- `darwin-x64`
 - `linux-arm64`
 - `linux-x64`
+- `win32-arm64`
 - `win32-x64`
 
 ## 什么时候配置自定义服务器

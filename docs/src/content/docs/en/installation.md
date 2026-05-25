@@ -25,9 +25,13 @@ code --install-extension .\vizsla-vscode-win32-x64.vsix
 
 VSIX packages are platform-specific. The current packaging script supports these targets:
 
+- `alpine-arm64`
+- `alpine-x64`
 - `darwin-arm64`
+- `darwin-x64`
 - `linux-arm64`
 - `linux-x64`
+- `win32-arm64`
 - `win32-x64`
 
 ## When to Configure a Custom Server

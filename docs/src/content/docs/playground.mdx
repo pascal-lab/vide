@@ -1,0 +1,89 @@
+---
+title: Playground
+description: 在浏览器里运行 Vizsla 的可交互 RTL 示例。
+---
+
+import VizslaLab from '../../components/VizslaLab.astro';
+
+Playground 会在当前页面中加载与独立 playground 相同的编辑器、示例工程和 WebAssembly 语言服务。为了避免拖慢普通文档页面，下面的示例默认按需加载：第一个示例接近视口后自动加载，其余示例需要点击后才会加载。
+
+首次加载会下载 Monaco、Vizsla WASM 和 VS Code 语法资源；同一页面里的后续示例会复用浏览器缓存。普通文档页面只保留到本页的轻量链接，不会提前下载这些资源。
+
+## 快速体验
+
+<VizslaLab
+  scenario="counter"
+  load="visible"
+  activeFile="rtl/counter.sv"
+  selection="2:17-2:22"
+  title="Counter project"
+  description="多文件工程示例。可以试用 hover、补全、跳转、引用和测试平台里的符号解析。"
+/>
+
+## IDE 功能示例
+
+### 导航和引用
+
+<VizslaLab
+  scenario="navigation"
+  activeFile="rtl/pipeline_top.sv"
+  selection="11:3-11:17"
+  title="Navigation"
+  description="跨文件示例。尝试从 pipeline_top.sv 里的实例跳到 pipeline_stage.sv，并查看引用。"
+/>
+
+### 补全、签名帮助和 inlay hints
+
+<VizslaLab
+  scenario="signature-inlay"
+  activeFile="rtl/packet_path.sv"
+  cursorLine={13}
+  cursorColumn={17}
+  title="Signature help and inlay hints"
+  description="带 vizsla.toml 的工程示例。适合测试端口/参数补全、签名帮助和 positional 连接提示。"
+/>
+
+### 宏和 include 目录
+
+<VizslaLab
+  scenario="macro-guard"
+  activeFile="rtl/feature_gate.sv"
+  selection="4:8-4:25"
+  title="Macro include"
+  description="包含 include/feature_defs.svh 和 include_dirs 配置，用于验证宏、include 搜索路径和语义诊断。"
+/>
+
+### 诊断
+
+<VizslaLab
+  scenario="bad-port"
+  activeFile="rtl/top.sv"
+  cursorLine={4}
+  cursorColumn={12}
+  diagnosticsOpen
+  title="Port mismatch diagnostic"
+  description="跨文件语义诊断示例。修改端口连接后运行语言服务，可以观察 diagnostics 和相关代码操作。"
+/>
+
+### 重命名和文档高亮
+
+<VizslaLab
+  scenario="rename"
+  activeFile="rtl/rename_playground.sv"
+  selection="8:15-8:30"
+  title="Rename"
+  description="单文件编辑示例。适合测试 prepare rename、rename symbol、document highlights 和格式化入口。"
+/>
+
+## 嵌入状态
+
+文档页可以为每个示例设置初始状态，用来把读者直接带到要演示的 feature:
+
+| 属性 | 作用 |
+| --- | --- |
+| `scenario` | 选择示例工程。 |
+| `activeFile` | 打开指定 workspace 文件。 |
+| `cursorLine` / `cursorColumn` | 把光标放到指定位置，使用 1-based 行列号。 |
+| `selection` | 选中一段范围，格式为 `line:column-line:column`。 |
+| `diagnosticsOpen` | 默认展开 diagnostics 面板。 |
+| `load` | `click` 表示点击加载，`visible` 表示接近视口后加载。 |

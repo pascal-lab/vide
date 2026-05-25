@@ -3,9 +3,9 @@ title: Troubleshooting
 description: Troubleshoot Vizsla status bar errors, server startup failures, diagnostics, and file watching.
 ---
 
-## Status Bar Shows Vizsla Error
+## Status Bar Shows an Error or Warning Icon
 
-First click the status bar item or run `Vizsla: Show Language Server Output`. Focus on:
+First click the `Vizsla` status bar item to open the status menu. Project configuration errors appear at the top of that menu. You can also choose `Show Output` from the menu or run `Vizsla: Show Language Server Output` directly. Focus on:
 
 - `Bundled Vizsla Language Server binary not found`
 - `Unsupported platform-architecture combination`
@@ -22,7 +22,7 @@ The extension looks for `server/vizsla.exe` or `server/vizsla` under its own ins
 
 ```powershell
 cd editors\vscode
-npm run package
+npm run package:debug
 ```
 
 Or configure a local server directly:
@@ -81,13 +81,17 @@ Check the project manifest:
 The VS Code extension only creates a default `vizsla.toml` when the workspace contains Verilog/SystemVerilog files and has no manifest:
 
 ```toml
-# Default startup manifest. Omitting sources enables best-effort indexing for navigation
-# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
-# and include_dirs = ["include"], to enable semantic diagnostics.
-# Set sources = [] to disable workspace indexing.
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+sources = []
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
 ```
 
-This default manifest and the no-manifest case both index the workspace root for read-only features such as navigation and references, but they do not enable cross-file semantic diagnostics. For more accurate semantic diagnostics, add real `sources` shell globs or `include_dirs`, plus `defines`, `libraries`, or `top_modules` as needed. Setting `sources = []` explicitly disables workspace indexing. Vizsla does not automatically search parent or child directories for manifests.
+This default manifest explicitly sets `sources = []`, so it does not scan the workspace root. To index project files or enable more accurate semantic diagnostics, add real `sources` shell globs or `include_dirs`, plus `defines`, `libraries`, or `top_modules` as needed. If a hand-written manifest omits `sources`, Vizsla enters best-effort workspace indexing mode. Vizsla does not automatically search parent or child directories for manifests.
 
 ## include or Macros Do Not Work
 

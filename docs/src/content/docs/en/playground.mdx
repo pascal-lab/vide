@@ -1,0 +1,89 @@
+---
+title: Playground
+description: Run interactive Vizsla RTL examples in the browser.
+---
+
+import VizslaLab from '../../../components/VizslaLab.astro';
+
+The playground loads the same editor, example projects, and WebAssembly language service as the standalone playground. To keep regular documentation pages fast, these examples are loaded on demand: the first example starts when it approaches the viewport, and the rest load only after you click them.
+
+The first load downloads Monaco, the Vizsla WASM engine, and VS Code grammar assets. Later examples on the same page reuse the browser cache. Regular documentation pages only link here and do not download these assets ahead of time.
+
+## Quick Trial
+
+<VizslaLab
+  scenario="counter"
+  load="visible"
+  activeFile="rtl/counter.sv"
+  selection="2:17-2:22"
+  title="Counter project"
+  description="A multi-file project for trying hover, completion, navigation, references, and testbench symbol resolution."
+/>
+
+## IDE Feature Examples
+
+### Navigation and References
+
+<VizslaLab
+  scenario="navigation"
+  activeFile="rtl/pipeline_top.sv"
+  selection="11:3-11:17"
+  title="Navigation"
+  description="A cross-file example. Jump from the instance in pipeline_top.sv to pipeline_stage.sv and inspect references."
+/>
+
+### Completion, Signature Help, and Inlay Hints
+
+<VizslaLab
+  scenario="signature-inlay"
+  activeFile="rtl/packet_path.sv"
+  cursorLine={13}
+  cursorColumn={17}
+  title="Signature help and inlay hints"
+  description="A configured project for port and parameter completion, signature help, and positional connection hints."
+/>
+
+### Macros and Include Directories
+
+<VizslaLab
+  scenario="macro-guard"
+  activeFile="rtl/feature_gate.sv"
+  selection="4:8-4:25"
+  title="Macro include"
+  description="Includes include/feature_defs.svh and include_dirs configuration for macro, include path, and semantic diagnostic checks."
+/>
+
+### Diagnostics
+
+<VizslaLab
+  scenario="bad-port"
+  activeFile="rtl/top.sv"
+  cursorLine={4}
+  cursorColumn={12}
+  diagnosticsOpen
+  title="Port mismatch diagnostic"
+  description="A cross-file semantic diagnostic example. Change the port connection and run the language service to inspect diagnostics and related code actions."
+/>
+
+### Rename and Document Highlights
+
+<VizslaLab
+  scenario="rename"
+  activeFile="rtl/rename_playground.sv"
+  selection="8:15-8:30"
+  title="Rename"
+  description="A single-file editing example for prepare rename, rename symbol, document highlights, and the formatting entry point."
+/>
+
+## Embed State
+
+Documentation pages can set the initial state for each example so readers land directly on the feature being demonstrated:
+
+| Prop | Effect |
+| --- | --- |
+| `scenario` | Selects the example project. |
+| `activeFile` | Opens a specific workspace file. |
+| `cursorLine` / `cursorColumn` | Places the cursor at a 1-based line and column. |
+| `selection` | Selects a range in `line:column-line:column` format. |
+| `diagnosticsOpen` | Opens the diagnostics panel by default. |
+| `load` | `click` loads after a click, while `visible` loads near the viewport. |

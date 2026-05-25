@@ -3,7 +3,115 @@ title: Daily Use
 description: Diagnostics, navigation, completion, formatting, and code actions provided by Vizsla in VS Code.
 ---
 
-This chapter introduces Vizsla by IDE workflow. Each feature is described in terms of what you can see, when it triggers, and which settings affect it, so you can verify the behavior in VS Code feature by feature.
+import VizslaLab from "../../../components/VizslaLab.astro";
+
+export const navigationFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]
+`,
+  },
+  {
+    path: "rtl/pipeline_stage.sv",
+    source: `module pipeline_stage #(
+  parameter int WIDTH = 8
+) (
+  input  logic             clk,
+  input  logic             rst_n,
+  input  logic [WIDTH-1:0] data_i,
+  output logic [WIDTH-1:0] data_o
+);
+  logic [WIDTH-1:0] data_q;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      data_q <= '0;
+    end else begin
+      data_q <= data_i;
+    end
+  end
+
+  assign data_o = data_q;
+endmodule
+`,
+  },
+  {
+    path: "rtl/pipeline_top.sv",
+    source: `module pipeline_top (
+  input  logic        clk,
+  input  logic        rst_n,
+  input  logic [15:0] packet_i,
+  output logic [15:0] packet_o
+);
+  logic [15:0] staged_packet;
+
+  pipeline_stage #(
+    .WIDTH(16)
+  ) u_stage (
+    .clk(clk),
+    .rst_n(rst_n),
+    .data_i(packet_i),
+    .data_o(staged_packet)
+  );
+
+  assign packet_o = staged_packet;
+endmodule
+`,
+  },
+];
+
+export const editAidFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]
+`,
+  },
+  {
+    path: "rtl/packet_fifo.sv",
+    source: `module packet_fifo #(
+  parameter int DEPTH = 4,
+  parameter int WIDTH = 8
+) (
+  input  logic             clk,
+  input  logic             rst_n,
+  input  logic [WIDTH-1:0] data_i,
+  input  logic             valid_i,
+  output logic [WIDTH-1:0] data_o,
+  output logic             ready_o
+);
+  assign data_o = data_i;
+  assign ready_o = valid_i & rst_n;
+endmodule
+`,
+  },
+  {
+    path: "rtl/fifo_client.sv",
+    source: `module fifo_client (
+  input  logic        clk,
+  input  logic        rst_n,
+  input  logic [15:0] payload_i,
+  input  logic        payload_valid,
+  output logic [15:0] payload_o,
+  output logic        payload_ready
+);
+  packet_fifo #(2, 16) u_fifo (
+    clk,
+    rst_n,
+    payload_i,
+    payload_valid,
+    payload_o,
+    payload_ready
+  );
+endmodule
+`,
+  },
+];
+
+This chapter introduces Vizsla by IDE workflow. 
 
 ## Language Detection and Syntax Highlighting
 
@@ -42,7 +150,7 @@ Diagnostics refresh on save by default. For large RTL projects, we recommend kee
 
 Diagnostics appear in the VS Code `Problems` panel and as editor underlines. Some quick fixes read stable data attached to diagnostics, so you usually need to see the relevant diagnostic before the corresponding code action appears.
 
-Semantic diagnostics require a loadable project configuration in `vizsla.toml` under the workspace root, such as real `sources` shell globs or `include_dirs`; `defines`, `libraries`, and `top_modules` can add more project information. The legacy `vizsla_config.toml` still works, but `vizsla.toml` wins when both files exist. If the manifest is missing or `sources` is omitted, Vizsla indexes the workspace root by default for read-only features such as navigation and references, but it does not run cross-file semantic diagnostics. Setting `sources = []` explicitly disables workspace indexing.
+Semantic diagnostics require a loadable project configuration in `vizsla.toml` under the workspace root, such as real `sources` shell globs or `include_dirs`; `defines`, `libraries`, and `top_modules` can add more project information. The legacy `vizsla_config.toml` still works, but `vizsla.toml` wins when both files exist. The default `vizsla.toml` created by VS Code sets `sources = []`, so it does not scan the workspace. If the server is started by another client without a manifest, or if a hand-written manifest omits `sources`, Vizsla enters best-effort workspace indexing for read-only features such as navigation and references, but it does not run cross-file semantic diagnostics.
 
 slang warning settings live under `vizsla.diagnostics.slang.*`. For warning names, warning groups, and `-W...` semantics, see the Diagnostics section in [VS Code Settings](./vscode-settings.md#diagnostics).
 
@@ -57,7 +165,19 @@ Vizsla provides both `Go to Definition` and `Go to Declaration`. In daily RTL re
 
 `Go to Declaration` falls back to definition logic when it cannot find a better declaration. When VS Code supports location links, Vizsla returns fuller source and target ranges; otherwise it returns normal locations.
 
-If the navigation result is unexpected, first check whether the project loaded the target file. Default indexing without a manifest is best-effort. In workspaces with duplicate module names, generated directories, or third-party libraries mixed in, it may return a result that does not match the actual compile configuration. For more complex layouts, configure `sources`, `include_dirs`, and `libraries` explicitly.
+If the navigation result is unexpected, first check whether the project loaded the target file. Indexing from omitted `sources`, or from a missing manifest outside the VS Code extension flow, is best-effort. In workspaces with duplicate module names, generated directories, or third-party libraries mixed in, it may return a result that does not match the actual compile configuration. For more complex layouts, configure `sources`, `include_dirs`, and `libraries` explicitly.
+
+<VizslaLab
+  projectId="daily-navigation"
+  projectLabel="Daily Use: Navigation"
+  entryFile="rtl/pipeline_top.sv"
+  files={navigationFiles}
+  height="360px"
+  activeFile="rtl/pipeline_top.sv"
+  selection="9:3-9:17"
+  title="Cross-file Navigation and Hover"
+  description="Try Go to Definition or Hover on pipeline_stage. The target module lives in another file, and the project is provided directly by this docs page."
+/>
 
 ## Find References and Document Highlights
 
@@ -185,6 +305,18 @@ Current code actions focus on module instances, port connections, and parameter 
 | `Add empty instance port list` | Add `()` to an instance that has no port list. |
 
 These actions reduce mechanical RTL editing. Vizsla generates edits from the parsed target module port and parameter order, so the instance target must be resolvable.
+
+<VizslaLab
+  projectId="daily-edit-aids"
+  projectLabel="Daily Use: Edit Aids"
+  entryFile="rtl/fifo_client.sv"
+  files={editAidFiles}
+  height="360px"
+  activeFile="rtl/fifo_client.sv"
+  selection="9:3-9:14"
+  title="Ordered Ports, Parameters, and Code Actions"
+  description="This instance uses ordered parameters and ordered ports. Try inlay hints, signature help, and the code action that converts connections to named form."
+/>
 
 ## Semantic Highlighting
 

@@ -27,15 +27,19 @@ code D:\work\my-rtl
 If the opened workspace root contains Verilog/SystemVerilog files and has no `vizsla.toml` or legacy `vizsla_config.toml`, the extension creates a default `vizsla.toml` and shows a prompt:
 
 ```toml
-# Default startup manifest. Omitting sources enables best-effort indexing for navigation
-# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
-# and include_dirs = ["include"], to enable semantic diagnostics.
-# Set sources = [] to disable workspace indexing.
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+sources = []
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
 ```
 
-This default manifest indexes Verilog/SystemVerilog files under the workspace root in best-effort mode, so read-only features such as go to definition and references work out of the box. It does not create a compile profile and does not run cross-file semantic diagnostics. Later, you can add `sources` shell globs or `include_dirs`, plus `defines`, `libraries`, or `top_modules` as needed, to enable more accurate semantic diagnostics.
+This default manifest explicitly sets `sources = []`, so it does not scan source files under the workspace root, create a compile profile, or run cross-file semantic diagnostics. Later, you can add `sources` shell globs or `include_dirs`, plus `defines`, `libraries`, or `top_modules` as needed, to enable cross-file indexing and more accurate semantic diagnostics.
 
-If the server is started by another client or from the command line and there is no `vizsla.toml` or `vizsla_config.toml`, Vizsla also enters best-effort indexing mode. Setting `sources = []` explicitly disables workspace indexing and keeps only syntax/parse diagnostics for opened files.
+If the server is started by another client or from the command line and there is no `vizsla.toml` or `vizsla_config.toml`, or if a hand-written manifest omits `sources`, Vizsla enters best-effort indexing mode. Setting `sources = []` explicitly disables workspace indexing and keeps only syntax/parse diagnostics for opened files.
 
 ## When to Create a Manifest
 

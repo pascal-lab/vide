@@ -38,6 +38,7 @@ export default defineConfig({
       customCss: ['./src/assets/landing.css'],
       sidebar: [
         'quick-start',
+        'playground',
         'installation',
         'first-project',
         'project-configuration',

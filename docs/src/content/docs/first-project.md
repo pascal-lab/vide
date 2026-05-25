@@ -27,15 +27,19 @@ code D:\work\my-rtl
 如果 VS Code 打开的 workspace root 下有 Verilog/SystemVerilog 文件, 且没有 `vizsla.toml` 或旧版 `vizsla_config.toml`, 扩展会创建默认 `vizsla.toml` 并弹出提示:
 
 ```toml
-# Default startup manifest. Omitting sources enables best-effort indexing for navigation
-# without semantic diagnostics. Fill shell globs, for example sources = ["rtl/**"]
-# and include_dirs = ["include"], to enable semantic diagnostics.
-# Set sources = [] to disable workspace indexing.
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+sources = []
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
 ```
 
-这个默认项目配置文件会以 best-effort 方式索引 workspace root 下的 Verilog/SystemVerilog 文件, 让跳转和引用等读能力开箱可用; 但它不会建立编译 profile, 也不运行跨文件 semantic diagnostics。你可以之后再按实际目录写入 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用更准确的语义诊断。
+这个默认项目配置文件显式写入 `sources = []`, 因此不会扫描 workspace root 下的源文件, 也不会建立编译 profile 或运行跨文件 semantic diagnostics。你可以之后再按实际目录写入 `sources` shell glob 或 `include_dirs`, 并按需补充 `defines`, `libraries` 或 `top_modules`, 来启用跨文件索引和更准确的语义诊断。
 
-如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla.toml` 或 `vizsla_config.toml`, Vizsla 同样会进入 best-effort 索引模式。显式写入 `sources = []` 会关闭 workspace 索引, 只保留打开文件的 syntax/parse diagnostics。
+如果通过其它客户端或命令行方式启动服务器, 且确实没有 `vizsla.toml` 或 `vizsla_config.toml`, 或者手写项目配置时省略 `sources`, Vizsla 会进入 best-effort 索引模式。显式写入 `sources = []` 会关闭 workspace 索引, 只保留打开文件的 syntax/parse diagnostics。
 
 ## 什么时候创建项目配置文件
 

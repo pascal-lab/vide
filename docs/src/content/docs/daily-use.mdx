@@ -3,7 +3,115 @@ title: 日常使用
 description: Vizsla 在 VS Code 中提供的诊断、跳转、补全、格式化和代码操作。
 ---
 
-这一章按 IDE 工作流介绍 Vizsla 的能力。我们尽量把每个功能写成“你能看到什么、什么时候会触发、哪些配置会影响它”, 方便你在 VS Code 里逐项验证。
+import VizslaLab from "../../components/VizslaLab.astro";
+
+export const navigationFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]
+`,
+  },
+  {
+    path: "rtl/pipeline_stage.sv",
+    source: `module pipeline_stage #(
+  parameter int WIDTH = 8
+) (
+  input  logic             clk,
+  input  logic             rst_n,
+  input  logic [WIDTH-1:0] data_i,
+  output logic [WIDTH-1:0] data_o
+);
+  logic [WIDTH-1:0] data_q;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      data_q <= '0;
+    end else begin
+      data_q <= data_i;
+    end
+  end
+
+  assign data_o = data_q;
+endmodule
+`,
+  },
+  {
+    path: "rtl/pipeline_top.sv",
+    source: `module pipeline_top (
+  input  logic        clk,
+  input  logic        rst_n,
+  input  logic [15:0] packet_i,
+  output logic [15:0] packet_o
+);
+  logic [15:0] staged_packet;
+
+  pipeline_stage #(
+    .WIDTH(16)
+  ) u_stage (
+    .clk(clk),
+    .rst_n(rst_n),
+    .data_i(packet_i),
+    .data_o(staged_packet)
+  );
+
+  assign packet_o = staged_packet;
+endmodule
+`,
+  },
+];
+
+export const editAidFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]
+`,
+  },
+  {
+    path: "rtl/packet_fifo.sv",
+    source: `module packet_fifo #(
+  parameter int DEPTH = 4,
+  parameter int WIDTH = 8
+) (
+  input  logic             clk,
+  input  logic             rst_n,
+  input  logic [WIDTH-1:0] data_i,
+  input  logic             valid_i,
+  output logic [WIDTH-1:0] data_o,
+  output logic             ready_o
+);
+  assign data_o = data_i;
+  assign ready_o = valid_i & rst_n;
+endmodule
+`,
+  },
+  {
+    path: "rtl/fifo_client.sv",
+    source: `module fifo_client (
+  input  logic        clk,
+  input  logic        rst_n,
+  input  logic [15:0] payload_i,
+  input  logic        payload_valid,
+  output logic [15:0] payload_o,
+  output logic        payload_ready
+);
+  packet_fifo #(2, 16) u_fifo (
+    clk,
+    rst_n,
+    payload_i,
+    payload_valid,
+    payload_o,
+    payload_ready
+  );
+endmodule
+`,
+  },
+];
+
+这一章按 IDE 工作流介绍 Vizsla 的能力。
 
 ## 语言识别和语法高亮
 
@@ -42,7 +150,7 @@ Vizsla 的诊断分成两层:
 
 诊断会出现在 VS Code 的 `Problems` 面板和编辑器下划线里。部分 quick fix 会读取诊断携带的稳定数据, 因此你通常需要先看到相关诊断, 才会看到对应代码操作。
 
-Semantic diagnostics 需要 workspace root 下的 `vizsla.toml` 配置可加载的工程内容, 例如实际的 `sources` shell glob 或 `include_dirs`; `defines`, `libraries` 和 `top_modules` 可以在此基础上补充工程信息。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。缺少项目配置文件或省略 `sources` 时, Vizsla 会默认索引 workspace root 来支持跳转和引用等读能力, 但不会运行跨文件 semantic diagnostics; 显式写入 `sources = []` 会关闭 workspace 索引。
+Semantic diagnostics 需要 workspace root 下的 `vizsla.toml` 配置可加载的工程内容, 例如实际的 `sources` shell glob 或 `include_dirs`; `defines`, `libraries` 和 `top_modules` 可以在此基础上补充工程信息。旧版 `vizsla_config.toml` 仍可使用, 但两个文件同时存在时优先读取 `vizsla.toml`。VS Code 自动创建的默认 `vizsla.toml` 会写入 `sources = []`, 因此不会扫描 workspace。通过其它客户端启动且没有项目配置文件, 或手写项目配置时省略 `sources`, Vizsla 会进入 best-effort workspace 索引来支持跳转和引用等读能力, 但不会运行跨文件 semantic diagnostics。
 
 slang warning 相关配置放在 `vizsla.diagnostics.slang.*` 下。warning 名称、warning group 和 `-W...` 语义请看 [VS Code 设置](./vscode-settings.md#diagnostics) 中的 Diagnostics 说明。
 
@@ -57,7 +165,19 @@ slang warning 相关配置放在 `vizsla.diagnostics.slang.*` 下。warning 名�
 
 `Go to Declaration` 找不到更合适声明时, 会回退到 definition 逻辑。VS Code 支持 location link 时, 我们会返回更完整的源范围和目标范围; 否则返回普通 location。
 
-如果跳转结果不符合预期, 先检查工程是否加载到了目标文件。无项目配置文件时的默认索引是 best-effort, 遇到重名模块、生成目录或第三方库混在 workspace 中时可能返回不符合实际编译配置的结果; 更复杂目录建议显式配置 `sources`, `include_dirs` 和 `libraries`。
+如果跳转结果不符合预期, 先检查工程是否加载到了目标文件。省略 `sources` 或非 VS Code 客户端下无项目配置文件时的索引是 best-effort, 遇到重名模块、生成目录或第三方库混在 workspace 中时可能返回不符合实际编译配置的结果; 更复杂目录建议显式配置 `sources`, `include_dirs` 和 `libraries`。
+
+<VizslaLab
+  projectId="daily-navigation"
+  projectLabel="Daily Use: Navigation"
+  entryFile="rtl/pipeline_top.sv"
+  files={navigationFiles}
+  height="360px"
+  activeFile="rtl/pipeline_top.sv"
+  selection="9:3-9:17"
+  title="跨文件跳转和 Hover"
+  description="在 pipeline_stage 上试 Go to Definition 或 Hover；目标模块在另一个文件里，项目由当前页面直接提供。"
+/>
 
 ## 查找引用和文档高亮
 
@@ -185,6 +305,18 @@ Vizsla 支持三类格式化入口:
 | `Add empty instance port list` | 给缺失端口列表的实例补 `()`。 |
 
 这些操作的目标是减少机械 RTL 编辑。我们会基于解析出的目标模块端口/参数顺序生成 edit, 因此它们需要实例目标可解析。
+
+<VizslaLab
+  projectId="daily-edit-aids"
+  projectLabel="Daily Use: Edit Aids"
+  entryFile="rtl/fifo_client.sv"
+  files={editAidFiles}
+  height="360px"
+  activeFile="rtl/fifo_client.sv"
+  selection="9:3-9:14"
+  title="有序端口、参数和代码操作"
+  description="这个实例使用有序参数和有序端口。试试 inlay hints、signature help，以及把连接转换成命名形式的 code action。"
+/>
 
 ## 语义高亮
 

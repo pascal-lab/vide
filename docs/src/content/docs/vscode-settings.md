@@ -24,6 +24,28 @@ description: Vizsla VS Code 扩展的配置项参考。
 }
 ```
 
+## Qihe
+
+| 设置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `vizsla.qihe.command` | `"qihe"` | 调用 Qihe 的命令。它必须在 VS Code 可见的环境 `PATH` 中可用, 也可以写成绝对路径。 |
+| `vizsla.qihe.autoConfigureArgsFromManifest` | `true` | 根据 `vizsla.toml` 自动添加 Qihe compile mode 和转发给 slang 的选项。 |
+| `vizsla.qihe.compileArgs` | `[]` | 插入到 `qihe compile` 之后的参数, 可用于手动选择 compile mode 或转发 slang 选项。 |
+| `vizsla.qihe.runArgs` | `["-g", "std"]` | 通过 `Vizsla: Run Qihe Analysis` 运行 `qihe run` 时追加的参数。 |
+
+默认情况下, 扩展会从当前 `vizsla.toml` 推导 Qihe 需要的 compile mode、top module、include 目录和宏定义。已经通过脚本或自定义参数完整管理 Qihe 参数的工程, 可以关闭 `vizsla.qihe.autoConfigureArgsFromManifest`, 然后只使用 `vizsla.qihe.compileArgs` 和 `vizsla.qihe.runArgs`。
+
+示例:
+
+```json
+{
+  "vizsla.qihe.command": "D:\\tools\\qihe\\qihe.exe",
+  "vizsla.qihe.autoConfigureArgsFromManifest": false,
+  "vizsla.qihe.compileArgs": ["--mode", "sv", "--", "-I", "include"],
+  "vizsla.qihe.runArgs": ["-g", "std"]
+}
+```
+
 ## Files
 
 | 设置 | 默认值 | 说明 |

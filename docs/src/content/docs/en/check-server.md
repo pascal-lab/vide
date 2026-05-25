@@ -5,13 +5,14 @@ description: Check whether the Vizsla bundled server or custom server starts cor
 
 ## Check the Status Bar
 
-The status bar is the most direct signal:
+The most direct signal is the `Vizsla` status item on the right side of the VS Code status bar:
 
-- `Vizsla Ready`: the server has started.
-- `Vizsla Error`: startup failed.
-- `Vizsla Starting` for a long time: check the output channel.
+- Plain `Vizsla` text with no error icon: the server has started; hover to see project configuration status.
+- A spinner that stays for a long time: server startup, shutdown, or project configuration loading is stuck, so check the output channel.
+- An error icon: server startup or project configuration loading failed.
+- A warning icon: usually means the current workspace has no project manifest.
 
-Click the status bar item to open the `Vizsla Language Server` output channel.
+Click the status item to open the `Vizsla Status` menu. From there, run `Show Output` to open the `Vizsla Language Server` output channel.
 
 ## Check the Output Channel
 
