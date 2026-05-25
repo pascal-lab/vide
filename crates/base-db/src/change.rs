@@ -3,7 +3,7 @@ use triomphe::Arc;
 use vfs::ChangedFile;
 
 use crate::{
-    project::SharedProjectConfig,
+    project::{PreprocessConfig, SharedProjectConfig},
     source_db::SourceRootDb,
     source_root::{SourceRoot, SourceRootId},
 };
@@ -83,9 +83,33 @@ impl Change {
             db.set_file_text_with_durability(file_id, text, durability);
         }
 
+        update_file_preprocess_configs(db, files.as_ref());
+
         if files_changed {
             db.set_files_with_durability(files, Durability::HIGH);
         }
+    }
+}
+
+fn update_file_preprocess_configs(
+    db: &mut dyn SourceRootDb,
+    files: &rustc_hash::FxHashSet<vfs::FileId>,
+) {
+    let project_config = db.project_config();
+    for file_id in files.iter().copied() {
+        let source_root_id = db.source_root_id(file_id);
+        let source_root = db.source_root(source_root_id);
+        let profile_id = db.file_compilation_profile(file_id);
+        let preprocess = if source_root.is_ignored() {
+            PreprocessConfig::default()
+        } else {
+            project_config.preprocess_for_profile(profile_id)
+        };
+        db.set_file_preprocess_config_with_durability(
+            file_id,
+            Arc::new(preprocess),
+            durability(&source_root),
+        );
     }
 }
 
