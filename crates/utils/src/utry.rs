@@ -20,3 +20,12 @@ macro_rules! try_or_default {
         try_or_default!{{$($tt)*}}
     };
 }
+
+#[macro_export]
+macro_rules! check_or_throw {
+    ($expr:expr) => {
+        if !($expr) {
+            None?
+        }
+    };
+}

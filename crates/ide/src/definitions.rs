@@ -629,4 +629,36 @@ mod tests {
         assert_eq!(range.file_id.file_id(), file_id);
         assert_eq!(range.value, TextRange::new(TextSize::from(9), TextSize::from(10)));
     }
+
+    #[test]
+    fn named_port_connection_name_resolves_to_target_port() {
+        let text = "module child(input clk); endmodule\n\
+            module top; logic clk; child u(.clk(clk)); endmodule";
+        let (host, file_id) = host_with_file(text);
+        let db = host.raw_db();
+        let sema = Semantics::<RootDb>::new(db);
+        let parsed_file = sema.parse_file(file_id);
+        let file = parsed_file.compilation_unit().unwrap();
+        let conn_name_offset = TextSize::from(text.rfind(".clk").unwrap() as u32 + 2);
+        let token = file
+            .syntax()
+            .token_at_offset(conn_name_offset)
+            .pick_bext_token(crate::goto_definition::token_precedence)
+            .unwrap();
+        let DefinitionClass::Definition(def) =
+            DefinitionClass::resolve(&sema, file_id.into(), token).unwrap()
+        else {
+            panic!("expected plain definition");
+        };
+
+        let PathResolution::AnsiPort(port) = def.0 else {
+            panic!("expected ANSI port resolution");
+        };
+        let range = DefinitionOrigin::Decl(port.into())
+            .name_range(db)
+            .expect("ANSI port should have a name range");
+        assert_eq!(range.file_id.file_id(), file_id);
+        assert_eq!(&text[usize::from(range.value.start())..usize::from(range.value.end())], "clk");
+        assert!(range.value.start() < conn_name_offset);
+    }
 }
