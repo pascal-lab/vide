@@ -1,9 +1,11 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+const base = process.env.ASTRO_BASE ?? '/';
+
 export default defineConfig({
   site: 'https://pascal-lab.github.io',
-  base: '/vizsla',
+  base,
   integrations: [
     starlight({
       title: {
