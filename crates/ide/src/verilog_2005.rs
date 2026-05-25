@@ -4,7 +4,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot};
+use base_db::{
+    change::Change,
+    preproc_index::MacroIncludeTarget,
+    project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+    source_db::SourceDb,
+    source_root::{SourceRoot, SourceRootId},
+};
 use hir::semantics::Semantics;
 use ide_db::root_db::RootDb;
 use insta::assert_snapshot;
@@ -169,6 +175,53 @@ fn setup_marked_with_path(
     }
 
     let (host, file_id) = setup_with_path(&text, path);
+    (host, file_id, text, markers)
+}
+
+fn setup_marked_with_predefines(
+    text: &str,
+    predefines: Vec<String>,
+) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
+    let mut text = normalize_fixture_text(text);
+    let mut markers = HashMap::new();
+    let mut cursor = 0;
+    let prefix = "/*marker:";
+
+    while let Some(rel_start) = text[cursor..].find(prefix) {
+        let start = cursor + rel_start;
+        let name_start = start + prefix.len();
+        let Some(rel_end) = text[name_start..].find("*/") else {
+            panic!("unterminated marker in fixture");
+        };
+        let name_end = name_start + rel_end;
+        let name = text[name_start..name_end].to_string();
+        let end = name_end + 2;
+        text.replace_range(start..end, "");
+        markers.insert(name, TextSize::from(start as u32));
+        cursor = start;
+    }
+
+    let file_id = FileId(0);
+    let mut file_set = FileSet::default();
+    file_set.insert(file_id, VfsPath::new_virtual_path("/feature.v".to_owned()));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig { predefines, include_dirs: Vec::new() },
+        }],
+    )));
+    change.add_changed_file(ChangedFile {
+        file_id,
+        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
     (host, file_id, text, markers)
 }
 
@@ -453,6 +506,95 @@ endmodule
 
     let task_body = labels("task_body");
     assert!(task_body.iter().any(|label| label == "case"), "{task_body:?}");
+}
+
+#[test]
+fn manifest_predefines_select_ide_ifdef_branch_for_navigation() {
+    let text = r#"
+module manifest_define_ctx;
+`ifdef USE_IMPL
+  logic /*marker:active_def*/branch_sig;
+  assign /*marker:active_ref*/branch_sig = 1'b1;
+`else
+  logic /*marker:inactive_def*/branch_sig;
+  assign /*marker:inactive_ref*/branch_sig = 1'b0;
+`endif
+  assign /*marker:query_ref*/branch_sig = 1'b1;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) =
+        setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
+    let analysis = host.make_analysis();
+    let branch_sig_len = TextSize::from("branch_sig".len() as u32);
+    let active_def = TextRange::new(markers["active_def"], markers["active_def"] + branch_sig_len);
+    let inactive_def =
+        TextRange::new(markers["inactive_def"], markers["inactive_def"] + branch_sig_len);
+    let active_ref = TextRange::new(markers["active_ref"], markers["active_ref"] + branch_sig_len);
+    let inactive_ref =
+        TextRange::new(markers["inactive_ref"], markers["inactive_ref"] + branch_sig_len);
+    let query_ref = TextRange::new(markers["query_ref"], markers["query_ref"] + branch_sig_len);
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "query_ref"))
+        .unwrap()
+        .expect("branch_sig definition expected");
+    assert!(
+        nav.info.iter().any(|nav| nav.focus_range == Some(active_def)),
+        "goto should resolve to the manifest-defined active branch: {nav:?}"
+    );
+    assert!(
+        nav.info.iter().all(|nav| nav.focus_range != Some(inactive_def)),
+        "goto must not resolve to the inactive branch: {nav:?}"
+    );
+
+    let refs = analysis
+        .references(
+            position(file_id, &markers, "query_ref"),
+            ReferencesConfig::new(
+                ScopeVisibility::Private,
+                Some(SearchScope::single_file(file_id)),
+            ),
+        )
+        .unwrap()
+        .expect("branch_sig references expected");
+    let ranges = refs
+        .iter()
+        .flat_map(|refs| refs.refs.get(&file_id).into_iter().flatten())
+        .map(|(range, _)| *range)
+        .collect::<Vec<_>>();
+    assert!(ranges.contains(&active_ref), "active reference should be found: {ranges:?}");
+    assert!(ranges.contains(&query_ref), "query reference should be found: {ranges:?}");
+    assert!(
+        !ranges.contains(&inactive_ref),
+        "inactive reference should not be classified as the active definition: {ranges:?}"
+    );
+}
+
+#[test]
+fn manifest_predefines_feed_default_preproc_file_index() {
+    let text = r#"
+`ifdef USE_IMPL
+`include "active.svh"
+`else
+`include "inactive.svh"
+`endif
+module manifest_preproc_index_ctx;
+endmodule
+"#;
+    let (host, file_id, _clean_text, _markers) =
+        setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
+
+    let index = host.raw_db().preproc_file_index(file_id);
+    let literal_include_paths = index
+        .includes
+        .iter()
+        .filter_map(|include| match &include.target {
+            MacroIncludeTarget::Literal { path, .. } => Some(path.as_str()),
+            MacroIncludeTarget::Token { .. } => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(literal_include_paths, vec!["active.svh"]);
 }
 
 #[test]
