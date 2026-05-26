@@ -10,10 +10,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use base_db::compilation_plan::CompilationPlan;
 use lsp_types::{Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString};
-use project_model::project_manifest::MANIFEST_FILE_NAME;
+use project_model::project_manifest::{ProjectManifest, ProjectManifestFileName};
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
@@ -21,7 +21,8 @@ use span::FileRange;
 use utils::{
     cancellation::{CancellationError, CancellationToken},
     line_index::{LineCol, TextRange, TextSize},
-    paths::AbsPath,
+    path_identity::PathIdentityIndex,
+    paths::{AbsPath, AbsPathBuf},
     process::{configure_process_tree, wait_with_cancellation},
     thread::ThreadIntent,
 };
@@ -512,12 +513,12 @@ struct QiheCompileInput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QiheCompileInputSource {
     SingleFile,
-    Manifest,
+    Manifest(ProjectManifestFileName),
 }
 
 impl QiheCompileInput {
     fn uses_manifest(&self) -> bool {
-        matches!(self.source, QiheCompileInputSource::Manifest)
+        matches!(self.source, QiheCompileInputSource::Manifest(_))
     }
 }
 
@@ -529,9 +530,11 @@ fn qihe_compile_input(
     cancellation: &CancellationToken,
 ) -> Result<QiheCompileInput> {
     cancellation.check()?;
-    if !cwd.join(MANIFEST_FILE_NAME).is_file() {
+    let Some(manifest_file_name) =
+        qihe_project_manifest_file_name(&snapshot.config.project_manifests, cwd)?
+    else {
         return Ok(single_file_qihe_compile_input(active_path));
-    }
+    };
 
     cancellation.check()?;
     let plan = snapshot.analysis.compilation_plan(active_file_id).map_err(|_| CancellationError)?;
@@ -542,7 +545,36 @@ fn qihe_compile_input(
         .filter_map(|file_id| snapshot.file_path(*file_id).map(PathBuf::from))
         .collect::<Vec<_>>();
 
-    Ok(qihe_compile_input_from_plan(&plan, files, active_path))
+    Ok(qihe_compile_input_from_plan(&plan, files, active_path, manifest_file_name))
+}
+
+fn qihe_project_manifest_file_name(
+    manifests: &[ProjectManifest],
+    cwd: &Path,
+) -> Result<Option<ProjectManifestFileName>> {
+    let cwd = AbsPathBuf::try_from(cwd.to_path_buf()).map_err(|path| {
+        anyhow!("Qihe working directory must be an absolute UTF-8 path: {}", path.display())
+    })?;
+
+    let mut manifest_roots = PathIdentityIndex::default();
+    for manifest in manifests {
+        let Some(file_name) = manifest.toml_file_name() else {
+            continue;
+        };
+        let Some(root) = project_manifest_workspace_root(manifest) else {
+            continue;
+        };
+        manifest_roots.insert_path(root, file_name);
+    }
+
+    Ok(manifest_roots.get_path(cwd.as_path()))
+}
+
+fn project_manifest_workspace_root(manifest: &ProjectManifest) -> Option<&AbsPath> {
+    match manifest {
+        ProjectManifest::Toml(path) => path.parent(),
+        ProjectManifest::UnconfiguredRoot(path) => Some(path.as_path()),
+    }
 }
 
 fn single_file_qihe_compile_input(active_path: &AbsPath) -> QiheCompileInput {
@@ -557,6 +589,7 @@ fn qihe_compile_input_from_plan(
     plan: &CompilationPlan,
     mut files: Vec<PathBuf>,
     active_path: &AbsPath,
+    manifest_file_name: ProjectManifestFileName,
 ) -> QiheCompileInput {
     files.sort();
     files.dedup();
@@ -581,7 +614,7 @@ fn qihe_compile_input_from_plan(
     QiheCompileInput {
         files,
         manifest_slang_args: slang_args,
-        source: QiheCompileInputSource::Manifest,
+        source: QiheCompileInputSource::Manifest(manifest_file_name),
     }
 }
 
@@ -1044,6 +1077,7 @@ mod tests {
         DiagnosticWorkspaceClientCapabilities, NumberOrString, Position, Range,
         TextDocumentClientCapabilities, TraceValue, WorkspaceClientCapabilities, request::Request,
     };
+    use project_model::project_manifest::ProjectManifestFileName;
     use utils::{cancellation::CancellationToken, paths::AbsPathBuf, test_support::TestDir};
     use vfs::FileId;
 
@@ -1167,7 +1201,7 @@ mod tests {
         let root = TestDir::new("stale-qihe-result");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1216,7 +1250,7 @@ mod tests {
         let root = TestDir::new("current-qihe-progress");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1316,7 +1350,7 @@ mod tests {
         let root = TestDir::new("qihe-diagnostic-freshness");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1356,7 +1390,7 @@ mod tests {
         let root = TestDir::new("stale-qihe-freshness");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1416,7 +1450,7 @@ mod tests {
         };
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1484,7 +1518,7 @@ mod tests {
                 "/repo/include".to_owned(),
                 "-DDEBUG".to_owned(),
             ],
-            source: QiheCompileInputSource::Manifest,
+            source: QiheCompileInputSource::Manifest(ProjectManifestFileName::Primary),
         };
         let mut command = Command::new("qihe");
 
@@ -1539,7 +1573,7 @@ mod tests {
                 "/repo/include".to_owned(),
                 "-DDEBUG".to_owned(),
             ],
-            source: QiheCompileInputSource::Manifest,
+            source: QiheCompileInputSource::Manifest(ProjectManifestFileName::Primary),
         };
         let mut command = Command::new("qihe");
 
@@ -1599,7 +1633,12 @@ mod tests {
         };
         let plan = CompilationPlan::default();
 
-        let input = qihe_compile_input_from_plan(&plan, Vec::new(), active_path.as_ref());
+        let input = qihe_compile_input_from_plan(
+            &plan,
+            Vec::new(),
+            active_path.as_ref(),
+            ProjectManifestFileName::Primary,
+        );
 
         assert_eq!(
             input,

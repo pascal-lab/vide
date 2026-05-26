@@ -1,0 +1,32 @@
+name: Setup Emscripten SDK
+description: Install and activate a pinned Emscripten SDK for workflow builds.
+
+inputs:
+  version:
+    description: Emscripten SDK version to install.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Emscripten SDK
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.tool_cache }}/emsdk-${{ inputs.version }}
+        key: emsdk-${{ runner.os }}-${{ inputs.version }}
+
+    - name: Install Emscripten SDK
+      shell: bash
+      run: |
+        set -euo pipefail
+        emsdk_root="${RUNNER_TOOL_CACHE}/emsdk-${{ inputs.version }}"
+        if [ ! -d "${emsdk_root}/.git" ]; then
+          rm -rf "${emsdk_root}"
+          git clone --filter=blob:none --no-recurse-submodules https://github.com/emscripten-core/emsdk.git "${emsdk_root}"
+        fi
+        git -C "${emsdk_root}" reset --hard
+        git -C "${emsdk_root}" fetch --depth=1 origin "refs/tags/${{ inputs.version }}"
+        git -C "${emsdk_root}" checkout --detach FETCH_HEAD
+        "${emsdk_root}/emsdk" install "${{ inputs.version }}"
+        "${emsdk_root}/emsdk" activate "${{ inputs.version }}"
+        echo "EMSDK=${emsdk_root}" >> "${GITHUB_ENV}"

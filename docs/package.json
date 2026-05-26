@@ -1,16 +1,17 @@
 {
-  "name": "vizsla-docs",
+  "name": "vide-docs",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build",
+    "build": "node ../playground/scripts/copy-docs-wasm-assets.mjs && astro build",
     "preview": "astro preview"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.39.2",
-    "astro": "^6.3.5"
+    "astro": "^6.3.5",
+    "vide-playground": "file:../playground"
   }
 }

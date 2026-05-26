@@ -1,0 +1,339 @@
+name: Deploy docs to Aliyun OSS
+
+on:
+  workflow_run:
+    workflows: ["Build docs"]
+    types: [completed]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+env:
+  ASTRO_SITE: https://vide.pascal-lab.net
+  OSSUTIL_VERSION: 1.7.18
+  EMSDK_VERSION: 5.0.2
+
+jobs:
+  deploy-preview:
+    name: Sync PR preview
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      vars.ENABLE_DOCS_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve preview target
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}/artifacts" > artifacts.json
+
+          if jq -e '.artifacts[] | select(.expired == false and .name == "vide-docs-preview")' artifacts.json > /dev/null; then
+            has_preview_artifact=true
+          else
+            has_preview_artifact=false
+          fi
+
+          metadata_id="$(jq -r '.artifacts[] | select(.expired == false and .name == "vide-docs-preview-metadata") | .id' artifacts.json | head -n 1)"
+          metadata_action=""
+          metadata_pr_number=""
+          if [ -n "${metadata_id}" ]; then
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${metadata_id}/zip" \
+              -o preview-metadata.zip
+            unzip -q preview-metadata.zip -d preview-metadata
+            metadata_action="$(tr -d '\r\n' < preview-metadata/action)"
+            metadata_pr_number="$(tr -d '\r\n' < preview-metadata/pr-number)"
+          fi
+
+          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "${GITHUB_EVENT_PATH}")"
+          if [ -z "${pr_number}" ]; then
+            pr_number="${metadata_pr_number}"
+          fi
+
+          if [ "${metadata_action}" != "closed" ] && [ "${has_preview_artifact}" != "true" ]; then
+            echo "No current preview deploy or cleanup target found for workflow run ${WORKFLOW_RUN_ID}."
+            echo "mode=none" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if ! [[ "${pr_number}" =~ ^[0-9]+$ ]]; then
+            echo "No pull request number found for workflow run ${GITHUB_RUN_ID}."
+            exit 1
+          fi
+
+          mode="none"
+          if [ "${metadata_action}" = "closed" ]; then
+            mode="cleanup"
+          elif [ "${has_preview_artifact}" = "true" ]; then
+            pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+            pr_state="$(jq -r '.state' <<< "${pr_json}")"
+            pr_head_sha="$(jq -r '.head.sha' <<< "${pr_json}")"
+
+            if [ "${pr_state}" != "open" ]; then
+              echo "PR #${pr_number} is ${pr_state}; removing preview instead of deploying stale artifact."
+              mode="cleanup"
+            elif [ "${pr_head_sha}" != "${WORKFLOW_HEAD_SHA}" ]; then
+              echo "Workflow run ${WORKFLOW_RUN_ID} is for ${WORKFLOW_HEAD_SHA}, but PR #${pr_number} is now at ${pr_head_sha}; skipping stale preview deploy."
+            else
+              mode="deploy"
+            fi
+          fi
+
+          if [ "${mode}" = "none" ]; then
+            echo "mode=none" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          preview_path="preview/pr-${pr_number}/"
+          preview_url="https://vide.pascal-lab.net/${preview_path}"
+
+          echo "pr_number=${pr_number}" >> "${GITHUB_OUTPUT}"
+          echo "path=${preview_path}" >> "${GITHUB_OUTPUT}"
+          echo "url=${preview_url}" >> "${GITHUB_OUTPUT}"
+          echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download preview artifact
+        if: steps.preview.outputs.mode == 'deploy'
+        uses: actions/download-artifact@v4
+        with:
+          name: vide-docs-preview
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: preview-dist
+
+      - name: Setup ossutil
+        if: steps.preview.outputs.mode != 'none'
+        env:
+          OSS_ENDPOINT: ${{ secrets.endpoint }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.accessKeyId }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.accessKeySecret }}
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/ossutil"
+          archive="${RUNNER_TEMP}/ossutil.zip"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL \
+            "https://github.com/aliyun/ossutil/releases/download/v${OSSUTIL_VERSION}/ossutil-v${OSSUTIL_VERSION}-linux-amd64.zip" \
+            -o "${archive}"
+          unzip -q -o "${archive}" -d "${install_dir}"
+
+          ossutil_bin="${install_dir}/ossutil-v${OSSUTIL_VERSION}-linux-amd64/ossutil"
+          chmod +x "${ossutil_bin}"
+          echo "$(dirname "${ossutil_bin}")" >> "${GITHUB_PATH}"
+
+          "${ossutil_bin}" --version
+          "${ossutil_bin}" help cp | grep -F -- "--disable-dir-object" > /dev/null
+          "${ossutil_bin}" config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" -L CH
+
+      - name: Deploy preview to OSS
+        if: steps.preview.outputs.mode == 'deploy'
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+          PREVIEW_PATH: ${{ steps.preview.outputs.path }}
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          case "${PREVIEW_PATH}" in
+            preview/pr-[0-9]*/) ;;
+            *)
+              echo "Invalid preview path: ${PREVIEW_PATH}"
+              exit 1
+              ;;
+          esac
+
+          target="oss://${OSS_BUCKET_NAME}/${PREVIEW_PATH}"
+          ossutil rm "${target}" -rf || true
+          ossutil cp preview-dist "${target}" -rf --disable-dir-object
+
+          echo "Preview deployed to ${PREVIEW_URL}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove preview from OSS
+        if: steps.preview.outputs.mode == 'cleanup'
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+          PREVIEW_PATH: ${{ steps.preview.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          case "${PREVIEW_PATH}" in
+            preview/pr-[0-9]*/) ;;
+            *)
+              echo "Invalid preview path: ${PREVIEW_PATH}"
+              exit 1
+              ;;
+          esac
+
+          ossutil rm "oss://${OSS_BUCKET_NAME}/${PREVIEW_PATH}" -rf || true
+          echo "Removed ${PREVIEW_PATH}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Comment preview URL
+        if: steps.preview.outputs.mode == 'deploy'
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ steps.preview.outputs.pr_number }}
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            const previewUrl = process.env.PREVIEW_URL;
+            const marker = `<!-- vide-docs-preview:${prNumber} -->`;
+            const body = `${marker}\nDocs preview: ${previewUrl}`;
+            const { owner, repo } = context.repo;
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100,
+              });
+              const existing = comments.find((comment) => comment.body?.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            } catch (error) {
+              core.warning(`Docs preview was deployed, but the PR comment could not be updated: ${error.message}`);
+            }
+
+  deploy-production:
+    name: Deploy production docs
+    if: >
+      (github.event_name == 'release' && github.event.release.prerelease != true && vars.ENABLE_DOCS_DEPLOY == 'true') ||
+      (github.event_name == 'workflow_dispatch' && vars.ENABLE_DOCS_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    environment:
+      name: docs
+      url: https://vide.pascal-lab.net
+    env:
+      ASTRO_BASE: /
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: docs-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+
+      - name: Install Emscripten SDK
+        uses: ./.github/actions/setup-emscripten
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            docs/package-lock.json
+            playground/package-lock.json
+
+      - name: Build playground WASM
+        run: |
+          source "${EMSDK}/emsdk_env.sh"
+          npm run build:wasm
+        working-directory: playground
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: docs
+
+      - name: Build docs
+        run: npm run build
+        working-directory: docs
+
+      - name: Setup ossutil
+        env:
+          OSS_ENDPOINT: ${{ secrets.endpoint }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.accessKeyId }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.accessKeySecret }}
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/ossutil"
+          archive="${RUNNER_TEMP}/ossutil.zip"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL \
+            "https://github.com/aliyun/ossutil/releases/download/v${OSSUTIL_VERSION}/ossutil-v${OSSUTIL_VERSION}-linux-amd64.zip" \
+            -o "${archive}"
+          unzip -q -o "${archive}" -d "${install_dir}"
+
+          ossutil_bin="${install_dir}/ossutil-v${OSSUTIL_VERSION}-linux-amd64/ossutil"
+          chmod +x "${ossutil_bin}"
+          echo "$(dirname "${ossutil_bin}")" >> "${GITHUB_PATH}"
+
+          "${ossutil_bin}" --version
+          "${ossutil_bin}" help cp | grep -F -- "--disable-dir-object" > /dev/null
+          "${ossutil_bin}" config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" -L CH
+
+      - name: Deploy production to OSS
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          for key in _astro pagefind advanced-guide changelog en playground schemas user-guide developer-guide staging 404.html index.html robots.txt sitemap-0.xml sitemap-index.xml; do
+            ossutil rm "oss://${OSS_BUCKET_NAME}/${key}" -rf || true
+          done
+
+          ossutil cp docs/dist "oss://${OSS_BUCKET_NAME}/" -rf --disable-dir-object

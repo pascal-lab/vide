@@ -21,6 +21,10 @@
 
 namespace slang {
 
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+#    define SLANG_EMSCRIPTEN_SINGLE_THREADED 1
+#endif
+
 /// A lightweight thread pool for running concurrent jobs.
 class ThreadPool {
 public:
@@ -29,6 +33,53 @@ public:
     /// @param threadCount The number of threads to create in the pool. If zero (the default)
     ///                    the number of threads will be set to the number of concurrent threads
     ///                    supported by the system.
+#if defined(SLANG_EMSCRIPTEN_SINGLE_THREADED)
+    explicit ThreadPool(unsigned threadCount = 0) { (void)threadCount; }
+
+    ~ThreadPool() = default;
+
+    size_t getThreadCount() const { return 1; }
+
+    template<typename TFunc, typename... TArgs>
+    void pushTask(TFunc&& task, TArgs&&... args) {
+        std::invoke(std::forward<TFunc>(task), std::forward<TArgs>(args)...);
+    }
+
+    template<typename TFunc, typename... TArgs,
+             typename TResult = std::invoke_result_t<std::decay_t<TFunc>, std::decay_t<TArgs>...>>
+    [[nodiscard]] std::future<TResult> submit(TFunc&& task, TArgs&&... args) {
+        std::promise<TResult> taskPromise;
+        SLANG_TRY {
+            if constexpr (std::is_void_v<TResult>) {
+                std::invoke(std::forward<TFunc>(task), std::forward<TArgs>(args)...);
+                taskPromise.set_value();
+            }
+            else {
+                taskPromise.set_value(std::invoke(std::forward<TFunc>(task),
+                                                  std::forward<TArgs>(args)...));
+            }
+        }
+        SLANG_CATCH(...) {
+            taskPromise.set_exception(std::current_exception());
+        }
+        return taskPromise.get_future();
+    }
+
+    template<typename TIndex, typename TFunc>
+    void pushLoop(TIndex from, TIndex to, TFunc&& body, size_t numBlocks = 0) {
+        (void)numBlocks;
+        if (to > from)
+            std::invoke(std::forward<TFunc>(body), from, to);
+    }
+
+    void waitForAll() {}
+
+    template<typename R, typename P>
+    bool waitForAll(const std::chrono::duration<R, P>& duration) {
+        (void)duration;
+        return true;
+    }
+#else
     explicit ThreadPool(unsigned threadCount = 0) {
         if (threadCount == 0) {
             threadCount = std::thread::hardware_concurrency();
@@ -187,6 +238,7 @@ private:
     size_t currentTasks = 0;
     bool running;
     bool waiting;
+#endif
 };
 
 } // namespace slang

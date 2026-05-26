@@ -19,7 +19,7 @@ test('builds code selectors from VS Code diagnostic code objects', () => {
 });
 
 test('ignores diagnostics that cannot be configured by slang code', () => {
-  assert.equal(diagnosticCodeSelector({ source: 'vizsla', code: '2:260' }), undefined);
+  assert.equal(diagnosticCodeSelector({ source: 'vide', code: '2:260' }), undefined);
   assert.equal(diagnosticCodeSelector({ source: 'slang', code: 260 }), undefined);
   assert.equal(diagnosticCodeSelector({ source: 'slang', code: 'bad' }), undefined);
 });

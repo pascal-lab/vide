@@ -90,7 +90,7 @@ mod tests {
     ) -> (GlobalState, Connection) {
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -151,7 +151,7 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -215,7 +215,7 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -272,7 +272,7 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -911,6 +911,26 @@ impl GlobalState {
             self.handle_event(event)?;
         }
         anyhow::bail!("{} exited without proper shutdown sequence", self.config.opt.process_name);
+    }
+
+    pub(crate) fn handle_lsp_message_for_browser(&mut self, msg: Message) -> anyhow::Result<()> {
+        self.handle_event(Event::Lsp(msg))?;
+        self.drain_browser_queued_events()
+    }
+
+    pub(crate) fn drain_browser_queued_events(&mut self) -> anyhow::Result<()> {
+        while let Ok(task) = self.task_pool.receiver.try_recv() {
+            self.handle_event(Event::Task(task))?;
+        }
+
+        while let Ok(msg) = self.vfs_loader.receiver.try_recv() {
+            self.handle_event(Event::Vfs(msg))?;
+        }
+
+        while let Ok(task) = self.task_pool.receiver.try_recv() {
+            self.handle_event(Event::Task(task))?;
+        }
+        Ok(())
     }
 
     fn register_did_save_cap(&mut self) {

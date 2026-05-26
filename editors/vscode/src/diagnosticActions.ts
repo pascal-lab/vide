@@ -8,7 +8,7 @@ import {
   upsertDiagnosticRule,
 } from './diagnosticRules';
 
-export const configureDiagnosticRuleCommand = 'vizsla.configureDiagnosticRule';
+export const configureDiagnosticRuleCommand = 'vide.configureDiagnosticRule';
 
 interface ConfigureDiagnosticRuleArgs {
   selector: string;
@@ -112,7 +112,7 @@ function diagnosticRuleActionTitle(
 
 async function configureDiagnosticRule(args: ConfigureDiagnosticRuleArgs): Promise<void> {
   try {
-    const config = vscode.workspace.getConfiguration('vizsla');
+    const config = vscode.workspace.getConfiguration('vide');
     const target =
       args.target === 'workspace'
         ? vscode.ConfigurationTarget.Workspace
@@ -124,7 +124,7 @@ async function configureDiagnosticRule(args: ConfigureDiagnosticRuleArgs): Promi
   } catch (error) {
     vscode.window.showErrorMessage(
       vscode.l10n.t(
-        'Unable to update Vizsla diagnostic rules: {0}',
+        'Unable to update Vide diagnostic rules: {0}',
         (error as Error).message,
       ),
     );

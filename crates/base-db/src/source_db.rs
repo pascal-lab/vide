@@ -11,7 +11,7 @@ use crate::{
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     preproc_index::{self, PreprocFileIndex},
-    project::{CompilationProfileId, ProjectConfig},
+    project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
 
@@ -31,6 +31,9 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
 
     #[salsa::input]
     fn file_path(&self, file_id: FileId) -> Option<utils::paths::AbsPathBuf>;
+
+    #[salsa::input]
+    fn file_preprocess_config(&self, file_id: FileId) -> Arc<PreprocessConfig>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
     fn preproc_file_index(&self, file_id: FileId) -> Arc<PreprocFileIndex>;
@@ -62,10 +65,7 @@ pub enum SourceFileKind {
 impl SourceFileKind {
     pub fn from_path(path: &VfsPath) -> Self {
         match path.name_and_extension() {
-            Some((name, Some(ext)))
-                if (name == "vizsla" || name == "vizsla_config")
-                    && ext.eq_ignore_ascii_case("toml") =>
-            {
+            Some((name, Some(ext))) if name == "vide" && ext.eq_ignore_ascii_case("toml") => {
                 Self::ProjectManifest
             }
             Some((_, Some(ext))) if ext.eq_ignore_ascii_case("map") => Self::LibraryMap,
@@ -93,8 +93,15 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
 
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            // HIR source maps are local to the queried file; project-aware include
-            // expansion belongs to parse_src_for_compilation.
+            // HIR source maps are local to the queried file; project-aware
+            // include expansion belongs to parse_src_for_compilation.
+            let preprocess = db.file_preprocess_config(file_id);
+            let include_paths = preprocess.include_dir_strings();
+            let options = syntax::SyntaxTreeOptions {
+                predefines: preprocess.predefines.clone(),
+                include_paths,
+                ..syntax::SyntaxTreeOptions::without_include_expansion()
+            };
             let _span = tracing::info_span!(
                 "slang.syntax_tree.from_text",
                 ?file_id,
@@ -102,12 +109,7 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
                 include_buffer_count = 0usize
             )
             .entered();
-            SyntaxTree::from_text_with_options(
-                &text,
-                "",
-                "",
-                &syntax::SyntaxTreeOptions::without_include_expansion(),
-            )
+            SyntaxTree::from_text_with_options(&text, "", "", &options)
         }
         SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
@@ -115,7 +117,8 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
 }
 
 fn preproc_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocFileIndex> {
-    preproc_file_index_with_predefines(db, file_id, Vec::new())
+    let predefines = db.file_preprocess_config(file_id).predefines.clone();
+    preproc_file_index_with_predefines(db, file_id, predefines)
 }
 
 fn preproc_file_index_with_predefines(
@@ -640,12 +643,9 @@ mod tests {
 
     #[test]
     fn project_manifests_are_not_slang_parse_diagnostic_units() {
-        for file_name in ["vizsla.toml", "vizsla_config.toml"] {
-            let kind =
-                SourceFileKind::from_path(&VfsPath::new_virtual_path(format!("/root/{file_name}")));
+        let kind = SourceFileKind::from_path(&VfsPath::new_virtual_path("/root/vide.toml".into()));
 
-            assert_eq!(kind, SourceFileKind::ProjectManifest);
-            assert!(!kind.is_slang_parse_unit());
-        }
+        assert_eq!(kind, SourceFileKind::ProjectManifest);
+        assert!(!kind.is_slang_parse_unit());
     }
 }

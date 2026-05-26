@@ -16,7 +16,7 @@ impl TestDir {
             .expect("system time before unix epoch")
             .as_nanos();
         let path =
-            std::env::temp_dir().join(format!("vizsla-vfs-{name}-{}-{suffix}", std::process::id()));
+            std::env::temp_dir().join(format!("vide-vfs-{name}-{}-{suffix}", std::process::id()));
         fs::create_dir_all(&path).unwrap_or_else(|err| {
             panic!("failed to create test directory {}: {err}", path.display());
         });

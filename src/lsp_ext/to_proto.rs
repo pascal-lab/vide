@@ -129,7 +129,7 @@ pub(crate) fn document_highlight(
 }
 
 const SLANG_DIAGNOSTIC_SOURCE: &str = "slang";
-const VIZSLA_DIAGNOSTIC_SOURCE: &str = "vizsla";
+const VIDE_DIAGNOSTIC_SOURCE: &str = "vide";
 pub(crate) fn diagnostic(
     i18n: I18n,
     line_info: &LineInfo,
@@ -137,29 +137,30 @@ pub(crate) fn diagnostic(
 ) -> lsp_types::Diagnostic {
     let data = diagnostic_data(&diag);
     let message = diagnostic_message(i18n, &diag);
+    let tags = diagnostic_tags(&diag);
     lsp_types::Diagnostic {
         range: self::range(line_info, diag.range),
-        severity: diagnostic_severity(diag.severity),
+        severity: diagnostic_severity(&diag),
         code: Some(lsp_types::NumberOrString::String(format!("{}:{}", diag.subsystem, diag.code))),
         code_description: None,
         source: Some(
             match diag.source {
                 ide_diagnostics::DiagnosticSource::SlangParse
                 | ide_diagnostics::DiagnosticSource::SlangSemantic => SLANG_DIAGNOSTIC_SOURCE,
-                ide_diagnostics::DiagnosticSource::Vizsla => VIZSLA_DIAGNOSTIC_SOURCE,
+                ide_diagnostics::DiagnosticSource::Vide => VIDE_DIAGNOSTIC_SOURCE,
             }
             .to_string(),
         ),
         message,
         related_information: None,
-        tags: None,
+        tags,
         data: Some(data),
     }
 }
 
 fn diagnostic_message(i18n: I18n, diag: &ide_diagnostics::Diagnostic) -> String {
     match diag.message_key {
-        Some(key) if diag.source == ide_diagnostics::DiagnosticSource::Vizsla => {
+        Some(key) if diag.source == ide_diagnostics::DiagnosticSource::Vide => {
             i18n.format(key, diag.message_args.iter().map(|(name, value)| (*name, value.clone())))
         }
         _ => diag.message.clone(),
@@ -171,7 +172,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "source": match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => "parse",
             ide_diagnostics::DiagnosticSource::SlangSemantic => "semantic",
-            ide_diagnostics::DiagnosticSource::Vizsla => VIZSLA_DIAGNOSTIC_SOURCE,
+            ide_diagnostics::DiagnosticSource::Vide => VIDE_DIAGNOSTIC_SOURCE,
         },
         "subsystem": diag.subsystem,
         "code": diag.code,
@@ -195,22 +196,44 @@ fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> 
     selectors.push(match diag.source {
         ide_diagnostics::DiagnosticSource::SlangParse => "source:parse".to_owned(),
         ide_diagnostics::DiagnosticSource::SlangSemantic => "source:semantic".to_owned(),
-        ide_diagnostics::DiagnosticSource::Vizsla => {
-            format!("source:{VIZSLA_DIAGNOSTIC_SOURCE}")
+        ide_diagnostics::DiagnosticSource::Vide => {
+            format!("source:{VIDE_DIAGNOSTIC_SOURCE}")
         }
     });
 
     selectors
 }
 
-fn diagnostic_severity(severity: SlangDiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {
+fn diagnostic_severity(
+    diag: &ide_diagnostics::Diagnostic,
+) -> Option<lsp_types::DiagnosticSeverity> {
+    if diagnostic_is_unnecessary(diag) {
+        return Some(lsp_types::DiagnosticSeverity::HINT);
+    }
+
     use lsp_types::DiagnosticSeverity as LspSeverity;
-    match severity {
+    match diag.severity {
         SlangDiagnosticSeverity::Ignored => None,
         SlangDiagnosticSeverity::Note => Some(LspSeverity::INFORMATION),
         SlangDiagnosticSeverity::Warning => Some(LspSeverity::WARNING),
         SlangDiagnosticSeverity::Error | SlangDiagnosticSeverity::Fatal => Some(LspSeverity::ERROR),
     }
+}
+
+fn diagnostic_tags(diag: &ide_diagnostics::Diagnostic) -> Option<Vec<lsp_types::DiagnosticTag>> {
+    let tags = diag
+        .tags
+        .iter()
+        .map(|tag| match tag {
+            ide_diagnostics::DiagnosticTag::Unnecessary => lsp_types::DiagnosticTag::UNNECESSARY,
+        })
+        .collect::<Vec<_>>();
+
+    (!tags.is_empty()).then_some(tags)
+}
+
+fn diagnostic_is_unnecessary(diag: &ide_diagnostics::Diagnostic) -> bool {
+    diag.tags.contains(&ide_diagnostics::DiagnosticTag::Unnecessary)
 }
 
 fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
@@ -899,4 +922,51 @@ fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
         },
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use ide::diagnostics::{
+        Diagnostic as IdeDiagnostic, DiagnosticSource as IdeDiagnosticSource, DiagnosticTag,
+    };
+    use syntax::DiagnosticSeverity;
+    use triomphe::Arc;
+    use utils::{
+        line_index::{LineIndex, TextRange, TextSize},
+        lines::{LineEnding, LineInfo, PositionEncoding},
+    };
+    use vfs::FileId;
+
+    use super::diagnostic;
+    use crate::i18n::{I18n, Locale};
+
+    #[test]
+    fn diagnostic_maps_unnecessary_tag_as_hint() {
+        let line_info = LineInfo {
+            index: Arc::new(LineIndex::new("logic inactive;\n")),
+            ending: LineEnding::Unix,
+            encoding: PositionEncoding::Utf8,
+        };
+        let diag = IdeDiagnostic {
+            file_id: FileId(0),
+            code: 2,
+            subsystem: 0,
+            name: "inactive-preprocessor-branch".to_owned(),
+            option_name: None,
+            groups: Vec::new(),
+            source: IdeDiagnosticSource::Vide,
+            range: TextRange::new(TextSize::from(0), TextSize::from(14)),
+            severity: DiagnosticSeverity::Note,
+            message: "inactive".to_owned(),
+            message_key: None,
+            message_args: Vec::new(),
+            tags: vec![DiagnosticTag::Unnecessary],
+        };
+
+        let lsp_diag = diagnostic(I18n::new(Locale::En), &line_info, diag);
+
+        assert_eq!(lsp_diag.severity, Some(lsp_types::DiagnosticSeverity::HINT));
+        assert_eq!(lsp_diag.code, Some(lsp_types::NumberOrString::String("0:2".to_owned())));
+        assert_eq!(lsp_diag.tags, Some(vec![lsp_types::DiagnosticTag::UNNECESSARY]));
+    }
 }

@@ -22,14 +22,14 @@ import type {
 } from './profilingTypes';
 import { SpeedscopeProfileViewer } from './profilingViewer';
 
-export const profileDiagnosticsCommand = 'vizsla.profileDiagnostics';
+export const profileDiagnosticsCommand = 'vide.profileDiagnostics';
 
-const profileOutputChannelName = 'Vizsla Profiling';
+const profileOutputChannelName = 'Vide Profiling';
 const profileTimeoutMs = 120_000;
 const shutdownTimeoutMs = 15_000;
-const defaultLogFilter = 'vizsla=info,base_db=info,ide=info,project_model=info,hir=info';
+const defaultLogFilter = 'vide=info,base_db=info,ide=info,project_model=info,hir=info';
 const defaultTraceFilter = [
-  'vizsla=trace',
+  'vide=trace',
   'base_db=trace',
   'hir=trace',
   'ide=trace',
@@ -76,7 +76,7 @@ async function runProfileDiagnostics(
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: vscode.l10n.t('Running Vizsla diagnostics profile'),
+        title: vscode.l10n.t('Running Vide diagnostics profile'),
         cancellable: true,
       },
       async (_progress, token) => {
@@ -305,7 +305,7 @@ function createProfileSession(
     cwd: launch.cwd,
     env: {
       ...deps.createEnv(),
-      VIZSLA_PROFILE_TRACE_FILTER: defaultTraceFilter,
+      VIDE_PROFILE_TRACE_FILTER: defaultTraceFilter,
     },
     stdio: 'pipe',
   });
@@ -332,7 +332,7 @@ async function showProfileCompleteMessage(
   const openSummary = vscode.l10n.t('Open Summary');
   const showInFolder = vscode.l10n.t('Show in Folder');
   const selection = await vscode.window.showInformationMessage(
-    vscode.l10n.t('Vizsla diagnostics profile complete.'),
+    vscode.l10n.t('Vide diagnostics profile complete.'),
     openSpeedscope,
     openSummary,
     showInFolder,
@@ -351,7 +351,7 @@ async function showProfileCompleteMessage(
 }
 
 function readDiagnosticsProfilingInitializationOptions(): Record<string, unknown> {
-  return diagnosticsProfilingInitializationOptions(vscode.workspace.getConfiguration('vizsla'));
+  return diagnosticsProfilingInitializationOptions(vscode.workspace.getConfiguration('vide'));
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {

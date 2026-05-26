@@ -3,16 +3,16 @@ use std::{env, process::Command};
 use time::{OffsetDateTime, macros::format_description};
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=VIZSLA_COMMIT_HASH");
-    println!("cargo:rerun-if-env-changed=VIZSLA_BUILD_DATE");
+    println!("cargo:rerun-if-env-changed=VIDE_COMMIT_HASH");
+    println!("cargo:rerun-if-env-changed=VIDE_BUILD_DATE");
     watch_git_metadata();
 
     let release = env::var("PROFILE").as_deref() == Ok("release");
-    let commit_hash = build_env("VIZSLA_COMMIT_HASH", release, git_commit_hash);
-    let build_date = build_env("VIZSLA_BUILD_DATE", release, utc_build_date);
+    let commit_hash = build_env("VIDE_COMMIT_HASH", release, git_commit_hash);
+    let build_date = build_env("VIDE_BUILD_DATE", release, utc_build_date);
 
-    println!("cargo:rustc-env=VIZSLA_COMMIT_HASH={commit_hash}");
-    println!("cargo:rustc-env=VIZSLA_BUILD_DATE={build_date}");
+    println!("cargo:rustc-env=VIDE_COMMIT_HASH={commit_hash}");
+    println!("cargo:rustc-env=VIDE_BUILD_DATE={build_date}");
 }
 
 fn build_env(name: &str, release: bool, fallback: impl FnOnce() -> String) -> String {

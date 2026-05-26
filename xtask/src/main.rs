@@ -45,7 +45,7 @@ fn workspace_root() -> Result<PathBuf> {
 fn manifest_schema_path(workspace_root: &Path) -> PathBuf {
     workspace_root
         .join("docs/public")
-        .join(project_model::TOML_MANIFEST_SCHEMA_PATH.trim_start_matches("/vizsla/"))
+        .join(project_model::TOML_MANIFEST_SCHEMA_PATH.trim_start_matches('/'))
 }
 
 fn vscode_schema_constants_path(workspace_root: &Path) -> PathBuf {

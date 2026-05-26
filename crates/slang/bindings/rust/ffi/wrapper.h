@@ -37,6 +37,7 @@ struct RawSyntaxTreeBufferIds;
 struct RawExpectedSyntax;
 struct RawLexedTokenAtOffset;
 struct RawPreprocessorDirective;
+struct RawTextRange;
 
 namespace wrapper {
   using Diagnostic = ::slang::Diagnostic;

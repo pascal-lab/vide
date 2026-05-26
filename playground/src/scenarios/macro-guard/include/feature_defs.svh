@@ -1,0 +1,1 @@
+`define VIDE_LAB_ENABLE

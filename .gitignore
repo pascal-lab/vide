@@ -18,6 +18,7 @@ tags
 
 # generated files
 generated.rs
+docs/public/vide-lab/
 
 .DS_Store
 .vscode/

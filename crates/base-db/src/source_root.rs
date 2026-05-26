@@ -283,7 +283,7 @@ mod tests {
     fn source_filtered_root_preserves_project_manifest_kind() {
         let mut file_set = FileSet::default();
         let file_id = FileId(0);
-        file_set.insert(file_id, VfsPath::new_virtual_path("/root/vizsla.toml".into()));
+        file_set.insert(file_id, VfsPath::new_virtual_path("/root/vide.toml".into()));
         let root = SourceRoot::new_local_with_source_files(file_set, Vec::new());
 
         assert_eq!(root.file_kind(&file_id), SourceFileKind::ProjectManifest);

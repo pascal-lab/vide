@@ -80,6 +80,7 @@ impl HintAnchor {
             _ => return None,
         };
         let (padding_left, padding_right) = match_ast_kind! { src.kind(),
+            ast::ParamAssignment => (false, true),
             ast::OrderedPortConnection | ast::EmptyPortConnection => (false, true),
             ast::NamedPortConnection => (true, true),
             _ => (false, false),
@@ -274,7 +275,7 @@ fn process_instantiation(
                     assign_src,
                     Some(target_src),
                     None,
-                    format!("{param_name}: "),
+                    format!("{param_name}:"),
                     edits_for_conn(param_name, assign_src),
                 );
             };
@@ -348,13 +349,13 @@ fn collect_connection_hint(
     let conn_start = conn_src.range().start();
     match conn {
         PortConn::Empty => {
-            let label = format!("{name} {arrow} ");
+            let label = format!("{name} {arrow}");
             let edit = edits_for_conn(name, conn_src);
             collector.collect_src_hint(conn_src, Some(target_src), None, label, edit);
         }
         PortConn::Ordered(expr) => {
             let same_name = should_skip(module.get(*expr), name);
-            let label = if same_name { format!(" {arrow} ") } else { format!("{name} {arrow} ") };
+            let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
             let target_src = if same_name { None } else { Some(target_src) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
             let position = src_map.get(*expr).map_or_else(|| conn_start, |src| src.range().start());
@@ -363,9 +364,9 @@ fn collect_connection_hint(
         PortConn::Named(port_name, expr) => {
             let (label, target_src) =
                 if port_name.as_ref().is_none_or(|port_name| port_name != name) {
-                    (format!("{name} {arrow} "), Some(target_src))
+                    (format!("{name} {arrow}"), Some(target_src))
                 } else {
-                    (format!(" {arrow} "), None)
+                    (arrow.to_string(), None)
                 };
             let position = expr
                 .and_then(|expr| src_map.get(expr).map(|src| src.range().start()))
@@ -598,7 +599,7 @@ endmodule
     fn extra_ordered_connections_do_not_invent_ansi_port_hints() {
         let text = "module child(input a); endmodule\nmodule top; child u(1'b0, 1'b1); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec!["a ← "]);
+        assert_eq!(port_hint_labels(text), vec!["a ←"]);
     }
 
     #[test]
@@ -606,7 +607,7 @@ endmodule
         let text =
             "module child(a); input a; endmodule\nmodule top; child u(1'b0, 1'b1); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec!["a ← "]);
+        assert_eq!(port_hint_labels(text), vec!["a ←"]);
     }
 
     #[test]
@@ -614,7 +615,7 @@ endmodule
         let text = "module child(input i, output o, inout io, ref r); endmodule\n\
             module top; logic a, b, c, d; child u(a, b, c, d); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec!["i ← ", "o → ", "io ↔ ", "r & "]);
+        assert_eq!(port_hint_labels(text), vec!["i ←", "o →", "io ↔", "r &"]);
     }
 
     #[test]
@@ -622,7 +623,7 @@ endmodule
         let text = "module child(output instr_addr_o); endmodule\n\
             module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec![" → "]);
+        assert_eq!(port_hint_labels(text), vec!["→"]);
     }
 
     #[test]
@@ -631,7 +632,7 @@ endmodule
             module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
 
         let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec![" → "]);
+        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["→"]);
         assert!(hints[0].target_location.is_none());
         assert!(hints[0].text_edit.is_none());
     }
@@ -642,7 +643,7 @@ endmodule
             module top; logic clk; child u(.clk(clk)); endmodule\n";
 
         let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec![" → "]);
+        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["→"]);
         assert!(hints[0].target_location.is_none());
     }
 
@@ -652,10 +653,7 @@ endmodule
             module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
 
         let hints = port_hints(text);
-        assert_eq!(
-            hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(),
-            vec!["out → "]
-        );
+        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["out →"]);
         assert!(hints[0].target_location.is_some());
     }
 
@@ -664,7 +662,7 @@ endmodule
         let text = "module child(output out); endmodule\n\
             module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec!["out → "]);
+        assert_eq!(port_hint_labels(text), vec!["out →"]);
     }
 
     #[test]
@@ -672,7 +670,7 @@ endmodule
         let text = "module child(output instr_addr_o); endmodule\n\
             module top; logic instr_addr_o; child u(.instr_addr_o(instr_addr_o)); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec![" → "]);
+        assert_eq!(port_hint_labels(text), vec!["→"]);
     }
 
     #[test]
@@ -680,7 +678,7 @@ endmodule
         let text = "module child(input a, output b, input c); endmodule\n\
             module top; logic local_b, local_c; child u(.b(local_b), .c(local_c)); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec![" → ", " ← "]);
+        assert_eq!(port_hint_labels(text), vec!["→", "←"]);
     }
 
     #[test]
@@ -690,7 +688,7 @@ endmodule
         let start = TextSize::from(text.find(".b(local_b)").expect("second connection") as u32);
         let end = start + TextSize::of(".b(local_b)");
 
-        assert_eq!(port_hint_labels_in_range(text, TextRange::new(start, end)), vec![" → "]);
+        assert_eq!(port_hint_labels_in_range(text, TextRange::new(start, end)), vec!["→"]);
     }
 
     #[test]
@@ -714,7 +712,7 @@ endmodule
         let text = "module child(.out(foo)); output foo; endmodule\n\
             module top; logic sig; child u(.out(sig)); endmodule\n";
 
-        assert_eq!(port_hint_labels(text), vec![" → "]);
+        assert_eq!(port_hint_labels(text), vec!["→"]);
     }
 
     #[test]
@@ -723,7 +721,7 @@ endmodule
             module top; logic clk_i; child u(.clk_i,); endmodule\n";
 
         let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec![" ← "]);
+        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["←"]);
         assert_eq!(
             hints[0].position,
             TextSize::from(text.rfind("clk_i,").expect("connection name") as u32)
@@ -735,6 +733,6 @@ endmodule
     fn extra_ordered_parameter_assignments_do_not_invent_param_hints() {
         let text = "module child #(parameter P = 1) (); endmodule\nmodule top; child #(1, 2) u(); endmodule\n";
 
-        assert_eq!(param_hint_labels(text), vec!["P: "]);
+        assert_eq!(param_hint_labels(text), vec!["P:"]);
     }
 }

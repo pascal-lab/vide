@@ -11,7 +11,7 @@ pub struct TestDir {
 impl TestDir {
     pub fn new(name: &str) -> Self {
         let temp_dir = tempfile::Builder::new()
-            .prefix(&format!("vizsla-{name}-"))
+            .prefix(&format!("vide-{name}-"))
             .tempdir()
             .unwrap_or_else(|err| {
                 panic!("failed to create test directory for {name}: {err}");
@@ -22,7 +22,7 @@ impl TestDir {
 
     pub fn new_in(parent: impl AsRef<std::path::Path>, name: &str) -> Self {
         let temp_dir = tempfile::Builder::new()
-            .prefix(&format!("vizsla-{name}-"))
+            .prefix(&format!("vide-{name}-"))
             .tempdir_in(parent)
             .unwrap_or_else(|err| {
                 panic!("failed to create test directory for {name}: {err}");

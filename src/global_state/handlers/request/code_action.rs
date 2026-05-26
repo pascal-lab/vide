@@ -177,7 +177,7 @@ fn code_action_diagnostic_from_ide(diag: &ide_diagnostics::Diagnostic) -> CodeAc
         source: match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => Some(DiagnosticSource::Parse),
             ide_diagnostics::DiagnosticSource::SlangSemantic => Some(DiagnosticSource::Semantic),
-            ide_diagnostics::DiagnosticSource::Vizsla => None,
+            ide_diagnostics::DiagnosticSource::Vide => None,
         },
         code: Some(DiagnosticCode { subsystem: diag.subsystem, code: diag.code }),
         name: Some(diag.name.clone()),
@@ -289,6 +289,7 @@ mod tests {
             message: "localized message".to_owned(),
             message_key: None,
             message_args: Vec::new(),
+            tags: Vec::new(),
         }
     }
 
@@ -359,6 +360,7 @@ mod tests {
             message: "mixing ordered and named port connections is not allowed".to_owned(),
             message_key: None,
             message_args: Vec::new(),
+            tags: Vec::new(),
         };
 
         assert_eq!(
@@ -382,6 +384,7 @@ mod tests {
             message: "localized message".to_owned(),
             message_key: None,
             message_args: Vec::new(),
+            tags: Vec::new(),
         };
 
         let diagnostics = code_action_diagnostics_from_ide(&[diag]);

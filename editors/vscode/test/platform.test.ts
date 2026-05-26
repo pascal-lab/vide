@@ -34,17 +34,17 @@ test('checks package targets with a type guard', () => {
 });
 
 test('uses Windows executable names only for Windows targets', () => {
-  assert.equal(getServerBinaryName('win32'), 'vizsla.exe');
-  assert.equal(getServerBinaryName('linux'), 'vizsla');
-  assert.equal(getServerBinaryName('darwin'), 'vizsla');
+  assert.equal(getServerBinaryName('win32'), 'vide.exe');
+  assert.equal(getServerBinaryName('linux'), 'vide');
+  assert.equal(getServerBinaryName('darwin'), 'vide');
 });
 
 test('resolves bundled server paths for every packaged target', () => {
-  const extensionPath = path.join('tmp', 'vizsla-extension');
+  const extensionPath = path.join('tmp', 'vide-extension');
 
   for (const target of SUPPORTED_PLATFORM_FOLDERS) {
     const [platform, arch] = target.split('-');
-    const binaryName = platform === 'win32' ? 'vizsla.exe' : 'vizsla';
+    const binaryName = platform === 'win32' ? 'vide.exe' : 'vide';
     assert.equal(
       getBundledServerPath(extensionPath, platform, arch),
       path.join(extensionPath, 'server', binaryName),

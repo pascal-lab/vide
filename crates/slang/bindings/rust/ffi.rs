@@ -83,6 +83,13 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawTextRange {
+        range_start: usize,
+        range_end: usize,
+        has_range: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorMacroParam {
         name: RawPreprocessorToken,
         default_tokens: Vec<RawPreprocessorToken>,
@@ -104,6 +111,7 @@ mod slang_ffi {
         params: Vec<RawPreprocessorMacroParam>,
         body_tokens: Vec<RawPreprocessorToken>,
         expr_tokens: Vec<RawPreprocessorToken>,
+        disabled_ranges: Vec<RawTextRange>,
     }
 
     #[namespace = "slang"]

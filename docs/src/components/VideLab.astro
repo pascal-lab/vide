@@ -1,0 +1,362 @@
+---
+interface Props {
+  scenario?: string;
+  projectId?: string;
+  projectLabel?: string;
+  projectDescription?: string;
+  entryFile?: string;
+  files?: Array<{
+    path: string;
+    source: string;
+    languageId?: string;
+    editable?: boolean;
+  }>;
+  height?: string;
+  load?: "click" | "visible" | "eager";
+  mode?: "embed" | "app";
+  title?: string;
+  description?: string;
+  buttonLabel?: string;
+  activeFile?: string;
+  cursorLine?: number;
+  cursorColumn?: number;
+  selection?: string;
+  diagnosticsOpen?: boolean;
+  focusEditor?: boolean;
+  initialActiveFile?: string;
+  initialCursorLine?: number;
+  initialCursorColumn?: number;
+  initialSelection?: string;
+  initialDiagnosticsOpen?: boolean;
+  initialFocusEditor?: boolean;
+  locale?: string;
+  theme?: "auto" | "light" | "dark";
+}
+
+const {
+  scenario = "counter",
+  projectId,
+  projectLabel,
+  projectDescription,
+  entryFile,
+  files,
+  mode = "embed",
+  height = mode === "app" ? "calc(100dvh - var(--sl-nav-height, 3.5rem))" : "430px",
+  load = mode === "app" ? "eager" : "visible",
+  title = "Vide Playground",
+  description = "Load the live editor only when you need to run this example.",
+  buttonLabel = load === "visible" ? "Load now" : "Open example",
+  activeFile,
+  cursorLine,
+  cursorColumn,
+  selection,
+  diagnosticsOpen = false,
+  focusEditor = false,
+  initialActiveFile,
+  initialCursorLine,
+  initialCursorColumn,
+  initialSelection,
+  initialDiagnosticsOpen,
+  initialFocusEditor,
+  locale,
+  theme = "auto",
+} = Astro.props;
+
+if (files && files.length === 0) {
+  throw new Error("VideLab files must contain at least one workspace file.");
+}
+
+const inlineProject = files
+  ? {
+      id: projectId ?? scenario,
+      label: projectLabel ?? title,
+      entryFile: entryFile ?? files[0].path,
+      description: projectDescription ?? description,
+      files,
+    }
+  : null;
+const base = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+const assetBase = `${base}vide-lab/`;
+const inferredLocale = Astro.url.pathname.includes("/en/") ? "" : "zh-cn";
+const monacoLocale = locale ?? inferredLocale;
+const id = `vide-lab-${Math.random().toString(36).slice(2)}`;
+const showPlaceholder = load !== "eager";
+const mountedActiveFile = initialActiveFile ?? activeFile;
+const mountedCursorLine = initialCursorLine ?? cursorLine;
+const mountedCursorColumn = initialCursorColumn ?? cursorColumn;
+const mountedSelection = initialSelection ?? selection;
+const mountedDiagnosticsOpen = initialDiagnosticsOpen ?? diagnosticsOpen;
+const mountedFocusEditor = initialFocusEditor ?? focusEditor;
+---
+
+<div
+  id={id}
+  class:list={["vide-lab-embed", { "vide-lab-app": mode === "app" }]}
+  data-asset-base={assetBase}
+  data-height={height}
+  data-load={load}
+  data-mode={mode}
+  data-scenario={scenario}
+  data-active-file={mountedActiveFile}
+  data-cursor-line={mountedCursorLine}
+  data-cursor-column={mountedCursorColumn}
+  data-selection={mountedSelection}
+  data-diagnostics-open={mountedDiagnosticsOpen ? "true" : undefined}
+  data-focus-editor={mountedFocusEditor ? "true" : undefined}
+  data-locale={monacoLocale}
+  data-theme={theme}
+>
+  {
+    showPlaceholder && (
+      <div class="vide-lab-placeholder">
+        <div class="vide-lab-copy">
+          <strong>{title}</strong>
+          <span>{description}</span>
+        </div>
+        <button class="vide-lab-button" type="button">
+          {buttonLabel}
+        </button>
+      </div>
+    )
+  }
+</div>
+
+<script define:vars={{ id, inlineProject }}>
+  const root = document.getElementById(id);
+
+  function scheduleIdle(callback) {
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(callback, { timeout: 1800 });
+    } else {
+      window.setTimeout(callback, 250);
+    }
+  }
+
+  async function ensureVideLab() {
+    if (!customElements.get("vide-lab")) {
+      await import("vide-playground/vide-lab");
+    }
+    await customElements.whenDefined("vide-lab");
+  }
+
+  async function mount(root) {
+    if (root.dataset.loaded === "true") {
+      return;
+    }
+
+    root.dataset.loaded = "true";
+    const button = root.querySelector("button");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Loading...";
+    }
+
+    try {
+      const assetBase = root.dataset.assetBase;
+      await ensureVideLab();
+
+      const lab = document.createElement("vide-lab");
+      if (root.dataset.mode !== "app") {
+        lab.setAttribute("docs", "");
+      }
+      if (inlineProject) {
+        lab.project = inlineProject;
+      } else {
+        lab.setAttribute("scenario", root.dataset.scenario || "counter");
+      }
+      lab.setAttribute("height", root.dataset.height || "620px");
+      lab.setAttribute("theme", root.dataset.theme || "auto");
+      lab.setAttribute("wasm-base-url", `${assetBase}wasm/`);
+      setOptionalAttribute(lab, "active-file", root.dataset.activeFile);
+      setOptionalAttribute(lab, "cursor-line", root.dataset.cursorLine);
+      setOptionalAttribute(lab, "cursor-column", root.dataset.cursorColumn);
+      setOptionalAttribute(lab, "selection", root.dataset.selection);
+      setBooleanAttribute(lab, "diagnostics-open", root.dataset.diagnosticsOpen);
+      setBooleanAttribute(lab, "focus-editor", root.dataset.focusEditor);
+      root.classList.add("is-loaded");
+      root.replaceChildren(lab);
+    } catch (error) {
+      root.dataset.loaded = "false";
+      const message = error instanceof Error ? error.message : String(error);
+      root.querySelector(".vide-lab-error")?.remove();
+      const errorNode = document.createElement("p");
+      errorNode.className = "vide-lab-error";
+      errorNode.textContent = `Could not load the playground: ${message}`;
+      const placeholder = root.querySelector(".vide-lab-placeholder");
+      if (placeholder) {
+        placeholder.append(errorNode);
+      } else {
+        root.replaceChildren(errorNode);
+      }
+
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Retry";
+      }
+    }
+  }
+
+  function setOptionalAttribute(element, name, value) {
+    if (value !== undefined && value !== "") {
+      element.setAttribute(name, value);
+    }
+  }
+
+  function setBooleanAttribute(element, name, value) {
+    if (value === "true") {
+      element.setAttribute(name, "");
+    }
+  }
+
+  if (root) {
+    const button = root.querySelector("button");
+    button?.addEventListener("click", () => {
+      void mount(root);
+    });
+
+    if (root.dataset.load === "eager") {
+      void mount(root);
+    } else if (root.dataset.load === "visible") {
+      if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+              observer.disconnect();
+              scheduleIdle(() => {
+                void mount(root);
+              });
+            }
+          },
+          { rootMargin: "360px 0px" },
+        );
+        observer.observe(root);
+      } else {
+        scheduleIdle(() => {
+          void mount(root);
+        });
+      }
+    }
+  }
+</script>
+
+<style>
+  .vide-lab-embed {
+    margin: 1rem 0 1.25rem;
+    content-visibility: auto;
+    contain-intrinsic-size: 430px;
+  }
+
+  .vide-lab-embed.is-loaded {
+    content-visibility: visible;
+  }
+
+  .vide-lab-app {
+    width: 100%;
+    height: calc(100dvh - var(--sl-nav-height, 3.5rem));
+    margin: 0;
+    content-visibility: visible;
+    contain-intrinsic-size: calc(100dvh - var(--sl-nav-height, 3.5rem));
+  }
+
+  :global(body:has(.vide-lab-app)) {
+    overflow: hidden;
+  }
+
+  :global(body:has(.vide-lab-app) .right-sidebar-container),
+  :global(body:has(.vide-lab-app) main > .content-panel:first-of-type),
+  :global(body:has(.vide-lab-app) main footer) {
+    display: none;
+  }
+
+  :global(body:has(.vide-lab-app) .main-frame),
+  :global(body:has(.vide-lab-app) .main-pane),
+  :global(body:has(.vide-lab-app) main) {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  :global(body:has(.vide-lab-app) main) {
+    height: calc(100dvh - var(--sl-nav-height, 3.5rem));
+  }
+
+  :global(body:has(.vide-lab-app) main > .content-panel),
+  :global(body:has(.vide-lab-app) main > .content-panel > .sl-container) {
+    max-width: none;
+    padding: 0;
+  }
+
+  :global(body:has(.vide-lab-app) .sl-markdown-content) {
+    margin: 0;
+  }
+
+  .vide-lab-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 7rem;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg);
+  }
+
+  .vide-lab-copy {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .vide-lab-copy strong {
+    color: var(--sl-color-white);
+    font-size: 0.95rem;
+    line-height: 1.3;
+  }
+
+  .vide-lab-copy span,
+  .vide-lab-error {
+    color: var(--sl-color-gray-3);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .vide-lab-button {
+    flex: none;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.375rem;
+    background: var(--sl-color-white);
+    color: var(--sl-color-black);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.625rem 0.75rem;
+  }
+
+  .vide-lab-button:hover {
+    background: var(--sl-color-gray-2);
+  }
+
+  .vide-lab-button:disabled {
+    cursor: progress;
+    opacity: 0.72;
+  }
+
+  .vide-lab-error {
+    grid-column: 1 / -1;
+    margin: 0.5rem 0 0;
+    color: var(--sl-color-red-high);
+  }
+
+  @media (max-width: 42rem) {
+    .vide-lab-placeholder {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .vide-lab-button {
+      width: 100%;
+    }
+  }
+</style>

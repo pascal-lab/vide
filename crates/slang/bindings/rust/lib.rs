@@ -254,6 +254,7 @@ pub struct PreprocessorDirective {
     pub params: Vec<PreprocessorMacroParam>,
     pub body_tokens: Vec<PreprocessorDirectiveToken>,
     pub expr_tokens: Vec<PreprocessorDirectiveToken>,
+    pub disabled_ranges: Vec<Range<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -318,6 +319,11 @@ impl PreprocessorDirective {
                 .expr_tokens
                 .into_iter()
                 .filter_map(PreprocessorDirectiveToken::from_raw)
+                .collect(),
+            disabled_ranges: raw
+                .disabled_ranges
+                .into_iter()
+                .filter_map(|range| range.has_range.then_some(range.range_start..range.range_end))
                 .collect(),
         }
     }
@@ -563,7 +569,10 @@ impl fmt::Display for Bit {
 }
 
 impl SourceLocation {
+    #[cfg(target_pointer_width = "64")]
     const NO_LOCATION: usize = (1usize << 36) - 1;
+    #[cfg(target_pointer_width = "32")]
+    const NO_LOCATION: usize = usize::MAX;
 
     #[inline]
     pub fn from_unique_ptr(_ptr: UniquePtr<ffi::SourceLocation>) -> Option<Self> {

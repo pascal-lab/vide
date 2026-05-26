@@ -47,7 +47,7 @@ test('summarizes document diagnostics defensively', () => {
         },
         {
           severity: 2,
-          source: 'vizsla',
+          source: 'vide',
           code: 'missing-manifest',
           message: 'Project manifest missing',
         },
@@ -64,7 +64,7 @@ test('summarizes document diagnostics defensively', () => {
     ],
     sources: [
       ['slang', 1],
-      ['vizsla', 1],
+      ['vide', 1],
     ],
     codes: [
       ['6:129', 1],
@@ -87,7 +87,7 @@ test('summarizes workspace diagnostics defensively', () => {
           items: [
             {
               severity: 1,
-              source: 'vizsla',
+              source: 'vide',
               code: 'missing-manifest',
               message: 'Project manifest missing',
             },
@@ -126,7 +126,7 @@ test('summarizes workspace diagnostics defensively', () => {
     ],
     sources: [
       ['slang', 1],
-      ['vizsla', 1],
+      ['vide', 1],
     ],
     codes: [
       ['6:129', 1],
@@ -172,7 +172,7 @@ test('summarizes chrome trace spans and folded self time', () => {
 });
 
 test('writes trace summary, folded stacks, and static flamegraph artifact', async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'vizsla-profile-test-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'vide-profile-test-'));
   const trace = path.join(dir, 'trace.json');
   const folded = path.join(dir, 'trace.folded');
   const svg = path.join(dir, 'flamegraph.svg');
@@ -199,7 +199,7 @@ test('builds speedscope URLs without double-encoding the profile URL', () => {
   const url = buildSpeedscopeUrl(
     'http://127.0.0.1:56445/index.html',
     'http://127.0.0.1:56445/profiles/faa0699b-5338-4144-8f87-16399252d266/trace.json',
-    'Vizsla 2026-05-23T15-07-27-892Z-workspace-quick-start',
+    'Vide 2026-05-23T15-07-27-892Z-workspace-quick-start',
   );
 
   assert.match(url, /profileURL=http%3A%2F%2F127\.0\.0\.1/);

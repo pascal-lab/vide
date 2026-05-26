@@ -1,0 +1,15 @@
+{
+  "id": "navigation",
+  "order": 30,
+  "label": "Navigation",
+  "entryFile": "rtl/pipeline_top.sv",
+  "description": "Unconfigured multi-file workspace for definitions, references, and document highlights.",
+  "files": [
+    {
+      "path": "rtl/pipeline_stage.sv"
+    },
+    {
+      "path": "rtl/pipeline_top.sv"
+    }
+  ]
+}

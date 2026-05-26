@@ -124,6 +124,12 @@ void set_rust_range(size_t& start, size_t& end, bool& hasRange, slang::SourceRan
   hasRange = true;
 }
 
+::RawTextRange to_rust_text_range(slang::SourceRange range) {
+  ::RawTextRange result;
+  set_rust_range(result.range_start, result.range_end, result.has_range, range);
+  return result;
+}
+
 ::RawPreprocessorToken empty_preprocessor_token() {
   ::RawPreprocessorToken token;
   token.raw_text = rust::String();
@@ -144,6 +150,30 @@ void set_rust_range(size_t& start, size_t& end, bool& hasRange, slang::SourceRan
   result.value_text = rust::String(std::string(token.valueText()));
   set_rust_range(result.range_start, result.range_end, result.has_range, token.range());
   result.has_token = true;
+  return result;
+}
+
+template<typename TTokens>
+rust::Vec<::RawTextRange> to_rust_disabled_ranges(const TTokens& tokens) {
+  rust::Vec<::RawTextRange> result;
+  std::optional<::RawTextRange> merged;
+
+  for (auto token : tokens) {
+    auto range = to_rust_text_range(token.range());
+    if (!range.has_range)
+      continue;
+
+    if (!merged) {
+      merged = range;
+      continue;
+    }
+
+    merged->range_start = std::min(merged->range_start, range.range_start);
+    merged->range_end = std::max(merged->range_end, range.range_end);
+  }
+
+  if (merged && merged->range_start < merged->range_end)
+    result.emplace_back(*merged);
   return result;
 }
 
@@ -190,6 +220,7 @@ void collect_leaf_tokens(const slang::syntax::SyntaxNode& node,
   directive.params = rust::Vec<::RawPreprocessorMacroParam>();
   directive.body_tokens = rust::Vec<::RawPreprocessorToken>();
   directive.expr_tokens = rust::Vec<::RawPreprocessorToken>();
+  directive.disabled_ranges = rust::Vec<::RawTextRange>();
   set_rust_range(directive.range_start, directive.range_end, directive.has_range,
                  syntax.sourceRange());
 
@@ -222,6 +253,13 @@ void collect_leaf_tokens(const slang::syntax::SyntaxNode& node,
     case slang::syntax::SyntaxKind::ElsIfDirective: {
       const auto& branch = syntax.as<slang::syntax::ConditionalBranchDirectiveSyntax>();
       collect_leaf_tokens(*branch.expr, directive.expr_tokens);
+      directive.disabled_ranges = to_rust_disabled_ranges(branch.disabledTokens);
+      break;
+    }
+    case slang::syntax::SyntaxKind::ElseDirective:
+    case slang::syntax::SyntaxKind::EndIfDirective: {
+      const auto& branch = syntax.as<slang::syntax::UnconditionalBranchDirectiveSyntax>();
+      directive.disabled_ranges = to_rust_disabled_ranges(branch.disabledTokens);
       break;
     }
     case slang::syntax::SyntaxKind::MacroUsage: {

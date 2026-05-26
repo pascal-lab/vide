@@ -9,6 +9,8 @@ use smol_str::SmolStr;
 use utils::paths::{AbsPathBuf, Utf8PathBuf};
 
 use crate::macro_def::{MacroAtom, MacroDef};
+#[cfg(feature = "manifest-schema")]
+use crate::project_manifest::MANIFEST_FILE_NAME;
 
 const IDENTIFIER_RE: &str = r"[a-zA-Z_][a-zA-Z0-9$_]*|\\\S* ";
 #[cfg(feature = "manifest-schema")]
@@ -17,10 +19,10 @@ const MACRO_DEFINITION_SCHEMA_RE: &str = r"^(?:[A-Za-z_][A-Za-z0-9$_]*|\\\S* )(?
 pub const TOML_MANIFEST_SCHEMA_VERSION: &str = "v1";
 #[cfg(feature = "manifest-schema")]
 pub const TOML_MANIFEST_SCHEMA_PATH: &str =
-    formatcp!("/vizsla/schemas/{TOML_MANIFEST_SCHEMA_VERSION}/vizsla.schema.json");
+    formatcp!("/schemas/{TOML_MANIFEST_SCHEMA_VERSION}/vide.schema.json");
 #[cfg(feature = "manifest-schema")]
 pub const TOML_MANIFEST_SCHEMA_URL: &str =
-    formatcp!("https://pascal-lab.github.io{TOML_MANIFEST_SCHEMA_PATH}");
+    formatcp!("https://vide.pascal-lab.net{TOML_MANIFEST_SCHEMA_PATH}");
 
 static IDENT_RE: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(formatcp!("^({IDENTIFIER_RE})$")));
@@ -33,8 +35,8 @@ static KV_RE: LazyLock<Result<Regex, regex::Error>> =
 #[cfg_attr(
     feature = "manifest-schema",
     schemars(
-        title = "Vizsla project manifest",
-        description = "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
+        title = "Vide project manifest",
+        description = "Project manifest for the Vide Verilog/SystemVerilog language server.",
         extend("$id" = TOML_MANIFEST_SCHEMA_URL, "x-tombi-table-keys-order" = "schema")
     )
 )]
@@ -76,25 +78,29 @@ struct TomlManifestSchema {
         )
     )]
     pub sources: Option<Vec<String>>,
-    /// Include search directories. When omitted, Vizsla uses the scan roots
-    /// inferred from sources as include directories.
+    /// Include search directories. When omitted and sources is set explicitly,
+    /// Vide uses the scan roots inferred from sources. Explicit
+    /// include_dirs = [] disables this fallback.
     #[serde(default)]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "Include search directories. When omitted, Vizsla uses the scan roots inferred from sources as include directories.",
+            description = "Include search directories. When omitted and sources is set explicitly, Vide uses the scan roots inferred from sources. Explicit include_dirs = [] disables this fallback.",
             with = "Vec::<String>",
             default = "empty_string_vec",
             extend("examples" = [["include", "rtl"]])
         )
     )]
     pub include_dirs: Option<Vec<Utf8PathBuf>>,
-    /// External library or dependency workspace paths.
+    /// External library or dependency workspace paths. Paths are resolved
+    /// relative to the manifest directory. Each path is loaded as another
+    /// workspace: if it contains a project manifest, that manifest is used;
+    /// otherwise the path is loaded as an unconfigured library dependency.
     #[serde(default)]
     #[cfg_attr(
         feature = "manifest-schema",
         schemars(
-            description = "External library or dependency workspace paths.",
+            description = "External library or dependency workspace paths. Paths are resolved relative to the manifest directory. Each path is loaded as another workspace: if it contains a project manifest, that manifest is used; otherwise the path is loaded as an unconfigured library dependency.",
             with = "Vec::<String>",
             default = "empty_string_vec",
             extend("examples" = [["../common_cells"]])
@@ -122,7 +128,16 @@ fn empty_string_vec() -> Vec<String> {
 
 #[cfg(feature = "manifest-schema")]
 pub fn generated_toml_manifest_schema() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap()
+    let mut schema = serde_json::to_value(schemars::schema_for!(TomlManifestSchema)).unwrap();
+    if let Some(root) = schema.as_object_mut() {
+        root.insert(
+            "x-vide-manifest-names".to_owned(),
+            serde_json::json!({
+                "primary": MANIFEST_FILE_NAME,
+            }),
+        );
+    }
+    schema
 }
 
 fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
@@ -270,7 +285,7 @@ defines = [
     #[test]
     fn empty_manifest_omits_source_patterns() {
         let root = TestDir::new("empty-manifest");
-        let manifest = root.write("vizsla_config.toml", "");
+        let manifest = root.write("vide.toml", "");
 
         let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
@@ -283,7 +298,7 @@ defines = [
     #[test]
     fn configured_empty_sources_do_not_default_to_workspace_root() {
         let root = TestDir::new("empty-sources");
-        let manifest = root.write("vizsla_config.toml", "sources = []\n");
+        let manifest = root.write("vide.toml", "sources = []\n");
 
         let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
@@ -295,7 +310,7 @@ defines = [
         let root = TestDir::new("manifest-source-exclude-globs");
         root.create_dir_all("rtl");
         let manifest = root.write(
-            "vizsla_config.toml",
+            "vide.toml",
             "sources = [\"rtl/**\"]\nexclude = [\"build/**\", \"**/*_bb.v\"]\n",
         );
 
@@ -309,8 +324,7 @@ defines = [
     fn configured_empty_include_dirs_do_not_default_to_sources() {
         let root = TestDir::new("empty-include-dirs");
         root.create_dir_all("rtl");
-        let manifest =
-            root.write("vizsla_config.toml", "sources = [\"rtl/**\"]\ninclude_dirs = []\n");
+        let manifest = root.write("vide.toml", "sources = [\"rtl/**\"]\ninclude_dirs = []\n");
 
         let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
 
@@ -321,7 +335,7 @@ defines = [
     fn parses_paths_as_absolute_paths() {
         let root = TestDir::new("manifest-paths");
         let manifest = root.write(
-            "vizsla_config.toml",
+            "vide.toml",
             r#"include_dirs = ["include"]
 libraries = ["../pkg"]
 "#,

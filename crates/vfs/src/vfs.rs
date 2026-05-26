@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn load_error_marks_existing_file_deleted() {
         let mut vfs = Vfs::default();
-        let path = VfsPath::new_virtual_path("/workspace/vizsla.toml".to_owned());
+        let path = VfsPath::new_virtual_path("/workspace/vide.toml".to_owned());
 
         vfs.set_file_contents(
             &path,

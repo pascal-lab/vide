@@ -29,6 +29,9 @@ unknown = "unknown executeCommand: {command}"
 invalid_value_one = "invalid config value:\n{errors}"
 invalid_value_many = "invalid config values:\n{errors}"
 
+[diagnostic]
+inactive_preprocessor_branch = "code is inactive due to preprocessor conditionals"
+
 [diagnostic.ambiguous_module]
 strict = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"
 best_effort = "module instantiation '{module_name}' matches {candidate_count} module definitions; cannot determine which one to use"

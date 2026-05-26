@@ -1,0 +1,12 @@
+{
+  "id": "rename",
+  "order": 50,
+  "label": "Rename",
+  "entryFile": "rtl/rename_playground.sv",
+  "description": "Single-file rename, references, document highlights, and formatting surface.",
+  "files": [
+    {
+      "path": "rtl/rename_playground.sv"
+    }
+  ]
+}

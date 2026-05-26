@@ -41,7 +41,7 @@ export class SpeedscopeProfileViewer implements vscode.Disposable {
   async open(artifacts: ProfileArtifacts): Promise<vscode.Uri> {
     const port = await this.ensureServer();
     const id = randomUUID();
-    const title = `Vizsla ${path.basename(artifacts.dir)}`;
+    const title = `Vide ${path.basename(artifacts.dir)}`;
 
     this.profiles.set(id, { tracePath: artifacts.trace, title });
 
