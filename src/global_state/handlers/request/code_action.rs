@@ -289,6 +289,7 @@ mod tests {
             message: "localized message".to_owned(),
             message_key: None,
             message_args: Vec::new(),
+            tags: Vec::new(),
         }
     }
 
@@ -359,6 +360,7 @@ mod tests {
             message: "mixing ordered and named port connections is not allowed".to_owned(),
             message_key: None,
             message_args: Vec::new(),
+            tags: Vec::new(),
         };
 
         assert_eq!(
@@ -382,6 +384,7 @@ mod tests {
             message: "localized message".to_owned(),
             message_key: None,
             message_args: Vec::new(),
+            tags: Vec::new(),
         };
 
         let diagnostics = code_action_diagnostics_from_ide(&[diag]);

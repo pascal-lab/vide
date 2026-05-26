@@ -17,8 +17,11 @@ use crate::module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, reso
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VizslaDiagnosticDescriptor =
     VizslaDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
+const INACTIVE_PREPROCESSOR_BRANCH: VizslaDiagnosticDescriptor =
+    VizslaDiagnosticDescriptor { code: 2, subsystem: 0, name: "inactive-preprocessor-branch" };
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT: &str = "diagnostic.ambiguous_module.strict";
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT: &str = "diagnostic.ambiguous_module.best_effort";
+pub const DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH: &str = "diagnostic.inactive_preprocessor_branch";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSource {
@@ -41,6 +44,12 @@ pub struct Diagnostic {
     pub message: String,
     pub message_key: Option<&'static str>,
     pub message_args: Vec<(&'static str, String)>,
+    pub tags: Vec<DiagnosticTag>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticTag {
+    Unnecessary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +57,12 @@ struct VizslaDiagnosticDescriptor {
     code: u16,
     subsystem: u16,
     name: &'static str,
+}
+
+#[derive(Debug, Clone, Default)]
+struct VizslaDiagnosticMetadata {
+    message_args: Vec<(&'static str, String)>,
+    tags: Vec<DiagnosticTag>,
 }
 
 impl VizslaDiagnosticDescriptor {
@@ -59,6 +74,44 @@ impl VizslaDiagnosticDescriptor {
         message: String,
         message_key: &'static str,
         message_args: Vec<(&'static str, String)>,
+    ) -> Diagnostic {
+        self.diagnostic_with_metadata(
+            file_id,
+            range,
+            severity,
+            message,
+            message_key,
+            VizslaDiagnosticMetadata { message_args, tags: Vec::new() },
+        )
+    }
+
+    fn diagnostic_with_tags(
+        self,
+        file_id: FileId,
+        range: TextRange,
+        severity: DiagnosticSeverity,
+        message: String,
+        message_key: &'static str,
+        tags: Vec<DiagnosticTag>,
+    ) -> Diagnostic {
+        self.diagnostic_with_metadata(
+            file_id,
+            range,
+            severity,
+            message,
+            message_key,
+            VizslaDiagnosticMetadata { message_args: Vec::new(), tags },
+        )
+    }
+
+    fn diagnostic_with_metadata(
+        self,
+        file_id: FileId,
+        range: TextRange,
+        severity: DiagnosticSeverity,
+        message: String,
+        message_key: &'static str,
+        metadata: VizslaDiagnosticMetadata,
     ) -> Diagnostic {
         Diagnostic {
             file_id,
@@ -72,7 +125,8 @@ impl VizslaDiagnosticDescriptor {
             severity,
             message,
             message_key: Some(message_key),
-            message_args,
+            message_args: metadata.message_args,
+            tags: metadata.tags,
         }
     }
 }
@@ -95,23 +149,37 @@ pub(crate) fn compilation_profile_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
 ) -> Vec<Diagnostic> {
-    db.compilation_profile_diagnostics(profile_id)
+    let mut diagnostics = db
+        .compilation_profile_diagnostics(profile_id)
         .iter()
         .map(|diag| slang_diagnostic(diag.file_id, diag.source, &diag.diagnostic))
-        .collect()
+        .collect::<Vec<_>>();
+
+    diagnostics.extend(
+        compilation_profile_file_ids(db, profile_id)
+            .into_iter()
+            .flat_map(|file_id| inactive_preprocessor_branch_diagnostics(db, file_id)),
+    );
+    diagnostics
 }
 
 pub(crate) fn compilation_profile_syntax_diagnostics(
     db: &RootDb,
     profile_id: CompilationProfileId,
 ) -> Vec<Diagnostic> {
+    compilation_profile_file_ids(db, profile_id)
+        .into_iter()
+        .flat_map(|file_id| syntax_diagnostics(db, file_id))
+        .collect()
+}
+
+fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -> Vec<FileId> {
     let plan = db.compilation_plan_for_profile(Some(profile_id));
     let mut file_ids = plan.roots.clone();
     file_ids.extend(plan.include_only.iter().copied());
     file_ids.sort_unstable_by_key(|file_id| file_id.0);
     file_ids.dedup();
-
-    file_ids.into_iter().flat_map(|file_id| syntax_diagnostics(db, file_id)).collect()
+    file_ids
 }
 
 fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -141,6 +209,7 @@ fn slang_diagnostic(
         message: diag.message.clone(),
         message_key: None,
         message_args: Vec::new(),
+        tags: Vec::new(),
     }
 }
 
@@ -157,7 +226,7 @@ pub(crate) fn diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     }
 
     let mut diagnostics = if slang_semantic_diagnostics_active(db, file_id) {
-        Vec::new()
+        inactive_preprocessor_branch_diagnostics(db, file_id)
     } else {
         syntax_diagnostics(db, file_id)
     };
@@ -184,6 +253,11 @@ pub(crate) fn source_root_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagn
 
     if slang_semantic_diagnostics_active(db, file_id) {
         diagnostics.extend(compilation_diagnostics(db, file_id));
+        diagnostics.extend(
+            source_root
+                .iter()
+                .flat_map(|file_id| inactive_preprocessor_branch_diagnostics(db, file_id)),
+        );
     } else {
         for file_id in source_root.iter() {
             diagnostics.extend(syntax_diagnostics(db, file_id));
@@ -214,11 +288,21 @@ pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
 }
 
 fn vizsla_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    if slang_semantic_diagnostics_active(db, file_id) {
+    if !vizsla_diagnostics_enabled(db) {
         return Vec::new();
     }
 
-    module_instantiation_resolution_diagnostics(db, file_id)
+    let mut diagnostics = inactive_preprocessor_branch_diagnostics(db, file_id);
+
+    if !slang_semantic_diagnostics_active(db, file_id) {
+        diagnostics.extend(module_instantiation_resolution_diagnostics(db, file_id));
+    }
+
+    diagnostics
+}
+
+fn vizsla_diagnostics_enabled(db: &RootDb) -> bool {
+    db.diagnostics_config().enabled
 }
 
 fn slang_semantic_diagnostics_active(db: &RootDb, file_id: FileId) -> bool {
@@ -273,6 +357,28 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
     diagnostics
 }
 
+fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    if !vizsla_diagnostics_enabled(db) {
+        return Vec::new();
+    }
+
+    db.preproc_file_index(file_id)
+        .inactive_ranges
+        .iter()
+        .copied()
+        .map(|range| {
+            INACTIVE_PREPROCESSOR_BRANCH.diagnostic_with_tags(
+                file_id,
+                range,
+                DiagnosticSeverity::Note,
+                "code is inactive due to preprocessor conditionals".to_owned(),
+                DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH,
+                vec![DiagnosticTag::Unnecessary],
+            )
+        })
+        .collect()
+}
+
 fn ambiguous_module_instantiation_diagnostic(
     module_name: &str,
     candidate_count: usize,
@@ -324,8 +430,10 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 mod tests {
     use base_db::{
         change::Change,
+        diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-        source_db::SourceRootDb,
+        salsa::Durability,
+        source_db::{SourceDb, SourceRootDb},
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
     use ide_db::root_db::RootDb;
@@ -334,11 +442,19 @@ mod tests {
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{
-        AMBIGUOUS_MODULE_INSTANTIATION, DiagnosticSource, diagnostics, source_root_diagnostics,
+        AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
+        DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, diagnostics, source_root_diagnostics,
     };
 
     fn db_with_files(files: &[(&str, &str)], configured: bool) -> RootDb {
         db_with_files_in_role(files, SourceRootRole::Local, configured)
+    }
+
+    fn disable_diagnostics(db: &mut RootDb) {
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig { enabled: false, ..DiagnosticsConfig::default() }),
+            Durability::HIGH,
+        );
     }
 
     fn db_with_files_in_role(
@@ -460,6 +576,40 @@ mod tests {
         assert!(
             diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vizsla),
             "vizsla ambiguity warning should not duplicate active slang semantic diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn inactive_preprocessor_branch_reports_unnecessary_hint() {
+        let db = db_with_files(
+            &[("/top.sv", "`ifdef USE_IMPL\nlogic active;\n`else\nlogic inactive;\n`endif\n")],
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(0));
+        let inactive = diagnostics
+            .iter()
+            .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
+            .expect("expected inactive preprocessor branch diagnostic");
+
+        assert_eq!(inactive.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(inactive.tags, vec![DiagnosticTag::Unnecessary]);
+        assert_eq!(inactive.message_key, Some(DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH));
+    }
+
+    #[test]
+    fn inactive_preprocessor_branch_respects_global_diagnostics_switch() {
+        let mut db = db_with_files(
+            &[("/top.sv", "`ifdef USE_IMPL\nlogic active;\n`else\nlogic inactive;\n`endif\n")],
+            false,
+        );
+        disable_diagnostics(&mut db);
+
+        let diagnostics = diagnostics(&db, FileId(0));
+
+        assert!(
+            diagnostics.is_empty(),
+            "global diagnostics switch must suppress Vizsla inactive diagnostics: {diagnostics:?}"
         );
     }
 

@@ -13,6 +13,7 @@ pub struct PreprocFileIndex {
     pub includes: Vec<MacroInclude>,
     pub conditionals: Vec<MacroConditional>,
     pub usages: Vec<MacroUsage>,
+    pub inactive_ranges: Vec<TextRange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +119,11 @@ fn range_to_text_range(range: std::ops::Range<usize>) -> Option<TextRange> {
 }
 
 fn collect_preprocessor_directive(index: &mut PreprocFileIndex, directive: PreprocessorDirective) {
+    index.inactive_ranges.extend(directive.disabled_ranges.iter().filter_map(|range| {
+        let range = range_to_text_range(range.clone())?;
+        (!range.is_empty()).then_some(range)
+    }));
+
     let kind = directive.kind;
     match kind {
         SyntaxKind::DEFINE_DIRECTIVE => {
@@ -418,6 +424,31 @@ endmodule
                 path: SmolStr::new("a.svh"),
                 raw: SmolStr::new("\"a.svh\"")
             }
+        );
+    }
+
+    #[test]
+    fn records_inactive_preprocessor_branch_ranges() {
+        let text = r#"`ifdef USE_A
+logic active;
+`else
+logic inactive;
+`endif
+"#;
+
+        let without_define = index_with_predefines(text, Vec::new());
+        let with_define = index_with_predefines(text, vec!["USE_A=1".to_owned()]);
+
+        let inactive_range = without_define.inactive_ranges[0];
+        assert_eq!(
+            &text[usize::from(inactive_range.start())..usize::from(inactive_range.end())],
+            "logic active;"
+        );
+
+        let inactive_range = with_define.inactive_ranges[0];
+        assert_eq!(
+            &text[usize::from(inactive_range.start())..usize::from(inactive_range.end())],
+            "logic inactive;"
         );
     }
 }

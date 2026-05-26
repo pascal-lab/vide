@@ -29,6 +29,9 @@ unknown = "未知 executeCommand：{command}"
 invalid_value_one = "配置项无效：\n{errors}"
 invalid_value_many = "配置项无效：\n{errors}"
 
+[diagnostic]
+inactive_preprocessor_branch = "代码因预处理条件未激活"
+
 [diagnostic.ambiguous_module]
 strict = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"
 best_effort = "模块实例化 '{module_name}' 找到 {candidate_count} 个同名模块定义，无法确定应使用哪一个"

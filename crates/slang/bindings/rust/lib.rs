@@ -254,6 +254,7 @@ pub struct PreprocessorDirective {
     pub params: Vec<PreprocessorMacroParam>,
     pub body_tokens: Vec<PreprocessorDirectiveToken>,
     pub expr_tokens: Vec<PreprocessorDirectiveToken>,
+    pub disabled_ranges: Vec<Range<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -318,6 +319,11 @@ impl PreprocessorDirective {
                 .expr_tokens
                 .into_iter()
                 .filter_map(PreprocessorDirectiveToken::from_raw)
+                .collect(),
+            disabled_ranges: raw
+                .disabled_ranges
+                .into_iter()
+                .filter_map(|range| range.has_range.then_some(range.range_start..range.range_end))
                 .collect(),
         }
     }

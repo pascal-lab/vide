@@ -128,13 +128,7 @@ impl GlobalStateSnapshot {
             return Ok(Vec::new());
         }
 
-        let diagnostics = if self.config.diagnostics_config().semantic.enabled {
-            self.analysis.diagnostics(file_id)?
-        } else {
-            self.analysis.parse_diagnostics(file_id)?
-        };
-
-        Ok(diagnostics)
+        self.analysis.diagnostics(file_id)
     }
 
     pub(crate) fn lsp_diagnostics(

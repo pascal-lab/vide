@@ -136,6 +136,7 @@ pub(crate) fn diagnostic(
 ) -> lsp_types::Diagnostic {
     let data = diagnostic_data(&diag);
     let message = diagnostic_message(i18n, &diag);
+    let tags = diagnostic_tags(&diag);
     lsp_types::Diagnostic {
         range: self::range(line_info, diag.range),
         severity: diagnostic_severity(diag.severity),
@@ -151,7 +152,7 @@ pub(crate) fn diagnostic(
         ),
         message,
         related_information: None,
-        tags: None,
+        tags,
         data: Some(data),
     }
 }
@@ -210,6 +211,18 @@ fn diagnostic_severity(severity: SlangDiagnosticSeverity) -> Option<lsp_types::D
         SlangDiagnosticSeverity::Warning => Some(LspSeverity::WARNING),
         SlangDiagnosticSeverity::Error | SlangDiagnosticSeverity::Fatal => Some(LspSeverity::ERROR),
     }
+}
+
+fn diagnostic_tags(diag: &ide_diagnostics::Diagnostic) -> Option<Vec<lsp_types::DiagnosticTag>> {
+    let tags = diag
+        .tags
+        .iter()
+        .map(|tag| match tag {
+            ide_diagnostics::DiagnosticTag::Unnecessary => lsp_types::DiagnosticTag::UNNECESSARY,
+        })
+        .collect::<Vec<_>>();
+
+    (!tags.is_empty()).then_some(tags)
 }
 
 fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
@@ -892,4 +905,49 @@ fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
         },
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use ide::diagnostics::{
+        Diagnostic as IdeDiagnostic, DiagnosticSource as IdeDiagnosticSource, DiagnosticTag,
+    };
+    use syntax::DiagnosticSeverity;
+    use triomphe::Arc;
+    use utils::{
+        line_index::{LineIndex, TextRange, TextSize},
+        lines::{LineEnding, LineInfo, PositionEncoding},
+    };
+    use vfs::FileId;
+
+    use super::diagnostic;
+    use crate::i18n::{I18n, Locale};
+
+    #[test]
+    fn diagnostic_maps_unnecessary_tag() {
+        let line_info = LineInfo {
+            index: Arc::new(LineIndex::new("logic inactive;\n")),
+            ending: LineEnding::Unix,
+            encoding: PositionEncoding::Utf8,
+        };
+        let diag = IdeDiagnostic {
+            file_id: FileId(0),
+            code: 2,
+            subsystem: 0,
+            name: "inactive-preprocessor-branch".to_owned(),
+            option_name: None,
+            groups: Vec::new(),
+            source: IdeDiagnosticSource::Vizsla,
+            range: TextRange::new(TextSize::from(0), TextSize::from(14)),
+            severity: DiagnosticSeverity::Note,
+            message: "inactive".to_owned(),
+            message_key: None,
+            message_args: Vec::new(),
+            tags: vec![DiagnosticTag::Unnecessary],
+        };
+
+        let lsp_diag = diagnostic(I18n::new(Locale::En), &line_info, diag);
+
+        assert_eq!(lsp_diag.tags, Some(vec![lsp_types::DiagnosticTag::UNNECESSARY]));
+    }
 }
