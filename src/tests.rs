@@ -255,7 +255,10 @@ fn shutdown_test_server(
 
     loop {
         match client.receiver.recv_timeout(LSP_TEST_TIMEOUT).unwrap() {
-            Message::Response(response) if response.id == shutdown_id => break,
+            Message::Response(response) if response.id == shutdown_id => {
+                assert!(response.error.is_none(), "{:?}", response.error);
+                break;
+            }
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Notification(notification)

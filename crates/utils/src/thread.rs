@@ -23,6 +23,7 @@ struct JobSenders {
 struct JobReceivers {
     worker: Receiver<Job>,
     latency_sensitive: Receiver<Job>,
+    latency_budget: usize,
 }
 
 struct Job {
@@ -39,8 +40,11 @@ impl Pool {
         let (latency_sensitive_sender, latency_sensitive_receiver) = crossbeam_channel::unbounded();
         let job_senders =
             JobSenders { worker: worker_sender, latency_sensitive: latency_sensitive_sender };
-        let job_receivers =
-            JobReceivers { worker: worker_receiver, latency_sensitive: latency_sensitive_receiver };
+        let job_receivers = JobReceivers {
+            worker: worker_receiver,
+            latency_sensitive: latency_sensitive_receiver,
+            latency_budget: LATENCY_BURST,
+        };
 
         let mut handles = Vec::with_capacity(threads);
         for _ in 0..threads {
@@ -48,7 +52,7 @@ impl Pool {
                 .stack_size(STACK_SIZE)
                 .name("Worker".into())
                 .spawn({
-                    let job_receivers = job_receivers.clone();
+                    let mut job_receivers = job_receivers.clone();
                     move || {
                         let mut current_intent = INITIAL_INTENT;
                         while let Some(job) = job_receivers.recv() {
@@ -110,24 +114,65 @@ impl JobSenders {
 
 impl Clone for JobReceivers {
     fn clone(&self) -> Self {
-        Self { worker: self.worker.clone(), latency_sensitive: self.latency_sensitive.clone() }
+        Self {
+            worker: self.worker.clone(),
+            latency_sensitive: self.latency_sensitive.clone(),
+            latency_budget: LATENCY_BURST,
+        }
     }
 }
 
 impl JobReceivers {
-    fn recv(&self) -> Option<Job> {
-        crossbeam_channel::select_biased! {
+    fn recv(&mut self) -> Option<Job> {
+        if self.latency_budget > 0
+            && let Ok(job) = self.latency_sensitive.try_recv()
+        {
+            self.latency_budget -= 1;
+            return Some(job);
+        }
+
+        if let Ok(job) = self.worker.try_recv() {
+            self.latency_budget = LATENCY_BURST;
+            return Some(job);
+        }
+
+        if let Ok(job) = self.latency_sensitive.try_recv() {
+            self.latency_budget = LATENCY_BURST.saturating_sub(1);
+            return Some(job);
+        }
+
+        crossbeam_channel::select! {
             recv(self.latency_sensitive) -> msg => match msg {
-                Ok(job) => Some(job),
-                Err(_) => self.worker.recv().ok(),
+                Ok(job) => {
+                    self.latency_budget = LATENCY_BURST.saturating_sub(1);
+                    Some(job)
+                }
+                Err(_) => match self.worker.recv() {
+                    Ok(job) => {
+                        self.latency_budget = LATENCY_BURST;
+                        Some(job)
+                    }
+                    Err(_) => None,
+                },
             },
             recv(self.worker) -> msg => match msg {
-                Ok(job) => Some(job),
-                Err(_) => self.latency_sensitive.recv().ok(),
+                Ok(job) => {
+                    self.latency_budget = LATENCY_BURST;
+                    Some(job)
+                }
+                Err(_) => match self.latency_sensitive.recv() {
+                    Ok(job) => {
+                        self.latency_budget = LATENCY_BURST.saturating_sub(1);
+                        Some(job)
+                    }
+                    Err(_) => None,
+                },
             },
         }
     }
 }
+
+const LATENCY_BURST: usize = 3;
 
 #[allow(clippy::expect_used)]
 pub fn spawn<F, T>(intent: ThreadIntent, f: F) -> JoinHandle<T>
@@ -494,5 +539,40 @@ mod tests {
             done_rx.recv_timeout(Duration::from_secs(5)).expect("a queued job should complete");
 
         assert_eq!(first_completed, "latency-sensitive");
+    }
+
+    #[test]
+    fn worker_jobs_make_progress_under_latency_sensitive_load() {
+        let pool = Pool::new(1);
+        let (started_tx, started_rx) = bounded(1);
+        let (release_tx, release_rx) = bounded(1);
+
+        pool.spawn(ThreadIntent::Worker, move || {
+            started_tx.send(()).expect("worker start signal should send");
+            release_rx.recv().expect("worker release signal should receive");
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(5)).expect("initial worker job should start");
+
+        let (done_tx, done_rx) = bounded(16);
+        for job in 0..8 {
+            let done_tx = done_tx.clone();
+            pool.spawn(ThreadIntent::LatencySensitive, move || {
+                let _ = done_tx.send(format!("latency-sensitive-{job}"));
+            });
+        }
+
+        let worker_done_tx = done_tx.clone();
+        pool.spawn(ThreadIntent::Worker, move || {
+            worker_done_tx.send("worker".to_owned()).expect("worker completion should send");
+        });
+
+        release_tx.send(()).expect("worker release signal should send");
+
+        let first_batch = (0..4)
+            .map(|_| done_rx.recv_timeout(Duration::from_secs(5)).expect("job should complete"))
+            .collect::<Vec<_>>();
+
+        assert!(first_batch.iter().any(|job| job == "worker"), "{first_batch:?}");
     }
 }

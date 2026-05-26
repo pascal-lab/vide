@@ -12,6 +12,7 @@ use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use span::{FilePosition, RangeInfo};
 use triomphe::Arc;
 use utils::{
+    cancellation::CancellationToken,
     line_index::{LineIndex, TextRange},
     lines::LineInfo,
     text_edit::TextEdit,
@@ -190,8 +191,11 @@ impl Analysis {
         line_range: Option<Range<usize>>,
         line_info: &LineInfo,
         config: FmtConfig,
+        cancellation: CancellationToken,
     ) -> Cancellable<anyhow::Result<Option<TextEdit>>> {
-        self.with_db(|db| formatting::format(db, file_id, line_range, line_info, config))
+        self.with_db(|db| {
+            formatting::format(db, file_id, line_range, line_info, config, &cancellation)
+        })
     }
 
     pub fn format_on_type(
@@ -200,8 +204,11 @@ impl Analysis {
         ch: String,
         line_info: &LineInfo,
         config: FmtConfig,
+        cancellation: CancellationToken,
     ) -> Cancellable<anyhow::Result<Option<TextEdit>>> {
-        self.with_db(|db| formatting::format_on_type(db, position, ch, line_info, config))
+        self.with_db(|db| {
+            formatting::format_on_type(db, position, ch, line_info, config, &cancellation)
+        })
     }
 
     pub fn selection_ranges(&self, position: FilePosition) -> Cancellable<Vec<TextRange>> {
