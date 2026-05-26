@@ -30,6 +30,7 @@ export default defineConfig({
       name: "VideLab",
       formats: ["es"],
       fileName: (format) => `vide-lab.${format}.js`,
+      cssFileName: "vide-playground",
     },
   },
   worker: {
