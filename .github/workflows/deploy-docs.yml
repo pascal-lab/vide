@@ -5,10 +5,17 @@ on:
     workflows: ["Build docs"]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      cleanup_pr:
+        description: PR number whose preview should be removed
+        required: false
+        type: string
   release:
     types: [published]
   pull_request_target:
     types: [closed]
+  schedule:
+    - cron: "17 * * * *"
 
 permissions:
   actions: read
@@ -155,7 +162,7 @@ jobs:
     name: Deploy production docs
     if: >
       (github.event_name == 'release' && github.event.release.prerelease != true && vars.ENABLE_DOCS_DEPLOY == 'true') ||
-      (github.event_name == 'workflow_dispatch' && vars.ENABLE_DOCS_DEPLOY == 'true')
+      (github.event_name == 'workflow_dispatch' && inputs.cleanup_pr == '' && vars.ENABLE_DOCS_DEPLOY == 'true')
     runs-on: ubuntu-latest
     environment:
       name: docs
@@ -224,10 +231,13 @@ jobs:
           ossutil cp docs/dist "oss://${OSS_BUCKET_NAME}/" -rf --disable-dir-object
 
   cleanup-preview:
-    name: Remove closed PR preview
+    name: Remove stale PR previews
     if: >
-      github.event_name == 'pull_request_target' &&
-      github.event.action == 'closed' &&
+      (
+        (github.event_name == 'pull_request_target' && github.event.action == 'closed') ||
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' && inputs.cleanup_pr != '')
+      ) &&
       vars.ENABLE_DOCS_DEPLOY == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -258,8 +268,9 @@ jobs:
 
       - name: Delete preview from OSS
         env:
+          GH_TOKEN: ${{ github.token }}
           OSS_BUCKET_NAME: ${{ secrets.bucketName }}
-          PREVIEW_PATH: preview/pr-${{ github.event.pull_request.number }}/
+          CLOSED_PR_NUMBER: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || inputs.cleanup_pr }}
         run: |
           set -euo pipefail
 
@@ -268,4 +279,24 @@ jobs:
             exit 1
           fi
 
-          ossutil rm "oss://${OSS_BUCKET_NAME}/${PREVIEW_PATH}" -rf || true
+          if [ -n "${CLOSED_PR_NUMBER}" ]; then
+            printf '%s\n' "${CLOSED_PR_NUMBER}" > pr-numbers.txt
+          else
+            gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state closed \
+              --limit 100 \
+              --json number \
+              --jq '.[].number' > pr-numbers.txt
+          fi
+
+          while IFS= read -r pr_number; do
+            if ! [[ "${pr_number}" =~ ^[0-9]+$ ]]; then
+              echo "Skipping invalid PR number: ${pr_number}"
+              continue
+            fi
+
+            preview_path="preview/pr-${pr_number}/"
+            ossutil rm "oss://${OSS_BUCKET_NAME}/${preview_path}" -rf || true
+            echo "Removed ${preview_path}" >> "${GITHUB_STEP_SUMMARY}"
+          done < pr-numbers.txt
