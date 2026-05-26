@@ -1,18 +1,18 @@
 :root {
-  --vizsla-accent-hsl: 186, 74%, 52%;
-  --vizsla-accent: hsl(var(--vizsla-accent-hsl));
-  --vizsla-overlay: hsla(var(--vizsla-accent-hsl), 0.18);
+  --vide-accent-hsl: 186, 74%, 52%;
+  --vide-accent: hsl(var(--vide-accent-hsl));
+  --vide-overlay: hsla(var(--vide-accent-hsl), 0.18);
 }
 
 :root[data-theme='light'] {
-  --vizsla-accent-hsl: 190, 84%, 38%;
-  --vizsla-overlay: hsla(var(--vizsla-accent-hsl), 0.14);
+  --vide-accent-hsl: 190, 84%, 38%;
+  --vide-overlay: hsla(var(--vide-accent-hsl), 0.14);
 }
 
 [data-has-hero] .page {
   background:
-    linear-gradient(215deg, var(--vizsla-overlay), transparent 40%),
-    radial-gradient(var(--vizsla-overlay), transparent 42%) no-repeat -55vw -45vh / 105vw 195vh,
+    linear-gradient(215deg, var(--vide-overlay), transparent 40%),
+    radial-gradient(var(--vide-overlay), transparent 42%) no-repeat -55vw -45vh / 105vw 195vh,
     radial-gradient(hsla(255, 60%, 60%, 0.16), transparent 65%) no-repeat 58%
       calc(100% + 18rem) / 62rem 32rem;
 }
@@ -41,34 +41,34 @@
 }
 
 [data-has-hero] .sl-link-button.primary {
-  box-shadow: 0 0 2rem hsla(var(--vizsla-accent-hsl), 0.28);
+  box-shadow: 0 0 2rem hsla(var(--vide-accent-hsl), 0.28);
 }
 
 [data-has-hero] .card {
   background:
-    linear-gradient(180deg, hsla(var(--vizsla-accent-hsl), 0.08), transparent),
+    linear-gradient(180deg, hsla(var(--vide-accent-hsl), 0.08), transparent),
     var(--sl-color-black);
 }
 
 @media (min-width: 72rem) {
   :root {
-    --vizsla-toc-width: 14rem;
+    --vide-toc-width: 14rem;
   }
 
   .right-sidebar-container {
     width: calc(
-      var(--vizsla-toc-width) + (100% - var(--sl-content-width) - var(--vizsla-toc-width)) / 2
+      var(--vide-toc-width) + (100% - var(--sl-content-width) - var(--vide-toc-width)) / 2
     );
   }
 
   [data-has-sidebar][data-has-toc] .main-pane {
     width: calc(
-      var(--sl-content-width) + (100% - var(--sl-content-width) - var(--vizsla-toc-width)) / 2
+      var(--sl-content-width) + (100% - var(--sl-content-width) - var(--vide-toc-width)) / 2
     );
   }
 
   .right-sidebar-panel .sl-container {
-    width: calc(var(--vizsla-toc-width) - 2 * var(--sl-sidebar-pad-x));
-    max-width: calc(var(--vizsla-toc-width) - 2 * var(--sl-sidebar-pad-x));
+    width: calc(var(--vide-toc-width) - 2 * var(--sl-sidebar-pad-x));
+    max-width: calc(var(--vide-toc-width) - 2 * var(--sl-sidebar-pad-x));
   }
 }

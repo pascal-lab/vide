@@ -47,7 +47,7 @@ impl BrowserServer {
             && request.method == lsp_types::request::Initialize::METHOD
         {
             if self.session.is_some() {
-                return Err("Vizsla LSP session is already initialized".to_owned());
+                return Err("Vide LSP session is already initialized".to_owned());
             }
             let mut initialized = initialize(request)?;
             emitted.append(&mut initialized.messages);
@@ -56,7 +56,7 @@ impl BrowserServer {
         }
 
         let Some(active) = self.session.as_mut() else {
-            return Err("Vizsla LSP session must receive initialize first".to_owned());
+            return Err("Vide LSP session must receive initialize first".to_owned());
         };
 
         active

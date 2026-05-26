@@ -5,7 +5,7 @@ description: Why Vide can sometimes only read files and sometimes run full proje
 
 Read this page when you run into questions like:
 
-- Why can navigation work without `vizsla.toml`, while cross-file diagnostics are incomplete?
+- Why can navigation work without `vide.toml`, while cross-file diagnostics are incomplete?
 - Why does `sources = []` stop Vide from scanning the workspace automatically?
 - Why does a header listed through `include_dirs` not always get standalone diagnostics?
 - Why does Qihe sometimes use project analysis and sometimes fall back to single-file analysis?
@@ -13,7 +13,7 @@ Read this page when you run into questions like:
 Three terms are useful:
 
 - Best-effort indexing: when there is no full project configuration, Vide still tries to read Verilog/SystemVerilog files in the workspace so navigation, references, hover, and completion can work where possible.
-- Project analysis: the project view Vide builds from the project manifest, including `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`. The recommended file name is `vizsla.toml`; the legacy `vizsla_config.toml` name is still supported but deprecated. Cross-file diagnostics and Qihe project analysis depend on it.
+- Project analysis: the project view Vide builds from `vide.toml`, including `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`. Cross-file diagnostics and Qihe project analysis depend on it.
 - Diagnostics: errors, warnings, and hints in the VS Code `Problems` panel. Single-file syntax issues can be reported without full project configuration; cross-file semantic issues need project analysis.
 
 ## sources Is the Main Switch
@@ -62,7 +62,7 @@ This guess is not a SystemVerilog language rule. If there is one nearest candida
 
 ## Qihe Project Analysis
 
-Automatic Qihe project analysis uses the same manifest discovery result as Vide's project model. If the working directory contains the recommended `vizsla.toml`, Vide reads it first; if only legacy `vizsla_config.toml` exists, Qihe still uses project analysis, but that file name is deprecated and should be renamed to `vizsla.toml` when possible.
+Automatic Qihe project analysis uses the same manifest discovery result as Vide's project model. If the working directory contains `vide.toml`, Vide uses project analysis.
 
 When a project manifest exists, Qihe uses the compile plan from project analysis. Vide only passes project files, `--top`, `-I`, and `-D` arguments when that plan has real source files.
 

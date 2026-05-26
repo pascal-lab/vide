@@ -11,15 +11,15 @@ The VS Code extension contributes these commands. Use the Command Palette title 
 
 | Command ID | Command Palette title | Purpose |
 | --- | --- | --- |
-| `vizsla.showOutput` | `Vide: Show Language Server Output` | Opens the `Vide Language Server` output channel. |
-| `vizsla.restartServer` | `Vide: Restart Language Server` | Stops and restarts the current language server. |
-| `vizsla.showServerVersion` | `Vide: Show Server Version` | Runs the current server command with the current cwd and environment, combines `vizsla.server.args` with `--version`, and does not append `vizsla.server.additionalArgs`. |
-| `vizsla.reloadWorkspace` | `Vide: Reload Project Configuration` | Rereads project manifests and refreshes project information without restarting the server. |
-| `vizsla.showStatus` | `Vide: Show Status` | Opens the Vide status menu. |
-| `vizsla.runQiheAnalysis` | `Vide: Run Qihe Analysis` | Runs Qihe analysis for the current local Verilog/SystemVerilog file. |
-| `vizsla.profileDiagnostics` | `Vide: Profile Diagnostics` | Starts a temporary language server and runs one diagnostics profiling pass for the workspace or current file. |
+| `vide.showOutput` | `Vide: Show Language Server Output` | Opens the `Vide Language Server` output channel. |
+| `vide.restartServer` | `Vide: Restart Language Server` | Stops and restarts the current language server. |
+| `vide.showServerVersion` | `Vide: Show Server Version` | Runs the current server command with the current cwd and environment, combines `vide.server.args` with `--version`, and does not append `vide.server.additionalArgs`. |
+| `vide.reloadWorkspace` | `Vide: Reload Project Configuration` | Rereads project manifests and refreshes project information without restarting the server. |
+| `vide.showStatus` | `Vide: Show Status` | Opens the Vide status menu. |
+| `vide.runQiheAnalysis` | `Vide: Run Qihe Analysis` | Runs Qihe analysis for the current local Verilog/SystemVerilog file. |
+| `vide.profileDiagnostics` | `Vide: Profile Diagnostics` | Starts a temporary language server and runs one diagnostics profiling pass for the workspace or current file. |
 
-`vizsla.runQiheAnalysis` is available only for local files whose extension is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`.
+`vide.runQiheAnalysis` is available only for local files whose extension is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`.
 
 ## Status Bar
 
@@ -41,8 +41,8 @@ When Qihe analysis runs, a separate `Qihe` status item appears. If Qihe fails, c
 | Output channel | Records |
 | --- | --- |
 | `Vide Language Server` | Extension activation, platform, VS Code version, server command, args, cwd, bundled server lookup result, start/stop/restart, and version queries. |
-| `Vide Qihe` | Target file, command progress, Qihe output, and failure details for `vizsla.runQiheAnalysis`. |
-| `Vide Profiling` | Target, artifact directory, diagnostics request time, and generated file paths for `vizsla.profileDiagnostics`. |
+| `Vide Qihe` | Target file, command progress, Qihe output, and failure details for `vide.runQiheAnalysis`. |
+| `Vide Profiling` | Target, artifact directory, diagnostics request time, and generated file paths for `vide.profileDiagnostics`. |
 
 ## Advanced: Diagnostics Profiling Artifacts
 
@@ -62,10 +62,10 @@ Profiling uses an isolated temporary language server process, so it does not res
 
 After these settings change, the extension prompts you to `Restart`:
 
-- `vizsla.server.command`
-- `vizsla.server.args`
-- `vizsla.server.additionalArgs`
-- `vizsla.server.cwd`
-- `vizsla.trace.server`
+- `vide.server.command`
+- `vide.server.args`
+- `vide.server.additionalArgs`
+- `vide.server.cwd`
+- `vide.trace.server`
 
-Choose `Restart` in the prompt or run `vizsla.restartServer` manually.
+Choose `Restart` in the prompt or run `vide.restartServer` manually.

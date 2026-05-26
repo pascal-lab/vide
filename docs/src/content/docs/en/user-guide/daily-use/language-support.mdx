@@ -4,7 +4,7 @@ description: Check how Vide recognizes Verilog/SystemVerilog files and where bas
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
+import VideLab from '../../../../../components/VideLab.astro';
 import codeActionsGif from '../../../assets/features/code-actions.gif';
 import { languageFiles } from '../../../../../examples/dailyUse';
 
@@ -27,7 +27,7 @@ Related settings reference: [Semantic Tokens](../../../advanced-guide/vscode-set
   imageCaption="Language detection in VS Code"
   labCaption="The browser example opens a SystemVerilog file"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-language"
     projectLabel="Features: Language Detection"
     entryFile="rtl/traffic_light.sv"
@@ -44,7 +44,7 @@ Related settings reference: [Semantic Tokens](../../../advanced-guide/vscode-set
 
 Check the language mode in the lower-right corner of VS Code. If `.v` / `.vh` files are not Verilog, or `.sv` / `.svh` / `.svi` files are not SystemVerilog, switch the language mode manually once and check whether another extension has overridden the association.
 
-If syntax highlighting works but navigation, diagnostics, and completion do not, this is usually a language-server or project-configuration issue. Click the `Vide` status item first; if it reports no project manifest, create or update `vizsla.toml` using [First Project](../../first-project/).
+If syntax highlighting works but navigation, diagnostics, and completion do not, this is usually a language-server or project-configuration issue. Click the `Vide` status item first; if it reports no project manifest, create or update `vide.toml` using [First Project](../../first-project/).
 
 ## Header Files Have Fewer Features
 

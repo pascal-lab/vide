@@ -4,7 +4,7 @@ description: Use Verilog/SystemVerilog formatting and handle verible paths and a
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
+import VideLab from '../../../../../components/VideLab.astro';
 import codeActionsGif from '../../../assets/features/code-actions.gif';
 import { formattingFiles } from '../../../../../examples/dailyUse';
 
@@ -18,7 +18,7 @@ Related settings reference: [Formatter and Formatting](../../../advanced-guide/v
   imageCaption="Formatting entry points in VS Code"
   labCaption="The browser example keeps unformatted source"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-formatting"
     projectLabel="Features: Formatting"
     entryFile="rtl/formatting_demo.sv"
@@ -37,16 +37,16 @@ If `verible-verilog-format` is already on the `PATH` seen by VS Code, formatting
 
 ```json
 {
-  "vizsla.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
+  "vide.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
 }
 ```
 
 ## Formatting Produces No Result or Fails
 
-First check that the current file is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`. Then reduce custom `vizsla.formatter.args` and verify with the default arguments once.
+First check that the current file is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`. Then reduce custom `vide.formatter.args` and verify with the default arguments once.
 
 Formatter failures usually come from the external tool's output. If the path contains spaces, still write it as a normal JSON string; do not add an extra layer of quotes.
 
 ## Enter Indentation Is Not What You Expect
 
-Enter assistance is controlled by `vizsla.formatting.on.enter`, and comment handling is controlled by `vizsla.formatting.in.comments`. If the project style does not fit automatic handling, disable only Enter behavior and keep manual `Format Document`.
+Enter assistance is controlled by `vide.formatting.on.enter`, and comment handling is controlled by `vide.formatting.in.comments`. If the project style does not fit automatic handling, disable only Enter behavior and keep manual `Format Document`.

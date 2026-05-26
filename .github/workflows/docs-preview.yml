@@ -6,7 +6,7 @@ on:
     paths:
       - "docs/**"
       - "playground/**"
-      - "crates/vizsla-lsp-wasm/**"
+      - "crates/vide-lsp-wasm/**"
       - ".github/actions/setup-emscripten/**"
       - ".github/workflows/docs-preview.yml"
       - ".github/workflows/deploy-docs.yml"
@@ -15,7 +15,7 @@ on:
     paths:
       - "docs/**"
       - "playground/**"
-      - "crates/vizsla-lsp-wasm/**"
+      - "crates/vide-lsp-wasm/**"
       - ".github/actions/setup-emscripten/**"
       - ".github/workflows/docs-preview.yml"
       - ".github/workflows/deploy-docs.yml"

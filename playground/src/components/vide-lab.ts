@@ -1,20 +1,20 @@
 import { LitElement, type PropertyValues, type TemplateResult } from "lit";
 import type * as Monaco from "@codingame/monaco-vscode-editor-api";
 import { FileStripScrollController } from "./file-strip-scroll";
-import { renderVizslaLabView, type FileDialogState } from "./vizsla-lab.view";
-import { vizslaLabStyles } from "./vizsla-lab.styles";
+import { renderVideLabView, type FileDialogState } from "./vide-lab.view";
+import { videLabStyles } from "./vide-lab.styles";
 import { LabDiagnosticController } from "../lab/diagnostics";
 import { LabEditorWorkspace } from "../lab/editor-workspace";
-import { VizslaBrowserClient } from "../lab/lsp-client";
+import { VideBrowserClient } from "../lab/lsp-client";
 import { toMarkerData } from "../lab/monaco-lsp";
 import { installShadowDomHoverBridge } from "../lab/monaco-shadow-hover";
 import {
   configureMonaco,
-  setVizslaMonacoTheme,
-  syncVizslaSemanticTheme,
-  vizslaThemeName,
-  wireVizslaVscodeLanguage,
-  type VizslaColorScheme,
+  setVideMonacoTheme,
+  syncVideSemanticTheme,
+  videThemeName,
+  wireVideVscodeLanguage,
+  type VideColorScheme,
 } from "../lab/monaco-setup";
 import { isSourceFile, normalizeWorkspacePath, scenarioWorkspaceFiles, workspaceUri } from "../lab/workspace";
 import {
@@ -25,11 +25,11 @@ import {
   renameFileScenario,
 } from "../lab/workspace-mutations";
 import { getScenario } from "../scenarios";
-import type { LabDiagnostic, VizslaScenario, WorkerStatus } from "../types";
+import type { LabDiagnostic, VideScenario, WorkerStatus } from "../types";
 
 const DIAGNOSTIC_DEBOUNCE_MS = 260;
 
-export class VizslaLabElement extends LitElement {
+export class VideLabElement extends LitElement {
   static properties = {
     scenario: { type: String },
     wasmBaseUrl: { type: String, attribute: "wasm-base-url" },
@@ -45,14 +45,14 @@ export class VizslaLabElement extends LitElement {
     focusEditor: { type: Boolean, attribute: "focus-editor" },
   };
 
-  static styles = vizslaLabStyles;
+  static styles = videLabStyles;
 
   declare scenario: string;
   declare wasmBaseUrl: string;
   declare height: string;
-  declare theme: "auto" | VizslaColorScheme;
+  declare theme: "auto" | VideColorScheme;
   declare docs: boolean;
-  declare project: VizslaScenario | undefined;
+  declare project: VideScenario | undefined;
   declare activeFile: string;
   declare cursorLine: number;
   declare cursorColumn: number;
@@ -62,13 +62,13 @@ export class VizslaLabElement extends LitElement {
 
   private monaco?: typeof Monaco;
   private editor?: Monaco.editor.IStandaloneCodeEditor;
-  private client?: VizslaBrowserClient;
+  private client?: VideBrowserClient;
   private editorDisposables: Monaco.IDisposable[] = [];
   private editorWorkspace?: LabEditorWorkspace;
-  private activeScenario: VizslaScenario = getScenario("counter");
-  private initialScenario: VizslaScenario = cloneScenario(getScenario("counter"));
+  private activeScenario: VideScenario = getScenario("counter");
+  private initialScenario: VideScenario = cloneScenario(getScenario("counter"));
   private readonly workspaceRootUri = `file:///workspace-${Math.random().toString(36).slice(2)}`;
-  private status: WorkerStatus = { engine: "unavailable", ready: false, detail: "Starting Vizsla WASM engine." };
+  private status: WorkerStatus = { engine: "unavailable", ready: false, detail: "Starting Vide WASM engine." };
   private inspectorOpen = false;
   private readonly fileStripScroll = new FileStripScrollController(
     () => this.renderRoot,
@@ -85,7 +85,7 @@ export class VizslaLabElement extends LitElement {
   private fileDialog: FileDialogState | undefined;
   private clientGeneration = 0;
   private serverCapabilities: unknown;
-  private colorScheme: VizslaColorScheme = "dark";
+  private colorScheme: VideColorScheme = "dark";
   private themeObserver?: MutationObserver;
   private themeMediaQuery?: MediaQueryList;
   private readonly handleThemeChange = () => this.syncColorScheme();
@@ -174,7 +174,7 @@ export class VizslaLabElement extends LitElement {
   }
 
   protected render(): TemplateResult {
-    return renderVizslaLabView(
+    return renderVideLabView(
       {
         activeScenario: this.activeScenario,
         activeUri: this.editorWorkspace?.activeUri ?? "",
@@ -217,7 +217,7 @@ export class VizslaLabElement extends LitElement {
     this.createModels(this.activeScenario);
     this.editor = this.monaco.editor.create(editorHost, {
       model: this.activeFileState()?.model,
-      theme: vizslaThemeName(this.colorScheme),
+      theme: videThemeName(this.colorScheme),
       automaticLayout: true,
       fontFamily: "'Cascadia Code', 'SFMono-Regular', Consolas, monospace",
       fontSize: 14,
@@ -269,12 +269,12 @@ export class VizslaLabElement extends LitElement {
       }),
     );
 
-    void wireVizslaVscodeLanguage(this.editor).catch((error: unknown) => {
+    void wireVideVscodeLanguage(this.editor).catch((error: unknown) => {
       console.warn(error instanceof Error ? error.message : "Failed to load VS Code grammar assets.");
     });
   }
 
-  private createModels(scenario: VizslaScenario): void {
+  private createModels(scenario: VideScenario): void {
     if (!this.monaco) {
       return;
     }
@@ -290,17 +290,17 @@ export class VizslaLabElement extends LitElement {
       return;
     }
 
-    syncVizslaSemanticTheme(this.monaco, serverCapabilities, this.colorScheme);
+    syncVideSemanticTheme(this.monaco, serverCapabilities, this.colorScheme);
   }
 
   private restartClient(): void {
     this.diagnostics.clearPending();
     this.client?.dispose();
     const generation = ++this.clientGeneration;
-    const client = new VizslaBrowserClient(this.wasmBaseUrl, this.workspaceRootUri);
+    const client = new VideBrowserClient(this.wasmBaseUrl, this.workspaceRootUri);
     this.client = client;
     this.serverCapabilities = undefined;
-    this.status = { engine: "unavailable", ready: false, detail: "Starting Vizsla WASM engine." };
+    this.status = { engine: "unavailable", ready: false, detail: "Starting Vide WASM engine." };
     client.onStatus = (status) => {
       if (generation !== this.clientGeneration || client !== this.client) {
         return;
@@ -345,7 +345,7 @@ export class VizslaLabElement extends LitElement {
     this.setScenario(this.initialScenario, true);
   }
 
-  private setScenario(scenario: VizslaScenario, force = false, updateInitial = false, activePath?: string): void {
+  private setScenario(scenario: VideScenario, force = false, updateInitial = false, activePath?: string): void {
     if (!force && scenario.id === this.activeScenario.id) {
       return;
     }
@@ -669,7 +669,7 @@ export class VizslaLabElement extends LitElement {
     const diagnostics = this.diagnostics.diagnosticsByUri.get(uri) ?? [];
     this.monaco.editor.setModelMarkers(
       state.model,
-      "vizsla",
+      "vide",
       diagnostics.map((diagnostic) => toMarkerData(this.monaco!, diagnostic)),
     );
   }
@@ -690,11 +690,11 @@ export class VizslaLabElement extends LitElement {
     return this.editorWorkspace?.uriForPath(path) ?? workspaceUri(path, this.workspaceRootUri);
   }
 
-  private resolvedScenario(): VizslaScenario {
+  private resolvedScenario(): VideScenario {
     return this.project ?? getScenario(this.scenario);
   }
 
-  private currentWorkspaceFiles(): VizslaScenario["files"] {
+  private currentWorkspaceFiles(): VideScenario["files"] {
     return this.editorWorkspace?.currentFiles(this.activeScenario) ?? this.activeScenario.files;
   }
 
@@ -771,12 +771,12 @@ export class VizslaLabElement extends LitElement {
     this.colorScheme = colorScheme;
     this.setAttribute("data-theme", colorScheme);
     if (this.monaco) {
-      setVizslaMonacoTheme(this.monaco, colorScheme);
+      setVideMonacoTheme(this.monaco, colorScheme);
     }
     this.requestUpdate();
   }
 
-  private resolveColorScheme(): VizslaColorScheme {
+  private resolveColorScheme(): VideColorScheme {
     if (this.theme === "light" || this.theme === "dark") {
       return this.theme;
     }
@@ -804,6 +804,6 @@ export class VizslaLabElement extends LitElement {
 
 }
 
-if (!customElements.get("vizsla-lab")) {
-  customElements.define("vizsla-lab", VizslaLabElement);
+if (!customElements.get("vide-lab")) {
+  customElements.define("vide-lab", VideLabElement);
 }

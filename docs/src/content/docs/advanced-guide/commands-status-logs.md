@@ -11,15 +11,15 @@ VS Code 扩展贡献这些命令。日常使用时看“命令面板标题”即
 
 | 命令 ID | 命令面板标题 | 用途 |
 | --- | --- | --- |
-| `vizsla.showOutput` | `Vide：显示语言服务器输出` | 打开 `Vide Language Server` 输出通道。 |
-| `vizsla.restartServer` | `Vide：重启语言服务器` | 停止并重新启动当前语言服务器。 |
-| `vizsla.showServerVersion` | `Vide：显示服务器版本` | 使用当前启动命令、工作目录和环境，把 `vizsla.server.args` 与 `--version` 组合起来执行版本查询；不会附加 `vizsla.server.additionalArgs`。 |
-| `vizsla.reloadWorkspace` | `Vide：重新加载项目配置` | 不重启语言服务器，重新读取项目配置并刷新工程信息。 |
-| `vizsla.showStatus` | `Vide：显示状态` | 打开 Vide 状态菜单。 |
-| `vizsla.runQiheAnalysis` | `Vide：运行 Qihe 分析` | 对当前本地 Verilog/SystemVerilog 文件运行 Qihe 分析。 |
-| `vizsla.profileDiagnostics` | `Vide：分析诊断性能` | 启动临时语言服务器，并对工作区或当前文件执行一次诊断性能分析。 |
+| `vide.showOutput` | `Vide：显示语言服务器输出` | 打开 `Vide Language Server` 输出通道。 |
+| `vide.restartServer` | `Vide：重启语言服务器` | 停止并重新启动当前语言服务器。 |
+| `vide.showServerVersion` | `Vide：显示服务器版本` | 使用当前启动命令、工作目录和环境，把 `vide.server.args` 与 `--version` 组合起来执行版本查询；不会附加 `vide.server.additionalArgs`。 |
+| `vide.reloadWorkspace` | `Vide：重新加载项目配置` | 不重启语言服务器，重新读取项目配置并刷新工程信息。 |
+| `vide.showStatus` | `Vide：显示状态` | 打开 Vide 状态菜单。 |
+| `vide.runQiheAnalysis` | `Vide：运行 Qihe 分析` | 对当前本地 Verilog/SystemVerilog 文件运行 Qihe 分析。 |
+| `vide.profileDiagnostics` | `Vide：分析诊断性能` | 启动临时语言服务器，并对工作区或当前文件执行一次诊断性能分析。 |
 
-`vizsla.runQiheAnalysis` 只对本地文件可用，且文件扩展名必须是 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi`。
+`vide.runQiheAnalysis` 只对本地文件可用，且文件扩展名必须是 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi`。
 
 ## 状态栏
 
@@ -41,8 +41,8 @@ VS Code 扩展贡献这些命令。日常使用时看“命令面板标题”即
 | 输出通道 | 记录内容 |
 | --- | --- |
 | `Vide Language Server` | 扩展激活、平台、VS Code 版本、服务器启动命令、参数、工作目录、扩展自带服务器查找结果、启动、停止、重启和版本查询结果。 |
-| `Vide Qihe` | `vizsla.runQiheAnalysis` 的目标文件、命令进度、Qihe 输出和失败信息。 |
-| `Vide Profiling` | `vizsla.profileDiagnostics` 的目标、产物目录、诊断请求耗时和生成文件路径。 |
+| `Vide Qihe` | `vide.runQiheAnalysis` 的目标文件、命令进度、Qihe 输出和失败信息。 |
+| `Vide Profiling` | `vide.profileDiagnostics` 的目标、产物目录、诊断请求耗时和生成文件路径。 |
 
 ## 高级：诊断性能分析产物
 
@@ -62,10 +62,10 @@ VS Code 扩展贡献这些命令。日常使用时看“命令面板标题”即
 
 这些设置变更后，扩展会提示 `重启`：
 
-- `vizsla.server.command`
-- `vizsla.server.args`
-- `vizsla.server.additionalArgs`
-- `vizsla.server.cwd`
-- `vizsla.trace.server`
+- `vide.server.command`
+- `vide.server.args`
+- `vide.server.additionalArgs`
+- `vide.server.cwd`
+- `vide.trace.server`
 
 可以选择提示里的 `重启`，或手动执行 `Vide：重启语言服务器`。

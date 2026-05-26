@@ -128,7 +128,7 @@ pub(crate) fn document_highlight(
 }
 
 const SLANG_DIAGNOSTIC_SOURCE: &str = "slang";
-const VIZSLA_DIAGNOSTIC_SOURCE: &str = "vizsla";
+const VIDE_DIAGNOSTIC_SOURCE: &str = "vide";
 pub(crate) fn diagnostic(
     i18n: I18n,
     line_info: &LineInfo,
@@ -146,7 +146,7 @@ pub(crate) fn diagnostic(
             match diag.source {
                 ide_diagnostics::DiagnosticSource::SlangParse
                 | ide_diagnostics::DiagnosticSource::SlangSemantic => SLANG_DIAGNOSTIC_SOURCE,
-                ide_diagnostics::DiagnosticSource::Vizsla => VIZSLA_DIAGNOSTIC_SOURCE,
+                ide_diagnostics::DiagnosticSource::Vide => VIDE_DIAGNOSTIC_SOURCE,
             }
             .to_string(),
         ),
@@ -159,7 +159,7 @@ pub(crate) fn diagnostic(
 
 fn diagnostic_message(i18n: I18n, diag: &ide_diagnostics::Diagnostic) -> String {
     match diag.message_key {
-        Some(key) if diag.source == ide_diagnostics::DiagnosticSource::Vizsla => {
+        Some(key) if diag.source == ide_diagnostics::DiagnosticSource::Vide => {
             i18n.format(key, diag.message_args.iter().map(|(name, value)| (*name, value.clone())))
         }
         _ => diag.message.clone(),
@@ -171,7 +171,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "source": match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => "parse",
             ide_diagnostics::DiagnosticSource::SlangSemantic => "semantic",
-            ide_diagnostics::DiagnosticSource::Vizsla => VIZSLA_DIAGNOSTIC_SOURCE,
+            ide_diagnostics::DiagnosticSource::Vide => VIDE_DIAGNOSTIC_SOURCE,
         },
         "subsystem": diag.subsystem,
         "code": diag.code,
@@ -195,8 +195,8 @@ fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> 
     selectors.push(match diag.source {
         ide_diagnostics::DiagnosticSource::SlangParse => "source:parse".to_owned(),
         ide_diagnostics::DiagnosticSource::SlangSemantic => "source:semantic".to_owned(),
-        ide_diagnostics::DiagnosticSource::Vizsla => {
-            format!("source:{VIZSLA_DIAGNOSTIC_SOURCE}")
+        ide_diagnostics::DiagnosticSource::Vide => {
+            format!("source:{VIDE_DIAGNOSTIC_SOURCE}")
         }
     });
 
@@ -947,7 +947,7 @@ mod tests {
             name: "inactive-preprocessor-branch".to_owned(),
             option_name: None,
             groups: Vec::new(),
-            source: IdeDiagnosticSource::Vizsla,
+            source: IdeDiagnosticSource::Vide,
             range: TextRange::new(TextSize::from(0), TextSize::from(14)),
             severity: DiagnosticSeverity::Note,
             message: "inactive".to_owned(),

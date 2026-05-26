@@ -4,7 +4,7 @@ description: Use inlay hints, semantic highlighting, instance counts, outline, f
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
+import VideLab from '../../../../../components/VideLab.astro';
 import codeActionsGif from '../../../assets/features/code-actions.gif';
 import { structureFiles } from '../../../../../examples/dailyUse';
 
@@ -25,7 +25,7 @@ Related settings reference: [Inlay Hints](../../../advanced-guide/vscode-setting
   imageCaption="Structured reading aids in VS Code"
   labCaption="The browser example contains a small module hierarchy"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-structure"
     projectLabel="Features: Structure"
     entryFile="rtl/feature_top.sv"
@@ -48,4 +48,4 @@ Instance counts need module relationships from the project. With only a single f
 
 ## Colors Do Not Change
 
-Semantic highlighting also depends on your VS Code theme styling those tokens. Switch themes once to verify. If nothing changes, check whether `vizsla.semantic.tokens.*` settings were disabled.
+Semantic highlighting also depends on your VS Code theme styling those tokens. Switch themes once to verify. If nothing changes, check whether `vide.semantic.tokens.*` settings were disabled.

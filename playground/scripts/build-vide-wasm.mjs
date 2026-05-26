@@ -25,9 +25,9 @@ const linkArgs = [
   "-C", "link-arg=-sENVIRONMENT=web,worker",
   "-C", "link-arg=-sMODULARIZE=1",
   "-C", "link-arg=-sEXPORT_ES6=1",
-  "-C", "link-arg=-sEXPORT_NAME=createVizslaModule",
+  "-C", "link-arg=-sEXPORT_NAME=createVideModule",
   "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=['UTF8ToString','stringToUTF8','lengthBytesUTF8']",
-  "-C", "link-arg=-sEXPORTED_FUNCTIONS=['_malloc','_free','_vizsla_lsp_message','_vizsla_lsp_poll','_vizsla_lsp_write_file','_vizsla_lsp_reset','_vizsla_free_string']",
+  "-C", "link-arg=-sEXPORTED_FUNCTIONS=['_malloc','_free','_vide_lsp_message','_vide_lsp_poll','_vide_lsp_write_file','_vide_lsp_reset','_vide_free_string']",
 ];
 
 Object.assign(buildEnv, {
@@ -42,24 +42,24 @@ Object.assign(buildEnv, {
   RUSTFLAGS: linkArgs.join(" "),
 });
 
-const crateManifest = resolve(workspaceRoot, "crates", "vizsla-lsp-wasm", "Cargo.toml");
+const crateManifest = resolve(workspaceRoot, "crates", "vide-lsp-wasm", "Cargo.toml");
 run("rustup", ["run", "nightly", "cargo", "build", "--manifest-path", crateManifest, "--target", "wasm32-unknown-emscripten", "--release"], {
   env: buildEnv,
 });
 
 const targetRoot = resolve(workspaceRoot, "target", "wasm32-unknown-emscripten", "release");
-const coreJs = resolve(targetRoot, "vizsla-lsp-wasm.js");
-const coreWasm = resolve(targetRoot, "vizsla_lsp_wasm.wasm");
+const coreJs = resolve(targetRoot, "vide-lsp-wasm.js");
+const coreWasm = resolve(targetRoot, "vide_lsp_wasm.wasm");
 assertFile(coreJs, "Emscripten JavaScript output");
 assertFile(coreWasm, "Emscripten WASM output");
 
 const outWasmRoot = resolve(repoRoot, "public", "wasm");
 mkdirSync(outWasmRoot, { recursive: true });
-copyFileSync(coreJs, resolve(outWasmRoot, "vizsla-core.js"));
-copyFileSync(coreWasm, resolve(outWasmRoot, "vizsla-core.wasm"));
-copyFileSync(resolve(workspaceRoot, "crates", "vizsla-lsp-wasm", "js", "vizsla-lsp.adapter.js"), resolve(outWasmRoot, "vizsla-lsp.js"));
+copyFileSync(coreJs, resolve(outWasmRoot, "vide-core.js"));
+copyFileSync(coreWasm, resolve(outWasmRoot, "vide-core.wasm"));
+copyFileSync(resolve(workspaceRoot, "crates", "vide-lsp-wasm", "js", "vide-lsp.adapter.js"), resolve(outWasmRoot, "vide-lsp.js"));
 
-console.log(`Built Vizsla WASM adapter into ${outWasmRoot}`);
+console.log(`Built Vide WASM adapter into ${outWasmRoot}`);
 
 function assertFile(path, label) {
   if (!existsSync(path)) {

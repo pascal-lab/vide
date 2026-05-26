@@ -27,13 +27,13 @@ export default defineConfig({
       },
       defaultLocale: 'root',
       editLink: {
-        baseUrl: 'https://github.com/pascal-lab/vizsla/edit/master/docs/',
+        baseUrl: 'https://github.com/pascal-lab/vide/edit/master/docs/',
       },
       social: [
         {
           icon: 'github',
           label: 'GitHub',
-          href: 'https://github.com/pascal-lab/vizsla',
+          href: 'https://github.com/pascal-lab/vide',
         },
       ],
       customCss: ['./src/assets/landing.css'],

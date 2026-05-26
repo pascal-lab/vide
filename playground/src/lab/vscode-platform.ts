@@ -8,8 +8,8 @@ let startPromise: Promise<void> | undefined;
 
 const defaultApiExtension = registerExtension(
   {
-    name: "vizsla-playground-client",
-    publisher: "vizsla",
+    name: "vide-playground-client",
+    publisher: "vide",
     version: "0.0.0",
     engines: {
       vscode: "*",
@@ -19,7 +19,7 @@ const defaultApiExtension = registerExtension(
   { system: true },
 );
 
-export function startVizslaVscodePlatform(): Promise<void> {
+export function startVideVscodePlatform(): Promise<void> {
   startPromise ??= initialize({}, undefined, workspaceConfiguration())
     .then(() => waitServicesReady())
     .then(async () => {

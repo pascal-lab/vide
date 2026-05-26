@@ -140,8 +140,8 @@ pub enum CodeActionResolveError {
     InvalidId(String),
 }
 
-pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vizsla.server.runQiheAnalysis";
-pub const RELOAD_WORKSPACE_COMMAND: &str = "vizsla.server.reloadWorkspace";
+pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";
+pub const RELOAD_WORKSPACE_COMMAND: &str = "vide.server.reloadWorkspace";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,7 +165,7 @@ pub enum QiheStatusNotification {}
 impl Notification for QiheStatusNotification {
     type Params = QiheStatusParams;
 
-    const METHOD: &'static str = "vizsla/qiheStatus";
+    const METHOD: &'static str = "vide/qiheStatus";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,7 +180,7 @@ pub enum QiheLogNotification {}
 impl Notification for QiheLogNotification {
     type Params = QiheLogParams;
 
-    const METHOD: &'static str = "vizsla/qiheLog";
+    const METHOD: &'static str = "vide/qiheLog";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,5 +210,5 @@ pub enum ProjectStatusNotification {}
 impl Notification for ProjectStatusNotification {
     type Params = ProjectStatusParams;
 
-    const METHOD: &'static str = "vizsla/projectStatus";
+    const METHOD: &'static str = "vide/projectStatus";
 }

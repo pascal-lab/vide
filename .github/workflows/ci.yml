@@ -136,16 +136,16 @@ jobs:
         shell: bash
         run: |
           commit_hash="$(git rev-parse --short "$GITHUB_SHA")"
-          echo "VIZSLA_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
+          echo "VIDE_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
           echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
-          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
         run: npm run package:debug -- ${{ matrix.target }}
       - name: Upload dev VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: vizsla-vscode-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
-          path: editors/vscode/vizsla-vscode-${{ matrix.target }}-debug.vsix
+          name: vide-vscode-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
+          path: editors/vscode/vide-vscode-${{ matrix.target }}-debug.vsix
           if-no-files-found: error
           retention-days: 14
 
@@ -202,9 +202,9 @@ jobs:
         working-directory: .
         run: |
           commit_hash="$(git rev-parse --short "$GITHUB_SHA")"
-          echo "VIZSLA_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
+          echo "VIDE_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
           echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
-          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
       - name: Package extension
         run: npm run package:debug -- ${{ matrix.target }}
@@ -212,7 +212,7 @@ jobs:
       - name: Upload dev VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: vizsla-vscode-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
-          path: editors/vscode/vizsla-vscode-${{ matrix.target }}-debug.vsix
+          name: vide-vscode-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
+          path: editors/vscode/vide-vscode-${{ matrix.target }}-debug.vsix
           if-no-files-found: error
           retention-days: 14

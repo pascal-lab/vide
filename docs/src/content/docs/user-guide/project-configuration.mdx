@@ -1,13 +1,13 @@
 ---
 title: 项目配置
-description: 配置 vizsla.toml 项目配置文件、源文件、include 目录和宏定义。
+description: 配置 vide.toml 项目配置文件、源文件、include 目录和宏定义。
 ---
 
-import VizslaLab from "../../../components/VizslaLab.astro";
+import VideLab from "../../../components/VideLab.astro";
 
 export const configuredProjectFiles = [
   {
-    path: "vizsla.toml",
+    path: "vide.toml",
     languageId: "toml",
     editable: false,
     source: `sources = ["rtl/**"]
@@ -54,7 +54,7 @@ endmodule
   },
 ];
 
-项目配置文件回答的是这些问题：哪些 RTL 文件属于这个工程，include 文件去哪找，启用哪些宏，外部依赖放在哪里。推荐文件名是 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容，但已经弃用；两个文件同时存在时，Vide 会优先读取 `vizsla.toml`。
+项目配置文件回答的是这些问题：哪些 RTL 文件属于这个工程，include 文件去哪找，启用哪些宏，外部依赖放在哪里。文件名必须是 `vide.toml`。
 
 项目配置文件通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vide 不会自动向父目录或子目录寻找其它项目配置文件。
 
@@ -100,7 +100,7 @@ Vide 对 `sources` 和 `exclude` 有几条固定规则：
 ## 一个更接近真实工程的例子
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
 
 top_modules = ["top"]
 
@@ -175,7 +175,7 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 
 如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也不会使用这个回退。
 
-<VizslaLab
+<VideLab
   projectId="configuration-include-macro"
   projectLabel="Project Configuration: Include and Macros"
   entryFile="rtl/feature_gate.sv"
@@ -184,7 +184,7 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
   activeFile="rtl/feature_gate.sv"
   selection="5:17-5:31"
   title="include 目录和宏定义"
-  description="这个例子有 vizsla.toml、include 文件和 RTL 文件。删除 include_dirs 后，`include` 会找不到文件；删除 FEATURE_PIPELINE 宏后，启用的代码分支会变化。"
+  description="这个例子有 vide.toml、include 文件和 RTL 文件。删除 include_dirs 后，`include` 会找不到文件；删除 FEATURE_PIPELINE 宏后，启用的代码分支会变化。"
 />
 
 ## defines
@@ -205,7 +205,7 @@ defines = [
 
 `libraries` 用于声明依赖库。路径相对当前项目配置文件所在目录解析。每个库路径都会被当作另一个工作区继续加载：
 
-- 如果库目录下有 `vizsla.toml`，Vide 会按这个项目配置文件加载库；否则再尝试旧版且已弃用的 `vizsla_config.toml`。
+- 如果库目录下有 `vide.toml`，Vide 会按这个项目配置文件加载库。
 - 如果库目录没有项目配置文件，Vide 会把该目录作为未配置库加载。
 - 依赖会参与当前工程的项目分析，并支持传递依赖。
 
@@ -223,7 +223,7 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 ## 常见注意事项
 
-- 推荐项目配置文件名是 `vizsla.toml`；`vizsla_config.toml` 仅作为兼容旧工程的已弃用备用文件。
+- 项目配置文件名必须是 `vide.toml`。
 - `top_module`、`include`、`macros` 这类旧字段不会被接受。
-- Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vizsla.toml`，再回退检查 `repo/vizsla_config.toml`。
+- Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vide.toml`。
 - 配置了 `sources = []` 的工程可以只加载 include 目录，适合头文件型工作区，或暂时不想扫描 RTL 的工作区。

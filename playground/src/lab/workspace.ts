@@ -1,28 +1,28 @@
 import type * as Monaco from "@codingame/monaco-vscode-editor-api";
-import type { VizslaScenario, VizslaScenarioFile, WorkerWorkspaceFile } from "../types";
+import type { VideScenario, VideScenarioFile, WorkerWorkspaceFile } from "../types";
 
 export const DEFAULT_WORKSPACE_ROOT_URI = "file:///workspace";
 
 const SOURCE_EXTENSIONS = new Set([".v", ".vh", ".sv", ".svh", ".svi"]);
 
 export interface LabFileState {
-  file: VizslaScenarioFile;
+  file: VideScenarioFile;
   uri: string;
   model: Monaco.editor.ITextModel;
 }
 
-export function scenarioWorkspaceFiles(scenario: VizslaScenario): WorkerWorkspaceFile[] {
+export function scenarioWorkspaceFiles(scenario: VideScenario): WorkerWorkspaceFile[] {
   return scenario.files.map((file) => ({
     path: normalizeWorkspacePath(file.path),
     text: file.source,
   }));
 }
 
-export function entryFile(scenario: VizslaScenario): VizslaScenarioFile {
+export function entryFile(scenario: VideScenario): VideScenarioFile {
   return scenario.files.find((file) => normalizeWorkspacePath(file.path) === normalizeWorkspacePath(scenario.entryFile)) ?? scenario.files[0];
 }
 
-export function sourceFiles(scenario: VizslaScenario): VizslaScenarioFile[] {
+export function sourceFiles(scenario: VideScenario): VideScenarioFile[] {
   return scenario.files.filter((file) => isSourceFile(file.path));
 }
 

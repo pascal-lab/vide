@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn no_include_expansion_parse_does_not_expand_cwd_includes() {
-        let include_rel = "target/vizsla_pathless_include_test_defs.svh";
+        let include_rel = "target/vide_pathless_include_test_defs.svh";
         std::fs::create_dir_all("target").expect("target directory");
         std::fs::write(include_rel, "typedef logic cwd_include_t;\n").expect("include fixture");
 

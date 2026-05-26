@@ -1,13 +1,13 @@
 {
   "name": "vizsla-lsp",
-  "displayName": "Vizsla",
+  "displayName": "Vide",
   "description": "%extension.description%",
   "version": "0.1.5",
   "publisher": "vizsla",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pascal-lab/vizsla"
+    "url": "https://github.com/pascal-lab/vide"
   },
   "engines": {
     "vscode": "^1.101.0"
@@ -78,9 +78,9 @@
       }
     },
     "configuration": {
-      "title": "Vizsla",
+      "title": "Vide",
       "properties": {
-        "vizsla.trace.server": {
+        "vide.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -90,7 +90,7 @@
           "default": "off",
           "description": "%configuration.trace.server.description%"
         },
-        "vizsla.server.command": {
+        "vide.server.command": {
           "type": [
             "string",
             "null"
@@ -98,7 +98,7 @@
           "default": null,
           "description": "%configuration.server.command.description%"
         },
-        "vizsla.server.args": {
+        "vide.server.args": {
           "type": "array",
           "items": {
             "type": "string"
@@ -106,7 +106,7 @@
           "default": [],
           "description": "%configuration.server.args.description%"
         },
-        "vizsla.server.cwd": {
+        "vide.server.cwd": {
           "type": [
             "string",
             "null"
@@ -114,7 +114,7 @@
           "default": null,
           "description": "%configuration.server.cwd.description%"
         },
-        "vizsla.server.additionalArgs": {
+        "vide.server.additionalArgs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -122,17 +122,17 @@
           "default": [],
           "description": "%configuration.server.additionalArgs.description%"
         },
-        "vizsla.qihe.command": {
+        "vide.qihe.command": {
           "type": "string",
           "default": "qihe",
           "description": "%configuration.qihe.command.description%"
         },
-        "vizsla.qihe.autoConfigureArgsFromManifest": {
+        "vide.qihe.autoConfigureArgsFromManifest": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.qihe.autoConfigureArgsFromManifest.description%"
         },
-        "vizsla.qihe.compileArgs": {
+        "vide.qihe.compileArgs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -140,7 +140,7 @@
           "default": [],
           "description": "%configuration.qihe.compileArgs.description%"
         },
-        "vizsla.qihe.runArgs": {
+        "vide.qihe.runArgs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -151,7 +151,7 @@
           ],
           "description": "%configuration.qihe.runArgs.description%"
         },
-        "vizsla.files.excludeDirs": {
+        "vide.files.excludeDirs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -159,7 +159,7 @@
           "default": [],
           "markdownDescription": "%configuration.files.excludeDirs.markdownDescription%"
         },
-        "vizsla.files.watcher": {
+        "vide.files.watcher": {
           "type": "string",
           "enum": [
             "client",
@@ -174,12 +174,12 @@
           ],
           "description": "%configuration.files.watcher.description%"
         },
-        "vizsla.workspace.auto.reload": {
+        "vide.workspace.auto.reload": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.workspace.auto.reload.description%"
         },
-        "vizsla.scope.visibility": {
+        "vide.scope.visibility": {
           "type": "string",
           "enum": [
             "private",
@@ -188,7 +188,7 @@
           "default": "private",
           "description": "%configuration.scope.visibility.description%"
         },
-        "vizsla.formatter.provider": {
+        "vide.formatter.provider": {
           "type": "string",
           "enum": [
             "verible"
@@ -199,7 +199,7 @@
           ],
           "description": "%configuration.formatter.provider.description%"
         },
-        "vizsla.formatter.path": {
+        "vide.formatter.path": {
           "type": [
             "string",
             "null"
@@ -207,7 +207,7 @@
           "default": null,
           "description": "%configuration.formatter.path.description%"
         },
-        "vizsla.formatter.args": {
+        "vide.formatter.args": {
           "type": "array",
           "items": {
             "type": "string"
@@ -217,58 +217,58 @@
           ],
           "description": "%configuration.formatter.args.description%"
         },
-        "vizsla.formatting.on.enter": {
+        "vide.formatting.on.enter": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.formatting.on.enter.description%"
         },
-        "vizsla.formatting.in.comments": {
+        "vide.formatting.in.comments": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.formatting.in.comments.description%"
         },
-        "vizsla.formatting.indent.width": {
+        "vide.formatting.indent.width": {
           "type": "integer",
           "minimum": 0,
           "default": 4,
           "description": "%configuration.formatting.indent.width.description%"
         },
-        "vizsla.inlayHints.port.connection.enable": {
+        "vide.inlayHints.port.connection.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.inlayHints.port.connection.enable.description%"
         },
-        "vizsla.inlayHints.parameter.assignment.enable": {
+        "vide.inlayHints.parameter.assignment.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.inlayHints.parameter.assignment.enable.description%"
         },
-        "vizsla.inlayHints.end.structure.enable": {
+        "vide.inlayHints.end.structure.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.inlayHints.end.structure.enable.description%"
         },
-        "vizsla.lens.instantiations.enable": {
+        "vide.lens.instantiations.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.lens.instantiations.enable.description%"
         },
-        "vizsla.semantic.tokens.port.clk.rst.enable": {
+        "vide.semantic.tokens.port.clk.rst.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.semantic.tokens.port.clk.rst.enable.description%"
         },
-        "vizsla.semantic.tokens.port.input.output.enable": {
+        "vide.semantic.tokens.port.input.output.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.semantic.tokens.port.input.output.enable.description%"
         },
-        "vizsla.diagnostics.enable": {
+        "vide.diagnostics.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.diagnostics.enable.description%"
         },
-        "vizsla.diagnostics.update": {
+        "vide.diagnostics.update": {
           "type": "string",
           "enum": [
             "onSave",
@@ -277,17 +277,17 @@
           "default": "onSave",
           "markdownDescription": "%configuration.diagnostics.update.markdownDescription%"
         },
-        "vizsla.diagnostics.parse.enable": {
+        "vide.diagnostics.parse.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.diagnostics.parse.enable.description%"
         },
-        "vizsla.diagnostics.semantic.enable": {
+        "vide.diagnostics.semantic.enable": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.diagnostics.semantic.enable.description%"
         },
-        "vizsla.diagnostics.slang.warnings": {
+        "vide.diagnostics.slang.warnings": {
           "type": "array",
           "items": {
             "type": "string"
@@ -295,7 +295,7 @@
           "default": [],
           "markdownDescription": "%configuration.diagnostics.slang.warnings.markdownDescription%"
         },
-        "vizsla.diagnostics.slang.rules": {
+        "vide.diagnostics.slang.rules": {
           "type": "array",
           "default": [],
           "markdownDescription": "%configuration.diagnostics.slang.rules.markdownDescription%",
@@ -331,7 +331,7 @@
             "additionalProperties": false
           }
         },
-        "vizsla.signature.help.params.only": {
+        "vide.signature.help.params.only": {
           "type": "boolean",
           "default": false,
           "description": "%configuration.signature.help.params.only.description%"
@@ -340,32 +340,32 @@
     },
     "commands": [
       {
-        "command": "vizsla.showOutput",
+        "command": "vide.showOutput",
         "title": "%command.showOutput.title%"
       },
       {
-        "command": "vizsla.restartServer",
+        "command": "vide.restartServer",
         "title": "%command.restartServer.title%"
       },
       {
-        "command": "vizsla.showServerVersion",
+        "command": "vide.showServerVersion",
         "title": "%command.showServerVersion.title%"
       },
       {
-        "command": "vizsla.reloadWorkspace",
+        "command": "vide.reloadWorkspace",
         "title": "%command.reloadWorkspace.title%"
       },
       {
-        "command": "vizsla.showStatus",
+        "command": "vide.showStatus",
         "title": "%command.showStatus.title%"
       },
       {
-        "command": "vizsla.runQiheAnalysis",
+        "command": "vide.runQiheAnalysis",
         "title": "%command.runQiheAnalysis.title%",
         "icon": "$(beaker)"
       },
       {
-        "command": "vizsla.profileDiagnostics",
+        "command": "vide.profileDiagnostics",
         "title": "%command.profileDiagnostics.title%",
         "icon": "$(pulse)"
       }
@@ -373,7 +373,7 @@
     "menus": {
       "editor/title": [
         {
-          "command": "vizsla.runQiheAnalysis",
+          "command": "vide.runQiheAnalysis",
           "when": "resourceLangId == verilog || resourceLangId == systemverilog",
           "group": "navigation@10"
         }

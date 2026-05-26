@@ -1,5 +1,5 @@
 {
-  "name": "vizsla-docs",
+  "name": "vide-docs",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,6 @@
   "dependencies": {
     "@astrojs/starlight": "^0.39.2",
     "astro": "^6.3.5",
-    "vizsla-playground": "file:../playground"
+    "vide-playground": "file:../playground"
   }
 }

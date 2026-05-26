@@ -1,6 +1,6 @@
 export const languageFiles = [
   {
-    path: 'vizsla.toml',
+    path: 'vide.toml',
     languageId: 'toml',
     source: `sources = ["rtl/**"]
 `,
@@ -40,7 +40,7 @@ endmodule
 
 export const diagnosticFiles = [
   {
-    path: 'vizsla.toml',
+    path: 'vide.toml',
     languageId: 'toml',
     source: `sources = ["rtl/**"]
 `,
@@ -65,7 +65,7 @@ endmodule
 
 export const navigationFiles = [
   {
-    path: 'vizsla.toml',
+    path: 'vide.toml',
     languageId: 'toml',
     source: `sources = ["rtl/**"]
 `,
@@ -121,7 +121,7 @@ endmodule
 
 export const editAidFiles = [
   {
-    path: 'vizsla.toml',
+    path: 'vide.toml',
     languageId: 'toml',
     source: `sources = ["rtl/**"]
 `,
@@ -169,7 +169,7 @@ endmodule
 
 export const formattingFiles = [
   {
-    path: 'vizsla.toml',
+    path: 'vide.toml',
     languageId: 'toml',
     source: `sources = ["rtl/**"]
 `,
@@ -191,7 +191,7 @@ endmodule
 
 export const structureFiles = [
   {
-    path: 'vizsla.toml',
+    path: 'vide.toml',
     languageId: 'toml',
     source: `sources = ["rtl/**"]
 `,

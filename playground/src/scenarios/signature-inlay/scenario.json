@@ -6,7 +6,7 @@
   "description": "Configured workspace for signature help and positional parameter or port inlay hints.",
   "files": [
     {
-      "path": "vizsla.toml",
+      "path": "vide.toml",
       "languageId": "toml"
     },
     {

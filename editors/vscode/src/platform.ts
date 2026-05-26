@@ -28,7 +28,7 @@ export function getPlatformFolder(
 }
 
 export function getServerBinaryName(platform: string = process.platform): string {
-  return platform === 'win32' ? 'vizsla.exe' : 'vizsla';
+  return platform === 'win32' ? 'vide.exe' : 'vide';
 }
 
 export function getBundledServerPath(

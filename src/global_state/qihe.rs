@@ -369,13 +369,6 @@ fn run_qihe_request(
     let qihe_config = snapshot.config.qihe();
     let cwd = qihe_working_directory(params.cwd, snapshot.config.root_path.as_path());
     let compile_input = qihe_compile_input(snapshot, active_file_id, active_path.as_path(), &cwd)?;
-    if let Some(manifest_file_name) = compile_input.deprecated_manifest_file_name() {
-        log_sink.log(format!(
-            "Project manifest `{}` is deprecated; rename it to `{}` when possible.",
-            manifest_file_name.as_str(),
-            ProjectManifestFileName::Primary.as_str()
-        ));
-    }
     let i18n = snapshot.config.i18n;
     let (ir_path, storage_root) = qihe_run_paths(active_path.as_path())
         .context(i18n.text(keys::QIHE_PREPARE_WORKSPACE_FAILED))?;
@@ -423,15 +416,6 @@ enum QiheCompileInputSource {
 impl QiheCompileInput {
     fn uses_manifest(&self) -> bool {
         matches!(self.source, QiheCompileInputSource::Manifest(_))
-    }
-
-    fn deprecated_manifest_file_name(&self) -> Option<ProjectManifestFileName> {
-        match self.source {
-            QiheCompileInputSource::Manifest(file_name) if file_name.is_deprecated() => {
-                Some(file_name)
-            }
-            QiheCompileInputSource::SingleFile | QiheCompileInputSource::Manifest(_) => None,
-        }
     }
 }
 
@@ -969,17 +953,15 @@ mod tests {
         DiagnosticWorkspaceClientCapabilities, Position, Range, TextDocumentClientCapabilities,
         TraceValue, WorkspaceClientCapabilities, request::Request,
     };
-    use project_model::project_manifest::{
-        LEGACY_MANIFEST_FILE_NAME, ProjectManifest, ProjectManifestFileName,
-    };
+    use project_model::project_manifest::ProjectManifestFileName;
     use utils::{paths::AbsPathBuf, test_support::TestDir};
     use vfs::FileId;
 
     use super::{
         QiheCompileInput, QiheCompileInputSource, QiheLogSink, QiheRunId, QiheUpdate, command_line,
         has_compile_mode, join_command_output, parse_source_loc, prepare_qihe_compile_command,
-        qihe_compile_input_from_plan, qihe_project_manifest_file_name, qihe_working_directory,
-        split_compile_args, stream_command_output, strip_ansi,
+        qihe_compile_input_from_plan, qihe_working_directory, split_compile_args,
+        stream_command_output, strip_ansi,
     };
     use crate::{
         Opt,
@@ -1075,7 +1057,7 @@ mod tests {
         let root = TestDir::new("stale-qihe-result");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1124,7 +1106,7 @@ mod tests {
         let root = TestDir::new("current-qihe-progress");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1159,7 +1141,7 @@ mod tests {
         let root = TestDir::new("qihe-diagnostic-freshness");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1199,7 +1181,7 @@ mod tests {
         let root = TestDir::new("stale-qihe-freshness");
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1259,7 +1241,7 @@ mod tests {
         };
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -1457,59 +1439,6 @@ mod tests {
                 source: QiheCompileInputSource::SingleFile,
             }
         );
-    }
-
-    #[test]
-    fn legacy_manifest_selects_project_qihe_route() {
-        let root = TestDir::new("qihe-legacy-manifest-route");
-        root.write(LEGACY_MANIFEST_FILE_NAME, "sources = [\"rtl/**\"]\n");
-        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
-
-        let manifest_file_name =
-            qihe_project_manifest_file_name(&[manifest], root.path().as_ref()).unwrap();
-
-        assert_eq!(manifest_file_name, Some(ProjectManifestFileName::Legacy));
-    }
-
-    #[test]
-    fn legacy_manifest_route_matches_canonicalized_cwd_alias() {
-        let root = TestDir::new("qihe-legacy-manifest-canonical-cwd");
-        root.write(LEGACY_MANIFEST_FILE_NAME, "sources = [\"rtl/**\"]\n");
-        let root_path: &std::path::Path = root.path().as_ref();
-        let alias_root = AbsPathBuf::assert_utf8(root_path.join("."));
-        let manifest = ProjectManifest::from_path(&alias_root).unwrap();
-        let canonical_cwd = dunce::canonicalize(root_path).unwrap();
-
-        let manifest_file_name =
-            qihe_project_manifest_file_name(&[manifest], &canonical_cwd).unwrap();
-
-        assert_eq!(manifest_file_name, Some(ProjectManifestFileName::Legacy));
-    }
-
-    #[test]
-    fn legacy_project_compile_input_reports_deprecated_manifest() {
-        let active_path = if cfg!(windows) {
-            AbsPathBuf::assert("C:/repo/top.sv".into())
-        } else {
-            AbsPathBuf::assert("/repo/top.sv".into())
-        };
-        let plan = CompilationPlan {
-            roots: vec![FileId(0)],
-            include_dirs: vec![active_path.parent().unwrap().to_path_buf()],
-            top_modules: vec!["top".to_owned()],
-            predefines: vec!["SYNTHESIS".to_owned()],
-            ..CompilationPlan::default()
-        };
-
-        let input = qihe_compile_input_from_plan(
-            &plan,
-            vec![active_path.to_path_buf().into()],
-            active_path.as_ref(),
-            ProjectManifestFileName::Legacy,
-        );
-
-        assert!(input.uses_manifest());
-        assert_eq!(input.deprecated_manifest_file_name(), Some(ProjectManifestFileName::Legacy));
     }
 
     fn command_args(command: &Command) -> Vec<&str> {

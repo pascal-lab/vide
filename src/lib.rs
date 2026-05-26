@@ -32,8 +32,8 @@ pub const VERSION: &str = formatcp!(
     "{}_{}+{}.{}",
     env!("CARGO_PKG_VERSION"),
     BUILD_PROFILE,
-    env!("VIZSLA_COMMIT_HASH"),
-    env!("VIZSLA_BUILD_DATE")
+    env!("VIDE_COMMIT_HASH"),
+    env!("VIDE_BUILD_DATE")
 );
 
 #[derive(Clone, Debug, Parser)]
@@ -50,9 +50,9 @@ pub struct Opt {
 
     /// Write a Chrome/Perfetto-compatible tracing profile to this JSON file.
     ///
-    /// This can also be set with VIZSLA_PROFILE_TRACE. The captured targets
+    /// This can also be set with VIDE_PROFILE_TRACE. The captured targets
     /// default to project crates and can be overridden with
-    /// VIZSLA_PROFILE_TRACE_FILTER.
+    /// VIDE_PROFILE_TRACE_FILTER.
     #[clap(long = "profile_trace", default_value = None)]
     pub profile_trace: Option<PathBuf>,
 }

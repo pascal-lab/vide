@@ -1,13 +1,13 @@
 ---
 title: Project Configuration
-description: Configure the vizsla.toml project manifest, source files, include directories, and macro definitions.
+description: Configure the vide.toml project manifest, source files, include directories, and macro definitions.
 ---
 
-import VizslaLab from "../../../../components/VizslaLab.astro";
+import VideLab from "../../../../components/VideLab.astro";
 
 export const configuredProjectFiles = [
   {
-    path: "vizsla.toml",
+    path: "vide.toml",
     languageId: "toml",
     editable: false,
     source: `sources = ["rtl/**"]
@@ -54,7 +54,7 @@ endmodule
   },
 ];
 
-The project manifest tells Vide three things: which RTL files belong to the project, where include files live, and which macros or dependency libraries should be used. The recommended file name is `vizsla.toml`. The old file name `vizsla_config.toml` is still supported but deprecated; if both files exist, Vide reads `vizsla.toml`.
+The project manifest tells Vide three things: which RTL files belong to the project, where include files live, and which macros or dependency libraries should be used. The file name must be `vide.toml`.
 
 The project manifest usually lives in the workspace root: the top-level folder you opened in VS Code. Vide does not automatically search parent or child directories for other manifests.
 
@@ -95,7 +95,7 @@ Whether a trailing `/` matters depends on the field:
 ## Common Complete Example
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
 
 top_modules = ["top"]
 
@@ -168,7 +168,7 @@ The current project loader reads these extensions:
 
 `include_dirs` controls `` `include "file.svh" `` search. If `include_dirs` is not configured explicitly and `sources` is set explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory. If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, no fallback is used.
 
-<VizslaLab
+<VideLab
   projectId="configuration-include-macro"
   projectLabel="Project Configuration: Include and Macros"
   entryFile="rtl/feature_gate.sv"
@@ -177,7 +177,7 @@ The current project loader reads these extensions:
   activeFile="rtl/feature_gate.sv"
   selection="5:17-5:31"
   title="Include Directories and Macros"
-  description="This example contains vizsla.toml, an include file, and an RTL file. Removing include_dirs makes the `include` fail; removing FEATURE_PIPELINE changes which branch is active."
+  description="This example contains vide.toml, an include file, and an RTL file. Removing include_dirs makes the `include` fail; removing FEATURE_PIPELINE changes which branch is active."
 />
 
 ## defines
@@ -198,7 +198,7 @@ Macro names must be valid identifiers. Macros with values are parsed as `NAME=va
 
 `libraries` declares dependency libraries. Paths are resolved relative to the directory that contains the current project manifest. Each library path is loaded as another workspace:
 
-- If the library directory contains `vizsla.toml`, Vide loads the library with that manifest; otherwise it falls back to the deprecated legacy `vizsla_config.toml`.
+- If the library directory contains `vide.toml`, Vide loads the library with that manifest.
 - If the library directory has no manifest, Vide loads it as an unconfigured library.
 - Dependencies participate in the current project's analysis, and transitive dependencies are supported.
 
@@ -216,7 +216,7 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 ## Notes
 
-- The recommended manifest file name is `vizsla.toml`; `vizsla_config.toml` is only a deprecated fallback for compatibility with old projects.
+- The manifest file name must be `vide.toml`.
 - Old fields such as `top_module`, `include`, or `macros` are not accepted.
-- Vide does not automatically discover manifests from subdirectories. When you open `repo`, it only checks `repo/vizsla.toml` and then `repo/vizsla_config.toml`.
+- Vide does not automatically discover manifests from subdirectories. When you open `repo`, it only checks `repo/vide.toml`.
 - Projects configured with `sources = []` can still load include directories, which is useful for header-only workspaces or workspaces where you do not want to scan RTL yet.

@@ -7,9 +7,9 @@ import {
   defaultServerStatusMessages,
   getProjectStatusPresentation,
   getServerStatusPresentation,
-  getVizslaStatusPresentation,
+  getVideStatusPresentation,
   initialProjectStatus,
-  selectVizslaStatusPhase,
+  selectVideStatusPhase,
   type ProjectStatus,
   type ServerStatus,
 } from '../src/status';
@@ -17,27 +17,27 @@ import {
 test('maps server states to language status presentations', () => {
   const expected: Record<ServerStatus, { detail: string; busy: boolean; severity: string }> = {
     starting: {
-      detail: 'Vizsla language server is starting.',
+      detail: 'Vide language server is starting.',
       busy: true,
       severity: 'information',
     },
     ready: {
-      detail: 'Vizsla language server is running.',
+      detail: 'Vide language server is running.',
       busy: false,
       severity: 'information',
     },
     stopping: {
-      detail: 'Vizsla language server is stopping.',
+      detail: 'Vide language server is stopping.',
       busy: true,
       severity: 'information',
     },
     stopped: {
-      detail: 'Vizsla language server is stopped.',
+      detail: 'Vide language server is stopped.',
       busy: false,
       severity: 'information',
     },
     error: {
-      detail: 'Vizsla language server failed.',
+      detail: 'Vide language server failed.',
       busy: false,
       severity: 'error',
     },
@@ -45,7 +45,7 @@ test('maps server states to language status presentations', () => {
 
   for (const [status, presentation] of Object.entries(expected)) {
     assert.deepEqual(getServerStatusPresentation(status as ServerStatus), {
-      text: 'Vizsla',
+      text: 'Vide',
       ...presentation,
     });
   }
@@ -56,7 +56,7 @@ test('includes detail in server status detail when available', () => {
 
   assert.equal(
     presentation.detail,
-    'Vizsla language server failed.\nmissing server binary',
+    'Vide language server failed.\nmissing server binary',
   );
   assert.equal(presentation.severity, 'error');
 });
@@ -64,14 +64,14 @@ test('includes detail in server status detail when available', () => {
 test('maps project status to language status presentations', () => {
   const baseStatus: ProjectStatus = {
     state: 'loaded',
-    manifestUris: ['file:///workspace/vizsla.toml'],
+    manifestUris: ['file:///workspace/vide.toml'],
     unconfiguredRootUris: [],
     workspaceCount: 1,
     errors: [],
   };
 
   assert.deepEqual(getProjectStatusPresentation(baseStatus), {
-    text: 'Vizsla',
+    text: 'Vide',
     detail: 'Project manifest loaded',
     severity: 'information',
     busy: false,
@@ -94,7 +94,7 @@ test('maps project status to language status presentations', () => {
 test('parses project status notifications defensively', () => {
   const status = asProjectStatus({
     state: 'loaded',
-    manifestUris: ['file:///workspace/vizsla.toml'],
+    manifestUris: ['file:///workspace/vide.toml'],
     unconfiguredRootUris: [],
     workspaceCount: 1,
     errors: [],
@@ -104,7 +104,7 @@ test('parses project status notifications defensively', () => {
   assert.ok(status);
   assert.deepEqual(status, {
     state: 'loaded',
-    manifestUris: ['file:///workspace/vizsla.toml'],
+    manifestUris: ['file:///workspace/vide.toml'],
     unconfiguredRootUris: [],
     workspaceCount: 1,
     errors: [],
@@ -124,17 +124,17 @@ test('uses loading as the initial project status', () => {
   });
 });
 
-test('selects the main Vizsla status from lifecycle order', () => {
+test('selects the main Vide status from lifecycle order', () => {
   const projectStatus: ProjectStatus = {
     state: 'loaded',
-    manifestUris: ['file:///workspace/vizsla.toml'],
+    manifestUris: ['file:///workspace/vide.toml'],
     unconfiguredRootUris: [],
     workspaceCount: 1,
     errors: [],
   };
 
   assert.deepEqual(
-    selectVizslaStatusPhase({
+    selectVideStatusPhase({
       serverStatus: 'starting',
       projectStatus,
     }),
@@ -144,7 +144,7 @@ test('selects the main Vizsla status from lifecycle order', () => {
     },
   );
   assert.deepEqual(
-    selectVizslaStatusPhase({
+    selectVideStatusPhase({
       serverStatus: 'ready',
       projectStatus,
     }),
@@ -155,7 +155,7 @@ test('selects the main Vizsla status from lifecycle order', () => {
   );
 
   assert.equal(
-    getVizslaStatusPresentation(
+    getVideStatusPresentation(
       {
         serverStatus: 'ready',
         projectStatus: { ...projectStatus, state: 'none', manifestUris: [] },

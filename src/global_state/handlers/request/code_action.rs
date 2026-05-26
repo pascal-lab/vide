@@ -177,7 +177,7 @@ fn code_action_diagnostic_from_ide(diag: &ide_diagnostics::Diagnostic) -> CodeAc
         source: match diag.source {
             ide_diagnostics::DiagnosticSource::SlangParse => Some(DiagnosticSource::Parse),
             ide_diagnostics::DiagnosticSource::SlangSemantic => Some(DiagnosticSource::Semantic),
-            ide_diagnostics::DiagnosticSource::Vizsla => None,
+            ide_diagnostics::DiagnosticSource::Vide => None,
         },
         code: Some(DiagnosticCode { subsystem: diag.subsystem, code: diag.code }),
         name: Some(diag.name.clone()),

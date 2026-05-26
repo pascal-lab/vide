@@ -9,10 +9,10 @@ use tracing_subscriber::{
     Layer, Registry, filter::Targets, fmt::writer::BoxMakeWriter, layer::SubscriberExt,
     util::SubscriberInitExt,
 };
-use vizsla::{Opt, run_server};
+use vide::{Opt, run_server};
 
 const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
-    "vizsla=trace,",
+    "vide=trace,",
     "base_db=trace,",
     "hir=trace,",
     "ide=trace,",
@@ -24,7 +24,7 @@ const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
 );
 
 fn profile_trace_path(opt: &Opt) -> Option<PathBuf> {
-    opt.profile_trace.clone().or_else(|| env::var_os("VIZSLA_PROFILE_TRACE").map(PathBuf::from))
+    opt.profile_trace.clone().or_else(|| env::var_os("VIDE_PROFILE_TRACE").map(PathBuf::from))
 }
 
 fn create_profile_trace_file(path: &Path) -> anyhow::Result<fs::File> {
@@ -60,7 +60,7 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<tracing_chrome::FlushGuard>
 
     let subscriber = Registry::default().with(fmt_layer);
     let profile_guard = if let Some(path) = profile_trace_path(opt) {
-        let profile_filter_text = env::var("VIZSLA_PROFILE_TRACE_FILTER")
+        let profile_filter_text = env::var("VIDE_PROFILE_TRACE_FILTER")
             .unwrap_or_else(|_| DEFAULT_PROFILE_TRACE_FILTER.to_owned());
         let profile_filter =
             profile_filter_text.parse::<Targets>().context("invalid profile trace filter")?;

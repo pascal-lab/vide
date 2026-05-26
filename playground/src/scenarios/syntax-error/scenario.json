@@ -6,7 +6,7 @@
   "description": "Configured workspace with a parse error that always produces a diagnostic.",
   "files": [
     {
-      "path": "vizsla.toml",
+      "path": "vide.toml",
       "languageId": "toml"
     },
     {

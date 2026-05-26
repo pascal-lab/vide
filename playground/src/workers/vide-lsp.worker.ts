@@ -14,7 +14,7 @@ let lspPort: MessagePort | undefined;
 let status: WorkerStatus = {
   engine: "unavailable",
   ready: false,
-  detail: "Vizsla WASM engine has not been loaded.",
+  detail: "Vide WASM engine has not been loaded.",
 };
 let traceId = 1;
 let pollTimer: number | undefined;
@@ -27,7 +27,7 @@ self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
     post({
       kind: "log",
       level: "error",
-      message: error instanceof Error ? error.message : "Vizsla worker request failed.",
+      message: error instanceof Error ? error.message : "Vide worker request failed.",
     });
   });
 });
@@ -62,14 +62,14 @@ async function boot(
     lspPort.onmessage = (event: MessageEvent<LspMessage>) => handleLspMessage(event.data);
     lspPort.start();
     engine = await loadWasmEngine(wasmBaseUrl, rootUri, workspaceFiles);
-    status = { engine: "wasm", ready: true, detail: "Vizsla WASM engine loaded." };
+    status = { engine: "wasm", ready: true, detail: "Vide WASM engine loaded." };
     trace("server", "ready", status.detail);
   } catch (error) {
     stopEngine();
     status = {
       engine: "unavailable",
       ready: false,
-      detail: error instanceof Error ? error.message : "Vizsla WASM is not available.",
+      detail: error instanceof Error ? error.message : "Vide WASM is not available.",
     };
     post({
       kind: "log",
@@ -81,21 +81,21 @@ async function boot(
 
 async function loadWasmEngine(wasmBaseUrl: string, requestedRootUri: string, workspaceFiles: WorkerWorkspaceFile[]): Promise<WasmEngine> {
   const baseUrl = new URL(wasmBaseUrl.endsWith("/") ? wasmBaseUrl : `${wasmBaseUrl}/`, self.location.href);
-  const moduleUrl = new URL("vizsla-lsp.js", baseUrl);
+  const moduleUrl = new URL("vide-lsp.js", baseUrl);
   moduleUrl.search = baseUrl.search;
   const loaded = (await import(/* @vite-ignore */ moduleUrl.href)) as {
-    createVizslaLspEngine?: (options: {
+    createVideLspEngine?: (options: {
       wasmBaseUrl: string;
       rootUri: string;
       workspaceFiles: WorkerWorkspaceFile[];
     }) => Promise<WasmEngine>;
   };
 
-  if (!loaded.createVizslaLspEngine) {
-    throw new Error("Vizsla WASM adapter did not export createVizslaLspEngine().");
+  if (!loaded.createVideLspEngine) {
+    throw new Error("Vide WASM adapter did not export createVideLspEngine().");
   }
 
-  return loaded.createVizslaLspEngine({ wasmBaseUrl: baseUrl.href, rootUri: requestedRootUri, workspaceFiles });
+  return loaded.createVideLspEngine({ wasmBaseUrl: baseUrl.href, rootUri: requestedRootUri, workspaceFiles });
 }
 
 function handleLspMessage(message: LspMessage): void {
@@ -114,7 +114,7 @@ function handleLspMessage(message: LspMessage): void {
     schedulePump();
   } catch (error) {
     clearClientRequest(message);
-    respondWithError(message, error instanceof Error ? error.message : "Vizsla LSP request failed.");
+    respondWithError(message, error instanceof Error ? error.message : "Vide LSP request failed.");
   }
 }
 
@@ -144,7 +144,7 @@ function schedulePump(): void {
       pollLsp();
       schedulePump();
     } catch (error) {
-      failPendingRequests(error instanceof Error ? error.message : "Vizsla LSP polling failed.");
+      failPendingRequests(error instanceof Error ? error.message : "Vide LSP polling failed.");
     }
   }, POLL_INTERVAL_MS);
 }
@@ -166,7 +166,7 @@ function trackClientRequest(message: LspMessage): void {
     postLsp({
       jsonrpc: "2.0",
       id,
-      error: { code: -32001, message: `Vizsla LSP did not respond to ${pending.method}.` },
+      error: { code: -32001, message: `Vide LSP did not respond to ${pending.method}.` },
     });
   }, REQUEST_TIMEOUT_MS);
 
@@ -301,7 +301,7 @@ function requireEngine(): WasmEngine {
 }
 
 function stopEngine(): void {
-  failPendingRequests("Vizsla LSP is stopping.");
+  failPendingRequests("Vide LSP is stopping.");
   if (pollTimer !== undefined) {
     self.clearTimeout(pollTimer);
     pollTimer = undefined;

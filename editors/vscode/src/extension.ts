@@ -28,28 +28,28 @@ import {
   reloadWorkspaceRequest,
   showOutputCommand,
   showStatusCommand,
-  VizslaStatusController,
-} from './vizslaStatus';
+  VideStatusController,
+} from './videStatus';
 import type { ServerStatus } from './status';
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let qiheOutputChannel: vscode.OutputChannel | undefined;
-let vizslaStatusController: VizslaStatusController | undefined;
+let videStatusController: VideStatusController | undefined;
 let qiheStatusBarItem: vscode.StatusBarItem | undefined;
 
 const execFileAsync = promisify(execFile);
-const restartServerCommand = 'vizsla.restartServer';
-const showServerVersionCommand = 'vizsla.showServerVersion';
-const showQiheOutputCommand = 'vizsla.showQiheOutput';
-const runQiheAnalysisCommand = 'vizsla.runQiheAnalysis';
-const runQiheAnalysisRequest = 'vizsla.server.runQiheAnalysis';
-const qiheStatusNotification = 'vizsla/qiheStatus';
-const qiheLogNotification = 'vizsla/qiheLog';
+const restartServerCommand = 'vide.restartServer';
+const showServerVersionCommand = 'vide.showServerVersion';
+const showQiheOutputCommand = 'vide.showQiheOutput';
+const runQiheAnalysisCommand = 'vide.runQiheAnalysis';
+const runQiheAnalysisRequest = 'vide.server.runQiheAnalysis';
+const qiheStatusNotification = 'vide/qiheStatus';
+const qiheLogNotification = 'vide/qiheLog';
 const qiheAnalysisIcon = '$(beaker)';
 // Output channel names are stable identifiers in the Output view.
-const languageServerOutputChannelName = 'Vizsla Language Server';
-const qiheOutputChannelName = 'Vizsla Qihe';
+const languageServerOutputChannelName = 'Vide Language Server';
+const qiheOutputChannelName = 'Vide Qihe';
 const versionTimeoutMs = 5000;
 
 const activeQiheTokens = new Set<string>();
@@ -66,7 +66,7 @@ function logQihe(message: string): void {
 
 function requireOutputChannel(): vscode.OutputChannel {
   if (!outputChannel) {
-    throw new Error(vscode.l10n.t('Vizsla output channel has not been initialized.'));
+    throw new Error(vscode.l10n.t('Vide output channel has not been initialized.'));
   }
 
   return outputChannel;
@@ -74,7 +74,7 @@ function requireOutputChannel(): vscode.OutputChannel {
 
 function requireQiheOutputChannel(): vscode.OutputChannel {
   if (!qiheOutputChannel) {
-    throw new Error(vscode.l10n.t('Vizsla Qihe output channel has not been initialized.'));
+    throw new Error(vscode.l10n.t('Vide Qihe output channel has not been initialized.'));
   }
 
   return qiheOutputChannel;
@@ -105,7 +105,7 @@ async function showQiheErrorMessage(message: string): Promise<void> {
 }
 
 function updateServerStatus(status: ServerStatus, detail?: string): void {
-  vizslaStatusController?.updateServerStatus(status, detail);
+  videStatusController?.updateServerStatus(status, detail);
 }
 
 function clearQiheStatusHideTimer(): void {
@@ -246,7 +246,7 @@ function registerQiheNotifications(languageClient: LanguageClient): void {
 
 function registerProjectStatusNotifications(languageClient: LanguageClient): void {
   languageClient.onNotification(projectStatusNotification, (params: unknown) => {
-    vizslaStatusController?.handleProjectNotification(params);
+    videStatusController?.handleProjectNotification(params);
   });
 }
 
@@ -322,7 +322,7 @@ function getServerPath(context: vscode.ExtensionContext): string | undefined {
 }
 
 function readConfiguration(): ServerConfiguration {
-  const config = vscode.workspace.getConfiguration('vizsla');
+  const config = vscode.workspace.getConfiguration('vide');
   const command = config.get<string | null>('server.command');
   const args = asStringArray(config.get<unknown>('server.args'));
   const additionalArgs = asStringArray(config.get<unknown>('server.additionalArgs'));
@@ -331,7 +331,7 @@ function readConfiguration(): ServerConfiguration {
 
   if (!args || !additionalArgs) {
     vscode.window.showErrorMessage(
-      vscode.l10n.t('vizsla server arguments settings must be arrays of strings.'),
+      vscode.l10n.t('vide server arguments settings must be arrays of strings.'),
     );
     return {
       command: undefined,
@@ -382,7 +382,7 @@ function resolveServerLaunch(
     serverCommand = getServerPath(context);
     if (!serverCommand) {
       const message = vscode.l10n.t(
-        'Bundled Vizsla Language Server binary not found. Install the VSIX that matches your platform or configure "vizsla.server.command".',
+        'Bundled Vide Language Server binary not found. Install the VSIX that matches your platform or configure "vide.server.command".',
       );
       log(`[ERROR] ${message}`);
       throw new Error(message);
@@ -480,17 +480,17 @@ async function promptForMissingProjectConfigs(context: vscode.ExtensionContext):
       ? vscode.l10n.t('Create Manifest')
       : vscode.l10n.t('Create Manifests');
   const restartNotice = vscode.l10n.t(
-    'Creating a manifest will restart the Vizsla language server so the workspace can reload it.',
+    'Creating a manifest will restart the Vide language server so the workspace can reload it.',
   );
   const promptMessage =
     targets.length === 1
       ? vscode.l10n.t(
-          'No Vizsla project manifest was detected in {0}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
+          'No Vide project manifest was detected in {0}. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
           targets[0].folderName,
           restartNotice,
         )
       : vscode.l10n.t(
-          'No Vizsla project manifest was detected in {0} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
+          'No Vide project manifest was detected in {0} workspace folders. Project-aware features like semantic diagnostics, navigation, and references may be severely limited. {1}',
           targets.length,
           restartNotice,
         );
@@ -613,19 +613,19 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
       { scheme: 'file', language: 'systemverilog' },
     ],
     synchronize: {
-      configurationSection: ['vizsla'],
+      configurationSection: ['vide'],
     },
     outputChannel: channel,
     traceOutputChannel: channel,
     revealOutputChannelOn: RevealOutputChannelOn.Never,
-    initializationOptions: serverInitializationOptions(vscode.workspace.getConfiguration('vizsla')),
+    initializationOptions: serverInitializationOptions(vscode.workspace.getConfiguration('vide')),
     ...(config.trace !== 'off' && { trace: config.trace }),
   };
 
   log('[INFO] Creating LanguageClient instance...');
   return new LanguageClient(
-    'vizsla',
-    vscode.l10n.t('Vizsla Language Server'),
+    'vide',
+    vscode.l10n.t('Vide Language Server'),
     serverOptions,
     clientOptions,
   );
@@ -648,7 +648,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     log(`[ERROR] ${(error as Error).stack}`);
     updateServerStatus('error', message);
     await showLanguageServerErrorMessage(
-      vscode.l10n.t('Failed to start Vizsla Language Server: {0}', message),
+      vscode.l10n.t('Failed to start Vide Language Server: {0}', message),
     );
   }
 }
@@ -692,10 +692,10 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
     const output = `${stdout}${stderr}`.trim() || vscode.l10n.t('No version output');
     const firstLine = output.split(/\r?\n/, 1)[0] ?? output;
     log(`[INFO] Server version output:\n${output}`);
-    vscode.window.showInformationMessage(vscode.l10n.t('Vizsla server: {0}', firstLine));
+    vscode.window.showInformationMessage(vscode.l10n.t('Vide server: {0}', firstLine));
   } catch (error) {
     const message = vscode.l10n.t(
-      'Failed to query Vizsla server version: {0}',
+      'Failed to query Vide server version: {0}',
       (error as Error).message,
     );
     log(`[ERROR] ${message}`);
@@ -705,7 +705,7 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
 
 async function reloadWorkspace(): Promise<void> {
   if (!client) {
-    await showLanguageServerErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
+    await showLanguageServerErrorMessage(vscode.l10n.t('Vide language server is not running.'));
     return;
   }
 
@@ -716,7 +716,7 @@ async function reloadWorkspace(): Promise<void> {
     });
   } catch (error) {
     const message = vscode.l10n.t(
-      'Failed to reload Vizsla project configuration: {0}',
+      'Failed to reload Vide project configuration: {0}',
       (error as Error).message,
     );
     log(`[ERROR] ${message}`);
@@ -739,7 +739,7 @@ async function runQiheAnalysis(resource: unknown): Promise<void> {
   }
 
   if (!client) {
-    await showLanguageServerErrorMessage(vscode.l10n.t('Vizsla language server is not running.'));
+    await showLanguageServerErrorMessage(vscode.l10n.t('Vide language server is not running.'));
     return;
   }
 
@@ -782,11 +782,11 @@ function isQiheSourceUri(uri: vscode.Uri): boolean {
 
 function affectsServerLaunchConfiguration(event: vscode.ConfigurationChangeEvent): boolean {
   return (
-    event.affectsConfiguration('vizsla.server.command') ||
-    event.affectsConfiguration('vizsla.server.args') ||
-    event.affectsConfiguration('vizsla.server.additionalArgs') ||
-    event.affectsConfiguration('vizsla.server.cwd') ||
-    event.affectsConfiguration('vizsla.trace.server')
+    event.affectsConfiguration('vide.server.command') ||
+    event.affectsConfiguration('vide.server.args') ||
+    event.affectsConfiguration('vide.server.additionalArgs') ||
+    event.affectsConfiguration('vide.server.cwd') ||
+    event.affectsConfiguration('vide.trace.server')
   );
 }
 
@@ -795,7 +795,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(outputChannel);
   qiheOutputChannel = vscode.window.createOutputChannel(qiheOutputChannelName);
   context.subscriptions.push(qiheOutputChannel);
-  vizslaStatusController = new VizslaStatusController({
+  videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
     profileDiagnostics: async () => {
       await vscode.commands.executeCommand(profileDiagnosticsCommand);
@@ -805,12 +805,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showOutput,
     log,
   });
-  context.subscriptions.push(vizslaStatusController);
+  context.subscriptions.push(videStatusController);
   qiheStatusBarItem = createQiheStatusBarItem();
   context.subscriptions.push(qiheStatusBarItem);
   updateServerStatus('stopped');
 
-  log('[INFO] Vizsla extension activating...');
+  log('[INFO] Vide extension activating...');
   log(`[INFO] Extension path: ${context.extensionPath}`);
   log(`[INFO] Platform: ${process.platform}-${process.arch}`);
   log(`[INFO] VS Code version: ${vscode.version}`);
@@ -868,7 +868,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const showStatusRegistration = vscode.commands.registerCommand(
     showStatusCommand,
     async () => {
-      await vizslaStatusController?.show();
+      await videStatusController?.show();
     },
   );
   context.subscriptions.push(showStatusRegistration);
@@ -884,7 +884,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const restartAction = vscode.l10n.t('Restart');
       const selection = await vscode.window.showInformationMessage(
         vscode.l10n.t(
-          'Vizsla server configuration changed. Restart the language server to apply it.',
+          'Vide server configuration changed. Restart the language server to apply it.',
         ),
         restartAction,
       );
@@ -898,7 +898,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await startClient(context);
   void promptForMissingProjectConfigs(context);
 
-  log('[INFO] Vizsla extension activated');
+  log('[INFO] Vide extension activated');
 }
 
 export async function deactivate(): Promise<void> {
@@ -910,10 +910,10 @@ export async function deactivate(): Promise<void> {
   activeQiheTokens.clear();
 
   if (outputChannel) {
-    log('[INFO] Vizsla extension deactivating...');
+    log('[INFO] Vide extension deactivating...');
   }
   await stopClient();
   if (outputChannel) {
-    log('[INFO] Vizsla extension deactivated');
+    log('[INFO] Vide extension deactivated');
   }
 }

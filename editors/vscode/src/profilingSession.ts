@@ -66,7 +66,7 @@ export class LspProfileSession {
           },
         },
         initializationOptions: this.configurationProvider(),
-        clientInfo: { name: 'vizsla-profile-runner', version: 'local' },
+        clientInfo: { name: 'vide-profile-runner', version: 'local' },
       },
       timeoutMs,
     );

@@ -373,7 +373,7 @@ mod tests {
     fn test_state_with_root(root_path: AbsPathBuf) -> (GlobalState, Connection) {
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,

@@ -34,12 +34,12 @@ function assetPath(path: string): string {
 ---
 
 <script>
-  import "./vizsla-lab";
+  import "./vide-lab";
 </script>
 
 {
   docs ? (
-    <vizsla-lab
+    <vide-lab
       docs
       scenario={scenario}
       height={height}
@@ -51,9 +51,9 @@ function assetPath(path: string): string {
       selection={selection}
       diagnostics-open={diagnosticsOpen}
       focus-editor={focusEditor}
-    ></vizsla-lab>
+    ></vide-lab>
   ) : (
-    <vizsla-lab
+    <vide-lab
       scenario={scenario}
       height={height}
       theme={theme}
@@ -64,6 +64,6 @@ function assetPath(path: string): string {
       selection={selection}
       diagnostics-open={diagnosticsOpen}
       focus-editor={focusEditor}
-    ></vizsla-lab>
+    ></vide-lab>
   )
 }

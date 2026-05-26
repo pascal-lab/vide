@@ -1,6 +1,6 @@
-import type { VizslaScenario } from "./types";
+import type { VideScenario } from "./types";
 
-type ScenarioFileDefinition = Omit<VizslaScenario["files"][number], "source">;
+type ScenarioFileDefinition = Omit<VideScenario["files"][number], "source">;
 
 interface ScenarioDefinition {
   id: string;
@@ -56,7 +56,7 @@ function scenarioSource(id: string, path: string): string {
   return source;
 }
 
-function loadScenario(definition: ScenarioDefinition): VizslaScenario {
+function loadScenario(definition: ScenarioDefinition): VideScenario {
   return {
     id: definition.id,
     label: definition.label,
@@ -70,11 +70,11 @@ function loadScenario(definition: ScenarioDefinition): VizslaScenario {
   };
 }
 
-export const SCENARIOS: VizslaScenario[] = Object.entries(scenarioDefinitions)
+export const SCENARIOS: VideScenario[] = Object.entries(scenarioDefinitions)
   .map(([metadataPath, rawDefinition]) => scenarioDefinition(metadataPath, rawDefinition))
   .sort((left, right) => left.order - right.order || left.label.localeCompare(right.label))
   .map(loadScenario);
 
-export function getScenario(id: string | null | undefined): VizslaScenario {
+export function getScenario(id: string | null | undefined): VideScenario {
   return SCENARIOS.find((scenario) => scenario.id === id) ?? SCENARIOS[0];
 }

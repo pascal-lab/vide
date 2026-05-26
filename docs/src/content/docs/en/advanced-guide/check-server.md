@@ -36,28 +36,28 @@ These lines confirm the platform, final server command, arguments, and working d
 
 ## 3. Verify the Server Version
 
-Run `Vide: Show Server Version`. The extension uses the current server command, cwd, and environment, combines `vizsla.server.args` with `--version`, and does not append `vizsla.server.additionalArgs`. If `vizsla.server.command` is set, the custom command is used.
+Run `Vide: Show Server Version`. The extension uses the current server command, cwd, and environment, combines `vide.server.args` with `--version`, and does not append `vide.server.additionalArgs`. If `vide.server.command` is set, the custom command is used.
 
 You can also test the binary directly in a terminal:
 
 ```powershell
-vizsla --version
+vide --version
 ```
 
 Windows custom-server example:
 
 ```powershell
-D:\tools\vizsla\vizsla.exe --version
+D:\tools\vide\vide.exe --version
 ```
 
 ## 4. Check Bundled or Custom Server Selection
 
 The default configuration uses the server bundled with the extension. The extension looks under the extension installation's `server` subdirectory:
 
-- Windows: `vizsla.exe`
-- macOS/Linux: `vizsla`
+- Windows: `vide.exe`
+- macOS/Linux: `vide`
 
-If `vizsla.server.command` is configured, the output channel should include:
+If `vide.server.command` is configured, the output channel should include:
 
 ```text
 [INFO] Using custom server command: ...
@@ -67,15 +67,15 @@ Prefer an absolute path for custom servers, and validate it with `--version` fir
 
 ## 5. Enable a Server Log File When Needed
 
-If the process starts but you need server-side logs, pass logging arguments through `vizsla.server.additionalArgs`:
+If the process starts but you need server-side logs, pass logging arguments through `vide.server.additionalArgs`:
 
 ```json
 {
-  "vizsla.server.additionalArgs": [
+  "vide.server.additionalArgs": [
     "--log",
     "debug",
     "--log_file",
-    "D:\\work\\chip\\.vizsla\\server.log"
+    "D:\\work\\chip\\.vide\\server.log"
   ]
 }
 ```

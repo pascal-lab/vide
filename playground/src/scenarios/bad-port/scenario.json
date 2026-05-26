@@ -6,7 +6,7 @@
   "description": "Multi-file semantic diagnostic from a configured source root.",
   "files": [
     {
-      "path": "vizsla.toml",
+      "path": "vide.toml",
       "languageId": "toml"
     },
     {

@@ -12,12 +12,8 @@ export {
   PROJECT_CONFIG_SCHEMA_VERSION,
 } from './generated/projectConfigSchema';
 
-export const PROJECT_CONFIG_FILE_NAME = 'vizsla.toml';
-export const LEGACY_PROJECT_CONFIG_FILE_NAME = 'vizsla_config.toml';
-export const PROJECT_CONFIG_FILE_NAMES = [
-  PROJECT_CONFIG_FILE_NAME,
-  LEGACY_PROJECT_CONFIG_FILE_NAME,
-] as const;
+export const PROJECT_CONFIG_FILE_NAME = 'vide.toml';
+export const PROJECT_CONFIG_FILE_NAMES = [PROJECT_CONFIG_FILE_NAME] as const;
 export const PROJECT_SOURCE_FILE_EXTENSIONS = [
   '.v',
   '.sv',

@@ -1,1 +1,1 @@
-`define VIZSLA_LAB_ENABLE
+`define VIDE_LAB_ENABLE

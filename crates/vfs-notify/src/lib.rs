@@ -549,8 +549,7 @@ mod tests {
 
     impl TestDir {
         fn new(name: &str) -> Self {
-            let dir =
-                tempfile::Builder::new().prefix(&format!("vizsla-{name}-")).tempdir().unwrap();
+            let dir = tempfile::Builder::new().prefix(&format!("vide-{name}-")).tempdir().unwrap();
             let path = AbsPathBuf::assert_utf8(dir.path().to_path_buf());
             Self { _dir: dir, path }
         }

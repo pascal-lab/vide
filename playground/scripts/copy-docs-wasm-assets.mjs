@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import { repoRoot, workspaceRoot } from "./script-utils.mjs";
 
 const source = resolve(repoRoot, "public", "wasm");
-const target = resolve(workspaceRoot, "docs", "public", "vizsla-lab", "wasm");
-const requiredFiles = ["vizsla-lsp.js", "vizsla-core.js", "vizsla-core.wasm"];
+const target = resolve(workspaceRoot, "docs", "public", "vide-lab", "wasm");
+const requiredFiles = ["vide-lsp.js", "vide-core.js", "vide-core.wasm"];
 
 for (const file of requiredFiles) {
   const path = resolve(source, file);
@@ -16,4 +16,4 @@ for (const file of requiredFiles) {
 mkdirSync(resolve(target, ".."), { recursive: true });
 rmSync(target, { recursive: true, force: true });
 cpSync(source, target, { recursive: true, force: true });
-console.log(`Copied Vizsla WASM docs assets to ${target}`);
+console.log(`Copied Vide WASM docs assets to ${target}`);

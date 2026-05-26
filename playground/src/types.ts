@@ -1,16 +1,16 @@
-export interface VizslaScenarioFile {
+export interface VideScenarioFile {
   path: string;
   source: string;
   languageId?: string;
   editable?: boolean;
 }
 
-export interface VizslaScenario {
+export interface VideScenario {
   id: string;
   label: string;
   entryFile: string;
   description: string;
-  files: VizslaScenarioFile[];
+  files: VideScenarioFile[];
 }
 
 export type LspSeverity = 1 | 2 | 3 | 4;

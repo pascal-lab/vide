@@ -6,18 +6,18 @@ import { INITIAL, parseRawGrammar, Registry, type IOnigLib, type StateStack } fr
 import languageConfiguration from "../../../editors/vscode/language-configuration.json";
 import systemVerilogGrammar from "../../../editors/vscode/syntaxes/systemverilog.tmLanguage.json?raw";
 import verilogGrammar from "../../../editors/vscode/syntaxes/verilog.tmLanguage.json?raw";
-import { startVizslaVscodePlatform } from "./vscode-platform";
+import { startVideVscodePlatform } from "./vscode-platform";
 
 let configured = false;
 let cancellationBoundaryInstalled = false;
 let onigLibPromise: Promise<IOnigLib> | null = null;
 let semanticTokenTypes: string[] = [];
-let activeColorScheme: VizslaColorScheme = "dark";
+let activeColorScheme: VideColorScheme = "dark";
 
-export type VizslaColorScheme = "light" | "dark";
+export type VideColorScheme = "light" | "dark";
 
 export async function configureMonaco(): Promise<typeof monaco> {
-  await startVizslaVscodePlatform();
+  await startVideVscodePlatform();
 
   if (!configured) {
     installExpectedCancellationBoundary();
@@ -40,7 +40,7 @@ export async function configureMonaco(): Promise<typeof monaco> {
       aliases: ["Verilog", "verilog"],
     });
 
-    defineVizslaThemes(monaco, []);
+    defineVideThemes(monaco, []);
 
     configured = true;
   }
@@ -70,32 +70,32 @@ function isExpectedMonacoCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === "Canceled" && error.message === "Canceled";
 }
 
-export function syncVizslaSemanticTheme(
+export function syncVideSemanticTheme(
   monacoModule: typeof monaco,
   serverCapabilities: unknown,
-  colorScheme: VizslaColorScheme = activeColorScheme,
+  colorScheme: VideColorScheme = activeColorScheme,
 ): void {
   semanticTokenTypes = semanticTokenTypesFromCapabilities(serverCapabilities);
-  defineVizslaThemes(monacoModule, semanticTokenTypes);
-  setVizslaMonacoTheme(monacoModule, colorScheme);
+  defineVideThemes(monacoModule, semanticTokenTypes);
+  setVideMonacoTheme(monacoModule, colorScheme);
 }
 
-export function setVizslaMonacoTheme(monacoModule: typeof monaco, colorScheme: VizslaColorScheme): void {
+export function setVideMonacoTheme(monacoModule: typeof monaco, colorScheme: VideColorScheme): void {
   activeColorScheme = colorScheme;
-  monacoModule.editor.setTheme(vizslaThemeName(colorScheme));
+  monacoModule.editor.setTheme(videThemeName(colorScheme));
 }
 
-export function vizslaThemeName(colorScheme: VizslaColorScheme): string {
-  return colorScheme === "dark" ? "vizsla-lab-dark" : "vizsla-lab-light";
+export function videThemeName(colorScheme: VideColorScheme): string {
+  return colorScheme === "dark" ? "vide-lab-dark" : "vide-lab-light";
 }
 
-function defineVizslaThemes(monacoModule: typeof monaco, semanticTokenTypes: readonly string[]): void {
+function defineVideThemes(monacoModule: typeof monaco, semanticTokenTypes: readonly string[]): void {
   const semanticModifierRules = Array.from(new Set(semanticTokenTypes)).flatMap((tokenType) => [
     { token: `${tokenType}.read`, fontStyle: "bold" },
     { token: `${tokenType}.write`, fontStyle: "bold underline" },
   ]);
 
-  monacoModule.editor.defineTheme("vizsla-lab-dark", {
+  monacoModule.editor.defineTheme("vide-lab-dark", {
     base: "vs-dark",
     inherit: true,
     rules: [
@@ -119,7 +119,7 @@ function defineVizslaThemes(monacoModule: typeof monaco, semanticTokenTypes: rea
     },
   });
 
-  monacoModule.editor.defineTheme("vizsla-lab-light", {
+  monacoModule.editor.defineTheme("vide-lab-light", {
     base: "vs",
     inherit: true,
     rules: [
@@ -155,7 +155,7 @@ function semanticTokenTypesFromCapabilities(serverCapabilities: unknown): string
   return legend.tokenTypes.filter((item): item is string => typeof item === "string");
 }
 
-export async function wireVizslaVscodeLanguage(
+export async function wireVideVscodeLanguage(
   _editor: monaco.editor.IStandaloneCodeEditor,
 ): Promise<void> {
   await Promise.all([
@@ -174,7 +174,7 @@ export async function wireVizslaVscodeLanguage(
     },
   });
 
-  await wireVizslaTextMateGrammars(registry, new Map([["verilog", "source.verilog"], ["systemverilog", "source.systemverilog"]]));
+  await wireVideTextMateGrammars(registry, new Map([["verilog", "source.verilog"], ["systemverilog", "source.systemverilog"]]));
 }
 
 function applyLanguageConfiguration(languageId: string, raw: VscodeLanguageConfiguration): void {
@@ -209,7 +209,7 @@ function getOnigLib(): Promise<IOnigLib> {
   return onigLibPromise;
 }
 
-async function wireVizslaTextMateGrammars(registry: Registry, grammars: Map<string, string>): Promise<void> {
+async function wireVideTextMateGrammars(registry: Registry, grammars: Map<string, string>): Promise<void> {
   await Promise.all(
     Array.from(grammars, async ([languageId, scopeName]) => {
       const grammar = await registry.loadGrammar(scopeName);
