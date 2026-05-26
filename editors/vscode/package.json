@@ -2,7 +2,7 @@
   "name": "vizsla-lsp",
   "displayName": "Vizsla",
   "description": "%extension.description%",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "vizsla",
   "license": "MIT",
   "repository": {
