@@ -5,7 +5,7 @@ description: Use Vide diagnostics and handle refresh timing, stale results, and 
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
 import VideLab from '../../../../../components/VideLab.astro';
-import codeActionsGif from '../../../assets/features/code-actions.gif';
+import missingPortGif from '../../../assets/features/missing-port.gif';
 import { diagnosticFiles } from '../../../../../examples/dailyUse';
 
 Diagnostics appear in the VS Code `Problems` panel and as editor underlines. Syntax and parse errors usually only need the current file; cross-file semantic diagnostics need project information such as `sources`, `include_dirs`, `defines`, and `libraries`.
@@ -25,22 +25,22 @@ If you need diagnostics while typing:
 ```
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="Animation showing VS Code Problems diagnostics and editor underlines"
-  imageCaption="Diagnostics in VS Code"
-  labCaption="The browser example contains a diagnostic"
+  image={missingPortGif}
+  imageAlt="Animation showing a missing instance port diagnostic in VS Code"
+  imageCaption="Missing port diagnostics in VS Code"
+  labCaption="The browser example reproduces the same missing port"
 >
   <VideLab
     projectId="daily-diagnostics"
     projectLabel="Features: Diagnostics"
-    entryFile="rtl/diagnostic_demo.sv"
+    entryFile="missing_port_example.v"
     files={diagnosticFiles}
     height="100%"
-    initialActiveFile="rtl/diagnostic_demo.sv"
-    initialSelection="8:5-8:22"
+    initialActiveFile="missing_port_example.v"
+    initialSelection="14:5-17:6"
     initialDiagnosticsOpen
-    title="Diagnostics and the Problems Panel"
-    description="This example intentionally leaves a syntax problem. Open the diagnostics panel to see markers and the diagnostics list in the browser playground."
+    title="Missing Port Connection Diagnostic"
+    description="This example intentionally leaves child.y unconnected. Open the diagnostics panel to see markers and the diagnostics list in the browser playground."
   />
 </FeatureExample>
 

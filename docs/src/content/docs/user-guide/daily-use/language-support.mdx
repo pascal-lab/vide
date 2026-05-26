@@ -5,7 +5,7 @@ description: 确认 Vide 如何识别 Verilog/SystemVerilog 文件，以及基�
 
 import FeatureExample from '../../../../components/FeatureExample.astro';
 import VideLab from '../../../../components/VideLab.astro';
-import codeActionsGif from '../../assets/features/code-actions.gif';
+import completionGif from '../../assets/features/completion.gif';
 import { languageFiles } from '../../../../examples/dailyUse';
 
 VS Code 扩展会注册两类语言：
@@ -22,21 +22,21 @@ VS Code 扩展会注册两类语言：
 相关设置参考：[Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens)、[Files](../../../advanced-guide/vscode-settings/#files)。
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="VS Code 中展示 SystemVerilog 语法高亮和语言识别的动图"
-  imageCaption="VS Code 中的语言识别入口"
-  labCaption="右侧示例展示 SystemVerilog 文件识别"
+  image={completionGif}
+  imageAlt="VS Code 中在 Verilog 文件里触发补全的动图"
+  imageCaption="VS Code 中的 Verilog 补全"
+  labCaption="右侧示例使用同一个 Verilog demo"
 >
   <VideLab
     projectId="daily-language"
-    projectLabel="Features: Language Detection"
-    entryFile="rtl/traffic_light.sv"
+    projectLabel="Features: Completion"
+    entryFile="completion.v"
     files={languageFiles}
     height="100%"
-    initialActiveFile="rtl/traffic_light.sv"
-    initialSelection="1:1-5:16"
-    title="语言识别和基础高亮"
-    description="这个示例使用 .sv 文件、typedef enum 和 always_ff，适合确认语法高亮和语言服务器接入。"
+    initialActiveFile="completion.v"
+    initialSelection="16:5-16:12"
+    title="Verilog 文件里的补全"
+    description="这个示例来自 VS Code 录屏里的 adder/top demo，适合确认 .v 文件识别、项目配置和语言服务器接入。"
   />
 </FeatureExample>
 

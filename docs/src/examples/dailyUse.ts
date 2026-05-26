@@ -1,38 +1,39 @@
+const rootProjectConfig = `#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
+sources = ["*.v"]
+
+top_modules = ["top"]
+`;
+
 export const languageFiles = [
   {
     path: 'vide.toml',
     languageId: 'toml',
-    source: `sources = ["rtl/**"]
-`,
+    source: rootProjectConfig,
   },
   {
-    path: 'rtl/traffic_light.sv',
-    source: `typedef enum logic [1:0] {
-  RED,
-  YELLOW,
-  GREEN
-} light_state_t;
-
-module traffic_light (
-  input  logic clk,
-  input  logic rst_n,
-  output light_state_t state_o
+    path: 'completion.v',
+    source: `module adder8 (
+    input  wire [7:0] lhs,
+    input  wire [7:0] rhs,
+    output wire [7:0] sum
 );
-  light_state_t state_q;
+    assign sum = lhs + rhs;
+endmodule
 
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      state_q <= RED;
-    end else begin
-      unique case (state_q)
-        RED:    state_q <= GREEN;
-        GREEN:  state_q <= YELLOW;
-        YELLOW: state_q <= RED;
-      endcase
-    end
-  end
+module top (
+    input  wire [7:0] a,
+    input  wire [7:0] b,
+    output wire [7:0] y
+);
+    wire [7:0] result;
 
-  assign state_o = state_q;
+    adder8 u0(
+        .lhs(a),
+        .rhs(b),
+        .sum(result)
+    );
+
+    assign y = result;
 endmodule
 `,
   },
@@ -42,22 +43,27 @@ export const diagnosticFiles = [
   {
     path: 'vide.toml',
     languageId: 'toml',
-    source: `sources = ["rtl/**"]
-`,
+    source: rootProjectConfig,
   },
   {
-    path: 'rtl/diagnostic_demo.sv',
-    source: `module diagnostic_demo (
-  input  logic [7:0] data_i,
-  output logic [7:0] data_o
+    path: 'missing_port_example.v',
+    source: `module child (
+    input  wire a,
+    input  wire b,
+    output wire y
 );
-  logic [7:0] data_q;
+    assign y = a & b;
+endmodule
 
-  always_comb begin
-    data_q = data_i & ;
-  end
-
-  assign data_o = data_q;
+module top (
+    input  wire a,
+    input  wire b,
+    output wire y
+);
+    child u_child (
+        .a(a),
+        .b(b)
+    );
 endmodule
 `,
   },
@@ -67,53 +73,35 @@ export const navigationFiles = [
   {
     path: 'vide.toml',
     languageId: 'toml',
-    source: `sources = ["rtl/**"]
-`,
+    source: rootProjectConfig,
   },
   {
-    path: 'rtl/pipeline_stage.sv',
-    source: `module pipeline_stage #(
-  parameter int WIDTH = 8
-) (
-  input  logic             clk,
-  input  logic             rst_n,
-  input  logic [WIDTH-1:0] data_i,
-  output logic [WIDTH-1:0] data_o
+    path: 'and_gate.v',
+    source: `module and_gate (
+    input  wire a,
+    input  wire b,
+    output wire y
 );
-  logic [WIDTH-1:0] data_q;
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      data_q <= '0;
-    end else begin
-      data_q <= data_i;
-    end
-  end
-
-  assign data_o = data_q;
+    assign y = a & b;
 endmodule
 `,
   },
   {
-    path: 'rtl/pipeline_top.sv',
-    source: `module pipeline_top (
-  input  logic        clk,
-  input  logic        rst_n,
-  input  logic [15:0] packet_i,
-  output logic [15:0] packet_o
+    path: 'top.v',
+    source: `module top (
+    input  wire sw0,
+    input  wire sw1,
+    output wire led0
 );
-  logic [15:0] staged_packet;
+    wire gate_out;
 
-  pipeline_stage #(
-    .WIDTH(16)
-  ) u_stage (
-    .clk(clk),
-    .rst_n(rst_n),
-    .data_i(packet_i),
-    .data_o(staged_packet)
-  );
+    and_gate u_and_gate (
+        .a(sw0),
+        .b(sw1),
+        .y(gate_out)
+    );
 
-  assign packet_o = staged_packet;
+    assign led0 = gate_out;
 endmodule
 `,
   },
@@ -123,67 +111,41 @@ export const editAidFiles = [
   {
     path: 'vide.toml',
     languageId: 'toml',
-    source: `sources = ["rtl/**"]
-`,
+    source: rootProjectConfig,
   },
   {
-    path: 'rtl/packet_fifo.sv',
-    source: `module packet_fifo #(
-  parameter int DEPTH = 4,
-  parameter int WIDTH = 8
-) (
-  input  logic             clk,
-  input  logic             rst_n,
-  input  logic [WIDTH-1:0] data_i,
-  input  logic             valid_i,
-  output logic [WIDTH-1:0] data_o,
-  output logic             ready_o
+    path: 'code_action_rename.v',
+    source: `module counter (
+    input  wire       clk,
+    input  wire       rst_n,
+    input  wire       tick,
+    output reg  [3:0] count
 );
-  assign data_o = data_i;
-  assign ready_o = valid_i & rst_n;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            count <= 4'd0;
+        end else if (tick) begin
+            count <= count + 4'd1;
+        end
+    end
 endmodule
-`,
-  },
-  {
-    path: 'rtl/fifo_client.sv',
-    source: `module fifo_client (
-  input  logic        clk,
-  input  logic        rst_n,
-  input  logic [15:0] payload_i,
-  input  logic        payload_valid,
-  output logic [15:0] payload_o,
-  output logic        payload_ready
-);
-  packet_fifo #(2, 16) u_fifo (
-    clk,
-    rst_n,
-    payload_i,
-    payload_valid,
-    payload_o,
-    payload_ready
-  );
-endmodule
-`,
-  },
-];
 
-export const formattingFiles = [
-  {
-    path: 'vide.toml',
-    languageId: 'toml',
-    source: `sources = ["rtl/**"]
-`,
-  },
-  {
-    path: 'rtl/formatting_demo.sv',
-    source: `module formatting_demo(input logic clk,input logic rst_n,output logic done_o);
-always_ff@(posedge clk or negedge rst_n)begin
-if(!rst_n)begin
-done_o<=1'b0;
-end else begin
-done_o<=~done_o;
-end
-end
+module top (
+    input  wire       clk,
+    input  wire       rst_n,
+    input  wire       button,
+    output wire [3:0] leds
+);
+    wire [3:0] smp_cnt;
+
+    counter u_counter (
+        .clk(clk),
+        .rst_n(rst_n),
+        .count(smp_cnt),
+        .tick(button)
+    );
+
+    assign leds = smp_cnt;
 endmodule
 `,
   },
@@ -193,41 +155,33 @@ export const structureFiles = [
   {
     path: 'vide.toml',
     languageId: 'toml',
-    source: `sources = ["rtl/**"]
-`,
+    source: rootProjectConfig,
   },
   {
-    path: 'rtl/feature_stage.sv',
-    source: `module feature_stage #(
-  parameter int WIDTH = 8
+    path: 'inlay_hints.v',
+    source: `module mux2 #(
+    parameter WIDTH = 8
 ) (
-  input  logic [WIDTH-1:0] data_i,
-  output logic [WIDTH-1:0] data_o
+    input  wire [WIDTH-1:0] lhs,
+    input  wire [WIDTH-1:0] rhs,
+    input  wire             sel,
+    output wire [WIDTH-1:0] out
 );
-  assign data_o = data_i;
+    assign out = sel ? rhs : lhs;
 endmodule
-`,
-  },
-  {
-    path: 'rtl/feature_top.sv',
-    source: `module feature_top (
-  input  logic [7:0] sample_i,
-  output logic [7:0] sample_o
+
+module top (
+    input  wire [7:0] a,
+    input  wire [7:0] b,
+    input  wire       choose_b,
+    output wire [7:0] y
 );
-  logic [7:0] stage_a;
-  logic [7:0] stage_b;
-
-  feature_stage u_decode (
-    .data_i(sample_i),
-    .data_o(stage_a)
-  );
-
-  feature_stage u_execute (
-    .data_i(stage_a),
-    .data_o(stage_b)
-  );
-
-  assign sample_o = stage_b;
+    mux2 #(.WIDTH(8)) u_mux (
+        .lhs(a),
+        .rhs(b),
+        .sel(choose_b),
+        .out(y)
+    );
 endmodule
 `,
   },
