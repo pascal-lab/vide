@@ -5,7 +5,7 @@ description: Use definition, references, hover, and document highlights, and han
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
 import VideLab from '../../../../../components/VideLab.astro';
-import codeActionsGif from '../../../assets/features/code-actions.gif';
+import gotoDefGif from '../../../assets/features/goto-def.gif';
 import { navigationFiles } from '../../../../../examples/dailyUse';
 
 Vide provides these reading features:
@@ -18,21 +18,21 @@ Vide provides these reading features:
 Related settings reference: [Scope](../../../advanced-guide/vscode-settings/#scope), [Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens).
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="Animation showing VS Code navigation and hover"
-  imageCaption="Navigation and hover in VS Code"
-  labCaption="Try cross-file navigation in the browser"
+  image={gotoDefGif}
+  imageAlt="Animation showing VS Code jumping from top to the and_gate definition"
+  imageCaption="Cross-file navigation in VS Code"
+  labCaption="Try the same jump in the browser"
 >
   <VideLab
     projectId="daily-navigation"
     projectLabel="Features: Navigation"
-    entryFile="rtl/pipeline_top.sv"
+    entryFile="top.v"
     files={navigationFiles}
     height="100%"
-    initialActiveFile="rtl/pipeline_top.sv"
-    initialSelection="9:3-9:17"
-    title="Cross-file Navigation and Hover"
-    description="Try Go to Definition or Hover on pipeline_stage. The target module lives in another file, and the project is provided directly by this docs page."
+    initialActiveFile="top.v"
+    initialSelection="8:5-8:13"
+    title="Jump from Instance to Module Definition"
+    description="Try Go to Definition on and_gate. The target module lives in another file, and the project is provided directly by this docs page."
   />
 </FeatureExample>
 

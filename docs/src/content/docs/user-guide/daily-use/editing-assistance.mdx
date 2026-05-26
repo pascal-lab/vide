@@ -5,7 +5,7 @@ description: 使用补全、签名帮助、重命名、端口/参数修复和诊
 
 import FeatureExample from '../../../../components/FeatureExample.astro';
 import VideLab from '../../../../components/VideLab.astro';
-import codeActionsGif from '../../assets/features/code-actions.gif';
+import codeActionRenameGif from '../../assets/features/code-action-rename.gif';
 import { editAidFiles } from '../../../../examples/dailyUse';
 
 Vide 会在实例连接、参数赋值、表达式、预处理指令和常见 RTL 结构附近提供补全。把光标放在实例参数或端口列表里时，签名帮助会显示目标模块的参数和端口信息。
@@ -13,21 +13,21 @@ Vide 会在实例连接、参数赋值、表达式、预处理指令和常见 RT
 相关设置参考：[Signature Help](../../../advanced-guide/vscode-settings/#signature-help)、[Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics)。
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="VS Code 中打开代码操作菜单并选择快速修复的动图"
-  imageCaption="VS Code 中的快速修复入口"
-  labCaption="右侧示例可直接编辑和运行"
+  image={codeActionRenameGif}
+  imageAlt="VS Code 中使用代码操作和重命名的动图"
+  imageCaption="VS Code 中的代码操作和重命名"
+  labCaption="右侧示例复用同一个 counter demo"
 >
   <VideLab
     projectId="daily-edit-aids"
     projectLabel="Features: Edit Aids"
-    entryFile="rtl/fifo_client.sv"
+    entryFile="code_action_rename.v"
     files={editAidFiles}
     height="100%"
-    initialActiveFile="rtl/fifo_client.sv"
-    initialSelection="9:3-9:14"
-    title="有序端口、参数和代码操作"
-    description="这个实例使用有序参数和有序端口。试试行内提示、签名帮助，以及把有序连接转换成命名连接的操作。"
+    initialActiveFile="code_action_rename.v"
+    initialSelection="22:16-22:23"
+    title="代码操作和重命名"
+    description="这个示例使用 counter/top demo。试试在实例附近打开灯泡菜单，或先用 Find References 检查 smp_cnt 的重命名范围。"
   />
 </FeatureExample>
 
