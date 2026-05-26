@@ -139,7 +139,7 @@ pub(crate) fn diagnostic(
     let tags = diagnostic_tags(&diag);
     lsp_types::Diagnostic {
         range: self::range(line_info, diag.range),
-        severity: diagnostic_severity(diag.severity),
+        severity: diagnostic_severity(&diag),
         code: Some(lsp_types::NumberOrString::String(format!("{}:{}", diag.subsystem, diag.code))),
         code_description: None,
         source: Some(
@@ -203,9 +203,15 @@ fn diagnostic_selector_hints(diag: &ide_diagnostics::Diagnostic) -> Vec<String> 
     selectors
 }
 
-fn diagnostic_severity(severity: SlangDiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {
+fn diagnostic_severity(
+    diag: &ide_diagnostics::Diagnostic,
+) -> Option<lsp_types::DiagnosticSeverity> {
+    if diagnostic_is_unnecessary(diag) {
+        return Some(lsp_types::DiagnosticSeverity::HINT);
+    }
+
     use lsp_types::DiagnosticSeverity as LspSeverity;
-    match severity {
+    match diag.severity {
         SlangDiagnosticSeverity::Ignored => None,
         SlangDiagnosticSeverity::Note => Some(LspSeverity::INFORMATION),
         SlangDiagnosticSeverity::Warning => Some(LspSeverity::WARNING),
@@ -223,6 +229,10 @@ fn diagnostic_tags(diag: &ide_diagnostics::Diagnostic) -> Option<Vec<lsp_types::
         .collect::<Vec<_>>();
 
     (!tags.is_empty()).then_some(tags)
+}
+
+fn diagnostic_is_unnecessary(diag: &ide_diagnostics::Diagnostic) -> bool {
+    diag.tags.contains(&ide_diagnostics::DiagnosticTag::Unnecessary)
 }
 
 fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
@@ -924,7 +934,7 @@ mod tests {
     use crate::i18n::{I18n, Locale};
 
     #[test]
-    fn diagnostic_maps_unnecessary_tag() {
+    fn diagnostic_maps_unnecessary_tag_as_hint() {
         let line_info = LineInfo {
             index: Arc::new(LineIndex::new("logic inactive;\n")),
             ending: LineEnding::Unix,
@@ -948,6 +958,8 @@ mod tests {
 
         let lsp_diag = diagnostic(I18n::new(Locale::En), &line_info, diag);
 
+        assert_eq!(lsp_diag.severity, Some(lsp_types::DiagnosticSeverity::HINT));
+        assert_eq!(lsp_diag.code, Some(lsp_types::NumberOrString::String("0:2".to_owned())));
         assert_eq!(lsp_diag.tags, Some(vec![lsp_types::DiagnosticTag::UNNECESSARY]));
     }
 }
