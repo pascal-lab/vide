@@ -37,6 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -67,15 +68,8 @@ jobs:
             pr_number="${metadata_pr_number}"
           fi
 
-          mode="none"
-          if [ "${metadata_action}" = "closed" ]; then
-            mode="cleanup"
-          elif [ "${has_preview_artifact}" = "true" ]; then
-            mode="deploy"
-          fi
-
-          if [ "${mode}" = "none" ]; then
-            echo "No preview or cleanup artifact found for workflow run ${WORKFLOW_RUN_ID}."
+          if [ "${metadata_action}" != "closed" ] && [ "${has_preview_artifact}" != "true" ]; then
+            echo "No current preview deploy or cleanup target found for workflow run ${WORKFLOW_RUN_ID}."
             echo "mode=none" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -83,6 +77,29 @@ jobs:
           if ! [[ "${pr_number}" =~ ^[0-9]+$ ]]; then
             echo "No pull request number found for workflow run ${GITHUB_RUN_ID}."
             exit 1
+          fi
+
+          mode="none"
+          if [ "${metadata_action}" = "closed" ]; then
+            mode="cleanup"
+          elif [ "${has_preview_artifact}" = "true" ]; then
+            pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+            pr_state="$(jq -r '.state' <<< "${pr_json}")"
+            pr_head_sha="$(jq -r '.head.sha' <<< "${pr_json}")"
+
+            if [ "${pr_state}" != "open" ]; then
+              echo "PR #${pr_number} is ${pr_state}; removing preview instead of deploying stale artifact."
+              mode="cleanup"
+            elif [ "${pr_head_sha}" != "${WORKFLOW_HEAD_SHA}" ]; then
+              echo "Workflow run ${WORKFLOW_RUN_ID} is for ${WORKFLOW_HEAD_SHA}, but PR #${pr_number} is now at ${pr_head_sha}; skipping stale preview deploy."
+            else
+              mode="deploy"
+            fi
+          fi
+
+          if [ "${mode}" = "none" ]; then
+            echo "mode=none" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
 
           preview_path="preview/pr-${pr_number}/"
