@@ -1,0 +1,51 @@
+---
+title: 结构辅助
+description: 使用行内提示、语义高亮、实例数量提示、大纲、折叠和选择扩展。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../assets/features/code-actions.gif';
+import { structureFiles } from '../../../../examples/dailyUse';
+
+结构辅助的目标是让 RTL 阅读更少依赖来回跳转：
+
+- 端口连接行内提示：在实例连接旁显示目标端口名。
+- 参数赋值行内提示：在参数列表里显示目标参数名。
+- 结构结尾行内提示：在 `endmodule` 等结尾处显示对应结构名。
+- 语义高亮：在主题支持时区分端口方向、时钟复位和读写位置。
+- 实例数量提示：在模块声明上方显示被实例化次数。
+- 大纲、折叠和扩大/缩小选择：帮助浏览文件结构。
+
+相关设置参考：[Inlay Hints](../../../advanced-guide/vscode-settings/#inlay-hints)、[Lens](../../../advanced-guide/vscode-settings/#lens)、[Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens)。
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="VS Code 中展示语义高亮、大纲和实例数量提示的动图"
+  imageCaption="VS Code 中的结构化阅读辅助"
+  labCaption="右侧示例包含模块层级和实例"
+>
+  <VizslaLab
+    projectId="daily-structure"
+    projectLabel="Features: Structure"
+    entryFile="rtl/feature_top.sv"
+    files={structureFiles}
+    height="100%"
+    initialActiveFile="rtl/feature_top.sv"
+    initialSelection="8:3-15:5"
+    title="语义高亮、折叠和实例数量"
+    description="这个示例包含两个模块和两个实例，适合观察语义高亮、折叠范围、引用和实例数量提示。"
+  />
+</FeatureExample>
+
+## 行内提示太多或太少
+
+在 VS Code 设置里搜索 `Vide inlay hints`，按类型开关端口连接、参数赋值和结构结尾提示。端口和参数提示依赖目标模块解析；如果提示缺失，先确认实例模块名可以跳转到定义。
+
+## 实例数量不显示
+
+实例数量提示需要项目里能解析到模块关系。只打开单个文件，或 `sources = []` 时，结果可能不完整。先补 `sources` 并执行 `Vide：重新加载项目配置`。
+
+## 颜色看起来没变化
+
+语义高亮还依赖当前 VS Code 主题是否为这些 token 提供样式。可以先切换主题验证；如果仍然没有变化，检查 `vizsla.semantic.tokens.*` 设置是否被关闭。

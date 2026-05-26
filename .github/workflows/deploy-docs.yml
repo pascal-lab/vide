@@ -1,0 +1,211 @@
+name: Deploy docs to Aliyun OSS
+
+on:
+  workflow_run:
+    workflows: ["Build docs"]
+    types: [completed]
+  workflow_dispatch:
+  release:
+    types: [published]
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+env:
+  ASTRO_SITE: https://vide.pascal-lab.net
+
+jobs:
+  deploy-preview:
+    name: Deploy PR preview
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      vars.ENABLE_DOCS_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve preview target
+        id: preview
+        run: |
+          set -euo pipefail
+
+          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "${GITHUB_EVENT_PATH}")"
+          if ! [[ "${pr_number}" =~ ^[0-9]+$ ]]; then
+            echo "No pull request number found for workflow run ${GITHUB_RUN_ID}."
+            exit 1
+          fi
+
+          preview_path="preview/pr-${pr_number}/"
+          preview_url="https://vide.pascal-lab.net/${preview_path}"
+
+          echo "pr_number=${pr_number}" >> "${GITHUB_OUTPUT}"
+          echo "path=${preview_path}" >> "${GITHUB_OUTPUT}"
+          echo "url=${preview_url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download preview artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vide-docs-preview
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: preview-dist
+
+      - name: Setup ossutil
+        uses: manyuanrong/setup-ossutil@v2.0
+        with:
+          endpoint: ${{ secrets.endpoint }}
+          access-key-id: ${{ secrets.accessKeyId }}
+          access-key-secret: ${{ secrets.accessKeySecret }}
+
+      - name: Deploy preview to OSS
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+          PREVIEW_PATH: ${{ steps.preview.outputs.path }}
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          case "${PREVIEW_PATH}" in
+            preview/pr-[0-9]*/) ;;
+            *)
+              echo "Invalid preview path: ${PREVIEW_PATH}"
+              exit 1
+              ;;
+          esac
+
+          target="oss://${OSS_BUCKET_NAME}/${PREVIEW_PATH}"
+          ossutil rm "${target}" -rf || true
+          ossutil cp preview-dist "${target}" -rf
+
+          echo "Preview deployed to ${PREVIEW_URL}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Comment preview URL
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ steps.preview.outputs.pr_number }}
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            const previewUrl = process.env.PREVIEW_URL;
+            const marker = `<!-- vide-docs-preview:${prNumber} -->`;
+            const body = `${marker}\nDocs preview: ${previewUrl}`;
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+
+  deploy-production:
+    name: Deploy production docs
+    if: >
+      (github.event_name == 'release' && github.event.release.prerelease != true && vars.ENABLE_DOCS_DEPLOY == 'true') ||
+      (github.event_name == 'workflow_dispatch' && vars.ENABLE_DOCS_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    environment:
+      name: docs
+      url: https://vide.pascal-lab.net
+    env:
+      ASTRO_BASE: /
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: docs
+
+      - name: Build docs
+        run: npm run build
+        working-directory: docs
+
+      - name: Setup ossutil
+        uses: manyuanrong/setup-ossutil@v2.0
+        with:
+          endpoint: ${{ secrets.endpoint }}
+          access-key-id: ${{ secrets.accessKeyId }}
+          access-key-secret: ${{ secrets.accessKeySecret }}
+
+      - name: Deploy production to OSS
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          for key in _astro pagefind advanced-guide changelog en playground schemas user-guide developer-guide staging 404.html index.html robots.txt sitemap-0.xml sitemap-index.xml; do
+            ossutil rm "oss://${OSS_BUCKET_NAME}/${key}" -rf || true
+          done
+
+          ossutil cp docs/dist "oss://${OSS_BUCKET_NAME}/" -rf
+
+  cleanup-preview:
+    name: Remove closed PR preview
+    if: >
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      vars.ENABLE_DOCS_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup ossutil
+        uses: manyuanrong/setup-ossutil@v2.0
+        with:
+          endpoint: ${{ secrets.endpoint }}
+          access-key-id: ${{ secrets.accessKeyId }}
+          access-key-secret: ${{ secrets.accessKeySecret }}
+
+      - name: Delete preview from OSS
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+          PREVIEW_PATH: preview/pr-${{ github.event.pull_request.number }}/
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          ossutil rm "oss://${OSS_BUCKET_NAME}/${PREVIEW_PATH}" -rf || true

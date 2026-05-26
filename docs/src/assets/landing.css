@@ -49,3 +49,26 @@
     linear-gradient(180deg, hsla(var(--vizsla-accent-hsl), 0.08), transparent),
     var(--sl-color-black);
 }
+
+@media (min-width: 72rem) {
+  :root {
+    --vizsla-toc-width: 14rem;
+  }
+
+  .right-sidebar-container {
+    width: calc(
+      var(--vizsla-toc-width) + (100% - var(--sl-content-width) - var(--vizsla-toc-width)) / 2
+    );
+  }
+
+  [data-has-sidebar][data-has-toc] .main-pane {
+    width: calc(
+      var(--sl-content-width) + (100% - var(--sl-content-width) - var(--vizsla-toc-width)) / 2
+    );
+  }
+
+  .right-sidebar-panel .sl-container {
+    width: calc(var(--vizsla-toc-width) - 2 * var(--sl-sidebar-pad-x));
+    max-width: calc(var(--vizsla-toc-width) - 2 * var(--sl-sidebar-pad-x));
+  }
+}

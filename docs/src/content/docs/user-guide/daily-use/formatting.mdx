@@ -1,0 +1,52 @@
+---
+title: 格式化
+description: 使用 Verilog/SystemVerilog 格式化，并处理 verible 路径和参数问题。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../assets/features/code-actions.gif';
+import { formattingFiles } from '../../../../examples/dailyUse';
+
+格式化入口包括 VS Code 的 `Format Document`、`Format Selection` 和按 Enter 时的自动缩进行为。当前格式化后端只有 `verible`，会调用外部 `verible-verilog-format`；Vide 不随扩展打包这个工具。
+
+相关设置参考：[Formatter 和 Formatting](../../../advanced-guide/vscode-settings/#formatter-和-formatting)。
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="VS Code 中执行格式化命令的动图"
+  imageCaption="VS Code 中的格式化入口"
+  labCaption="右侧示例保留待格式化源码"
+>
+  <VizslaLab
+    projectId="daily-formatting"
+    projectLabel="Features: Formatting"
+    entryFile="rtl/formatting_demo.sv"
+    files={formattingFiles}
+    height="100%"
+    initialActiveFile="rtl/formatting_demo.sv"
+    initialSelection="1:1-3:1"
+    title="格式化前的源文件"
+    description="这个示例保留紧凑排版，方便和 VS Code 里的 Format Document、Format Selection 入口对照。"
+  />
+</FeatureExample>
+
+## 第一次配置 verible
+
+如果 `verible-verilog-format` 已经在 VS Code 进程可见的 `PATH` 中，可以直接使用格式化命令。如果不确定，建议写绝对路径：
+
+```json
+{
+  "vizsla.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
+}
+```
+
+## 格式化没有结果或失败
+
+先确认当前文件是 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi`。然后减少自定义 `vizsla.formatter.args`，用默认参数验证一次。
+
+格式化失败通常会显示外部工具输出的错误。路径里有空格时仍然写普通 JSON 字符串，不要自己额外加一层引号。
+
+## 按 Enter 时缩进不符合预期
+
+按 Enter 的辅助格式化由 `vizsla.formatting.on.enter` 控制，注释里的 Enter 行为由 `vizsla.formatting.in.comments` 控制。如果项目风格不适合自动处理，可以只关闭 Enter 行为，保留手动 `Format Document`。

@@ -1,0 +1,128 @@
+---
+title: 快速开始
+description: 安装 Vide 扩展并确认核心 IDE 功能可用。
+---
+
+import VizslaLab from '../../../components/VizslaLab.astro';
+
+export const quickStartFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]\n`,
+  },
+  {
+    path: "rtl/quick_delay.sv",
+    source: `module quick_delay #(
+  parameter int STAGES = 2
+) (
+  input  logic clk,
+  input  logic rst_n,
+  input  logic valid_i,
+  output logic valid_o
+);
+  logic [STAGES-1:0] pipe;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      pipe <= '0;
+    end else begin
+      pipe <= {pipe[STAGES-2:0], valid_i};
+    end
+  end
+
+  assign valid_o = pipe[STAGES-1];
+endmodule
+`,
+  },
+  {
+    path: "rtl/quick_start_top.sv",
+    source: `module quick_start_top (
+  input  logic clk,
+  input  logic rst_n,
+  input  logic start,
+  output logic done
+);
+  logic valid_q;
+
+  quick_delay #(
+    .STAGES(2)
+  ) u_delay (
+    .clk(clk),
+    .rst_n(rst_n),
+    .valid_i(start),
+    .valid_o(valid_q)
+  )
+
+  assign done = valid_q;
+endmodule
+`,
+  },
+];
+
+按下面的步骤，用几分钟确认 Vide 已经能在 VS Code 里工作。
+
+## 1. 安装扩展
+
+在 VS Code 的扩展面板中搜索显示名 `Vide` 并安装即可。
+
+![vizsla in extension market](../assets/quick-start/extension-marketplace.png)
+
+## 2. 打开工程目录
+
+用 VS Code 打开包含 RTL 源码的目录。后面文档里的「工作区根目录」，指的就是你在 VS Code 里打开的这个顶层目录。
+
+如果这个目录里有 Verilog/SystemVerilog 源文件，但没有 `vizsla.toml` 或旧版且已弃用的 `vizsla_config.toml`，扩展会提示你创建默认的项目配置文件。选择创建后，扩展会写入一个保守的 `vizsla.toml`，然后重新加载 Vide。
+
+![创建项目配置文件提示](../assets/quick-start/create-manifest-notification.png)
+
+默认配置会写入 `sources = []`。这表示 Vide 暂时只提供基础编辑体验，例如语法高亮、单文件错误提示、状态栏和命令；等工程目录确认清楚后再补 `sources`。
+
+等你准备让 Vide 按真实工程理解文件关系时，再把源码目录写进 `sources`，例如：
+
+```toml
+sources = ["rtl/**"]
+```
+
+完整默认模板，以及 `sources = []` 和省略 `sources` 的区别，见 [第一个工程](../first-project/)。
+
+## 3. 确认状态栏
+
+扩展激活后，VS Code 右侧状态栏会出现名为 `Vide` 的状态项。正常启动后通常只显示 `Vide`；启动或停止时会显示旋转图标，缺少项目配置文件时会显示警告图标，启动失败或项目配置失败时会显示错误图标。把鼠标停在状态项上，可以看到当前详情。
+
+![status bar](../assets/quick-start/status-bar.png)
+
+点击状态项会打开状态菜单。中文界面里常用的入口包括：打开项目配置文件、创建项目配置文件、重新加载项目、重启语言服务器、分析诊断性能、显示输出。
+
+![status menu](../assets/quick-start/status-menu.png)
+
+## 4. 打开 Verilog/SystemVerilog 文件
+
+打开 Verilog `.v`/`.vh` 文件，或 SystemVerilog `.sv`/`.svh`/`.svi` 文件。VS Code 应该识别对应语言并启用语法高亮和语言服务。
+
+![example](../assets/quick-start/editor-example.png)
+
+## 5. 试用核心功能
+
+你可以按这个顺序试一下：
+
+1. 写一处明显语法错误，查看 `Problems` 面板中的诊断，也就是错误、警告和提示。
+2. 在模块名、信号名或实例名上执行 `Go to Definition` 或 `Go to Declaration`，看看能不能跳到对应位置。
+3. 在实例端口连接、参数赋值、表达式或预处理位置触发补全。
+4. 把光标放到符号上查看悬停说明。
+
+<VizslaLab
+  projectId="quick-start"
+  projectLabel="Quick Start"
+  entryFile="rtl/quick_start_top.sv"
+  files={quickStartFiles}
+  load="visible"
+  activeFile="rtl/quick_start_top.sv"
+  selection="16:3-16:4"
+  diagnosticsOpen
+  title="从一个小错误开始"
+  description="这个 quick-start 工程一开始少了一个分号。先查看诊断，把实例结尾修成 `);`，再试用悬停、补全和跳转。"
+/>
+
+修改 Vide 的服务器启动设置后，如果 VS Code 弹出提示，请在中文界面选择 `重启`；英文界面对应按钮是 `Restart`。

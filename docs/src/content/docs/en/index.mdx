@@ -1,15 +1,15 @@
 ---
-title: Vizsla User Guide
-description: User guide for the Verilog/SystemVerilog language server and VS Code extension.
+title: Vide Docs
+description: Documentation for the Verilog/SystemVerilog language server, VS Code extension, and Playground.
 template: splash
 editUrl: false
 lastUpdated: false
 hero:
-  title: Vizsla
+  title: Vide
   tagline: A language server and VS Code extension for Verilog and SystemVerilog that brings common RTL IDE features into your editor.
   actions:
     - text: Quick Start
-      link: ./quick-start/
+      link: ./user-guide/quick-start/
       icon: right-arrow
     - text: Open Playground
       link: ./playground/
@@ -38,79 +38,69 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   </Card>
 </CardGrid>
 
-## Start Reading
+## Choose an Entry Point
 
 <CardGrid>
   <LinkCard
-    title="Quick Start"
-    href="./quick-start/"
-    description="Follow the normal user path: install the extension, open an RTL directory, check the status bar, and try the core IDE features."
+    title="User Guide"
+    href="./user-guide/"
+    description="Install the extension, open a project, configure a manifest, and use diagnostics, navigation, completion, formatting, and Qihe in daily work."
+  />
+  <LinkCard
+    title="Advanced"
+    href="./advanced-guide/"
+    description="Install local VSIX packages, replace the server, inspect commands and logs, and understand the project analysis model."
   />
   <LinkCard
     title="Playground"
     href="./playground/"
     description="Run multi-file RTL examples in the browser and try hover, completion, navigation, diagnostics, inlay hints, and rename."
-  />
-  <LinkCard
-    title="Playground"
-    href="./playground/"
-    description="Run multi-file RTL examples in the browser and try hover, completion, navigation, diagnostics, inlay hints, and rename."
-  />
-  <LinkCard
-    title="Installation"
-    href="./installation/"
-    description="Install the VS Code extension for normal use; use offline VSIX packages or custom servers only when needed."
-  />
-  <LinkCard
-    title="First Project"
-    href="./first-project/"
-    description="Prepare a recommended layout and understand when you need vizsla.toml and what the default configuration means."
-  />
-  <LinkCard
-    title="Project Configuration"
-    href="./project-configuration/"
-    description="Write vizsla.toml and configure sources, include_dirs, defines, and libraries."
-  />
-</CardGrid>
-
-## Common References
-
-<CardGrid>
-  <LinkCard
-    title="Daily Use"
-    href="./daily-use/"
-    description="Learn diagnostics, navigation, completion, formatting, code actions, semantic highlighting, and code lens by feature."
-  />
-  <LinkCard
-    title="VS Code Settings"
-    href="./vscode-settings/"
-    description="Reference server, files, workspace, diagnostics, formatter, and other settings."
-  />
-  <LinkCard
-    title="Commands, Status, and Logs"
-    href="./commands-status-logs/"
-    description="See command palette commands, status bar states, and output channel behavior."
-  />
-  <LinkCard
-    title="Server Self-Check Flow"
-    href="./check-server/"
-    description="Step through bundled-server or custom-server launch checks."
-  />
-  <LinkCard
-    title="Troubleshooting"
-    href="./troubleshooting/"
-    description="Debug server startup failures, stale diagnostics, file watching, and formatting issues."
   />
   <LinkCard
     title="Changelog"
     href="./changelog/"
-    description="Read user-visible breaking changes, fixes, and improvements for released versions."
+    description="Read user-visible changes, fixes, and upgrade impact for released versions."
+  />
+</CardGrid>
+
+## Common Paths
+
+<CardGrid>
+  <LinkCard
+    title="Installation"
+    href="./user-guide/installation/"
+    description="Install the extension from VS Code Marketplace for normal use."
+  />
+  <LinkCard
+    title="Quick Start"
+    href="./user-guide/quick-start/"
+    description="Open an RTL project, check the status bar, and try the core IDE features."
+  />
+  <LinkCard
+    title="Daily Use"
+    href="./user-guide/daily-use/"
+    description="Find language support, diagnostics, navigation, editing assistance, formatting, structure help, and Qihe by task."
+  />
+  <LinkCard
+    title="VS Code Settings Reference"
+    href="./advanced-guide/vscode-settings/"
+    description="Reference server, Qihe, diagnostics, formatter, inlay hints, and other settings."
+  />
+  <LinkCard
+    title="Operations Reference"
+    href="./advanced-guide/commands-status-logs/"
+    description="See command IDs, status bar behavior, output channels, and diagnostics profiling artifacts."
+  />
+  <LinkCard
+    title="Build from Source"
+    href="./advanced-guide/build-from-source/"
+    description="Build the language server, VS Code extension, and local VSIX packages."
   />
 </CardGrid>
 
 ## Project Layout
 
-Vizsla has two main parts:
+Vide has two main parts:
 
 - `vizsla`: the Rust LSP server. It reads projects, parses source files, maintains semantic information, and responds to editor requests.
 - `editors/vscode`: the VS Code extension. It contributes Verilog/SystemVerilog language configuration, syntax highlighting, commands, a status bar item, and starts the language server.

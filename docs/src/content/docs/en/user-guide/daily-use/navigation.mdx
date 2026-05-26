@@ -1,0 +1,56 @@
+---
+title: Navigation and Reading
+description: Use definition, references, hover, and document highlights, and handle failed navigation or duplicate modules.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../../assets/features/code-actions.gif';
+import { navigationFiles } from '../../../../../examples/dailyUse';
+
+Vide provides these reading features:
+
+- `Go to Definition` / `Go to Declaration`: jump to symbols, modules, ports, parameters, or instantiated targets.
+- `Find References`: find symbol references.
+- Hover: inspect signatures for modules, ports, parameters, tasks, and functions.
+- Document Highlight: highlight uses of the same symbol in the current file.
+
+Related settings reference: [Scope](../../../advanced-guide/vscode-settings/#scope), [Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens).
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="Animation showing VS Code navigation and hover"
+  imageCaption="Navigation and hover in VS Code"
+  labCaption="Try cross-file navigation in the browser"
+>
+  <VizslaLab
+    projectId="daily-navigation"
+    projectLabel="Features: Navigation"
+    entryFile="rtl/pipeline_top.sv"
+    files={navigationFiles}
+    height="100%"
+    initialActiveFile="rtl/pipeline_top.sv"
+    initialSelection="9:3-9:17"
+    title="Cross-file Navigation and Hover"
+    description="Try Go to Definition or Hover on pipeline_stage. The target module lives in another file, and the project is provided directly by this docs page."
+  />
+</FeatureExample>
+
+## Definition Does Not Jump
+
+Run `Go to Definition` on the instance module name first. If the module name itself does not jump, the target file is usually not loaded through project configuration:
+
+- Does `sources` match the file that defines the target module?
+- Does `include_dirs` include the include directory?
+- Do `defines` enable the branch that contains the target?
+- Does `libraries` include the dependency project?
+
+See [Project Configuration](../../project-configuration/) for the fields.
+
+## Duplicate Modules Jump Somewhere Unexpected
+
+Best-effort indexing can make a nearest-candidate guess for reading, but this is not a SystemVerilog language rule. In real projects, handle duplicate module names through explicit project configuration, library boundaries, or your build scripts. For the exact behavior without full configuration, see [Navigation and Duplicate Modules](../../../advanced-guide/parsing-and-analysis/#navigation-and-duplicate-modules).
+
+## References or Rename Miss Files
+
+Confirm that the current file belongs to the same project view. With only one file open, Vide may only handle that file or locally indexed information. Add the related sources to `sources`, then run `Vide: Reload Project Configuration`.

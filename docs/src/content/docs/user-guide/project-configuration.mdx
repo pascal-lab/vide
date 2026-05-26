@@ -1,0 +1,229 @@
+---
+title: 项目配置
+description: 配置 vizsla.toml 项目配置文件、源文件、include 目录和宏定义。
+---
+
+import VizslaLab from "../../../components/VizslaLab.astro";
+
+export const configuredProjectFiles = [
+  {
+    path: "vizsla.toml",
+    languageId: "toml",
+    editable: false,
+    source: `sources = ["rtl/**"]
+include_dirs = ["include"]
+defines = ["FEATURE_PIPELINE=1"]
+top_modules = ["feature_gate"]
+`,
+  },
+  {
+    path: "include/feature_defs.svh",
+    source: `\`ifndef FEATURE_DEFS_SVH
+\`define FEATURE_DEFS_SVH
+\`define FEATURE_WIDTH 12
+\`endif
+`,
+  },
+  {
+    path: "rtl/feature_gate.sv",
+    source: `\`include "feature_defs.svh"
+
+module feature_gate (
+  input  logic                       clk,
+  input  logic                       rst_n,
+  input  logic [\`FEATURE_WIDTH-1:0] data_i,
+  output logic [\`FEATURE_WIDTH-1:0] data_o
+);
+\`ifdef FEATURE_PIPELINE
+  logic [\`FEATURE_WIDTH-1:0] data_q;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      data_q <= '0;
+    end else begin
+      data_q <= data_i;
+    end
+  end
+
+  assign data_o = data_q;
+\`else
+  assign data_o = data_i;
+\`endif
+endmodule
+`,
+  },
+];
+
+项目配置文件回答的是这些问题：哪些 RTL 文件属于这个工程，include 文件去哪找，启用哪些宏，外部依赖放在哪里。推荐文件名是 `vizsla.toml`。旧文件名 `vizsla_config.toml` 仍然兼容，但已经弃用；两个文件同时存在时，Vide 会优先读取 `vizsla.toml`。
+
+项目配置文件通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vide 不会自动向父目录或子目录寻找其它项目配置文件。
+
+## 最小可用配置
+
+大多数小工程可以从这几行开始：
+
+```toml
+sources = ["rtl/**"]
+include_dirs = ["include"]
+defines = ["SYNTHESIS"]
+top_modules = ["top"]
+```
+
+- `sources`：告诉 Vide 哪些 RTL 文件属于工程。上面的 `rtl/**` 表示包含 `rtl` 目录以及它下面子目录里的文件。
+- `include_dirs`：告诉 Vide include 文件去哪找。
+- `defines`：预先定义宏，相当于编译命令里的 `+define+SYNTHESIS` 或 `-D SYNTHESIS`。
+- `top_modules`：声明顶层模块名。它不会决定扫描哪些文件，只帮助项目分析更贴近你的真实入口。
+
+刚打开一个工程时，可以先保留默认模板里的 `sources = []`，确认语法高亮和单文件错误提示正常。等工程结构确认清楚后，再把 `sources` 改成真实目录。
+
+## 路径和 glob 怎么写
+
+`sources` 和 `exclude` 不是普通目录路径，而是“带通配符的路径写法”，也叫 glob。最常用的两个通配符是：
+
+- `*`：匹配一层目录里的名字，例如 `rtl/*.sv` 只匹配 `rtl` 目录正下方的 `.sv` 文件。
+- `**`：匹配多层目录，例如 `rtl/**` 会继续匹配 `rtl` 子目录里的文件。
+
+想了解这个概念，可以看 [glob 简介](https://en.wikipedia.org/wiki/Glob_(programming))。
+
+Vide 对 `sources` 和 `exclude` 有几条固定规则：
+
+- 必须相对工作区根目录，例如 `rtl/**`。
+- 路径分隔符统一写 `/`，不要写 `rtl\**`。
+- 不支持绝对路径，也不支持路径里出现 `..`。
+- `*` 不跨目录；需要递归目录时用 `**`。
+
+末尾 `/` 是否有区别，要看字段：
+
+- 在 `sources` 和 `exclude` 里，`rtl` 和 `rtl/` 都不表示“包含 `rtl` 下所有文件”。它们不是递归目录写法；想包含整个目录，请写 `rtl/**`；想排除整个 `build` 目录，请写 `build/**`。
+- 在 `include_dirs` 和 `libraries` 里，值是普通路径，并且相对当前项目配置文件所在目录解析。`include` 和 `include/` 通常表示同一个目录；为了统一，文档里推荐写成 `include`。
+
+## 一个更接近真实工程的例子
+
+```toml
+#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+
+top_modules = ["top"]
+
+defines = [
+  "SYNTHESIS",
+  "DATA_WIDTH=32",
+  "RESET_VALUE=0",
+]
+
+sources = [
+  "rtl/**",
+  "ip/local_ip/src/**/*.sv",
+]
+
+include_dirs = [
+  "include",
+  "rtl",
+]
+
+libraries = [
+  "../common_cells",
+  "../bus_ip",
+]
+
+exclude = [
+  "build/**",
+  "sim/work/**",
+  "generated/tmp/**",
+  "**/*_bb.v",
+]
+```
+
+文件开头的 `#:schema ...` 是 TOML 注释。它只帮助编辑器识别配置格式，不会改变 Vide 读取项目配置文件的方式。VS Code 自动创建的默认模板见 [第一个工程](../first-project/)。
+
+## 字段说明
+
+| 字段 | 类型 | 作用 |
+| --- | --- | --- |
+| `sources` | glob 数组或省略 | 选择工程源文件。常用写法是 `["rtl/**"]`。 |
+| `include_dirs` | 路径数组或省略 | include 搜索目录，例如 `["include"]`。 |
+| `defines` | 字符串数组 | 预定义宏。支持 `"NAME"` 和 `"NAME=value"`。 |
+| `top_modules` | 字符串数组 | 声明当前工程的顶层模块名。 |
+| `libraries` | 路径数组 | 外部库或依赖工程目录。 |
+| `exclude` | glob 数组 | 从已加载文件中过滤生成目录、仿真输出或黑盒文件。 |
+
+## sources 和 include_dirs
+
+`sources` 有三种常见状态：
+
+| 写法 | 结果 |
+| --- | --- |
+| 省略 | Vide 会尽力索引工作区，用于跳转、引用、悬停等阅读功能，但不会把它当成完整工程配置。 |
+| `sources = []` | 不自动扫描工作区。用于先打开工程，之后再手动补配置。 |
+| `sources = ["rtl/**"]` | 按 glob 加载匹配文件，并让这些文件进入项目分析。 |
+
+常用写法：
+
+```toml
+sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
+```
+
+当前工程加载器读取这些扩展名：
+
+- `.v`
+- `.sv`
+- `.vh`
+- `.svh`
+- `.svi`
+- `.map`
+
+`include_dirs` 用于处理 `` `include "file.svh" ``。如果你已经写了 `sources`，但没有写 `include_dirs`，Vide 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。
+
+如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也不会使用这个回退。
+
+<VizslaLab
+  projectId="configuration-include-macro"
+  projectLabel="Project Configuration: Include and Macros"
+  entryFile="rtl/feature_gate.sv"
+  files={configuredProjectFiles}
+  height="360px"
+  activeFile="rtl/feature_gate.sv"
+  selection="5:17-5:31"
+  title="include 目录和宏定义"
+  description="这个例子有 vizsla.toml、include 文件和 RTL 文件。删除 include_dirs 后，`include` 会找不到文件；删除 FEATURE_PIPELINE 宏后，启用的代码分支会变化。"
+/>
+
+## defines
+
+`defines` 中每一项都是一个宏定义：
+
+```toml
+defines = [
+  "SYNTHESIS",
+  "WIDTH=32",
+  "MODE=fast sim",
+]
+```
+
+宏名需要是合法标识符。带值宏会按 `NAME=value` 解析，`value` 可以包含空格。
+
+## libraries
+
+`libraries` 用于声明依赖库。路径相对当前项目配置文件所在目录解析。每个库路径都会被当作另一个工作区继续加载：
+
+- 如果库目录下有 `vizsla.toml`，Vide 会按这个项目配置文件加载库；否则再尝试旧版且已弃用的 `vizsla_config.toml`。
+- 如果库目录没有项目配置文件，Vide 会把该目录作为未配置库加载。
+- 依赖会参与当前工程的项目分析，并支持传递依赖。
+
+`libraries` 不会替代当前工程自己的 `sources`。当前工作区的 RTL 仍然应该通过 `sources` 声明；`libraries` 只描述被当前工程引用的外部工程或库目录。
+
+## exclude
+
+`exclude` 使用工作区相对 glob，适合排除生成目录、仿真输出目录、缓存目录或黑盒 stub：
+
+```toml
+exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
+```
+
+`exclude = ["build"]` 只匹配名为 `build` 的路径本身，不会递归排除目录内容；目录递归请写 `build/**`。如果你还希望 VS Code 自己减少文件监听，可以同时配置 VS Code 的 `files.watcherExclude`。Vide 的 `exclude` 和 VS Code 的文件监听设置是两套机制。
+
+## 常见注意事项
+
+- 推荐项目配置文件名是 `vizsla.toml`；`vizsla_config.toml` 仅作为兼容旧工程的已弃用备用文件。
+- `top_module`、`include`、`macros` 这类旧字段不会被接受。
+- Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vizsla.toml`，再回退检查 `repo/vizsla_config.toml`。
+- 配置了 `sources = []` 的工程可以只加载 include 目录，适合头文件型工作区，或暂时不想扫描 RTL 的工作区。

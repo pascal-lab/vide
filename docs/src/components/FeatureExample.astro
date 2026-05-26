@@ -1,0 +1,119 @@
+---
+interface Props {
+  image: string | { src: string };
+  imageAlt: string;
+  imageCaption?: string;
+  labCaption?: string;
+}
+
+const { image, imageAlt, imageCaption = "Recorded in VS Code", labCaption = "Try it in the browser" } = Astro.props;
+const imageSrc = typeof image === "string" ? image : image.src;
+---
+
+<div class="feature-example">
+  <figure class="feature-example-media">
+    <img src={imageSrc} alt={imageAlt} loading="lazy" decoding="async" />
+    <figcaption>{imageCaption}</figcaption>
+  </figure>
+  <figure class="feature-example-live">
+    <div class="feature-example-lab">
+      <slot />
+    </div>
+    <figcaption>{labCaption}</figcaption>
+  </figure>
+</div>
+
+<style>
+  .feature-example {
+    --feature-example-block-size: clamp(18rem, 54vw, 26.25rem);
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    align-items: start;
+    max-width: 100%;
+    margin: 1.25rem 0 1.75rem;
+    background: var(--sl-color-bg);
+    overflow: clip;
+  }
+
+  .feature-example-media,
+  .feature-example-live {
+    min-width: 0;
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  .feature-example-media img,
+  .feature-example-lab {
+    width: 100%;
+    min-width: 0;
+    block-size: var(--feature-example-block-size);
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg);
+    overflow: hidden;
+  }
+
+  .feature-example-media img {
+    display: block;
+    object-fit: cover;
+  }
+
+  .feature-example-lab :global(.vizsla-lab-embed) {
+    block-size: 100%;
+    margin: 0;
+    contain-intrinsic-size: var(--feature-example-block-size);
+  }
+
+  .feature-example-lab :global(vizsla-lab) {
+    block-size: 100%;
+  }
+
+  figcaption {
+    color: var(--sl-color-gray-3);
+    font-size: 0.8125rem;
+    line-height: 1.35;
+  }
+
+  @media (min-width: 72rem) {
+    :global(.main-pane:has(.feature-example)) {
+      position: relative;
+      z-index: calc(var(--sl-z-index-toc) + 1);
+    }
+
+    .feature-example {
+      --feature-example-toc-width: var(--vizsla-toc-width, var(--sl-sidebar-width, 18.75rem));
+      --feature-example-page-width: calc(
+        100vw - var(--sl-content-inline-start, 0px) - var(--sl-content-pad-x, 1rem) * 2
+      );
+      --feature-example-left-room: max(
+        0px,
+        calc(
+          (
+              var(--feature-example-page-width) - 100% - var(--feature-example-toc-width) -
+                var(--sl-content-pad-x, 1rem) * 2
+            ) / 2
+        )
+      );
+      --feature-example-width: min(72rem, var(--feature-example-page-width));
+      --feature-example-offset: calc(
+        (var(--feature-example-page-width) - var(--feature-example-width)) / 2 - var(--feature-example-left-room)
+      );
+      --feature-example-block-size: 26.25rem;
+      width: var(--feature-example-width);
+      max-width: none;
+      margin-inline-start: var(--feature-example-offset);
+      margin-inline-end: 0;
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr);
+      gap: 1.25rem;
+    }
+
+    :global(html:not([data-has-toc])) .feature-example {
+      width: 100%;
+      margin-inline-start: 0;
+    }
+  }
+</style>

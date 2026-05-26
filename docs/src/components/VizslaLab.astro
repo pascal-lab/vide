@@ -16,7 +16,8 @@ interface Props {
     editable?: boolean;
   }>;
   height?: string;
-  load?: "click" | "visible";
+  load?: "click" | "visible" | "eager";
+  mode?: "embed" | "app";
   title?: string;
   description?: string;
   buttonLabel?: string;
@@ -26,6 +27,12 @@ interface Props {
   selection?: string;
   diagnosticsOpen?: boolean;
   focusEditor?: boolean;
+  initialActiveFile?: string;
+  initialCursorLine?: number;
+  initialCursorColumn?: number;
+  initialSelection?: string;
+  initialDiagnosticsOpen?: boolean;
+  initialFocusEditor?: boolean;
   locale?: string;
   theme?: "auto" | "light" | "dark";
 }
@@ -37,9 +44,10 @@ const {
   projectDescription,
   entryFile,
   files,
-  height = "430px",
-  load = "visible",
-  title = "Vizsla Playground",
+  mode = "embed",
+  height = mode === "app" ? "calc(100dvh - var(--sl-nav-height, 3.5rem))" : "430px",
+  load = mode === "app" ? "eager" : "visible",
+  title = "Vide Playground",
   description = "Load the live editor only when you need to run this example.",
   buttonLabel = load === "visible" ? "Load now" : "Open example",
   activeFile,
@@ -48,6 +56,12 @@ const {
   selection,
   diagnosticsOpen = false,
   focusEditor = false,
+  initialActiveFile,
+  initialCursorLine,
+  initialCursorColumn,
+  initialSelection,
+  initialDiagnosticsOpen,
+  initialFocusEditor,
   locale,
   theme = "auto",
 } = Astro.props;
@@ -74,31 +88,45 @@ const assetVersion = createHash("sha256")
 const inferredLocale = Astro.url.pathname.includes("/en/") ? "" : "zh-cn";
 const monacoLocale = locale ?? inferredLocale;
 const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
+const showPlaceholder = load !== "eager";
+const mountedActiveFile = initialActiveFile ?? activeFile;
+const mountedCursorLine = initialCursorLine ?? cursorLine;
+const mountedCursorColumn = initialCursorColumn ?? cursorColumn;
+const mountedSelection = initialSelection ?? selection;
+const mountedDiagnosticsOpen = initialDiagnosticsOpen ?? diagnosticsOpen;
+const mountedFocusEditor = initialFocusEditor ?? focusEditor;
 ---
 
 <div
   id={id}
-  class="vizsla-lab-embed"
+  class:list={["vizsla-lab-embed", { "vizsla-lab-app": mode === "app" }]}
   data-asset-base={assetBase}
   data-height={height}
   data-load={load}
+  data-mode={mode}
   data-scenario={scenario}
-  data-active-file={activeFile}
-  data-cursor-line={cursorLine}
-  data-cursor-column={cursorColumn}
-  data-selection={selection}
-  data-diagnostics-open={diagnosticsOpen ? "true" : undefined}
-  data-focus-editor={focusEditor ? "true" : undefined}
+  data-active-file={mountedActiveFile}
+  data-cursor-line={mountedCursorLine}
+  data-cursor-column={mountedCursorColumn}
+  data-selection={mountedSelection}
+  data-diagnostics-open={mountedDiagnosticsOpen ? "true" : undefined}
+  data-focus-editor={mountedFocusEditor ? "true" : undefined}
   data-locale={monacoLocale}
   data-theme={theme}
 >
-  <div class="vizsla-lab-placeholder">
-    <div class="vizsla-lab-copy">
-      <strong>{title}</strong>
-      <span>{description}</span>
-    </div>
-    <button class="vizsla-lab-button" type="button">{buttonLabel}</button>
-  </div>
+  {
+    showPlaceholder && (
+      <div class="vizsla-lab-placeholder">
+        <div class="vizsla-lab-copy">
+          <strong>{title}</strong>
+          <span>{description}</span>
+        </div>
+        <button class="vizsla-lab-button" type="button">
+          {buttonLabel}
+        </button>
+      </div>
+    )
+  }
 </div>
 
 <script define:vars={{ id, assetVersion, inlineProject }}>
@@ -193,7 +221,9 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
       await customElements.whenDefined("vizsla-lab");
 
       const lab = document.createElement("vizsla-lab");
-      lab.setAttribute("docs", "");
+      if (root.dataset.mode !== "app") {
+        lab.setAttribute("docs", "");
+      }
       if (inlineProject) {
         lab.project = inlineProject;
       } else {
@@ -218,7 +248,12 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
       const errorNode = document.createElement("p");
       errorNode.className = "vizsla-lab-error";
       errorNode.textContent = `Could not load the playground: ${message}`;
-      root.querySelector(".vizsla-lab-placeholder")?.append(errorNode);
+      const placeholder = root.querySelector(".vizsla-lab-placeholder");
+      if (placeholder) {
+        placeholder.append(errorNode);
+      } else {
+        root.replaceChildren(errorNode);
+      }
 
       if (button) {
         button.disabled = false;
@@ -245,7 +280,9 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
       void mount(root);
     });
 
-    if (root.dataset.load === "visible") {
+    if (root.dataset.load === "eager") {
+      void mount(root);
+    } else if (root.dataset.load === "visible") {
       if ("IntersectionObserver" in window) {
         const observer = new IntersectionObserver(
           (entries) => {
@@ -277,6 +314,45 @@ const id = `vizsla-lab-${Math.random().toString(36).slice(2)}`;
 
   .vizsla-lab-embed.is-loaded {
     content-visibility: visible;
+  }
+
+  .vizsla-lab-app {
+    width: 100%;
+    height: calc(100dvh - var(--sl-nav-height, 3.5rem));
+    margin: 0;
+    content-visibility: visible;
+    contain-intrinsic-size: calc(100dvh - var(--sl-nav-height, 3.5rem));
+  }
+
+  :global(body:has(.vizsla-lab-app)) {
+    overflow: hidden;
+  }
+
+  :global(body:has(.vizsla-lab-app) .right-sidebar-container),
+  :global(body:has(.vizsla-lab-app) main > .content-panel:first-of-type),
+  :global(body:has(.vizsla-lab-app) main footer) {
+    display: none;
+  }
+
+  :global(body:has(.vizsla-lab-app) .main-frame),
+  :global(body:has(.vizsla-lab-app) .main-pane),
+  :global(body:has(.vizsla-lab-app) main) {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  :global(body:has(.vizsla-lab-app) main) {
+    height: calc(100dvh - var(--sl-nav-height, 3.5rem));
+  }
+
+  :global(body:has(.vizsla-lab-app) main > .content-panel),
+  :global(body:has(.vizsla-lab-app) main > .content-panel > .sl-container) {
+    max-width: none;
+    padding: 0;
+  }
+
+  :global(body:has(.vizsla-lab-app) .sl-markdown-content) {
+    margin: 0;
   }
 
   .vizsla-lab-placeholder {

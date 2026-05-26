@@ -1,0 +1,41 @@
+---
+title: User Guide
+description: Daily Vide usage for RTL projects.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+The user guide covers the normal editing path: install the extension, open a project, write a project manifest, use editor features, and fix common problems near the feature where they appear. Use [Advanced](../advanced-guide/) when you need local VSIX packages, a custom server, logs, or diagnostics profiling.
+
+<CardGrid>
+  <LinkCard
+    title="Installation"
+    href="./installation/"
+    description="Install the stable extension from VS Code Marketplace."
+  />
+  <LinkCard
+    title="Quick Start"
+    href="./quick-start/"
+    description="Open an RTL directory, check the status bar, then try diagnostics, navigation, completion, and hover."
+  />
+  <LinkCard
+    title="First Project"
+    href="./first-project/"
+    description="Understand the default vizsla.toml, workspace root, and when real sources become useful."
+  />
+  <LinkCard
+    title="Project Configuration"
+    href="./project-configuration/"
+    description="Configure sources, include_dirs, defines, libraries, top_modules, and exclude."
+  />
+  <LinkCard
+    title="Daily Use"
+    href="./daily-use/"
+    description="Find language support, diagnostics, navigation, editing assistance, formatting, structure help, and Qihe by task."
+  />
+  <LinkCard
+    title="Playground"
+    href="../playground/"
+    description="Try multi-file RTL examples in the browser without installing the local extension."
+  />
+</CardGrid>

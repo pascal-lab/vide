@@ -1,0 +1,56 @@
+---
+title: 导航和阅读
+description: 使用跳转、引用、悬停和文档高亮，并处理跳转失败或同名模块歧义。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../assets/features/code-actions.gif';
+import { navigationFiles } from '../../../../examples/dailyUse';
+
+Vide 提供这些阅读能力：
+
+- `Go to Definition` / `Go to Declaration`：跳到符号、模块、端口、参数或实例目标。
+- `Find References`：查找符号引用。
+- Hover：查看模块、端口、参数、任务/函数等签名信息。
+- Document Highlight：高亮当前文件里同一符号的使用位置。
+
+相关设置参考：[Scope](../../../advanced-guide/vscode-settings/#scope)、[Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens)。
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="VS Code 中执行跳转和查看悬停信息的动图"
+  imageCaption="VS Code 中的跳转和悬停"
+  labCaption="右侧示例可尝试跨文件导航"
+>
+  <VizslaLab
+    projectId="daily-navigation"
+    projectLabel="Features: Navigation"
+    entryFile="rtl/pipeline_top.sv"
+    files={navigationFiles}
+    height="100%"
+    initialActiveFile="rtl/pipeline_top.sv"
+    initialSelection="9:3-9:17"
+    title="跨文件跳转和悬停说明"
+    description="在 pipeline_stage 上试 Go to Definition 或悬停说明；目标模块在另一个文件里，项目由当前页面直接提供。"
+  />
+</FeatureExample>
+
+## 跳不到定义
+
+先在实例模块名上执行 `Go to Definition`。如果模块名本身跳不过去，通常是项目配置没有把目标文件加载进来：
+
+- `sources` 是否匹配目标模块所在文件。
+- `include_dirs` 是否包含 include 目录。
+- `defines` 是否启用了目标代码分支。
+- `libraries` 是否包含外部依赖工程。
+
+配置方式见 [项目配置](../../project-configuration/)。
+
+## 同名模块跳转不符合预期
+
+尽力索引会为了阅读体验做一次就近推测，但这不是 SystemVerilog 的语言规则。正式工程里，同名 module 应该通过明确项目配置、库边界或编译脚本处理。想了解 Vide 在无配置项目中的具体取舍，见 [分析模型](../../../advanced-guide/parsing-and-analysis/#跳转和同名模块)。
+
+## 引用或重命名范围太小
+
+确认当前文件属于同一个项目视图。只靠单文件打开时，Vide 可能只能处理当前文件或已索引到的局部信息。把相关源文件写进 `sources` 后，再重新加载项目配置。

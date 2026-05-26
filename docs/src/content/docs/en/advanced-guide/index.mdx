@@ -1,0 +1,46 @@
+---
+title: Advanced
+description: Vide documentation for local VSIX packages, custom servers, logs, project analysis, and advanced troubleshooting.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Advanced usage is for people who need to understand extension startup, server replacement, local VSIX packages, logs, profiling, and the project analysis model. For normal RTL editing, start with the [User Guide](../user-guide/).
+
+<CardGrid>
+  <LinkCard
+    title="Advanced Installation"
+    href="./advanced-installation/"
+    description="Install local VSIX packages, choose release channels, or configure a custom language server."
+  />
+  <LinkCard
+    title="Build from Source"
+    href="./build-from-source/"
+    description="Build the Rust server, VS Code extension, and local VSIX packages."
+  />
+  <LinkCard
+    title="Server Self-Check"
+    href="./check-server/"
+    description="Check the status bar, output channel, version command, and launch settings."
+  />
+  <LinkCard
+    title="Operations Reference"
+    href="./commands-status-logs/"
+    description="Reference command IDs, status bar behavior, output channels, and diagnostics profiling artifacts."
+  />
+  <LinkCard
+    title="Advanced Troubleshooting"
+    href="./troubleshooting/"
+    description="Debug custom servers, bundled server packaging, watchers, logs, and profiling issues."
+  />
+  <LinkCard
+    title="VS Code Settings Reference"
+    href="./vscode-settings/"
+    description="Reference all vizsla.* settings and jump back to the related daily-use page."
+  />
+  <LinkCard
+    title="Changelog"
+    href="../changelog/"
+    description="Read user-visible changes and upgrade impact for each released version."
+  />
+</CardGrid>

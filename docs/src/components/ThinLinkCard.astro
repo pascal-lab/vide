@@ -1,0 +1,83 @@
+---
+interface Props {
+  href: string;
+  title: string;
+  action?: string;
+}
+
+const { href, title, action = "Open" } = Astro.props;
+---
+
+<a class="thin-link-card" href={href}>
+  <span class="thin-link-card__body">
+    <strong>{title}</strong>
+    <small><slot /></small>
+  </span>
+  <span class="thin-link-card__action" aria-hidden="true">{action}</span>
+</a>
+
+<style>
+  .thin-link-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 1rem 0;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    color: var(--sl-color-white);
+    background: color-mix(in srgb, var(--sl-color-gray-6) 28%, transparent);
+    text-decoration: none;
+  }
+
+  .thin-link-card:hover {
+    border-color: var(--sl-color-accent);
+    background: color-mix(in srgb, var(--sl-color-accent-low) 70%, transparent);
+  }
+
+  .thin-link-card:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 3px;
+  }
+
+  .thin-link-card__body {
+    min-width: 0;
+  }
+
+  .thin-link-card strong,
+  .thin-link-card small {
+    display: block;
+  }
+
+  .thin-link-card strong {
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  .thin-link-card small {
+    margin-top: 0.15rem;
+    color: var(--sl-color-gray-3);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  .thin-link-card__action {
+    flex: 0 0 auto;
+    color: var(--sl-color-text-accent);
+    font-size: 0.82rem;
+    font-weight: 650;
+  }
+
+  .thin-link-card code {
+    font-size: 0.78rem;
+  }
+
+  @media (max-width: 30rem) {
+    .thin-link-card {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+  }
+</style>

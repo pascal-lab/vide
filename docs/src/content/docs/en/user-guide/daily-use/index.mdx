@@ -1,0 +1,48 @@
+---
+title: Daily Use
+description: Use Vide language support, diagnostics, navigation, editing assistance, formatting, structure help, and Qihe by task.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Daily use is organized by the task you are doing in VS Code. Each page keeps feature entry points, common prerequisites, and nearby fixes together; the full `vizsla.*` setting reference remains in [VS Code Settings Reference](../../advanced-guide/vscode-settings/).
+
+<CardGrid>
+  <LinkCard
+    title="Language Support"
+    href="./language-support/"
+    description="Check file extensions, syntax highlighting, basic editor behavior, and project configuration boundaries."
+  />
+  <LinkCard
+    title="Diagnostics"
+    href="./diagnostics/"
+    description="Understand the Problems panel, on-save/on-type refresh, diagnostic rules, and stale diagnostics."
+  />
+  <LinkCard
+    title="Navigation and Reading"
+    href="./navigation/"
+    description="Use definition, references, hover, document highlights, and fix failed navigation."
+  />
+  <LinkCard
+    title="Editing Assistance"
+    href="./editing-assistance/"
+    description="Use completion, signature help, rename, port/parameter fixes, and diagnostic quick fixes."
+  />
+  <LinkCard
+    title="Formatting"
+    href="./formatting/"
+    description="Configure verible, run formatting, and handle missing formatter output or failures."
+  />
+  <LinkCard
+    title="Structure Help"
+    href="./structure/"
+    description="Use inlay hints, semantic highlighting, instance counts, outline, folding, and selection ranges."
+  />
+  <LinkCard
+    title="Qihe"
+    href="./qihe/"
+    description="Run Qihe analysis from VS Code, understand argument sources, and inspect failures."
+  />
+</CardGrid>
+
+If a feature behaves differently from these pages, first check whether the current file belongs to the project manifest. Cross-file features usually depend on `sources`, `include_dirs`, `defines`, and `libraries` in `vizsla.toml`; see [Project Configuration](../project-configuration/).

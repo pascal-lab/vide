@@ -1,0 +1,168 @@
+---
+import config from 'virtual:starlight/user-config';
+
+import LanguageSelect from 'virtual:starlight/components/LanguageSelect';
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+import SocialIcons from 'virtual:starlight/components/SocialIcons';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+
+const route = Astro.locals.starlightRoute;
+const shouldRenderSearch =
+  config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
+
+const isEnglish = route.lang.startsWith('en');
+const base = import.meta.env.BASE_URL;
+const localePrefix = route.locale ? `${route.locale}/` : '';
+const routeId =
+  route.locale && route.id.startsWith(`${route.locale}/`)
+    ? route.id.slice(route.locale.length + 1)
+    : route.id;
+
+const items = [
+  {
+    section: 'user-guide',
+    label: isEnglish ? 'User Guide' : '用户手册',
+    href: `${base}${localePrefix}user-guide/`,
+  },
+  {
+    section: 'advanced-guide',
+    label: isEnglish ? 'Advanced' : '进阶',
+    href: `${base}${localePrefix}advanced-guide/`,
+  },
+  {
+    section: 'changelog',
+    label: 'Changelog',
+    href: `${base}${localePrefix}changelog/`,
+  },
+  {
+    section: 'playground',
+    label: 'Playground',
+    href: `${base}${localePrefix}playground/`,
+  },
+];
+
+const activeSection = items.find(({ section }) =>
+  section === 'playground' ? routeId === 'playground' : routeId.startsWith(section)
+)?.section;
+---
+
+<div class="header">
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+    <nav class="section-nav" aria-label={isEnglish ? 'Primary sections' : '主文档分区'}>
+      {
+        items.map(({ section, label, href }) => (
+          <a class:list={{ active: activeSection === section }} href={href}>
+            {label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+  <div class="sl-flex print:hidden">
+    {shouldRenderSearch && <Search />}
+  </div>
+  <div class="sl-hidden md:sl-flex print:hidden right-group">
+    <div class="sl-flex social-icons">
+      <SocialIcons />
+    </div>
+    <ThemeSelect />
+    <LanguageSelect />
+  </div>
+</div>
+
+<style>
+  @layer starlight.core {
+    .header {
+      display: flex;
+      gap: var(--sl-nav-gap);
+      justify-content: space-between;
+      align-items: center;
+      height: 100%;
+    }
+
+    .title-wrapper {
+      overflow: clip;
+      padding: 0.25rem;
+      margin: -0.25rem;
+      min-width: 0;
+      align-items: center;
+      gap: clamp(1rem, 2vw, 1.5rem);
+    }
+
+    .section-nav {
+      display: none;
+      align-items: center;
+      gap: 0.25rem;
+      white-space: nowrap;
+      font-size: var(--sl-text-sm);
+    }
+
+    .section-nav a {
+      color: var(--sl-color-gray-2);
+      text-decoration: none;
+      border-radius: 0.35rem;
+      padding: 0.35rem 0.55rem;
+      line-height: 1;
+    }
+
+    .section-nav a:hover {
+      color: var(--sl-color-white);
+      background: var(--sl-color-gray-6);
+    }
+
+    .section-nav a.active {
+      color: var(--sl-color-white);
+      background: color-mix(in srgb, var(--vizsla-accent) 18%, transparent);
+    }
+
+    .right-group,
+    .social-icons {
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .social-icons::after {
+      content: '';
+      height: 2rem;
+      border-inline-end: 1px solid var(--sl-color-gray-5);
+    }
+
+    @media (min-width: 58rem) {
+      .section-nav {
+        display: flex;
+      }
+    }
+
+    @media (min-width: 50rem) {
+      :global(:root[data-has-sidebar]) {
+        --__sidebar-pad: calc(2 * var(--sl-nav-pad-x));
+      }
+
+      :global(:root:not([data-has-toc])) {
+        --__toc-width: 0rem;
+      }
+
+      .header {
+        --__sidebar-width: max(0rem, var(--sl-content-inline-start, 0rem) - var(--sl-nav-pad-x));
+        --__main-column-fr: calc(
+          (
+              100% + var(--__sidebar-pad, 0rem) - var(--__toc-width, var(--sl-sidebar-width)) -
+                (2 * var(--__toc-width, var(--sl-nav-pad-x))) - var(--sl-content-inline-start, 0rem) -
+                var(--sl-content-width)
+            ) / 2
+        );
+        display: grid;
+        grid-template-columns:
+          minmax(
+            calc(var(--__sidebar-width) + max(0rem, var(--__main-column-fr) - var(--sl-nav-gap))),
+            auto
+          )
+          1fr
+          auto;
+        align-content: center;
+      }
+    }
+  }
+</style>

@@ -1,0 +1,53 @@
+---
+title: Editing Assistance
+description: Use completion, signature help, rename, port/parameter fixes, and diagnostic quick fixes.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../../assets/features/code-actions.gif';
+import { editAidFiles } from '../../../../../examples/dailyUse';
+
+Vide provides completion around instance connections, parameter assignments, expressions, preprocessor directives, and common RTL structures. Signature help shows target module parameters and ports while your cursor is in parameter or port lists.
+
+Related settings reference: [Signature Help](../../../advanced-guide/vscode-settings/#signature-help), [Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics).
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="Animated VS Code code action menu showing quick fixes"
+  imageCaption="Quick fixes in VS Code"
+  labCaption="Try the same project in the browser"
+>
+  <VizslaLab
+    projectId="daily-edit-aids"
+    projectLabel="Features: Edit Aids"
+    entryFile="rtl/fifo_client.sv"
+    files={editAidFiles}
+    height="100%"
+    initialActiveFile="rtl/fifo_client.sv"
+    initialSelection="9:3-9:14"
+    title="Ordered Ports, Parameters, and Code Actions"
+    description="This instance uses ordered parameters and ordered ports. Try inlay hints, signature help, and the action that converts ordered connections to named connections."
+  />
+</FeatureExample>
+
+## Instance Ports or Parameters Report Errors
+
+Place the cursor near the instance and open the lightbulb menu. Vide currently supports these common fixes:
+
+- Missing port connections: use `Fill connections`.
+- Parameters without values: use `Fill parameters`.
+- Mixed ordered and named port connections: use `Convert ordered port connections to named connections`, or `Remove empty port connections` for extra empty connections.
+- Mixed ordered and named parameter assignments: use `Convert ordered parameter assignments to named assignments`.
+- A `.port` shorthand missing explicit `()`: use `Add explicit empty port connection`.
+- An instance with no port list: use `Add empty instance port list`.
+
+If these actions are missing, confirm that Vide can resolve the target module first. A direct check is `Go to Definition` on the instance module name. If it does not jump, fix `sources`, `include_dirs`, `defines`, or `libraries` first.
+
+## Completion Has Too Few Results
+
+In single-file scenarios, completion usually only uses the current file and whatever has already been indexed. Port, parameter, and instance-related completion needs the target module to resolve; includes, macros, and library dependencies also need to be represented in project configuration.
+
+## Check Scope Before Rename
+
+Rename depends on symbol resolution. Before a large rename, run `Find References` and confirm the result set. If references are missing, update project configuration and reload it first.

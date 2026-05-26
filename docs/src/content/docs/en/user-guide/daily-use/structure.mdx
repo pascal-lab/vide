@@ -1,0 +1,51 @@
+---
+title: Structure Help
+description: Use inlay hints, semantic highlighting, instance counts, outline, folding, and selection ranges.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../../assets/features/code-actions.gif';
+import { structureFiles } from '../../../../../examples/dailyUse';
+
+Structure help reduces the need to jump back and forth while reading RTL:
+
+- Port connection inlay hints: show target port names beside instance connections.
+- Parameter assignment inlay hints: show target parameter names in parameter lists.
+- End-structure inlay hints: show the matching structure name near `endmodule` and similar endings.
+- Semantic highlighting: distinguishes port direction, clock/reset ports, and read/write positions when the theme supports it.
+- Instance count lens: shows instantiation counts above module declarations.
+- Outline, folding, and expand/shrink selection: help you browse file structure.
+
+Related settings reference: [Inlay Hints](../../../advanced-guide/vscode-settings/#inlay-hints), [Lens](../../../advanced-guide/vscode-settings/#lens), [Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens).
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="Animation showing semantic highlighting, outline, and instance code lens in VS Code"
+  imageCaption="Structured reading aids in VS Code"
+  labCaption="The browser example contains a small module hierarchy"
+>
+  <VizslaLab
+    projectId="daily-structure"
+    projectLabel="Features: Structure"
+    entryFile="rtl/feature_top.sv"
+    files={structureFiles}
+    height="100%"
+    initialActiveFile="rtl/feature_top.sv"
+    initialSelection="8:3-15:5"
+    title="Semantic Highlighting, Folding, and Code Lens"
+    description="This example contains two modules and two instances, which is useful for observing semantic highlighting, folding ranges, references, and instance code lens."
+  />
+</FeatureExample>
+
+## Inlay Hints Are Too Noisy or Missing
+
+Search for `Vide inlay hints` in VS Code Settings and toggle port connection, parameter assignment, and end-structure hints separately. Port and parameter hints depend on resolving the target module; if hints are missing, first check that the instance module name can jump to definition.
+
+## Instance Counts Do Not Appear
+
+Instance counts need module relationships from the project. With only a single file open, or with `sources = []`, results may be incomplete. Add `sources` and run `Vide: Reload Project Configuration`.
+
+## Colors Do Not Change
+
+Semantic highlighting also depends on your VS Code theme styling those tokens. Switch themes once to verify. If nothing changes, check whether `vizsla.semantic.tokens.*` settings were disabled.

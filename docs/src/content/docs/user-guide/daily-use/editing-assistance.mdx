@@ -1,0 +1,53 @@
+---
+title: 补全与快速修复
+description: 使用补全、签名帮助、重命名、端口/参数修复和诊断快速修复。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../assets/features/code-actions.gif';
+import { editAidFiles } from '../../../../examples/dailyUse';
+
+Vide 会在实例连接、参数赋值、表达式、预处理指令和常见 RTL 结构附近提供补全。把光标放在实例参数或端口列表里时，签名帮助会显示目标模块的参数和端口信息。
+
+相关设置参考：[Signature Help](../../../advanced-guide/vscode-settings/#signature-help)、[Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics)。
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="VS Code 中打开代码操作菜单并选择快速修复的动图"
+  imageCaption="VS Code 中的快速修复入口"
+  labCaption="右侧示例可直接编辑和运行"
+>
+  <VizslaLab
+    projectId="daily-edit-aids"
+    projectLabel="Features: Edit Aids"
+    entryFile="rtl/fifo_client.sv"
+    files={editAidFiles}
+    height="100%"
+    initialActiveFile="rtl/fifo_client.sv"
+    initialSelection="9:3-9:14"
+    title="有序端口、参数和代码操作"
+    description="这个实例使用有序参数和有序端口。试试行内提示、签名帮助，以及把有序连接转换成命名连接的操作。"
+  />
+</FeatureExample>
+
+## 实例端口或参数报错
+
+先把光标放到对应实例附近，打开灯泡菜单。Vide 目前支持这些常见修复：
+
+- 端口没有接全：使用 `补全连接`。
+- 参数没有值：使用 `补全参数`。
+- 端口混用了有序写法和命名写法：使用 `将有序端口连接转换为命名连接`，或用 `移除空端口连接` 清理多余空连接。
+- 参数混用了有序写法和命名写法：使用 `将有序参数赋值转换为命名赋值`。
+- 写了 `.port` 但缺少 `()`：使用 `添加显式空端口连接`。
+- 实例完全没有端口列表：使用 `添加空实例端口列表`。
+
+如果灯泡里没有这些操作，先确认目标模块能被 Vide 找到。最直接的检查方式是在实例模块名上执行 `Go to Definition`；跳不过去时，优先修正 `sources`、`include_dirs`、`defines` 或 `libraries`。
+
+## 补全内容太少
+
+单文件场景下，补全通常只能利用当前文件和已索引到的内容。端口、参数、实例相关补全需要目标模块可解析；include、宏和库依赖也要在项目配置中写清楚。
+
+## 重命名前先确认范围
+
+重命名依赖符号解析结果。大范围重命名前，先用 `Find References` 看结果是否符合预期；如果引用结果缺文件，先补项目配置并重新加载。

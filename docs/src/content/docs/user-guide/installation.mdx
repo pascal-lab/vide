@@ -1,0 +1,24 @@
+---
+title: 安装
+description: 从 VS Code Marketplace 安装 Vide 扩展。
+---
+
+import ThinLinkCard from '../../../components/ThinLinkCard.astro';
+
+日常使用只需要安装 Marketplace 稳定版。安装后打开 RTL 工程目录，扩展会自动使用随扩展打包的 `vizsla` 语言服务器，不需要手动配置服务器路径。
+
+<ThinLinkCard
+  href="https://marketplace.visualstudio.com/items?itemName=vizsla.vizsla-lsp"
+  title="Visual Studio Marketplace"
+  action="打开"
+>
+  安装稳定版 Vide，扩展 ID：<code>vizsla.vizsla-lsp</code>
+</ThinLinkCard>
+
+也可以在 VS Code 扩展面板搜索显示名 `Vide`，或搜索扩展 ID `vizsla.vizsla-lsp`。扩展装好后，继续看 [快速开始](../quick-start/)。
+
+## 装好后没有反应
+
+先确认你打开的是包含 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi` 文件的目录。只有打开 RTL 文件或 RTL 工作区时，语言能力才会明显出现。
+
+如果状态栏没有出现 `Vide`，尝试重新加载 VS Code 窗口。状态栏显示错误或需要看输出时，普通用户可以先按 [快速开始里的状态栏说明](../quick-start/#3-确认状态栏) 检查；需要替换服务器、安装 VSIX 或看启动日志时，再进入 [高级安装](../../advanced-guide/advanced-installation/) 和 [启动自检](../../advanced-guide/check-server/)。

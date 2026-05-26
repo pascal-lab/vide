@@ -1,0 +1,60 @@
+name: Build docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-preview.yml"
+      - ".github/workflows/deploy-docs.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-preview.yml"
+      - ".github/workflows/deploy-docs.yml"
+
+permissions:
+  contents: read
+
+env:
+  ASTRO_SITE: https://vide.pascal-lab.net
+  ASTRO_BASE: ${{ github.event_name == 'pull_request' && format('/preview/pr-{0}/', github.event.pull_request.number) || '/' }}
+  PREVIEW_URL: ${{ github.event_name == 'pull_request' && format('https://vide.pascal-lab.net/preview/pr-{0}/', github.event.pull_request.number) || '' }}
+
+jobs:
+  build:
+    name: Build Starlight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: docs
+
+      - name: Build docs
+        run: npm run build
+        working-directory: docs
+
+      - name: Add preview summary
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          echo "Docs preview will be deployed to ${PREVIEW_URL}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload preview artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-docs-preview
+          path: docs/dist
+          retention-days: 7

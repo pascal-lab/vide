@@ -1,15 +1,15 @@
 ---
-title: Vizsla 用户手册
-description: Verilog/SystemVerilog 语言服务器和 VS Code 扩展用户手册。
+title: Vide 文档
+description: Verilog/SystemVerilog 语言服务器、VS Code 扩展和 Playground 文档。
 template: splash
 editUrl: false
 lastUpdated: false
 hero:
-  title: Vizsla
+  title: Vide
   tagline: 面向 Verilog 和 SystemVerilog 的语言服务器与 VS Code 扩展，把 RTL 开发常用的 IDE 能力接入编辑器。
   actions:
     - text: 快速开始
-      link: ./quick-start/
+      link: ./user-guide/quick-start/
       icon: right-arrow
     - text: 打开 Playground
       link: ./playground/
@@ -38,13 +38,18 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
   </Card>
 </CardGrid>
 
-## 开始阅读
+## 选择入口
 
 <CardGrid>
   <LinkCard
-    title="快速开始"
-    href="./quick-start/"
-    description="按普通用户路径安装扩展、打开 RTL 目录、确认状态栏，然后试用核心 IDE 功能。"
+    title="用户手册"
+    href="./user-guide/"
+    description="安装扩展、打开工程、配置项目文件，并按日常任务使用诊断、跳转、补全、格式化和 Qihe。"
+  />
+  <LinkCard
+    title="进阶"
+    href="./advanced-guide/"
+    description="安装本地 VSIX、替换服务器、查命令和日志，并理解项目分析模型。"
   />
   <LinkCard
     title="Playground"
@@ -52,65 +57,50 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
     description="在浏览器里运行多文件 RTL 示例，试用悬停说明、补全、跳转、诊断、行内提示和重命名。"
   />
   <LinkCard
-    title="Playground"
-    href="./playground/"
-    description="在浏览器里运行多文件 RTL 示例，试用 hover、补全、跳转、诊断、inlay hints 和重命名。"
-  />
-  <LinkCard
-    title="安装"
-    href="./installation/"
-    description="普通用户安装 VS Code 扩展；离线 VSIX 和自定义服务器只在需要时使用。"
-  />
-  <LinkCard
-    title="第一个工程"
-    href="./first-project/"
-    description="准备推荐目录结构，理解什么时候需要 vizsla.toml 以及默认配置的含义。"
-  />
-  <LinkCard
-    title="项目配置"
-    href="./project-configuration/"
-    description="编写 vizsla.toml，配置 sources、include_dirs、defines 和 libraries。"
+    title="Changelog"
+    href="./changelog/"
+    description="查看各版本的用户可见变更、修复和升级影响。"
   />
 </CardGrid>
 
-## 常用参考
+## 常用路径
 
 <CardGrid>
   <LinkCard
+    title="安装"
+    href="./user-guide/installation/"
+    description="普通用户从 VS Code Marketplace 安装扩展。"
+  />
+  <LinkCard
+    title="快速开始"
+    href="./user-guide/quick-start/"
+    description="打开 RTL 工程，确认状态栏，然后试用核心 IDE 功能。"
+  />
+  <LinkCard
     title="日常使用"
-    href="./daily-use/"
-    description="按功能了解诊断、跳转、补全、格式化、快速修复、语义高亮和实例数量提示。"
+    href="./user-guide/daily-use/"
+    description="按任务查语言识别、诊断、导航、补全、格式化、结构辅助和 Qihe。"
   />
   <LinkCard
-    title="VS Code 设置"
-    href="./vscode-settings/"
-    description="查阅 server、files、workspace、diagnostics、formatter 等配置项。"
+    title="VS Code 设置参考"
+    href="./advanced-guide/vscode-settings/"
+    description="查阅 server、Qihe、diagnostics、formatter、inlay hints 等完整配置项。"
   />
   <LinkCard
-    title="命令、状态栏和日志"
-    href="./commands-status-logs/"
-    description="查看命令面板命令、状态栏状态和输出通道行为。"
+    title="操作参考"
+    href="./advanced-guide/commands-status-logs/"
+    description="查看命令 ID、状态栏、输出通道和诊断性能分析产物。"
   />
   <LinkCard
-    title="服务器自检流程"
-    href="./check-server/"
-    description="按步骤确认 bundled server 或 custom server 是否能正常启动。"
-  />
-  <LinkCard
-    title="故障排查"
-    href="./troubleshooting/"
-    description="排查服务器启动失败、诊断不更新、文件监听和格式化问题。"
-  />
-  <LinkCard
-    title="更新日志"
-    href="./changelog/"
-    description="查看正式版本的破坏性更新、修复和用户可见改进。"
+    title="源码构建"
+    href="./advanced-guide/build-from-source/"
+    description="构建语言服务器、VS Code 扩展和本地 VSIX。"
   />
 </CardGrid>
 
 ## 项目组成
 
-Vizsla 由两个部分组成：
+Vide 由两个部分组成：
 
 - `vizsla`：Rust 编写的 LSP 服务器，负责读取工程、解析源文件、维护语义信息并响应编辑器请求。
 - `editors/vscode`：VS Code 扩展，负责贡献 Verilog/SystemVerilog 语言配置、语法高亮、命令、状态栏，并启动语言服务器。

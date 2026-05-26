@@ -1,0 +1,51 @@
+---
+title: 语言识别
+description: 确认 Vide 如何识别 Verilog/SystemVerilog 文件，以及基础编辑体验和语言服务器的边界。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../assets/features/code-actions.gif';
+import { languageFiles } from '../../../../examples/dailyUse';
+
+VS Code 扩展会注册两类语言：
+
+| 语言 | 文件扩展名 |
+| --- | --- |
+| Verilog | `.v`, `.vh` |
+| SystemVerilog | `.sv`, `.svh`, `.svi` |
+
+打开这些文件后，VS Code 会先应用基础语法高亮、注释规则、括号匹配和文件图标。这部分不依赖后台语言服务器；即使服务器还在启动，基础编辑体验也应该可用。
+
+语言服务器启动后，诊断、跳转、补全、悬停说明、签名帮助、行内提示、语义高亮、大纲、折叠、扩大/缩小选择和实例数量提示才会接入。需要跨文件理解时，工作区根目录需要有足够的项目配置。
+
+相关设置参考：[Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens)、[Files](../../../advanced-guide/vscode-settings/#files)。
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="VS Code 中展示 SystemVerilog 语法高亮和语言识别的动图"
+  imageCaption="VS Code 中的语言识别入口"
+  labCaption="右侧示例展示 SystemVerilog 文件识别"
+>
+  <VizslaLab
+    projectId="daily-language"
+    projectLabel="Features: Language Detection"
+    entryFile="rtl/traffic_light.sv"
+    files={languageFiles}
+    height="100%"
+    initialActiveFile="rtl/traffic_light.sv"
+    initialSelection="1:1-5:16"
+    title="语言识别和基础高亮"
+    description="这个示例使用 .sv 文件、typedef enum 和 always_ff，适合确认语法高亮和语言服务器接入。"
+  />
+</FeatureExample>
+
+## 文件没有被识别
+
+先看 VS Code 右下角的语言模式。如果 `.v`、`.vh` 没有显示 Verilog，或 `.sv`、`.svh`、`.svi` 没有显示 SystemVerilog，手动点语言模式切换一次，确认是不是其它扩展覆盖了文件关联。
+
+如果语法高亮有，但跳转、诊断、补全没有，通常不是语言识别问题，而是语言服务器或项目配置还没准备好。先点击状态栏的 `Vide` 看项目状态；如果提示没有项目配置，可以按 [第一个工程](../../first-project/) 创建或补全 `vizsla.toml`。
+
+## 打开头文件时功能较少
+
+`.vh`、`.svh` 和 `.svi` 通常通过被 `.v` 或 `.sv` 文件 include 后参与分析。只单独打开头文件时，语法高亮和局部编辑功能应该可用，但完整跨文件诊断不一定会单独跑。把包含它的源文件写入 `sources`，并把头文件目录写入 `include_dirs`，体验会更接近真实编译。

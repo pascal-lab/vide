@@ -1,0 +1,51 @@
+---
+title: Language Support
+description: Check how Vide recognizes Verilog/SystemVerilog files and where basic editor features end.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../../assets/features/code-actions.gif';
+import { languageFiles } from '../../../../../examples/dailyUse';
+
+The VS Code extension registers two language modes:
+
+| Language | File extensions |
+| --- | --- |
+| Verilog | `.v`, `.vh` |
+| SystemVerilog | `.sv`, `.svh`, `.svi` |
+
+After you open these files, VS Code applies basic syntax highlighting, comment rules, bracket matching, and file icons. These do not depend on the background language server; they should work even while the server is still starting.
+
+Diagnostics, go to definition, completion, hover, signature help, inlay hints, semantic highlighting, outline, folding, selection ranges, and instance count lens entries become available after the language server starts. Cross-file understanding also needs enough project configuration at the workspace root.
+
+Related settings reference: [Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens), [Files](../../../advanced-guide/vscode-settings/#files).
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="Animation showing SystemVerilog syntax highlighting and language detection in VS Code"
+  imageCaption="Language detection in VS Code"
+  labCaption="The browser example opens a SystemVerilog file"
+>
+  <VizslaLab
+    projectId="daily-language"
+    projectLabel="Features: Language Detection"
+    entryFile="rtl/traffic_light.sv"
+    files={languageFiles}
+    height="100%"
+    initialActiveFile="rtl/traffic_light.sv"
+    initialSelection="1:1-5:16"
+    title="Language Detection and Syntax Highlighting"
+    description="This example uses a .sv file, typedef enum, and always_ff, which is enough to confirm syntax highlighting and language server wiring."
+  />
+</FeatureExample>
+
+## The File Is Not Recognized
+
+Check the language mode in the lower-right corner of VS Code. If `.v` / `.vh` files are not Verilog, or `.sv` / `.svh` / `.svi` files are not SystemVerilog, switch the language mode manually once and check whether another extension has overridden the association.
+
+If syntax highlighting works but navigation, diagnostics, and completion do not, this is usually a language-server or project-configuration issue. Click the `Vide` status item first; if it reports no project manifest, create or update `vizsla.toml` using [First Project](../../first-project/).
+
+## Header Files Have Fewer Features
+
+`.vh`, `.svh`, and `.svi` files usually participate through the `.v` or `.sv` file that includes them. When you open a header by itself, syntax highlighting and local editing features should work, but full cross-file diagnostics may not run standalone. Put the including source files in `sources` and the header directory in `include_dirs` for behavior closer to your real build.

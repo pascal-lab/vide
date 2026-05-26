@@ -1,0 +1,57 @@
+---
+title: 诊断
+description: 使用 Vide 诊断，并处理诊断太频繁、不更新、规则需要隐藏或降级的问题。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VizslaLab from '../../../../components/VizslaLab.astro';
+import codeActionsGif from '../../assets/features/code-actions.gif';
+import { diagnosticFiles } from '../../../../examples/dailyUse';
+
+诊断会显示在 VS Code 的 `Problems` 面板和编辑器下划线里。语法错误、解析错误通常只需要当前文件；跨文件语义诊断需要项目配置里的 `sources`、`include_dirs`、`defines`、`libraries` 等信息。
+
+相关设置参考：[Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics)。
+
+## 诊断什么时候刷新
+
+默认 `vizsla.diagnostics.update` 是 `onSave`，保存文件时刷新诊断。大型工程建议保持这个默认值，避免输入时反复触发较重分析。
+
+如果你确实需要边输入边刷新：
+
+```json
+{
+  "vizsla.diagnostics.update": "onType"
+}
+```
+
+<FeatureExample
+  image={codeActionsGif}
+  imageAlt="VS Code 中 Problems 面板和编辑器诊断下划线的动图"
+  imageCaption="VS Code 中的诊断反馈"
+  labCaption="右侧示例包含可刷新的诊断"
+>
+  <VizslaLab
+    projectId="daily-diagnostics"
+    projectLabel="Features: Diagnostics"
+    entryFile="rtl/diagnostic_demo.sv"
+    files={diagnosticFiles}
+    height="100%"
+    initialActiveFile="rtl/diagnostic_demo.sv"
+    initialSelection="8:5-8:22"
+    initialDiagnosticsOpen
+    title="诊断和 Problems 面板"
+    description="这个示例故意留下语法问题。打开诊断面板后可以看到浏览器 playground 里的标记和诊断列表。"
+  />
+</FeatureExample>
+
+## 诊断不更新
+
+先保存当前文件。仍然没有更新时，执行 `Vide：重新加载项目配置`；如果项目配置刚改过，这一步会重新读取 `vizsla.toml`。再不行，执行 `Vide：重启语言服务器`，并点击状态栏 `Vide` 看是否有项目配置错误。
+
+如果只打开了头文件，或文件没有被 `sources` 匹配到，跨文件诊断可能不会跑。回到 [项目配置](../../project-configuration/) 确认 `sources` 和 `include_dirs`。
+
+## 想隐藏或降低某类诊断
+
+把光标放在对应诊断位置，打开灯泡菜单。对于带有可识别诊断代码的 slang 诊断，Vide 会提供写入用户设置或工作区设置的快速修复，例如忽略此类诊断，或把错误降级为警告。
+
+灯泡里没有这些操作时，可以手动编辑 `vizsla.diagnostics.slang.rules`。规则写法见 [Diagnostics 设置参考](../../../advanced-guide/vscode-settings/#diagnostics)。
