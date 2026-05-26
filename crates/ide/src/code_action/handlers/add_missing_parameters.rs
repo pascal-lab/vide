@@ -27,10 +27,6 @@ pub(super) fn add_missing_parameters(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.allows_repair(RepairKind::MissingParameter) {
-        return None;
-    }
-
     let sema = ctx.sema();
     let db = sema.db;
     let file_id = ctx.file_id().into();

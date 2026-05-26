@@ -14,7 +14,7 @@ expression: items
         ),
         snippet_edit: Some(
             TextEditItem {
-                ins: "Foo ${1:u0}(${2:ports});",
+                ins: "Foo ${1:u0}(${2});",
                 del: 34..36,
             },
         ),
@@ -30,7 +30,7 @@ expression: items
         ),
         snippet_edit: Some(
             TextEditItem {
-                ins: "Foo #(${1:params}) ${2:u0}(${3:ports});",
+                ins: "Foo #(${1}) ${2:u0}(${3});",
                 del: 34..36,
             },
         ),

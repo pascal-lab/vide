@@ -18,10 +18,6 @@ pub(super) fn add_implicit_named_port_parens(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.allows_repair(RepairKind::AddImplicitNamedPortParens) {
-        return None;
-    }
-
     let conn = ctx.find_node_at_offset::<ast::NamedPortConnection>()?;
     if conn.open_paren().is_some() {
         return None;

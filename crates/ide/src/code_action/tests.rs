@@ -163,7 +163,7 @@ fn action_labels_without_diagnostics(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn missing_connection_repair_requires_matching_diagnostic() {
+fn remove_empty_port_connection_repair_requires_matching_diagnostic() {
     let (db, file_id, offset) = db_with_file(
         "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n",
     );
@@ -175,17 +175,16 @@ fn missing_connection_repair_requires_matching_diagnostic() {
         CodeActionResolveStrategy::All,
     );
 
-    assert!(actions.iter().all(|action| action.id.name != "add_missing_connections"));
+    assert!(actions.iter().all(|action| action.id.name != "remove_empty_port_connections"));
 }
 
 #[test]
-fn repair_actions_require_diagnostics() {
+fn remove_empty_port_connection_requires_diagnostics() {
     let labels = action_labels_without_diagnostics(
-        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n",
+        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(), ); endmodule\n",
     );
 
-    assert!(!labels.iter().any(|label| label == "Fill connections"));
-    assert!(!labels.iter().any(|label| label == "Fill parameters"));
+    assert!(!labels.iter().any(|label| label == "Remove empty port connections"));
 }
 
 #[test]
@@ -303,6 +302,19 @@ fn missing_connection_repair_fills_named_connections() {
 }
 
 #[test]
+fn missing_connection_repair_is_available_without_diagnostics() {
+    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n";
+    let labels = action_labels_without_diagnostics(text);
+    assert!(labels.iter().any(|label| label == "Fill connections"));
+
+    let fixed = apply_action_without_diagnostics(text, "add_missing_connections").unwrap();
+    assert_eq!(
+        fixed,
+        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
+    );
+}
+
+#[test]
 fn missing_connection_repair_handles_one_line_trailing_comma() {
     let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(),); endmodule\n";
     let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
@@ -367,6 +379,16 @@ fn missing_connection_repair_uses_valid_ordered_placeholders() {
 fn missing_parameter_repair_fills_named_parameters() {
     let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
     let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
+    assert_eq!(
+        fixed,
+        "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
+    );
+}
+
+#[test]
+fn missing_parameter_repair_is_available_without_diagnostics() {
+    let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "add_missing_parameters").unwrap();
     assert_eq!(
         fixed,
         "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
@@ -470,8 +492,22 @@ fn implicit_named_port_repair_adds_empty_parens() {
 }
 
 #[test]
+fn implicit_named_port_repair_is_available_without_diagnostics() {
+    let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "add_implicit_named_port_parens").unwrap();
+    assert_eq!(fixed, "module child(input a); endmodule\nmodule top; child u(.a()); endmodule\n");
+}
+
+#[test]
 fn instance_missing_parens_repair_adds_port_list() {
     let text = "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n";
     let fixed = apply_action(text, RepairKind::AddInstanceParens).unwrap();
     assert_eq!(fixed, "module child; endmodule\nmodule top; child u(); endmodule\n");
+}
+
+#[test]
+fn instance_missing_parens_repair_requires_diagnostics() {
+    let text = "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n";
+    let labels = action_labels_without_diagnostics(text);
+    assert!(!labels.iter().any(|label| label == "Add empty instance port list"));
 }
