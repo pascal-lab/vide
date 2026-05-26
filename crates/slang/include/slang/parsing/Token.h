@@ -119,7 +119,7 @@ public:
 
     Trivia clone(BumpAllocator& alloc, bool deep = false) const;
 };
-#if !defined(_M_IX86) && !defined(__clang_analyzer__)
+#if !defined(_M_IX86) && !defined(__EMSCRIPTEN__) && !defined(__clang_analyzer__)
 static_assert(sizeof(Trivia) == 16);
 #endif
 
@@ -220,7 +220,7 @@ private:
     static constexpr int MaxTriviaSmallCount = (1 << 4) - 2;
 };
 
-#if !defined(_M_IX86)
+#if !defined(_M_IX86) && !defined(__EMSCRIPTEN__)
 static_assert(sizeof(Token) == 16);
 #endif
 static_assert(std::is_trivially_copyable_v<Token>);

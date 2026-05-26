@@ -1,0 +1,83 @@
+---
+import VizslaLab from "./VizslaLab.astro";
+
+const faviconHref = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon.svg`;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href={faviconHref} type="image/svg+xml" />
+    <title>Vizsla Lab Embed Example</title>
+    <style>
+      body {
+        margin: 0;
+        background: #fafafa;
+        color: #09090b;
+        font-family: "Aptos", "Segoe UI", system-ui, sans-serif;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 14px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.2;
+      }
+
+      p {
+        max-width: 620px;
+        margin: 6px 0 0;
+        color: #71717a;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .route {
+        color: #71717a;
+        font: 12px/1 "Cascadia Code", Consolas, monospace;
+      }
+
+      @media (max-width: 720px) {
+        main {
+          padding: 14px;
+        }
+
+        header {
+          display: block;
+        }
+
+        .route {
+          display: block;
+          margin-top: 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Vizsla Lab embed</h1>
+          <p>Astro docs can mount the same lab component without a separate playground shell.</p>
+        </div>
+        <span class="route">/embed-example</span>
+      </header>
+      <VizslaLab docs scenario="macro-guard" height="620px" />
+    </main>
+  </body>
+</html>

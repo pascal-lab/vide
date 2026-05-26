@@ -1,0 +1,36 @@
+{
+  "name": "vizsla-playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./vizsla-lab": "./src/components/vizsla-lab.ts"
+  },
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1 --port 5177",
+    "build": "astro check && astro build",
+    "build:embed": "vite build --config vite.embed.config.ts",
+    "preview": "astro preview --host 127.0.0.1 --port 4177",
+    "build:wasm": "node scripts/build-vizsla-wasm.mjs",
+    "copy:docs-wasm": "node scripts/copy-docs-wasm-assets.mjs"
+  },
+  "dependencies": {
+    "@codingame/monaco-vscode-api": "33.0.9",
+    "@codingame/monaco-vscode-editor-api": "33.0.9",
+    "astro": "^6.3.7",
+    "lit": "^3.3.3",
+    "lucide": "^1.16.0",
+    "monaco-editor": "^0.55.1",
+    "vscode": "npm:@codingame/monaco-vscode-extension-api@33.0.9",
+    "vscode-languageclient": "9.0.1",
+    "vscode-languageserver-protocol": "3.17.5",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
+  }
+}

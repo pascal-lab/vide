@@ -1,0 +1,19 @@
+{
+  "id": "macro-guard",
+  "order": 80,
+  "label": "Macro Include",
+  "entryFile": "rtl/feature_gate.sv",
+  "description": "Include directory and macro flow for docs embeds.",
+  "files": [
+    {
+      "path": "vizsla.toml",
+      "languageId": "toml"
+    },
+    {
+      "path": "include/feature_defs.svh"
+    },
+    {
+      "path": "rtl/feature_gate.sv"
+    }
+  ]
+}

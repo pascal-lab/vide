@@ -1,0 +1,16 @@
+{
+  "id": "syntax-error",
+  "order": 60,
+  "label": "Syntax Error",
+  "entryFile": "rtl/broken.sv",
+  "description": "Configured workspace with a parse error that always produces a diagnostic.",
+  "files": [
+    {
+      "path": "vizsla.toml",
+      "languageId": "toml"
+    },
+    {
+      "path": "rtl/broken.sv"
+    }
+  ]
+}

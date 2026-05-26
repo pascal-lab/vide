@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build",
+    "build": "node ../playground/scripts/copy-docs-wasm-assets.mjs && astro build",
     "preview": "astro preview"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.39.2",
-    "astro": "^6.3.5"
+    "astro": "^6.3.5",
+    "vizsla-playground": "file:../playground"
   }
 }

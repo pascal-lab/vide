@@ -1,0 +1,69 @@
+---
+interface Props {
+  scenario?: string;
+  height?: string;
+  docs?: boolean;
+  wasmBaseUrl?: string;
+  activeFile?: string;
+  cursorLine?: number;
+  cursorColumn?: number;
+  selection?: string;
+  diagnosticsOpen?: boolean;
+  focusEditor?: boolean;
+  theme?: "auto" | "light" | "dark";
+}
+
+const {
+  scenario = "counter",
+  height,
+  docs = false,
+  wasmBaseUrl = assetPath("wasm/"),
+  activeFile,
+  cursorLine,
+  cursorColumn,
+  selection,
+  diagnosticsOpen = false,
+  focusEditor = false,
+  theme = "auto",
+} = Astro.props;
+
+function assetPath(path: string): string {
+  const base = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  return `${base}${path.replace(/^\/+/, "")}`;
+}
+---
+
+<script>
+  import "./vizsla-lab";
+</script>
+
+{
+  docs ? (
+    <vizsla-lab
+      docs
+      scenario={scenario}
+      height={height}
+      theme={theme}
+      wasm-base-url={wasmBaseUrl}
+      active-file={activeFile}
+      cursor-line={cursorLine}
+      cursor-column={cursorColumn}
+      selection={selection}
+      diagnostics-open={diagnosticsOpen}
+      focus-editor={focusEditor}
+    ></vizsla-lab>
+  ) : (
+    <vizsla-lab
+      scenario={scenario}
+      height={height}
+      theme={theme}
+      wasm-base-url={wasmBaseUrl}
+      active-file={activeFile}
+      cursor-line={cursorLine}
+      cursor-column={cursorColumn}
+      selection={selection}
+      diagnostics-open={diagnosticsOpen}
+      focus-editor={focusEditor}
+    ></vizsla-lab>
+  )
+}

@@ -1,0 +1,19 @@
+{
+  "id": "signature-inlay",
+  "order": 40,
+  "label": "Signature Inlay",
+  "entryFile": "rtl/packet_path.sv",
+  "description": "Configured workspace for signature help and positional parameter or port inlay hints.",
+  "files": [
+    {
+      "path": "vizsla.toml",
+      "languageId": "toml"
+    },
+    {
+      "path": "rtl/packet_fifo.sv"
+    },
+    {
+      "path": "rtl/packet_path.sv"
+    }
+  ]
+}

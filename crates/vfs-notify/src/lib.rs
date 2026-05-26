@@ -18,6 +18,7 @@ pub struct NotifyHandle {
     // Relative order of fields below is significant.
     sender: Sender<ServerMsg>,
     _handler: Option<thread::JoinHandle>,
+    browser_loader: Option<BrowserLoader>,
 }
 
 #[derive(Debug)]
@@ -28,6 +29,15 @@ enum ServerMsg {
 
 impl loader::Handle for NotifyHandle {
     fn spawn(sender: loader::Sender) -> NotifyHandle {
+        if cfg!(target_os = "emscripten") {
+            let (server_sender, _) = unbounded::<ServerMsg>();
+            return NotifyHandle {
+                sender: server_sender,
+                _handler: None,
+                browser_loader: Some(BrowserLoader::new(sender)),
+            };
+        }
+
         let actor = NotifyActor::new(sender);
         let (sender, receiver) = unbounded::<ServerMsg>();
         let thread = match thread::Builder::new(thread::ThreadIntent::Worker)
@@ -40,16 +50,26 @@ impl loader::Handle for NotifyHandle {
                 None
             }
         };
-        NotifyHandle { sender, _handler: thread }
+        NotifyHandle { sender, _handler: thread, browser_loader: None }
     }
 
     fn set_config(&mut self, config: loader::Config) {
+        if let Some(loader) = &mut self.browser_loader {
+            loader.set_config(config);
+            return;
+        }
+
         if self.sender.send(ServerMsg::Config(config)).is_err() {
             tracing::error!("failed to send VFS config to loader thread");
         }
     }
 
     fn invalidate(&mut self, path: AbsPathBuf) {
+        if let Some(loader) = &mut self.browser_loader {
+            loader.invalidate(path);
+            return;
+        }
+
         if self.sender.send(ServerMsg::Invalidate(path)).is_err() {
             tracing::error!("failed to send VFS invalidation to loader thread");
         }
@@ -57,6 +77,86 @@ impl loader::Handle for NotifyHandle {
 
     fn load_sync(&mut self, path: &AbsPath) -> LoadResult {
         read(path)
+    }
+}
+
+#[derive(Debug)]
+struct BrowserLoader {
+    sender: loader::Sender,
+    config_version: u32,
+    loaded_paths: FxHashSet<AbsPathBuf>,
+}
+
+impl BrowserLoader {
+    fn new(sender: loader::Sender) -> Self {
+        Self { sender, config_version: 0, loaded_paths: FxHashSet::default() }
+    }
+
+    fn set_config(&mut self, config: loader::Config) {
+        let config_version = config.version;
+        self.config_version = config_version;
+        let has_reconcile_step = !self.loaded_paths.is_empty();
+        let n_entries = config.to_load.len();
+        let n_total = n_entries + usize::from(has_reconcile_step);
+        if n_total > 0 {
+            self.send(loader::Message::Progress { n_total, n_done: 0, config_version });
+        }
+
+        let previous_loaded_paths = mem::take(&mut self.loaded_paths);
+        let mut reported_paths = FxHashSet::default();
+        let mut loaded_paths = FxHashSet::default();
+
+        for (index, entry) in config.to_load.into_iter().enumerate() {
+            let (watch_tx, _) = unbounded();
+            let files = NotifyActor::load_entry(&watch_tx, entry, false);
+            reported_paths.extend(files.iter().map(|(path, _)| path.clone()));
+            loaded_paths.extend(
+                files
+                    .iter()
+                    .filter(|(_, result)| !matches!(result, LoadResult::LoadError))
+                    .map(|(path, _)| path.clone()),
+            );
+            self.send(loader::Message::Loaded { files, config_version });
+            self.send(loader::Message::Progress { n_total, n_done: index + 1, config_version });
+        }
+
+        let unloaded = previous_loaded_paths
+            .difference(&reported_paths)
+            .cloned()
+            .map(|path| (path, LoadResult::LoadError))
+            .collect_vec();
+        self.loaded_paths = loaded_paths;
+        if !unloaded.is_empty() {
+            self.send(loader::Message::Loaded { files: unloaded, config_version });
+        }
+        if has_reconcile_step {
+            self.send(loader::Message::Progress { n_total, n_done: n_total, config_version });
+        } else if n_total == 0 {
+            self.send(loader::Message::Progress { n_total, n_done: 0, config_version });
+        }
+    }
+
+    fn invalidate(&mut self, path: AbsPathBuf) {
+        let contents = read(path.as_path());
+        let files = vec![(path, contents)];
+        self.record_loaded_files(&files);
+        self.send(loader::Message::Loaded { files, config_version: self.config_version });
+    }
+
+    fn record_loaded_files(&mut self, files: &[(AbsPathBuf, LoadResult)]) {
+        for (path, result) in files {
+            if matches!(result, LoadResult::LoadError) {
+                self.loaded_paths.remove(path);
+            } else {
+                self.loaded_paths.insert(path.clone());
+            }
+        }
+    }
+
+    fn send(&self, msg: loader::Message) {
+        if self.sender.send(msg).is_err() {
+            tracing::error!("failed to send browser VFS loader message to main loop");
+        }
     }
 }
 

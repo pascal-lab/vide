@@ -18,6 +18,7 @@ tags
 
 # generated files
 generated.rs
+docs/public/vizsla-lab/
 
 .DS_Store
 .vscode/

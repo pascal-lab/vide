@@ -21,6 +21,7 @@ concurrency:
 env:
   ASTRO_SITE: https://vide.pascal-lab.net
   OSSUTIL_VERSION: 1.7.18
+  EMSDK_VERSION: 5.0.2
 
 jobs:
   deploy-preview:
@@ -251,13 +252,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: docs-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+
+      - name: Install Emscripten SDK
+        uses: ./.github/actions/setup-emscripten
+        with:
+          version: ${{ env.EMSDK_VERSION }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: docs/package-lock.json
+          cache-dependency-path: |
+            docs/package-lock.json
+            playground/package-lock.json
+
+      - name: Build playground WASM
+        run: |
+          source "${EMSDK}/emsdk_env.sh"
+          npm run build:wasm
+        working-directory: playground
 
       - name: Install dependencies
         run: npm ci

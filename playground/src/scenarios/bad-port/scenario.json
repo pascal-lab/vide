@@ -1,0 +1,19 @@
+{
+  "id": "bad-port",
+  "order": 70,
+  "label": "Port Mismatch",
+  "entryFile": "rtl/top.sv",
+  "description": "Multi-file semantic diagnostic from a configured source root.",
+  "files": [
+    {
+      "path": "vizsla.toml",
+      "languageId": "toml"
+    },
+    {
+      "path": "rtl/child.sv"
+    },
+    {
+      "path": "rtl/top.sv"
+    }
+  ]
+}

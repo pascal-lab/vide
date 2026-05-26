@@ -54,6 +54,12 @@
 #include <utility>
 #include <variant>
 
+#if defined(__EMSCRIPTEN__)
+namespace boost {
+using uint16_t = std::uint16_t;
+}
+#endif
+
 #pragma once
 
 // This is a minimal header that contains only the small set

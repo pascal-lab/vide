@@ -1,0 +1,12 @@
+{
+  "id": "basics",
+  "order": 20,
+  "label": "Basics",
+  "entryFile": "rtl/control_fsm.sv",
+  "description": "Single-file hover, symbols, folding, highlighting, and semantic tokens.",
+  "files": [
+    {
+      "path": "rtl/control_fsm.sv"
+    }
+  ]
+}

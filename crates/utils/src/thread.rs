@@ -77,6 +77,12 @@ impl Pool {
     where
         F: FnOnce() + Send + 'static,
     {
+        if cfg!(target_os = "emscripten") {
+            let _ = intent;
+            f();
+            return;
+        }
+
         let f = Box::new(move || {
             if cfg!(debug_assertions) {
                 intent.assert_is_used_on_current_thread();
