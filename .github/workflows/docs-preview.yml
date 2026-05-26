@@ -8,7 +8,7 @@ on:
       - ".github/workflows/docs-preview.yml"
       - ".github/workflows/deploy-docs.yml"
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
     paths:
       - "docs/**"
       - ".github/workflows/docs-preview.yml"
@@ -23,8 +23,43 @@ env:
   PREVIEW_URL: ${{ github.event_name == 'pull_request' && format('https://vide.pascal-lab.net/preview/pr-{0}/', github.event.pull_request.number) || '' }}
 
 jobs:
+  metadata:
+    name: Prepare preview metadata
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write preview metadata
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+
+          preview_path="preview/pr-${PR_NUMBER}/"
+          preview_url="https://vide.pascal-lab.net/${preview_path}"
+
+          mkdir -p preview-metadata
+          printf '%s\n' "${PR_NUMBER}" > preview-metadata/pr-number
+          printf '%s\n' "${PR_ACTION}" > preview-metadata/action
+          printf '%s\n' "${preview_path}" > preview-metadata/path
+          printf '%s\n' "${preview_url}" > preview-metadata/url
+
+          if [ "${PR_ACTION}" = "closed" ]; then
+            echo "Docs preview will be removed from ${preview_url}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "Docs preview will be deployed to ${preview_url}" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload preview metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-docs-preview-metadata
+          path: preview-metadata
+          retention-days: 7
+
   build:
     name: Build Starlight
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
