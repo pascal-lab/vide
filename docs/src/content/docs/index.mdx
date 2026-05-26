@@ -5,8 +5,10 @@ template: splash
 editUrl: false
 lastUpdated: false
 hero:
-  title: Vide
-  tagline: 面向 Verilog 和 SystemVerilog 的语言服务器与 VS Code 扩展，把 RTL 开发常用的 IDE 能力接入编辑器。
+  title: |
+    <span class="hero-brand">Vide</span>
+    <span class="hero-title-main">现代 SystemVerilog 开发环境</span>
+    <span class="hero-title-sub">面向 Verilog 和 SystemVerilog 的语言服务器与 VS Code 扩展，把 RTL 开发常用的 IDE 能力接入编辑器。</span>
   actions:
     - text: 快速开始
       link: ./user-guide/quick-start/
@@ -21,22 +23,32 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-<CardGrid stagger>
-  <Card title="面向 RTL 的语言理解" icon="code-branch">
-    读取打开的 RTL 文件，并在需要时根据项目配置文件、include 目录和宏定义建立更完整的工程语义。
-  </Card>
-  <Card title="VS Code 内即开即用" icon="vscode">
-    安装扩展后打开 RTL 目录即可使用语法高亮、命令、状态栏和随扩展打包的后台服务。
-  </Card>
-  <Card title="导航与诊断" icon="magnifier">
-    支持语义诊断、跳转到声明/定义、引用查找、文档高亮、符号大纲和折叠。
-  </Card>
-  <Card title="辅助编写 RTL" icon="rocket">
-    提供补全、悬停说明、签名帮助、重命名、格式化、代码操作和行内提示。
-  </Card>
-</CardGrid>
+<section class="vizsla-feature">
+  <h2>专注 RTL 设计<br />剩下的交给 Vide</h2>
+  <div class="feature-tabs" aria-label="核心能力">
+    <span>语言理解</span>
+    <span>导航诊断</span>
+    <span>补全格式化</span>
+    <span>项目配置</span>
+  </div>
+  <div class="feature-card">
+    <div class="feature-copy">
+      <h3>
+        <span>从工程配置到语义分析，<br/>开箱即用</span>
+      </h3>
+      <p>
+        Vide 读取源文件、include 目录、宏定义和库映射，维护 SystemVerilog 语义信息，让跳转、引用、诊断和重命名都围绕真实 RTL 工程工作。
+      </p>
+      <ul>
+        <li>项目级诊断与单文件回退</li>
+        <li>声明/定义跳转、引用查找和符号大纲</li>
+        <li>补全、悬停、签名帮助、格式化和代码操作</li>
+      </ul>
+    </div>
+  </div>
+</section>
 
 ## 选择入口
 
