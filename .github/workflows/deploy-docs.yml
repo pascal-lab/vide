@@ -12,6 +12,7 @@ permissions:
   actions: read
   contents: read
   issues: write
+  pull-requests: write
 
 concurrency:
   group: docs-deploy
