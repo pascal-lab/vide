@@ -88,7 +88,7 @@ jobs:
 
           target="oss://${OSS_BUCKET_NAME}/${PREVIEW_PATH}"
           ossutil rm "${target}" -rf || true
-          ossutil cp preview-dist "${target}" -rf
+          ossutil cp preview-dist "${target}" -rf --disable-dir-object
 
           echo "Preview deployed to ${PREVIEW_URL}" >> "${GITHUB_STEP_SUMMARY}"
 
@@ -179,7 +179,7 @@ jobs:
             ossutil rm "oss://${OSS_BUCKET_NAME}/${key}" -rf || true
           done
 
-          ossutil cp docs/dist "oss://${OSS_BUCKET_NAME}/" -rf
+          ossutil cp docs/dist "oss://${OSS_BUCKET_NAME}/" -rf --disable-dir-object
 
   cleanup-preview:
     name: Remove closed PR preview
