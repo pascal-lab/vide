@@ -22,6 +22,7 @@ concurrency:
 
 env:
   ASTRO_SITE: https://vide.pascal-lab.net
+  OSSUTIL_VERSION: 1.7.18
 
 jobs:
   deploy-preview:
@@ -60,11 +61,29 @@ jobs:
           path: preview-dist
 
       - name: Setup ossutil
-        uses: manyuanrong/setup-ossutil@v2.0
-        with:
-          endpoint: ${{ secrets.endpoint }}
-          access-key-id: ${{ secrets.accessKeyId }}
-          access-key-secret: ${{ secrets.accessKeySecret }}
+        env:
+          OSS_ENDPOINT: ${{ secrets.endpoint }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.accessKeyId }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.accessKeySecret }}
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/ossutil"
+          archive="${RUNNER_TEMP}/ossutil.zip"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL \
+            "https://github.com/aliyun/ossutil/releases/download/v${OSSUTIL_VERSION}/ossutil-v${OSSUTIL_VERSION}-linux-amd64.zip" \
+            -o "${archive}"
+          unzip -q -o "${archive}" -d "${install_dir}"
+
+          ossutil_bin="${install_dir}/ossutil-v${OSSUTIL_VERSION}-linux-amd64/ossutil"
+          chmod +x "${ossutil_bin}"
+          echo "$(dirname "${ossutil_bin}")" >> "${GITHUB_PATH}"
+
+          "${ossutil_bin}" --version
+          "${ossutil_bin}" help cp | grep -F -- "--disable-dir-object" > /dev/null
+          "${ossutil_bin}" config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" -L CH
 
       - name: Deploy preview to OSS
         env:
@@ -163,11 +182,29 @@ jobs:
         working-directory: docs
 
       - name: Setup ossutil
-        uses: manyuanrong/setup-ossutil@v2.0
-        with:
-          endpoint: ${{ secrets.endpoint }}
-          access-key-id: ${{ secrets.accessKeyId }}
-          access-key-secret: ${{ secrets.accessKeySecret }}
+        env:
+          OSS_ENDPOINT: ${{ secrets.endpoint }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.accessKeyId }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.accessKeySecret }}
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/ossutil"
+          archive="${RUNNER_TEMP}/ossutil.zip"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL \
+            "https://github.com/aliyun/ossutil/releases/download/v${OSSUTIL_VERSION}/ossutil-v${OSSUTIL_VERSION}-linux-amd64.zip" \
+            -o "${archive}"
+          unzip -q -o "${archive}" -d "${install_dir}"
+
+          ossutil_bin="${install_dir}/ossutil-v${OSSUTIL_VERSION}-linux-amd64/ossutil"
+          chmod +x "${ossutil_bin}"
+          echo "$(dirname "${ossutil_bin}")" >> "${GITHUB_PATH}"
+
+          "${ossutil_bin}" --version
+          "${ossutil_bin}" help cp | grep -F -- "--disable-dir-object" > /dev/null
+          "${ossutil_bin}" config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" -L CH
 
       - name: Deploy production to OSS
         env:
@@ -195,11 +232,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup ossutil
-        uses: manyuanrong/setup-ossutil@v2.0
-        with:
-          endpoint: ${{ secrets.endpoint }}
-          access-key-id: ${{ secrets.accessKeyId }}
-          access-key-secret: ${{ secrets.accessKeySecret }}
+        env:
+          OSS_ENDPOINT: ${{ secrets.endpoint }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.accessKeyId }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.accessKeySecret }}
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/ossutil"
+          archive="${RUNNER_TEMP}/ossutil.zip"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL \
+            "https://github.com/aliyun/ossutil/releases/download/v${OSSUTIL_VERSION}/ossutil-v${OSSUTIL_VERSION}-linux-amd64.zip" \
+            -o "${archive}"
+          unzip -q -o "${archive}" -d "${install_dir}"
+
+          ossutil_bin="${install_dir}/ossutil-v${OSSUTIL_VERSION}-linux-amd64/ossutil"
+          chmod +x "${ossutil_bin}"
+          echo "$(dirname "${ossutil_bin}")" >> "${GITHUB_PATH}"
+
+          "${ossutil_bin}" --version
+          "${ossutil_bin}" help cp | grep -F -- "--disable-dir-object" > /dev/null
+          "${ossutil_bin}" config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" -L CH
 
       - name: Delete preview from OSS
         env:
