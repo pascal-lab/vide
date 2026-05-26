@@ -32,6 +32,14 @@ pub(crate) fn handle_cancel(
     Ok(())
 }
 
+pub(crate) fn handle_work_done_progress_cancel(
+    state: &mut GlobalState,
+    params: lsp_types::WorkDoneProgressCancelParams,
+) -> anyhow::Result<()> {
+    state.cancel_work_done_progress(params);
+    Ok(())
+}
+
 pub(crate) fn handle_did_open_text_document(
     state: &mut GlobalState,
     params: DidOpenTextDocumentParams,

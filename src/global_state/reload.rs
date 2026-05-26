@@ -1,3 +1,5 @@
+use std::panic::{self, AssertUnwindSafe};
+
 use base_db::{change::Change, source_db::SourceDb};
 use itertools::Itertools;
 use project_model::{ProjectModel, Workspace, get_workspace_folder, project_manifest};
@@ -55,7 +57,32 @@ impl GlobalState {
                     return;
                 }
 
-                let (project_model, error_sink) = ProjectModel::load(manifests);
+                let (project_model, error_sink) =
+                    match panic::catch_unwind(AssertUnwindSafe(|| ProjectModel::load(manifests))) {
+                        Ok(result) => result,
+                        Err(panic) => {
+                            let message = panic_message(&panic)
+                                .map(|message| format!("workspace fetch panicked: {message}"))
+                                .unwrap_or_else(|| "workspace fetch panicked".to_owned());
+                            tracing::error!(message, "workspace fetch panicked");
+                            if sender
+                                .send(
+                                    FetchWorkspaceProgress::End {
+                                        generation,
+                                        workspaces: Vec::new(),
+                                        errors: vec![anyhow::anyhow!(message)],
+                                    }
+                                    .into(),
+                                )
+                                .is_err()
+                            {
+                                tracing::debug!(
+                                    "workspace fetch panic result dropped because main loop is gone"
+                                );
+                            }
+                            return;
+                        }
+                    };
                 let all_workspaces = project_model.workspaces;
 
                 tracing::info!("did fetch workspaces {:?}", all_workspaces);
@@ -277,6 +304,13 @@ impl GlobalState {
             DEFAULT_REQ_HANDLER,
         );
     }
+}
+
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> Option<&str> {
+    panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
 }
 
 fn client_watch_glob(root: &AbsPathBuf, suffix: &str) -> String {

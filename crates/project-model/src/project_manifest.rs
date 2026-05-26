@@ -149,7 +149,7 @@ mod tests {
             ProjectManifestFileName::from_file_name(MANIFEST_FILE_NAME),
             Some(ProjectManifestFileName::Primary)
         );
-        assert_eq!(ProjectManifestFileName::from_file_name("vide.toml"), None);
+        assert_eq!(ProjectManifestFileName::from_file_name("vizsla.toml"), None);
     }
 
     #[test]

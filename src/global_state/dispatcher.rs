@@ -1,15 +1,22 @@
 use std::{
     fmt,
-    panic::{self, UnwindSafe},
+    panic::{self, AssertUnwindSafe, UnwindSafe},
     thread,
 };
 
 use ide::Cancelled;
 use lsp_server::{ExtractError, Request, Response};
 use serde::{Serialize, de::DeserializeOwned};
-use utils::{json::from_json, thread::ThreadIntent};
+use utils::{
+    cancellation::{CancellationError, CancellationToken},
+    json::from_json,
+    thread::ThreadIntent,
+};
 
-use super::{main_loop::Task, snapshot::GlobalStateSnapshot};
+use super::{
+    main_loop::{ResponseTask, Task},
+    snapshot::GlobalStateSnapshot,
+};
 use crate::{global_state::GlobalState, i18n::keys, lsp_ext::lsp_error::LspError};
 
 pub(crate) struct ReqDispatcher<'a> {
@@ -72,8 +79,14 @@ impl ReqDispatcher<'_> {
             return self;
         };
         let request_id = req.id.clone();
+        let cancellation = self
+            .global_state
+            .task_pool
+            .handle
+            .request_token(&request_id)
+            .unwrap_or_else(|| self.global_state.task_pool.handle.task_token());
 
-        let result = {
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
             let _span = tracing::info_span!(
                 "lsp.request.handle",
                 method = R::METHOD,
@@ -82,42 +95,11 @@ impl ReqDispatcher<'_> {
             )
             .entered();
             let _pctx = utils::panic_context::enter(panic_context);
+            cancellation.check()?;
             f(self.global_state, params)
-        };
+        }));
 
-        if let Ok(response) = result_to_response::<R>(req.id, result) {
-            self.global_state.respond(response);
-        }
-
-        self
-    }
-
-    pub(crate) fn on_sync<R>(&mut self, f: FnReqSynSnap<R>) -> &mut Self
-    where
-        R: lsp_types::request::Request,
-        R::Params: DeserializeOwned + UnwindSafe + fmt::Debug,
-        R::Result: Serialize,
-    {
-        let Some((req, params, panic_context)) = self.parse::<R>() else {
-            return self;
-        };
-        let request_id = req.id.clone();
-
-        let global_state_snapshot = self.global_state.make_snapshot();
-
-        let result = panic::catch_unwind(move || {
-            let _span = tracing::info_span!(
-                "lsp.request.handle",
-                method = R::METHOD,
-                id = ?request_id,
-                mode = "sync"
-            )
-            .entered();
-            let _pctx = utils::panic_context::enter(panic_context);
-            f(global_state_snapshot, params)
-        });
-
-        if let Ok(response) = thread_result_to_response::<R>(req.id, result) {
+        if let Ok(response) = thread_result_to_response::<R>(req.id, result, &cancellation) {
             self.global_state.respond(response);
         }
 
@@ -131,7 +113,7 @@ impl ReqDispatcher<'_> {
         R::Result: Serialize,
     {
         self.on_with_intent_and_err_handler::<R>(ThreadIntent::Worker, f, |req| {
-            Task::Response(Response::new_err(
+            Task::response(Response::new_err(
                 req.id,
                 lsp_server::ErrorCode::ContentModified as i32,
                 "content modified".to_string(),
@@ -149,10 +131,10 @@ impl ReqDispatcher<'_> {
         R::Result: Serialize,
     {
         self.on_with_intent_and_err_handler::<R>(ThreadIntent::LatencySensitive, f, |req| {
-            Task::Response(Response::new_err(
+            Task::response(Response::new_err(
                 req.id,
-                lsp_server::ErrorCode::InternalError as i32,
-                "internal error".to_string(),
+                lsp_server::ErrorCode::ContentModified as i32,
+                "content modified".to_string(),
             ))
         })
     }
@@ -172,8 +154,15 @@ impl ReqDispatcher<'_> {
             return self;
         };
 
-        let world = self.global_state.make_snapshot();
         let request_id = req.id.clone();
+        let cancellation = self
+            .global_state
+            .task_pool
+            .handle
+            .request_token(&request_id)
+            .unwrap_or_else(|| self.global_state.task_pool.handle.task_token());
+        let world = self.global_state.make_snapshot_with_cancel(cancellation.clone());
+        let accepted_response_effects = world.accepted_response_effects();
         tracing::info!(
             method = R::METHOD,
             id = ?request_id,
@@ -182,6 +171,7 @@ impl ReqDispatcher<'_> {
         );
 
         self.global_state.task_pool.handle.spawn_and_send(intent, move || {
+            let worker_cancellation = cancellation.clone();
             let result = panic::catch_unwind(move || {
                 let _span = tracing::info_span!(
                     "lsp.request.handle",
@@ -192,10 +182,22 @@ impl ReqDispatcher<'_> {
                 )
                 .entered();
                 let _pctx = utils::panic_context::enter(panic_context);
-                f(world, params)
+                worker_cancellation.check()?;
+                let result = f(world, params)?;
+                worker_cancellation.check()?;
+                Ok(result)
             });
-            match thread_result_to_response::<R>(req.id.clone(), result) {
-                Ok(response) => Task::Response(response),
+            match thread_result_to_response::<R>(req.id.clone(), result, &cancellation) {
+                Ok(response) => {
+                    let accepted_effects = if response.error.is_none() {
+                        accepted_response_effects.take()
+                    } else {
+                        Vec::new()
+                    };
+                    Task::Response(
+                        ResponseTask::new(response).with_accepted_effects(accepted_effects),
+                    )
+                }
                 Err(_) => err_handler(req),
             }
         });
@@ -240,6 +242,7 @@ impl ReqDispatcher<'_> {
 fn result_to_response<R>(
     id: lsp_server::RequestId,
     result: anyhow::Result<R::Result>,
+    cancellation: &CancellationToken,
 ) -> Result<Response, Cancelled>
 where
     R: lsp_types::request::Request,
@@ -253,28 +256,51 @@ where
             tracing::info!(error = false, "encoded request response");
             Ok(response)
         }
-        Err(error) => match error.downcast::<LspError>() {
-            Ok(lsp_error) => {
-                tracing::info!(error = true, code = lsp_error.code, "encoded LSP error response");
-                Ok(Response::new_err(id, lsp_error.code, lsp_error.message))
+        Err(error) => match error.downcast::<CancellationError>() {
+            Ok(_) => {
+                tracing::info!(
+                    error = true,
+                    code = lsp_types::error_codes::REQUEST_CANCELLED as i32,
+                    "encoded request cancellation response"
+                );
+                Ok(request_cancelled_response(id))
             }
-            Err(error) => match error.downcast::<Cancelled>() {
-                Ok(cancelled) => {
-                    tracing::info!("request response cancelled");
-                    Err(cancelled)
-                }
-                Err(error) => {
+            Err(error) => match error.downcast::<LspError>() {
+                Ok(lsp_error) => {
                     tracing::info!(
                         error = true,
-                        code = lsp_server::ErrorCode::InternalError as i32,
-                        "encoded internal error response"
+                        code = lsp_error.code,
+                        "encoded LSP error response"
                     );
-                    Ok(Response::new_err(
-                        id,
-                        lsp_server::ErrorCode::InternalError as i32,
-                        error.to_string(),
-                    ))
+                    Ok(Response::new_err(id, lsp_error.code, lsp_error.message))
                 }
+                Err(error) => match error.downcast::<Cancelled>() {
+                    Ok(cancelled) => {
+                        if cancellation.is_cancelled() {
+                            tracing::info!(
+                                error = true,
+                                code = lsp_types::error_codes::REQUEST_CANCELLED as i32,
+                                "encoded request cancellation response after analysis cancellation"
+                            );
+                            Ok(request_cancelled_response(id))
+                        } else {
+                            tracing::info!("request response cancelled");
+                            Err(cancelled)
+                        }
+                    }
+                    Err(error) => {
+                        tracing::info!(
+                            error = true,
+                            code = lsp_server::ErrorCode::InternalError as i32,
+                            "encoded internal error response"
+                        );
+                        Ok(Response::new_err(
+                            id,
+                            lsp_server::ErrorCode::InternalError as i32,
+                            error.to_string(),
+                        ))
+                    }
+                },
             },
         },
     }
@@ -284,6 +310,7 @@ where
 fn thread_result_to_response<R>(
     id: lsp_server::RequestId,
     result: thread::Result<anyhow::Result<R::Result>>,
+    cancellation: &CancellationToken,
 ) -> Result<Response, Cancelled>
 where
     R: lsp_types::request::Request,
@@ -291,7 +318,7 @@ where
     R::Result: Serialize,
 {
     match result {
-        Ok(result) => result_to_response::<R>(id, result),
+        Ok(result) => result_to_response::<R>(id, result, cancellation),
         Err(panic) => {
             let panic_message = panic
                 .downcast_ref::<String>()
@@ -308,6 +335,14 @@ where
             Ok(Response::new_err(id, lsp_server::ErrorCode::InternalError as i32, message))
         }
     }
+}
+
+fn request_cancelled_response(id: lsp_server::RequestId) -> Response {
+    Response::new_err(
+        id,
+        lsp_types::error_codes::REQUEST_CANCELLED as i32,
+        "request cancelled".to_owned(),
+    )
 }
 
 pub(crate) struct NotifDispatcher<'a> {
@@ -348,9 +383,20 @@ impl NotifDispatcher<'_> {
             }
         };
 
-        let _pctx = utils::panic_context::enter(format!("\nnotification: {}", N::METHOD));
-        if let Err(error) = f(self.global_state, params) {
-            tracing::error!("notification handler failed for {}: {error:#}", N::METHOD);
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _pctx = utils::panic_context::enter(format!("\nnotification: {}", N::METHOD));
+            f(self.global_state, params)
+        }));
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::error!("notification handler failed for {}: {error:#}", N::METHOD);
+            }
+            Err(panic) => {
+                let message = panic_message(&panic).unwrap_or("unknown panic payload");
+                tracing::error!(method = N::METHOD, message, "notification handler panicked");
+            }
         }
 
         self
@@ -361,4 +407,11 @@ impl NotifDispatcher<'_> {
             tracing::error!("Unhandled notification: {:?}", &self.notif);
         }
     }
+}
+
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> Option<&str> {
+    panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
 }

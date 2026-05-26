@@ -39,8 +39,9 @@ impl GlobalState {
         self.send(request.into());
     }
 
-    pub(crate) fn respond(&mut self, response: lsp_server::Response) {
+    pub(crate) fn respond(&mut self, response: lsp_server::Response) -> bool {
         if let Some((method, start)) = self.req_queue.incoming.complete(&response.id) {
+            self.task_pool.handle.complete_request(&response.id);
             if let Some(err) = &response.error
                 && err.message.starts_with("server panicked")
             {
@@ -50,7 +51,9 @@ impl GlobalState {
             let duration = start.elapsed();
             tracing::debug!("handled {} {}) in {:0.2?}", method, response.id, duration);
             self.send(response.into());
+            return true;
         }
+        false
     }
 
     pub(crate) fn report_progress(
