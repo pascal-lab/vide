@@ -1,8 +1,8 @@
 {
   "$id": "https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vide project manifest",
-  "description": "Project manifest for the Vide Verilog/SystemVerilog language server.",
+  "title": "Vizsla project manifest",
+  "description": "Project manifest for the Vizsla Verilog/SystemVerilog language server.",
   "type": "object",
   "properties": {
     "top_modules": {
@@ -47,7 +47,7 @@
       ]
     },
     "include_dirs": {
-      "description": "Include search directories. When omitted and sources is set explicitly, Vide uses the scan roots inferred from sources. Explicit include_dirs = [] disables this fallback.",
+      "description": "Include search directories. When omitted and sources is set explicitly, Vizsla uses the scan roots inferred from sources. Explicit include_dirs = [] disables this fallback.",
       "type": "array",
       "items": {
         "type": "string"
