@@ -132,9 +132,23 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
     }
   }
 
-  async function ensureVideLab() {
+  function ensureVideLabStyles(assetBase) {
+    const href = `${assetBase}vide-playground.css`;
+    if (document.querySelector(`link[data-vide-lab-styles="${href}"]`)) {
+      return;
+    }
+
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    link.dataset.videLabStyles = href;
+    document.head.append(link);
+  }
+
+  async function ensureVideLab(assetBase) {
+    ensureVideLabStyles(assetBase);
     if (!customElements.get("vide-lab")) {
-      await import("vide-playground/vide-lab");
+      await import(`${assetBase}vide-lab.es.js`);
     }
     await customElements.whenDefined("vide-lab");
   }
@@ -153,7 +167,7 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
 
     try {
       const assetBase = root.dataset.assetBase;
-      await ensureVideLab();
+      await ensureVideLab(assetBase);
 
       const lab = document.createElement("vide-lab");
       if (root.dataset.mode !== "app") {

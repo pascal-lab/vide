@@ -101,6 +101,10 @@ jobs:
             docs/package-lock.json
             playground/package-lock.json
 
+      - name: Install playground dependencies
+        run: npm ci
+        working-directory: playground
+
       - name: Build playground WASM
         run: |
           source "${EMSDK}/emsdk_env.sh"
