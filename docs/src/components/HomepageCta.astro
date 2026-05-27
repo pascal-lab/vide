@@ -4,8 +4,6 @@ import { homepageCtaActions } from '../data/homepage';
 ---
 
 <section class="vide-cta">
-  <h2>立刻体验</h2>
-  <p>直接打开文档快速上手，或者先去 Playground 里实际试一遍补全、跳转和诊断体验。</p>
   <div class="sl-flex actions vide-cta__actions">
     {
       homepageCtaActions.map((action) => (
@@ -19,18 +17,13 @@ import { homepageCtaActions } from '../data/homepage';
 
 <style>
   .vide-cta {
-    margin-block: 3rem 1rem;
-  }
-
-  .vide-cta p {
-    max-width: 42rem;
-    color: var(--sl-color-gray-2);
+    margin-block: 6rem 4rem;
   }
 
   .vide-cta__actions {
     gap: 1rem;
-    margin-top: 1.25rem;
-    justify-content: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .vide-cta__actions :global(.sl-link-button.primary) {

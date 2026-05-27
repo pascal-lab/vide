@@ -3,21 +3,29 @@ import HomepageFeatureCarousel from './HomepageFeatureCarousel.astro';
 ---
 
 <section class="vide-feature">
-  <h2>专注 RTL 设计<br />把繁琐细节交给 Vide</h2>
+  <h2>让<span class="vide-feature__accent"><strong>硬件设计</strong></span><br />像编写软件一样<wbr /><span class="vide-feature__nowrap">丝滑顺手</span></h2>
   <HomepageFeatureCarousel />
 </section>
 
 <style>
   .vide-feature {
-    margin-block: clamp(3rem, 6vw, 4rem);
+    margin-block: clamp(2rem, 6vw, 3rem);
   }
 
   .vide-feature h2 {
     max-width: 20ch;
     margin-block: 0.75rem clamp(2.75rem, 5vw, 4.5rem);
     color: var(--sl-color-white);
-    font-size: clamp(2.25rem, 5vw, 4.5rem);
+    font-size: clamp(2rem, 5vw, 3rem);
     letter-spacing: 0;
-    line-height: 1.05;
+    line-height: 1.4;
+  }
+
+  .vide-feature__accent {
+    color: var(--vide-accent);
+  }
+
+  .vide-feature__nowrap {
+    white-space: nowrap;
   }
 </style>

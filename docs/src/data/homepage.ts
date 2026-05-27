@@ -1,14 +1,19 @@
 import type { ImageMetadata } from 'astro';
 
-import completionImage from '../assets/homepage-features/completion1.png';
-import gotoDefImage from '../assets/homepage-features/goto-def.png';
-import hoverInstanceImage from '../assets/homepage-features/hover-on-instance.png';
-import hoverLiteralImage from '../assets/homepage-features/hover-on-literal.png';
-import hoverModuleImage from '../assets/homepage-features/hover-on-module.png';
-import inlayImage from '../assets/homepage-features/inlay.png';
-import missingPortImage from '../assets/homepage-features/missing-port.png';
-import peekDefImage from '../assets/homepage-features/peek-def.png';
-import renameImage from '../assets/homepage-features/rename.png';
+import completionItemsImage from '../assets/homepage-features/completion-items.png';
+import completionModuleDeclImage from '../assets/homepage-features/completion-module-decl.png';
+import completionModuleSnippetExpandedImage from '../assets/homepage-features/completion-module-snippets-expanded.png';
+import completionPortsImage from '../assets/homepage-features/completion-ports.png';
+import completionSnippetModuleImage from '../assets/homepage-features/completion-snippets-module.png';
+import documentSymbolImage from '../assets/homepage-features/document-symbol.jpeg';
+import findAllReferencesImage from '../assets/homepage-features/find-all-references.jpeg';
+import hoverInstanceNameImage from '../assets/homepage-features/hover-on-instance-name.png';
+import hoverModuleNameImage from '../assets/homepage-features/hover-on-module-name.png';
+import hoverNumberLiteralImage from '../assets/homepage-features/hover-on-number-literal.png';
+import inlayHintsImage from '../assets/homepage-features/inlay-hints.png';
+import missingPortsImage from '../assets/homepage-features/missing-ports.png';
+import peekDefinitionImage from '../assets/homepage-features/peek-definition.png';
+import renameImage from '../assets/homepage-features/rename-updated.png';
 
 export type HomepageFeatureLayout = 'image-left' | 'image-right';
 
@@ -25,20 +30,35 @@ export interface HomepageFeature {
   images: HomepageFeatureImage[];
 }
 
-export type ComparisonFeatureValue = boolean | 'partial';
+export type ComparisonFeatureValue = boolean | string;
+
+export interface ComparisonColumn {
+  key: string;
+  label: string;
+  href?: string;
+}
 
 const accent = (text: string) =>
   `<span class="vide-feature-carousel__description-accent">${text}</span>`;
+
+const docsLink = (slug: string) => `./user-guide/daily-use/${slug}/`;
+
+const column = (key: string, label: string, slug: string): ComparisonColumn => ({
+  key,
+  label,
+  href: docsLink(slug),
+});
 
 export const homepageFeatures: HomepageFeature[] = [
   {
     layout: 'image-left',
     eyebrow: 'Navigation',
     title: '符号导航',
-    description: `在 Vide 中使用${accent('定义跳转')}和${accent('引用搜索')}在模块、实例和端口之间快速定位，让开发者不用离开当前上下文也能追清 RTL 连接关系。<br /><br />写 RTL，不再只能依靠 Ctrl + F。`,
+    description: `在 Vide 中使用${accent('定义跳转')}、${accent('引用搜索')}和${accent('符号大纲')}在模块、端口和寄存器之间快速定位，让开发者不用离开当前上下文也能追清 RTL 连接关系。<br /><br />写 RTL，不再只能依靠 Ctrl + F。`,
     images: [
-      { src: gotoDefImage, alt: 'Go to Definition 截图' },
-      { src: peekDefImage, alt: 'Peek Definition 截图' },
+      { src: peekDefinitionImage, alt: 'Peek Definition 截图' },
+      { src: findAllReferencesImage, alt: 'Find All References 截图' },
+      { src: documentSymbolImage, alt: 'Document Symbol 截图' },
     ],
   },
   {
@@ -47,10 +67,10 @@ export const homepageFeatures: HomepageFeature[] = [
     title: '代码理解',
     description: `利用 Vide 的${accent('悬停信息')}和${accent('代码注解')}在一个窗口中实时查看模块、字面量与端口连接信息，减少窗口切换的负担，让开发者更专注于 RTL 设计本身。`,
     images: [
-      { src: hoverModuleImage, alt: '模块 Hover 信息截图' },
-      { src: hoverInstanceImage, alt: '例化 Hover 信息截图' },
-      { src: hoverLiteralImage, alt: '字面量 Hover 信息截图' },
-      { src: inlayImage, alt: 'Inlay Hints 截图' },
+      { src: hoverModuleNameImage, alt: '模块 Hover 信息截图' },
+      { src: hoverInstanceNameImage, alt: '例化 Hover 信息截图' },
+      { src: hoverNumberLiteralImage, alt: '字面量 Hover 信息截图' },
+      { src: inlayHintsImage, alt: 'Inlay Hints 截图' },
     ],
   },
   {
@@ -58,7 +78,13 @@ export const homepageFeatures: HomepageFeature[] = [
     eyebrow: 'Completion',
     title: '精准补全',
     description: `Vide 的${accent('补全')}机制理解当前的代码上下文，能在实例化、端口连接和其他的编辑位置给出更贴近工程语义的建议，更能通过${accent('代码片段')}提供结构化补全。`,
-    images: [{ src: completionImage, alt: '模块和端口补全截图' }],
+    images: [
+      { src: completionModuleDeclImage, alt: '模块声明补全截图' },
+      { src: completionPortsImage, alt: '端口补全截图' },
+      { src: completionItemsImage, alt: '补全候选列表截图' },
+      { src: completionSnippetModuleImage, alt: '模块代码片段补全截图' },
+      { src: completionModuleSnippetExpandedImage, alt: '展开后的模块代码片段补全截图' },
+    ],
   },
   {
     layout: 'image-right',
@@ -66,28 +92,28 @@ export const homepageFeatures: HomepageFeature[] = [
     title: '自动重构',
     description: `通过${accent('自动重构')}和${accent('重命名')}，把端口连线、信号重命名、转换进制这些繁琐的细节交给 Vide 完成，解放开发者的重构体验。`,
     images: [
-      { src: missingPortImage, alt: '补全缺失端口 Code Action 截图' },
+      { src: missingPortsImage, alt: '补全缺失端口 Code Action 截图' },
       { src: renameImage, alt: '重命名符号截图' },
     ],
   },
 ];
 
 export const comparisonColumns = [
-  { key: 'definition', label: '定义跳转' },
-  { key: 'references', label: '引用搜索' },
-  { key: 'hover', label: '悬停信息' },
-  { key: 'completion', label: '代码补全' },
-  { key: 'rename', label: '重命名' },
-  { key: 'syntaxHighlighting', label: '语法高亮' },
-  { key: 'semanticHighlighting', label: '语义高亮' },
-  { key: 'inlayHints', label: '代码注解' },
-  { key: 'documentSymbols', label: '符号大纲' },
-  { key: 'folding', label: '折叠' },
-  { key: 'codeActions', label: '自动重构' },
-  { key: 'diagnostics', label: '实时诊断' },
-  { key: 'signatureHelp', label: '签名提示' },
-  { key: 'selectionRange', label: '语义选区' },
-] as const;
+  column('definition', '定义跳转', 'navigation'),
+  column('references', '引用搜索', 'navigation'),
+  column('hover', '悬停信息', 'navigation'),
+  column('completion', '代码补全', 'editing-assistance'),
+  column('rename', '重命名', 'editing-assistance'),
+  column('syntaxHighlighting', '语法高亮', 'language-support'),
+  column('semanticHighlighting', '语义高亮', 'structure'),
+  column('inlayHints', '代码注解', 'structure'),
+  column('documentSymbols', '符号大纲', 'structure'),
+  column('folding', '折叠', 'structure'),
+  column('codeActions', '自动重构', 'editing-assistance'),
+  column('diagnostics', '实时诊断', 'diagnostics'),
+  column('signatureHelp', '签名提示', 'editing-assistance'),
+  column('selectionRange', '语义选区', 'structure'),
+] as const satisfies readonly ComparisonColumn[];
 
 export type ComparisonFeatureKey = (typeof comparisonColumns)[number]['key'];
 
@@ -105,14 +131,14 @@ export const comparisonProducts: ComparisonProduct[] = [
     meta: 'Intel',
     features: {
       syntaxHighlighting: true,
-      definition: false,
+      definition: '支持从实例跳到模块定义',
       references: false,
       hover: false,
       completion: false,
       rename: false,
       semanticHighlighting: false,
       signatureHelp: false,
-      documentSymbols: 'partial',
+      documentSymbols: '支持模块',
       folding: true,
       selectionRange: false,
       codeActions: false,
@@ -125,28 +151,28 @@ export const comparisonProducts: ComparisonProduct[] = [
     meta: 'Xilinx',
     features: {
       syntaxHighlighting: true,
-      definition: false,
-      references: false,
-      hover: false,
+      definition: true,
+      references: true,
+      hover: '支持显示变量的类型信息',
       completion: false,
       rename: false,
       semanticHighlighting: false,
       signatureHelp: false,
       documentSymbols: false,
-      folding: false,
+      folding: true,
       selectionRange: false,
       codeActions: false,
       inlayHints: false,
-      diagnostics: false,
+      diagnostics: true,
     },
   },
   {
     name: 'Verible',
     meta: 'Most-Starred OSS',
     features: {
-      syntaxHighlighting: true,
-      definition: 'partial',
-      references: 'partial',
+      syntaxHighlighting: false,
+      definition: true,
+      references: true,
       hover: false,
       completion: false,
       rename: false,
@@ -155,9 +181,9 @@ export const comparisonProducts: ComparisonProduct[] = [
       documentSymbols: true,
       folding: false,
       selectionRange: false,
-      codeActions: 'partial',
+      codeActions: '支持 linter 的 quickfix 和 autoexpand',
       inlayHints: false,
-      diagnostics: true,
+      diagnostics: '支持语法错误和 linter 规则',
     },
   },
   {
