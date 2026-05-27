@@ -3,7 +3,7 @@ title: Advanced Installation
 description: Install local VSIX packages, choose release channels, or configure a custom Vide language server.
 ---
 
-Most users should install from [Marketplace](../../user-guide/installation/). This page is for offline installation, local validation, prerelease packages, and custom servers.
+Most users should follow [Quick Start](../../user-guide/quick-start/) to install the stable Marketplace extension. This page is for offline installation, local validation, prerelease packages, and custom servers.
 
 ## Choose an Installation Channel
 

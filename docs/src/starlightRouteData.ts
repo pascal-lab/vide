@@ -27,18 +27,10 @@ export function onRequest(
     return next();
   }
 
-  if (section === 'playground') {
-    route.sidebar = [];
-    route.hasSidebar = false;
-    route.pagination = { prev: undefined, next: undefined };
-    return next();
-  }
-
-  route.sidebar = route.sidebar.filter((entry) => {
+  const sectionSidebar = route.sidebar.filter((entry) => {
     return entry.type === 'group' && sectionLabels[section].has(entry.label);
   });
-  route.hasSidebar = route.sidebar.length > 0 && route.entry.data.template !== 'splash';
-  route.pagination = getPagination(route.sidebar);
+  route.pagination = getPagination(sectionSidebar);
 
   return next();
 }

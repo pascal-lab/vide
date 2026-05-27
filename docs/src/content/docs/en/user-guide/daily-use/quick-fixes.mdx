@@ -1,16 +1,36 @@
 ---
-title: Editing Assistance
-description: Use completion, signature help, rename, port/parameter fixes, and diagnostic quick fixes.
+title: Quick Fixes and Rename
+description: Use port/parameter fixes, diagnostic quick fixes, and rename.
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
 import VideLab from '../../../../../components/VideLab.astro';
 import codeActionRenameGif from '../../../assets/features/code-action-rename.gif';
-import { editAidFiles } from '../../../../../examples/dailyUse';
+import inlayHintsGif from '../../../assets/features/inlay-hints.gif';
+import { editAidFiles, structureFiles } from '../../../../../examples/dailyUse';
 
-Vide provides completion around instance connections, parameter assignments, expressions, preprocessor directives, and common RTL structures. Signature help shows target module parameters and ports while your cursor is in parameter or port lists.
+Vide provides code actions near instance ports, parameters, selected diagnostics, and symbols that can be renamed. Place the cursor on the relevant code and open the VS Code lightbulb menu to see the available fix or refactor.
 
-Related settings reference: [Signature Help](../../../advanced-guide/vscode-settings/#signature-help), [Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics).
+Related settings reference: [Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics).
+
+<FeatureExample
+  image={inlayHintsGif}
+  imageAlt="Animation showing VS Code converting ordered port connections to named connections from inlay hints"
+  imageCaption="Convert port connections from inlay hints"
+  labCaption="The browser example reuses the same mux demo"
+>
+  <VideLab
+    projectId="daily-port-connection-fix"
+    projectLabel="Features: Port Connection Fixes"
+    entryFile="inlay_hints.v"
+    files={structureFiles}
+    height="100%"
+    initialActiveFile="inlay_hints.v"
+    initialSelection="18:5-23:6"
+    title="Convert Ordered Port Connections to Named Connections"
+    description="The recording triggers the conversion by double-clicking port inlay hints. You can also place the cursor near the instance and run the ordered-to-named port connection code action from the lightbulb menu."
+  />
+</FeatureExample>
 
 <FeatureExample
   image={codeActionRenameGif}
@@ -43,10 +63,6 @@ Place the cursor near the instance and open the lightbulb menu. Vide currently s
 - An instance with no port list: use `Add empty instance port list`.
 
 If these actions are missing, confirm that Vide can resolve the target module first. A direct check is `Go to Definition` on the instance module name. If it does not jump, fix `sources`, `include_dirs`, `defines`, or `libraries` first.
-
-## Completion Has Too Few Results
-
-In single-file scenarios, completion usually only uses the current file and whatever has already been indexed. Port, parameter, and instance-related completion needs the target module to resolve; includes, macros, and library dependencies also need to be represented in project configuration.
 
 ## Check Scope Before Rename
 

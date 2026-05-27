@@ -54,6 +54,46 @@ endmodule
   },
 ];
 
+export const defineHighlightFiles = [
+  {
+    path: "vide.toml",
+    languageId: "toml",
+    source: `sources = ["rtl/**"]
+defines = ["USE_REGISTERED_PATH"]
+top_modules = ["define_highlight_demo"]
+`,
+  },
+  {
+    path: "rtl/define_highlight_demo.sv",
+    source: `module define_highlight_demo (
+  input  logic       clk,
+  input  logic       rst_n,
+  input  logic [7:0] data_i,
+  output logic [7:0] data_o
+);
+
+\`ifdef USE_REGISTERED_PATH
+  logic [7:0] data_q;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      data_q <= '0;
+    end else begin
+      data_q <= data_i;
+    end
+  end
+
+  assign data_o = data_q;
+\`elsif USE_INVERT_PATH
+  assign data_o = ~data_i;
+\`else
+  assign data_o = data_i;
+\`endif
+endmodule
+`,
+  },
+];
+
 项目配置文件回答的是这些问题：哪些 RTL 文件属于这个工程，include 文件去哪找，启用哪些宏，外部依赖放在哪里。文件名必须是 `vide.toml`。
 
 项目配置文件通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vide 不会自动向父目录或子目录寻找其它项目配置文件。
@@ -201,6 +241,18 @@ defines = [
 
 宏名需要是合法标识符。带值宏会按 `NAME=value` 解析，`value` 可以包含空格。
 
+<VideLab
+  projectId="configuration-defines-highlight"
+  projectLabel="Project Configuration: Defines"
+  entryFile="rtl/define_highlight_demo.sv"
+  files={defineHighlightFiles}
+  height="360px"
+  activeFile="rtl/define_highlight_demo.sv"
+  selection="8:8-8:27"
+  title="修改 defines 观察条件编译"
+  description={'打开 vide.toml，把 defines 改成 ["USE_INVERT_PATH"] 或 []，再回到 RTL 文件，观察 `ifdef 分支的高亮变化。'}
+/>
+
 ## libraries
 
 `libraries` 用于声明依赖库。路径相对当前项目配置文件所在目录解析。每个库路径都会被当作另一个工作区继续加载：
@@ -224,6 +276,5 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 ## 常见注意事项
 
 - 项目配置文件名必须是 `vide.toml`。
-- `top_module`、`include`、`macros` 这类旧字段不会被接受。
 - Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vide.toml`。
 - 配置了 `sources = []` 的工程可以只加载 include 目录，适合头文件型工作区，或暂时不想扫描 RTL 的工作区。

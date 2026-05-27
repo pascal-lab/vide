@@ -3,9 +3,27 @@ title: Formatting
 description: Use Verilog/SystemVerilog formatting and handle verible paths and arguments.
 ---
 
+import ThinLinkCard from '../../../../../components/ThinLinkCard.astro';
+
 Formatting entry points include VS Code's `Format Document`, `Format Selection`, and on-type formatting when pressing Enter. The only current formatter backend is `verible`, which calls the external `verible-verilog-format` executable; Vide does not bundle that tool.
 
 Related settings reference: [Formatter and Formatting](../../../advanced-guide/vscode-settings/#formatter-and-formatting).
+
+<ThinLinkCard
+  href="https://github.com/chipsalliance/verible#installation"
+  title="Verible Installation"
+  action="Open"
+>
+  Install or update the external <code>verible-verilog-format</code> tool.
+</ThinLinkCard>
+
+<ThinLinkCard
+  href="https://chipsalliance.github.io/verible/verilog_format.html"
+  title="verible-verilog-format Options"
+  action="Open"
+>
+  Check this before configuring <code>vide.formatter.args</code>.
+</ThinLinkCard>
 
 ## Configure verible the First Time
 

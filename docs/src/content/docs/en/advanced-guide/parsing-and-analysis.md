@@ -3,13 +3,6 @@ title: Parsing and Analysis Model
 description: Why Vide can sometimes only read files and sometimes run full project analysis.
 ---
 
-Read this page when you run into questions like:
-
-- Why can navigation work without `vide.toml`, while cross-file diagnostics are incomplete?
-- Why does `sources = []` stop Vide from scanning the workspace automatically?
-- Why does a header listed through `include_dirs` not always get standalone diagnostics?
-- Why does Qihe sometimes use project analysis and sometimes fall back to single-file analysis?
-
 Three terms are useful:
 
 - Best-effort indexing: when there is no full project configuration, Vide still tries to read Verilog/SystemVerilog files in the workspace so navigation, references, hover, and completion can work where possible.
@@ -67,3 +60,21 @@ Automatic Qihe project analysis uses the same manifest discovery result as Vide'
 When a project manifest exists, Qihe uses the compile plan from project analysis. Vide only passes project files, `--top`, `-I`, and `-D` arguments when that plan has real source files.
 
 If the current file only comes from best-effort indexing, or if no project compile plan is available, Vide lets Qihe fall back to single-file input. This prevents default indexing from accidentally triggering project analysis.
+
+## FAQ
+
+### Why can navigation work without `vide.toml`, while cross-file diagnostics are incomplete?
+
+Navigation, references, hover, and completion can use information from best-effort indexing. Cross-file semantic diagnostics need explicit project analysis, usually from `vide.toml` entries such as `sources`, include directories, macro definitions, and libraries.
+
+### Why does `sources = []` stop Vide from scanning the workspace automatically?
+
+`sources = []` explicitly tells Vide not to scan the workspace automatically. Add files to `sources` when they should participate in the project view.
+
+### Why does a header listed through `include_dirs` not always get standalone diagnostics?
+
+`include_dirs` only provides include search paths. Header files usually participate through the source file that includes them; being in an include directory does not make a header a standalone compile entry.
+
+### Why does Qihe sometimes use project analysis and sometimes fall back to single-file analysis?
+
+Qihe reuses Vide's project manifest discovery result. Vide passes project files, `--top`, `-I`, and `-D` arguments only when a usable project manifest exists and the compile plan has real source files. Otherwise it falls back to single-file input.

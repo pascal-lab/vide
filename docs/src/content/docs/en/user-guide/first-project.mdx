@@ -3,18 +3,20 @@ title: First Project
 description: Prepare your first Verilog/SystemVerilog project directory for Vide.
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 ## Recommended Layout
 
 Small projects can start with a simple structure:
 
-```text
-my-rtl/
-  rtl/
-    top.sv
-    alu.sv
-  include/
-    defs.svh
-```
+<FileTree>
+- my-rtl/
+  - rtl/
+    - top.sv
+    - alu.sv
+  - include/
+    - defs.svh
+</FileTree>
 
 Open `my-rtl` directly in VS Code. This directory is the workspace root: the top-level folder currently opened in VS Code.
 
