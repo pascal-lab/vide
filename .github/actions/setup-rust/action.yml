@@ -1,0 +1,39 @@
+name: Setup pinned Rust
+description: Install the Rust toolchain pinned by rust-toolchain.toml.
+
+inputs:
+  components:
+    description: Comma-separated Rust components to install.
+    required: false
+    default: ""
+  targets:
+    description: Comma-separated Rust targets to install.
+    required: false
+    default: ""
+
+outputs:
+  toolchain:
+    description: Rust toolchain channel installed by this action.
+    value: ${{ steps.toolchain.outputs.toolchain }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read pinned toolchain
+      id: toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' "${GITHUB_WORKSPACE}/rust-toolchain.toml")"
+        if [ -z "${toolchain}" ]; then
+          echo "rust-toolchain.toml does not define a toolchain channel." >&2
+          exit 1
+        fi
+        echo "toolchain=${toolchain}" >> "${GITHUB_OUTPUT}"
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.toolchain.outputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}

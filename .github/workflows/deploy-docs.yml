@@ -252,23 +252,45 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Restore playground WASM cache
+        id: playground-wasm-cache
+        uses: actions/cache/restore@v4
         with:
-          submodules: recursive
+          path: playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+
+      - name: Verify cached playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
+        run: |
+          test -s playground/public/wasm/vide-lsp.js
+          test -s playground/public/wasm/vide-core.js
+          test -s playground/public/wasm/vide-core.wasm
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
 
+      - name: Setup sccache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+
       - name: Rust Cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
           shared-key: docs-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
       - name: Install Emscripten SDK
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-emscripten
         with:
           version: ${{ env.EMSDK_VERSION }}
@@ -287,10 +309,19 @@ jobs:
         working-directory: playground
 
       - name: Build playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
         run: |
           source "${EMSDK}/emsdk_env.sh"
           npm run build:wasm
         working-directory: playground
+
+      - name: Save playground WASM cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: playground/public/wasm
+          key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
 
       - name: Install dependencies
         run: npm ci
