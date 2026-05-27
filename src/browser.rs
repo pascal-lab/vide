@@ -122,7 +122,7 @@ fn initialize(request: &Request) -> Result<InitializeOutput, String> {
     );
 
     let initialize_result = InitializeResult {
-        capabilities: config.server_caps(),
+        capabilities: browser_server_caps(&config),
         server_info: Some(ServerInfo {
             name: DEFAULT_PROCESS_NAME.to_owned(),
             version: Some(BROWSER_VERSION.to_owned()),
@@ -144,6 +144,15 @@ fn initialize(request: &Request) -> Result<InitializeOutput, String> {
     }
 
     Ok(InitializeOutput { session: BrowserSession { state, outgoing }, messages })
+}
+
+fn browser_server_caps(config: &Config) -> lsp_types::ServerCapabilities {
+    let mut capabilities = config.server_caps();
+    // Multiple browser labs can run in one page. vscode-languageclient registers
+    // executeCommandProvider entries into the page-global VS Code command registry,
+    // while these commands are desktop extension entry points.
+    capabilities.execute_command_provider = None;
+    capabilities
 }
 
 impl BrowserSession {
@@ -174,4 +183,36 @@ fn abs_path_from_url(url: &Url) -> Option<AbsPathBuf> {
         return None;
     }
     AbsPathBuf::try_from(path).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_types::ClientCapabilities;
+    use utils::test_support::TestDir;
+
+    use super::{Config, I18n, Opt, browser_server_caps};
+    use crate::{DEFAULT_PROCESS_NAME, config::user_config::UserConfig};
+
+    #[test]
+    fn browser_server_caps_do_not_advertise_execute_commands() {
+        let root = TestDir::new("browser-caps");
+        let root_path = root.path().to_path_buf();
+        let config = Config::new(
+            Opt {
+                process_name: DEFAULT_PROCESS_NAME.to_owned(),
+                log: "error".to_owned(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+
+        assert!(config.server_caps().execute_command_provider.is_some());
+        assert!(browser_server_caps(&config).execute_command_provider.is_none());
+    }
 }
