@@ -40,10 +40,18 @@ export interface ComparisonColumn {
   href?: string;
 }
 
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
 const accent = (text: string) =>
-  `<span class="vide-feature-carousel__description-accent">${text}</span>`;
+  `<span class="vide-feature-carousel__description-accent">${escapeHtml(text)}</span>`;
 const externalLink = (href: string, text: string) =>
-  `<a class="vide-feature-carousel__description-link" href="${href}" target="_blank" rel="noreferrer">${text}</a>`;
+  `<a class="vide-feature-carousel__description-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
 
 const docsLink = (slug: string) => `./user-guide/daily-use/${slug}/`;
 
