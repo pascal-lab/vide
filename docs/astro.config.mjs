@@ -41,7 +41,10 @@ export default defineConfig({
       plugins: [
         starlightUtils({
           multiSidebar: {
-            switcherStyle: 'dropdown',
+            switcherStyle: 'hidden',
+          },
+          navLinks: {
+            leading: { useSidebarLabelled: 'Header' },
           },
         }),
       ],
@@ -103,6 +106,30 @@ export default defineConfig({
           label: 'Playground',
           translations: { en: 'Playground' },
           items: ['playground'],
+        },
+        {
+          label: 'Header',
+          items: [
+            {
+              label: '用户手册',
+              translations: { en: 'User Guide' },
+              link: '/user-guide/',
+            },
+            {
+              label: '进阶',
+              translations: { en: 'Advanced' },
+              link: '/advanced-guide/',
+            },
+            {
+              label: '更新日志',
+              translations: { en: 'Changelog' },
+              link: '/changelog/',
+            },
+            {
+              label: 'Playground',
+              link: '/playground/',
+            },
+          ],
         },
       ],
     }),
