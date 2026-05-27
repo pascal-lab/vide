@@ -3,7 +3,7 @@ import HomepageFeatureCarousel from './HomepageFeatureCarousel.astro';
 ---
 
 <section class="vide-feature">
-  <h2>专注 RTL 设计<br />把繁琐操作交给 Vide</h2>
+  <h2>让<span class="vide-feature__accent"><strong>硬件设计</strong></span><br />像编写软件一样丝滑顺手</h2>
   <HomepageFeatureCarousel />
 </section>
 
@@ -19,5 +19,9 @@ import HomepageFeatureCarousel from './HomepageFeatureCarousel.astro';
     font-size: clamp(2.25rem, 5vw, 3.5rem);
     letter-spacing: 0;
     line-height: 1.4;
+  }
+
+  .vide-feature__accent {
+    color: var(--vide-accent);
   }
 </style>

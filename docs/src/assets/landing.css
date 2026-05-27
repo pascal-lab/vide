@@ -1,4 +1,5 @@
 :root {
+  --sl-font: Inter, var(--sl-font-system);
   --vide-accent-hsl: 200, 100%, 50%;
   --vide-accent: hsl(var(--vide-accent-hsl));
   --vide-overlay: hsla(var(--vide-accent-hsl), 0.18);
