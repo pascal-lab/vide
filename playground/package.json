@@ -18,6 +18,7 @@
   "dependencies": {
     "@codingame/monaco-vscode-api": "33.0.9",
     "@codingame/monaco-vscode-editor-api": "33.0.9",
+    "@codingame/monaco-vscode-language-pack-zh-hans": "33.0.9",
     "astro": "^6.3.7",
     "lit": "^3.3.3",
     "lucide": "^1.16.0",

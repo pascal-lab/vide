@@ -145,9 +145,55 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
     document.head.append(link);
   }
 
-  async function ensureVideLab(assetBase) {
+  function localeBundleName(locale) {
+    const normalized = locale?.trim().toLowerCase();
+    return normalized === "zh-cn" ? "locale-zh-hans.es.js" : "";
+  }
+
+  function ensureMonacoLocale(assetBase, locale) {
+    const bundleName = localeBundleName(locale);
+    if (!bundleName) {
+      return Promise.resolve();
+    }
+
+    const src = `${assetBase}${bundleName}`;
+    const existing = document.querySelector(`script[data-vide-lab-locale="${bundleName}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === "true") {
+        return Promise.resolve();
+      }
+      return new Promise((resolve, reject) => {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Could not load Monaco locale bundle '${bundleName}'.`)), {
+          once: true,
+        });
+      });
+    }
+
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.type = "module";
+      script.src = src;
+      script.dataset.videLabLocale = bundleName;
+      script.addEventListener(
+        "load",
+        () => {
+          script.dataset.loaded = "true";
+          resolve();
+        },
+        { once: true },
+      );
+      script.addEventListener("error", () => reject(new Error(`Could not load Monaco locale bundle '${bundleName}'.`)), {
+        once: true,
+      });
+      document.head.append(script);
+    });
+  }
+
+  async function ensureVideLab(assetBase, locale) {
     ensureVideLabStyles(assetBase);
     if (!customElements.get("vide-lab")) {
+      await ensureMonacoLocale(assetBase, locale);
       await import(`${assetBase}vide-lab.es.js`);
     }
     await customElements.whenDefined("vide-lab");
@@ -167,7 +213,7 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
 
     try {
       const assetBase = root.dataset.assetBase;
-      await ensureVideLab(assetBase);
+      await ensureVideLab(assetBase, root.dataset.locale);
 
       const lab = document.createElement("vide-lab");
       if (root.dataset.mode !== "app") {
