@@ -1,33 +1,53 @@
 ---
 import type {
+  ComparisonColumn,
   ComparisonFeatureKey,
   ComparisonFeatureValue,
   ComparisonProduct,
 } from '../data/homepage';
 
 type FeatureStatus = 'yes' | 'partial' | 'no';
-
-interface FeatureColumn {
-  key: ComparisonFeatureKey;
+type FeatureStatusMeta = {
+  className: string;
   label: string;
-}
+  symbol: string;
+};
+type FeatureCell = {
+  status: FeatureStatusMeta;
+  tooltip?: string;
+  isBeta: boolean;
+};
 
 interface Props {
-  columns: readonly FeatureColumn[];
+  columns: readonly (ComparisonColumn & { key: ComparisonFeatureKey })[];
   products: readonly ComparisonProduct[];
 }
 
 const { columns, products } = Astro.props as Props;
 
-const statusMap: Record<FeatureStatus, { className: string; label: string; symbol: string }> = {
+const statusMap: Record<FeatureStatus, FeatureStatusMeta> = {
   yes: { className: 'vide-comparison-table__true', label: 'Yes', symbol: '✓' },
   partial: { className: 'vide-comparison-table__partial', label: 'Partial', symbol: '△' },
   no: { className: 'vide-comparison-table__false', label: 'No', symbol: '✕' },
 };
 
 const getStatus = (value: ComparisonFeatureValue): FeatureStatus => {
-  if (value === 'partial') return 'partial';
+  if (typeof value === 'string') return 'partial';
   return value ? 'yes' : 'no';
+};
+
+const getPartialReason = (value: ComparisonFeatureValue) => {
+  if (typeof value !== 'string' || value === 'partial') return undefined;
+  return value;
+};
+
+const getFeatureCell = (product: ComparisonProduct, key: ComparisonFeatureKey): FeatureCell => {
+  const value = product.features[key];
+  return {
+    status: statusMap[getStatus(value)],
+    tooltip: getPartialReason(value),
+    isBeta: product.betaFeatureKeys?.includes(key) ?? false,
+  };
 };
 ---
 
@@ -52,15 +72,33 @@ const getStatus = (value: ComparisonFeatureValue): FeatureStatus => {
     {
       columns.map((column) => (
         <tr>
-          <th scope="row">{column.label}</th>
+          <th scope="row">
+            {column.href ? (
+              <a class="vide-comparison-table__feature-link" href={column.href}>
+                {column.label}
+              </a>
+            ) : (
+              column.label
+            )}
+          </th>
           {products.map((product) => {
-            const status = statusMap[getStatus(product.features[column.key])];
-            const isBeta = product.betaFeatureKeys?.includes(column.key);
+            const cell = getFeatureCell(product, column.key);
             return (
               <td>
-                <span class={status.className} aria-label={status.label}>
-                  {status.symbol}
-                  {isBeta && <span class="vide-comparison-table__beta">BETA</span>}
+                <span
+                  class:list={{
+                    [cell.status.className]: true,
+                    'vide-comparison-table__with-tooltip': Boolean(cell.tooltip),
+                  }}
+                  aria-label={cell.tooltip ? `${cell.status.label}: ${cell.tooltip}` : cell.status.label}
+                >
+                  {cell.status.symbol}
+                  {cell.isBeta && <span class="vide-comparison-table__beta">BETA</span>}
+                  {cell.tooltip && (
+                    <span class="vide-comparison-table__tooltip" role="tooltip">
+                      {cell.tooltip}
+                    </span>
+                  )}
                 </span>
               </td>
             );
@@ -110,6 +148,20 @@ const getStatus = (value: ComparisonFeatureValue): FeatureStatus => {
     font-size: 1.22rem;
     font-weight: 700;
     line-height: 1.15;
+  }
+
+  .vide-comparison-table__feature-link {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--vide-accent) 65%, transparent);
+    text-underline-offset: 0.16em;
+    transition: color 0.16s ease, text-decoration-color 0.16s ease;
+  }
+
+  .vide-comparison-table__feature-link:hover,
+  .vide-comparison-table__feature-link:focus-visible {
+    color: var(--vide-accent);
+    text-decoration-color: currentColor;
   }
 
   .vide-comparison-table__brand {
@@ -163,5 +215,51 @@ const getStatus = (value: ComparisonFeatureValue): FeatureStatus => {
     font-weight: 800;
     line-height: 1;
     letter-spacing: 0;
+  }
+
+  .vide-comparison-table__with-tooltip {
+    cursor: help;
+  }
+
+  .vide-comparison-table__tooltip {
+    position: absolute;
+    bottom: calc(100% + 0.55rem);
+    left: 50%;
+    z-index: 1;
+    width: max-content;
+    max-width: min(16rem, 80vw);
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.45rem;
+    background: rgba(15, 23, 42, 0.96);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: left;
+    text-decoration: none;
+    text-shadow: none;
+    -webkit-text-fill-color: #fff;
+    white-space: normal;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(0.2rem);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+  }
+
+  .vide-comparison-table__tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    border-width: 0.35rem;
+    border-style: solid;
+    border-color: rgba(15, 23, 42, 0.96) transparent transparent;
+    transform: translateX(-50%);
+  }
+
+  .vide-comparison-table__with-tooltip:hover .vide-comparison-table__tooltip,
+  .vide-comparison-table__with-tooltip:focus-visible .vide-comparison-table__tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
   }
 </style>
