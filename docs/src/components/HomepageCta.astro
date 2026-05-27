@@ -1,0 +1,48 @@
+---
+import { LinkButton } from '@astrojs/starlight/components';
+import { homepageCtaActions } from '../data/homepage';
+---
+
+<section class="vide-cta">
+  <h2>立刻体验</h2>
+  <p>直接打开文档快速上手，或者先去 Playground 里实际试一遍补全、跳转和诊断体验。</p>
+  <div class="sl-flex actions vide-cta__actions">
+    {
+      homepageCtaActions.map((action) => (
+        <LinkButton href={action.href} variant={action.variant} icon={action.icon}>
+          {action.label}
+        </LinkButton>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .vide-cta {
+    margin-block: 3rem 1rem;
+  }
+
+  .vide-cta p {
+    max-width: 42rem;
+    color: var(--sl-color-gray-2);
+  }
+
+  .vide-cta__actions {
+    gap: 1rem;
+    margin-top: 1.25rem;
+    justify-content: flex-start;
+  }
+
+  .vide-cta__actions :global(.sl-link-button.primary) {
+    color: #fff;
+    box-shadow: 0 0 2rem hsla(var(--vide-accent-hsl), 0.28);
+  }
+
+  .vide-cta__actions :global(.sl-link-button.primary:hover) {
+    color: #fff;
+  }
+
+  .vide-cta__actions :global(.sl-link-button.primary p) {
+    color: inherit;
+  }
+</style>
