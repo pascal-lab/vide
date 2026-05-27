@@ -1,0 +1,23 @@
+---
+import HomepageFeatureCarousel from './HomepageFeatureCarousel.astro';
+---
+
+<section class="vide-feature">
+  <h2>专注 RTL 设计<br />把繁琐细节交给 Vide</h2>
+  <HomepageFeatureCarousel />
+</section>
+
+<style>
+  .vide-feature {
+    margin-block: clamp(3rem, 6vw, 4rem);
+  }
+
+  .vide-feature h2 {
+    max-width: 20ch;
+    margin-block: 0.75rem clamp(2.75rem, 5vw, 4.5rem);
+    color: var(--sl-color-white);
+    font-size: clamp(2.25rem, 5vw, 4.5rem);
+    letter-spacing: 0;
+    line-height: 1.05;
+  }
+</style>

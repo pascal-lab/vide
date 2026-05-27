@@ -1,0 +1,25 @@
+<style is:global>
+  [data-has-hero] .hero h1 {
+    display: grid;
+    gap: 2rem;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  [data-has-hero] .hero h1 .hero-brand {
+    color: var(--vide-accent);
+    font-size: clamp(2.55rem, 4.3vw, 4rem);
+    font-weight: 900;
+  }
+
+  [data-has-hero] .hero h1 .hero-title-main {
+    font-size: clamp(2.5rem, 5.8vw, 5rem);
+  }
+
+  [data-has-hero] .hero h1 .hero-title-sub {
+    color: var(--sl-color-gray-2);
+    font-size: clamp(1rem, 1.45vw, 1.35rem);
+    font-weight: 400;
+    line-height: 1.35;
+  }
+</style>

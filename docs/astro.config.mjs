@@ -10,7 +10,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: {
-        'zh-CN': 'Vide 文档',
+        'zh-CN': 'VIDE',
         en: 'Vide Docs',
       },
       description:
