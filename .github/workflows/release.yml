@@ -72,8 +72,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@nightly
@@ -84,6 +82,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          shared-key: rust-${{ runner.os }}-nightly
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -139,13 +138,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Trust checkout directories
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/crates/slang"
 
       - name: Setup Node
         uses: actions/setup-node@v4

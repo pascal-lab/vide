@@ -3,9 +3,23 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - "docs/**"
+      - "playground/**"
+      - "crates/vide-lsp-wasm/**"
+      - ".github/actions/setup-emscripten/**"
+      - ".github/workflows/docs-preview.yml"
+      - ".github/workflows/deploy-docs.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     branches: ["**"]
+    paths-ignore:
+      - "docs/**"
+      - "playground/**"
+      - "crates/vide-lsp-wasm/**"
+      - ".github/actions/setup-emscripten/**"
+      - ".github/workflows/docs-preview.yml"
+      - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
 
 concurrency:
@@ -18,8 +32,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -28,6 +40,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          shared-key: rust-${{ runner.os }}-nightly
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Format Check
@@ -43,8 +56,6 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -53,6 +64,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          shared-key: rust-${{ runner.os }}-nightly
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Test
@@ -66,18 +78,6 @@ jobs:
         working-directory: editors/vscode
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          cache-workspace-crates: true
-          cache-on-failure: true
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -111,8 +111,6 @@ jobs:
         working-directory: editors/vscode
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -121,6 +119,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
+          shared-key: rust-${{ runner.os }}-nightly
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Setup Node
@@ -177,14 +176,11 @@ jobs:
         run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
 
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Trust checkout directories
         working-directory: .
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE/crates/slang"
 
       - name: Setup Node
         uses: actions/setup-node@v4
