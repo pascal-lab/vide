@@ -1,0 +1,126 @@
+---
+import EditLink from 'virtual:starlight/components/EditLink';
+import LastUpdated from 'virtual:starlight/components/LastUpdated';
+import Pagination from 'virtual:starlight/components/Pagination';
+import config from 'virtual:starlight/user-config';
+import { Icon } from '@astrojs/starlight/components';
+
+const baseUrl = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+
+<footer class="sl-flex">
+  <div class="meta sl-flex">
+    <EditLink />
+    <LastUpdated />
+  </div>
+
+  <Pagination />
+
+  <div class="site-footer sl-flex">
+    <p class="site-footer__license">
+      Open-sourced under the
+      <a href="https://github.com/pascal-lab/vide/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">
+        MIT License
+      </a>
+      .
+    </p>
+    <div class="site-footer__brand sl-flex">
+      <img src={`${baseUrl}pascal.svg`} alt="PASCAL Research Group" />
+      <a href="https://pascal-lab.net/" target="_blank" rel="noopener noreferrer">
+        PASCAL Research Group
+      </a>
+    </div>
+  </div>
+
+  {
+    config.credits && (
+      <a class="kudos sl-flex" href="https://starlight.astro.build">
+        <Icon name={'starlight'} /> {Astro.locals.t('builtWithStarlight.label')}
+      </a>
+    )
+  }
+</footer>
+
+<style>
+  @layer starlight.core {
+    footer {
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .meta {
+      gap: 0.75rem 3rem;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-top: 3rem;
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+    }
+
+    .meta > :global(p:only-child) {
+      margin-inline-start: auto;
+    }
+
+    .site-footer {
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--sl-color-gray-5);
+      font-size: var(--sl-text-sm);
+      color: var(--sl-color-gray-3);
+      text-align: center;
+    }
+
+    .site-footer__brand {
+      align-items: center;
+      justify-content: center;
+      gap: 0.7rem;
+      min-width: 0;
+    }
+
+    .site-footer__brand img {
+      width: 1.5rem;
+      height: 1.5rem;
+      flex: none;
+    }
+
+    .site-footer__brand a,
+    .site-footer__license a {
+      color: var(--sl-color-white);
+      text-decoration: none;
+    }
+
+    .site-footer__brand a:hover,
+    .site-footer__license a:hover {
+      color: var(--sl-color-accent-high);
+    }
+
+    .site-footer__license {
+      margin: 0;
+    }
+
+    .kudos {
+      align-items: center;
+      gap: 0.5em;
+      margin: 1.5rem auto;
+      font-size: var(--sl-text-xs);
+      text-decoration: none;
+      color: var(--sl-color-gray-3);
+    }
+
+    .kudos:hover {
+      color: var(--sl-color-white);
+    }
+  }
+
+  @layer starlight.components {
+    .kudos :global(svg) {
+      color: var(--sl-color-orange);
+    }
+  }
+
+</style>
