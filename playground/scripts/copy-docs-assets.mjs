@@ -7,7 +7,7 @@ const embedSource = resolve(repoRoot, "dist", "embed");
 const wasmSource = resolve(repoRoot, "public", "wasm");
 const wasmTarget = resolve(docsAssetRoot, "wasm");
 
-const requiredEmbedFiles = ["vide-lab.es.js", "vide-playground.css"];
+const requiredEmbedFiles = ["vide-lab.es.js", "locale-zh-hans.es.js", "vide-playground.css"];
 const requiredWasmFiles = ["vide-lsp.js", "vide-core.js", "vide-core.wasm"];
 
 function requireFiles(root, files, hint) {
