@@ -18,7 +18,7 @@ if (!buildEnv.EM_CONFIG && existsSync(emConfig)) {
   buildEnv.EM_CONFIG = emConfig;
 }
 
-run("rustup", ["target", "add", "--toolchain", "nightly", "wasm32-unknown-emscripten"], { env: buildEnv });
+run("rustup", ["target", "add", "wasm32-unknown-emscripten"], { env: buildEnv });
 run("ninja", ["--version"], { env: buildEnv });
 
 const linkArgs = [
@@ -43,7 +43,7 @@ Object.assign(buildEnv, {
 });
 
 const crateManifest = resolve(workspaceRoot, "crates", "vide-lsp-wasm", "Cargo.toml");
-run("rustup", ["run", "nightly", "cargo", "build", "--manifest-path", crateManifest, "--target", "wasm32-unknown-emscripten", "--release"], {
+run("cargo", ["build", "--manifest-path", crateManifest, "--target", "wasm32-unknown-emscripten", "--release"], {
   env: buildEnv,
 });
 

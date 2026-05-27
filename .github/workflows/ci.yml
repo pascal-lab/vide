@@ -33,14 +33,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: ./.github/actions/setup-rust
         with:
           components: clippy, rustfmt
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
-          shared-key: rust-${{ runner.os }}-nightly
+          shared-key: rust-${{ runner.os }}
+          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Format Check
@@ -57,18 +62,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
-          shared-key: rust-${{ runner.os }}-nightly
+          shared-key: rust-${{ runner.os }}
+          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Test
-        run: rustup run nightly cargo test --workspace
+        run: cargo test --workspace
 
   vscode-extension:
     name: VS Code Checks
@@ -112,14 +122,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+        uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
-          shared-key: rust-${{ runner.os }}-nightly
+          shared-key: rust-${{ runner.os }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'editors/vscode/scripts/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Setup Node
@@ -159,8 +174,10 @@ jobs:
         include:
           - target: alpine-x64
             image: ghcr.io/blackdex/rust-musl:x86_64-musl-nightly
+            rust-target: x86_64-unknown-linux-musl
           - target: alpine-arm64
             image: ghcr.io/blackdex/rust-musl:aarch64-musl-nightly
+            rust-target: aarch64-unknown-linux-musl
     defaults:
       run:
         working-directory: editors/vscode
@@ -171,16 +188,32 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates cmake git python3
 
-      - name: Install Rust components
-        working-directory: .
-        run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
-
       - uses: actions/checkout@v4
 
       - name: Trust checkout directories
         working-directory: .
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+          targets: ${{ matrix.rust-target }}
+
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: rust-${{ runner.os }}-${{ matrix.target }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'editors/vscode/scripts/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
 
       - name: Setup Node
         uses: actions/setup-node@v4

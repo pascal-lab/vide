@@ -58,6 +58,13 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
         }
     }
 
+    if let Some(sccache) = cmake_sccache_launcher() {
+        let launcher = sccache.to_string_lossy();
+        config
+            .define("CMAKE_C_COMPILER_LAUNCHER", launcher.as_ref())
+            .define("CMAKE_CXX_COMPILER_LAUNCHER", launcher.as_ref());
+    }
+
     if !emscripten && !debug && cfg!(target_env = "msvc") {
         // cmake-rs still sets config-specific MSVC flags for Visual Studio
         // generators to preserve /MD or /MT. That replaces CMake's built-in
@@ -71,6 +78,12 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
     }
 
     config.build()
+}
+
+fn cmake_sccache_launcher() -> Option<PathBuf> {
+    env::var_os("VIDE_USE_SCCACHE_CMAKE")?;
+
+    env::var_os("SCCACHE_PATH").map(PathBuf::from).or_else(|| which::which("sccache").ok())
 }
 
 fn setup_linking(install_dir: &Path, debug: bool) {
