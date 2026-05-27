@@ -5,6 +5,8 @@ import completionModuleDeclImage from '../assets/homepage-features/completion-mo
 import completionModuleSnippetExpandedImage from '../assets/homepage-features/completion-module-snippets-expanded.png';
 import completionPortsImage from '../assets/homepage-features/completion-ports.png';
 import completionSnippetModuleImage from '../assets/homepage-features/completion-snippets-module.png';
+import diagnosticsLoopAnalysisImage from '../assets/homepage-features/diagnostics-loop-analysis.jpeg';
+import diagnosticsUndeclaredIdentifiersImage from '../assets/homepage-features/diagnostics-undeclared-identifiers.jpeg';
 import documentSymbolImage from '../assets/homepage-features/document-symbol.jpeg';
 import findAllReferencesImage from '../assets/homepage-features/find-all-references.jpeg';
 import hoverInstanceNameImage from '../assets/homepage-features/hover-on-instance-name.png';
@@ -40,6 +42,8 @@ export interface ComparisonColumn {
 
 const accent = (text: string) =>
   `<span class="vide-feature-carousel__description-accent">${text}</span>`;
+const externalLink = (href: string, text: string) =>
+  `<a class="vide-feature-carousel__description-link" href="${href}" target="_blank" rel="noreferrer">${text}</a>`;
 
 const docsLink = (slug: string) => `./user-guide/daily-use/${slug}/`;
 
@@ -54,7 +58,7 @@ export const homepageFeatures: HomepageFeature[] = [
     layout: 'image-left',
     eyebrow: 'Navigation',
     title: '符号导航',
-    description: `在 Vide 中使用${accent('定义跳转')}、${accent('引用搜索')}和${accent('符号大纲')}在模块、端口和寄存器之间快速定位，让开发者不用离开当前上下文也能追清 RTL 连接关系。<br /><br />写 RTL，不再只能依靠 Ctrl + F。`,
+    description: `使用 Vide 的${accent('定义跳转')}、${accent('引用搜索')}和${accent('符号大纲')}在模块、端口、寄存器之间快速定位，开发者无需离开当前上下文也能追踪符号。<br /><br />写 RTL，不再只能依赖 Ctrl + F。`,
     images: [
       { src: peekDefinitionImage, alt: 'Peek Definition 截图' },
       { src: findAllReferencesImage, alt: 'Find All References 截图' },
@@ -65,7 +69,7 @@ export const homepageFeatures: HomepageFeature[] = [
     layout: 'image-right',
     eyebrow: 'Insight',
     title: '代码理解',
-    description: `利用 Vide 的${accent('悬停信息')}和${accent('代码注解')}在一个窗口中实时查看模块、字面量与端口连接信息，减少窗口切换的负担，让开发者更专注于 RTL 设计本身。`,
+    description: `通过 Vide 的${accent('悬停信息')}和${accent('代码注解')}在同一窗口内实时查看模块、字面量与端口连接信息，减少窗口切换的负担，开发者能够专注于 RTL 设计本身。`,
     images: [
       { src: hoverModuleNameImage, alt: '模块 Hover 信息截图' },
       { src: hoverInstanceNameImage, alt: '例化 Hover 信息截图' },
@@ -77,7 +81,7 @@ export const homepageFeatures: HomepageFeature[] = [
     layout: 'image-left',
     eyebrow: 'Completion',
     title: '精准补全',
-    description: `Vide 的${accent('补全')}机制理解当前的代码上下文，能在实例化、端口连接和其他的编辑位置给出更贴近工程语义的建议，更能通过${accent('代码片段')}提供结构化补全。`,
+    description: `Vide 理解当前的代码上下文，能在实例、端口连接和其他的位置给出更贴近语义的${accent('补全')}建议，更能通过${accent('代码片段')}提供结构化补全。`,
     images: [
       { src: completionModuleDeclImage, alt: '模块声明补全截图' },
       { src: completionPortsImage, alt: '端口补全截图' },
@@ -90,10 +94,20 @@ export const homepageFeatures: HomepageFeature[] = [
     layout: 'image-right',
     eyebrow: 'Refactoring',
     title: '自动重构',
-    description: `通过${accent('自动重构')}和${accent('重命名')}，把端口连线、信号重命名、转换进制这些繁琐的细节交给 Vide 完成，解放开发者的重构体验。`,
+    description: `通过${accent('自动重构')}和${accent('重命名')}，把端口连线、信号重命名、转换进制这些繁琐的细节交给 Vide 完成，解放开发者的重构负担。`,
     images: [
       { src: missingPortsImage, alt: '补全缺失端口 Code Action 截图' },
       { src: renameImage, alt: '重命名符号截图' },
+    ],
+  },
+  {
+    layout: 'image-left',
+    eyebrow: 'Diagnostics',
+    title: '诊断分析',
+    description: `Vide 能在编辑过程中实时给出代码诊断，让错误更早被发现。<br /><br />此外，Vide 能够结合${externalLink('https://qihe.pascal-lab.net', '骑河')}提供的强大静态分析能力，在编辑器中给出更深入的分析结果，帮助开发者发现潜在问题。`,
+    images: [
+      { src: diagnosticsUndeclaredIdentifiersImage, alt: '未定义标识符诊断截图' },
+      { src: diagnosticsLoopAnalysisImage, alt: '组合环路诊断截图' },
     ],
   },
 ];

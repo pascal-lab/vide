@@ -286,6 +286,27 @@ import { homepageFeatures } from '../data/homepage';
     font-weight: 700;
   }
 
+  :global(.vide-feature-carousel__description-link) {
+    color: var(--vide-accent);
+    font-weight: 700;
+    text-decoration-line: underline;
+    text-decoration-thickness: 0.08em;
+    text-underline-offset: 0.18em;
+    text-decoration-color: color-mix(in srgb, var(--vide-accent) 36%, transparent);
+    transition:
+      color 180ms ease,
+      text-decoration-color 180ms ease;
+  }
+
+  :global(.vide-feature-carousel__description-link:hover) {
+    color: color-mix(in srgb, var(--vide-accent) 84%, white);
+    text-decoration-color: currentColor;
+  }
+
+  :global(:root[data-theme='dark'] .vide-feature-carousel__description-link:hover) {
+    color: color-mix(in srgb, var(--vide-accent) 82%, white);
+  }
+
   @media (max-width: 60rem) {
     .vide-feature-carousel {
       grid-template-columns: 1fr;
