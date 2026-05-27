@@ -93,10 +93,7 @@ export class VideBrowserClient {
 
   private clientOptions(): LanguageClientOptions {
     return {
-      documentSelector: [
-        { scheme: "file", language: "systemverilog" },
-        { scheme: "file", language: "verilog" },
-      ],
+      documentSelector: this.documentSelector(),
       workspaceFolder: {
         index: 0,
         name: "workspace",
@@ -124,6 +121,16 @@ export class VideBrowserClient {
         },
       },
     };
+  }
+
+  private documentSelector(): NonNullable<LanguageClientOptions["documentSelector"]> {
+    const rootPath = vscode.Uri.parse(this.rootUri).path.replace(/\/+$/, "");
+    const pattern = rootPath ? `${rootPath}/**` : undefined;
+
+    return [
+      { scheme: "file", language: "systemverilog", pattern },
+      { scheme: "file", language: "verilog", pattern },
+    ];
   }
 
   private handleMessage(message: WorkerResponse): void {
