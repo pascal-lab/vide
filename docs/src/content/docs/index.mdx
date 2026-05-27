@@ -1,5 +1,5 @@
 ---
-title: Vide 文档
+title: VIDE 文档
 description: Verilog/SystemVerilog 语言服务器、VS Code 扩展和 Playground 文档。
 template: splash
 editUrl: false
@@ -8,124 +8,32 @@ hero:
   title: |
     <span class="hero-brand">Vide</span>
     <span class="hero-title-main">现代 SystemVerilog 开发环境</span>
-    <span class="hero-title-sub">面向 Verilog 和 SystemVerilog 的语言服务器与 VS Code 扩展，把 RTL 开发常用的 IDE 能力接入编辑器。</span>
+    <span class="hero-title-sub">让硬件设计像编写软件一样丝滑顺手</span>
   actions:
     - text: 快速开始
       link: ./user-guide/quick-start/
       icon: right-arrow
-    - text: 打开 Playground
+    - text: 在线体验
       link: ./playground/
       icon: rocket
       variant: secondary
-    - text: 查看 GitHub
-      link: https://github.com/pascal-lab/vizsla
-      icon: external
-      variant: minimal
 ---
 
-import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import HomepageComparisonSection from '../../components/HomepageComparisonSection.astro';
+import HomepageCta from '../../components/HomepageCta.astro';
+import HomepageFeatureSection from '../../components/HomepageFeatureSection.astro';
+import HomepageHeroStyles from '../../components/HomepageHeroStyles.astro';
 
-<section class="vizsla-feature">
-  <h2>专注 RTL 设计<br />剩下的交给 Vide</h2>
-  <div class="feature-tabs" aria-label="核心能力">
-    <span>语言理解</span>
-    <span>导航诊断</span>
-    <span>补全格式化</span>
-    <span>项目配置</span>
-  </div>
-  <div class="feature-card">
-    <div class="feature-copy">
-      <h3>
-        <span>从工程配置到语义分析，<br/>开箱即用</span>
-      </h3>
-      <p>
-        Vide 读取源文件、include 目录、宏定义和库映射，维护 SystemVerilog 语义信息，让跳转、引用、诊断和重命名都围绕真实 RTL 工程工作。
-      </p>
-      <ul>
-        <li>项目级诊断与单文件回退</li>
-        <li>声明/定义跳转、引用查找和符号大纲</li>
-        <li>补全、悬停、签名帮助、格式化和代码操作</li>
-      </ul>
-    </div>
-  </div>
-</section>
+---
 
-## 选择入口
+<HomepageHeroStyles />
 
-<CardGrid>
-  <LinkCard
-    title="用户手册"
-    href="./user-guide/"
-    description="安装扩展、打开工程、配置项目文件，并按日常任务使用诊断、跳转、补全、格式化和 Qihe。"
-  />
-  <LinkCard
-    title="进阶"
-    href="./advanced-guide/"
-    description="安装本地 VSIX、替换服务器、查命令和日志，并理解项目分析模型。"
-  />
-  <LinkCard
-    title="Playground"
-    href="./playground/"
-    description="在浏览器里运行多文件 RTL 示例，试用悬停说明、补全、跳转、诊断、行内提示和重命名。"
-  />
-  <LinkCard
-    title="Changelog"
-    href="./changelog/"
-    description="查看各版本的用户可见变更、修复和升级影响。"
-  />
-</CardGrid>
+<HomepageFeatureSection />
 
-## 常用路径
+---
 
-<CardGrid>
-  <LinkCard
-    title="安装"
-    href="./user-guide/installation/"
-    description="普通用户从 VS Code Marketplace 安装扩展。"
-  />
-  <LinkCard
-    title="快速开始"
-    href="./user-guide/quick-start/"
-    description="打开 RTL 工程，确认状态栏，然后试用核心 IDE 功能。"
-  />
-  <LinkCard
-    title="日常使用"
-    href="./user-guide/daily-use/"
-    description="按任务查语言识别、诊断、导航、补全、格式化、结构辅助和 Qihe。"
-  />
-  <LinkCard
-    title="VS Code 设置参考"
-    href="./advanced-guide/vscode-settings/"
-    description="查阅 server、Qihe、diagnostics、formatter、inlay hints 等完整配置项。"
-  />
-  <LinkCard
-    title="操作参考"
-    href="./advanced-guide/commands-status-logs/"
-    description="查看命令 ID、状态栏、输出通道和诊断性能分析产物。"
-  />
-  <LinkCard
-    title="源码构建"
-    href="./advanced-guide/build-from-source/"
-    description="构建语言服务器、VS Code 扩展和本地 VSIX。"
-  />
-</CardGrid>
+<HomepageComparisonSection />
 
-## 项目组成
+---
 
-Vide 由两个部分组成：
-
-- `vizsla`：Rust 编写的 LSP 服务器，负责读取工程、解析源文件、维护语义信息并响应编辑器请求。
-- `editors/vscode`：VS Code 扩展，负责贡献 Verilog/SystemVerilog 语言配置、语法高亮、命令、状态栏，并启动语言服务器。
-
-后续我们会支持更多编辑器。
-
-## 支持的文件
-
-VS Code 扩展当前识别这些文件类型：
-
-| 语言 | 扩展名 |
-| --- | --- |
-| Verilog | `.v`, `.vh` |
-| SystemVerilog | `.sv`, `.svh`, `.svi` |
-
-服务器加载工程时还会读取 `.map` 文件，以支持库映射等工程输入。
+<HomepageCta />

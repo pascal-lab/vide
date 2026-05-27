@@ -1,0 +1,334 @@
+---
+import { homepageFeatures } from '../data/homepage';
+
+---
+
+<div class="vide-home-feature" data-home-feature>
+  {
+    homepageFeatures.map((feature, featureIndex) => (
+      <section
+        class="vide-feature-carousel"
+        data-carousel
+        data-active-index="0"
+        data-count={feature.images.length}
+        data-layout={feature.layout}
+      >
+        <div class="vide-feature-carousel__media-shell">
+          <div class="vide-feature-carousel__viewport">
+            <div class="vide-feature-carousel__track">
+              {feature.images.map((image, imageIndex) => (
+                <figure class="vide-feature-carousel__panel">
+                  <img
+                    class="vide-feature-carousel__image"
+                    src={image.src.src}
+                    alt={image.alt}
+                    loading={featureIndex === 0 && imageIndex === 0 ? 'eager' : 'lazy'}
+                  />
+                </figure>
+              ))}
+            </div>
+          </div>
+
+          {feature.images.length > 1 && (
+            <div class="vide-feature-carousel__pager" aria-label={`${feature.title}截图切换`}>
+              <button
+                class="vide-feature-carousel__arrow"
+                type="button"
+                data-dir="-1"
+                aria-label="上一张"
+              >
+                <svg viewBox="0 0 32 32" aria-hidden="true">
+                  <path d="M26 16H7" />
+                  <path d="M14 8L6 16L14 24" />
+                </svg>
+              </button>
+              <div class="vide-feature-carousel__counter">
+                <span data-current>1</span>
+                <span class="vide-feature-carousel__counter-sep">/</span>
+                <span>{feature.images.length}</span>
+              </div>
+              <button
+                class="vide-feature-carousel__arrow"
+                type="button"
+                data-dir="1"
+                aria-label="下一张"
+              >
+                <svg viewBox="0 0 32 32" aria-hidden="true">
+                  <path d="M6 16H25" />
+                  <path d="M18 8L26 16L18 24" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <article class="vide-feature-carousel__copy">
+          <p class="vide-feature-carousel__eyebrow">{feature.eyebrow}</p>
+          <h3>{feature.title}</h3>
+          <p set:html={feature.description} />
+        </article>
+      </section>
+    ))
+  }
+</div>
+
+<script>
+  const syncCarousel = (carousel, activeIndex) => {
+    carousel.dataset.activeIndex = String(activeIndex);
+    carousel.style.setProperty('--active-index', String(activeIndex));
+
+    const currentNode = carousel.querySelector('[data-current]');
+    if (currentNode) {
+      currentNode.textContent = String(activeIndex + 1);
+    }
+  };
+
+  const initializeCarousel = (carousel) => {
+    const count = Number(carousel.dataset.count || '1');
+    let activeIndex = Number(carousel.dataset.activeIndex || '0');
+
+    carousel.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      const button = target.closest('[data-dir]');
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+
+      const delta = Number(button.dataset.dir || '0');
+      activeIndex = (activeIndex + delta + count) % count;
+      syncCarousel(carousel, activeIndex);
+    });
+
+    syncCarousel(carousel, activeIndex);
+  };
+
+  document.querySelectorAll('[data-home-feature] [data-carousel]').forEach(initializeCarousel);
+</script>
+
+<style>
+  .vide-home-feature {
+    --vide-feature-panel-border: rgba(15, 23, 42, 0.1);
+    --vide-feature-copy-title: #101828;
+    --vide-feature-copy-body: #526070;
+    --vide-feature-copy-eyebrow: #6f7f90;
+    --vide-feature-accent: #4a86ff;
+    display: grid;
+    gap: clamp(2.5rem, 5vw, 4.5rem);
+  }
+
+  :global(:root[data-theme='dark']) .vide-home-feature {
+    --vide-feature-panel-border: rgba(148, 163, 184, 0.16);
+    --vide-feature-copy-title: #f8fafc;
+    --vide-feature-copy-body: rgba(226, 232, 240, 0.76);
+    --vide-feature-copy-eyebrow: rgba(203, 213, 225, 0.72);
+  }
+
+  .vide-feature-carousel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.85fr);
+    gap: clamp(1.5rem, 3vw, 3rem);
+    align-items: start;
+  }
+
+  .vide-feature-carousel[data-layout='image-right'] {
+    grid-template-columns: minmax(18rem, 0.85fr) minmax(0, 1.35fr);
+  }
+
+  .vide-feature-carousel[data-layout='image-right'] .vide-feature-carousel__media-shell {
+    grid-column: 2;
+  }
+
+  .vide-feature-carousel[data-layout='image-right'] .vide-feature-carousel__copy {
+    grid-column: 1;
+    grid-row: 1;
+    padding-inline-end: 0;
+    padding-inline-start: clamp(0.25rem, 1vw, 1rem);
+  }
+
+  .vide-feature-carousel + .vide-feature-carousel {
+    padding-top: clamp(2.5rem, 5vw, 4.5rem);
+    border-top: 1px solid var(--vide-feature-panel-border);
+  }
+
+  .vide-feature-carousel__media-shell,
+  .vide-feature-carousel__copy {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .vide-feature-carousel__viewport {
+    overflow: hidden;
+    border-radius: 1.45rem;
+  }
+
+  .vide-feature-carousel__track {
+    display: flex;
+    width: 100%;
+    transform: translateX(calc(var(--active-index, 0) * -100%));
+    transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+
+  .vide-feature-carousel__track > * {
+    margin: 0;
+  }
+
+  .vide-feature-carousel__panel {
+    flex: 0 0 100%;
+    margin: 0;
+  }
+
+  .vide-feature-carousel__image {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  .vide-feature-carousel__pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+    margin-top: 0.55rem;
+  }
+
+  .vide-feature-carousel__pager > * {
+    margin: 0;
+  }
+
+  .vide-feature-carousel__counter {
+    color: var(--vide-feature-copy-body);
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    min-width: 3.25rem;
+    text-align: center;
+  }
+
+  .vide-feature-carousel__counter-sep {
+    opacity: 0.55;
+    padding-inline: 0.2rem;
+  }
+
+  .vide-feature-carousel__arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.6rem;
+    height: 2.6rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--vide-feature-copy-title);
+    cursor: pointer;
+    transition:
+      transform 180ms ease,
+      color 180ms ease,
+      opacity 180ms ease;
+  }
+
+  .vide-feature-carousel__arrow:hover {
+    transform: translateY(-1px);
+    color: var(--vide-feature-accent);
+  }
+
+  .vide-feature-carousel__arrow svg {
+    width: 2.15rem;
+    height: 2.15rem;
+    stroke: currentColor;
+    stroke-width: 2.6;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  .vide-feature-carousel__copy {
+    color: var(--vide-feature-copy-body);
+    align-self: start;
+    margin: 0;
+    padding-inline-end: clamp(0.25rem, 1vw, 1rem);
+  }
+
+  .vide-feature-carousel__eyebrow {
+    margin: 0 0 0.8rem;
+    color: var(--vide-feature-copy-eyebrow);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .vide-feature-carousel__copy h3 {
+    margin: 0;
+    color: var(--vide-feature-copy-title);
+    font-size: clamp(1.7rem, 2.6vw, 2.75rem);
+    line-height: 1.08;
+    letter-spacing: 0;
+  }
+
+  .vide-feature-carousel__copy > p:last-child {
+    margin: 1rem 0 0;
+    font-size: clamp(1rem, 1.08vw, 1.18rem);
+    line-height: 1.7;
+    text-wrap: pretty;
+  }
+
+  :global(.vide-feature-carousel__description-accent) {
+    color: var(--vide-accent);
+    font-weight: 700;
+  }
+
+  @media (max-width: 60rem) {
+    .vide-feature-carousel {
+      grid-template-columns: 1fr;
+    }
+
+    .vide-feature-carousel[data-layout='image-right'] {
+      grid-template-columns: 1fr;
+    }
+
+    .vide-feature-carousel[data-layout='image-right'] .vide-feature-carousel__media-shell,
+    .vide-feature-carousel[data-layout='image-right'] .vide-feature-carousel__copy {
+      grid-column: auto;
+      grid-row: auto;
+    }
+
+    .vide-feature-carousel__copy {
+      padding-inline-end: 0;
+    }
+
+    .vide-feature-carousel[data-layout='image-right'] .vide-feature-carousel__copy {
+      padding-inline-start: 0;
+    }
+  }
+
+  @media (max-width: 42rem) {
+    .vide-feature-carousel__viewport {
+      border-radius: 1.15rem;
+    }
+
+    .vide-feature-carousel__image {
+      border-radius: 0.85rem;
+    }
+
+    .vide-feature-carousel__pager {
+      gap: 0.5rem;
+      margin-top: 0.45rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vide-feature-carousel__track,
+    .vide-feature-carousel__arrow {
+      transition: none;
+    }
+  }
+</style>
