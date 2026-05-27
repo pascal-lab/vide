@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <title>PASCAL Group Logo</title>
+  <path
+    d="m200 396.7c65.6-.3 197.3-215.8 196.7-281.4S262 3 196.4 3.3 3.2 51.9 3.2 117.5 134.4 397 200 396.7Z"
+    style="fill:#92d050;fill-rule:evenodd"
+  />
+  <path
+    d="m200 396.7c65.6-.3 197.3-215.8 196.7-281.4S262 3 196.4 3.3 3.2 51.9 3.2 117.5 134.4 397 200 396.7Z"
+    style="fill:none;stroke:#92d050;stroke-miterlimit:8"
+  />
+  <path
+    d="m201.6 394.7c22.7-.2 68.3-126.4 68.1-164.9s-46.6-65.9-69.4-65.7c-22.7.2-66.9 28.5-66.9 66.9s45.5 163.9 68.2 163.7Z"
+    style="fill:#2e75b6;fill-rule:evenodd"
+  />
+  <path
+    d="m201.6 394.7c22.7-.2 68.3-126.4 68.1-164.9s-46.6-65.9-69.4-65.7c-22.7.2-66.9 28.5-66.9 66.9s45.5 163.9 68.2 163.7Z"
+    style="fill:none;stroke:#2e75b6;stroke-miterlimit:8"
+  />
+  <ellipse
+    cx="232.5"
+    cy="215.1"
+    rx="14.2"
+    ry="23.2"
+    transform="translate(-67.1 317.8) rotate(-61.7)"
+    style="fill:#fff"
+  />
+  <ellipse
+    cx="232.5"
+    cy="215.1"
+    rx="14.2"
+    ry="23.2"
+    transform="translate(-67.1 317.8) rotate(-61.7)"
+    style="fill:none;stroke:#2e75b6;stroke-miterlimit:8;stroke-width:1px"
+  />
+</svg>

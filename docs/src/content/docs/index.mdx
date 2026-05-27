@@ -43,6 +43,9 @@ import HomepageHeroStyles from '../../components/HomepageHeroStyles.astro';
 ---
 
 <div class="pascal-footer">
-  <img src="/pascal.svg" alt="PASCAL Research Group" />
-  <a href="https://pascal-lab.net/" target="_blank" rel="noreferrer">PASCAL Research Group</a>
+  <img
+    src={`${import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`}pascal.svg`}
+    alt="PASCAL Research Group"
+  />
+  <a href="https://pascal-lab.net/" target="_blank" rel="noopener noreferrer">PASCAL Research Group</a>
 </div>

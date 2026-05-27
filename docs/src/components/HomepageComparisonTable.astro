@@ -83,6 +83,9 @@ const getFeatureCell = (product: ComparisonProduct, key: ComparisonFeatureKey): 
           </th>
           {products.map((product) => {
             const cell = getFeatureCell(product, column.key);
+            const tooltipId = cell.tooltip
+              ? `comparison-tooltip-${product.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${column.key}`
+              : undefined;
             return (
               <td>
                 <span
@@ -90,12 +93,14 @@ const getFeatureCell = (product: ComparisonProduct, key: ComparisonFeatureKey): 
                     [cell.status.className]: true,
                     'vide-comparison-table__with-tooltip': Boolean(cell.tooltip),
                   }}
-                  aria-label={cell.tooltip ? `${cell.status.label}: ${cell.tooltip}` : cell.status.label}
+                  aria-label={cell.status.label}
+                  aria-describedby={tooltipId}
+                  tabindex={cell.tooltip ? 0 : undefined}
                 >
                   {cell.status.symbol}
                   {cell.isBeta && <span class="vide-comparison-table__beta">BETA</span>}
                   {cell.tooltip && (
-                    <span class="vide-comparison-table__tooltip" role="tooltip">
+                    <span id={tooltipId} class="vide-comparison-table__tooltip" role="tooltip">
                       {cell.tooltip}
                     </span>
                   )}
@@ -219,6 +224,11 @@ const getFeatureCell = (product: ComparisonProduct, key: ComparisonFeatureKey): 
 
   .vide-comparison-table__with-tooltip {
     cursor: help;
+  }
+
+  .vide-comparison-table__with-tooltip:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--vide-accent) 70%, white);
+    outline-offset: 0.18rem;
   }
 
   .vide-comparison-table__tooltip {
