@@ -29,6 +29,21 @@
   color: var(--sl-color-gray-2);
 }
 
+.title-wrapper .site-title + ul {
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.title-wrapper .site-title + ul a {
+  white-space: nowrap;
+}
+
+@media (max-width: 57.999rem), (hover: none), (pointer: coarse) {
+  .title-wrapper .site-title + ul {
+    display: none;
+  }
+}
+
 [data-has-hero] .hero {
   padding-block-start: clamp(3rem, 8vw, 7rem);
 }
