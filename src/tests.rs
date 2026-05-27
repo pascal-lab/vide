@@ -39,7 +39,7 @@ use crate::{
     },
     global_state::main_loop,
     i18n::{I18n, Locale},
-    lsp_ext::to_proto,
+    lsp_ext::{ext::ProjectStatusNotification, to_proto},
 };
 
 type TempDir = TestDir;
@@ -263,6 +263,8 @@ fn shutdown_test_server(
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::PublishDiagnostics::METHOD => {}
+            Message::Notification(notification)
+                if notification.method == ProjectStatusNotification::METHOD => {}
             other => panic!("unexpected message while shutting down test server: {other:?}"),
         }
     }
