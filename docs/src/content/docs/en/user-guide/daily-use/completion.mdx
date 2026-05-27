@@ -1,0 +1,36 @@
+---
+title: Completion
+description: Use Verilog/SystemVerilog completion and handle missing completion results.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import completionGif from '../../../assets/features/completion.gif';
+import { completionFiles } from '../../../../../examples/dailyUse';
+
+Vide provides completion around instance connections, parameter assignments, expressions, preprocessor directives, and common RTL structures. Completion results depend on the current syntax position and the project view that has already been resolved.
+
+<FeatureExample
+  image={completionGif}
+  imageAlt="Animation showing completion in a Verilog file in VS Code"
+  imageCaption="Verilog completion in VS Code"
+  labCaption="The browser example uses the same Verilog demo"
+>
+  <VideLab
+    projectId="daily-completion"
+    projectLabel="Features: Completion"
+    entryFile="completion.v"
+    files={completionFiles}
+    height="100%"
+    initialActiveFile="completion.v"
+    initialSelection="16:5-16:12"
+    title="Completion in a Verilog File"
+    description="This example uses the same adder/top demo as the VS Code recording, so you can inspect completion results near instance port connections."
+  />
+</FeatureExample>
+
+## Completion Has Too Few Results
+
+In single-file scenarios, completion usually only uses the current file and whatever has already been indexed. Port, parameter, and instance-related completion needs the target module to resolve; includes, macros, and library dependencies also need to be represented in project configuration.
+
+If the instance module name itself does not jump to definition, first troubleshoot project configuration in [Navigation and Reading](../navigation/#definition-does-not-jump). For call-style hints inside instance parameter and port lists, see [Signature Help](../signature-help/).

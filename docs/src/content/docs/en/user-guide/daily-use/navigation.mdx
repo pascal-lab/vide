@@ -6,6 +6,7 @@ description: Use definition, references, hover, and document highlights, and han
 import FeatureExample from '../../../../../components/FeatureExample.astro';
 import VideLab from '../../../../../components/VideLab.astro';
 import gotoDefGif from '../../../assets/features/goto-def.gif';
+import hoverGif from '../../../assets/features/hover.gif';
 import { navigationFiles } from '../../../../../examples/dailyUse';
 
 Vide provides these reading features:
@@ -36,13 +37,32 @@ Related settings reference: [Scope](../../../advanced-guide/vscode-settings/#sco
   />
 </FeatureExample>
 
+<FeatureExample
+  image={hoverGif}
+  imageAlt="Animation showing module hover information in VS Code"
+  imageCaption="Hover information in VS Code"
+  labCaption="Inspect hover on the same instance in the browser"
+>
+  <VideLab
+    projectId="daily-hover"
+    projectLabel="Features: Hover"
+    entryFile="top.v"
+    files={navigationFiles}
+    height="100%"
+    initialActiveFile="top.v"
+    initialSelection="8:5-8:13"
+    title="Inspect Instance Target Information"
+    description="Place the cursor on and_gate to inspect the module signature. If hover has no information, the target module is usually not resolved in the current project view."
+  />
+</FeatureExample>
+
 ## Definition Does Not Jump
 
 Run `Go to Definition` on the instance module name first. If the module name itself does not jump, the target file is usually not loaded through project configuration:
 
 - Does `sources` match the file that defines the target module?
 - Does `include_dirs` include the include directory?
-- Do `defines` enable the branch that contains the target?
+- Do macro definitions, configured through `defines`, enable the conditional-compilation branch that contains the target? If the target module is hidden behind an inactive `` `ifdef ``, it is not analyzed in the current project view.
 - Does `libraries` include the dependency project?
 
 See [Project Configuration](../../project-configuration/) for the fields.

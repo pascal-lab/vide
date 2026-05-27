@@ -12,18 +12,6 @@ Diagnostics appear in the VS Code `Problems` panel and as editor underlines. Syn
 
 Related settings reference: [Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics).
 
-## When Diagnostics Refresh
-
-The default `vide.diagnostics.update` value is `onSave`, so diagnostics refresh when you save. Keep this default for large projects to avoid heavy analysis on every edit.
-
-If you need diagnostics while typing:
-
-```json
-{
-  "vide.diagnostics.update": "onType"
-}
-```
-
 <FeatureExample
   image={missingPortGif}
   imageAlt="Animation showing a missing instance port diagnostic in VS Code"
@@ -43,6 +31,18 @@ If you need diagnostics while typing:
     description="This example intentionally leaves child.y unconnected. Open the diagnostics panel to see markers and the diagnostics list in the browser playground."
   />
 </FeatureExample>
+
+## When Diagnostics Refresh
+
+The default `vide.diagnostics.update` value is `onSave`, so diagnostics refresh when you save. Keep this default for large projects to avoid heavy analysis on every edit.
+
+If you need diagnostics while typing:
+
+```json
+{
+  "vide.diagnostics.update": "onType"
+}
+```
 
 ## Diagnostics Are Stale
 

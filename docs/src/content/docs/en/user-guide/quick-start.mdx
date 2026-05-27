@@ -4,6 +4,7 @@ description: Install the Vide extension and confirm that the core IDE features w
 ---
 
 import VideLab from '../../../../components/VideLab.astro';
+import ThinLinkCard from '../../../../components/ThinLinkCard.astro';
 
 export const quickStartFiles = [
   {
@@ -65,7 +66,17 @@ Follow these steps to confirm that Vide works in VS Code.
 
 ## 1. Install the Extension
 
-Search for the display name `Vide` in the VS Code Extensions view and install it.
+For daily use, install the stable Marketplace extension. After installation, open your RTL project directory; the extension automatically uses the bundled `vide` language server, so you do not need to configure a server path.
+
+<ThinLinkCard
+  href="https://marketplace.visualstudio.com/items?itemName=vizsla.vizsla-lsp"
+  title="Visual Studio Marketplace"
+  action="Open"
+>
+  Install stable Vide, extension ID: <code>vizsla.vizsla-lsp</code>
+</ThinLinkCard>
+
+You can also search for the display name `Vide` or the extension ID `vizsla.vizsla-lsp` in the VS Code Extensions view.
 
 ![vide in extension market](../../assets/quick-start/extension-marketplace.png)
 
@@ -100,6 +111,8 @@ Click the status item to open the status menu. Common entries include `Open Mani
 Open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file. VS Code should recognize the matching language and enable syntax highlighting and language services.
 
 ![example](../../assets/quick-start/editor-example.png)
+
+If nothing happens after installation, first check that the opened folder contains `.v`, `.vh`, `.sv`, `.svh`, or `.svi` files and that you have opened an RTL file. If the `Vide` status item does not appear, reload the VS Code window. If the status item shows an error or you need output logs, start with the status bar section above. Use [Advanced Installation](../../advanced-guide/advanced-installation/) and [Server Self-Check](../../advanced-guide/check-server/) when you need VSIX packages, a custom server, or startup logs.
 
 ## 5. Try the Core Features
 

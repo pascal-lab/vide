@@ -13,7 +13,10 @@ const imageSrc = typeof image === "string" ? image : image.src;
 <div class="feature-example">
   <figure class="feature-example-media">
     <img src={imageSrc} alt={imageAlt} loading="lazy" decoding="async" />
-    <figcaption>{imageCaption}</figcaption>
+    <figcaption>
+      <span>{imageCaption}</span>
+      <span class="feature-example-lab-caption">{labCaption}</span>
+    </figcaption>
   </figure>
   <figure class="feature-example-live">
     <div class="feature-example-lab">
@@ -25,10 +28,12 @@ const imageSrc = typeof image === "string" ? image : image.src;
 
 <style>
   .feature-example {
-    --feature-example-block-size: clamp(18rem, 54vw, 26.25rem);
+    --feature-example-lab-block-size: clamp(18rem, 54vw, 26.25rem);
+    --feature-example-column-min: 32rem;
     position: relative;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--feature-example-column-min)), 1fr));
+    container-type: inline-size;
     gap: 1rem;
     align-items: start;
     max-width: 100%;
@@ -46,26 +51,32 @@ const imageSrc = typeof image === "string" ? image : image.src;
     margin: 0;
   }
 
-  .feature-example-media img,
-  .feature-example-lab {
+  .feature-example-media img {
+    box-sizing: border-box;
     width: 100%;
     min-width: 0;
-    block-size: var(--feature-example-block-size);
+    block-size: auto;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg);
+    display: block;
+  }
+
+  .feature-example-lab {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    block-size: var(--feature-example-lab-block-size);
     border: 1px solid var(--sl-color-gray-5);
     border-radius: 0.5rem;
     background: var(--sl-color-bg);
     overflow: hidden;
   }
 
-  .feature-example-media img {
-    display: block;
-    object-fit: cover;
-  }
-
   .feature-example-lab :global(.vide-lab-embed) {
     block-size: 100%;
     margin: 0;
-    contain-intrinsic-size: var(--feature-example-block-size);
+    contain-intrinsic-size: var(--feature-example-lab-block-size);
   }
 
   .feature-example-lab :global(vide-lab) {
@@ -76,6 +87,32 @@ const imageSrc = typeof image === "string" ? image : image.src;
     color: var(--sl-color-gray-3);
     font-size: 0.8125rem;
     line-height: 1.35;
+  }
+
+  figcaption span {
+    display: block;
+  }
+
+  figcaption span + span {
+    margin-block-start: 0.2rem;
+  }
+
+  .feature-example-lab-caption {
+    display: none;
+  }
+
+  @container (min-width: 65.25rem) {
+    .feature-example-media figcaption {
+      text-align: right;
+    }
+
+    .feature-example-lab-caption {
+      display: block;
+    }
+
+    .feature-example-live figcaption {
+      display: none;
+    }
   }
 
   @media (min-width: 72rem) {
@@ -102,12 +139,11 @@ const imageSrc = typeof image === "string" ? image : image.src;
       --feature-example-offset: calc(
         (var(--feature-example-page-width) - var(--feature-example-width)) / 2 - var(--feature-example-left-room)
       );
-      --feature-example-block-size: 26.25rem;
+      --feature-example-lab-block-size: 26.25rem;
       width: var(--feature-example-width);
       max-width: none;
       margin-inline-start: var(--feature-example-offset);
       margin-inline-end: 0;
-      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr);
       gap: 1.25rem;
     }
 

@@ -54,6 +54,46 @@ endmodule
   },
 ];
 
+export const defineHighlightFiles = [
+  {
+    path: "vide.toml",
+    languageId: "toml",
+    source: `sources = ["rtl/**"]
+defines = ["USE_REGISTERED_PATH"]
+top_modules = ["define_highlight_demo"]
+`,
+  },
+  {
+    path: "rtl/define_highlight_demo.sv",
+    source: `module define_highlight_demo (
+  input  logic       clk,
+  input  logic       rst_n,
+  input  logic [7:0] data_i,
+  output logic [7:0] data_o
+);
+
+\`ifdef USE_REGISTERED_PATH
+  logic [7:0] data_q;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      data_q <= '0;
+    end else begin
+      data_q <= data_i;
+    end
+  end
+
+  assign data_o = data_q;
+\`elsif USE_INVERT_PATH
+  assign data_o = ~data_i;
+\`else
+  assign data_o = data_i;
+\`endif
+endmodule
+`,
+  },
+];
+
 The project manifest tells Vide three things: which RTL files belong to the project, where include files live, and which macros or dependency libraries should be used. The file name must be `vide.toml`.
 
 The project manifest usually lives in the workspace root: the top-level folder you opened in VS Code. Vide does not automatically search parent or child directories for other manifests.
@@ -194,6 +234,18 @@ defines = [
 
 Macro names must be valid identifiers. Macros with values are parsed as `NAME=value`; `value` may contain spaces.
 
+<VideLab
+  projectId="configuration-defines-highlight"
+  projectLabel="Project Configuration: Defines"
+  entryFile="rtl/define_highlight_demo.sv"
+  files={defineHighlightFiles}
+  height="360px"
+  activeFile="rtl/define_highlight_demo.sv"
+  selection="8:8-8:27"
+  title="Change defines to Inspect Conditional Compilation"
+  description={'Open vide.toml, change defines to ["USE_INVERT_PATH"] or [], then return to the RTL file and watch the `ifdef branch highlighting change.'}
+/>
+
 ## libraries
 
 `libraries` declares dependency libraries. Paths are resolved relative to the directory that contains the current project manifest. Each library path is loaded as another workspace:
@@ -217,6 +269,5 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 ## Notes
 
 - The manifest file name must be `vide.toml`.
-- Old fields such as `top_module`, `include`, or `macros` are not accepted.
 - Vide does not automatically discover manifests from subdirectories. When you open `repo`, it only checks `repo/vide.toml`.
 - Projects configured with `sources = []` can still load include directories, which is useful for header-only workspaces or workspaces where you do not want to scan RTL yet.

@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.39.2",
+    "@lorenzo_lewis/starlight-utils": "^0.3.2",
+    "@vscode/codicons": "^0.0.45",
     "astro": "^6.3.5",
     "vide-playground": "file:../playground"
   }

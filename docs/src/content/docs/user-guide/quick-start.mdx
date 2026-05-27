@@ -4,6 +4,7 @@ description: 安装 Vide 扩展并确认核心 IDE 功能可用。
 ---
 
 import VideLab from '../../../components/VideLab.astro';
+import ThinLinkCard from '../../../components/ThinLinkCard.astro';
 
 export const quickStartFiles = [
   {
@@ -65,7 +66,17 @@ endmodule
 
 ## 1. 安装扩展
 
-在 VS Code 的扩展面板中搜索显示名 `Vide` 并安装即可。
+日常使用只需要安装 Marketplace 稳定版。安装后打开 RTL 工程目录，扩展会自动使用随扩展打包的 `vide` 语言服务器，不需要手动配置服务器路径。
+
+<ThinLinkCard
+  href="https://marketplace.visualstudio.com/items?itemName=vizsla.vizsla-lsp"
+  title="Visual Studio Marketplace"
+  action="打开"
+>
+  安装稳定版 Vide，扩展 ID：<code>vizsla.vizsla-lsp</code>
+</ThinLinkCard>
+
+也可以在 VS Code 的扩展面板搜索显示名 `Vide`，或搜索扩展 ID `vizsla.vizsla-lsp`。
 
 ![vide in extension market](../assets/quick-start/extension-marketplace.png)
 
@@ -103,12 +114,14 @@ sources = ["rtl/**"]
 
 ![example](../assets/quick-start/editor-example.png)
 
+如果装好后没有反应，先确认你打开的是包含 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi` 文件的目录，并打开了对应 RTL 文件。状态栏没有出现 `Vide` 时，可以重新加载 VS Code 窗口；状态栏显示错误或需要看输出时，先按上面的状态栏说明检查。需要替换服务器、安装本地 VSIX 或看启动日志时，再进入 [高级安装](../../advanced-guide/advanced-installation/) 和 [启动自检](../../advanced-guide/check-server/)。
+
 ## 5. 试用核心功能
 
 你可以按这个顺序试一下：
 
-1. 写一处明显语法错误，查看 `Problems` 面板中的诊断，也就是错误、警告和提示。
-2. 在模块名、信号名或实例名上执行 `Go to Definition` 或 `Go to Declaration`，看看能不能跳到对应位置。
+1. 写一处明显语法错误，查看 VS Code `问题` 面板中的诊断，也就是错误、警告和提示。
+2. 在模块名、信号名或实例名上执行 `转到定义` 或 `转到声明`，看看能不能跳到对应位置。
 3. 在实例端口连接、参数赋值、表达式或预处理位置触发补全。
 4. 把光标放到符号上查看悬停说明。
 

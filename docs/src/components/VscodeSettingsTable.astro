@@ -1,0 +1,90 @@
+---
+import {
+  getVscodeSettingRows,
+  type VscodeSettingsLocale,
+} from "../data/vscodeSettings";
+
+interface Props {
+  locale: VscodeSettingsLocale;
+  settings: string[];
+}
+
+const { locale, settings } = Astro.props;
+const rows = getVscodeSettingRows(settings, locale);
+const labels =
+  locale === "zh"
+    ? { setting: "设置", defaultValue: "默认值", description: "说明", options: "可选值" }
+    : { setting: "Setting", defaultValue: "Default", description: "Description", options: "Options" };
+
+function renderInlineMarkdown(value: string): string {
+  return escapeHtml(value).replace(/`([^`]+)`/g, '<code dir="auto">$1</code>');
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+---
+
+<table class="vscode-settings-table">
+  <thead>
+    <tr>
+      <th>{labels.setting}</th>
+      <th>{labels.defaultValue}</th>
+      <th>{labels.description}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {
+      rows.map((row) => (
+        <tr>
+          <td>
+            <code>{row.name}</code>
+          </td>
+          <td>
+            <code>{row.defaultValue}</code>
+          </td>
+          <td>
+            <span set:html={renderInlineMarkdown(row.description)} />
+            {row.enumValues && (
+              <div class="vscode-settings-options">
+                {labels.options}:
+                <ul>
+                  {row.enumValues.map((enumValue) => (
+                    <li>
+                      <code>{enumValue.value}</code>
+                      {enumValue.description && (
+                        <>
+                          {" "}
+                          <span set:html={renderInlineMarkdown(enumValue.description)} />
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </td>
+        </tr>
+      ))
+    }
+  </tbody>
+</table>
+
+<style>
+  .vscode-settings-table :global(code) {
+    white-space: nowrap;
+  }
+
+  .vscode-settings-options {
+    margin-top: 0.5rem;
+  }
+
+  .vscode-settings-options ul {
+    margin: 0.25rem 0 0;
+    padding-inline-start: 1.25rem;
+  }
+</style>

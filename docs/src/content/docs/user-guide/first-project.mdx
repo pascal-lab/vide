@@ -3,18 +3,20 @@ title: 第一个工程
 description: 为 Vide 准备第一个 Verilog/SystemVerilog 工程目录。
 ---
 
+import { FileTree } from '@astrojs/starlight/components';
+
 ## 推荐目录
 
 小工程可以先用这种结构：
 
-```text
-my-rtl/
-  rtl/
-    top.sv
-    alu.sv
-  include/
-    defs.svh
-```
+<FileTree>
+- my-rtl/
+  - rtl/
+    - top.sv
+    - alu.sv
+  - include/
+    - defs.svh
+</FileTree>
 
 直接用 VS Code 打开 `my-rtl`。后面说到“工作区根目录”时，指的就是 VS Code 当前打开的这个顶层目录：
 

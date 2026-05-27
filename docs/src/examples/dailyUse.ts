@@ -4,7 +4,7 @@ sources = ["*.v"]
 top_modules = ["top"]
 `;
 
-export const languageFiles = [
+export const completionFiles = [
   {
     path: 'vide.toml',
     languageId: 'toml',
@@ -102,6 +102,44 @@ endmodule
     );
 
     assign led0 = gate_out;
+endmodule
+`,
+  },
+];
+
+export const semanticTokenFiles = [
+  {
+    path: 'vide.toml',
+    languageId: 'toml',
+    source: `#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
+sources = ["*.v"]
+
+# include_dirs = ["include"]
+# defines = ["SYNTHESIS"]
+# top_modules = ["top"]
+# libraries = ["../common_cells"]
+# exclude = ["build/**"]
+`,
+  },
+  {
+    path: 'semantic-token-demo.v',
+    source: `module semantic_tokens_demo (
+    input  logic clk,
+    input  logic rst_n,
+    input  logic [7:0] data_i,
+    output logic [7:0] data_o
+);
+    logic [7:0] data_q;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            data_q <= '0;
+        end else begin
+            data_q <= data_i;
+        end
+    end
+
+    assign data_o = data_q;
 endmodule
 `,
   },

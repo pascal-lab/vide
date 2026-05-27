@@ -3,7 +3,7 @@ title: 高级安装
 description: 安装本地 VSIX、选择发布渠道，或配置自定义 Vide 语言服务器。
 ---
 
-普通用户建议从 [Marketplace 安装](../../user-guide/installation/)。本页用于离线安装、本地验证、预发布包和自定义服务器。
+普通用户建议按 [快速开始](../../user-guide/quick-start/) 安装 Marketplace 稳定版。本页用于离线安装、本地验证、预发布包和自定义服务器。
 
 ## 选择安装版本
 
