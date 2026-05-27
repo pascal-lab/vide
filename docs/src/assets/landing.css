@@ -10,6 +10,10 @@
   --vide-overlay: hsla(var(--vide-accent-hsl), 0.14);
 }
 
+:root[data-theme='dark'] {
+  --vide-primary-button-color: #111827;
+}
+
 [data-has-hero] .page {
   background:
     linear-gradient(215deg, var(--vide-overlay), transparent 40%),
@@ -78,12 +82,12 @@
 }
 
 [data-has-hero] .hero .actions .sl-link-button.primary {
-  color: #fff;
+  color: var(--vide-primary-button-color, #fff);
   box-shadow: 0 0 2rem hsla(var(--vide-accent-hsl), 0.28);
 }
 
 [data-has-hero] .hero .actions .sl-link-button.primary:hover {
-  color: #fff;
+  color: var(--vide-primary-button-color, #fff);
 }
 
 [data-has-hero] .hero .actions .sl-link-button.primary p {
