@@ -37,6 +37,9 @@ export default defineConfig({
           href: 'https://github.com/pascal-lab/vide',
         },
       ],
+      components: {
+        Footer: './src/components/SiteFooter.astro',
+      },
       customCss: ['./src/assets/landing.css'],
       plugins: [
         starlightUtils({
