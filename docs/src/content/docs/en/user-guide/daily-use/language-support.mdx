@@ -4,8 +4,8 @@ description: Check how Vide recognizes Verilog/SystemVerilog files and where bas
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
-import codeActionsGif from '../../../assets/features/code-actions.gif';
+import VideLab from '../../../../../components/VideLab.astro';
+import completionGif from '../../../assets/features/completion.gif';
 import { languageFiles } from '../../../../../examples/dailyUse';
 
 The VS Code extension registers two language modes:
@@ -22,21 +22,21 @@ Diagnostics, go to definition, completion, hover, signature help, inlay hints, s
 Related settings reference: [Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens), [Files](../../../advanced-guide/vscode-settings/#files).
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="Animation showing SystemVerilog syntax highlighting and language detection in VS Code"
-  imageCaption="Language detection in VS Code"
-  labCaption="The browser example opens a SystemVerilog file"
+  image={completionGif}
+  imageAlt="Animation showing completion in a Verilog file in VS Code"
+  imageCaption="Verilog completion in VS Code"
+  labCaption="The browser example uses the same Verilog demo"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-language"
-    projectLabel="Features: Language Detection"
-    entryFile="rtl/traffic_light.sv"
+    projectLabel="Features: Completion"
+    entryFile="completion.v"
     files={languageFiles}
     height="100%"
-    initialActiveFile="rtl/traffic_light.sv"
-    initialSelection="1:1-5:16"
-    title="Language Detection and Syntax Highlighting"
-    description="This example uses a .sv file, typedef enum, and always_ff, which is enough to confirm syntax highlighting and language server wiring."
+    initialActiveFile="completion.v"
+    initialSelection="16:5-16:12"
+    title="Completion in a Verilog File"
+    description="This example uses the same adder/top demo as the VS Code recording, so you can check .v file recognition, project configuration, and language server wiring together."
   />
 </FeatureExample>
 
@@ -44,7 +44,7 @@ Related settings reference: [Semantic Tokens](../../../advanced-guide/vscode-set
 
 Check the language mode in the lower-right corner of VS Code. If `.v` / `.vh` files are not Verilog, or `.sv` / `.svh` / `.svi` files are not SystemVerilog, switch the language mode manually once and check whether another extension has overridden the association.
 
-If syntax highlighting works but navigation, diagnostics, and completion do not, this is usually a language-server or project-configuration issue. Click the `Vide` status item first; if it reports no project manifest, create or update `vizsla.toml` using [First Project](../../first-project/).
+If syntax highlighting works but navigation, diagnostics, and completion do not, this is usually a language-server or project-configuration issue. Click the `Vide` status item first; if it reports no project manifest, create or update `vide.toml` using [First Project](../../first-project/).
 
 ## Header Files Have Fewer Features
 

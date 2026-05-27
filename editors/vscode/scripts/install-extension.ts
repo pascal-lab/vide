@@ -33,7 +33,7 @@ function run(command: string, args: string[]): void {
 function findVsixFiles(cwd: string): VsixFile[] {
   return fs
     .readdirSync(cwd)
-    .filter((name) => /^vizsla-vscode-.*\.vsix$/i.test(name))
+    .filter((name) => /^vide-vscode-.*\.vsix$/i.test(name))
     .map((name) => {
       const absolute = path.join(cwd, name);
       const stat = fs.statSync(absolute);

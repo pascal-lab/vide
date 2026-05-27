@@ -6,7 +6,7 @@
   "description": "Configured workspace with RTL and a small testbench.",
   "files": [
     {
-      "path": "vizsla.toml",
+      "path": "vide.toml",
       "languageId": "toml"
     },
     {

@@ -11,7 +11,7 @@ import {
 
 const vscodeDir = findExtensionRoot(__dirname);
 const repoRoot = path.resolve(vscodeDir, '..', '..');
-const binName = 'vizsla';
+const binName = 'vide';
 
 type BuildProfile = 'debug' | 'release';
 
@@ -202,7 +202,7 @@ function packageExtension(target: PlatformFolder, profile: BuildProfile): string
   const runtimeServerPath = stageRuntimeServer(targetServerPath, target, binFile);
 
   const debugSuffix = profile === 'debug' ? '-debug' : '';
-  const vsixOut = `vizsla-vscode-${target}${debugSuffix}.vsix`;
+  const vsixOut = `vide-vscode-${target}${debugSuffix}.vsix`;
   const vsceBin = path.join(vscodeDir, 'node_modules', '@vscode', 'vsce', 'vsce');
   try {
     run(process.execPath, [

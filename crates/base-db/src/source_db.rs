@@ -65,10 +65,7 @@ pub enum SourceFileKind {
 impl SourceFileKind {
     pub fn from_path(path: &VfsPath) -> Self {
         match path.name_and_extension() {
-            Some((name, Some(ext)))
-                if (name == "vizsla" || name == "vizsla_config")
-                    && ext.eq_ignore_ascii_case("toml") =>
-            {
+            Some((name, Some(ext))) if name == "vide" && ext.eq_ignore_ascii_case("toml") => {
                 Self::ProjectManifest
             }
             Some((_, Some(ext))) if ext.eq_ignore_ascii_case("map") => Self::LibraryMap,
@@ -646,12 +643,9 @@ mod tests {
 
     #[test]
     fn project_manifests_are_not_slang_parse_diagnostic_units() {
-        for file_name in ["vizsla.toml", "vizsla_config.toml"] {
-            let kind =
-                SourceFileKind::from_path(&VfsPath::new_virtual_path(format!("/root/{file_name}")));
+        let kind = SourceFileKind::from_path(&VfsPath::new_virtual_path("/root/vide.toml".into()));
 
-            assert_eq!(kind, SourceFileKind::ProjectManifest);
-            assert!(!kind.is_slang_parse_unit());
-        }
+        assert_eq!(kind, SourceFileKind::ProjectManifest);
+        assert!(!kind.is_slang_parse_unit());
     }
 }

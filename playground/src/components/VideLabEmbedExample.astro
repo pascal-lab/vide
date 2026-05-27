@@ -1,5 +1,5 @@
 ---
-import VizslaLab from "./VizslaLab.astro";
+import VideLab from "./VideLab.astro";
 
 const faviconHref = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon.svg`;
 ---
@@ -10,7 +10,7 @@ const faviconHref = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon.svg`
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <link rel="icon" href={faviconHref} type="image/svg+xml" />
-    <title>Vizsla Lab Embed Example</title>
+    <title>Vide Lab Embed Example</title>
     <style>
       body {
         margin: 0;
@@ -72,12 +72,12 @@ const faviconHref = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/favicon.svg`
     <main>
       <header>
         <div>
-          <h1>Vizsla Lab embed</h1>
+          <h1>Vide Lab embed</h1>
           <p>Astro docs can mount the same lab component without a separate playground shell.</p>
         </div>
         <span class="route">/embed-example</span>
       </header>
-      <VizslaLab docs scenario="macro-guard" height="620px" />
+      <VideLab docs scenario="macro-guard" height="620px" />
     </main>
   </body>
 </html>

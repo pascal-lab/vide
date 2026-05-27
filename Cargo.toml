@@ -1,9 +1,9 @@
 [package]
-name = "vizsla"
+name = "vide"
 version = "0.1.5"
 edition = "2024"
-authors = ["roifewu <roifewu@gmail.com>"]
-repository = "https://github.com/pascal-lab/vizsla"
+authors = ["roifewu <roifewu@gmail.com>", "hongjr03 <hongjr03@gmail.com>"]
+repository = "https://github.com/pascal-lab/vide"
 keywords = ["lsp", "language-server", "ide", "verilog", "system-verilog"]
 categories = ["development-tools"]
 license = "MIT"

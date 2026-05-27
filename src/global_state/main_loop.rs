@@ -79,7 +79,10 @@ mod tests {
     use vfs::loader::LoadResult;
 
     use super::*;
-    use crate::{Opt, config::user_config::UserConfig, i18n::I18n, lsp_ext::to_proto};
+    use crate::{
+        Opt, config::user_config::UserConfig,
+        global_state::response_effect::AcceptedResponseEffect, i18n::I18n, lsp_ext::to_proto,
+    };
 
     fn test_state_with_caps(
         root_path: AbsPathBuf,
@@ -87,7 +90,7 @@ mod tests {
     ) -> (GlobalState, Connection) {
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -148,7 +151,7 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -212,7 +215,7 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -269,7 +272,7 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let config = Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,
@@ -392,7 +395,61 @@ mod tests {
         let Task::Response(response) = task else {
             panic!("expected parked diagnostic request to resume as response task, got {task:?}");
         };
-        assert_eq!(response.id, request_id);
+        assert_eq!(response.response.id, request_id);
+    }
+
+    #[test]
+    fn accepted_response_effects_commit_only_after_response_acceptance() {
+        let root = TestDir::new("accepted-response-effects");
+        let root_path = root.path().to_path_buf();
+        let (mut state, _client) = test_state_with_caps(root_path, ClientCapabilities::default());
+        let uri = lsp_types::Url::parse("file:///semantic.sv").unwrap();
+
+        let accepted_request_id = lsp_server::RequestId::from(1);
+        let accepted_request =
+            Request::new(accepted_request_id.clone(), "test/request".to_owned(), ());
+        state.register_request(Instant::now(), &accepted_request);
+        let accepted_tokens =
+            lsp_types::SemanticTokens { result_id: Some("accepted".to_owned()), data: Vec::new() };
+
+        state.process_task(Task::Response(
+            ResponseTask::new(Response::new_ok(accepted_request_id.clone(), ()))
+                .with_accepted_effects(vec![AcceptedResponseEffect::CommitSemanticTokens {
+                    uri: uri.clone(),
+                    tokens: accepted_tokens,
+                }]),
+        ));
+
+        let result_id = state
+            .semantic_tokens_cache
+            .lock()
+            .get(&uri)
+            .and_then(|tokens| tokens.result_id.clone());
+        assert_eq!(result_id.as_deref(), Some("accepted"));
+
+        let cancelled_request_id = lsp_server::RequestId::from(2);
+        let cancelled_request =
+            Request::new(cancelled_request_id.clone(), "test/request".to_owned(), ());
+        state.register_request(Instant::now(), &cancelled_request);
+        state.cancel(cancelled_request_id.clone());
+        let cancelled_tokens =
+            lsp_types::SemanticTokens { result_id: Some("cancelled".to_owned()), data: Vec::new() };
+
+        state.process_task(Task::Response(
+            ResponseTask::new(Response::new_ok(cancelled_request_id, ())).with_accepted_effects(
+                vec![AcceptedResponseEffect::CommitSemanticTokens {
+                    uri: uri.clone(),
+                    tokens: cancelled_tokens,
+                }],
+            ),
+        ));
+
+        let result_id = state
+            .semantic_tokens_cache
+            .lock()
+            .get(&uri)
+            .and_then(|tokens| tokens.result_id.clone());
+        assert_eq!(result_id.as_deref(), Some("accepted"));
     }
 
     #[test]
@@ -694,7 +751,7 @@ impl PublishDiagnosticsTask {
 
 #[derive(Debug)]
 pub(crate) enum Task {
-    Response(lsp_server::Response),
+    Response(ResponseTask),
     Retry(lsp_server::Request),
     FetchWorkspace(FetchWorkspaceProgress),
     Diagnostics(PublishDiagnosticsBatch),
@@ -702,13 +759,47 @@ pub(crate) enum Task {
 }
 
 #[derive(Debug)]
+pub(crate) struct ResponseTask {
+    response: lsp_server::Response,
+    accepted_effects: Vec<super::response_effect::AcceptedResponseEffect>,
+}
+
+impl ResponseTask {
+    pub(crate) fn new(response: lsp_server::Response) -> Self {
+        Self { response, accepted_effects: Vec::new() }
+    }
+
+    pub(crate) fn with_accepted_effects(
+        mut self,
+        accepted_effects: Vec<super::response_effect::AcceptedResponseEffect>,
+    ) -> Self {
+        self.accepted_effects = accepted_effects;
+        self
+    }
+
+    fn summary(&self) -> String {
+        format!(
+            "task response id={:?} error={} accepted_effects={}",
+            self.response.id,
+            self.response.error.is_some(),
+            self.accepted_effects.len()
+        )
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum QiheTask {
     Log { run_id: QiheRunId, token: String, message: String },
     Finished { run_id: QiheRunId, update: QiheUpdate, progress_token: String },
+    Cancelled { run_id: QiheRunId, message: String, progress_token: String },
     Failed { run_id: QiheRunId, message: String, progress_token: String },
 }
 
 impl Task {
+    pub(crate) fn response(response: lsp_server::Response) -> Self {
+        Task::Response(ResponseTask::new(response))
+    }
+
     fn kind(&self) -> &'static str {
         match self {
             Task::Response(_) => "task.response",
@@ -724,9 +815,7 @@ impl Task {
 
     fn summary(&self) -> String {
         match self {
-            Task::Response(res) => {
-                format!("task response id={:?} error={}", res.id, res.error.is_some())
-            }
+            Task::Response(response) => response.summary(),
             Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
             Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
                 format!("task fetch workspace begin cause={cause}")
@@ -755,6 +844,7 @@ impl QiheTask {
         match self {
             QiheTask::Log { .. } => "task.qihe.log",
             QiheTask::Finished { .. } => "task.qihe.finished",
+            QiheTask::Cancelled { .. } => "task.qihe.cancelled",
             QiheTask::Failed { .. } => "task.qihe.failed",
         }
     }
@@ -766,6 +856,9 @@ impl QiheTask {
             }
             QiheTask::Finished { progress_token, .. } => {
                 format!("task qihe finished token={progress_token}")
+            }
+            QiheTask::Cancelled { progress_token, message, .. } => {
+                format!("task qihe cancelled token={progress_token} message={message}")
             }
             QiheTask::Failed { progress_token, message, .. } => {
                 format!("task qihe failed token={progress_token} message={message}")
@@ -812,6 +905,7 @@ impl GlobalState {
             if let Event::Lsp(Message::Notification(Notification { method, .. })) = &event
                 && method == lsp_types::notification::Exit::METHOD
             {
+                self.cancel_all_tasks();
                 return Ok(());
             }
             self.handle_event(event)?;
@@ -981,6 +1075,7 @@ impl GlobalState {
         // Handle shutdown req first
         dispatcher.on_sync_mut::<lsp_types::request::Shutdown>(|this, ()| {
             this.shutdown_requested = true;
+            this.cancel_all_tasks();
             Ok(())
         });
 
@@ -1022,7 +1117,7 @@ impl GlobalState {
             .on_no_retry::<Rename>(handle_rename)
             .on_fmt_thread::<Formatting>(handle_formatting)
             .on_fmt_thread::<RangeFormatting>(handle_range_formatting)
-            .on_sync::<OnTypeFormatting>(handle_on_type_formatting)
+            .on_fmt_thread::<OnTypeFormatting>(handle_on_type_formatting)
             .on_no_retry::<CodeActionRequest>(handle_code_action)
             .on_no_retry::<CodeActionResolveRequest>(handle_code_action_resolve)
             .on_sync_mut::<ExecuteCommand>(handle_execute_command)
@@ -1037,6 +1132,7 @@ impl GlobalState {
         let mut dispatcher = NotifDispatcher { notif: Some(notif), global_state: self };
         dispatcher
             .on_sync_mut::<Cancel>(handle_cancel)
+            .on_sync_mut::<WorkDoneProgressCancel>(handle_work_done_progress_cancel)
             .on_sync_mut::<DidOpenTextDocument>(handle_did_open_text_document)
             .on_sync_mut::<DidChangeTextDocument>(handle_did_change_text_document)
             .on_sync_mut::<DidCloseTextDocument>(handle_did_close_text_document)
@@ -1095,7 +1191,7 @@ impl GlobalState {
         .entered();
 
         match task {
-            Task::Response(res) => self.respond(res),
+            Task::Response(response) => self.respond_task(response),
             Task::Retry(req) => {
                 if !self.is_completed(&req) {
                     self.handle_request(req);
@@ -1168,6 +1264,14 @@ impl GlobalState {
             }
             Task::Diagnostics(diags) => self.publish_diagnostics_tasks(diags),
             Task::Qihe(task) => self.handle_qihe_task(task),
+        }
+    }
+
+    fn respond_task(&mut self, task: ResponseTask) {
+        if self.respond(task.response) {
+            for effect in task.accepted_effects {
+                effect.apply(self);
+            }
         }
     }
 

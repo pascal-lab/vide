@@ -1,13 +1,13 @@
 [package]
-name = "vizsla-lsp-wasm"
+name = "vide-lsp-wasm"
 version = "0.0.0"
 edition = "2024"
 publish = false
 
 [[bin]]
-name = "vizsla-lsp-wasm"
+name = "vide-lsp-wasm"
 path = "src/main.rs"
 
 [dependencies]
-vizsla = { path = "../.." }
+vide = { path = "../.." }
 serde_json.workspace = true

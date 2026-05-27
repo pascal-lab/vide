@@ -27,10 +27,6 @@ pub(super) fn add_missing_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
-    if !ctx.allows_repair(RepairKind::MissingConnection) {
-        return None;
-    }
-
     let sema = ctx.sema();
     let db = sema.db;
     let file_id = ctx.file_id().into();

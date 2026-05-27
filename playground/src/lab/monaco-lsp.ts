@@ -11,7 +11,7 @@ export function diagnosticsFromLspReport(result: unknown, uri: string, filePath:
   return items.filter(isLspDiagnostic).map((diagnostic) => {
     const data = isRecord(diagnostic.data) ? diagnostic.data : {};
     const diagnosticName = stringValue(data.name);
-    const source = stringValue(diagnostic.source) ?? "vizsla";
+    const source = stringValue(diagnostic.source) ?? "vide";
     const rawCode = lspCodeToString(diagnostic.code);
     return {
       uri,

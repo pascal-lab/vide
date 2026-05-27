@@ -32,6 +32,14 @@ pub(crate) fn handle_cancel(
     Ok(())
 }
 
+pub(crate) fn handle_work_done_progress_cancel(
+    state: &mut GlobalState,
+    params: lsp_types::WorkDoneProgressCancelParams,
+) -> anyhow::Result<()> {
+    state.cancel_work_done_progress(params);
+    Ok(())
+}
+
 pub(crate) fn handle_did_open_text_document(
     state: &mut GlobalState,
     params: DidOpenTextDocumentParams,
@@ -373,7 +381,7 @@ mod tests {
     fn test_state_with_root(root_path: AbsPathBuf) -> (GlobalState, Connection) {
         let config = config::Config::new(
             Opt {
-                process_name: "vizsla-test".to_string(),
+                process_name: "vide-test".to_string(),
                 log: "error".to_string(),
                 log_filename: None,
                 profile_trace: None,

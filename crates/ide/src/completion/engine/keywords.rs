@@ -59,10 +59,10 @@ fn module_instantiation_snippets(
         .into_iter()
         .flat_map(|name| {
             let plain = format!("{name} u0();");
-            let snippet = format!("{name} ${{1:u0}}(${{2:ports}});");
+            let snippet = format!("{name} ${{1:u0}}(${{2}});");
 
             let plain_with_params = format!("{name} #() u0();");
-            let snippet_with_params = format!("{name} #(${{1:params}}) ${{2:u0}}(${{3:ports}});");
+            let snippet_with_params = format!("{name} #(${{1}}) ${{2:u0}}(${{3}});");
 
             [
                 CompletionCandidate::semantic_snippet(name.clone(), replace, plain, snippet),

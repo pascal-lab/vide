@@ -19,12 +19,12 @@ export interface ServerStatusMessages {
 }
 
 export const defaultServerStatusMessages: ServerStatusMessages = {
-  text: 'Vizsla',
-  startingDetail: 'Vizsla language server is starting.',
-  readyDetail: 'Vizsla language server is running.',
-  stoppingDetail: 'Vizsla language server is stopping.',
-  stoppedDetail: 'Vizsla language server is stopped.',
-  errorDetail: 'Vizsla language server failed.',
+  text: 'Vide',
+  startingDetail: 'Vide language server is starting.',
+  readyDetail: 'Vide language server is running.',
+  stoppingDetail: 'Vide language server is stopping.',
+  stoppedDetail: 'Vide language server is stopped.',
+  errorDetail: 'Vide language server failed.',
 };
 
 export function getServerStatusPresentation(
@@ -147,7 +147,7 @@ export interface ProjectStatusMessages {
 }
 
 export const defaultProjectStatusMessages: ProjectStatusMessages = {
-  text: 'Vizsla',
+  text: 'Vide',
   loadingDetail: 'Loading project configuration',
   loadedOneManifestDetail: 'Project manifest loaded',
   loadedManyManifestsDetail: (count) => `${count} project manifests loaded`,
@@ -194,13 +194,13 @@ export function getProjectStatusPresentation(
   }
 }
 
-export interface VizslaStatusInput {
+export interface VideStatusInput {
   serverStatus: ServerStatus;
   serverDetail?: string;
   projectStatus: ProjectStatus;
 }
 
-export type VizslaStatusPhase =
+export type VideStatusPhase =
   | {
       kind: 'server';
       status: Exclude<ServerStatus, 'ready'>;
@@ -211,12 +211,12 @@ export type VizslaStatusPhase =
       status: ProjectStatus;
     };
 
-export interface VizslaStatusMessages {
+export interface VideStatusMessages {
   server: ServerStatusMessages;
   project: ProjectStatusMessages;
 }
 
-export function selectVizslaStatusPhase(status: VizslaStatusInput): VizslaStatusPhase {
+export function selectVideStatusPhase(status: VideStatusInput): VideStatusPhase {
   if (status.serverStatus === 'ready') {
     return {
       kind: 'project',
@@ -238,11 +238,11 @@ export function selectVizslaStatusPhase(status: VizslaStatusInput): VizslaStatus
   };
 }
 
-export function getVizslaStatusPresentation(
-  status: VizslaStatusInput,
-  messages: VizslaStatusMessages,
+export function getVideStatusPresentation(
+  status: VideStatusInput,
+  messages: VideStatusMessages,
 ): LanguageStatusPresentation {
-  const phase = selectVizslaStatusPhase(status);
+  const phase = selectVideStatusPhase(status);
 
   switch (phase.kind) {
     case 'server':

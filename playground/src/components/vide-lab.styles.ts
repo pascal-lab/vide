@@ -1,7 +1,7 @@
 import { css, unsafeCSS, type CSSResultGroup } from "lit";
 import monacoStyles from "monaco-editor/min/vs/editor/editor.main.css?inline";
 
-export const vizslaLabStyles: CSSResultGroup = [
+export const videLabStyles: CSSResultGroup = [
   unsafeCSS(monacoStyles),
   css`
     :host {

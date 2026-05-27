@@ -3,11 +3,11 @@ title: 快速开始
 description: 安装 Vide 扩展并确认核心 IDE 功能可用。
 ---
 
-import VizslaLab from '../../../components/VizslaLab.astro';
+import VideLab from '../../../components/VideLab.astro';
 
 export const quickStartFiles = [
   {
-    path: "vizsla.toml",
+    path: "vide.toml",
     languageId: "toml",
     editable: false,
     source: `sources = ["rtl/**"]\n`,
@@ -67,13 +67,13 @@ endmodule
 
 在 VS Code 的扩展面板中搜索显示名 `Vide` 并安装即可。
 
-![vizsla in extension market](../assets/quick-start/extension-marketplace.png)
+![vide in extension market](../assets/quick-start/extension-marketplace.png)
 
 ## 2. 打开工程目录
 
 用 VS Code 打开包含 RTL 源码的目录。后面文档里的「工作区根目录」，指的就是你在 VS Code 里打开的这个顶层目录。
 
-如果这个目录里有 Verilog/SystemVerilog 源文件，但没有 `vizsla.toml` 或旧版且已弃用的 `vizsla_config.toml`，扩展会提示你创建默认的项目配置文件。选择创建后，扩展会写入一个保守的 `vizsla.toml`，然后重新加载 Vide。
+如果这个目录里有 Verilog/SystemVerilog 源文件，但没有 `vide.toml`，扩展会提示你创建默认的项目配置文件。选择创建后，扩展会写入一个保守的 `vide.toml`，然后重新加载 Vide。
 
 ![创建项目配置文件提示](../assets/quick-start/create-manifest-notification.png)
 
@@ -112,7 +112,7 @@ sources = ["rtl/**"]
 3. 在实例端口连接、参数赋值、表达式或预处理位置触发补全。
 4. 把光标放到符号上查看悬停说明。
 
-<VizslaLab
+<VideLab
   projectId="quick-start"
   projectLabel="Quick Start"
   entryFile="rtl/quick_start_top.sv"

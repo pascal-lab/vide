@@ -1,6 +1,6 @@
-# Vizsla Playground
+# Vide Playground
 
-Browser playground for Vizsla with an Astro page and an embeddable docs widget.
+Browser playground for Vide with an Astro page and an embeddable docs widget.
 
 ## Local Build
 

@@ -1,6 +1,6 @@
 import "vscode/localExtensionHost";
 import * as vscode from "vscode";
-import VizslaWorker from "../workers/vizsla-lsp.worker?worker&inline";
+import VideWorker from "../workers/vide-lsp.worker?worker&inline";
 import type { LspTraceEntry, WorkerRequest, WorkerResponse, WorkerStatus, WorkerWorkspaceFile } from "../types";
 import { browserInitializationOptions } from "../workers/lsp-browser-config";
 import {
@@ -12,17 +12,17 @@ import {
 } from "vscode-languageclient/browser.js";
 import { BrowserMessageReader, BrowserMessageWriter } from "vscode-languageserver-protocol/browser.js";
 
-const CLIENT_DISPOSED_MESSAGE = "Vizsla LSP client has been disposed.";
+const CLIENT_DISPOSED_MESSAGE = "Vide LSP client has been disposed.";
 
 export function isClientDisposedError(error: unknown): boolean {
   return error instanceof Error && error.message === CLIENT_DISPOSED_MESSAGE;
 }
 
-export class VizslaBrowserClient {
-  private readonly worker = new VizslaWorker();
+export class VideBrowserClient {
+  private readonly worker = new VideWorker();
   private readonly wasmBaseUrl: string;
   private readonly rootUri: string;
-  private languageClient?: VizslaLanguageClient;
+  private languageClient?: VideLanguageClient;
   private workerReadyStatus?: WorkerStatus;
   private disposed = false;
 
@@ -41,7 +41,7 @@ export class VizslaBrowserClient {
 
   start(workspaceFiles: WorkerWorkspaceFile[]): void {
     const channel = new MessageChannel();
-    this.languageClient = new VizslaLanguageClient(this.clientOptions(), {
+    this.languageClient = new VideLanguageClient(this.clientOptions(), {
       reader: new BrowserMessageReader(channel.port1),
       writer: new BrowserMessageWriter(channel.port1),
     });
@@ -84,7 +84,7 @@ export class VizslaBrowserClient {
     this.worker.postMessage(message, transfer);
   }
 
-  private requireLanguageClient(): VizslaLanguageClient {
+  private requireLanguageClient(): VideLanguageClient {
     if (!this.languageClient || this.disposed) {
       throw new Error(CLIENT_DISPOSED_MESSAGE);
     }
@@ -160,18 +160,18 @@ export class VizslaBrowserClient {
       this.onStatus({
         engine: "unavailable",
         ready: false,
-        detail: error instanceof Error ? error.message : "Vizsla language client failed to start.",
+        detail: error instanceof Error ? error.message : "Vide language client failed to start.",
       });
     }
   }
 }
 
-class VizslaLanguageClient extends BaseLanguageClient {
+class VideLanguageClient extends BaseLanguageClient {
   constructor(
     clientOptions: LanguageClientOptions,
     private readonly messageTransports: MessageTransports,
   ) {
-    super("vizsla", "Vizsla", clientOptions);
+    super("vide", "Vide", clientOptions);
   }
 
   protected createMessageTransports(): Promise<MessageTransports> {

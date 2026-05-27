@@ -26,10 +26,10 @@ Then open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file.
 
 ## What Happens Without a Manifest
 
-If the workspace root contains Verilog/SystemVerilog files and has no `vizsla.toml` or deprecated legacy `vizsla_config.toml`, the extension prompts you to create a default `vizsla.toml`. After you choose to create it, the extension writes this file and reloads Vide:
+If the workspace root contains Verilog/SystemVerilog files and has no `vide.toml`, the extension prompts you to create a default `vide.toml`. After you choose to create it, the extension writes this file and reloads Vide:
 
 ```toml
-#:schema https://pascal-lab.github.io/vizsla/schemas/v1/vizsla.schema.json
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
 sources = []
 
 # include_dirs = ["include"]
@@ -41,13 +41,13 @@ sources = []
 
 This default manifest sets `sources = []`, which means: do not scan the whole workspace automatically yet. This is a safe way to open a project first, confirm that the extension starts, and then decide which directories should be analyzed.
 
-If you write `vizsla.toml` by hand and omit `sources`, Vide best-effort indexes Verilog/SystemVerilog files under the workspace. Best-effort indexing can make read features such as navigation, references, and hover work where possible, but it is still not a full project configuration. Setting `sources = []` explicitly disables automatic workspace scanning.
+If you write `vide.toml` by hand and omit `sources`, Vide best-effort indexes Verilog/SystemVerilog files under the workspace. Best-effort indexing can make read features such as navigation, references, and hover work where possible, but it is still not a full project configuration. Setting `sources = []` explicitly disables automatic workspace scanning.
 
 Header files (`.vh`, `.svh`, `.svi`) usually participate in diagnostics after they are included by a `.v` or `.sv` source file. Opening a header directly, or only listing its directory in `include_dirs`, does not necessarily produce standalone header diagnostics.
 
 ## When to Edit the Project Manifest
 
-Most users can start with the flow above. Edit `vizsla.toml` in the workspace root when:
+Most users can start with the flow above. Edit `vide.toml` in the workspace root when:
 
 - You want cross-file navigation, references, completion, and diagnostics to match the real project more closely.
 - You only want to scan `rtl` and `include`, not simulation output, generated directories, or third-party caches.
@@ -66,6 +66,6 @@ include_dirs = ["include"]
 exclude = ["build/**", "out/**"]
 ```
 
-The manifest is only read from the workspace root you opened. Vide does not automatically search parent or child directories for other manifests. If both the recommended `vizsla.toml` and legacy `vizsla_config.toml` exist, `vizsla.toml` takes precedence. `vizsla_config.toml` remains compatible for old projects, but it is deprecated.
+The manifest is only read from the workspace root you opened. Vide does not automatically search parent or child directories for other manifests.
 
 Next, read [Project Configuration](../project-configuration/) to describe `sources`, `include_dirs`, `defines`, and exclusion rules for your project layout.

@@ -15,10 +15,10 @@ use vfs::FileId;
 
 use crate::module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name};
 
-const AMBIGUOUS_MODULE_INSTANTIATION: VizslaDiagnosticDescriptor =
-    VizslaDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
-const INACTIVE_PREPROCESSOR_BRANCH: VizslaDiagnosticDescriptor =
-    VizslaDiagnosticDescriptor { code: 2, subsystem: 0, name: "inactive-preprocessor-branch" };
+const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
+    VideDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
+const INACTIVE_PREPROCESSOR_BRANCH: VideDiagnosticDescriptor =
+    VideDiagnosticDescriptor { code: 2, subsystem: 0, name: "inactive-preprocessor-branch" };
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_STRICT: &str = "diagnostic.ambiguous_module.strict";
 pub const DIAGNOSTIC_AMBIGUOUS_MODULE_BEST_EFFORT: &str = "diagnostic.ambiguous_module.best_effort";
 pub const DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH: &str = "diagnostic.inactive_preprocessor_branch";
@@ -27,7 +27,7 @@ pub const DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH: &str = "diagnostic.inactive_p
 pub enum DiagnosticSource {
     SlangParse,
     SlangSemantic,
-    Vizsla,
+    Vide,
 }
 
 #[derive(Debug, Clone)]
@@ -53,19 +53,19 @@ pub enum DiagnosticTag {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct VizslaDiagnosticDescriptor {
+struct VideDiagnosticDescriptor {
     code: u16,
     subsystem: u16,
     name: &'static str,
 }
 
 #[derive(Debug, Clone, Default)]
-struct VizslaDiagnosticMetadata {
+struct VideDiagnosticMetadata {
     message_args: Vec<(&'static str, String)>,
     tags: Vec<DiagnosticTag>,
 }
 
-impl VizslaDiagnosticDescriptor {
+impl VideDiagnosticDescriptor {
     fn diagnostic(
         self,
         file_id: FileId,
@@ -81,7 +81,7 @@ impl VizslaDiagnosticDescriptor {
             severity,
             message,
             message_key,
-            VizslaDiagnosticMetadata { message_args, tags: Vec::new() },
+            VideDiagnosticMetadata { message_args, tags: Vec::new() },
         )
     }
 
@@ -100,7 +100,7 @@ impl VizslaDiagnosticDescriptor {
             severity,
             message,
             message_key,
-            VizslaDiagnosticMetadata { message_args: Vec::new(), tags },
+            VideDiagnosticMetadata { message_args: Vec::new(), tags },
         )
     }
 
@@ -111,7 +111,7 @@ impl VizslaDiagnosticDescriptor {
         severity: DiagnosticSeverity,
         message: String,
         message_key: &'static str,
-        metadata: VizslaDiagnosticMetadata,
+        metadata: VideDiagnosticMetadata,
     ) -> Diagnostic {
         Diagnostic {
             file_id,
@@ -120,7 +120,7 @@ impl VizslaDiagnosticDescriptor {
             name: self.name.to_owned(),
             option_name: None,
             groups: Vec::new(),
-            source: DiagnosticSource::Vizsla,
+            source: DiagnosticSource::Vide,
             range,
             severity,
             message,
@@ -184,7 +184,7 @@ fn compilation_profile_file_ids(db: &RootDb, profile_id: CompilationProfileId) -
 
 fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     let mut diagnostics = parse_diagnostics(db, file_id);
-    diagnostics.extend(vizsla_diagnostics(db, file_id));
+    diagnostics.extend(vide_diagnostics(db, file_id));
     diagnostics
 }
 
@@ -287,8 +287,8 @@ pub(crate) fn source_root_role(db: &RootDb, file_id: FileId) -> SourceRootRole {
     db.source_root(source_root_id).role()
 }
 
-fn vizsla_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    if !vizsla_diagnostics_enabled(db) {
+fn vide_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
+    if !vide_diagnostics_enabled(db) {
         return Vec::new();
     }
 
@@ -301,7 +301,7 @@ fn vizsla_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn vizsla_diagnostics_enabled(db: &RootDb) -> bool {
+fn vide_diagnostics_enabled(db: &RootDb) -> bool {
     db.diagnostics_config().enabled
 }
 
@@ -358,7 +358,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
 }
 
 fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
-    if !vizsla_diagnostics_enabled(db) {
+    if !vide_diagnostics_enabled(db) {
         return Vec::new();
     }
 
@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn best_effort_ambiguous_module_instantiation_reports_vizsla_information() {
+    fn best_effort_ambiguous_module_instantiation_reports_vide_information() {
         let db = db_with_files_in_role(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -507,17 +507,17 @@ mod tests {
 
         assert!(
             diagnostics.iter().any(|diag| {
-                diag.source == DiagnosticSource::Vizsla
+                diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.severity == syntax::DiagnosticSeverity::Note
                     && diag.message.contains("matches 2 module definitions")
             }),
-            "expected vizsla ambiguous module information: {diagnostics:?}"
+            "expected vide ambiguous module information: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn best_effort_nearest_module_instantiation_does_not_report_vizsla_diagnostic() {
+    fn best_effort_nearest_module_instantiation_does_not_report_vide_diagnostic() {
         let db = db_with_files_in_role(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -531,13 +531,13 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId(1));
 
         assert!(
-            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vizsla),
-            "nearest best-effort module should not produce Vizsla diagnostics: {diagnostics:?}"
+            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
+            "nearest best-effort module should not produce Vide diagnostics: {diagnostics:?}"
         );
     }
 
     #[test]
-    fn strict_ambiguous_module_instantiation_reports_vizsla_warning() {
+    fn strict_ambiguous_module_instantiation_reports_vide_warning() {
         let db = db_with_files(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -551,7 +551,7 @@ mod tests {
 
         assert!(
             diagnostics.iter().any(|diag| {
-                diag.source == DiagnosticSource::Vizsla
+                diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
                     && diag.severity == syntax::DiagnosticSeverity::Warning
                     && diag.message.contains("matches 2 module definitions")
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_diagnostics_suppress_vizsla_ambiguous_module_warning() {
+    fn semantic_diagnostics_suppress_vide_ambiguous_module_warning() {
         let db = db_with_files(
             &[
                 ("/project/a/child.sv", "module child; endmodule\n"),
@@ -574,8 +574,8 @@ mod tests {
         let diagnostics = diagnostics(&db, FileId(1));
 
         assert!(
-            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vizsla),
-            "vizsla ambiguity warning should not duplicate active slang semantic diagnostics: {diagnostics:?}"
+            diagnostics.iter().all(|diag| diag.source != DiagnosticSource::Vide),
+            "vide ambiguity warning should not duplicate active slang semantic diagnostics: {diagnostics:?}"
         );
     }
 
@@ -609,7 +609,7 @@ mod tests {
 
         assert!(
             diagnostics.is_empty(),
-            "global diagnostics switch must suppress Vizsla inactive diagnostics: {diagnostics:?}"
+            "global diagnostics switch must suppress Vide inactive diagnostics: {diagnostics:?}"
         );
     }
 
@@ -697,11 +697,8 @@ mod tests {
 
     #[test]
     fn semantic_diagnostics_map_include_header_files() {
-        let root = if cfg!(windows) {
-            "C:/vizsla-diagnostics-include"
-        } else {
-            "/vizsla-diagnostics-include"
-        };
+        let root =
+            if cfg!(windows) { "C:/vide-diagnostics-include" } else { "/vide-diagnostics-include" };
         let root = AbsPathBuf::assert(root.into());
         let top_path = root.join("top.sv");
         let header_path = root.join("defs.vh");

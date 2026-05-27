@@ -3,11 +3,11 @@ title: Quick Start
 description: Install the Vide extension and confirm that the core IDE features work.
 ---
 
-import VizslaLab from '../../../../components/VizslaLab.astro';
+import VideLab from '../../../../components/VideLab.astro';
 
 export const quickStartFiles = [
   {
-    path: "vizsla.toml",
+    path: "vide.toml",
     languageId: "toml",
     editable: false,
     source: `sources = ["rtl/**"]\n`,
@@ -67,13 +67,13 @@ Follow these steps to confirm that Vide works in VS Code.
 
 Search for the display name `Vide` in the VS Code Extensions view and install it.
 
-![vizsla in extension market](../../assets/quick-start/extension-marketplace.png)
+![vide in extension market](../../assets/quick-start/extension-marketplace.png)
 
 ## 2. Open a Project Directory
 
 Open the directory that contains your RTL source code in VS Code. This directory is the workspace root: the top-level folder you opened in VS Code.
 
-If this directory contains Verilog/SystemVerilog source files but has no `vizsla.toml` or deprecated legacy `vizsla_config.toml`, the extension prompts you to create a default project manifest. After you choose to create it, the extension writes a conservative `vizsla.toml` and reloads Vide.
+If this directory contains Verilog/SystemVerilog source files but has no `vide.toml`, the extension prompts you to create a default project manifest. After you choose to create it, the extension writes a conservative `vide.toml` and reloads Vide.
 
 ![notification on creating manifest](../../assets/quick-start/create-manifest-notification.png)
 
@@ -110,7 +110,7 @@ You can verify features in this order:
 3. Trigger completion inside instance port connections, parameter assignments, expressions, or preprocessor positions.
 4. Hover over a symbol to view its information.
 
-<VizslaLab
+<VideLab
   projectId="quick-start"
   projectLabel="Quick Start"
   entryFile="rtl/quick_start_top.sv"

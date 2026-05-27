@@ -1,7 +1,7 @@
 `include "feature_defs.svh"
 
 module feature_gate(input logic clk, output logic pulse);
-`ifdef VIZSLA_LAB_ENABLE
+`ifdef VIDE_LAB_ENABLE
   always_ff @(posedge clk) begin
     pulse <= ~pulse;
   end

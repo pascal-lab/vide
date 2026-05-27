@@ -26,10 +26,11 @@ export default defineConfig({
     outDir: "dist/embed",
     emptyOutDir: true,
     lib: {
-      entry: "src/components/vizsla-lab.ts",
-      name: "VizslaLab",
+      entry: "src/components/vide-lab.ts",
+      name: "VideLab",
       formats: ["es"],
-      fileName: (format) => `vizsla-lab.${format}.js`,
+      fileName: (format) => `vide-lab.${format}.js`,
+      cssFileName: "vide-playground",
     },
   },
   worker: {

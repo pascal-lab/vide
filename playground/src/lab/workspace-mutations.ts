@@ -1,12 +1,12 @@
-import type { VizslaScenario } from "../types";
+import type { VideScenario } from "../types";
 import { fileName, languageIdForPath, normalizeWorkspacePath } from "./workspace";
 
 export interface WorkspaceMutation {
-  scenario: VizslaScenario;
+  scenario: VideScenario;
   activePath: string;
 }
 
-export function cloneScenario(scenario: VizslaScenario): VizslaScenario {
+export function cloneScenario(scenario: VideScenario): VideScenario {
   return {
     ...scenario,
     files: scenario.files.map((file) => ({ ...file })),
@@ -14,8 +14,8 @@ export function cloneScenario(scenario: VizslaScenario): VizslaScenario {
 }
 
 export function createFileScenario(
-  activeScenario: VizslaScenario,
-  currentFiles: VizslaScenario["files"],
+  activeScenario: VideScenario,
+  currentFiles: VideScenario["files"],
   path: string,
 ): WorkspaceMutation {
   return {
@@ -35,8 +35,8 @@ export function createFileScenario(
 }
 
 export function renameFileScenario(
-  activeScenario: VizslaScenario,
-  currentFiles: VizslaScenario["files"],
+  activeScenario: VideScenario,
+  currentFiles: VideScenario["files"],
   fromPath: string,
   nextPath: string,
 ): WorkspaceMutation {
@@ -54,8 +54,8 @@ export function renameFileScenario(
 }
 
 export function deleteFileScenario(
-  activeScenario: VizslaScenario,
-  currentFiles: VizslaScenario["files"],
+  activeScenario: VideScenario,
+  currentFiles: VideScenario["files"],
   path: string,
 ): WorkspaceMutation | { error: string } {
   if (currentFiles.length <= 1) {

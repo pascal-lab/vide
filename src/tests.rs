@@ -109,7 +109,7 @@ fn test_server_config_with_i18n(
     i18n: I18n,
 ) -> config::Config {
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -195,7 +195,7 @@ fn setup_diagnostics_test_inner(
     let file_path = temp_dir.path().join("broken.sv");
     fs::write(&file_path, file_text).unwrap();
     if let Some(config_text) = config_text {
-        fs::write(temp_dir.path().join("vizsla_config.toml"), config_text).unwrap();
+        fs::write(temp_dir.path().join("vide.toml"), config_text).unwrap();
     }
 
     let root_path = temp_dir.path().to_path_buf();
@@ -224,7 +224,7 @@ fn setup_multi_file_diagnostics_test_inner(
     let temp_dir = TempDir::new("diag-test");
     let mut uris = Vec::new();
     if write_config {
-        fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+        fs::write(temp_dir.path().join("vide.toml"), DEFAULT_TEST_CONFIG).unwrap();
     }
 
     for (path, text) in files {
@@ -255,7 +255,10 @@ fn shutdown_test_server(
 
     loop {
         match client.receiver.recv_timeout(LSP_TEST_TIMEOUT).unwrap() {
-            Message::Response(response) if response.id == shutdown_id => break,
+            Message::Response(response) if response.id == shutdown_id => {
+                assert!(response.error.is_none(), "{:?}", response.error);
+                break;
+            }
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Notification(notification)
@@ -809,7 +812,7 @@ endmodule
 }
 
 #[test]
-fn vizsla_diagnostics_are_localized_for_chinese_locale() {
+fn vide_diagnostics_are_localized_for_chinese_locale() {
     let text = "\
 module child;
 endmodule
@@ -821,7 +824,7 @@ module top;
   child ambiguous_child();
 endmodule
 ";
-    let temp_dir = TempDir::new("vizsla-i18n-diagnostic");
+    let temp_dir = TempDir::new("vide-i18n-diagnostic");
     let file_path = temp_dir.path().join("ambiguous.sv");
     fs::write(&file_path, text).unwrap();
     let root_path = temp_dir.path().to_path_buf();
@@ -839,13 +842,13 @@ endmodule
     let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 220);
     assert!(
         diagnostics.iter().any(|diag| {
-            diag.source.as_deref() == Some("vizsla")
+            diag.source.as_deref() == Some("vide")
                 && diag.message.contains("模块实例化")
                 && diag.message.contains("无法确定应使用哪一个")
                 && !diag.message.contains("最佳努力索引")
                 && !diag.message.contains("存在歧义")
         }),
-        "expected localized Vizsla diagnostic message, got {diagnostics:?}"
+        "expected localized Vide diagnostic message, got {diagnostics:?}"
     );
 
     shutdown_test_server(&client, server_thread);
@@ -926,8 +929,8 @@ endconfig
                 .full_document_diagnostic_report
                 .items
                 .iter()
-                .all(|diag| diag.source.as_deref() != Some("vizsla")),
-            "document diagnostics should not include removed Vizsla model diagnostics"
+                .all(|diag| diag.source.as_deref() != Some("vide")),
+            "document diagnostics should not include removed Vide model diagnostics"
         );
     }
 
@@ -1509,7 +1512,7 @@ fn document_diagnostics_respect_disabled_source_root_policy() {
     fs::create_dir_all(&ignored_dir).unwrap();
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::write(
-        temp_dir.path().join("vizsla_config.toml"),
+        temp_dir.path().join("vide.toml"),
         "sources = [\"rtl/**\"]\nexclude = [\"ignored/**\"]\n",
     )
     .unwrap();
@@ -1660,18 +1663,18 @@ fn workspace_diagnostics_compute_profile_owner_once_across_source_roots() {
     fs::create_dir_all(&app_rtl).unwrap();
     fs::create_dir_all(&lib_rtl).unwrap();
     fs::write(
-        app_dir.join("vizsla_config.toml"),
+        app_dir.join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\nlibraries = [\"../lib\"]\n",
     )
     .unwrap();
-    fs::write(lib_dir.join("vizsla_config.toml"), "sources = [\"rtl/**\"]\n").unwrap();
+    fs::write(lib_dir.join("vide.toml"), "sources = [\"rtl/**\"]\n").unwrap();
     fs::write(lib_rtl.join("child.sv"), "module child(input logic a, input logic b);\nendmodule\n")
         .unwrap();
     let top_path = app_rtl.join("top.sv");
     fs::write(&top_path, "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n").unwrap();
 
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -1726,7 +1729,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
-        temp_dir.path().join("vizsla_config.toml"),
+        temp_dir.path().join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
@@ -1737,7 +1740,7 @@ fn configured_include_dirs_suppress_include_defined_macro_diagnostic() {
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -1813,15 +1816,12 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::create_dir_all(&app_rtl_dir).unwrap();
     fs::create_dir_all(&package_include_dir).unwrap();
     fs::write(
-        app_dir.join("vizsla_config.toml"),
+        app_dir.join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"../pkg/include\"]\nlibraries = [\"../pkg\"]\n",
     )
     .unwrap();
-    fs::write(
-        package_dir.join("vizsla_config.toml"),
-        "sources = []\ninclude_dirs = [\"include\"]\n",
-    )
-    .unwrap();
+    fs::write(package_dir.join("vide.toml"), "sources = []\ninclude_dirs = [\"include\"]\n")
+        .unwrap();
 
     let header_path = package_include_dir.join("defs.svh");
     fs::write(&header_path, "`define ENABLE_COUNTER 1\n").unwrap();
@@ -1833,7 +1833,7 @@ fn unsaved_library_include_header_changes_are_used_for_dependent_diagnostics() {
     let app_root = app_dir.clone();
     let package_root = package_dir.clone();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -1934,7 +1934,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
-        temp_dir.path().join("vizsla_config.toml"),
+        temp_dir.path().join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
@@ -1947,7 +1947,7 @@ fn unsaved_include_header_changes_are_used_for_dependent_diagnostics() {
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -2039,13 +2039,13 @@ fn project_manifest_is_not_diagnosed_as_systemverilog() {
     };
     let temp_dir = TempDir::new("manifest-diagnostics");
     let manifest_text = "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\n";
-    let manifest_path = temp_dir.path().join("vizsla.toml");
+    let manifest_path = temp_dir.path().join("vide.toml");
     fs::write(&manifest_path, manifest_text).unwrap();
     fs::create_dir_all(temp_dir.path().join("rtl")).unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -2147,7 +2147,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
         ..Default::default()
     };
     let temp_dir = TempDir::new("manifest-exclude-refresh");
-    let manifest_path = temp_dir.path().join("vizsla_config.toml");
+    let manifest_path = temp_dir.path().join("vide.toml");
     let ignored_dir = temp_dir.path().join("ignored");
     let rtl_dir = temp_dir.path().join("rtl");
     fs::create_dir_all(&ignored_dir).unwrap();
@@ -2158,7 +2158,7 @@ fn restored_project_manifest_clears_diagnostics_for_excluded_files() {
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -2273,13 +2273,13 @@ fn workspace_scan_refreshes_diagnostics_for_unopened_systemverilog_dependency() 
     let child_path = temp_dir.path().join("child.sv");
     let top_path = temp_dir.path().join("top.v");
     let top_text = "module top;\n  wire sig;\n  child u(.a(sig));\nendmodule\n";
-    fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    fs::write(temp_dir.path().join("vide.toml"), DEFAULT_TEST_CONFIG).unwrap();
     fs::write(&child_path, "module child(input logic a, input logic b);\nendmodule\n").unwrap();
     fs::write(&top_path, top_text).unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -2434,12 +2434,12 @@ fn deleted_workspace_file_requests_diagnostic_refresh() {
     };
     let temp_dir = TempDir::new("workspace-delete-diagnostic-refresh");
     let broken_path = temp_dir.path().join("broken.sv");
-    fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    fs::write(temp_dir.path().join("vide.toml"), DEFAULT_TEST_CONFIG).unwrap();
     fs::write(&broken_path, "module broken(;\nendmodule\n").unwrap();
 
     let root_path = temp_dir.path().to_path_buf();
     let opt = Opt {
-        process_name: "vizsla-test".to_string(),
+        process_name: "vide-test".to_string(),
         log: "error".to_string(),
         log_filename: None,
         profile_trace: None,
@@ -2559,7 +2559,7 @@ fn watched_dependency_change_refreshes_workspace_diagnostics() {
     let temp_dir = TempDir::new("workspace-watcher-diagnostic-refresh");
     let child_path = temp_dir.path().join("child.sv");
     let top_path = temp_dir.path().join("top.sv");
-    fs::write(temp_dir.path().join("vizsla_config.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    fs::write(temp_dir.path().join("vide.toml"), DEFAULT_TEST_CONFIG).unwrap();
     fs::write(&child_path, "module child(input logic a, input logic b);\nendmodule\n").unwrap();
     fs::write(&top_path, "module top;\n  logic sig;\n  child u(.a(sig));\nendmodule\n").unwrap();
 
@@ -2833,7 +2833,7 @@ fn document_diagnostic_result_id_changes_when_include_dependency_changes() {
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
-        temp_dir.path().join("vizsla_config.toml"),
+        temp_dir.path().join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
@@ -2903,7 +2903,7 @@ fn syntax_only_document_result_id_changes_when_include_dependency_changes() {
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
-        temp_dir.path().join("vizsla_config.toml"),
+        temp_dir.path().join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
@@ -2973,12 +2973,12 @@ fn document_diagnostic_result_id_ignores_unrelated_profile_changes() {
     fs::create_dir_all(&app_a_rtl).unwrap();
     fs::create_dir_all(&app_b_rtl).unwrap();
     fs::write(
-        app_a_dir.join("vizsla_config.toml"),
+        app_a_dir.join("vide.toml"),
         "top_modules = [\"top_a\"]\nsources = [\"rtl/**\"]\ninclude_dirs = []\n",
     )
     .unwrap();
     fs::write(
-        app_b_dir.join("vizsla_config.toml"),
+        app_b_dir.join("vide.toml"),
         "top_modules = [\"top_b\"]\nsources = [\"rtl/**\"]\ninclude_dirs = []\n",
     )
     .unwrap();
@@ -3151,7 +3151,7 @@ fn legacy_on_save_watched_include_refreshes_profile_dependents() {
     fs::create_dir_all(&rtl_dir).unwrap();
     fs::create_dir_all(&include_dir).unwrap();
     fs::write(
-        temp_dir.path().join("vizsla_config.toml"),
+        temp_dir.path().join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/**\"]\ninclude_dirs = [\"include\"]\n",
     )
     .unwrap();
@@ -3211,7 +3211,7 @@ fn include_expanded_parameter_decls_keep_module_navigation_available() {
     let child_text = "module child #(\n`include \"params.vh\"\n) ();\nendmodule\n";
 
     fs::write(
-        temp_dir.path().join("vizsla.toml"),
+        temp_dir.path().join("vide.toml"),
         "top_modules = [\"top\"]\nsources = [\"rtl/*.v\"]\ninclude_dirs = [\"rtl\"]\n",
     )
     .unwrap();

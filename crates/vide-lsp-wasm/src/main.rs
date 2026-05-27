@@ -1,6 +1,6 @@
 use std::{cell::RefCell, ffi::CString, os::raw::c_char, panic, path::PathBuf};
 
-use vizsla::browser::BrowserServer;
+use vide::browser::BrowserServer;
 
 fn main() {}
 
@@ -20,7 +20,7 @@ thread_local! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vizsla_lsp_message(json_ptr: *const u8, json_len: usize) -> *mut c_char {
+pub extern "C" fn vide_lsp_message(json_ptr: *const u8, json_len: usize) -> *mut c_char {
     run_json(|| {
         let json = read_utf8(json_ptr, json_len)?;
         SERVER.with(|server| server.borrow_mut().handle_message_json(&json))
@@ -28,19 +28,19 @@ pub extern "C" fn vizsla_lsp_message(json_ptr: *const u8, json_len: usize) -> *m
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vizsla_lsp_poll(_json_ptr: *const u8, _json_len: usize) -> *mut c_char {
+pub extern "C" fn vide_lsp_poll(_json_ptr: *const u8, _json_len: usize) -> *mut c_char {
     run_json(|| SERVER.with(|server| server.borrow_mut().poll_json()))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vizsla_lsp_reset() {
+pub extern "C" fn vide_lsp_reset() {
     SERVER.with(|server| {
         server.borrow_mut().reset();
     });
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vizsla_lsp_write_file(
+pub extern "C" fn vide_lsp_write_file(
     path_ptr: *const u8,
     path_len: usize,
     text_ptr: *const u8,
@@ -60,10 +60,10 @@ pub extern "C" fn vizsla_lsp_write_file(
 
 /// # Safety
 ///
-/// `ptr` must be a pointer previously returned by a Vizsla WASM FFI function
+/// `ptr` must be a pointer previously returned by a Vide WASM FFI function
 /// that transfers ownership of a NUL-terminated string to the caller.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vizsla_free_string(ptr: *mut c_char) {
+pub unsafe extern "C" fn vide_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         drop(unsafe { CString::from_raw(ptr) });
     }
@@ -71,10 +71,10 @@ pub unsafe extern "C" fn vizsla_free_string(ptr: *mut c_char) {
 
 fn run_json(f: impl FnOnce() -> Result<String, String> + panic::UnwindSafe) -> *mut c_char {
     let result = panic::catch_unwind(f)
-        .unwrap_or_else(|_| Err("Vizsla LSP session panicked".to_owned()))
+        .unwrap_or_else(|_| Err("Vide LSP session panicked".to_owned()))
         .unwrap_or_else(|error| {
             serde_json::to_string(&serde_json::json!({ "error": error }))
-                .unwrap_or_else(|_| "{\"error\":\"Vizsla LSP session failed\"}".to_owned())
+                .unwrap_or_else(|_| "{\"error\":\"Vide LSP session failed\"}".to_owned())
         });
 
     CString::new(result).expect("JSON output must not contain interior NUL bytes").into_raw()

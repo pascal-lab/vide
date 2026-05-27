@@ -38,28 +38,28 @@ Release build:
 cargo build --release
 ```
 
-Release builds embed build metadata in the `vizsla --version` output. Local
+Release builds embed build metadata in the `vide --version` output. Local
 builds automatically use the current short Git commit and UTC build time when
-`VIZSLA_COMMIT_HASH` and `VIZSLA_BUILD_DATE` are not set; CI or release scripts
+`VIDE_COMMIT_HASH` and `VIDE_BUILD_DATE` are not set; CI or release scripts
 can still override the defaults with those environment variables.
 
 Verify the version:
 
 ```powershell
-.\target\release\vizsla.exe --version
+.\target\release\vide.exe --version
 ```
 
 On non-Windows platforms:
 
 ```powershell
-./target/release/vizsla --version
+./target/release/vide --version
 ```
 
 If you only want the VS Code extension to use the locally built server, configure:
 
 ```json
 {
-  "vizsla.server.command": "D:\\Proj\\vizsla\\target\\release\\vizsla.exe"
+  "vide.server.command": "D:\\Proj\\vide\\target\\release\\vide.exe"
 }
 ```
 
@@ -93,9 +93,9 @@ This command:
 
 1. Compiles the extension.
 2. Runs `cargo build` for the current host platform.
-3. Copies `target/debug/vizsla` or `vizsla.exe` into the extension's `server/<target>` directory.
+3. Copies `target/debug/vide` or `vide.exe` into the extension's `server/<target>` directory.
 4. Temporarily places the server binary in the runtime `server` directory.
-5. Calls `vsce package --target <target>` to generate `vizsla-vscode-<target>-debug.vsix`.
+5. Calls `vsce package --target <target>` to generate `vide-vscode-<target>-debug.vsix`.
 6. Cleans up the temporary runtime binary after packaging.
 
 For release packages or target-specific verification, use a target script:
@@ -112,11 +112,11 @@ npm run package:alpine-arm64
 ```
 
 These scripts compile the extension, prepare a release server binary for the
-target platform, and generate `vizsla-vscode-<target>.vsix`. When the target
+target platform, and generate `vide-vscode-<target>.vsix`. When the target
 matches the current host platform, the script runs `cargo build --release` and
 copies the result. Alpine targets add the matching Rust musl target and
 cross-compile it. Other non-host targets are not automatically cross-compiled;
-the matching `vizsla` or `vizsla.exe` must already exist under
+the matching `vide` or `vide.exe` must already exist under
 `editors/vscode/server/<target>/`, or you should package on a matching native
 runner.
 
@@ -128,7 +128,7 @@ After packaging, run:
 npm run install-extension
 ```
 
-The install script looks for `vizsla-vscode-*.vsix` in the current directory. If multiple VSIX files exist and no filter is specified, it installs the most recently modified one.
+The install script looks for `vide-vscode-*.vsix` in the current directory. If multiple VSIX files exist and no filter is specified, it installs the most recently modified one.
 You can pass a filename fragment to select a specific VSIX:
 
 ```powershell
@@ -138,7 +138,7 @@ npm run install-extension -- win32-x64-debug
 You can also run:
 
 ```powershell
-code --install-extension .\vizsla-vscode-win32-x64-debug.vsix
+code --install-extension .\vide-vscode-win32-x64-debug.vsix
 ```
 
 This command requires `code` to be available on `PATH`.

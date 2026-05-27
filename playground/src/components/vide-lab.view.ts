@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from "lit";
 import { ClipboardCopy, FilePlus, Pencil, RefreshCw, RotateCcw, SearchCode, Trash2, X } from "lucide";
 import { displayPath, workspaceUri } from "../lab/workspace";
-import type { LabDiagnostic, VizslaScenario, VizslaScenarioFile, WorkerStatus } from "../types";
+import type { LabDiagnostic, VideScenario, VideScenarioFile, WorkerStatus } from "../types";
 import { renderIcon as icon } from "./icons";
 
 export interface FileDialogState {
@@ -11,8 +11,8 @@ export interface FileDialogState {
   error?: string;
 }
 
-interface VizslaLabViewState {
-  activeScenario: VizslaScenario;
+interface VideLabViewState {
+  activeScenario: VideScenario;
   activeUri: string;
   workspaceRootUri: string;
   diagnosticsByUri: ReadonlyMap<string, LabDiagnostic[]>;
@@ -27,7 +27,7 @@ interface VizslaLabViewState {
   fileDialog?: FileDialogState;
 }
 
-interface VizslaLabViewActions {
+interface VideLabViewActions {
   updateFileStripScroll(event: Event): void;
   jumpFileStripScrollbar(event: PointerEvent): void;
   beginFileStripThumbDrag(event: PointerEvent): void;
@@ -46,7 +46,7 @@ interface VizslaLabViewActions {
   closeInspector(): void;
 }
 
-export function renderVizslaLabView(state: VizslaLabViewState, actions: VizslaLabViewActions): TemplateResult {
+export function renderVideLabView(state: VideLabViewState, actions: VideLabViewActions): TemplateResult {
   const diagnostics = allDiagnostics(state);
   const statusLabel = state.status.ready ? "Ready" : "Starting";
   const fileStripShellClass = [
@@ -58,7 +58,7 @@ export function renderVizslaLabView(state: VizslaLabViewState, actions: VizslaLa
     .filter(Boolean)
     .join(" ");
   return html`
-    <section class="shell" aria-label="Vizsla Lab">
+    <section class="shell" aria-label="Vide Lab">
       <div class="body">
         <section class="editor-panel" aria-label="SystemVerilog editor">
           <div class="workspace-row">
@@ -103,7 +103,7 @@ export function renderVizslaLabView(state: VizslaLabViewState, actions: VizslaLa
                 class=${state.status.ready ? "status is-ready" : "status"}
                 title=${state.status.detail}
                 role="status"
-                aria-label=${`Vizsla ${statusLabel}: ${state.status.detail}`}
+                aria-label=${`Vide ${statusLabel}: ${state.status.detail}`}
               >
                 <span class="status-dot"></span>
               </div>
@@ -133,7 +133,7 @@ export function renderVizslaLabView(state: VizslaLabViewState, actions: VizslaLa
   `;
 }
 
-function renderFileDialog(dialog: FileDialogState, actions: VizslaLabViewActions): TemplateResult {
+function renderFileDialog(dialog: FileDialogState, actions: VideLabViewActions): TemplateResult {
   const isDelete = dialog.mode === "delete";
   const title =
     dialog.mode === "create" ? "New virtual file" : dialog.mode === "rename" ? "Rename virtual file" : "Delete virtual file";
@@ -192,9 +192,9 @@ function renderFileDialog(dialog: FileDialogState, actions: VizslaLabViewActions
 }
 
 function renderFileTab(
-  file: VizslaScenarioFile,
-  state: VizslaLabViewState,
-  actions: VizslaLabViewActions,
+  file: VideScenarioFile,
+  state: VideLabViewState,
+  actions: VideLabViewActions,
 ): TemplateResult {
   const uri = workspaceUri(file.path, state.workspaceRootUri);
   const diagnostics = state.diagnosticsByUri.get(uri) ?? [];
@@ -214,7 +214,7 @@ function renderFileTab(
 
 function renderDiagnostics(
   diagnostics: LabDiagnostic[],
-  actions: VizslaLabViewActions,
+  actions: VideLabViewActions,
 ): TemplateResult | TemplateResult[] {
   if (diagnostics.length === 0) {
     return html`<div class="empty">${icon(SearchCode)}<span>No diagnostics</span></div>`;
@@ -231,6 +231,6 @@ function renderDiagnostics(
   );
 }
 
-function allDiagnostics(state: VizslaLabViewState): LabDiagnostic[] {
+function allDiagnostics(state: VideLabViewState): LabDiagnostic[] {
   return Array.from(state.diagnosticsByUri.values()).flat();
 }

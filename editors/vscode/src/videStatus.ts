@@ -5,25 +5,25 @@ import * as vscode from 'vscode';
 import { PROJECT_CONFIG_FILE_NAME } from './projectConfig';
 import {
   asProjectStatus,
-  getVizslaStatusPresentation,
+  getVideStatusPresentation,
   initialProjectStatus,
   type LanguageStatusPresentation,
   type ProjectStatus,
   type ProjectStatusMessages,
   type ServerStatus,
   type ServerStatusMessages,
-  type VizslaStatusMessages,
+  type VideStatusMessages,
 } from './status';
 
 const statusBarPriority = 101;
 
-export const reloadWorkspaceCommand = 'vizsla.reloadWorkspace';
-export const showOutputCommand = 'vizsla.showOutput';
-export const showStatusCommand = 'vizsla.showStatus';
-export const reloadWorkspaceRequest = 'vizsla.server.reloadWorkspace';
-export const projectStatusNotification = 'vizsla/projectStatus';
+export const reloadWorkspaceCommand = 'vide.reloadWorkspace';
+export const showOutputCommand = 'vide.showOutput';
+export const showStatusCommand = 'vide.showStatus';
+export const reloadWorkspaceRequest = 'vide.server.reloadWorkspace';
+export const projectStatusNotification = 'vide/projectStatus';
 
-export interface VizslaStatusActions {
+export interface VideStatusActions {
   createManifest: (rootUris: readonly string[]) => Promise<void>;
   profileDiagnostics: () => Promise<void>;
   reloadProject: () => Promise<void>;
@@ -32,19 +32,19 @@ export interface VizslaStatusActions {
   log: (message: string) => void;
 }
 
-export class VizslaStatusController implements vscode.Disposable {
+export class VideStatusController implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
   private projectStatus = initialProjectStatus();
   private serverStatus: ServerStatus = 'stopped';
   private serverDetail: string | undefined;
 
-  constructor(private readonly actions: VizslaStatusActions) {
+  constructor(private readonly actions: VideStatusActions) {
     this.item = vscode.window.createStatusBarItem(
-      'vizsla.status',
+      'vide.status',
       vscode.StatusBarAlignment.Right,
       statusBarPriority,
     );
-    this.item.name = vscode.l10n.t('Vizsla');
+    this.item.name = vscode.l10n.t('Vide');
     this.item.command = this.command();
     this.update();
   }
@@ -91,7 +91,7 @@ export class VizslaStatusController implements vscode.Disposable {
     const items = this.quickPickItems(status);
 
     const selected = await vscode.window.showQuickPick(items, {
-      title: vscode.l10n.t('Vizsla Status'),
+      title: vscode.l10n.t('Vide Status'),
       placeHolder: presentation.detail,
     });
     if (!selected) {
@@ -122,24 +122,24 @@ export class VizslaStatusController implements vscode.Disposable {
 
   private command(): vscode.Command {
     return {
-      title: vscode.l10n.t('Show Vizsla Status'),
+      title: vscode.l10n.t('Show Vide Status'),
       command: showStatusCommand,
     };
   }
 
   private currentPresentation(): LanguageStatusPresentation {
-    return getVizslaStatusPresentation(
+    return getVideStatusPresentation(
       {
         serverStatus: this.serverStatus,
         serverDetail: this.serverDetail,
         projectStatus: this.projectStatus,
       },
-      localizedVizslaStatusMessages(),
+      localizedVideStatusMessages(),
     );
   }
 
-  private quickPickItems(status: ProjectStatus): VizslaStatusQuickPickItem[] {
-    const items: VizslaStatusQuickPickItem[] = [];
+  private quickPickItems(status: ProjectStatus): VideStatusQuickPickItem[] {
+    const items: VideStatusQuickPickItem[] = [];
 
     if (status.errors.length > 0) {
       items.push({
@@ -184,12 +184,12 @@ export class VizslaStatusController implements vscode.Disposable {
       },
       {
         label: vscode.l10n.t('$(debug-restart) Restart Language Server'),
-        description: vscode.l10n.t('Restart Vizsla if the server process is unhealthy'),
+        description: vscode.l10n.t('Restart Vide if the server process is unhealthy'),
         action: 'restartServer',
       },
       {
         label: vscode.l10n.t('$(output) Show Output'),
-        description: vscode.l10n.t('Open the Vizsla language server log'),
+        description: vscode.l10n.t('Open the Vide language server log'),
         action: 'showOutput',
       },
     );
@@ -198,7 +198,7 @@ export class VizslaStatusController implements vscode.Disposable {
   }
 }
 
-type VizslaStatusQuickPickItem = vscode.QuickPickItem & {
+type VideStatusQuickPickItem = vscode.QuickPickItem & {
   action:
     | 'openManifest'
     | 'createManifest'
@@ -238,16 +238,16 @@ function statusBarBackgroundColor(
 
 function localizedServerStatusMessages(): ServerStatusMessages {
   return {
-    text: vscode.l10n.t('Vizsla'),
-    startingDetail: vscode.l10n.t('Vizsla language server is starting.'),
-    readyDetail: vscode.l10n.t('Vizsla language server is running.'),
-    stoppingDetail: vscode.l10n.t('Vizsla language server is stopping.'),
-    stoppedDetail: vscode.l10n.t('Vizsla language server is stopped.'),
-    errorDetail: vscode.l10n.t('Vizsla language server failed.'),
+    text: vscode.l10n.t('Vide'),
+    startingDetail: vscode.l10n.t('Vide language server is starting.'),
+    readyDetail: vscode.l10n.t('Vide language server is running.'),
+    stoppingDetail: vscode.l10n.t('Vide language server is stopping.'),
+    stoppedDetail: vscode.l10n.t('Vide language server is stopped.'),
+    errorDetail: vscode.l10n.t('Vide language server failed.'),
   };
 }
 
-function localizedVizslaStatusMessages(): VizslaStatusMessages {
+function localizedVideStatusMessages(): VideStatusMessages {
   return {
     server: localizedServerStatusMessages(),
     project: localizedProjectStatusMessages(),
@@ -256,7 +256,7 @@ function localizedVizslaStatusMessages(): VizslaStatusMessages {
 
 function localizedProjectStatusMessages(): ProjectStatusMessages {
   return {
-    text: vscode.l10n.t('Vizsla'),
+    text: vscode.l10n.t('Vide'),
     loadingDetail: vscode.l10n.t('Loading project configuration'),
     loadedOneManifestDetail: vscode.l10n.t('Project manifest loaded'),
     loadedManyManifestsDetail: (count) =>
@@ -281,7 +281,7 @@ async function openUri(uriString: string): Promise<void> {
 
 async function openProjectManifest(status: ProjectStatus): Promise<void> {
   if (status.manifestUris.length === 0) {
-    vscode.window.showWarningMessage(vscode.l10n.t('No Vizsla project manifest is loaded.'));
+    vscode.window.showWarningMessage(vscode.l10n.t('No Vide project manifest is loaded.'));
     return;
   }
 
@@ -300,7 +300,7 @@ async function openProjectManifest(status: ProjectStatus): Promise<void> {
       };
     }),
     {
-      title: vscode.l10n.t('Open Vizsla Project Manifest'),
+      title: vscode.l10n.t('Open Vide Project Manifest'),
     },
   );
   if (!selected) {

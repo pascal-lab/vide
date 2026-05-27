@@ -16,19 +16,19 @@ Related settings reference: [Qihe](../../../advanced-guide/vscode-settings/#qihe
 
 ## Where Arguments Come From
 
-By default, Vide derives the Qihe compile mode, top module, include directories, and macro definitions from the current project manifest. The recommended file name is `vizsla.toml`; the legacy `vizsla_config.toml` name is still supported but deprecated.
+By default, Vide derives the Qihe compile mode, top module, include directories, and macro definitions from the current `vide.toml` project manifest.
 
 If your project already manages Qihe arguments through scripts, disable automatic derivation and configure explicit arguments:
 
 ```json
 {
-  "vizsla.qihe.autoConfigureArgsFromManifest": false,
-  "vizsla.qihe.compileArgs": ["--mode", "sv", "--", "-I", "include"],
-  "vizsla.qihe.runArgs": ["-g", "std"]
+  "vide.qihe.autoConfigureArgsFromManifest": false,
+  "vide.qihe.compileArgs": ["--mode", "sv", "--", "-I", "include"],
+  "vide.qihe.runArgs": ["-g", "std"]
 }
 ```
 
-Use `vizsla.qihe.command` when you need to point VS Code at a specific Qihe executable. On Windows, VS Code launched from the desktop may see a different `PATH` than your terminal; use an absolute path when unsure.
+Use `vide.qihe.command` when you need to point VS Code at a specific Qihe executable. On Windows, VS Code launched from the desktop may see a different `PATH` than your terminal; use an absolute path when unsure.
 
 ## The Command Is Unavailable or Does Nothing
 
@@ -36,6 +36,6 @@ Confirm that the target is a local file, not a remote file, virtual document, or
 
 ## Analysis Fails
 
-Open the `Vide Qihe` output channel and read the target file, compile arguments, run arguments, Qihe stdout/stderr, and final failure details in order. If the failure mentions includes, macros, or top modules, fix [Project Configuration](../../project-configuration/) first. If the failure is about launching Qihe, set `vizsla.qihe.command` to an absolute path.
+Open the `Vide Qihe` output channel and read the target file, compile arguments, run arguments, Qihe stdout/stderr, and final failure details in order. If the failure mentions includes, macros, or top modules, fix [Project Configuration](../../project-configuration/) first. If the failure is about launching Qihe, set `vide.qihe.command` to an absolute path.
 
 For why Qihe sometimes uses project analysis and sometimes falls back to a single-file input, see [Qihe Project Analysis](../../../advanced-guide/parsing-and-analysis/#qihe-project-analysis).

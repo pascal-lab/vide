@@ -101,8 +101,8 @@ jobs:
       - name: Set build metadata
         shell: bash
         run: |
-          echo "VIZSLA_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
-          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          echo "VIDE_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
       - name: Build VSIX
         working-directory: editors/vscode
@@ -111,8 +111,8 @@ jobs:
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: vizsla-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-${{ matrix.target }}
-          path: editors/vscode/vizsla-vscode-${{ matrix.target }}.vsix
+          name: vide-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-${{ matrix.target }}
+          path: editors/vscode/vide-vscode-${{ matrix.target }}.vsix
           if-no-files-found: error
 
   build-alpine-package:
@@ -161,8 +161,8 @@ jobs:
       - name: Set build metadata
         shell: bash
         run: |
-          echo "VIZSLA_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
-          echo "VIZSLA_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          echo "VIDE_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
       - name: Build VSIX
         working-directory: editors/vscode
@@ -171,8 +171,8 @@ jobs:
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: vizsla-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-${{ matrix.target }}
-          path: editors/vscode/vizsla-vscode-${{ matrix.target }}.vsix
+          name: vide-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-${{ matrix.target }}
+          path: editors/vscode/vide-vscode-${{ matrix.target }}.vsix
           if-no-files-found: error
 
   publish:
@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'beta' || github.ref_name }}
-      RELEASE_NAME: ${{ github.event_name == 'workflow_dispatch' && 'Vizsla beta' || format('Vizsla {0}', github.ref_name) }}
+      RELEASE_NAME: ${{ github.event_name == 'workflow_dispatch' && 'Vide beta' || format('Vide {0}', github.ref_name) }}
       RELEASE_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' }}
       RELEASE_MAKE_LATEST: ${{ github.event_name == 'workflow_dispatch' && 'false' || 'true' }}
     steps:

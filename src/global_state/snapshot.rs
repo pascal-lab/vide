@@ -10,6 +10,7 @@ use project_model::Workspace;
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use utils::{
+    cancellation::CancellationToken,
     lines::{LineEnding, LineInfo},
     paths::AbsPathBuf,
 };
@@ -22,6 +23,7 @@ use super::{
         DiagnosticWorkspaceProducer,
     },
     mem_docs::MemDocs,
+    response_effect::{AcceptedResponseEffect, AcceptedResponseEffects},
 };
 use crate::{
     config::Config,
@@ -70,6 +72,8 @@ pub(crate) struct GlobalStateSnapshot {
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
     pub(crate) diagnostic_publish_freshness: DiagnosticPublishFreshness,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
+    pub(crate) cancellation: CancellationToken,
+    pub(super) accepted_response_effects: AcceptedResponseEffects,
     pub(crate) mem_docs: MemDocs,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     #[allow(dead_code)]
@@ -89,6 +93,14 @@ impl GlobalStateSnapshot {
         let file_id =
             vfs.file_id(&path).ok_or_else(|| anyhow::format_err!("file not found: {path}"))?;
         Ok(file_id)
+    }
+
+    pub(crate) fn on_response_accepted(&self, effect: AcceptedResponseEffect) {
+        self.accepted_response_effects.push(effect);
+    }
+
+    pub(crate) fn accepted_response_effects(&self) -> AcceptedResponseEffects {
+        self.accepted_response_effects.clone()
     }
 
     pub(crate) fn file_id_for_path(&self, path: &Path) -> Option<FileId> {

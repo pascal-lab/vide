@@ -4,8 +4,8 @@ description: Use inlay hints, semantic highlighting, instance counts, outline, f
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
-import codeActionsGif from '../../../assets/features/code-actions.gif';
+import VideLab from '../../../../../components/VideLab.astro';
+import inlayHintsGif from '../../../assets/features/inlay-hints.gif';
 import { structureFiles } from '../../../../../examples/dailyUse';
 
 Structure help reduces the need to jump back and forth while reading RTL:
@@ -20,21 +20,21 @@ Structure help reduces the need to jump back and forth while reading RTL:
 Related settings reference: [Inlay Hints](../../../advanced-guide/vscode-settings/#inlay-hints), [Lens](../../../advanced-guide/vscode-settings/#lens), [Semantic Tokens](../../../advanced-guide/vscode-settings/#semantic-tokens).
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="Animation showing semantic highlighting, outline, and instance code lens in VS Code"
-  imageCaption="Structured reading aids in VS Code"
-  labCaption="The browser example contains a small module hierarchy"
+  image={inlayHintsGif}
+  imageAlt="Animation showing instance port inlay hints in VS Code"
+  imageCaption="Inlay hints in VS Code"
+  labCaption="The browser example reproduces the same mux demo"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-structure"
     projectLabel="Features: Structure"
-    entryFile="rtl/feature_top.sv"
+    entryFile="inlay_hints.v"
     files={structureFiles}
     height="100%"
-    initialActiveFile="rtl/feature_top.sv"
-    initialSelection="8:3-15:5"
-    title="Semantic Highlighting, Folding, and Code Lens"
-    description="This example contains two modules and two instances, which is useful for observing semantic highlighting, folding ranges, references, and instance code lens."
+    initialActiveFile="inlay_hints.v"
+    initialSelection="18:5-23:6"
+    title="Instance Port Inlay Hints"
+    description="This example uses the mux2/top demo, which is useful for checking port connection inlay hints and target module resolution."
   />
 </FeatureExample>
 
@@ -48,4 +48,4 @@ Instance counts need module relationships from the project. With only a single f
 
 ## Colors Do Not Change
 
-Semantic highlighting also depends on your VS Code theme styling those tokens. Switch themes once to verify. If nothing changes, check whether `vizsla.semantic.tokens.*` settings were disabled.
+Semantic highlighting also depends on your VS Code theme styling those tokens. Switch themes once to verify. If nothing changes, check whether `vide.semantic.tokens.*` settings were disabled.

@@ -4,8 +4,8 @@ description: Use Vide diagnostics and handle refresh timing, stale results, and 
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
-import codeActionsGif from '../../../assets/features/code-actions.gif';
+import VideLab from '../../../../../components/VideLab.astro';
+import missingPortGif from '../../../assets/features/missing-port.gif';
 import { diagnosticFiles } from '../../../../../examples/dailyUse';
 
 Diagnostics appear in the VS Code `Problems` panel and as editor underlines. Syntax and parse errors usually only need the current file; cross-file semantic diagnostics need project information such as `sources`, `include_dirs`, `defines`, and `libraries`.
@@ -14,39 +14,39 @@ Related settings reference: [Diagnostics](../../../advanced-guide/vscode-setting
 
 ## When Diagnostics Refresh
 
-The default `vizsla.diagnostics.update` value is `onSave`, so diagnostics refresh when you save. Keep this default for large projects to avoid heavy analysis on every edit.
+The default `vide.diagnostics.update` value is `onSave`, so diagnostics refresh when you save. Keep this default for large projects to avoid heavy analysis on every edit.
 
 If you need diagnostics while typing:
 
 ```json
 {
-  "vizsla.diagnostics.update": "onType"
+  "vide.diagnostics.update": "onType"
 }
 ```
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="Animation showing VS Code Problems diagnostics and editor underlines"
-  imageCaption="Diagnostics in VS Code"
-  labCaption="The browser example contains a diagnostic"
+  image={missingPortGif}
+  imageAlt="Animation showing a missing instance port diagnostic in VS Code"
+  imageCaption="Missing port diagnostics in VS Code"
+  labCaption="The browser example reproduces the same missing port"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-diagnostics"
     projectLabel="Features: Diagnostics"
-    entryFile="rtl/diagnostic_demo.sv"
+    entryFile="missing_port_example.v"
     files={diagnosticFiles}
     height="100%"
-    initialActiveFile="rtl/diagnostic_demo.sv"
-    initialSelection="8:5-8:22"
+    initialActiveFile="missing_port_example.v"
+    initialSelection="14:5-17:6"
     initialDiagnosticsOpen
-    title="Diagnostics and the Problems Panel"
-    description="This example intentionally leaves a syntax problem. Open the diagnostics panel to see markers and the diagnostics list in the browser playground."
+    title="Missing Port Connection Diagnostic"
+    description="This example intentionally leaves child.y unconnected. Open the diagnostics panel to see markers and the diagnostics list in the browser playground."
   />
 </FeatureExample>
 
 ## Diagnostics Are Stale
 
-Save the current file first. If diagnostics still do not update, run `Vide: Reload Project Configuration`; this rereads `vizsla.toml` after manifest changes. If the result is still stale, run `Vide: Restart Language Server` and click the `Vide` status item to check for project configuration errors.
+Save the current file first. If diagnostics still do not update, run `Vide: Reload Project Configuration`; this rereads `vide.toml` after manifest changes. If the result is still stale, run `Vide: Restart Language Server` and click the `Vide` status item to check for project configuration errors.
 
 If you only opened a header, or if the file is not matched by `sources`, cross-file diagnostics may not run. Check `sources` and `include_dirs` in [Project Configuration](../../project-configuration/).
 
@@ -54,4 +54,4 @@ If you only opened a header, or if the file is not matched by `sources`, cross-f
 
 Place the cursor on the diagnostic and open the lightbulb menu. For slang diagnostics with an identifiable code, Vide provides quick fixes that write a rule to user or workspace settings, such as ignoring that diagnostic type or downgrading an error to a warning.
 
-If the lightbulb does not offer those actions, edit `vizsla.diagnostics.slang.rules` manually. The rule format is documented in the [Diagnostics settings reference](../../../advanced-guide/vscode-settings/#diagnostics).
+If the lightbulb does not offer those actions, edit `vide.diagnostics.slang.rules` manually. The rule format is documented in the [Diagnostics settings reference](../../../advanced-guide/vscode-settings/#diagnostics).

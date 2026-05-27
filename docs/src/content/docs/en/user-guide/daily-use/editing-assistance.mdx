@@ -4,8 +4,8 @@ description: Use completion, signature help, rename, port/parameter fixes, and d
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
-import VizslaLab from '../../../../../components/VizslaLab.astro';
-import codeActionsGif from '../../../assets/features/code-actions.gif';
+import VideLab from '../../../../../components/VideLab.astro';
+import codeActionRenameGif from '../../../assets/features/code-action-rename.gif';
 import { editAidFiles } from '../../../../../examples/dailyUse';
 
 Vide provides completion around instance connections, parameter assignments, expressions, preprocessor directives, and common RTL structures. Signature help shows target module parameters and ports while your cursor is in parameter or port lists.
@@ -13,21 +13,21 @@ Vide provides completion around instance connections, parameter assignments, exp
 Related settings reference: [Signature Help](../../../advanced-guide/vscode-settings/#signature-help), [Diagnostics](../../../advanced-guide/vscode-settings/#diagnostics).
 
 <FeatureExample
-  image={codeActionsGif}
-  imageAlt="Animated VS Code code action menu showing quick fixes"
-  imageCaption="Quick fixes in VS Code"
-  labCaption="Try the same project in the browser"
+  image={codeActionRenameGif}
+  imageAlt="Animation showing code actions and rename in VS Code"
+  imageCaption="Code actions and rename in VS Code"
+  labCaption="The browser example reuses the same counter demo"
 >
-  <VizslaLab
+  <VideLab
     projectId="daily-edit-aids"
     projectLabel="Features: Edit Aids"
-    entryFile="rtl/fifo_client.sv"
+    entryFile="code_action_rename.v"
     files={editAidFiles}
     height="100%"
-    initialActiveFile="rtl/fifo_client.sv"
-    initialSelection="9:3-9:14"
-    title="Ordered Ports, Parameters, and Code Actions"
-    description="This instance uses ordered parameters and ordered ports. Try inlay hints, signature help, and the action that converts ordered connections to named connections."
+    initialActiveFile="code_action_rename.v"
+    initialSelection="22:16-22:23"
+    title="Code Actions and Rename"
+    description="This example uses the counter/top demo. Try opening the lightbulb menu near the instance, or use Find References before renaming smp_cnt."
   />
 </FeatureExample>
 

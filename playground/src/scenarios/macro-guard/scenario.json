@@ -6,7 +6,7 @@
   "description": "Include directory and macro flow for docs embeds.",
   "files": [
     {
-      "path": "vizsla.toml",
+      "path": "vide.toml",
       "languageId": "toml"
     },
     {

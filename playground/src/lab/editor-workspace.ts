@@ -1,5 +1,5 @@
 import type * as Monaco from "@codingame/monaco-vscode-editor-api";
-import type { VizslaScenario } from "../types";
+import type { VideScenario } from "../types";
 import {
   entryFile,
   isSourceFile,
@@ -16,13 +16,13 @@ export class LabEditorWorkspace {
   constructor(
     private readonly monaco: typeof Monaco,
     private readonly rootUri: string,
-    scenario: VizslaScenario,
+    scenario: VideScenario,
   ) {
     this.activeUri = this.uriForPath(entryFile(scenario).path);
     this.replaceScenario(scenario);
   }
 
-  replaceScenario(scenario: VizslaScenario): void {
+  replaceScenario(scenario: VideScenario): void {
     this.dispose();
     for (const file of scenario.files) {
       const uri = this.uriForPath(file.path);
@@ -77,7 +77,7 @@ export class LabEditorWorkspace {
     return [...this.fileStates.values()].filter((state) => isSourceFile(state.file.path)).map((state) => state.uri);
   }
 
-  currentFiles(scenario: VizslaScenario): VizslaScenario["files"] {
+  currentFiles(scenario: VideScenario): VideScenario["files"] {
     return scenario.files.map((file) => {
       const state = this.state(this.uriForPath(file.path));
       return {

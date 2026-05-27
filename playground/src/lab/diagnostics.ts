@@ -1,11 +1,11 @@
 import type { LabDiagnostic } from "../types";
 import { diagnosticsFromLspReport } from "./monaco-lsp";
-import type { VizslaBrowserClient } from "./lsp-client";
+import type { VideBrowserClient } from "./lsp-client";
 import { displayPath, isSourceFile, type LabFileState } from "./workspace";
 
 export interface LabDiagnosticControllerOptions {
   debounceMs: number;
-  client(): VizslaBrowserClient | undefined;
+  client(): VideBrowserClient | undefined;
   ready(): boolean;
   state(uri: string): LabFileState | undefined;
   onDidChange(): void;

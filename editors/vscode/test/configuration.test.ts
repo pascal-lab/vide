@@ -74,49 +74,49 @@ function readSourceFiles(dir: string): string[] {
   });
 }
 
-test('contributes settings for the complete Vizsla user configuration surface', () => {
+test('contributes settings for the complete Vide user configuration surface', () => {
   const properties = readConfigurationProperties();
   const expectedSettings = [
-    'vizsla.trace.server',
-    'vizsla.server.command',
-    'vizsla.server.args',
-    'vizsla.server.cwd',
-    'vizsla.server.additionalArgs',
-    'vizsla.qihe.command',
-    'vizsla.qihe.autoConfigureArgsFromManifest',
-    'vizsla.qihe.compileArgs',
-    'vizsla.qihe.runArgs',
-    'vizsla.files.excludeDirs',
-    'vizsla.files.watcher',
-    'vizsla.workspace.auto.reload',
-    'vizsla.scope.visibility',
-    'vizsla.formatter.provider',
-    'vizsla.formatter.path',
-    'vizsla.formatter.args',
-    'vizsla.formatting.on.enter',
-    'vizsla.formatting.in.comments',
-    'vizsla.formatting.indent.width',
-    'vizsla.inlayHints.port.connection.enable',
-    'vizsla.inlayHints.parameter.assignment.enable',
-    'vizsla.inlayHints.end.structure.enable',
-    'vizsla.lens.instantiations.enable',
-    'vizsla.semantic.tokens.port.clk.rst.enable',
-    'vizsla.semantic.tokens.port.input.output.enable',
-    'vizsla.diagnostics.enable',
-    'vizsla.diagnostics.update',
-    'vizsla.diagnostics.parse.enable',
-    'vizsla.diagnostics.semantic.enable',
-    'vizsla.diagnostics.slang.warnings',
-    'vizsla.diagnostics.slang.rules',
-    'vizsla.signature.help.params.only',
+    'vide.trace.server',
+    'vide.server.command',
+    'vide.server.args',
+    'vide.server.cwd',
+    'vide.server.additionalArgs',
+    'vide.qihe.command',
+    'vide.qihe.autoConfigureArgsFromManifest',
+    'vide.qihe.compileArgs',
+    'vide.qihe.runArgs',
+    'vide.files.excludeDirs',
+    'vide.files.watcher',
+    'vide.workspace.auto.reload',
+    'vide.scope.visibility',
+    'vide.formatter.provider',
+    'vide.formatter.path',
+    'vide.formatter.args',
+    'vide.formatting.on.enter',
+    'vide.formatting.in.comments',
+    'vide.formatting.indent.width',
+    'vide.inlayHints.port.connection.enable',
+    'vide.inlayHints.parameter.assignment.enable',
+    'vide.inlayHints.end.structure.enable',
+    'vide.lens.instantiations.enable',
+    'vide.semantic.tokens.port.clk.rst.enable',
+    'vide.semantic.tokens.port.input.output.enable',
+    'vide.diagnostics.enable',
+    'vide.diagnostics.update',
+    'vide.diagnostics.parse.enable',
+    'vide.diagnostics.semantic.enable',
+    'vide.diagnostics.slang.warnings',
+    'vide.diagnostics.slang.rules',
+    'vide.signature.help.params.only',
   ];
 
   assert.deepEqual(Object.keys(properties).sort(), expectedSettings.sort());
 });
 
-test('does not expose the old vizslaLsp settings namespace', () => {
+test('does not expose the old videLsp settings namespace', () => {
   const properties = readConfigurationProperties();
-  const oldSettings = Object.keys(properties).filter((key) => key.startsWith('vizslaLsp.'));
+  const oldSettings = Object.keys(properties).filter((key) => key.startsWith('videLsp.'));
 
   assert.deepEqual(oldSettings, []);
 });

@@ -1,10 +1,10 @@
-import createVizslaModule from "./vizsla-core.js";
+import createVideModule from "./vide-core.js";
 
-export async function createVizslaLspEngine(options = {}) {
+export async function createVideLspEngine(options = {}) {
   const assetSearch = new URL(import.meta.url).search;
-  const module = await createVizslaModule({
+  const module = await createVideModule({
     locateFile(path) {
-      const url = new URL(path.endsWith(".wasm") ? "vizsla-core.wasm" : path, import.meta.url);
+      const url = new URL(path.endsWith(".wasm") ? "vide-core.wasm" : path, import.meta.url);
       url.search = assetSearch;
       return url.href;
     },
@@ -13,7 +13,7 @@ export async function createVizslaLspEngine(options = {}) {
 
   return {
     send(message) {
-      return drainMessages(module, callJson(module, "vizsla_lsp_message", JSON.stringify(message)));
+      return drainMessages(module, callJson(module, "vide_lsp_message", JSON.stringify(message)));
     },
     poll() {
       return drainMessages(module, []);
@@ -22,7 +22,7 @@ export async function createVizslaLspEngine(options = {}) {
       writeWorkspace(module, options.rootUri ?? "file:///workspace", [{ path, text }]);
     },
     reset() {
-      module._vizsla_lsp_reset();
+      module._vide_lsp_reset();
     },
   };
 }
@@ -30,7 +30,7 @@ export async function createVizslaLspEngine(options = {}) {
 function drainMessages(module, initialMessages) {
   const messages = Array.isArray(initialMessages) ? [...initialMessages] : [];
   for (let index = 0; index < 16; index += 1) {
-    const polled = callJson(module, "vizsla_lsp_poll", "null");
+    const polled = callJson(module, "vide_lsp_poll", "null");
     if (!Array.isArray(polled) || polled.length === 0) {
       break;
     }
@@ -52,7 +52,7 @@ function writeWorkspace(module, rootUri, files) {
     if (normalized.includes("..")) {
       throw new Error(`Refusing workspace path outside /workspace: ${file.path}`);
     }
-    callVoid(module, "vizsla_lsp_write_file", `${rootPath}/${normalized}`, file.text);
+    callVoid(module, "vide_lsp_write_file", `${rootPath}/${normalized}`, file.text);
   }
 }
 
@@ -73,7 +73,7 @@ function callJson(module, name, payload) {
     module.stringToUTF8(payload, ptr, byteLength + 1);
     const fn = module[`_${name}`];
     if (typeof fn !== "function") {
-      throw new Error(`Vizsla WASM export not found: ${name}`);
+      throw new Error(`Vide WASM export not found: ${name}`);
     }
     const resultPtr = fn(ptr, byteLength);
     try {
@@ -83,7 +83,7 @@ function callJson(module, name, payload) {
       }
       return value;
     } finally {
-      module._vizsla_free_string(resultPtr);
+      module._vide_free_string(resultPtr);
     }
   } finally {
     module._free(ptr);
@@ -101,7 +101,7 @@ function callVoid(module, name, path, text) {
     module.stringToUTF8(text, textPtr, textLength + 1);
     const fn = module[`_${name}`];
     if (typeof fn !== "function") {
-      throw new Error(`Vizsla WASM export not found: ${name}`);
+      throw new Error(`Vide WASM export not found: ${name}`);
     }
     const resultPtr = fn(pathPtr, pathLength, textPtr, textLength);
     try {
@@ -110,7 +110,7 @@ function callVoid(module, name, path, text) {
         throw new Error(value.error);
       }
     } finally {
-      module._vizsla_free_string(resultPtr);
+      module._vide_free_string(resultPtr);
     }
   } finally {
     module._free(pathPtr);
