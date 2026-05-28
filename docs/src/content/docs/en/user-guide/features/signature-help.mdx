@@ -31,7 +31,13 @@ Signature help shows the target module's parameters or ports while the cursor is
 
 ## Project Configuration
 
-Signature help needs the target module to resolve. Like definition and completion, it depends on `sources`, `include_dirs`, `defines`, and `libraries` in `vide.toml`.
+### Without Complete Configuration
+
+If the target module is in the current file, signature help can be shown directly. If the target module is in another file, Vide needs to scan and resolve that module before it can show the corresponding ports and parameters.
+
+### With Complete Configuration
+
+After `vide.toml` is configured, signature help resolves target modules through `sources`, `include_dirs`, `defines`, and `libraries`. Parameter and port positions for cross-file instances become more accurate.
 
 ## Settings
 
@@ -43,4 +49,4 @@ To show only parameter-related signature help, enable:
 }
 ```
 
-See [Signature Help settings](../../vscode-settings/#signature-help) for the full reference.
+See [Signature Help settings](../../vscode-settings/#signature-help).

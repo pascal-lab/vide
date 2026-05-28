@@ -9,7 +9,7 @@ import ThinLinkCard from '../../../../../components/ThinLinkCard.astro';
 
 Formatting keeps indentation, line breaks, and style consistent so the code is easier to read.
 
-Formatting entry points include VS Code's `Format Document`, `Format Selection`, and the automatic indentation behavior when pressing Enter. The only current formatter backend is `verible`, which calls the external `verible-verilog-format` executable. Vide does not bundle that tool, so you need to configure the executable yourself.
+Formatting entry points include VS Code's `Format Document`, `Format Selection`, and the automatic indentation behavior when pressing Enter. Formatting currently uses the third-party Verible `verible-verilog-format` tool. Vide does not bundle that tool, so you need to configure the executable yourself.
 
 ## Configure verible
 
@@ -47,6 +47,8 @@ Use `vide.formatter.args` to pass options to `verible-verilog-format` and adjust
 
 ## Enter Behavior
 
-Enter assistance is controlled by `vide.formatting.on.enter`, and comment handling is controlled by `vide.formatting.in.comments`. Projects that only want manual formatting can disable Enter behavior while keeping `Format Document` and `Format Selection`.
+Besides manually running `Format Document` and `Format Selection`, Vide can adjust the new line's indentation when you press Enter. This behavior is controlled by `vide.formatting.on.enter`.
 
-See [Formatter and Formatting settings](../../vscode-settings/#formatter-and-formatting) for the full reference.
+If you only want Enter assistance outside comments, disable `vide.formatting.in.comments`. If the project only needs manual formatting, disable `vide.formatting.on.enter` and keep `Format Document` and `Format Selection`.
+
+See [Formatter and Formatting settings](../../vscode-settings/#formatter-and-formatting).

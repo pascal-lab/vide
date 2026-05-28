@@ -1,6 +1,6 @@
 ---
 title: Annotations
-description: Show inlay hints and lens annotations for ports, parameters, structure endings, and instance counts.
+description: Show port, parameter, structure-name, and instance-count annotations near the relevant code.
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
@@ -10,11 +10,13 @@ import { inlayHintFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Annotations are editor-overlaid signals shown next to the relevant code, including Inlay Hints and Lens entries. Vide inlay hints show target port names and direction arrows next to instance port connections: input `←`, output `→`, inout `↔`, ref `&`; if the port name already exists in code, Vide only shows the direction arrow to avoid repetition. It also shows target parameter names next to ordered parameter assignments and structure names near endings such as `endmodule`.
+Annotations show auxiliary information directly next to the relevant code, so you can see the target of a connection, parameter, or structure without jumping away.
 
-The instance-count lens above module declarations is also an annotation. It shows how many times the current module is instantiated.
+There are currently three main kinds of annotations:
 
-These annotations display the relationship between the target module and the current position directly in the editor. Ctrl-click or double-click can trigger different navigation or code actions.
+1. Instance connection annotations: show target port names and direction arrows next to port connections. `input` shows `←`, `output` shows `→`, `inout` shows `↔`, and `ref` shows `&`. If the port name is already written in code, Vide only shows the direction arrow to avoid repetition.
+2. Parameter and structure annotations: show target parameter names next to ordered parameter assignments, and structure names near endings such as `endmodule`.
+3. Instance-count annotations: show how many times the current module is instantiated above the module declaration.
 
 ## Demo
 
@@ -39,11 +41,17 @@ These annotations display the relationship between the target module and the cur
 
 ## Project Configuration
 
-Port and parameter annotations need the target module to resolve, and the instance-count lens needs the reference index. Without project configuration, Vide uses the current file and workspace scan results. After `vide.toml` is configured, annotations resolve modules, includes, and macro branches from the real project scope.
+### Without Complete Configuration
+
+Annotations for ports, parameters, and structure endings that can be resolved in the current file are available. Cross-file instance connections and instance-count statistics depend on files scanned by Vide and can be incomplete.
+
+### With Complete Configuration
+
+After `vide.toml` is configured, annotations resolve modules, include files, and macro branches from the project scope. Cross-file ports, parameters, and instance-count statistics become more complete.
 
 ## Settings
 
-Search for `Vide Inlay Hints` or `Vide Lens` in VS Code Settings, or configure:
+Search for `Vide Inlay Hints` or `Vide Lens` in VS Code Settings, or configure these switches directly:
 
 ```json
 {
@@ -54,4 +62,9 @@ Search for `Vide Inlay Hints` or `Vide Lens` in VS Code Settings, or configure:
 }
 ```
 
-See [Inlay Hints settings](../../vscode-settings/#inlay-hints) and [Lens settings](../../vscode-settings/#lens) for the full reference.
+- `vide.inlayHints.port.connection.enable`: controls port names and direction arrows next to instance port connections.
+- `vide.inlayHints.parameter.assignment.enable`: controls parameter names next to ordered parameter assignments.
+- `vide.inlayHints.end.structure.enable`: controls structure names near endings such as `endmodule`.
+- `vide.lens.instantiations.enable`: controls instance-count annotations above module declarations.
+
+See [Inlay Hints settings](../../vscode-settings/#inlay-hints) and [Lens settings](../../vscode-settings/#lens).

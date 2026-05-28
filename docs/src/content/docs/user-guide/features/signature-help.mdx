@@ -31,7 +31,13 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
 
 ## 项目配置影响
 
-签名提示需要目标模块能被解析到。它和定义跳转、补全一样依赖 `vide.toml` 里的 `sources`、`include_dirs`、`defines` 和 `libraries`。
+### 没有完整配置时
+
+如果目标模块就在当前文件里，签名提示可以直接显示。目标模块在别的文件里时，只有 Vide 扫描并解析到该模块后，才能显示对应端口和参数。
+
+### 有完整配置时
+
+写好 `vide.toml` 后，签名提示会按 `sources`、`include_dirs`、`defines` 和 `libraries` 解析目标模块。跨文件实例的参数和端口位置会更准确。
 
 ## 调整显示
 

@@ -11,7 +11,7 @@ import { missingPortFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Automatic refactoring is VS Code <Codicon name="lightbulb" label="Lightbulb menu icon" color="#facc15" /> lightbulb Code Actions. Vide generates fixes or rewrites from the current position, instance structure, and selected diagnostics to handle repetitive and error-prone RTL edits such as port connections, parameter assignments, and integer literal base conversion.
+Automatic refactoring handles repetitive and error-prone edits such as port connections, parameter assignments, and integer literal base conversion. In VS Code, you trigger these operations from the <Codicon name="lightbulb" label="Lightbulb menu icon" color="#facc15" /> lightbulb menu, also called Code Actions.
 
 ## Demo
 
@@ -49,8 +49,12 @@ Place the cursor near an instance, integer literal, or diagnostic, then open the
 
 ## Project Configuration
 
-Port and parameter actions need the target module to resolve. In cross-file projects, `sources`, `include_dirs`, `defines`, and `libraries` decide which modules Vide can see. Diagnostic-driven quick fixes also require the matching diagnostic to be present in the current file.
+### Without Complete Configuration
 
-## Related Feature
+Some refactorings for instances and integer literals are available in the current file. If the target module is in another file, port and parameter actions only appear after Vide scans and resolves that target module.
 
-Code actions edit local structures. To change one symbol's declaration and references together, use [Rename](../rename/).
+### With Complete Configuration
+
+After `vide.toml` is configured, Vide finds target modules through `sources`, `include_dirs`, `defines`, and `libraries`. Filling ports, filling parameters, and converting connection styles use the real project structure.
+
+Diagnostic-driven quick fixes also require the matching diagnostic to be present in the current file.

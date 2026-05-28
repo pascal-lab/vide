@@ -11,7 +11,7 @@ import { missingPortFiles } from '../../../../examples/dailyUse';
 
 ## 什么是自动重构
 
-自动重构是 VS Code <Codicon name="lightbulb" label="灯泡菜单图标" color="#facc15" /> 灯泡菜单里的 Code Actions。Vide 会根据当前位置、实例结构和部分诊断生成修复或重写操作，用来处理端口连接、参数赋值和数字字面量基数转换这类重复但容易出错的编辑工作。
+自动重构用于处理端口连接、参数赋值和数字字面量进制转换这类重复但容易出错的编辑工作。在 VS Code 中，你可以通过 <Codicon name="lightbulb" label="灯泡菜单图标" color="#facc15" /> 灯泡菜单触发这些操作，这个入口也叫 Code Actions。
 
 ## 演示
 
@@ -49,8 +49,12 @@ import { missingPortFiles } from '../../../../examples/dailyUse';
 
 ## 项目配置影响
 
-端口和参数相关操作需要目标模块能被解析到。跨文件工程里，`sources`、`include_dirs`、`defines` 和 `libraries` 决定 Vide 能看到哪些模块。诊断驱动的 quick fix 还需要对应诊断已经出现在当前文件里。
+### 没有完整配置时
 
-## 相关功能
+当前文件里的实例和数字字面量可以使用部分自动重构。目标模块在别的文件里时，端口和参数相关操作只有在 Vide 扫描并解析到目标模块后才会出现。
 
-自动重构改的是局部结构。如果要把同一符号的声明和引用一起改名，使用 [重命名](../rename/)。
+### 有完整配置时
+
+写好 `vide.toml` 后，Vide 会按 `sources`、`include_dirs`、`defines` 和 `libraries` 查找目标模块。补齐端口、补齐参数和转换连接写法会按真实工程结构生成结果。
+
+诊断驱动的快速修复还需要对应诊断已经出现在当前文件里。

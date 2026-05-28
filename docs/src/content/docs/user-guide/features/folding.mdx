@@ -1,6 +1,6 @@
 ---
 title: 折叠
-description: 按 RTL 语法结构折叠模块、端口列表、声明、块语句和注释。
+description: 按 SystemVerilog 语法结构折叠模块、端口列表、声明、块语句和注释。
 ---
 
 import VideLab from '../../../../components/VideLab.astro';
@@ -8,7 +8,7 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
 
 ## 什么是折叠
 
-折叠让编辑器按结构收起代码块。Vide 会为多行注释、region、module、端口列表、声明、generate/specify、实例、连续赋值、块语句和普通语句等范围提供 VS Code 代码行折叠。
+折叠让编辑器按结构收起代码块。Vide 会为多行注释、region、module、端口列表、声明、generate/specify、实例、连续赋值、块语句和普通语句等范围提供代码行折叠。
 
 在开发过程中使用折叠来跳过部分行的代码可以使代码界面更整洁。
 
@@ -23,14 +23,16 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
   files={inlayHintFiles}
   initialActiveFile="inlay_hints.v"
   initialSelection="1:1-19:10"
-  title="按 RTL 结构折叠"
+  title="按 SystemVerilog 结构折叠"
   description="加载后使用 VS Code 折叠控件，收起模块、端口列表和实例连接。"
 />
 
 ## 项目配置影响
 
-折叠主要来自当前文件的语法和结构解析，单文件也能使用。项目配置会影响 include、宏分支和语义解析后的文件结构，进而影响部分结构范围。
+### 没有完整配置时
 
-## 相关功能
+折叠主要来自当前文件的语法结构，单文件也能使用。
 
-如果你只是想快速跳到某个结构，使用 [符号大纲](../document-symbols/)；如果你想按语法结构扩大当前选择，使用 [语义选区](../selection-range/)。
+### 有完整配置时
+
+写好 `vide.toml` 后，include 文件和宏分支会按工程配置解析，相关结构范围也会随之更新。

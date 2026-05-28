@@ -10,7 +10,7 @@ import { syntaxHighlightingFiles } from '../../../../examples/dailyUse';
 
 ## 什么是语法高亮
 
-语法高亮是编辑器对关键字、注释、数字、字符串和基本语法结构做的词法级标记。基础语法高亮、注释规则、括号匹配和文件图标由 VS Code 扩展直接提供，除了语法规则外无需做额外的分析。
+语法高亮会给关键字、注释、数字、字符串和基本语法结构上色。在 Vide 扩展正常工作时，打开 Verilog/SystemVerilog 文件后就能立即看到基础着色、注释识别、括号匹配和文件图标。
 
 ## 演示
 
@@ -26,4 +26,4 @@ import { syntaxHighlightingFiles } from '../../../../examples/dailyUse';
 
 ## 项目配置影响
 
-无。语法高亮本身不依赖项目分析。只要确定了 VS Code 扩展正常启用了，语法高亮就能随之应用。
+无。语法高亮本身不依赖 `vide.toml`。只要 Vide 扩展已启用，Verilog/SystemVerilog 文件就会应用基础语法高亮。

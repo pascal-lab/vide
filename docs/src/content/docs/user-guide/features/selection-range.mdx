@@ -8,13 +8,13 @@ import { structureFiles } from '../../../../examples/dailyUse';
 
 ## 什么是语义选区
 
-语义选区用于 VS Code 的 `Expand Selection` 和 `Shrink Selection`。比如，当光标在 `choose_b` 上时，连续扩大选择可以从 `choose_b` 变成 `.sel(choose_b)`、整个实例连接、再到外层模块。复制、删除、替换或包裹 RTL 结构时，不需要用鼠标一点点拖到括号、逗号和 `end` 的边界。
+语义选区用于 VS Code 的 `Expand Selection` 和 `Shrink Selection`。比如，当光标在 `choose_b` 上时，连续扩大选择可以从 `choose_b` 变成 `.sel(choose_b)`、整个实例连接、再到外层模块。复制、删除、替换或包裹 SystemVerilog 结构时，不需要用鼠标一点点拖到括号、逗号和 `end` 的边界。
 
 执行方式有两种：按 `F1` 打开命令面板，搜索 `Expand Selection` 或 `Shrink Selection`；也可以直接使用默认快捷键，Windows/Linux 是 `Shift+Alt+Right` 和 `Shift+Alt+Left`，macOS 是 `Ctrl+Shift+Cmd+Right` 和 `Ctrl+Shift+Cmd+Left`。如果快捷键被其他扩展占用，可以在 VS Code 的键盘快捷方式里搜索 `editor.action.smartSelect.expand` 和 `editor.action.smartSelect.shrink` 重新绑定。
 
 ## 演示
 
-把光标放到 `choose_b` 上，重复执行 `Expand Selection`。选区会沿 RTL 语法结构向外扩大；执行 `Shrink Selection` 会按相反顺序缩回。
+把光标放到 `choose_b` 上，重复执行 `Expand Selection`。选区会沿 SystemVerilog 语法结构向外扩大；执行 `Shrink Selection` 会按相反顺序缩回。
 
 <VideLab
   projectId="daily-selection-range"
@@ -29,8 +29,10 @@ import { structureFiles } from '../../../../examples/dailyUse';
 
 ## 项目配置影响
 
-语义选区主要来自当前文件的语法树，单文件也能使用。项目配置会影响 include 和宏分支展开后的结构；配置正确后，来自这些结构的选区层级会和真实工程一致。
+### 没有完整配置时
 
-## 相关功能
+语义选区主要来自当前文件的语法结构，单文件也能使用。
 
-语义选区用于编辑当前代码块；如果要浏览文件层级，使用 [符号大纲](../document-symbols/)；如果要收起结构，使用 [折叠](../folding/)。
+### 有完整配置时
+
+写好 `vide.toml` 后，include 和宏分支会按工程配置展开，来自这些结构的选区层级会和真实工程一致。

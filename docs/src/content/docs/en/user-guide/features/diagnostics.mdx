@@ -13,6 +13,8 @@ import { slangDiagnosticFiles } from '../../../../../examples/dailyUse';
 
 Diagnostics are the <Codicon name="error" label="Error icon" color="#f14c4c" /> errors, <Codicon name="warning" label="Warning icon" color="#facc15" /> warnings, and <Codicon name="info" label="Hint icon" color="#3794ff" /> hints that Vide asks the editor to show. They appear in the VS Code Problems panel, as editor underlines, and near the affected code, helping you find syntax errors, parse errors, and semantic issues found by project analysis.
 
+Vide's regular syntax and semantic diagnostics mainly come from slang, and Vide converts them into editor markers and Problems entries. For deeper static analysis, use [Qihe Integration](../qihe/).
+
 ## Demo
 
 <FeatureExample
@@ -37,7 +39,13 @@ Diagnostics are the <Codicon name="error" label="Error icon" color="#f14c4c" /> 
 
 ## Project Configuration
 
-After you open a Verilog/SystemVerilog file, Vide can report syntax and parse issues in that file. Cross-file semantic diagnostics need a configured `vide.toml` in the workspace so Vide knows which source files, headers, macro branches, and dependencies belong to the same project. See [Configure the First Project](../../first-project/) and [Project Configuration Reference](../../project-configuration/).
+### Without Complete Configuration
+
+After you open a Verilog/SystemVerilog file, Vide can report syntax and parse issues in that file. Cross-file semantic issues, include relationships, and macro branches may not be fully understood.
+
+### With Complete Configuration
+
+After `vide.toml` is configured, Vide organizes diagnostic input from `sources`, `include_dirs`, `defines`, and `libraries`. Cross-file semantic diagnostics become closer to the real project. See [Configure the First Project](../../first-project/) and [Project Configuration Reference](../../project-configuration/).
 
 ## Refresh Strategy
 
@@ -53,4 +61,4 @@ The default `vide.diagnostics.update` value is `onSave`, so diagnostics refresh 
 
 Place the cursor on a diagnostic and open the lightbulb menu. For slang diagnostics with recognizable codes, Vide can write quick fixes into user or workspace settings, such as ignoring that diagnostic or lowering an error to a warning.
 
-You can also edit `vide.diagnostics.slang.rules` manually in VS Code Settings. See [Diagnostics settings](../../vscode-settings/#diagnostics) for the full reference.
+You can also edit `vide.diagnostics.slang.rules` manually in VS Code Settings. See [Diagnostics settings](../../vscode-settings/#diagnostics).

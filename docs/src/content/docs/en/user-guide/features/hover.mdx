@@ -10,9 +10,7 @@ import { hoverFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Hover is a lightweight explanation shown near the cursor. It is useful when you want to check a module interface, port direction, parameter declaration, task/function signature, or number literal without leaving the current file.
-
-Vide generates VS Code hover content from the resolved symbol at the current position. The content is shown as Markdown with a readable structure.
+Hover is a lightweight explanation shown near the cursor. Place the mouse over a module name, instance name, port, parameter, task/function, or number literal to check what it means without leaving the current file.
 
 ## Demo
 
@@ -37,8 +35,10 @@ Vide generates VS Code hover content from the resolved symbol at the current pos
 
 ## Project Configuration
 
-Hover needs Vide to resolve the symbol at the current position. Declarations in the current file can be shown directly; cross-file modules, ports, and parameters require the target file to be resolved. After `vide.toml` is configured, hover uses the real include paths, macro branches, and libraries.
+### Without Complete Configuration
 
-## Related Features
+Declarations in the current file and number literals can be shown directly. Cross-file targets only show complete information when Vide has scanned the target file and can determine a unique target.
 
-Use [Go to Definition](../navigation/) when the hover target is the code you want to inspect. Use [Find References](../references/) to see where the target is used.
+### With Complete Configuration
+
+After `vide.toml` is configured, hover uses the project structure to resolve include paths, macro branches, and libraries. Target modules, port directions, and parameter declarations for instances become more complete.

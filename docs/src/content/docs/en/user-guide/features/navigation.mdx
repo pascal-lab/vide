@@ -1,6 +1,6 @@
 ---
 title: Go to Definition
-description: Jump from instances, symbols, and port connections to the real targets resolved by Vide.
+description: Jump from instances, symbols, and port connections to the corresponding declarations or definitions.
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
@@ -10,9 +10,9 @@ import { navigationFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Go to Definition takes you from a reference to the declaration or definition it points at. In RTL, the common cases are jumping from a module instance to the module definition, from a port connection to the target port, or from a signal use to its declaration.
+Go to Definition takes you from a symbol use to the declaration or definition it points at. The common cases are jumping from a module instance to the module definition, from a port connection to the target port, or from a signal use to its declaration.
 
-Vide wires VS Code's `Go to Definition`, `Peek Definition`, `Go to Declaration`, and `Go to Type Definition` to RTL analysis. `Go to Declaration` prefers declaration ranges; when there is no separate declaration range, it uses the definition result.
+You can use this feature through VS Code's `Go to Definition`, `Peek Definition`, `Go to Declaration`, and `Go to Type Definition`. `Go to Declaration` prefers declaration locations; when there is no separate declaration location, it uses the definition result.
 
 ## Demo
 
@@ -37,10 +37,12 @@ Vide wires VS Code's `Go to Definition`, `Peek Definition`, `Go to Declaration`,
 
 ## Project Configuration
 
-Definition needs Vide to resolve the target file. Without `vide.toml`, Vide scans the workspace to provide reading-time jumps. After `vide.toml` is configured, go to definition resolves targets through the project structure described by `vide.toml`.
+### Without Complete Configuration
 
-## Duplicate Modules
+Vide uses the current file and Verilog/SystemVerilog files scanned from the workspace to provide basic jumps. This is often enough for small projects or quick code reading, but include paths, macro branches, library boundaries, and duplicate modules may not be fully understood.
 
-Without project configuration, if one instance can match multiple modules with the same name, Vide chooses a nearby and unique candidate for reading. If no unique target can be analyzed, Vide reports a hint on the code.
+For example, if one instance name can match multiple modules with the same name, Vide only jumps when the scanned files provide a nearby and unique candidate. If no unique target can be determined, the editor shows a hint asking you to add project configuration. See [Analysis Model](../../../advanced-guide/parsing-and-analysis/#navigation-and-duplicate-modules) for details.
 
-This behavior is not a standard language rule. Real projects should handle duplicate module names through explicit project configuration, library boundaries, or build scripts. See [Analysis Model](../../../advanced-guide/parsing-and-analysis/#navigation-and-duplicate-modules) for details.
+### With Complete Configuration
+
+After `vide.toml` is configured, Vide resolves targets from the project structure described by `sources`, `libraries`, `include_dirs`, `defines`, and `top_modules`. Cross-file jumps, targets inside macro branches, and duplicate module boundaries become more accurate.

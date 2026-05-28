@@ -1,19 +1,25 @@
 ---
-title: Feature Details
-description: Learn Vide go to definition, references, hover, completion, rename, syntax highlighting, semantic highlighting, annotations, document symbols, folding, refactoring, diagnostics, signature help, selection ranges, formatting, and Qihe.
+title: Features
+description: Learn Vide go to definition, references, hover, completion, rename, syntax highlighting, semantic highlighting, annotations, document symbols, folding, refactoring, diagnostics, signature help, selection ranges, formatting, and Qihe integration.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-This section introduces the reading and editing capabilities Vide provides in VS Code, organized by IDE feature.
+This section introduces all features Vide provides in VS Code. Each feature has its own page.
 
-On each feature page, you will see the problem the feature solves, a screenshot or interactive demo, and how to adjust behavior through `vide.toml` or VS Code Settings.
+On each feature page, you will see:
+
+- what problem the feature solves;
+- a screenshot or interactive demo;
+- how to adjust behavior through `vide.toml` or VS Code Settings. The [Project Configuration](../project-configuration/#what-changes-after-configuration) page summarizes behavior before and after project configuration.
+
+Before reading this section, read [Configure the First Project](../first-project/) first. Some deeper analysis features need a correct project configuration to work well.
 
 <CardGrid>
   <LinkCard
     title="Go to Definition"
     href="./navigation/"
-    description="Jump from instances, symbols, and port connections to the real definitions Vide resolves."
+    description="Jump from instances, symbols, and port connections to corresponding declarations or definitions."
   />
   <LinkCard
     title="Find References"
@@ -33,32 +39,32 @@ On each feature page, you will see the problem the feature solves, a screenshot 
   <LinkCard
     title="Rename"
     href="./rename/"
-    description="Rename RTL symbols across the project and update declarations and references together."
+    description="Rename symbols across the project and update declarations and references together."
   />
   <LinkCard
     title="Syntax Highlighting"
     href="./syntax-highlighting/"
-    description="Confirm file recognition, basic highlighting, and the boundary between syntax and semantic features."
+    description="Provide syntax-based highlighting for files."
   />
   <LinkCard
     title="Semantic Highlighting"
     href="./semantic-highlighting/"
-    description="Use RTL semantics to distinguish port directions, clock/reset ports, instances, and types."
+    description="Mark port directions, clock/reset ports, and read/write positions."
   />
   <LinkCard
     title="Annotations"
     href="./annotations/"
-    description="Show inlay hints and lens annotations for ports, parameters, structure endings, and instance counts."
+    description="Show port, parameter, structure-name, and instance-count annotations near relevant code."
   />
   <LinkCard
     title="Document Symbols"
     href="./document-symbols/"
-    description="Browse RTL file structure through Outline, breadcrumbs, and symbol views."
+    description="Browse code structure through Outline, breadcrumbs, and symbol views."
   />
   <LinkCard
     title="Folding"
     href="./folding/"
-    description="Fold modules, port lists, declarations, statement blocks, comments, and RTL syntax regions."
+    description="Fold modules, port lists, declarations, statement blocks, and comments by syntax structure."
   />
   <LinkCard
     title="Automatic Refactoring"
@@ -68,7 +74,7 @@ On each feature page, you will see the problem the feature solves, a screenshot 
   <LinkCard
     title="Diagnostics"
     href="./diagnostics/"
-    description="Understand the Problems panel, on-save/on-type refresh, and diagnostic rules."
+    description="View realtime diagnostics from slang in the Problems panel."
   />
   <LinkCard
     title="Signature Help"
@@ -78,18 +84,16 @@ On each feature page, you will see the problem the feature solves, a screenshot 
   <LinkCard
     title="Selection Range"
     href="./selection-range/"
-    description="Use expand/shrink selection to select code by RTL syntax nodes."
+    description="Use expand/shrink selection to select code by syntax nodes."
   />
   <LinkCard
     title="Formatting"
     href="./formatting/"
-    description="Configure verible and use document, selection, and Enter formatting entry points."
+    description="Configure verible to use formatting."
   />
   <LinkCard
-    title="Qihe Analysis"
+    title="Qihe Integration"
     href="./qihe/"
     description="Integrate Qihe in Vide and run deep static analysis on a project or a single file."
   />
 </CardGrid>
-
-Use `vide.toml` to describe project structure, and VS Code Settings to tune editor behavior. See [Project Configuration Reference](../project-configuration/) and [VS Code Settings Reference](../vscode-settings/) for the full references.

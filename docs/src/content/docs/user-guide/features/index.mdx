@@ -1,19 +1,23 @@
 ---
-title: 功能详解
-description: 按 homepage 顺序了解 Vide 的定义跳转、引用搜索、悬停、补全、重命名、语法高亮、语义高亮、代码注解、符号大纲、折叠、自动重构、诊断、签名提示、语义选区、格式化和 Qihe。
+title: 功能特性
+description: 了解 Vide 的定义跳转、引用搜索、悬停、补全、重命名、语法高亮、语义高亮、代码注解、符号大纲、折叠、自动重构、诊断、签名提示、语义选区、格式化和 Qihe 集成。
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-这里按 IDE 功能介绍 Vide 在 VS Code 中提供的阅读、编辑能力。
+这里介绍 Vide 在 VS Code 中提供的所有功能，每个功能对应一个功能页。在每个功能页中，你会看到：
 
-在每个功能页中，你会看到这个功能解决的问题，一个示意图或者可以直接操作的演示，并在最后说明如何通过 `vide.toml` 或 VS Code 设置调整行为。
+- 这个功能解决的问题；
+- 一个示意图或者可以直接操作的演示；
+- 如何通过 `vide.toml` 或 VS Code 设置调整行为。我们也在 [项目配置页](../project-configuration/#项目配置前后的行为差异) 中总结了项目配置前后的行为差异。
+
+在阅读这一节前，请确保阅读过 [配置第一个项目](../first-project/)，因为有些深入分析的功能需要妥善编写项目配置才能正常工作。
 
 <CardGrid>
   <LinkCard
     title="定义跳转"
     href="./navigation/"
-    description="从实例、符号和端口连接跳到 Vide 解析到的真实定义。"
+    description="从实例、符号和端口连接跳到对应声明或定义。"
   />
   <LinkCard
     title="引用搜索"
@@ -33,17 +37,17 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="重命名"
     href="./rename/"
-    description="在工程范围内重命名 RTL 符号，并同步更新声明和引用。"
+    description="在工程范围内重命名符号，并同步更新声明和引用。"
   />
   <LinkCard
     title="语法高亮"
     href="./syntax-highlighting/"
-    description="确认文件识别、基础高亮和语言服务器的边界。"
+    description="根据语法提供文件的高亮显示。"
   />
   <LinkCard
     title="语义高亮"
     href="./semantic-highlighting/"
-    description="用 RTL 语义标记端口方向、时钟复位和读写位置。"
+    description="标记端口方向、时钟复位和读写位置。"
   />
   <LinkCard
     title="代码注解"
@@ -53,12 +57,12 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="符号大纲"
     href="./document-symbols/"
-    description="在大纲、面包屑和符号视图中浏览 RTL 文件结构。"
+    description="在大纲、面包屑和符号视图中浏览代码结构。"
   />
   <LinkCard
     title="折叠"
     href="./folding/"
-    description="按 RTL 语法结构折叠模块、端口列表、声明、块语句和注释。"
+    description="按语法结构折叠模块、端口列表、声明、块语句和注释。"
   />
   <LinkCard
     title="自动重构"
@@ -68,7 +72,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="实时诊断"
     href="./diagnostics/"
-    description="理解问题面板、保存/输入时刷新，以及诊断规则配置。"
+    description="在问题面板查看来自 slang 的实时诊断。"
   />
   <LinkCard
     title="签名提示"
@@ -78,18 +82,16 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="语义选区"
     href="./selection-range/"
-    description="使用扩大/缩小选择按 RTL 语法节点选择代码。"
+    description="使用扩大/缩小选择按语法节点选择代码。"
   />
   <LinkCard
     title="格式化"
     href="./formatting/"
-    description="配置 verible，并使用文档、选区和 Enter 格式化入口。"
+    description="配置 verible 使用格式化功能。"
   />
   <LinkCard
-    title="骑河（Qihe）"
+    title="骑河集成"
     href="./qihe/"
     description="在 Vide 中集成骑河，对项目或单个文件运行深度静态分析。"
   />
 </CardGrid>
-
-需要控制工程结构时，配置工作区里的 `vide.toml`；需要控制编辑器行为时，配置 VS Code Settings。完整字段见 [项目配置参考](../project-configuration/) 和 [VS Code 设置参考](../vscode-settings/)。

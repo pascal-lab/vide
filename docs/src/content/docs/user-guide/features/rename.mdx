@@ -1,6 +1,6 @@
 ---
 title: 重命名
-description: 在工程范围内重命名 RTL 符号，并同步更新声明和引用。
+description: 在工程范围内重命名 SystemVerilog 符号，并同步更新声明和引用。
 ---
 
 import FeatureExample from '../../../../components/FeatureExample.astro';
@@ -10,7 +10,7 @@ import { codeActionRenameFiles } from '../../../../examples/dailyUse';
 
 ## 什么是重命名
 
-重命名会把同一个 RTL 符号的声明和引用一起更名。它比手动搜索替换更安全，因为 Vide 会先解析当前位置对应的符号，再生成 VS Code 工作区编辑，保证了修改的符号不会超出它的作用域影响到其他符号。
+重命名会把同一个 SystemVerilog 符号的声明和引用一起更名。它比手动搜索替换更安全，因为 Vide 会先判断当前位置对应的是哪个符号，再生成工作区编辑，避免把同名但无关的符号一起改掉。
 
 ## 演示
 
@@ -35,10 +35,16 @@ import { codeActionRenameFiles } from '../../../../examples/dailyUse';
 
 ## 项目配置影响
 
-重命名依赖符号解析和可编辑的工程范围。没有 `vide.toml` 时，Vide 会用工作区扫描结果支持阅读类引用搜索，但不会启用工程重命名；把相关源文件写进 `sources` 后，执行 `Vide：重新加载项目配置` 会刷新重命名范围。
+### 没有完整配置时
+
+没有 `vide.toml` 时，Vide 可以用工作区扫描结果进行引用搜索，但不会启用工程范围重命名。这样可以避免在工程范围不明确时误改文件。
+
+### 有完整配置时
+
+有完整配置时可以体验准确的重命名功能。
 
 ## 使用边界
 
-如果当前位置不能解析为唯一符号，或者目标文件不在当前项目配置管理的可编辑范围内，VS Code 不会进入重命名流程。需要先确认 [定义跳转](../navigation/) 和 [引用搜索](../references/) 能定位到同一个目标。
+如果当前位置不能解析为唯一符号，或者目标文件不在当前项目配置管理的可编辑范围内，VS Code 不会进入重命名流程。遇到这种情况，通常先检查 `vide.toml` 是否包含相关源文件、include 目录、宏定义和依赖库。
 
-局部符号的作用域可见性由 `vide.scope.visibility` 控制；常规项目保持默认值即可。完整参考见 [Scope 设置](../../vscode-settings/#scope)。
+局部符号默认只会在它实际可见的作用域里重命名。只有在需要调整局部符号跨作用域搜索策略时，才需要查看 `vide.scope.visibility`。完整参考见 [Scope 设置](../../vscode-settings/#scope)。

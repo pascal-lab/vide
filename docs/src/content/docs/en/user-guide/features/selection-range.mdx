@@ -8,13 +8,13 @@ import { structureFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Selection range powers VS Code's `Expand Selection` and `Shrink Selection`. For example, when the cursor is on `choose_b`, repeated expansion can grow from `choose_b` to `.sel(choose_b)`, then to the whole instance connection, and then to the surrounding module. When copying, deleting, replacing, or wrapping RTL structures, you do not need to drag the mouse precisely to parentheses, commas, or `end`.
+Selection range powers VS Code's `Expand Selection` and `Shrink Selection`. For example, when the cursor is on `choose_b`, repeated expansion can grow from `choose_b` to `.sel(choose_b)`, then to the whole instance connection, and then to the surrounding module. When copying, deleting, replacing, or wrapping SystemVerilog structures, you do not need to drag the mouse precisely to parentheses, commas, or `end`.
 
 There are two ways to run it: press `F1` and search `Expand Selection` or `Shrink Selection`; or use the default shortcuts, `Shift+Alt+Right` and `Shift+Alt+Left` on Windows/Linux, `Ctrl+Shift+Cmd+Right` and `Ctrl+Shift+Cmd+Left` on macOS. If another extension owns the shortcut, search `editor.action.smartSelect.expand` and `editor.action.smartSelect.shrink` in VS Code Keyboard Shortcuts to rebind them.
 
 ## Demo
 
-Place the cursor on `choose_b` and run `Expand Selection` repeatedly. The selection grows outward along the RTL syntax structure; `Shrink Selection` moves back in the reverse order.
+Place the cursor on `choose_b` and run `Expand Selection` repeatedly. The selection grows outward along the SystemVerilog syntax structure; `Shrink Selection` moves back in the reverse order.
 
 <VideLab
   projectId="daily-selection-range"
@@ -29,8 +29,10 @@ Place the cursor on `choose_b` and run `Expand Selection` repeatedly. The select
 
 ## Project Configuration
 
-Selection ranges mainly come from the current file's syntax tree, so they work in single-file cases. Project configuration affects include and macro-expanded structure; after it is configured correctly, the selection hierarchy from those structures follows the real project.
+### Without Complete Configuration
 
-## Related Features
+Selection ranges mainly come from the current file's syntax structure, so they work in single-file cases.
 
-Use selection range to edit the current code block. Use [Document Symbols](../document-symbols/) to browse file hierarchy, and [Folding](../folding/) to collapse structures.
+### With Complete Configuration
+
+After `vide.toml` is configured, include files and macro branches are expanded from the project configuration, and selection levels from those structures match the real project.

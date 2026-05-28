@@ -1,6 +1,6 @@
 ---
 title: Semantic Highlighting
-description: Distinguish port directions, clock/reset ports, instances, and types with RTL semantics.
+description: Distinguish port directions, clock/reset ports, instances, and types with SystemVerilog semantics.
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
@@ -10,7 +10,7 @@ import { semanticTokenFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Syntax highlighting only knows whether a token looks like a keyword, number, or comment. Semantic highlighting uses Vide's parse result so RTL identifiers that look the same can use different styles. When reading code, you can more quickly distinguish clock/reset ports, input/output ports, module instance names, and `typedef` types. In the default display, input ports are bold (for example <strong>data_i</strong>), output ports are bold and underlined (for example <strong><u>data_o</u></strong>), and clock/reset ports use colors that differ from ordinary ports.
+Syntax highlighting only knows whether a token looks like a keyword, number, or comment. Semantic highlighting further identifies what a name means in code. When reading code, you can more quickly distinguish clock/reset ports, input/output ports, module instance names, and `typedef` types. In the default display, input ports are bold (for example <strong>data_i</strong>), output ports are bold and underlined (for example <strong><u>data_o</u></strong>), and clock/reset ports use colors that differ from ordinary ports.
 
 ## Demo
 
@@ -35,13 +35,19 @@ Syntax highlighting only knows whether a token looks like a keyword, number, or 
 
 ## Project Configuration
 
-Basic semantic markings for the current file can be computed directly. Cross-file resolution, macro branches, and include relationships affect target modules, ports, and declarations. After `vide.toml` is configured, semantic highlighting refreshes from the project structure described by `vide.toml`.
+### Without Complete Configuration
+
+Ports, declarations, and types in the current file can receive basic semantic highlighting. Cross-file targets, include files, and macro branches only participate when Vide can scan and resolve them.
+
+### With Complete Configuration
+
+After `vide.toml` is configured, semantic highlighting refreshes from the project structure. Port directions, clock/reset ports, instance names, and type names are identified with the real include files, macro definitions, and libraries.
 
 ## Settings
 
-Semantic highlighting also depends on the active VS Code theme. Vide provides two switches:
+If semantic highlighting does not look different, first confirm that the active VS Code theme supports semantic tokens. Vide provides two switches:
 
 - `vide.semantic.tokens.port.clk.rst.enable`: controls clock/reset port tokens.
 - `vide.semantic.tokens.port.input.output.enable`: controls input/output direction tokens.
 
-See [Semantic Tokens settings](../../vscode-settings/#semantic-tokens) for the full reference.
+See [Semantic Tokens settings](../../vscode-settings/#semantic-tokens).

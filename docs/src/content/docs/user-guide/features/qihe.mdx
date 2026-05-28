@@ -1,5 +1,5 @@
 ---
-title: 骑河分析
+title: 骑河集成
 description: 在 Vide 中集成骑河，对项目或单个 Verilog/SystemVerilog 文件运行深度静态分析。
 ---
 
@@ -39,7 +39,7 @@ Vide 目前支持使用骑河分析整个项目，也支持只分析当前文件
 
 ### 分析项目
 
-分析整个项目时，需要用 `vide.toml` 描述工程里的源文件、include 目录、宏定义和顶层模块。完整写法见 [配置第一个项目](../../first-project/) 和 [项目配置参考](../../project-configuration/)。
+分析整个项目时，需要用 `vide.toml` 描述工程里的源文件、include 目录、宏定义和顶层模块。配置方式见 [配置第一个项目](../../first-project/) 和 [项目配置参考](../../project-configuration/)。
 
 一个单文件项目可以这样组织：
 
@@ -88,7 +88,7 @@ _分析结果：诊断位置和 Qihe 输出信息会一起帮助定位问题。_
 
 ### 分析单文件
 
-如果工作区没有 `vide.toml`，执行 `Vide：运行 Qihe 分析` 后，Vide 会把当前打开的 RTL 文件作为骑河分析输入。
+如果工作区没有 `vide.toml`，执行 `Vide：运行 Qihe 分析` 后，Vide 会把当前打开的 Verilog/SystemVerilog 文件作为骑河分析输入。
 
 如果 `vide.toml` 仍是默认空模板，并且没有解析出项目源文件，运行结果也等同于单文件分析。这个功能主要用于快速试跑和演示；正式项目建议写好 `vide.toml`，让 include 目录、宏定义和顶层模块一起传给骑河。
 
@@ -136,6 +136,8 @@ qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-
 qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 ```
 
+这里的 `<input-files>` 是传给 `qihe compile` 的 Verilog/SystemVerilog 输入文件。项目模式下，它来自 `sources` 和 `libraries` 解析出的文件；单文件模式下，它就是当前打开的文件。
+
 例如：
 
 ```json
@@ -145,6 +147,8 @@ qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
   "vide.qihe.runArgs": ["-g", "std"]
 }
 ```
+
+如果需要进一步调整骑河参数，请先确认参数应该传给 `qihe compile` 还是 `qihe run`。两条命令的参数详见以下文档：
 
 <ThinLinkCard
   href="https://qihe-docs.pascal-lab.net/platform-cli/compile.html"

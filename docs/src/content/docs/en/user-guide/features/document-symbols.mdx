@@ -1,6 +1,6 @@
 ---
 title: Document Symbols
-description: Browse RTL file structure from Outline, breadcrumbs, and symbol views.
+description: Browse SystemVerilog file structure from Outline, breadcrumbs, and symbol views.
 ---
 
 import Codicon from '../../../../../components/Codicon.astro';
@@ -15,12 +15,14 @@ Document symbols organize modules, ports, parameters, declarations, functions, t
 
 ## Project Configuration
 
-Document symbols mainly come from the current file, so they work when a single file is open. Project configuration affects include and macro-expanded structure and gives the file a more accurate project context.
+### Without Complete Configuration
+
+Document symbols mainly come from the current file structure, so they work when a single file is open.
+
+### With Complete Configuration
+
+After `vide.toml` is configured, include files and macro branches are parsed from the project configuration, and the outline becomes closer to the structure seen in the real project.
 
 ## Instance Count Lens
 
 Vide can also show how many times a module is instantiated above the module declaration. This instance-count annotation is part of [Annotations](../annotations/) and is controlled by `vide.lens.instantiations.enable`; see [Lens settings](../../vscode-settings/#lens).
-
-## Related Features
-
-Use document symbols to navigate structure. Use [Folding](../folding/) to collapse those structures, or [Selection Range](../selection-range/) to expand the current selection by syntax node.

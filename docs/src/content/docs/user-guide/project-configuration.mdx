@@ -98,14 +98,19 @@ endmodule
 
 ## 字段速查
 
-一个常见小工程会用到这些字段：
+一个完整小工程的 `vide.toml` 通常长这样：
 
 ```toml
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
 sources = ["rtl/**"]
 include_dirs = ["include"]
-defines = ["SYNTHESIS"]
+defines = ["SYNTHESIS", "FEATURE_PIPELINE=1"]
 top_modules = ["top"]
+libraries = ["vendor/common"]
+exclude = ["build/**", "sim/work/**"]
 ```
+
+如果工程没有外部库或生成目录，可以删掉 `libraries` 和 `exclude`；其余字段一般会直接影响跳转、补全、诊断、重命名和骑河分析。
 
 | 字段 | 类型 | 作用 |
 | --- | --- | --- |
@@ -189,7 +194,7 @@ defines = [
 - 如果库目录没有项目配置文件，Vide 会把该目录作为未配置库加载。
 - 依赖会参与当前工程的项目分析，并支持传递依赖。
 
-`libraries` 不会替代当前工程自己的 `sources`。当前工作区的 RTL 仍然应该通过 `sources` 声明；`libraries` 只描述被当前工程引用的外部工程或库目录。
+`libraries` 不会替代当前工程自己的 `sources`。当前工作区的 Verilog/SystemVerilog 源文件仍然应该通过 `sources` 声明；`libraries` 只描述被当前工程引用的外部工程或库目录。
 
 ### exclude
 

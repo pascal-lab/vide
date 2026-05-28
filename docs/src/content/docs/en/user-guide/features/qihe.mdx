@@ -1,5 +1,5 @@
 ---
-title: Qihe Analysis
+title: Qihe Integration
 description: Integrate Qihe in Vide and run deep static analysis on a project or a single Verilog/SystemVerilog file.
 ---
 
@@ -41,7 +41,7 @@ Vide currently supports running Qihe on the whole project or on the current file
 
 ### Analyze a Project
 
-Project analysis needs `vide.toml` to describe source files, include directories, macro definitions, and top modules. See [Configure the First Project](../../first-project/) and [Project Configuration Reference](../../project-configuration/) for the full setup.
+Project analysis needs `vide.toml` to describe source files, include directories, macro definitions, and top modules. See [Configure the First Project](../../first-project/) and [Project Configuration Reference](../../project-configuration/) for the setup.
 
 A single-file project can be organized like this:
 
@@ -90,7 +90,7 @@ _Analysis result: diagnostics and Qihe output details help locate the issue._
 
 ### Analyze One File
 
-If the workspace has no `vide.toml`, `Vide: Run Qihe Analysis` sends the currently open RTL file to Qihe.
+If the workspace has no `vide.toml`, `Vide: Run Qihe Analysis` sends the currently open Verilog/SystemVerilog file to Qihe.
 
 If `vide.toml` is still the default empty template and no project source files are resolved, the run is also a single-file analysis. This is mainly for quick trials and demos; real projects should configure `vide.toml` so include directories, macro definitions, and top modules are passed to Qihe.
 
@@ -127,7 +127,7 @@ Common defaults are:
 }
 ```
 
-See [Qihe settings](../../vscode-settings/#qihe) for the full reference.
+See [Qihe settings](../../vscode-settings/#qihe).
 
 Vide then parses Qihe diagnostics and shows them in the editor. The command execution details are available in VS Code's Output panel: choose the `Vide Qihe` output channel.
 
@@ -138,6 +138,8 @@ qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-
 qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 ```
 
+`<input-files>` means the Verilog/SystemVerilog input files passed to `qihe compile`. In project mode, they come from files resolved from `sources` and `libraries`; in single-file mode, it is the currently open file.
+
 For example:
 
 ```json
@@ -147,6 +149,8 @@ For example:
   "vide.qihe.runArgs": ["-g", "std"]
 }
 ```
+
+If you need to adjust Qihe arguments further, first decide whether the arguments belong to `qihe compile` or `qihe run`. The command arguments are documented here:
 
 <ThinLinkCard
   href="https://qihe-docs.pascal-lab.net/platform-cli/compile.html"

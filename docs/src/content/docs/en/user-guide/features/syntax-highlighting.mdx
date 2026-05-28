@@ -10,7 +10,7 @@ import { syntaxHighlightingFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Syntax highlighting is lexical coloring for keywords, comments, numbers, strings, and basic syntax structures. Basic syntax highlighting, comment rules, bracket matching, and file icons are provided directly by the VS Code extension; beyond grammar rules, it does not need additional analysis.
+Syntax highlighting colors keywords, comments, numbers, strings, and basic syntax structures. It does not need to understand the whole project first, so Verilog/SystemVerilog files get base coloring, comment recognition, bracket matching, and file icons as soon as they open.
 
 ## Demo
 
@@ -24,4 +24,6 @@ Syntax highlighting is lexical coloring for keywords, comments, numbers, strings
   description="Load the example and open usage.v to inspect base coloring for module, input, wire, always, number literals, and comments."
 />
 
-Syntax highlighting itself does not depend on `vide.toml`. Once the VS Code extension is enabled, syntax highlighting is applied.
+## Project Configuration
+
+None. Syntax highlighting does not depend on `vide.toml`. Once the Vide extension is enabled, Verilog/SystemVerilog files get basic syntax highlighting.

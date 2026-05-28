@@ -1,6 +1,6 @@
 ---
 title: 语义高亮
-description: 用 RTL 语义区分端口方向、时钟复位、实例和类型。
+description: 用 SystemVerilog 语义区分端口方向、时钟复位、实例和类型。
 ---
 
 import FeatureExample from '../../../../components/FeatureExample.astro';
@@ -10,7 +10,7 @@ import { semanticTokenFiles } from '../../../../examples/dailyUse';
 
 ## 什么是语义高亮
 
-语法高亮只知道一个词长得像关键字、数字还是注释；语义高亮会结合 Vide 的解析结果，让同样是标识符的 RTL 名字呈现出不同样式。读代码时，你可以更快区分时钟/复位端口、输入输出端口、模块实例名和 `typedef` 类型；在默认显示里，输入端口会加粗（例如 <strong>data_i</strong>），输出端口会加粗并带下划线（例如 <strong><u>data_o</u></strong>），时钟和复位端口也会使用区别于普通端口的颜色。
+语法高亮只知道一个词长得像关键字、数字还是注释；语义高亮会进一步判断这个名字在代码里的含义。读代码时，你可以更快区分时钟/复位端口、输入输出端口、模块实例名和 `typedef` 类型；在默认显示里，输入端口会加粗（例如 <strong>data_i</strong>），输出端口会加粗并带下划线（例如 <strong><u>data_o</u></strong>），时钟和复位端口也会使用区别于普通端口的颜色。
 
 ## 演示
 
@@ -35,13 +35,21 @@ import { semanticTokenFiles } from '../../../../examples/dailyUse';
 
 ## 项目配置影响
 
-当前文件里的基础语义标记可以直接计算；跨文件解析、宏分支和 include 关系会影响目标模块、端口和声明的判定。写好 `vide.toml` 后，语义高亮会按 `vide.toml` 描述的工程结构刷新。
+### 没有完整配置时
+
+当前文件里的端口、声明和类型可以显示基础语义高亮。跨文件目标、include 文件和宏分支只在 Vide 能扫描并解析到时才会参与判断。
+
+### 有完整配置时
+
+写好 `vide.toml` 后，语义高亮会按工程结构刷新。端口方向、时钟/复位、实例名和类型名会结合真实 include、宏定义和库文件判断。
 
 ## 调整显示
 
-语义高亮需要当前 VS Code 主题支持 semantic tokens。Vide 还提供两个开关：
+如果语义高亮看起来没有明显变化，先确认当前 VS Code 主题支持 semantic tokens。可以尝试更换不同的主题查看效果是否生效。
+
+Vide 还提供两个开关：
 
 - `vide.semantic.tokens.port.clk.rst.enable`：控制时钟/复位端口标记。
 - `vide.semantic.tokens.port.input.output.enable`：控制 input/output 端口方向标记。
 
-完整写法见 [Semantic Tokens 设置参考](../../vscode-settings/#semantic-tokens)。
+设置参考见 [Semantic Tokens 设置](../../vscode-settings/#semantic-tokens)。
