@@ -12,13 +12,7 @@ export default defineConfig({
     starlight({
       title: {
         'zh-CN': 'VIDE',
-        en: 'Vide Docs',
-      },
-      logo: {
-        light: './src/assets/vide-logo-light.svg',
-        dark: './src/assets/vide-logo-dark.svg',
-        alt: 'Vide',
-        replacesTitle: true,
+        en: 'VIDE',
       },
       favicon: '/favicon.svg',
       description:

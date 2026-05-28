@@ -1,25 +1,70 @@
 <style is:global>
+  [data-has-hero] .hero {
+    padding-block-start: clamp(1.25rem, 4vw, 3.75rem);
+  }
+
   [data-has-hero] .hero h1 {
-    display: grid;
-    gap: 2rem;
+    display: block;
     letter-spacing: 0;
     line-height: 1;
-  }
-
-  [data-has-hero] .hero h1 .hero-brand {
-    color: var(--vide-accent);
-    font-size: clamp(2.55rem, 4.3vw, 4rem);
-    font-weight: 900;
-  }
-
-  [data-has-hero] .hero h1 .hero-title-main {
-    font-size: clamp(2.5rem, 5.8vw, 5rem);
-    text-wrap: balance;
+    text-align: center;
+    text-wrap: wrap;
     word-break: keep-all;
+    width: min(100%, 88rem);
+    max-width: 88rem;
+    font-size: clamp(2.2rem, 4.75vw, 4.15rem);
   }
 
-  [data-has-hero] .hero h1 .hero-title-nowrap {
+  html:lang(en)[data-has-hero] .hero h1 {
+    width: min(100%, 92rem);
+    max-width: 92rem;
+    font-size: clamp(2.1rem, 4.35vw, 3.85rem);
+  }
+
+  [data-has-hero] .hero h1::before {
+    content: "";
+    display: block;
+    width: min(15rem, 42vw);
+    aspect-ratio: 864 / 280;
+    margin-inline: auto;
+    margin-bottom: clamp(0.85rem, 2vw, 1.35rem);
+    background: url('../assets/vide-logo-reveal-light.svg') center / contain no-repeat;
+  }
+
+  :root[data-theme='dark'][data-has-hero] .hero h1::before,
+  :root[data-theme='dark'] [data-has-hero] .hero h1::before {
+    background-image: url('../assets/vide-logo-reveal-dark.svg');
+  }
+
+  [data-has-hero] .hero .tagline {
+    max-width: min(100%, 56rem);
+    color: var(--sl-color-gray-3);
+    font-size: clamp(1rem, 1.35vw, 1.2rem);
+    line-height: 1.7;
+    text-align: center;
+  }
+
+  html:lang(zh-CN)[data-has-hero] .hero .tagline {
+    font-size: clamp(1.18rem, 1.45vw, 1.38rem);
+  }
+
+  [data-has-hero] .hero .hero-tagline-accent {
+    color: var(--vide-accent);
+    font-weight: 800;
+  }
+
+  [data-has-hero] .hero .hero-tagline-nowrap {
     white-space: nowrap;
+  }
+
+  [data-has-hero] .hero .stack,
+  [data-has-hero] .hero .copy {
+    align-items: center;
+    text-align: center;
+  }
+
+  [data-has-hero] .hero .actions {
+    justify-content: center;
   }
 
   [data-has-hero] .hero h1 .hero-title-sub {
@@ -27,5 +72,64 @@
     font-size: clamp(1rem, 1.45vw, 1.35rem);
     font-weight: 400;
     line-height: 1.35;
+  }
+
+  @media (max-width: 49.999rem) {
+    [data-has-hero] .hero,
+    [data-has-hero] .hero .stack,
+    [data-has-hero] .hero .copy {
+      min-width: 0;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    [data-has-hero] .hero h1 {
+      font-size: clamp(1.85rem, 5.5vw, 2.1rem);
+      line-height: 1.08;
+      width: min(100%, calc(100vw - 2rem));
+      max-width: calc(100vw - 2rem);
+      white-space: normal;
+      word-break: normal;
+      overflow-wrap: anywhere;
+    }
+
+    [data-has-hero] .hero .actions {
+      flex-wrap: wrap;
+      max-width: calc(100vw - 2rem);
+    }
+  }
+
+  html[data-has-hero]:not([data-has-sidebar]),
+  html[data-has-hero][data-has-sidebar] {
+    --sl-content-width: 78rem;
+  }
+
+  html:lang(en)[data-has-hero]:not([data-has-sidebar]),
+  html:lang(en)[data-has-hero][data-has-sidebar] {
+    --sl-content-width: 84rem;
+  }
+
+  @media (min-width: 50rem) {
+    [data-has-hero][data-has-sidebar] {
+      --sl-content-inline-start: 0rem;
+    }
+
+    [data-has-hero][data-has-sidebar] .sidebar-pane {
+      display: none;
+    }
+
+    [data-has-hero] .hero .stack,
+    [data-has-hero] .hero .copy {
+      align-items: center;
+      text-align: center;
+    }
+
+    [data-has-hero] .hero .actions {
+      justify-content: center;
+    }
+
+    [data-has-hero] .hero h1::before {
+      width: min(23rem, 50vw);
+    }
   }
 </style>

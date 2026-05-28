@@ -7,14 +7,23 @@ interface Props {
 }
 
 const locale = normalizeHomepageLocale(Astro.props.locale);
-const heading =
-  locale === 'en'
-    ? `Make <span class="vide-feature__accent"><strong>hardware design</strong></span><br />feel as fluid as writing software`
-    : `让<span class="vide-feature__accent"><strong>硬件设计</strong></span><br />像编写软件一样<wbr /><span class="vide-feature__nowrap">丝滑顺手</span>`;
 ---
 
-<section class="vide-feature">
-  <h2 set:html={heading} />
+<section class="vide-feature" data-locale={locale}>
+  <h2>
+    {
+      locale === 'en' ? (
+        <>
+          Make <span class="vide-feature__accent"><strong>hardware design</strong></span><br />feel as fluid as
+          developing software
+        </>
+      ) : (
+        <>
+          让<span class="vide-feature__accent"><strong>硬件设计</strong></span><br />像开发软件一样<wbr /><span class="vide-feature__nowrap">丝滑顺手</span>
+        </>
+      )
+    }
+  </h2>
   <HomepageFeatureCarousel locale={locale} />
 </section>
 
@@ -30,6 +39,10 @@ const heading =
     font-size: clamp(2rem, 5vw, 3rem);
     letter-spacing: 0;
     line-height: 1.4;
+  }
+
+  .vide-feature[data-locale='en'] h2 {
+    max-width: 34ch;
   }
 
   .vide-feature__accent {
