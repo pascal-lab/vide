@@ -16,6 +16,16 @@
   "categories": [
     "Programming Languages"
   ],
+  "keywords": [
+    "verilog",
+    "systemverilog",
+    "rtl",
+    "hdl",
+    "hardware",
+    "ide",
+    "lsp",
+    "language-server"
+  ],
   "activationEvents": [],
   "main": "./dist/extension.js",
   "l10n": "./l10n",
