@@ -5,9 +5,9 @@ description: Start using Vide from the online experience or VS Code installation
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Vide is a modern VS Code development environment for Verilog/SystemVerilog developers. It helps the editor understand module hierarchy, port connections, macro definitions, and include relationships in hardware projects. Work that used to depend on search, experience, and manual signal tracing becomes navigation, completion, checking, and refactoring directly in code. Whether you are taking over an unfamiliar design, completing instance ports, tracing a signal source, or using Qihe for deeper project analysis, Vide brings feedback into the editor workflow so RTL code is faster to read, modify, and maintain.
+Vide is a modern development environment for Verilog/SystemVerilog developers, designed to make hardware design feel as fluid as software development. It brings more than a dozen capabilities that are standard in modern software IDEs but have long been missing from hardware workflows, including [Go to Definition](./features/navigation/), [Annotations](./features/annotations/), [Precise Completion](./features/completion/), and [Automatic Refactoring](./features/quick-fixes/). Most existing tools cover less than half of what Vide provides. With Vide, hardware developers can understand, write, and maintain Verilog/SystemVerilog code more efficiently.
 
-If you only want to try the core features first, open the [Online Experience](./online-experience/) directly and use the core features without configuration. If you want to use Vide in your own project, start with [VS Code Installation](./vscode-installation/).
+If you only want to get a feel for the core features, open the [Online Experience](./online-experience/) and try them without configuration. If you want to use Vide in your own project, start with [VS Code Installation](./vscode-installation/).
 
 ## Start Here
 
@@ -15,38 +15,38 @@ If you only want to try the core features first, open the [Online Experience](./
   <LinkCard
     title="Online Experience"
     href="./online-experience/"
-    description="Try navigation, code insight, completion, and refactoring in the browser without installing the local extension."
+    description="Try Vide directly in the browser without extra configuration."
   />
   <LinkCard
     title="VS Code Installation"
     href="./vscode-installation/"
-    description="Install the Marketplace extension, open an RTL directory, and confirm that Vide starts in the editor."
+    description="Install the VS Code extension, open a Verilog/SystemVerilog project, and confirm that Vide works."
   />
 </CardGrid>
 
 ## Reading Guide
 
-After trying Vide, continue in the order below. First-time users should read the tutorial and feature pages first; project configuration fields and VS Code settings are references to look up when needed.
+After trying or installing Vide, continue in the order below. First-time users should start with [Configure the First Project](./first-project/) and [Features](./features/). Use [Project Configuration](./project-configuration/) and [VS Code Settings](./vscode-settings/) as references when needed.
 
 <CardGrid>
   <LinkCard
     title="Configure the First Project"
     href="./first-project/"
-    description="Write the first vide.toml for a small project and learn the source, include, macro, and reload flow."
+    description="Write vide.toml for your project and tell Vide which source files, headers, macros, and related files to analyze."
   />
   <LinkCard
-    title="Feature Details"
+    title="Features"
     href="./features/"
-    description="Find go to definition, references, hover, completion, rename, highlighting, annotations, diagnostics, formatting, and Qihe by feature."
+    description="Read detailed explanations and demos for navigation, references, hover, completion, rename, highlighting, annotations, diagnostics, formatting, and Qihe."
   />
   <LinkCard
     title="Project Configuration Reference"
     href="./project-configuration/"
-    description="Look up sources, include_dirs, defines, libraries, top_modules, and exclude."
+    description="Look up the meaning and syntax of each vide.toml field."
   />
   <LinkCard
     title="VS Code Settings Reference"
     href="./vscode-settings/"
-    description="Look up vide.* settings for Qihe, diagnostics, formatting, annotations, and server launch."
+    description="Review Vide's configurable VS Code settings and adjust feature behavior."
   />
 </CardGrid>

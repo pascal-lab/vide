@@ -8,7 +8,7 @@ import { structureFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Selection range powers VS Code's `Expand Selection` and `Shrink Selection`. For example, when the cursor is on `choose_b`, repeated expansion can grow from `choose_b` to `.sel(choose_b)`, then to the whole instance connection, and then to the surrounding module. When copying, deleting, replacing, or wrapping SystemVerilog structures, you do not need to drag the mouse precisely to parentheses, commas, or `end`.
+Selection range powers VS Code's `Expand Selection` and `Shrink Selection`. For example, when the cursor is on `choose_b`, repeated expansion can grow from `choose_b` to `.sel(choose_b)`, then to the whole instance connection, and then to the surrounding module. When copying, deleting, replacing, or wrapping SystemVerilog structures, you do not need to drag the mouse precisely over parentheses, commas, or `end`.
 
 There are two ways to run it: press `F1` and search `Expand Selection` or `Shrink Selection`; or use the default shortcuts, `Shift+Alt+Right` and `Shift+Alt+Left` on Windows/Linux, `Ctrl+Shift+Cmd+Right` and `Ctrl+Shift+Cmd+Left` on macOS. If another extension owns the shortcut, search `editor.action.smartSelect.expand` and `editor.action.smartSelect.shrink` in VS Code Keyboard Shortcuts to rebind them.
 
@@ -35,4 +35,4 @@ Selection ranges mainly come from the current file's syntax structure, so they w
 
 ### With Complete Configuration
 
-After `vide.toml` is configured, include files and macro branches are expanded from the project configuration, and selection levels from those structures match the real project.
+After `vide.toml` is configured, include files and macro branches are expanded from the project configuration, and selection levels from those structures match the actual project.

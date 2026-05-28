@@ -10,7 +10,7 @@ import { codeActionRenameFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Rename changes the declaration and references of the same SystemVerilog symbol together. It is safer than manual search-and-replace because Vide first decides which symbol is under the cursor, then generates a workspace edit, avoiding unrelated symbols with the same name.
+Rename updates the declaration and references of the same SystemVerilog symbol together. It is safer than manual search-and-replace because Vide first resolves the symbol under the cursor, then generates a workspace edit that avoids unrelated symbols with the same name.
 
 ## Demo
 
@@ -41,7 +41,7 @@ Without `vide.toml`, Vide can use workspace scan results for reference search, b
 
 ### With Complete Configuration
 
-Add the source files that should participate in rename to `sources` or related `libraries`, then run `Vide: Reload Project Configuration`. Vide reloads the project scope, and rename updates declarations and references in those editable files.
+With complete configuration, rename can work accurately.
 
 ## Boundaries
 

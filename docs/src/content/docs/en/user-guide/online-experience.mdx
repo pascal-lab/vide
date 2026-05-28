@@ -1,6 +1,6 @@
 ---
 title: Online Experience
-description: Try Vide's core RTL IDE features in the browser without installing the local extension.
+description: "Try Vide's core RTL IDE features in the browser without installing the local extension."
 ---
 
 import VideLab from '../../../../components/VideLab.astro';
@@ -11,17 +11,17 @@ import {
   structureFiles,
 } from '../../../../examples/dailyUse';
 
-We provide several small RTL projects that run directly in the browser. Without extra configuration, you can try symbol navigation, code insight, precise completion, and automatic refactoring.
+The examples below are small RTL projects that run directly in the browser. Without extra configuration, you can try symbol navigation, code insight, precise completion, and automatic refactoring.
 
 When an example first loads, wait for the circle indicator in the upper-right corner of the editor to turn green. Then start from the selected code position. You can edit RTL, switch files, open the diagnostics panel, and use the reset button in the toolbar when you want to restore the initial state.
 
 ## Symbol Navigation
 
-In traditional Verilog project development, finding where a variable is defined or used often means running a global Ctrl+F string search. That also pulls in similar names and same-named symbols from unrelated scopes, which quickly gets in the way.
+In traditional Verilog projects, finding where a variable is defined or used often means running a global Ctrl+F string search. That search also returns similar names and identically named symbols from unrelated scopes, which quickly gets in the way.
 
-In Vide, go to definition, find references, and document symbols help you move between modules, ports, and registers without leaving the current context, so you can trace RTL connections more directly.
+In Vide, Go to Definition, Find References, and Document Symbols help you move between modules, ports, and registers without leaving the current context, so you can trace RTL connections more directly.
 
-This example demonstrates go to definition and find references.
+This example demonstrates Go to Definition and Find References.
 
 ### Steps
 
@@ -69,9 +69,9 @@ This example demonstrates hover information for module signatures and instances,
 
 ## Precise Completion
 
-Writing RTL without completion depends heavily on your memory of language syntax and project structure. If completion only does string matching, the candidate list is easily polluted by similar symbols and does not improve editing efficiency much.
+Writing RTL without completion depends heavily on memory: language syntax, project structure, module ports, and signal names. If completion only does string matching, suggestions are easily cluttered with similar symbols and do little to speed up editing.
 
-Vide's completion understands the current code context. It can provide more project-aware suggestions for instantiations, port connections, and other editing positions, and it can use snippets to provide structured completion.
+Vide's completion understands the current code context. It provides project-aware suggestions for instantiations, port connections, and other editing positions, and uses snippets for structured edits.
 
 ### Steps
 
@@ -93,11 +93,11 @@ Vide's completion understands the current code context. It can provide more proj
 
 ## Automatic Refactoring
 
-Refactoring RTL often involves repetitive work, such as filling missing ports one by one during module instantiation, converting ordered port connections to named connections, or renaming symbols across declarations and uses. These repetitive operations are exactly the kind of detail a program can handle accurately.
+Refactoring RTL often involves repetitive work: filling missing ports one by one during module instantiation, converting ordered port connections to named connections, or renaming symbols across declarations and uses. These mechanical edits are exactly the kind of detail the editor can handle accurately.
 
-Vide provides automatic refactoring and rename support, so those mechanical details can be handled by the editor.
+Vide provides automatic refactoring and rename support so the editor can handle those mechanical details for you.
 
-This example demonstrates automatic completion for missing port connections and rename.
+This example demonstrates missing-port completion and rename.
 
 ### Steps
 

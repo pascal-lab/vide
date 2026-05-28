@@ -10,7 +10,7 @@ import { completionFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Completion inserts candidates at the current position. Vide combines syntax position and semantics to offer useful candidates and suppress irrelevant ones: target ports in instance port lists, target parameters in parameter lists, visible symbols in expressions, and directives or macro-related candidates in preprocessor positions.
+Completion inserts candidates at the current position. Vide combines syntax context with RTL semantics to suggest useful candidates and suppress irrelevant ones: target ports in instance port lists, target parameters in parameter lists, visible symbols in expressions, and directives or macro-related candidates in preprocessor positions.
 
 Common trigger positions include instance `#(...)` and `(...)`, expressions, member access `.`, event controls `@(...)`, system tasks after `$`, preprocessor positions after `` ` ``, and integer literal base markers after `'`.
 

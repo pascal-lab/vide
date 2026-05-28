@@ -10,7 +10,7 @@ import { semanticTokenFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Syntax highlighting only knows whether a token looks like a keyword, number, or comment. Semantic highlighting further identifies what a name means in code. When reading code, you can more quickly distinguish clock/reset ports, input/output ports, module instance names, and `typedef` types. In the default display, input ports are bold (for example <strong>data_i</strong>), output ports are bold and underlined (for example <strong><u>data_o</u></strong>), and clock/reset ports use colors that differ from ordinary ports.
+Syntax highlighting only knows whether a token looks like a keyword, number, or comment. Semantic highlighting goes further by identifying what a name means in the code. When reading code, you can distinguish clock/reset ports, input/output ports, module instance names, and `typedef` types more quickly. In the default display, input ports are bold (for example <strong>data_i</strong>), output ports are bold and underlined (for example <strong><u>data_o</u></strong>), and clock/reset ports use colors that differ from ordinary ports.
 
 ## Demo
 
@@ -41,11 +41,13 @@ Ports, declarations, and types in the current file can receive basic semantic hi
 
 ### With Complete Configuration
 
-After `vide.toml` is configured, semantic highlighting refreshes from the project structure. Port directions, clock/reset ports, instance names, and type names are identified with the real include files, macro definitions, and libraries.
+After `vide.toml` is configured, semantic highlighting refreshes from the project structure. Port directions, clock/reset ports, instance names, and type names are identified using the actual include files, macro definitions, and libraries.
 
 ## Settings
 
-If semantic highlighting does not look different, first confirm that the active VS Code theme supports semantic tokens. Vide provides two switches:
+If semantic highlighting does not look different, first confirm that the active VS Code theme supports semantic tokens. You can also try another theme to check whether the markings take effect.
+
+Vide provides two switches:
 
 - `vide.semantic.tokens.port.clk.rst.enable`: controls clock/reset port tokens.
 - `vide.semantic.tokens.port.input.output.enable`: controls input/output direction tokens.

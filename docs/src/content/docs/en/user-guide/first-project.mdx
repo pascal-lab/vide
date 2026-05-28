@@ -5,7 +5,7 @@ description: Write the first vide.toml for a small project.
 
 import { FileTree } from '@astrojs/starlight/components';
 
-Vide can provide syntax highlighting and basic editing after opening any Verilog/SystemVerilog project. To make cross-file navigation, completion, diagnostics, macro-branch selection, and Qihe argument derivation more accurate, add a project configuration file named `vide.toml` to the workspace root.
+Vide provides syntax highlighting and basic editing as soon as you open a Verilog/SystemVerilog project. To make cross-file navigation, completion, diagnostics, macro-branch selection, and Qihe argument derivation more accurate, add a project configuration file named `vide.toml` to the workspace root.
 
 This page walks through a lightweight first configuration. For complete field details and boundary rules, see [Project Configuration Reference](../project-configuration/).
 
@@ -31,7 +31,7 @@ sources = []
 ```
 
 :::note
-- The default `sources = []` is an unfinished state: it tells Vide not to scan the whole workspace yet. Replace it with real paths such as `rtl/**`, and Vide will analyze the project according to that structure.
+- The default `sources = []` is an unfinished state: it tells Vide not to scan the whole workspace yet. Replace it with actual paths such as `rtl/**`, and Vide will analyze the project according to that structure.
 - The leading `#:schema ...` line is a TOML comment. It can help editors identify the configuration format.
 :::
 
@@ -76,7 +76,7 @@ Always write paths with `/`, even on Windows. Use `rtl/**`, not `rtl\**`. All pa
 
 ## 3. A More Realistic Project Example
 
-The `my-rtl` project above is intentionally small. Now use a real project, [darklife/darkriscv](https://github.com/darklife/darkriscv), as an example. The repository root contains `darkriscv.core`, which defines project information. A corresponding `vide.toml` can be:
+The `my-rtl` project above is intentionally small. Next, look at a real project, [darklife/darkriscv](https://github.com/darklife/darkriscv). The repository root contains `darkriscv.core`, which defines project information. A corresponding `vide.toml` can be:
 
 ```toml
 #:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
@@ -138,8 +138,8 @@ After you save `vide.toml`, Vide reloads project configuration automatically by 
 
 In practice there are three project states:
 
-- No `vide.toml`: Vide scans the workspace for reading features, but does not create a project-level compilation profile.
-- The empty default template: `sources = []` tells Vide not to scan the whole workspace yet, because the real source paths still need to be filled in.
+- No `vide.toml`: Vide scans the workspace for code-reading features, but does not create a project-level compilation profile.
+- The empty default template: `sources = []` tells Vide not to scan the whole workspace yet, because the actual source paths still need to be filled in.
 - A configured `vide.toml`: Vide understands the project through `sources`, `include_dirs`, `defines`, `libraries`, and related fields.
 
 For details, each [feature page](../features/) explains the behavior with and without project configuration. We also summarize the differences in [What Changes After Configuration](../project-configuration/#what-changes-after-configuration).
