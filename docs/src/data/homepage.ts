@@ -301,7 +301,7 @@ const comparisonProductFeatures = (locale: HomepageLocale): ComparisonProduct[] 
       selectionRange: false,
       codeActions:
         locale === 'en' ? 'Only supports linter quick fixes and autoexpand' : '仅支持 linter 的 quickfix 和 autoexpand',
-      inlayHints: false,
+      annotations: false,
       diagnostics: locale === 'en' ? 'Only supports syntax errors and linter rules' : '仅支持语法错误和 linter 规则',
     },
   },
