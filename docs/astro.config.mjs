@@ -46,11 +46,9 @@ export default defineConfig({
       ],
       components: {
         Footer: './src/components/SiteFooter.astro',
-      },
-      customCss: ['./src/assets/landing.css'],
-      components: {
         Sidebar: './src/components/Sidebar.astro',
       },
+      customCss: ['./src/assets/landing.css'],
       plugins: [
         starlightUtils({
           multiSidebar: {
