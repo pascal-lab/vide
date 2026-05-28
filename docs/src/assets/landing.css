@@ -1,17 +1,21 @@
 :root {
   --sl-font: Inter, var(--sl-font-system);
   --vide-accent-hsl: 215, 14%, 34%;
+  --vide-accent-opposite-hsl: 0, 0%, 84%;
   --vide-accent: hsl(var(--vide-accent-hsl));
+  --vide-accent-opposite: hsl(var(--vide-accent-opposite-hsl));
   --vide-overlay: hsla(var(--vide-accent-hsl), 0.08);
 }
 
 :root[data-theme='light'] {
   --vide-accent-hsl: 215, 14%, 34%;
+  --vide-accent-opposite-hsl: 0, 0%, 84%;
   --vide-overlay: hsla(var(--vide-accent-hsl), 0.08);
 }
 
 :root[data-theme='dark'] {
   --vide-accent-hsl: 0, 0%, 84%;
+  --vide-accent-opposite-hsl: 215, 14%, 34%;
   --vide-primary-button-color: #111827;
 }
 
