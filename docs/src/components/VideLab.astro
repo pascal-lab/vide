@@ -1,4 +1,7 @@
 ---
+import videLogoLoadingDark from '../assets/vide-logo-loading-dark.svg';
+import videLogoLoadingLight from '../assets/vide-logo-loading-light.svg';
+
 interface Props {
   scenario?: string;
   projectId?: string;
@@ -109,6 +112,10 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
   {
     showPlaceholder && (
       <div class="vide-lab-placeholder">
+        <div class="vide-lab-loader" aria-hidden="true">
+          <img class="vide-lab-loader__logo vide-lab-loader__logo-light" src={videLogoLoadingLight.src} alt="" />
+          <img class="vide-lab-loader__logo vide-lab-loader__logo-dark" src={videLogoLoadingDark.src} alt="" />
+        </div>
         <div class="vide-lab-copy">
           <strong>{title}</strong>
           <span>{description}</span>
@@ -116,6 +123,16 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
         <button class="vide-lab-button" type="button">
           {buttonLabel}
         </button>
+      </div>
+    )
+  }
+  {
+    !showPlaceholder && (
+      <div class="vide-lab-loading-shell" aria-hidden="true">
+        <div class="vide-lab-loader">
+          <img class="vide-lab-loader__logo vide-lab-loader__logo-light" src={videLogoLoadingLight.src} alt="" />
+          <img class="vide-lab-loader__logo vide-lab-loader__logo-dark" src={videLogoLoadingDark.src} alt="" />
+        </div>
       </div>
     )
   }
@@ -205,6 +222,7 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
     }
 
     root.dataset.loaded = "true";
+    root.classList.add("is-loading");
     const button = root.querySelector("button");
     if (button) {
       button.disabled = true;
@@ -233,10 +251,12 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
       setOptionalAttribute(lab, "selection", root.dataset.selection);
       setBooleanAttribute(lab, "diagnostics-open", root.dataset.diagnosticsOpen);
       setBooleanAttribute(lab, "focus-editor", root.dataset.focusEditor);
+      root.classList.remove("is-loading");
       root.classList.add("is-loaded");
       root.replaceChildren(lab);
     } catch (error) {
       root.dataset.loaded = "false";
+      root.classList.remove("is-loading");
       const message = error instanceof Error ? error.message : String(error);
       root.querySelector(".vide-lab-error")?.remove();
       const errorNode = document.createElement("p");
@@ -361,10 +381,52 @@ const mountedFocusEditor = initialFocusEditor ?? focusEditor;
     background: var(--sl-color-bg);
   }
 
+  .vide-lab-loading-shell {
+    display: none;
+    min-height: 7rem;
+    place-items: center;
+  }
+
+  .vide-lab-embed.is-loading .vide-lab-loading-shell {
+    display: grid;
+  }
+
+  .vide-lab-app .vide-lab-loading-shell {
+    height: 100%;
+    min-height: 0;
+  }
+
   .vide-lab-copy {
     display: grid;
     gap: 0.25rem;
     min-width: 0;
+  }
+
+  .vide-lab-loader {
+    display: none;
+    flex: none;
+    width: min(28vw, 6rem);
+  }
+
+  .vide-lab-embed.is-loading .vide-lab-loader {
+    display: block;
+  }
+
+  .vide-lab-loader__logo {
+    display: block;
+    width: 100%;
+  }
+
+  .vide-lab-loader__logo-dark {
+    display: none;
+  }
+
+  :global(:root[data-theme='dark']) .vide-lab-loader__logo-light {
+    display: none;
+  }
+
+  :global(:root[data-theme='dark']) .vide-lab-loader__logo-dark {
+    display: block;
   }
 
   .vide-lab-copy strong {

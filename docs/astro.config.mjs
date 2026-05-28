@@ -14,6 +14,13 @@ export default defineConfig({
         'zh-CN': 'VIDE',
         en: 'Vide Docs',
       },
+      logo: {
+        light: './src/assets/vide-logo-light.svg',
+        dark: './src/assets/vide-logo-dark.svg',
+        alt: 'Vide',
+        replacesTitle: true,
+      },
+      favicon: '/favicon.svg',
       description:
         'Documentation for the Vide Verilog/SystemVerilog language server, VS Code extension, and playground.',
       locales: {
@@ -39,11 +46,9 @@ export default defineConfig({
       ],
       components: {
         Footer: './src/components/SiteFooter.astro',
-      },
-      customCss: ['./src/assets/landing.css'],
-      components: {
         Sidebar: './src/components/Sidebar.astro',
       },
+      customCss: ['./src/assets/landing.css'],
       plugins: [
         starlightUtils({
           multiSidebar: {
@@ -128,6 +133,7 @@ export default defineConfig({
           translations: { en: 'Changelog' },
           items: [
             'changelog',
+            'changelog/v0-1-6',
             'changelog/v0-1-5',
             'changelog/v0-1-4',
             'changelog/v0-1-3',

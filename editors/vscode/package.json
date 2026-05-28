@@ -1,9 +1,9 @@
 {
-  "name": "vizsla-lsp",
-  "displayName": "Vide",
+  "name": "vide",
+  "displayName": "Vide - A Verilog/SystemVerilog Language Support",
   "description": "%extension.description%",
-  "version": "0.1.5",
-  "publisher": "vizsla",
+  "version": "0.1.6",
+  "publisher": "pascal-lab",
   "license": "MIT",
   "repository": {
     "type": "git",

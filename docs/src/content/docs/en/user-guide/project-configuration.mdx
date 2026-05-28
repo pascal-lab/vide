@@ -205,3 +205,15 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 - The project configuration file name must be `vide.toml`.
 - Vide does not automatically discover project configuration files from subdirectories. When you open `repo`, it only checks `repo/vide.toml`.
+
+## What Changes After Configuration
+
+| Area | Without a project configuration file | After `vide.toml` is configured |
+| --- | --- | --- |
+| [Go to definition](../features/navigation/), [find references](../features/references/), and [hover](../features/hover/) | Scans the workspace and provides the jumps, references, and symbol information needed while reading code | Resolves real targets through `sources`, `libraries`, include directories, and macro branches |
+| [Completion](../features/completion/) and [signature help](../features/signature-help/) | Uses the current file and scanned files for candidates; shows port/parameter help once the target module is resolved | Uses target modules, include directories, and macro branches for candidates and current-position hints |
+| [Rename](../features/rename/) and [quick fixes](../features/quick-fixes/) | Local code actions are available; project rename is disabled | Fills or converts ports and parameters across the project, and updates declarations, references, and connections |
+| [Syntax highlighting](../features/syntax-highlighting/) and [semantic highlighting](../features/semantic-highlighting/) | Syntax highlighting is available, and the current file gets basic semantic markings | Uses project analysis to mark port directions, read/write locations, and macro branches |
+| [Inlay hints](../features/inlay-hints/), [document symbols](../features/document-symbols/), [folding](../features/folding/), and [selection range](../features/selection-range/) | The current file gets outline, folding, and selection ranges; inlay hints are shown after the target module is resolved | Shows ports, parameters, instance counts, outline, folding, and semantic selection ranges according to the project structure |
+| [Diagnostics](../features/diagnostics/) | Open files get syntax and parse diagnostics; project-level semantic diagnostics are not created | Uses `sources`, `include_dirs`, and `defines` for cross-file semantic diagnostics |
+| [Qihe Analysis](../features/qihe/) | Uses the current file as the analysis input | Derives compile arguments from `sources`, `top_modules`, `include_dirs`, and `defines` |

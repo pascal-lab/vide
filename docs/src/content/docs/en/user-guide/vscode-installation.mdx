@@ -5,46 +5,50 @@ description: Install the Vide extension and confirm that the language service ha
 
 import ThinLinkCard from '../../../../components/ThinLinkCard.astro';
 
-This page helps you install Vide and verify that it is working. If you do not want to install anything yet, open the [Online Experience](../online-experience/) to try the core features in the browser.
+This page helps you install Vide and verify that it is working.
 
 ## 1. Install the Extension
 
 For regular use, install the stable Marketplace extension.
 
 <ThinLinkCard
-  href="https://marketplace.visualstudio.com/items?itemName=vizsla.vizsla-lsp"
+  href="https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide"
   title="Visual Studio Marketplace"
   action="Open"
 >
-  Install stable Vide, extension ID: <code>vizsla.vizsla-lsp</code>
+  Install stable Vide, extension ID: <code>pascal-lab.vide</code>
 </ThinLinkCard>
 
-You can also search for the display name `Vide` or the extension ID `vizsla.vizsla-lsp` in the VS Code Extensions view.
+You can also search for the display name `Vide` or the extension ID `pascal-lab.vide` in the VS Code Extensions view.
 
 ![vide in extension market](../../assets/quick-start/extension-marketplace.png)
 
 ## 2. Open an RTL Project Directory
 
-Open the directory that contains your RTL source code in VS Code. Later pages use “workspace root” to mean this top-level directory opened in VS Code.
+Open the project folder that contains your RTL source code in VS Code.
 
-If this directory contains Verilog/SystemVerilog source files but has no project configuration file named `vide.toml`, the extension prompts you to create a default configuration. You can skip it for now; [Configure the First Project](../first-project/) walks through the first `vide.toml`, and [Project Configuration Reference](../project-configuration/) covers the fields.
+If the project contains Verilog/SystemVerilog source files but has no project configuration file named `vide.toml`, the extension prompts you to create a default configuration. For exploration, you can skip this step for now, because Vide can still provide some analysis without configuration.
 
 ![notification for creating a project configuration file](../../assets/quick-start/create-manifest-notification.png)
 
+We will create the first `vide.toml` in [Configure the First Project](../first-project/).
+
 ## 3. Confirm Vide Started
 
-After the extension activates, the right side of the VS Code status bar shows a status item named `Vide`. The item displays `Vide`; it shows a spinner while starting or stopping, a warning icon when the project configuration is missing, and an error icon when startup or project configuration fails. Hover over the status item to see the current details.
+After the extension activates, the right side of the VS Code status bar shows a status item named `Vide`. When startup is normal, the item displays `Vide`. Hover over the status item and check the current status details to confirm that Vide has started.
 
 ![status bar](../../assets/quick-start/status-bar.png)
 
+:::note
+If the `Vide` status item does not appear, reload VS Code and open the project folder. If it still does not appear after restarting, please [contact us](https://github.com/pascal-lab/vide/issues/new).
+:::
+
 ## 4. Open an RTL File
 
-Open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file. VS Code should recognize the matching language and enable syntax highlighting and language services.
+Open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file. VS Code can recognize the language and enable syntax highlighting and Vide analysis.
 
 ![example](../../assets/quick-start/editor-example.png)
 
-If nothing happens after installation, first check that the opened folder contains RTL files and that the active editor is a Verilog/SystemVerilog file. If the `Vide` status item does not appear, reload the VS Code window. If the status item shows an error or you need output logs, continue with [Server Self-Check](../../advanced-guide/check-server/) or [Commands, Status, and Logs](../commands-status-logs/).
-
 ## Next Step
 
-After installation is verified, use [Configure the First Project](../first-project/) to write the first `vide.toml`, then read [Features](../features/). Use [Project Configuration Reference](../project-configuration/) when you need field details.
+After installation is verified, use [Configure the First Project](../first-project/) to write the first `vide.toml`, then read [Features](../features/).

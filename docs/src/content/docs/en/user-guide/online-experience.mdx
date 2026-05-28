@@ -11,15 +11,19 @@ import {
   structureFiles,
 } from '../../../../examples/dailyUse';
 
-Use these minimal RTL projects in the browser to try navigation, inlay hints, completion, and refactoring without installing the local extension. When you are ready to use Vide in a local project, read [VS Code Installation](../vscode-installation/) and [Configure the First Project](../first-project/).
+We provide several small RTL projects that run directly in the browser. Without extra configuration, you can try symbol navigation, code insight, precise completion, and automatic refactoring.
 
-Click `Load now`, start from the selected code, edit RTL, switch files, open diagnostics, and use the reset button in the toolbar when you want to restore the initial state.
+When an example first loads, wait for the circle indicator in the upper-right corner of the editor to turn green. Then start from the selected code position. You can edit RTL, switch files, open the diagnostics panel, and use the reset button in the toolbar when you want to restore the initial state.
 
 ## Symbol Navigation
 
-Jump from the instance in `top.v` to the module definition in `and_gate.v`, then return to the connection site to inspect the related signal.
+In traditional Verilog project development, finding where a variable is defined or used often means running a global Ctrl+F string search. That also pulls in similar names and same-named symbols from unrelated scopes, which quickly gets in the way.
 
-Steps:
+In Vide, go to definition, find references, and document symbols help you move between modules, ports, and registers without leaving the current context, so you can trace RTL connections more directly.
+
+This example demonstrates go to definition and find references.
+
+### Steps
 
 1. Load the example. `u_and_gate` is already selected in `top.v`.
 2. Run `Go to Definition` on `u_and_gate` or `and_gate` to jump to `and_gate.v`.
@@ -39,9 +43,13 @@ Steps:
 
 ## Code Insight
 
-Read each `u_mux` connection with the port name shown next to the argument, without opening the `mux2` definition first.
+In a typical editing flow, checking module signatures and port connections often means jumping back and forth between files. Even converting a numeric literal between bases can require an external tool. These interruptions make it harder to stay focused on the RTL design.
 
-Steps:
+Vide provides hover information and inlay hints at the edit location, so you can inspect modules, literals, and port connections in one window with fewer context switches.
+
+This example demonstrates hover information for module signatures and instances, plus inlay hints for port names.
+
+### Steps
 
 1. Load the example and read the port hints next to each `u_mux` connection.
 2. Hover over `mux2` or `u_mux` to inspect module and instance information.
@@ -61,9 +69,11 @@ Steps:
 
 ## Precise Completion
 
-Trigger completion near instance ports, parameter assignments, and expressions to fill port names and local signals from the candidate list.
+Writing RTL without completion depends heavily on your memory of language syntax and project structure. If completion only does string matching, the candidate list is easily polluted by similar symbols and does not improve editing efficiency much.
 
-Steps:
+Vide's completion understands the current code context. It can provide more project-aware suggestions for instantiations, port connections, and other editing positions, and it can use snippets to provide structured completion.
+
+### Steps
 
 1. Load the example and place the cursor inside the `adder8 u0(...)` port list.
 2. Delete a port name, or type `.` on a new line and trigger completion.
@@ -83,9 +93,13 @@ Steps:
 
 ## Automatic Refactoring
 
-Use code actions to complete instance connections, and use rename to update a signal declaration, connection, and usage together.
+Refactoring RTL often involves repetitive work, such as filling missing ports one by one during module instantiation, converting ordered port connections to named connections, or renaming symbols across declarations and uses. These repetitive operations are exactly the kind of detail a program can handle accurately.
 
-Steps:
+Vide provides automatic refactoring and rename support, so those mechanical details can be handled by the editor.
+
+This example demonstrates automatic completion for missing port connections and rename.
+
+### Steps
 
 1. Load the example, then manually remove one port connection from `u_counter`.
 2. Place the cursor near the `u_counter` instance and open the code action menu to complete the missing connection.
@@ -105,4 +119,6 @@ Steps:
 
 ## Next Step
 
-To use Vide in a local project, finish [VS Code Installation](../vscode-installation/), then write the first `vide.toml` with [Configure the First Project](../first-project/).
+After these examples, you should have a clearer sense of how Vide helps with RTL editing. For more flexible online exploration, open the [Playground](../../playground/) and use it together with [Configure the First Project](../first-project/) and [Features](../features/).
+
+To use Vide in a local project, first finish [VS Code Installation](../vscode-installation/), then write the first `vide.toml` with [Configure the First Project](../first-project/) for more accurate analysis.
