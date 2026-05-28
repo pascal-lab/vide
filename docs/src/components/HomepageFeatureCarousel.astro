@@ -40,6 +40,7 @@ const copy =
                     class="vide-feature-carousel__image"
                     src={image.src.src}
                     alt={image.alt}
+                    decoding="async"
                     loading={featureIndex === 0 && imageIndex === 0 ? 'eager' : 'lazy'}
                   />
                 </figure>
@@ -91,6 +92,73 @@ const copy =
 </div>
 
 <script>
+  const getCarouselImages = (carousel) =>
+    Array.from(carousel.querySelectorAll('.vide-feature-carousel__image')).filter(
+      (image) => image instanceof HTMLImageElement,
+    );
+
+  const isImageReady = (image) => image.complete && image.naturalWidth > 0;
+
+  const waitForImage = async (image) => {
+    if (!image) {
+      return;
+    }
+
+    image.loading = 'eager';
+
+    if (!isImageReady(image)) {
+      await new Promise((resolve) => {
+        const source = image.currentSrc || image.src;
+        if (!source) {
+          resolve();
+          return;
+        }
+
+        const preloader = new Image();
+
+        preloader.decoding = 'async';
+        preloader.onload = resolve;
+        preloader.onerror = resolve;
+        preloader.src = source;
+      });
+    }
+
+    if (image.decode) {
+      await image.decode().catch(() => undefined);
+    }
+  };
+
+  const warmCarouselImages = (carousel, activeIndex) => {
+    const images = getCarouselImages(carousel);
+
+    if (images.length <= 1) {
+      return;
+    }
+
+    const indexes = [
+      activeIndex,
+      (activeIndex + 1) % images.length,
+      (activeIndex - 1 + images.length) % images.length,
+    ];
+    indexes.forEach((index) => {
+      void waitForImage(images[index]);
+    });
+  };
+
+  const setCarouselPending = (carousel, pending) => {
+    if (pending) {
+      carousel.setAttribute('aria-busy', 'true');
+    } else {
+      carousel.removeAttribute('aria-busy');
+    }
+
+    carousel.querySelectorAll('[data-dir]').forEach((button) => {
+      if (button instanceof HTMLButtonElement) {
+        button.disabled = pending;
+      }
+    });
+  };
+
   const syncCarousel = (carousel, activeIndex) => {
     carousel.dataset.activeIndex = String(activeIndex);
     carousel.style.setProperty('--active-index', String(activeIndex));
@@ -104,8 +172,9 @@ const copy =
   const initializeCarousel = (carousel) => {
     const count = Number(carousel.dataset.count || '1');
     let activeIndex = Number(carousel.dataset.activeIndex || '0');
+    let pending = false;
 
-    carousel.addEventListener('click', (event) => {
+    carousel.addEventListener('click', async (event) => {
       const target = event.target;
       if (!(target instanceof Element)) {
         return;
@@ -116,12 +185,31 @@ const copy =
         return;
       }
 
+      if (pending) {
+        return;
+      }
+
       const delta = Number(button.dataset.dir || '0');
-      activeIndex = (activeIndex + delta + count) % count;
-      syncCarousel(carousel, activeIndex);
+      const nextIndex = (activeIndex + delta + count) % count;
+      const images = getCarouselImages(carousel);
+
+      pending = true;
+      setCarouselPending(carousel, true);
+
+      try {
+        await waitForImage(images[nextIndex]);
+
+        activeIndex = nextIndex;
+        syncCarousel(carousel, activeIndex);
+        warmCarouselImages(carousel, activeIndex);
+      } finally {
+        pending = false;
+        setCarouselPending(carousel, false);
+      }
     });
 
     syncCarousel(carousel, activeIndex);
+    warmCarouselImages(carousel, activeIndex);
   };
 
   document.querySelectorAll('[data-home-feature] [data-carousel]').forEach(initializeCarousel);
@@ -255,6 +343,12 @@ const copy =
   .vide-feature-carousel__arrow:hover {
     transform: translateY(-1px);
     color: var(--vide-feature-accent);
+  }
+
+  .vide-feature-carousel__arrow:disabled {
+    opacity: 0.45;
+    cursor: wait;
+    transform: none;
   }
 
   .vide-feature-carousel__arrow svg {
