@@ -30,9 +30,10 @@ sources = []
 # exclude = ["build/**"]
 ```
 
-The next sections explain what each field does.
-
-The default `sources = []` is an unfinished state: it tells Vide not to scan the whole workspace yet. Replace it with real paths such as `rtl/**`, and Vide will analyze the project according to that structure.
+:::note
+- The default `sources = []` is an unfinished state: it tells Vide not to scan the whole workspace yet. Replace it with real paths such as `rtl/**`, and Vide will analyze the project according to that structure.
+- The leading `#:schema ...` line is a TOML comment. It can help editors identify the configuration format.
+:::
 
 ## 2. Describe the Project Layout
 
@@ -63,47 +64,44 @@ exclude = ["build/**", "sim/work/**"]
 
 These fields tell Vide:
 
-- `sources`: which RTL source files belong to the project. Small projects can start with the source directory, such as `rtl/**` or `rtl/*.sv`.
-- `include_dirs`: where to search for files used by `` `include "defs.svh" ``.
-- `defines`: which macro branches are predefined, such as `"SYNTHESIS"` or `"DATA_WIDTH=32"`.
-- `top_modules`: the top-level module names for this project, which tell Vide where to start analysis.
-- `exclude`: generated directories, simulation output, and cache directories to ignore.
+- `sources`: **required**, selects which RTL source files belong to this project. For example, `rtl/**` recursively matches every file under the directory, while `rtl/*.sv` only matches `.sv` files directly under `rtl`.
+- `include_dirs`: **recommended**, tells Vide where to search for headers used by `` `include "defs.svh" ``. For example, `include`.
+- `defines`: **optional**, predefines macro branches, such as `"SYNTHESIS"` or `"DATA_WIDTH=32"`.
+- `top_modules`: **recommended**, declares the top-level module names for this project and tells Vide where to start analysis.
+- `exclude`: **optional**, filters out generated directories, simulation output, and cache directories so Vide does not analyze them. In this example, `exclude` can also be omitted because `sources` is not affected by those paths.
 
 :::note
-Always write paths with `/`, even on Windows. Use `rtl/**`, not `rtl\**`.
+Always write paths with `/`, even on Windows. Use `rtl/**`, not `rtl\**`. All paths must stay inside the workspace root.
 :::
 
 ## 3. A More Realistic Project Example
 
-The `my-rtl` project above is intentionally small. Real projects often already have FuseSoC core files, Makefiles, simulation scripts, or synthesis scripts. These files can help you identify the entry module, macro definitions, and RTL files that should participate in analysis.
-
-Use [darklife/darkriscv](https://github.com/darklife/darkriscv) as an example. The repository root contains `darkriscv.core`, and the default target declares `darksocv` as the top-level module. `darksocv.v` instantiates modules such as `darkpll`, `darkbridge`, `darkram`, and `darkio`, so `sources` must cover those module definitions. A corresponding `vide.toml` can be:
+The `my-rtl` project above is intentionally small. Now use a real project, [darklife/darkriscv](https://github.com/darklife/darkriscv), as an example. The repository root contains `darkriscv.core`, which defines project information. A corresponding `vide.toml` can be:
 
 ```toml
 #:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
 
+top_modules = ["darksocv"]
 sources = [
   "rtl/*.v",
 ]
-
 include_dirs = [
   "rtl",
   "src",
 ]
-
-top_modules = ["darksocv"]
 ```
 
 The mapping is:
 
-- `top_modules = ["darksocv"]` comes from `toplevel: darksocv` in the `.core` default target.
-- `sources = ["rtl/*.v"]` covers module definitions used directly or indirectly by `darksocv`, including `darkpll.v`, `darkbridge.v`, `darkram.v`, `darkio.v`, `darkriscv.v`, and `darkuart.v`.
-- `rtl/config.vh` in the `.core` file is an include file, so `include_dirs = ["rtl"]` lets Vide find it.
-- `src/darksocv.mem` in the `.core` file is simulation or initialization data, not Verilog source. Keep `src` in `include_dirs`, but do not put the `.mem` file in `sources`.
+- `top_modules = ["darksocv"]`: comes from `toplevel: darksocv` in the `.core` default target.
+- `sources = ["rtl/*.v"]`: covers module definitions used directly or indirectly by `darksocv`, including `darkpll.v`, `darkbridge.v`, `darkram.v`, `darkio.v`, `darkriscv.v`, and `darkuart.v`.
+- `include_dirs = ["rtl", "src"]`
+  - `rtl/config.vh` is an include file, so `rtl` is an include directory.
+  - `src/darksocv.mem` is simulation or initialization data used by the source code, so put `src` in `include_dirs`.
 
-If you only put the files explicitly listed in the `.core` `rtl` fileset, namely `rtl/darkriscv.v`, `rtl/darksocv.v`, and `rtl/darkuart.v`, into `sources`, the `darkpll`, `darkbridge`, `darkram`, and `darkio` instances in `darksocv.v` report `unknown module` because their definitions are not loaded. When writing `vide.toml`, prefer making the full RTL module set visible to the editor.
+The configuration above only covers the synthesizable part. If you also want to analyze simulation code, how should `vide.toml` be written?
 
-To analyze the simulation entry from the `.core` `sim` target, add `sim/darksimv.v` from the `tb` fileset and change the top module to `darksimv`. The `sim` target's icarus configuration uses `-g2012`, and `config.vh` switches simulation branches based on `__ICARUS__`, so define that macro as well:
+For example, to analyze the simulation entry from the `.core` `sim` target, add `sim/darksimv.v` from the `tb` fileset and change the top module to `darksimv`. The `sim` target's icarus configuration uses `-g2012`, and `config.vh` switches simulation branches based on `__ICARUS__`, so define that macro as well:
 
 ```toml
 sources = [
@@ -121,7 +119,7 @@ defines = ["__ICARUS__"]
 top_modules = ["darksimv"]
 ```
 
-Board targets follow the same idea. For example, the `colorlight_i5` target uses the `rtl` and `colorlighti5` filesets, and enables the `__YOSYS__` and `LATTICE_ECP5_COLORLIGHTI5` vlog defines. The corresponding configuration can be:
+Board targets are configured the same way. For example, the `colorlight_i5` target uses the `rtl` and `colorlighti5` filesets, and enables the `__YOSYS__` and `LATTICE_ECP5_COLORLIGHTI5` vlog defines. The corresponding configuration can be:
 
 ```toml
 sources = [
@@ -134,26 +132,18 @@ defines = ["__YOSYS__", "LATTICE_ECP5_COLORLIGHTI5"]
 top_modules = ["darksocv"]
 ```
 
-The `#:schema ...` line is a TOML comment. It only helps editors understand the configuration format; it does not change how Vide reads the project configuration file.
+## 4. Project Status
 
-## 4. Reload the Project
+After you save `vide.toml`, Vide reloads project configuration automatically by default.
 
-After you save `vide.toml`, Vide reloads project configuration automatically by default. In practice there are three states:
+In practice there are three project states:
 
 - No `vide.toml`: Vide scans the workspace for reading features, but does not create a project-level compilation profile.
 - The empty default template: `sources = []` tells Vide not to scan the whole workspace yet, because the real source paths still need to be filled in.
 - A configured `vide.toml`: Vide understands the project through `sources`, `include_dirs`, `defines`, `libraries`, and related fields.
 
-## What Changes After Configuration
+For details, each [feature page](../features/) explains the behavior with and without project configuration. We also summarize the differences in [What Changes After Configuration](../project-configuration/#what-changes-after-configuration).
 
-| Area | Without a project configuration file | After `vide.toml` is configured |
-| --- | --- | --- |
-| [Go to definition](../features/navigation/), [find references](../features/references/), and [hover](../features/hover/) | Scans the workspace and provides the jumps, references, and symbol information needed while reading code | Resolves targets through `sources`, `libraries`, include directories, and macro branches |
-| [Completion](../features/completion/) and [signature help](../features/signature-help/) | Uses the current file and scanned files for candidates; shows port/parameter help once the target module is resolved | Uses target modules, include directories, and macro branches for candidates and current-position hints |
-| [Rename](../features/rename/) and [quick fixes](../features/quick-fixes/) | Local code actions are available; project rename is disabled | Fills or converts ports and parameters, and updates declarations, references, and connections across the project |
-| [Syntax highlighting](../features/syntax-highlighting/) and [semantic highlighting](../features/semantic-highlighting/) | Syntax highlighting is available, and the current file gets base semantic markings | Uses project analysis to mark port directions, clock/reset ports, instances, types, and macro branches |
-| [Inlay hints](../features/inlay-hints/), [document symbols](../features/document-symbols/), [folding](../features/folding/), and [selection range](../features/selection-range/) | The current file gets outline, folding, and selection ranges; inlay hints are shown after the target module is resolved | Shows port, parameter, outline, folding, and selection-range information from the configured project |
-| [Diagnostics](../features/diagnostics/) | Open files get syntax and parse diagnostics; project-level semantic diagnostics are not created | Uses `sources`, `include_dirs`, and `defines` for cross-file semantic diagnostics |
-| [Qihe Analysis](../features/qihe/) | Uses the current file as the analysis input | Derives compile arguments from `sources`, `top_modules`, `include_dirs`, and `defines` |
+## Next Step
 
 Next, read [Features](../features/). When you need field details, use [Project Configuration Reference](../project-configuration/).

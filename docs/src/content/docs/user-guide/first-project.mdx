@@ -27,7 +27,8 @@ sources = []
 ```
 
 :::note
-默认模板里的 `sources = []` 只是一个待填写状态：它会阻止 Vide 直接扫描整个工作区。把 `sources` 改成 `rtl/**` 这类真实路径后，Vide 才会按你的工程结构分析。
+- 默认模板里的 `sources = []` 只是一个待填写状态：它会阻止 Vide 直接扫描整个工作区。把 `sources` 改成 `rtl/**` 这类真实路径后，Vide 才会按你的工程结构分析。
+- 配置文件开头的 `#:schema ...` 是 TOML 注释。未来，它能够帮助编辑器识别配置格式。
 :::
 
 ## 2. 按目录结构编写配置
@@ -37,12 +38,12 @@ sources = []
 <FileTree>
 - my-rtl/
   - vide.toml
-  - rtl/ # 使用 rtl/** 递归匹配该目录下所有文件
+  - rtl/
     - top.sv
     - counter.sv
-  - include/ # 目录名即 include
+  - include/
     - defs.svh
-  - sim/ # 目录名即 sim
+  - sim/
     - work/
   - build/
 </FileTree>
@@ -59,11 +60,11 @@ exclude = ["build/**", "sim/work/**"]
 
 这几项分别告诉 Vide：
 
-- `sources`：哪些 RTL 源文件属于这个工程。例如 `rtl/**` 递归匹配目录下所有文件，或 `rtl/*.sv` 匹配该目录下一级所有的 `sv` 后缀的文件。
-- `include_dirs`：提示 Vide `` `include "defs.svh" `` 这类头文件从哪里找。例如 `include`。
-- `defines`：预先打开哪些宏分支，例如可以写 `"SYNTHESIS"` 或 `"DATA_WIDTH=32"`。
-- `top_modules`：当前工程的顶层模块名，提示 Vide 从哪里开始分析。
-- `exclude`：可以用于排除生成目录、仿真输出和缓存目录，Vide 不会分析这些目录。
+- `sources`：**必填**，指示了哪些 RTL 源文件属于这个工程。例如 `rtl/**` 递归匹配目录下所有文件，或 `rtl/*.sv` 匹配该目录下一级所有的 `sv` 后缀的文件。
+- `include_dirs`：**推荐填写**，提示 Vide `` `include "defs.svh" `` 这类头文件从哪里找。例如 `include`。
+- `defines`：**可选**，预先打开哪些宏分支，例如可以写 `"SYNTHESIS"` 或 `"DATA_WIDTH=32"`。
+- `top_modules`：**推荐填写**，当前工程的顶层模块名，提示 Vide 从哪里开始分析。
+- `exclude`：**可选**，可以用于排除生成目录、仿真输出和缓存目录，Vide 不会分析这些目录。在本例中，`exclude` 字段也可以不写，因为 `sources` 没有被 `exclude` 内容干扰。
 
 :::note
 路径统一写 `/`，即使在 Windows 上也写 `rtl/**`，不要写 `rtl\**`。所有路径只能在工作区根目录中。
@@ -71,35 +72,32 @@ exclude = ["build/**", "sim/work/**"]
 
 ## 3. 一个更接近真实工程的例子
 
-上面的 `my-rtl` 是一个很小的工程。真实工程通常已经有 FuseSoC core 文件、Makefile、仿真脚本或综合脚本；这些文件可以帮助你判断入口模块、宏定义和需要参与分析的 RTL 文件。
-
-下面以 [darklife/darkriscv](https://github.com/darklife/darkriscv) 为例。仓库根目录有一份 `darkriscv.core`，其中 default target 的顶层模块是 `darksocv`。`darksocv.v` 会实例化 `darkpll`、`darkbridge`、`darkram`、`darkio` 等模块，所以 `sources` 需要覆盖这些模块定义。对应的 `vide.toml` 可以写成：
+上面的 `my-rtl` 是一个很小的工程，下面我们以一个真实工程 [darklife/darkriscv](https://github.com/darklife/darkriscv) 为例。仓库根目录有一份 `darkriscv.core`，定义了项目信息，其对应的 `vide.toml` 可以写成：
 
 ```toml
 #:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
 
+top_modules = ["darksocv"]
 sources = [
   "rtl/*.v",
 ]
-
 include_dirs = [
   "rtl",
   "src",
 ]
-
-top_modules = ["darksocv"]
 ```
 
 这里的对应关系是：
 
-- `top_modules = ["darksocv"]` 来自 `.core` 里 default target 的 `toplevel: darksocv`。
-- `sources = ["rtl/*.v"]` 覆盖 `darksocv` 直接或间接用到的 `darkpll.v`、`darkbridge.v`、`darkram.v`、`darkio.v`、`darkriscv.v`、`darkuart.v` 等模块定义。
-- `.core` 里的 `rtl/config.vh` 是 include 文件，所以用 `include_dirs = ["rtl"]` 让 Vide 找到它。
-- `.core` 里的 `src/darksocv.mem` 是仿真/初始化数据，不是 Verilog 源文件。把 `src` 放进 `include_dirs`，但不用把 `.mem` 写进 `sources`。
+- `top_modules = ["darksocv"]`：来自 `.core` 里 default target 的 `toplevel: darksocv`。
+- `sources = ["rtl/*.v"]`：覆盖 `darksocv` 直接或间接用到的 `darkpll.v`、`darkbridge.v`、`darkram.v`、`darkio.v`、`darkriscv.v`、`darkuart.v` 等模块定义。
+- `include_dirs = ["rtl", "src"]`
+  - `rtl/config.vh` 是 include 文件，因此 `rtl` 是 include 目录。
+  - `src/darksocv.mem` 是仿真/初始化数据，在源码中被使用了，因此把 `src` 放进 `include_dirs`。
 
-如果只把 `.core` 中 `rtl` fileset 明确列出的 `rtl/darkriscv.v`、`rtl/darksocv.v`、`rtl/darkuart.v` 放进 `sources`，`darksocv.v` 中的 `darkpll`、`darkbridge`、`darkram`、`darkio` 会因为找不到模块定义而报 `unknown module`。写 `vide.toml` 时，优先让编辑器看到完整的 RTL 模块集合。
+以上的配置文件只涵盖了可综合的部分，如果想连带仿真代码一起分析，我们应该怎么写 `vide.toml` 呢？
 
-如果要按 `.core` 里的 `sim` target 分析仿真入口，就把 `tb` fileset 里的 `sim/darksimv.v` 加进来，并把顶层换成 `darksimv`。`sim` target 的 icarus 配置里有 `-g2012`，而 `config.vh` 里会根据 `__ICARUS__` 切换仿真分支，所以这里也把宏写进 `defines`：
+例如按 `.core` 里的 `sim` target 分析仿真入口，就把 `tb` fileset 里的 `sim/darksimv.v` 加进来，并把顶层换成 `darksimv`。`sim` target 的 icarus 配置里有 `-g2012`，而 `config.vh` 里会根据 `__ICARUS__` 切换仿真分支，所以这里也把宏写进 `defines`：
 
 ```toml
 sources = [
@@ -117,7 +115,7 @@ defines = ["__ICARUS__"]
 top_modules = ["darksimv"]
 ```
 
-板级 target 也按同样方式翻译。例如 `colorlight_i5` target 使用 `rtl` 和 `colorlighti5` 两个 fileset，并启用 `__YOSYS__`、`LATTICE_ECP5_COLORLIGHTI5` 两个 vlog define。对应配置可以写成：
+同理，板级 target 也按同样方式编写配置文件。例如 `colorlight_i5` target 使用 `rtl` 和 `colorlighti5` 两个 fileset，并启用 `__YOSYS__`、`LATTICE_ECP5_COLORLIGHTI5` 两个 vlog define。对应配置可以写成：
 
 ```toml
 sources = [
@@ -130,28 +128,18 @@ defines = ["__YOSYS__", "LATTICE_ECP5_COLORLIGHTI5"]
 top_modules = ["darksocv"]
 ```
 
-文件开头的 `#:schema ...` 是 TOML 注释。它只帮助编辑器识别配置格式，不会改变 Vide 读取项目配置文件的方式。
+## 4. 项目状态
 
-## 4. 刷新项目
+保存 `vide.toml` 后，Vide 默认会自动刷新项目配置。
 
-保存 `vide.toml` 后，Vide 默认会自动刷新项目配置。实际使用时可以把状态分成三类：
+实际使用时可以把项目状态分成三类：
 
 - 没有 `vide.toml`：Vide 会扫描工作区，先提供阅读类功能，但不会创建项目级编译配置。
 - 刚创建的空模板：默认写着 `sources = []`，表示暂时不扫描整个工作区，等你填入真实源码路径。
 - 写好 `vide.toml`：Vide 按 `sources`、`include_dirs`、`defines`、`libraries` 等字段理解工程。
 
-具体来说，各行为是否配置项目的差异可以见以下表格。
+具体来说，各行为是否配置项目的差异可以在各 [功能特性](../features/) 末尾看到。我们也总结了差异清单，请见 [项目配置前后的行为差异](../project-configuration/#项目配置前后的行为差异)。
 
-## 项目配置前后的行为差异
+## 下一步
 
-| 能力 | 没有项目配置文件 | 写好 `vide.toml` 后 |
-| --- | --- | --- |
-| [定义跳转](../features/navigation/)、[引用搜索](../features/references/) 与 [悬停信息](../features/hover/) | 扫描工作区，先提供读代码所需的跳转、引用和符号信息 | 按 `sources`、`libraries`、include 目录和宏分支解析真实目标 |
-| [代码补全](../features/completion/) 与 [签名提示](../features/signature-help/) | 使用当前文件和已扫描文件给候选；目标模块解析后显示端口/参数提示 | 结合目标模块、include 目录和宏分支给出候选和当前位置提示 |
-| [重命名](../features/rename/) 与 [自动重构](../features/quick-fixes/) | 局部代码操作可用；工程重命名不启用 | 按工程范围补齐/转换端口参数，并更新声明、引用和连接 |
-| [语法高亮](../features/syntax-highlighting/) 与 [语义高亮](../features/semantic-highlighting/) | 语法高亮可用，当前文件有基础语义标记 | 结合项目解析标记端口方向、读写位置和宏分支 |
-| [代码注解](../features/inlay-hints/)、[符号大纲](../features/document-symbols/)、[折叠](../features/folding/) 与 [语义选区](../features/selection-range/) | 当前文件的大纲、折叠、选区可用；目标模块解析后显示代码注解 | 按工程结构显示端口、参数、实例数量、大纲、折叠和语义选区 |
-| [实时诊断](../features/diagnostics/) | 打开的文件有语法和解析诊断；没有项目级语义诊断 | 使用 `sources`、`include_dirs`、`defines` 做跨文件语义诊断 |
-| [骑河（Qihe）](../features/qihe/) | 使用当前文件作为分析输入 | 从 `sources`、`top_modules`、`include_dirs`、`defines` 推导编译参数 |
-
-下一步可以阅读 [功能特性](../features/)。需要查字段细节时，再看 [项目配置参考](../project-configuration/)。
+下一步可以阅读 [功能特性](../features/)。当需要查字段细节时，再看 [项目配置参考](../project-configuration/)。

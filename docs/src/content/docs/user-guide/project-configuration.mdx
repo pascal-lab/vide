@@ -205,3 +205,16 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 - 项目配置文件名必须是 `vide.toml`。
 - Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vide.toml`。
+
+
+## 项目配置前后的行为差异
+
+| 能力 | 没有项目配置文件 | 写好 `vide.toml` 后 |
+| --- | --- | --- |
+| [定义跳转](../features/navigation/)、[引用搜索](../features/references/) 与 [悬停信息](../features/hover/) | 扫描工作区，先提供读代码所需的跳转、引用和符号信息 | 按 `sources`、`libraries`、include 目录和宏分支解析真实目标 |
+| [代码补全](../features/completion/) 与 [签名提示](../features/signature-help/) | 使用当前文件和已扫描文件给候选；目标模块解析后显示端口/参数提示 | 结合目标模块、include 目录和宏分支给出候选和当前位置提示 |
+| [重命名](../features/rename/) 与 [自动重构](../features/quick-fixes/) | 局部代码操作可用；工程重命名不启用 | 按工程范围补齐/转换端口参数，并更新声明、引用和连接 |
+| [语法高亮](../features/syntax-highlighting/) 与 [语义高亮](../features/semantic-highlighting/) | 语法高亮可用，当前文件有基础语义标记 | 结合项目解析标记端口方向、读写位置和宏分支 |
+| [代码注解](../features/inlay-hints/)、[符号大纲](../features/document-symbols/)、[折叠](../features/folding/) 与 [语义选区](../features/selection-range/) | 当前文件的大纲、折叠、选区可用；目标模块解析后显示代码注解 | 按工程结构显示端口、参数、实例数量、大纲、折叠和语义选区 |
+| [实时诊断](../features/diagnostics/) | 打开的文件有语法和解析诊断；没有项目级语义诊断 | 使用 `sources`、`include_dirs`、`defines` 做跨文件语义诊断 |
+| [骑河（Qihe）](../features/qihe/) | 使用当前文件作为分析输入 | 从 `sources`、`top_modules`、`include_dirs`、`defines` 推导编译参数 |
