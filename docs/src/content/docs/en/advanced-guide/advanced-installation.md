@@ -3,7 +3,7 @@ title: Advanced Installation
 description: Install local VSIX packages, choose release channels, or configure a custom Vide language server.
 ---
 
-Most users should follow [Quick Start](../../user-guide/quick-start/) to install the stable Marketplace extension. This page is for offline installation, local validation, prerelease packages, and custom servers.
+In most cases, follow [VS Code Installation](../../user-guide/vscode-installation/) to install the stable Marketplace extension. This page is for offline installation, local validation, prerelease packages, and custom servers.
 
 ## Choose an Installation Channel
 
@@ -62,4 +62,4 @@ Use an absolute path:
 }
 ```
 
-Both `vide.server.args` and `vide.server.additionalArgs` must be arrays of strings. When the extension starts the server, it passes `server.args` first and then appends `server.additionalArgs`. See the full [VS Code Settings Reference](../vscode-settings/#server).
+Both `vide.server.args` and `vide.server.additionalArgs` must be arrays of strings. When the extension starts the server, it passes `server.args` first and then appends `server.additionalArgs`. See the full [VS Code Settings Reference](../../user-guide/vscode-settings/#server).

@@ -1,0 +1,26 @@
+---
+title: Document Symbols
+description: Browse RTL file structure from Outline, breadcrumbs, and symbol views.
+---
+
+import Codicon from '../../../../../components/Codicon.astro';
+
+## What It Is
+
+Document symbols organize modules, ports, parameters, declarations, functions, tasks, generate blocks, and regions in the current file into a hierarchy. They appear in VS Code's <Codicon name="list-tree" label="Outline icon" /> Outline panel, breadcrumbs <Codicon name="chevron-right" label="Breadcrumb level icon" />, and <Codicon name="symbol-misc" label="Symbol icon" /> `Go to Symbol in Editor`.
+
+## Demo
+
+![Document symbols](../../../assets/features/document-symbols.png)
+
+## Project Configuration
+
+Document symbols mainly come from the current file, so they work when a single file is open. Project configuration affects include and macro-expanded structure and gives the file a more accurate project context.
+
+## Instance Count Lens
+
+Vide can also show how many times a module is instantiated above the module declaration. This hint is controlled by `vide.lens.instantiations.enable`; see [Lens settings](../../vscode-settings/#lens).
+
+## Related Features
+
+Use document symbols to navigate structure. Use [Folding](../folding/) to collapse those structures, or [Selection Range](../selection-range/) to expand the current selection by syntax node.

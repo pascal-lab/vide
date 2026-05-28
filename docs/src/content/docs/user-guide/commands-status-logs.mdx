@@ -1,0 +1,73 @@
+---
+title: 命令、状态和日志
+description: Vide 命令 ID、状态项含义和输出通道清单。
+---
+
+import Codicon from '../../../components/Codicon.astro';
+
+本页列出 Vide VS Code 扩展提供的命令、状态栏含义和输出通道。启动异常时，先看 [启动自检](../../advanced-guide/check-server/)；需要更深入排障时，再看 [高级故障排查](../../advanced-guide/troubleshooting/)。
+
+## 命令面板命令
+
+VS Code 扩展贡献这些命令。使用时看“命令面板标题”即可；命令 ID 主要给快捷键绑定或脚本使用。
+
+| 命令 ID | 命令面板标题 | 用途 |
+| --- | --- | --- |
+| `vide.showOutput` | `Vide：显示语言服务器输出` | 打开 `Vide Language Server` 输出通道。 |
+| `vide.restartServer` | `Vide：重启语言服务器` | 停止并重新启动当前语言服务器。 |
+| `vide.showServerVersion` | `Vide：显示服务器版本` | 使用当前启动命令、工作目录和环境，把 `vide.server.args` 与 `--version` 组合起来执行版本查询；不会附加 `vide.server.additionalArgs`。 |
+| `vide.reloadWorkspace` | `Vide：重新加载项目配置` | 不重启语言服务器，重新读取项目配置并刷新工程信息。 |
+| `vide.showStatus` | `Vide：显示状态` | 打开 Vide 状态菜单。 |
+| `vide.runQiheAnalysis` | `Vide：运行 Qihe 分析` | 对当前本地 Verilog/SystemVerilog 文件运行 Qihe 分析。 |
+| `vide.profileDiagnostics` | `Vide：分析诊断性能` | 启动临时语言服务器，并对工作区或当前文件执行一次诊断性能分析。 |
+
+`vide.runQiheAnalysis` 只对本地文件可用，且文件扩展名必须是 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi`。
+
+## 状态栏
+
+主状态项名为 `Vide`，位于 VS Code 右侧状态栏。它用于显示语言服务器和项目配置状态：
+
+| 状态 | 含义 |
+| --- | --- |
+| `Vide` | 语言服务器已接上；悬停可查看项目配置状态。 |
+| <Codicon name="sync" modifier="spin" label="同步旋转图标" /> `Vide` | 语言服务器启动、停止或项目配置加载进行中。 |
+| <Codicon name="warning" label="警告图标" /> `Vide` | 通常表示当前工作区缺少项目配置文件。 |
+| <Codicon name="error" label="错误图标" /> `Vide` | 语言服务器启动失败或项目配置加载失败。 |
+
+点击 `Vide` 状态项或执行 `Vide：显示状态` 会打开状态菜单。菜单项会随当前项目状态变化，常见操作包括打开或创建项目配置文件、分析诊断性能、重新加载项目、重启语言服务器和显示输出。
+
+执行 Qihe 分析时还会出现独立的 `Qihe` 状态项。运行失败时，点击这个状态项会打开 `Vide Qihe` 输出通道。
+
+## 输出通道
+
+| 输出通道 | 记录内容 |
+| --- | --- |
+| `Vide Language Server` | 扩展激活、平台、VS Code 版本、服务器命令、参数、工作目录、扩展自带服务器查找结果、启动、停止、重启和版本查询结果。 |
+| `Vide Qihe` | `vide.runQiheAnalysis` 的目标文件、命令进度、Qihe 输出和失败信息。 |
+| `Vide Profiling` | `vide.profileDiagnostics` 的目标、产物目录、诊断请求耗时和生成文件路径。 |
+
+## 高级：诊断性能分析产物
+
+`Vide：分析诊断性能` 面向大型工程排障。它会生成：
+
+| 文件 | 说明 |
+| --- | --- |
+| `trace.json` | Chrome/Perfetto/Speedscope 兼容 trace；扩展内置 Speedscope viewer 会打开这个文件。 |
+| `summary.json` | 请求耗时、诊断汇总和耗时最多的调用片段。 |
+| `trace.folded` | 从 trace 生成的折叠调用栈。 |
+| `flamegraph.svg` | 静态火焰图。 |
+| `server.log` | 临时语言服务器日志。 |
+
+诊断性能分析会使用独立的临时语言服务器进程，不会重启或影响编辑器当前正在使用的语言服务器。
+
+## 语言服务器启动设置变更
+
+这些设置变更后，扩展会提示 `重启`：
+
+- `vide.server.command`
+- `vide.server.args`
+- `vide.server.additionalArgs`
+- `vide.server.cwd`
+- `vide.trace.server`
+
+可以选择提示里的 `重启`，或手动执行 `Vide：重启语言服务器`。

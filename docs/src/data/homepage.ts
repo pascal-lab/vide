@@ -17,6 +17,7 @@ import missingPortsImage from '../assets/homepage-features/missing-ports.png';
 import peekDefinitionImage from '../assets/homepage-features/peek-definition.png';
 import renameImage from '../assets/homepage-features/rename-updated.png';
 
+export type HomepageLocale = 'zh' | 'en';
 export type HomepageFeatureLayout = 'image-left' | 'image-right';
 
 export interface HomepageFeatureImage {
@@ -40,6 +41,14 @@ export interface ComparisonColumn {
   href?: string;
 }
 
+export interface ComparisonProduct {
+  name: string;
+  meta: string;
+  highlighted?: boolean;
+  betaFeatureKeys?: readonly ComparisonFeatureKey[];
+  features: Record<ComparisonFeatureKey, ComparisonFeatureValue>;
+}
+
 const escapeHtml = (value: string) =>
   value
     .replaceAll('&', '&amp;')
@@ -50,117 +59,204 @@ const escapeHtml = (value: string) =>
 
 const accent = (text: string) =>
   `<span class="vide-feature-carousel__description-accent">${escapeHtml(text)}</span>`;
+
 const externalLink = (href: string, text: string) =>
   `<a class="vide-feature-carousel__description-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
 
-const docsLink = (slug: string) => `./user-guide/daily-use/${slug}/`;
+const docsLink = (slug: string) => `./user-guide/features/${slug}/`;
 
-const column = (key: string, label: string, slug: string): ComparisonColumn => ({
-  key,
-  label,
-  href: docsLink(slug),
-});
+export const normalizeHomepageLocale = (locale?: string): HomepageLocale =>
+  locale?.startsWith('en') ? 'en' : 'zh';
 
-export const homepageFeatures: HomepageFeature[] = [
-  {
-    layout: 'image-left',
-    eyebrow: 'Navigation',
-    title: '符号导航',
-    description: `使用 Vide 的${accent('定义跳转')}、${accent('引用搜索')}和${accent('符号大纲')}在模块、端口、寄存器之间快速定位，开发者无需离开当前上下文也能追踪符号。<br /><br />写 RTL，不再只能依赖 Ctrl + F。`,
-    images: [
-      { src: peekDefinitionImage, alt: 'Peek Definition 截图' },
-      { src: findAllReferencesImage, alt: 'Find All References 截图' },
-      { src: documentSymbolImage, alt: 'Document Symbol 截图' },
-    ],
-  },
-  {
-    layout: 'image-right',
-    eyebrow: 'Insight',
-    title: '代码理解',
-    description: `通过 Vide 的${accent('悬停信息')}和${accent('代码注解')}在同一窗口内实时查看模块、字面量与端口连接信息，减少窗口切换的负担，开发者能够专注于 RTL 设计本身。`,
-    images: [
-      { src: hoverModuleNameImage, alt: '模块 Hover 信息截图' },
-      { src: hoverInstanceNameImage, alt: '例化 Hover 信息截图' },
-      { src: hoverNumberLiteralImage, alt: '字面量 Hover 信息截图' },
-      { src: inlayHintsImage, alt: 'Inlay Hints 截图' },
-    ],
-  },
-  {
-    layout: 'image-left',
-    eyebrow: 'Completion',
-    title: '精准补全',
-    description: `Vide 理解当前的代码上下文，能在实例、端口连接和其他的位置给出更贴近语义的${accent('补全')}建议，更能通过${accent('代码片段')}提供结构化补全。`,
-    images: [
-      { src: completionModuleDeclImage, alt: '模块声明补全截图' },
-      { src: completionPortsImage, alt: '端口补全截图' },
-      { src: completionItemsImage, alt: '补全候选列表截图' },
-      { src: completionSnippetModuleImage, alt: '模块代码片段补全截图' },
-      { src: completionModuleSnippetExpandedImage, alt: '展开后的模块代码片段补全截图' },
-    ],
-  },
-  {
-    layout: 'image-right',
-    eyebrow: 'Refactoring',
-    title: '自动重构',
-    description: `通过${accent('自动重构')}和${accent('重命名')}，把端口连线、信号重命名、转换进制这些繁琐的细节交给 Vide 完成，解放开发者的重构负担。`,
-    images: [
-      { src: missingPortsImage, alt: '补全缺失端口 Code Action 截图' },
-      { src: renameImage, alt: '重命名符号截图' },
-    ],
-  },
-  {
-    layout: 'image-left',
-    eyebrow: 'Diagnostics',
-    title: '诊断分析',
-    description: `Vide 能在编辑过程中实时给出代码诊断，让错误更早被发现。<br /><br />此外，Vide 能够结合${externalLink('https://qihe.pascal-lab.net', '骑河')}提供的强大静态分析能力，在编辑器中给出更深入的分析结果，帮助开发者发现潜在问题。`,
-    images: [
-      { src: diagnosticsUndeclaredIdentifiersImage, alt: '未定义标识符诊断截图' },
-      { src: diagnosticsLoopAnalysisImage, alt: '组合环路诊断截图' },
-    ],
-  },
-];
+const featureImages = {
+  navigation: [
+    { src: peekDefinitionImage, alt: { zh: 'Peek Definition 截图', en: 'Peek Definition screenshot' } },
+    {
+      src: findAllReferencesImage,
+      alt: { zh: 'Find All References 截图', en: 'Find All References screenshot' },
+    },
+    { src: documentSymbolImage, alt: { zh: 'Document Symbol 截图', en: 'Document Symbol screenshot' } },
+  ],
+  insight: [
+    { src: hoverModuleNameImage, alt: { zh: '模块 Hover 信息截图', en: 'Module hover screenshot' } },
+    {
+      src: hoverInstanceNameImage,
+      alt: { zh: '例化 Hover 信息截图', en: 'Instance hover screenshot' },
+    },
+    {
+      src: hoverNumberLiteralImage,
+      alt: { zh: '字面量 Hover 信息截图', en: 'Number literal hover screenshot' },
+    },
+    { src: inlayHintsImage, alt: { zh: 'Inlay Hints 截图', en: 'Inlay Hints screenshot' } },
+  ],
+  completion: [
+    {
+      src: completionModuleDeclImage,
+      alt: { zh: '模块声明补全截图', en: 'Module declaration completion screenshot' },
+    },
+    { src: completionPortsImage, alt: { zh: '端口补全截图', en: 'Port completion screenshot' } },
+    { src: completionItemsImage, alt: { zh: '补全候选列表截图', en: 'Completion item list screenshot' } },
+    {
+      src: completionSnippetModuleImage,
+      alt: { zh: '模块代码片段补全截图', en: 'Module snippet completion screenshot' },
+    },
+    {
+      src: completionModuleSnippetExpandedImage,
+      alt: { zh: '展开后的模块代码片段补全截图', en: 'Expanded module snippet screenshot' },
+    },
+  ],
+  refactoring: [
+    {
+      src: missingPortsImage,
+      alt: { zh: '补全缺失端口 Code Action 截图', en: 'Missing-port code action screenshot' },
+    },
+    { src: renameImage, alt: { zh: '重命名符号截图', en: 'Symbol rename screenshot' } },
+  ],
+  diagnostics: [
+    {
+      src: diagnosticsUndeclaredIdentifiersImage,
+      alt: { zh: '未定义标识符诊断截图', en: 'Undeclared identifier diagnostic screenshot' },
+    },
+    {
+      src: diagnosticsLoopAnalysisImage,
+      alt: { zh: '组合环路诊断截图', en: 'Combinational loop diagnostic screenshot' },
+    },
+  ],
+} as const;
 
-export const comparisonColumns = [
-  column('definition', '定义跳转', 'navigation'),
-  column('references', '引用搜索', 'navigation'),
-  column('hover', '悬停信息', 'navigation'),
-  column('completion', '代码补全', 'editing-assistance'),
-  column('rename', '重命名', 'editing-assistance'),
-  column('syntaxHighlighting', '语法高亮', 'language-support'),
-  column('semanticHighlighting', '语义高亮', 'structure'),
-  column('inlayHints', '代码注解', 'structure'),
-  column('documentSymbols', '符号大纲', 'structure'),
-  column('folding', '折叠', 'structure'),
-  column('codeActions', '自动重构', 'editing-assistance'),
-  column('diagnostics', '实时诊断', 'diagnostics'),
-  column('signatureHelp', '签名提示', 'editing-assistance'),
-  column('selectionRange', '语义选区', 'structure'),
-] as const satisfies readonly ComparisonColumn[];
+const localizedImages = (
+  key: keyof typeof featureImages,
+  locale: HomepageLocale,
+): HomepageFeatureImage[] => featureImages[key].map((image) => ({ src: image.src, alt: image.alt[locale] }));
 
-export type ComparisonFeatureKey = (typeof comparisonColumns)[number]['key'];
+export const getHomepageFeatures = (localeInput?: string): HomepageFeature[] => {
+  const locale = normalizeHomepageLocale(localeInput);
 
-export interface ComparisonProduct {
-  name: string;
-  meta: string;
-  highlighted?: boolean;
-  betaFeatureKeys?: readonly ComparisonFeatureKey[];
-  features: Record<ComparisonFeatureKey, ComparisonFeatureValue>;
-}
+  if (locale === 'en') {
+    return [
+      {
+        layout: 'image-left',
+        eyebrow: 'Navigation',
+        title: 'Symbol Navigation',
+        description: `Use ${accent('Go to Definition')}, ${accent('Find References')}, and ${accent('Document Symbols')} in Vide to move quickly across modules, ports, and registers, so RTL connections can be traced without leaving the current context.<br /><br />Writing RTL no longer has to start with Ctrl + F.`,
+        images: localizedImages('navigation', locale),
+      },
+      {
+        layout: 'image-right',
+        eyebrow: 'Insight',
+        title: 'Code Insight',
+        description: `Use Vide ${accent('Hover')} and ${accent('Inlay Hints')} to inspect modules, literals, and port connections in one editor window. Less window switching, more focus on the RTL design itself.`,
+        images: localizedImages('insight', locale),
+      },
+      {
+        layout: 'image-left',
+        eyebrow: 'Completion',
+        title: 'Precise Completion',
+        description: `Vide ${accent('Completion')} understands the current code context, suggests candidates that fit instantiations, port connections, and other editing positions, and provides structured edits through ${accent('Snippets')}.`,
+        images: localizedImages('completion', locale),
+      },
+      {
+        layout: 'image-right',
+        eyebrow: 'Refactoring',
+        title: 'Automatic Refactoring',
+        description: `With ${accent('Automatic Refactoring')} and ${accent('Rename')}, Vide handles repetitive details such as port wiring, signal renames, and literal-base conversion, making RTL refactoring less mechanical.`,
+        images: localizedImages('refactoring', locale),
+      },
+      {
+        layout: 'image-left',
+        eyebrow: 'Diagnostics',
+        title: 'Diagnostics',
+        description: `Vide reports code diagnostics as you edit, so errors surface earlier.<br /><br />It can also combine with ${externalLink('https://qihe.pascal-lab.net', 'Qihe')} for deeper static analysis results directly inside the editor.`,
+        images: localizedImages('diagnostics', locale),
+      },
+    ];
+  }
 
-export const comparisonProducts: ComparisonProduct[] = [
+  return [
+    {
+      layout: 'image-left',
+      eyebrow: 'Navigation',
+      title: '符号导航',
+      description: `在 Vide 中使用${accent('定义跳转')}、${accent('引用搜索')}和${accent('符号大纲')}在模块、端口和寄存器之间快速定位，让开发者不用离开当前上下文也能追清 RTL 连接关系。<br /><br />写 RTL，不再只能依靠 Ctrl + F。`,
+      images: localizedImages('navigation', locale),
+    },
+    {
+      layout: 'image-right',
+      eyebrow: 'Insight',
+      title: '代码理解',
+      description: `利用 Vide 的${accent('悬停信息')}和${accent('代码注解')}在一个窗口中实时查看模块、字面量与端口连接信息，减少窗口切换的负担，让开发者更专注于 RTL 设计本身。`,
+      images: localizedImages('insight', locale),
+    },
+    {
+      layout: 'image-left',
+      eyebrow: 'Completion',
+      title: '精准补全',
+      description: `Vide 的${accent('补全')}机制理解当前的代码上下文，能在实例化、端口连接和其他的编辑位置给出更贴近工程语义的建议，更能通过${accent('代码片段')}提供结构化补全。`,
+      images: localizedImages('completion', locale),
+    },
+    {
+      layout: 'image-right',
+      eyebrow: 'Refactoring',
+      title: '自动重构',
+      description: `通过${accent('自动重构')}和${accent('重命名')}，把端口连线、信号重命名、转换进制这些繁琐的细节交给 Vide 完成，解放开发者的重构体验。`,
+      images: localizedImages('refactoring', locale),
+    },
+    {
+      layout: 'image-left',
+      eyebrow: 'Diagnostics',
+      title: '诊断分析',
+      description: `Vide 能在编辑过程中实时给出代码诊断，让错误更早被发现。<br /><br />此外，Vide 能够结合${externalLink('https://qihe.pascal-lab.net', '骑河')}提供的强大静态分析能力，在编辑器中给出更深入的分析结果，帮助开发者发现潜在问题。`,
+      images: localizedImages('diagnostics', locale),
+    },
+  ];
+};
+
+export const homepageFeatures = getHomepageFeatures('zh');
+
+const comparisonColumnSpecs = [
+  { key: 'definition', slug: 'navigation', zh: '定义跳转', en: 'Go to Definition' },
+  { key: 'references', slug: 'references', zh: '引用搜索', en: 'Find References' },
+  { key: 'hover', slug: 'hover', zh: '悬停信息', en: 'Hover' },
+  { key: 'completion', slug: 'completion', zh: '代码补全', en: 'Completion' },
+  { key: 'rename', slug: 'rename', zh: '重命名', en: 'Rename' },
+  { key: 'syntaxHighlighting', slug: 'syntax-highlighting', zh: '语法高亮', en: 'Syntax Highlighting' },
+  { key: 'semanticHighlighting', slug: 'semantic-highlighting', zh: '语义高亮', en: 'Semantic Highlighting' },
+  { key: 'inlayHints', slug: 'inlay-hints', zh: '代码注解', en: 'Inlay Hints' },
+  { key: 'documentSymbols', slug: 'document-symbols', zh: '符号大纲', en: 'Document Symbols' },
+  { key: 'folding', slug: 'folding', zh: '折叠', en: 'Folding' },
+  { key: 'codeActions', slug: 'quick-fixes', zh: '自动重构', en: 'Automatic Refactoring' },
+  { key: 'diagnostics', slug: 'diagnostics', zh: '实时诊断', en: 'Diagnostics' },
+  { key: 'signatureHelp', slug: 'signature-help', zh: '签名提示', en: 'Signature Help' },
+  { key: 'selectionRange', slug: 'selection-range', zh: '语义选区', en: 'Selection Range' },
+] as const;
+
+export type ComparisonFeatureKey = (typeof comparisonColumnSpecs)[number]['key'];
+
+const getComparisonColumns = (localeInput?: string) => {
+  const locale = normalizeHomepageLocale(localeInput);
+  return comparisonColumnSpecs.map((column) => ({
+    key: column.key,
+    label: column[locale],
+    href: docsLink(column.slug),
+  })) as readonly (ComparisonColumn & { key: ComparisonFeatureKey })[];
+};
+
+export const comparisonColumns = getComparisonColumns('zh');
+
+const comparisonProductFeatures = (locale: HomepageLocale): ComparisonProduct[] => [
   {
     name: 'Quartus',
     meta: 'Intel',
     features: {
       syntaxHighlighting: true,
-      definition: '支持从实例跳到模块定义',
+      definition: locale === 'en' ? 'Can jump from an instance to a module definition' : '支持从实例跳到模块定义',
       references: false,
       hover: false,
       completion: false,
       rename: false,
       semanticHighlighting: false,
       signatureHelp: false,
-      documentSymbols: '支持模块',
+      documentSymbols: locale === 'en' ? 'Supports modules' : '支持模块',
       folding: true,
       selectionRange: false,
       codeActions: false,
@@ -175,7 +271,7 @@ export const comparisonProducts: ComparisonProduct[] = [
       syntaxHighlighting: true,
       definition: true,
       references: true,
-      hover: '支持显示变量的类型信息',
+      hover: locale === 'en' ? 'Shows variable type information' : '支持显示变量的类型信息',
       completion: false,
       rename: false,
       semanticHighlighting: false,
@@ -203,14 +299,15 @@ export const comparisonProducts: ComparisonProduct[] = [
       documentSymbols: true,
       folding: false,
       selectionRange: false,
-      codeActions: '支持 linter 的 quickfix 和 autoexpand',
+      codeActions:
+        locale === 'en' ? 'Supports linter quick fixes and autoexpand' : '支持 linter 的 quickfix 和 autoexpand',
       inlayHints: false,
-      diagnostics: '支持语法错误和 linter 规则',
+      diagnostics: locale === 'en' ? 'Supports syntax errors and linter rules' : '支持语法错误和 linter 规则',
     },
   },
   {
     name: 'Vide',
-    meta: 'Ours',
+    meta: locale === 'en' ? 'PASCAL' : 'Ours',
     highlighted: true,
     betaFeatureKeys: ['diagnostics'],
     features: {
@@ -232,22 +329,31 @@ export const comparisonProducts: ComparisonProduct[] = [
   },
 ];
 
-export const homepageComparison = {
-  columns: comparisonColumns,
-  products: comparisonProducts,
+export const comparisonProducts = comparisonProductFeatures('zh');
+
+export const getHomepageComparison = (localeInput?: string) => ({
+  columns: getComparisonColumns(localeInput),
+  products: comparisonProductFeatures(normalizeHomepageLocale(localeInput)),
+});
+
+export const homepageComparison = getHomepageComparison('zh');
+
+export const getHomepageCtaActions = (localeInput?: string) => {
+  const locale = normalizeHomepageLocale(localeInput);
+  return [
+    {
+      href: './user-guide/',
+      label: locale === 'en' ? 'Quick Start' : '快速开始',
+      variant: 'primary',
+      icon: 'right-arrow',
+    },
+    {
+      href: locale === 'en' ? './user-guide/online-experience/' : './playground/',
+      label: locale === 'en' ? 'Online Experience' : '在线体验',
+      variant: 'secondary',
+      icon: 'rocket',
+    },
+  ] as const;
 };
 
-export const homepageCtaActions = [
-  {
-    href: './user-guide/quick-start/',
-    label: '快速开始',
-    variant: 'primary',
-    icon: 'right-arrow',
-  },
-  {
-    href: './playground/',
-    label: '在线体验',
-    variant: 'secondary',
-    icon: 'rocket',
-  },
-] as const;
+export const homepageCtaActions = getHomepageCtaActions('zh');

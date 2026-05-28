@@ -1,11 +1,19 @@
 ---
 title: Advanced
-description: Vide documentation for local VSIX packages, custom servers, logs, project analysis, and advanced troubleshooting.
+description: Vide advanced documentation for local installation, source builds, startup troubleshooting, logs, and the project analysis model.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Advanced usage is for people who need to understand extension startup, server replacement, local VSIX packages, logs, profiling, and the project analysis model. For normal RTL editing, start with the [User Guide](../user-guide/).
+Advanced is not a second user guide. It covers three kinds of work:
+
+- Installation and build: local VSIX packages, prerelease packages, custom language servers, and source builds.
+- Troubleshooting and logs: checking whether the language server started, finding command entry points, opening output channels, and generating profiling artifacts.
+- Analysis model: understanding why an unconfigured workspace can still navigate code, and why diagnostics, rename, and Qihe change after `vide.toml` is configured.
+
+For normal RTL editing, start with the [User Guide](../user-guide/). For feature usage, start with [Features](../user-guide/features/).
+
+## Installation and Build
 
 <CardGrid>
   <LinkCard
@@ -18,29 +26,29 @@ Advanced usage is for people who need to understand extension startup, server re
     href="./build-from-source/"
     description="Build the Rust server, VS Code extension, and local VSIX packages."
   />
+</CardGrid>
+
+## Troubleshooting and Logs
+
+<CardGrid>
   <LinkCard
     title="Server Self-Check"
     href="./check-server/"
-    description="Check the status bar, output channel, version command, and launch settings."
-  />
-  <LinkCard
-    title="Operations Reference"
-    href="./commands-status-logs/"
-    description="Reference command IDs, status bar behavior, output channels, and diagnostics profiling artifacts."
+    description="Answer one question: did the extension start the language server?"
   />
   <LinkCard
     title="Advanced Troubleshooting"
     href="./troubleshooting/"
-    description="Debug custom servers, bundled server packaging, watchers, logs, and profiling issues."
+    description="Troubleshoot local VSIX packages, custom servers, file watching, logs, and profiling by symptom."
   />
+</CardGrid>
+
+## Analysis Model
+
+<CardGrid>
   <LinkCard
-    title="VS Code Settings Reference"
-    href="./vscode-settings/"
-    description="Reference all vide.* settings and jump back to the related daily-use page."
-  />
-  <LinkCard
-    title="Changelog"
-    href="../changelog/"
-    description="Read user-visible changes and upgrade impact for each released version."
+    title="How Vide Analyzes Projects"
+    href="./parsing-and-analysis/"
+    description="Understand best-effort indexing, project analysis, diagnostic scope, duplicate modules, and Qihe project analysis."
   />
 </CardGrid>

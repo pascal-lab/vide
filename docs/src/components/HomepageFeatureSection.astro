@@ -1,10 +1,21 @@
 ---
 import HomepageFeatureCarousel from './HomepageFeatureCarousel.astro';
+import { normalizeHomepageLocale, type HomepageLocale } from '../data/homepage';
+
+interface Props {
+  locale?: HomepageLocale;
+}
+
+const locale = normalizeHomepageLocale(Astro.props.locale);
+const heading =
+  locale === 'en'
+    ? `Make <span class="vide-feature__accent"><strong>hardware design</strong></span><br />feel as fluid as writing software`
+    : `让<span class="vide-feature__accent"><strong>硬件设计</strong></span><br />像编写软件一样<wbr /><span class="vide-feature__nowrap">丝滑顺手</span>`;
 ---
 
 <section class="vide-feature">
-  <h2>让<span class="vide-feature__accent"><strong>硬件设计</strong></span><br />像编写软件一样<wbr /><span class="vide-feature__nowrap">丝滑顺手</span></h2>
-  <HomepageFeatureCarousel />
+  <h2 set:html={heading} />
+  <HomepageFeatureCarousel locale={locale} />
 </section>
 
 <style>

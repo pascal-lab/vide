@@ -1,0 +1,46 @@
+---
+title: Signature Help
+description: Inspect target module parameters, ports, and the current position inside instance lists.
+---
+
+import VideLab from '../../../../../components/VideLab.astro';
+import { inlayHintFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Signature help shows the target module's parameters or ports while the cursor is inside an instance parameter assignment list or port connection list. Completion inserts candidates; signature help tells you which parameter or port you are currently filling.
+
+## Demo
+
+<VideLab
+  projectId="daily-signature-help"
+  projectLabel="Features: Signature Help"
+  entryFile="inlay_hints.v"
+  files={inlayHintFiles}
+  initialActiveFile="inlay_hints.v"
+  initialSelection="18:21-18:21"
+  title="Inspect instance port signatures"
+  description="Place the cursor in u_mux's parameter or port list to trigger signature help."
+/>
+
+## When It Appears
+
+- Inside parameter assignment lists `#(...)`, it shows target module parameters.
+- Inside port connection lists `(...)`, it shows target module ports.
+- Moving the cursor to another parameter or port updates the active item.
+
+## Project Configuration
+
+Signature help needs the target module to resolve. Like definition and completion, it depends on `sources`, `include_dirs`, `defines`, and `libraries` in `vide.toml`.
+
+## Settings
+
+To show only parameter-related signature help, enable:
+
+```json
+{
+  "vide.signature.help.params.only": true
+}
+```
+
+See [Signature Help settings](../../vscode-settings/#signature-help) for the full reference.

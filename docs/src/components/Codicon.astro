@@ -5,18 +5,20 @@ interface Props {
   name: string;
   modifier?: "spin";
   label?: string;
+  color?: string;
 }
 
-const { name, modifier, label } = Astro.props;
+const { name, modifier, label, color } = Astro.props;
 const iconClasses = [
   "codicon",
   `codicon-${name}`,
   modifier ? `codicon-modifier-${modifier}` : undefined,
 ];
 const accessibility = label ? { role: "img", "aria-label": label } : { "aria-hidden": "true" };
+const style = color ? `color: ${color}` : undefined;
 ---
 
-<span class="vide-codicon" {...accessibility}>
+<span class="vide-codicon" style={style} {...accessibility}>
   <span class:list={iconClasses} aria-hidden="true"></span>
 </span>
 

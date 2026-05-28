@@ -1,0 +1,29 @@
+---
+title: 语法高亮
+description: 查看 Vide 如何为 Verilog/SystemVerilog 文件提供基础语法着色，并理解它和语义功能的区别。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VideLab from '../../../../components/VideLab.astro';
+import syntaxHighlightingImage from '../../assets/features/syntax-highlighting.png';
+import { syntaxHighlightingFiles } from '../../../../examples/dailyUse';
+
+## 什么是语法高亮
+
+语法高亮是编辑器对关键字、注释、数字、字符串和基本语法结构做的词法级标记。基础语法高亮、注释规则、括号匹配和文件图标由 VS Code 扩展直接提供，除了语法规则外无需做额外的分析。
+
+## 演示
+
+<VideLab
+  projectId="daily-syntax-highlighting"
+  projectLabel="Features: Syntax Highlighting"
+  entryFile="usage.v"
+  files={syntaxHighlightingFiles}
+  initialActiveFile="usage.v"
+  title="查看 Verilog 语法高亮"
+  description="加载后打开 usage.v，观察 module、input、wire、always、数字 literal 和注释的基础着色。"
+/>
+
+## 项目配置影响
+
+无。语法高亮本身不依赖项目分析。只要确定了 VS Code 扩展正常启用了，语法高亮就能随之应用。

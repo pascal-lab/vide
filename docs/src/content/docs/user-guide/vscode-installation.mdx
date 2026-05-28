@@ -1,0 +1,50 @@
+---
+title: VS Code 安装
+description: 安装 Vide 扩展并确认 VS Code 中的语言服务已经启动。
+---
+
+import ThinLinkCard from '../../../components/ThinLinkCard.astro';
+
+这一页带你安装并验证 Vide 正在正确工作。如果你暂时不想安装，可以先打开 [在线体验](../online-experience/) 在浏览器里试用核心功能。
+
+## 1. 安装扩展
+
+常规使用只需要安装 Marketplace 稳定版。以下卡片可以跳转到 VS Code 扩展市场：
+
+<ThinLinkCard
+  href="https://marketplace.visualstudio.com/items?itemName=vizsla.vizsla-lsp"
+  title="Visual Studio Marketplace"
+  action="打开"
+>
+  安装稳定版 Vide，扩展 ID：<code>vizsla.vizsla-lsp</code>
+</ThinLinkCard>
+
+也可以在 VS Code 的扩展面板搜索显示名 `Vide`，或搜索扩展 ID `vizsla.vizsla-lsp`。
+
+![vide in extension market](../assets/quick-start/extension-marketplace.png)
+
+## 2. 打开 RTL 工程目录
+
+用 VS Code 打开包含 RTL 源码的目录。后续文档里说到“工作区根目录”时，指的就是你在 VS Code 里打开的这个顶层目录。
+
+如果这个目录里有 Verilog/SystemVerilog 源文件，但没有项目配置文件 `vide.toml`，扩展会提示你创建默认配置。你暂时可以跳过这一步；我们会在 [配置第一个项目](../first-project/) 里带你创建第一份 `vide.toml`，完整字段见 [项目配置参考](../project-configuration/)。
+
+![创建项目配置文件提示](../assets/quick-start/create-manifest-notification.png)
+
+## 3. 确认 Vide 已启动
+
+扩展激活后，VS Code 右侧状态栏会出现名为 `Vide` 的状态项。正常启动后状态项显示 `Vide`；启动或停止时会显示旋转图标，缺少项目配置文件时会显示警告图标，启动失败或项目配置失败时会显示错误图标。把鼠标停在状态项上，可以看到当前详情。
+
+如果没有显示 `Vide` 状态，请重新启动 VS Code。
+
+![status bar](../assets/quick-start/status-bar.png)
+
+## 4. 打开 RTL 文件
+
+打开 Verilog `.v`/`.vh` 文件，或 SystemVerilog `.sv`/`.svh`/`.svi` 文件。VS Code 应该识别对应语言并启用语法高亮和语言服务。
+
+![example](../assets/quick-start/editor-example.png)
+
+## 下一步
+
+安装验证完成后，先用 [配置第一个项目](../first-project/) 写出第一份 `vide.toml`，再进入 [功能特性](../features/) 了解各项编辑能力。需要查字段细节时看 [项目配置参考](../project-configuration/)。

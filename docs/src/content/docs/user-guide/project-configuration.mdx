@@ -1,6 +1,6 @@
 ---
 title: 项目配置
-description: 配置 vide.toml 项目配置文件、源文件、include 目录和宏定义。
+description: 查 vide.toml 字段、路径 glob、include 目录、宏定义、库和排除规则的写法。
 ---
 
 import VideLab from "../../../components/VideLab.astro";
@@ -94,13 +94,11 @@ endmodule
   },
 ];
 
-项目配置文件回答的是这些问题：哪些 RTL 文件属于这个工程，include 文件去哪找，启用哪些宏，外部依赖放在哪里。文件名必须是 `vide.toml`。
+这是一页 `vide.toml` 项目配置参考。第一次配置工程时，先按 [配置第一个项目](../first-project/) 写出能工作的项目配置文件。
 
-项目配置文件通常放在工作区根目录，也就是你用 VS Code 打开的顶层目录。Vide 不会自动向父目录或子目录寻找其它项目配置文件。
+## 字段速查
 
-## 最小可用配置
-
-大多数小工程可以从这几行开始：
+一个常见小工程会用到这些字段：
 
 ```toml
 sources = ["rtl/**"]
@@ -108,74 +106,6 @@ include_dirs = ["include"]
 defines = ["SYNTHESIS"]
 top_modules = ["top"]
 ```
-
-- `sources`：告诉 Vide 哪些 RTL 文件属于工程。上面的 `rtl/**` 表示包含 `rtl` 目录以及它下面子目录里的文件。
-- `include_dirs`：告诉 Vide include 文件去哪找。
-- `defines`：预先定义宏，相当于编译命令里的 `+define+SYNTHESIS` 或 `-D SYNTHESIS`。
-- `top_modules`：声明顶层模块名。它不会决定扫描哪些文件，只帮助项目分析更贴近你的真实入口。
-
-刚打开一个工程时，可以先保留默认模板里的 `sources = []`，确认语法高亮和单文件错误提示正常。等工程结构确认清楚后，再把 `sources` 改成真实目录。
-
-## 路径和 glob 怎么写
-
-`sources` 和 `exclude` 不是普通目录路径，而是“带通配符的路径写法”，也叫 glob。最常用的两个通配符是：
-
-- `*`：匹配一层目录里的名字，例如 `rtl/*.sv` 只匹配 `rtl` 目录正下方的 `.sv` 文件。
-- `**`：匹配多层目录，例如 `rtl/**` 会继续匹配 `rtl` 子目录里的文件。
-
-想了解这个概念，可以看 [glob 简介](https://en.wikipedia.org/wiki/Glob_(programming))。
-
-Vide 对 `sources` 和 `exclude` 有几条固定规则：
-
-- 必须相对工作区根目录，例如 `rtl/**`。
-- 路径分隔符统一写 `/`，不要写 `rtl\**`。
-- 不支持绝对路径，也不支持路径里出现 `..`。
-- `*` 不跨目录；需要递归目录时用 `**`。
-
-末尾 `/` 是否有区别，要看字段：
-
-- 在 `sources` 和 `exclude` 里，`rtl` 和 `rtl/` 都不表示“包含 `rtl` 下所有文件”。它们不是递归目录写法；想包含整个目录，请写 `rtl/**`；想排除整个 `build` 目录，请写 `build/**`。
-- 在 `include_dirs` 和 `libraries` 里，值是普通路径，并且相对当前项目配置文件所在目录解析。`include` 和 `include/` 通常表示同一个目录；为了统一，文档里推荐写成 `include`。
-
-## 一个更接近真实工程的例子
-
-```toml
-#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
-
-top_modules = ["top"]
-
-defines = [
-  "SYNTHESIS",
-  "DATA_WIDTH=32",
-  "RESET_VALUE=0",
-]
-
-sources = [
-  "rtl/**",
-  "ip/local_ip/src/**/*.sv",
-]
-
-include_dirs = [
-  "include",
-  "rtl",
-]
-
-libraries = [
-  "../common_cells",
-  "../bus_ip",
-]
-
-exclude = [
-  "build/**",
-  "sim/work/**",
-  "generated/tmp/**",
-  "**/*_bb.v",
-]
-```
-
-文件开头的 `#:schema ...` 是 TOML 注释。它只帮助编辑器识别配置格式，不会改变 Vide 读取项目配置文件的方式。VS Code 自动创建的默认模板见 [第一个工程](../first-project/)。
-
-## 字段说明
 
 | 字段 | 类型 | 作用 |
 | --- | --- | --- |
@@ -186,7 +116,29 @@ exclude = [
 | `libraries` | 路径数组 | 外部库或依赖工程目录。 |
 | `exclude` | glob 数组 | 从已加载文件中过滤生成目录、仿真输出或黑盒文件。 |
 
-## sources 和 include_dirs
+## `sources` 和 `exclude` 的路径和 glob
+
+`sources` 和 `exclude` 不是普通目录路径，而是“带通配符的路径写法”，也叫 glob。最常用的两个通配符是：
+
+- `*`：匹配一层目录里的名字，例如 `rtl/*.sv` 只匹配 `rtl` 目录正下方的 `.sv` 文件。
+- `**`：匹配多层目录，例如 `rtl/**` 会继续匹配 `rtl` 子目录里的文件。
+
+:::note
+想了解这个概念，可以看 [glob 简介](https://en.wikipedia.org/wiki/Glob_(programming))。
+:::
+
+Vide 对 `sources` 和 `exclude` 有几条固定规则：
+
+- 必须相对工作区根目录，例如 `rtl/**`。
+- 路径分隔符统一写 `/`，不要写 `rtl\**`。
+- 不支持绝对路径，也不支持路径里出现 `..`。
+- `*` 不跨目录；需要递归目录时用 `**`。
+
+在 `include_dirs` 和 `libraries` 里值是普通路径，并且相对当前项目配置文件所在目录解析。`include` 和 `include/` 表示同一个目录；为了统一，文档里推荐写成 `include`。
+
+## 字段详解
+
+### sources 和 include_dirs
 
 `sources` 有三种常见状态：
 
@@ -215,19 +167,7 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 
 如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也不会使用这个回退。
 
-<VideLab
-  projectId="configuration-include-macro"
-  projectLabel="Project Configuration: Include and Macros"
-  entryFile="rtl/feature_gate.sv"
-  files={configuredProjectFiles}
-  height="360px"
-  activeFile="rtl/feature_gate.sv"
-  selection="5:17-5:31"
-  title="include 目录和宏定义"
-  description="这个例子有 vide.toml、include 文件和 RTL 文件。删除 include_dirs 后，`include` 会找不到文件；删除 FEATURE_PIPELINE 宏后，启用的代码分支会变化。"
-/>
-
-## defines
+### defines
 
 `defines` 中每一项都是一个宏定义：
 
@@ -241,19 +181,7 @@ defines = [
 
 宏名需要是合法标识符。带值宏会按 `NAME=value` 解析，`value` 可以包含空格。
 
-<VideLab
-  projectId="configuration-defines-highlight"
-  projectLabel="Project Configuration: Defines"
-  entryFile="rtl/define_highlight_demo.sv"
-  files={defineHighlightFiles}
-  height="360px"
-  activeFile="rtl/define_highlight_demo.sv"
-  selection="8:8-8:27"
-  title="修改 defines 观察条件编译"
-  description={'打开 vide.toml，把 defines 改成 ["USE_INVERT_PATH"] 或 []，再回到 RTL 文件，观察 `ifdef 分支的高亮变化。'}
-/>
-
-## libraries
+### libraries
 
 `libraries` 用于声明依赖库。路径相对当前项目配置文件所在目录解析。每个库路径都会被当作另一个工作区继续加载：
 
@@ -263,7 +191,7 @@ defines = [
 
 `libraries` 不会替代当前工程自己的 `sources`。当前工作区的 RTL 仍然应该通过 `sources` 声明；`libraries` 只描述被当前工程引用的外部工程或库目录。
 
-## exclude
+### exclude
 
 `exclude` 使用工作区相对 glob，适合排除生成目录、仿真输出目录、缓存目录或黑盒 stub：
 
@@ -277,4 +205,3 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 - 项目配置文件名必须是 `vide.toml`。
 - Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vide.toml`。
-- 配置了 `sources = []` 的工程可以只加载 include 目录，适合头文件型工作区，或暂时不想扫描 RTL 的工作区。

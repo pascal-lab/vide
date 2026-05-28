@@ -1,18 +1,19 @@
 ---
-title: Vide Docs
-description: Documentation for the Verilog/SystemVerilog language server, VS Code extension, and Playground.
+title: Vide - Home
+description: Vide - modern SystemVerilog development environment
 template: splash
 editUrl: false
 lastUpdated: false
 hero:
-  title: Vide
-  tagline: A language server and VS Code extension for Verilog and SystemVerilog that brings common RTL IDE features into your editor.
+  title: |
+    <span class="hero-brand">Vide</span>
+    <span class="hero-title-main">Modern SystemVerilog <wbr />development environment</span>
   actions:
     - text: Quick Start
-      link: ./user-guide/quick-start/
+      link: ./user-guide/
       icon: right-arrow
-    - text: Open Playground
-      link: ./playground/
+    - text: Online Experience
+      link: ./user-guide/online-experience/
       icon: rocket
       variant: secondary
     - text: View on GitHub
@@ -21,94 +22,29 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import HomepageComparisonSection from '../../../components/HomepageComparisonSection.astro';
+import HomepageCta from '../../../components/HomepageCta.astro';
+import HomepageFeatureSection from '../../../components/HomepageFeatureSection.astro';
+import HomepageHeroStyles from '../../../components/HomepageHeroStyles.astro';
 
-<CardGrid stagger>
-  <Card title="RTL-aware language intelligence" icon="code-branch">
-    Reads opened RTL files and, when needed, builds fuller project semantics from manifests, include directories, and macro definitions.
-  </Card>
-  <Card title="Ready inside VS Code" icon="vscode">
-    Install the extension, open an RTL directory, and use syntax highlighting, commands, the status bar item, and the server bundled with the extension.
-  </Card>
-  <Card title="Navigation and diagnostics" icon="magnifier">
-    Supports semantic diagnostics, go to declaration/definition, references, document highlights, outlines, and folding.
-  </Card>
-  <Card title="RTL editing assistance" icon="rocket">
-    Provides completion, hover, signature help, rename, formatting, code actions, and inlay hints.
-  </Card>
-</CardGrid>
+---
 
-## Choose an Entry Point
+<HomepageHeroStyles />
 
-<CardGrid>
-  <LinkCard
-    title="User Guide"
-    href="./user-guide/"
-    description="Install the extension, open a project, configure a manifest, and use diagnostics, navigation, completion, formatting, and Qihe in daily work."
+<HomepageFeatureSection locale="en" />
+
+---
+
+<HomepageComparisonSection locale="en" />
+
+<HomepageCta locale="en" />
+
+---
+
+<div class="pascal-footer">
+  <img
+    src={`${import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`}pascal.svg`}
+    alt="PASCAL Research Group"
   />
-  <LinkCard
-    title="Advanced"
-    href="./advanced-guide/"
-    description="Install local VSIX packages, replace the server, inspect commands and logs, and understand the project analysis model."
-  />
-  <LinkCard
-    title="Playground"
-    href="./playground/"
-    description="Run multi-file RTL examples in the browser and try hover, completion, navigation, diagnostics, inlay hints, and rename."
-  />
-  <LinkCard
-    title="Changelog"
-    href="./changelog/"
-    description="Read user-visible changes, fixes, and upgrade impact for released versions."
-  />
-</CardGrid>
-
-## Common Paths
-
-<CardGrid>
-  <LinkCard
-    title="Quick Start"
-    href="./user-guide/quick-start/"
-    description="Install the VS Code extension, open an RTL project, check the status bar, and try the core IDE features."
-  />
-  <LinkCard
-    title="Daily Use"
-    href="./user-guide/daily-use/"
-    description="Find language support, diagnostics, navigation, editing assistance, formatting, structure help, and Qihe by task."
-  />
-  <LinkCard
-    title="VS Code Settings Reference"
-    href="./advanced-guide/vscode-settings/"
-    description="Reference server, Qihe, diagnostics, formatter, inlay hints, and other settings."
-  />
-  <LinkCard
-    title="Operations Reference"
-    href="./advanced-guide/commands-status-logs/"
-    description="See command IDs, status bar behavior, output channels, and diagnostics profiling artifacts."
-  />
-  <LinkCard
-    title="Build from Source"
-    href="./advanced-guide/build-from-source/"
-    description="Build the language server, VS Code extension, and local VSIX packages."
-  />
-</CardGrid>
-
-## Project Layout
-
-Vide has two main parts:
-
-- `vide`: the Rust LSP server. It reads projects, parses source files, maintains semantic information, and responds to editor requests.
-- `editors/vscode`: the VS Code extension. It contributes Verilog/SystemVerilog language configuration, syntax highlighting, commands, a status bar item, and starts the language server.
-
-Support for more editors is planned.
-
-## Supported Files
-
-The VS Code extension currently recognizes these file types:
-
-| Language | Extensions |
-| --- | --- |
-| Verilog | `.v`, `.vh` |
-| SystemVerilog | `.sv`, `.svh`, `.svi` |
-
-The server also reads `.map` files when loading a project to support library maps and related project inputs.
+  <a href="https://pascal-lab.net/" target="_blank" rel="noopener noreferrer">PASCAL Research Group</a>
+</div>

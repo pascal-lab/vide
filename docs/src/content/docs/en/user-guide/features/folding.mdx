@@ -1,0 +1,36 @@
+---
+title: Folding
+description: Fold modules, port lists, declarations, block statements, and comments by RTL syntax structure.
+---
+
+import VideLab from '../../../../../components/VideLab.astro';
+import { inlayHintFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Folding lets the editor collapse code by structure. Vide provides VS Code folding ranges for multi-line comments, regions, modules, port lists, declarations, generate/specify constructs, instances, continuous assignments, block statements, and ordinary statements.
+
+During development, folding can skip over parts of the code and keep the editor view cleaner.
+
+## Demo
+
+You can try folding code freely in the browser.
+
+<VideLab
+  projectId="daily-folding"
+  projectLabel="Features: Folding"
+  entryFile="inlay_hints.v"
+  files={inlayHintFiles}
+  initialActiveFile="inlay_hints.v"
+  initialSelection="1:1-19:10"
+  title="Fold by RTL structure"
+  description="Use VS Code folding controls to collapse modules, port lists, and instance connections."
+/>
+
+## Project Configuration
+
+Folding mainly comes from syntax and structure in the current file, so it works in single-file cases. Project configuration affects include, macro branches, and semantic parsing, which can refine some structure ranges.
+
+## Related Features
+
+Use [Document Symbols](../document-symbols/) to jump to a structure, and [Selection Range](../selection-range/) to expand the current selection by syntax node.

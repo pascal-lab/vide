@@ -1,0 +1,179 @@
+---
+title: 骑河分析
+description: 在 Vide 中集成骑河，对项目或单个 Verilog/SystemVerilog 文件运行深度静态分析。
+---
+
+import { FileTree } from '@astrojs/starlight/components';
+import Codicon from '../../../../components/Codicon.astro';
+import ThinLinkCard from '../../../../components/ThinLinkCard.astro';
+
+## 什么是骑河
+
+骑河（Qihe）是由 Vide 所属 PASCAL 研究组推出的通用型 Verilog 静态分析框架，内置一系列开箱即用的深度硬件分析能力。
+
+骑河和 Vide 的定位互补。Vide 更侧重在硬件开发过程中提供快速、即时的静态分析反馈，不适合执行硬件漏洞挖掘这类更深入、开销更高的分析任务；骑河更专注于非实时场景下的深度静态分析。Vide 可以根据 `vide.toml` 自动调用骑河命令行工具，对整个项目运行骑河分析，并把骑河诊断显示在编辑器里。结合两者的能力，开发者可以在同一个 VS Code 工作流中获得即时反馈和深度分析结果。
+
+## 获取骑河
+
+在 Vide 中使用骑河之前，需要先前往[骑河官网](https://qihe.pascal-lab.net/)免费注册并获取骑河源代码，然后按照[骑河命令行快速开始](https://qihe-docs.pascal-lab.net/platform-cli/getting-started.html)安装命令行工具 `qihe`，并将它加入 `PATH` 环境变量。
+
+<ThinLinkCard
+  href="https://qihe.pascal-lab.net/"
+  title="骑河（Qihe）项目主页"
+  action="打开"
+>
+  获取骑河源代码和项目信息。
+</ThinLinkCard>
+
+<ThinLinkCard
+  href="https://qihe-docs.pascal-lab.net/platform-cli/getting-started.html"
+  title="骑河（Qihe）命令行快速开始"
+  action="打开"
+>
+  安装本机 <code>qihe</code> 命令行工具。
+</ThinLinkCard>
+
+## 运行骑河
+
+Vide 目前支持使用骑河分析整个项目，也支持只分析当前文件。
+
+### 分析项目
+
+分析整个项目时，需要用 `vide.toml` 描述工程里的源文件、include 目录、宏定义和顶层模块。完整写法见 [配置第一个项目](../../first-project/) 和 [项目配置参考](../../project-configuration/)。
+
+一个单文件项目可以这样组织：
+
+<FileTree>
+- my-qihe-demo/
+  - vide.toml
+  - rtl/
+    - top.sv
+</FileTree>
+
+`vide.toml` 写成：
+
+```toml
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
+sources = ["rtl/top.sv"]
+top_modules = ["top"]
+```
+
+`rtl/top.sv` 写成：
+
+```verilog
+module top(
+    input  logic [7:0] dividend,
+    output logic [7:0] quotient
+);
+    assign quotient = dividend / 8'd0;
+endmodule
+```
+
+这段代码故意保留了一个除零表达式。运行骑河后，编辑器会显示来自 `ZeroDivisionAnalysis` 的诊断。
+
+运行方式：
+
+1. 用 VS Code 打开 `my-qihe-demo/`。
+2. 打开 `rtl/top.sv`。
+3. 点击编辑器标题栏里的 <Codicon name="beaker" label="运行 Qihe 分析图标" /> 烧杯图标，或从命令面板执行 `Vide：运行 Qihe 分析`。
+4. 运行完成后，骑河诊断会显示在编辑器和“问题”面板中。需要查看命令和原始输出时，打开 `Vide Qihe` 输出通道。
+
+![正在运行 Qihe 分析的状态提示](../../assets/features/qihe-analysing.png)
+
+_分析中：Qihe 状态项显示当前目标文件和运行进度。_
+
+![Qihe 分析结果和输出信息](../../assets/features/qihe-analyzed.png)
+
+_分析结果：诊断位置和 Qihe 输出信息会一起帮助定位问题。_
+
+### 分析单文件
+
+如果工作区没有 `vide.toml`，执行 `Vide：运行 Qihe 分析` 后，Vide 会把当前打开的 RTL 文件作为骑河分析输入。
+
+如果 `vide.toml` 仍是默认空模板，并且没有解析出项目源文件，运行结果也等同于单文件分析。这个功能主要用于快速试跑和演示；正式项目建议写好 `vide.toml`，让 include 目录、宏定义和顶层模块一起传给骑河。
+
+## 运行原理与自定义运行命令
+
+分析项目时，Vide 会读取 `vide.toml` 并生成骑河编译输入。默认配置下，命令形态如下：
+
+```bash
+qihe compile <qihe-compile-args> --mode sv <project-files> -o <tmp.qh> -- <forwarded-slang-args> --top <top-module> -I <include-dir> -D<macro>
+qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
+```
+
+这些参数来自下面几处：
+
+- `<project-files>` 来自 `sources` 和 `libraries` 解析出的项目输入文件。
+- `--top <top-module>` 来自 `top_modules`。
+- `-I <include-dir>` 来自 `include_dirs`。
+- `-D<macro>` 来自 `defines`。
+- `<qihe-compile-args>` 来自 VS Code 设置 `vide.qihe.compileArgs` 中 `--` 之前的部分。
+- `<forwarded-slang-args>` 来自 `vide.qihe.compileArgs` 中 `--` 之后的部分。
+- `<qihe-run-args>` 来自 VS Code 设置 `vide.qihe.runArgs`。
+- `<tmp.qh>` 和 `<tmp-storage>` 是 Vide 为本次运行创建的临时路径。
+
+如果 `vide.qihe.compileArgs` 已经包含 `--mode`、`--mode=...` 或 `-m ...`，Vide 不会再自动追加 `--mode sv`。
+
+常用默认值如下：
+
+```json
+{
+  "vide.qihe.command": "qihe",
+  "vide.qihe.autoConfigureArgsFromManifest": true,
+  "vide.qihe.compileArgs": [],
+  "vide.qihe.runArgs": ["-g", "std"]
+}
+```
+
+完整参考见 [Qihe 设置](../../vscode-settings/#qihe)。
+
+随后，Vide 会解析骑河输出的诊断结果，并将诊断信息显示在编辑器中。命令执行过程可以在 VS Code 的 Output 面板中查看：在输出通道下拉框中选择 `Vide Qihe`。
+
+如果不希望 Vide 根据 `vide.toml` 自动生成 `--mode sv`、`--top`、`-I` 和 `-D`，可以在 VS Code Settings 中将 `vide.qihe.autoConfigureArgsFromManifest` 设置为 `false`。关闭后，输入文件仍然由当前项目或当前文件决定，命令形态变为：
+
+```bash
+qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-args>]
+qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
+```
+
+例如：
+
+```json
+{
+  "vide.qihe.autoConfigureArgsFromManifest": false,
+  "vide.qihe.compileArgs": ["--mode", "sv", "--", "-I", "include"],
+  "vide.qihe.runArgs": ["-g", "std"]
+}
+```
+
+<ThinLinkCard
+  href="https://qihe-docs.pascal-lab.net/platform-cli/compile.html"
+  title="qihe compile 参数"
+  action="打开"
+>
+  查看 <code>qihe compile</code> 的命令行参数。
+</ThinLinkCard>
+
+<ThinLinkCard
+  href="https://qihe-docs.pascal-lab.net/platform-cli/run.html"
+  title="qihe run 参数"
+  action="打开"
+>
+  查看 <code>qihe run</code> 的命令行参数。
+</ThinLinkCard>
+
+## 运行失败与报错
+
+如果骑河分析失败，先打开 `Vide Qihe` 输出通道，按顺序检查以下内容：
+
+1. 目标文件是否是工作区中已保存的 Verilog/SystemVerilog 文件。
+2. `qihe compile` 命令和编译参数是否符合当前工程。
+3. `qihe run` 命令和运行参数是否符合当前分析目标。
+4. Qihe 的 stdout 和 stderr 中是否有直接的编译或运行错误。
+5. 输出末尾的失败信息。
+
+如果报错与 include 路径、宏定义或 top module 有关，先检查并修正 [项目配置](../../project-configuration/)。
+
+如果报错与骑河命令路径有关，优先把 `vide.qihe.command` 设置为 `qihe` 可执行文件的绝对路径。在 Windows 上，如果默认 Shell 解析的是批处理入口，请把它设置为 `qihe.bat` 的绝对路径。
+
+如果问题来自骑河自身的编译或运行过程，请前往[骑河项目](https://qihe.pascal-lab.net/)提交 issue。

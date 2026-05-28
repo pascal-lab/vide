@@ -1,0 +1,46 @@
+---
+title: 签名提示
+description: 在实例参数和端口列表中查看目标模块的参数、端口和当前位置。
+---
+
+import VideLab from '../../../../components/VideLab.astro';
+import { inlayHintFiles } from '../../../../examples/dailyUse';
+
+## 什么是签名提示
+
+签名提示会在实例参数赋值列表和端口连接列表中显示目标模块的参数或端口信息。它和补全不同：补全是在当前位置插入候选项，签名提示用于确认当前正在填写哪个参数或端口。
+
+## 演示
+
+<VideLab
+  projectId="daily-signature-help"
+  projectLabel="Features: Signature Help"
+  entryFile="inlay_hints.v"
+  files={inlayHintFiles}
+  initialActiveFile="inlay_hints.v"
+  initialSelection="18:21-18:21"
+  title="查看实例端口签名"
+  description="加载后把光标放在 u_mux 的参数或端口列表里，触发签名提示并查看当前参数或端口。"
+/>
+
+## 什么时候出现
+
+- 在参数赋值列表 `#(...)` 中，显示目标模块参数。
+- 在端口连接列表 `(...)` 中，显示目标模块端口。
+- 光标移动到不同参数或端口位置时，当前项会随之更新。
+
+## 项目配置影响
+
+签名提示需要目标模块能被解析到。它和定义跳转、补全一样依赖 `vide.toml` 里的 `sources`、`include_dirs`、`defines` 和 `libraries`。
+
+## 调整显示
+
+如果只想显示参数相关签名提示，可以开启：
+
+```json
+{
+  "vide.signature.help.params.only": true
+}
+```
+
+完整参考见 [Signature Help 设置](../../vscode-settings/#signature-help)。

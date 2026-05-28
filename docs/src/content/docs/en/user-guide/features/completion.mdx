@@ -1,0 +1,44 @@
+---
+title: Completion
+description: Complete Verilog/SystemVerilog expressions, instance connections, parameters, and preprocessor positions.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import completionGif from '../../../assets/features/completion.gif';
+import { completionFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Completion inserts candidates at the current position. Vide combines syntax position and RTL semantics: target ports in instance port lists, target parameters in parameter lists, visible symbols in expressions, and directives or macro-related candidates in preprocessor positions.
+
+Common trigger positions include instance `#(...)` and `(...)`, expressions, member access `.`, event controls `@(...)`, system tasks after `$`, preprocessor positions after `` ` ``, and integer literal base markers after `'`.
+
+## Demo
+
+<FeatureExample
+  image={completionGif}
+  imageAlt="Animation showing completion in a Verilog file in VS Code"
+  imageCaption="Verilog completion in VS Code"
+  labCaption="Edit the same Verilog in the browser"
+>
+  <VideLab
+    projectId="daily-completion"
+    projectLabel="Features: Completion"
+    entryFile="completion.v"
+    files={completionFiles}
+    height="100%"
+    initialActiveFile="completion.v"
+    initialSelection="16:5-16:12"
+    title="Instance port completion"
+    description="Trigger completion in u0's port list and inspect port-name and connection-expression candidates."
+  />
+</FeatureExample>
+
+## Project Configuration
+
+In single-file cases, completion uses the current file and indexed content. Port, parameter, and instance completion need the target module to resolve. In cross-file projects, `vide.toml` decides which modules and macro branches Vide can see.
+
+## Related Features
+
+Completion inserts candidates. If you are already inside an instance parameter or port list and need to confirm the current item, use [Signature Help](../signature-help/).

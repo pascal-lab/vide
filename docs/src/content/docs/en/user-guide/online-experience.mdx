@@ -1,0 +1,108 @@
+---
+title: Online Experience
+description: Try Vide's core RTL IDE features in the browser without installing the local extension.
+---
+
+import VideLab from '../../../../components/VideLab.astro';
+import {
+  completionFiles,
+  editAidFiles,
+  navigationFiles,
+  structureFiles,
+} from '../../../../examples/dailyUse';
+
+Use these minimal RTL projects in the browser to try navigation, inlay hints, completion, and refactoring without installing the local extension. When you are ready to use Vide in a local project, read [VS Code Installation](../vscode-installation/) and [Configure the First Project](../first-project/).
+
+Click `Load now`, start from the selected code, edit RTL, switch files, open diagnostics, and use the reset button in the toolbar when you want to restore the initial state.
+
+## Symbol Navigation
+
+Jump from the instance in `top.v` to the module definition in `and_gate.v`, then return to the connection site to inspect the related signal.
+
+Steps:
+
+1. Load the example. `u_and_gate` is already selected in `top.v`.
+2. Run `Go to Definition` on `u_and_gate` or `and_gate` to jump to `and_gate.v`.
+3. Return to `top.v` and inspect references or highlights on `gate_out`.
+
+<VideLab
+  projectId="online-navigation-en"
+  projectLabel="Symbol Navigation"
+  entryFile="top.v"
+  files={navigationFiles}
+  load="visible"
+  activeFile="top.v"
+  selection="8:5-8:13"
+  title="Jump from an instance to its module definition"
+  description="Load the example, then run Go to Definition on u_and_gate to jump to and_gate.v."
+/>
+
+## Code Insight
+
+Read each `u_mux` connection with the port name shown next to the argument, without opening the `mux2` definition first.
+
+Steps:
+
+1. Load the example and read the port hints next to each `u_mux` connection.
+2. Hover over `mux2` or `u_mux` to inspect module and instance information.
+3. Open the `mux2` definition and compare its port list with the instance connections.
+
+<VideLab
+  projectId="online-insight-en"
+  projectLabel="Code Insight"
+  entryFile="inlay_hints.v"
+  files={structureFiles}
+  load="visible"
+  activeFile="inlay_hints.v"
+  selection="18:5-23:6"
+  title="Inspect port-connection inlay hints"
+  description="Load the example, then read the port hints around u_mux or hover over mux2 / u_mux."
+/>
+
+## Precise Completion
+
+Trigger completion near instance ports, parameter assignments, and expressions to fill port names and local signals from the candidate list.
+
+Steps:
+
+1. Load the example and place the cursor inside the `adder8 u0(...)` port list.
+2. Delete a port name, or type `.` on a new line and trigger completion.
+3. Select a port candidate, then fill in the signal inside the parentheses.
+
+<VideLab
+  projectId="online-completion-en"
+  projectLabel="Precise Completion"
+  entryFile="completion.v"
+  files={completionFiles}
+  load="visible"
+  activeFile="completion.v"
+  selection="16:5-16:12"
+  title="Trigger completion at a port connection"
+  description="Load the example, type . inside the u0 port list, and trigger completion."
+/>
+
+## Automatic Refactoring
+
+Use code actions to complete instance connections, and use rename to update a signal declaration, connection, and usage together.
+
+Steps:
+
+1. Load the example, then manually remove one port connection from `u_counter`.
+2. Place the cursor near the `u_counter` instance and open the code action menu to complete the missing connection.
+3. Rename `smp_cnt` and check that the declaration, connection, and usage update together.
+
+<VideLab
+  projectId="online-refactor-en"
+  projectLabel="Automatic Refactoring"
+  entryFile="code_action_rename.v"
+  files={editAidFiles}
+  load="visible"
+  activeFile="code_action_rename.v"
+  selection="22:16-22:23"
+  title="Complete ports and rename a symbol"
+  description="Load the example, remove one port connection, then open code actions or rename smp_cnt."
+/>
+
+## Next Step
+
+To use Vide in a local project, finish [VS Code Installation](../vscode-installation/), then write the first `vide.toml` with [Configure the First Project](../first-project/).

@@ -4,7 +4,9 @@ import type {
   ComparisonFeatureKey,
   ComparisonFeatureValue,
   ComparisonProduct,
+  HomepageLocale,
 } from '../data/homepage';
+import { normalizeHomepageLocale } from '../data/homepage';
 
 type FeatureStatus = 'yes' | 'partial' | 'no';
 type FeatureStatusMeta = {
@@ -19,17 +21,26 @@ type FeatureCell = {
 };
 
 interface Props {
+  locale?: HomepageLocale;
   columns: readonly (ComparisonColumn & { key: ComparisonFeatureKey })[];
   products: readonly ComparisonProduct[];
 }
 
 const { columns, products } = Astro.props as Props;
+const locale = normalizeHomepageLocale(Astro.props.locale);
 
-const statusMap: Record<FeatureStatus, FeatureStatusMeta> = {
-  yes: { className: 'vide-comparison-table__true', label: 'Yes', symbol: '✓' },
-  partial: { className: 'vide-comparison-table__partial', label: 'Partial', symbol: '△' },
-  no: { className: 'vide-comparison-table__false', label: 'No', symbol: '✕' },
-};
+const statusMap: Record<FeatureStatus, FeatureStatusMeta> =
+  locale === 'en'
+    ? {
+        yes: { className: 'vide-comparison-table__true', label: 'Yes', symbol: '✓' },
+        partial: { className: 'vide-comparison-table__partial', label: 'Partial', symbol: '△' },
+        no: { className: 'vide-comparison-table__false', label: 'No', symbol: '✕' },
+      }
+    : {
+        yes: { className: 'vide-comparison-table__true', label: '支持', symbol: '✓' },
+        partial: { className: 'vide-comparison-table__partial', label: '部分支持', symbol: '△' },
+        no: { className: 'vide-comparison-table__false', label: '不支持', symbol: '✕' },
+      };
 
 const getStatus = (value: ComparisonFeatureValue): FeatureStatus => {
   if (typeof value === 'string') return 'partial';

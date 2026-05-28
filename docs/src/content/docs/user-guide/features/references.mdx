@@ -1,0 +1,50 @@
+---
+title: 引用搜索
+description: 查找模块、端口、参数和信号在工程中的使用位置。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VideLab from '../../../../components/VideLab.astro';
+import findAllReferencesImage from '../../assets/features/find-all-references.png';
+import { usageFiles } from '../../../../examples/dailyUse';
+
+## 什么是引用搜索
+
+引用搜索能够找到选中的符号在哪里被使用。在 RTL 工程里，它可以用于追模块实例、端口连接、参数和信号的使用位置，也可以配合定义跳转确认一个连接关系是否完整。
+
+Vide 会响应 VS Code 的 `查找所有引用` 和 `查看引用`。结果会去重后显示在 VS Code 的引用视图里。
+
+## 演示
+
+<FeatureExample
+  image={findAllReferencesImage}
+  imageAlt="VS Code 中查找 Verilog 符号引用的截图"
+  imageCaption="VS Code 中的引用搜索"
+  labCaption="在浏览器里搜索同一符号"
+>
+  <VideLab
+    projectId="daily-references"
+    projectLabel="Features: References"
+    entryFile="usage.v"
+    files={usageFiles}
+    height="100%"
+    initialActiveFile="usage.v"
+    initialSelection="26:10-26:25"
+    title="查找信号引用"
+    description="加载后在 one_cycle_pulse 上执行查找所有引用，查看声明、端口连接和 assign 使用位置。"
+  />
+</FeatureExample>
+
+## 项目配置影响
+
+引用搜索的范围来自 Vide 当前解析到的文件集合。没有 `vide.toml` 时，Vide 会在工作区扫描结果中查找引用；写好 `vide.toml` 后，引用搜索会按 `vide.toml` 描述的工程范围执行。
+
+## 相关设置
+
+模块声明上方的实例数量提示由 `vide.lens.instantiations.enable` 控制，它使用同一套引用解析结果统计模块被实例化的位置。局部符号是否能跨作用域搜索由 `vide.scope.visibility` 控制；常规项目保持默认值即可。
+
+完整参考见 [Lens 设置](../../vscode-settings/#lens) 和 [Scope 设置](../../vscode-settings/#scope)。
+
+## 和重命名的关系
+
+引用搜索和 [重命名](../rename/) 使用同一套符号解析结果。区别是引用搜索只展示位置，重命名会生成工作区编辑；因此重命名对工程范围要求更严格。

@@ -1,0 +1,52 @@
+---
+title: 格式化
+description: 配置 verible，并使用文档、选区和 Enter 格式化。
+---
+
+import ThinLinkCard from '../../../../components/ThinLinkCard.astro';
+
+## 什么是格式化
+
+格式化旨在让代码的缩进、换行风格、语法规范统一一致，使其看起来更整洁。
+
+格式化入口包括 VS Code 的 `格式化文档`、`格式化选定内容` 和按 Enter 时的自动缩进行为。当前格式化后端只有 `verible`，会调用外部 `verible-verilog-format`；Vide 不随扩展打包这个工具，因此需要用户自行配置可执行文件，见下一小节。
+
+## 配置 verible
+
+Verible 是 ChipsAlliance 提供的一系列 SystemVerilog 开发工具，其中包含了格式化器。我们的格式化功能依赖于其 `verible-verilog-format` 可执行文件。请阅读 Verible 安装说明进行下载安装，然后配置到 VS Code 中。
+
+<ThinLinkCard
+  href="https://github.com/chipsalliance/verible#installation"
+  title="Verible 安装说明"
+  action="打开"
+>
+  安装或更新外部 <code>verible-verilog-format</code> 工具。
+</ThinLinkCard>
+
+VS Code 设置里，当`vide.formatter.path` 留空时，Vide 会从 VS Code 进程可见的 `PATH` 查找 `verible-verilog-format`；写入路径时，会直接调用这个可执行文件：
+
+```json
+{
+  "vide.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
+}
+```
+
+使用 `vide.formatter.args` 可以控制传入 `verible-verilog-format` 的参数以控制其格式化行为。
+
+<ThinLinkCard
+  href="https://chipsalliance.github.io/verible/verilog_format.html"
+  title="verible-verilog-format 参数文档"
+  action="打开"
+>
+  查看 <code>vide.formatter.args</code> 可以传给外部 formatter 的参数。
+</ThinLinkCard>
+
+## 格式化入口
+
+`格式化文档` 会把整个文件交给 `verible-verilog-format`。`格式化选定内容` 会把选区对应的行范围传给同一个 formatter。两者都会使用当前的 `vide.formatter.path` 和 `vide.formatter.args`；`vide.formatting.indent.width` 会作为 `--indentation_spaces` 传入。
+
+## Enter 行为
+
+按 Enter 的辅助格式化由 `vide.formatting.on.enter` 控制，注释里的 Enter 行为由 `vide.formatting.in.comments` 控制。项目只需要手动格式化时，可以关闭 Enter 行为，保留 `格式化文档` 和 `格式化选定内容`。
+
+完整参考见 [Formatter 和 Formatting 设置](../../vscode-settings/#formatter-和-formatting)。

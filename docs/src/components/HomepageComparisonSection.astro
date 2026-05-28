@@ -1,16 +1,34 @@
 ---
 import HomepageComparisonTable from './HomepageComparisonTable.astro';
-import { homepageComparison } from '../data/homepage';
+import { getHomepageComparison, normalizeHomepageLocale, type HomepageLocale } from '../data/homepage';
+
+interface Props {
+  locale?: HomepageLocale;
+}
+
+const locale = normalizeHomepageLocale(Astro.props.locale);
+const homepageComparison = getHomepageComparison(locale);
+const copy =
+  locale === 'en'
+    ? {
+        title: 'Feature Comparison',
+        description:
+          'Vide brings modern IDE workflows into the HDL world. From Go to Definition to Completion, Vide provides a complete Verilog/SystemVerilog development experience.',
+      }
+    : {
+        title: '特性对比',
+        description:
+          'Vide 把现代 IDE 体验带进了 HDL 世界。从「定义跳转」到「代码补全」，Vide 提供了完整的 Verilog/SystemVerilog 开发体验。',
+      };
 ---
 
 <section class="vide-comparison-section">
-  <h2>特性对比</h2>
+  <h2>{copy.title}</h2>
 
-  <p>
-    Vide 把现代 IDE 体验带进了 HDL 世界。从「定义跳转」到「代码补全」，Vide 提供了完整的 Verilog/SystemVerilog 开发体验。
-  </p>
+  <p set:html={copy.description} />
 
   <HomepageComparisonTable
+    locale={locale}
     columns={homepageComparison.columns}
     products={homepageComparison.products}
   />

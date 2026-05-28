@@ -1,36 +1,52 @@
 ---
-title: User Guide
-description: Daily Vide usage for RTL projects.
+title: Quick Start
+description: Start using Vide from the online experience or VS Code installation.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-The user guide covers the normal editing path: install the extension, open a project, write a project manifest, use editor features, and fix common problems near the feature where they appear. Use [Advanced](../advanced-guide/) when you need local VSIX packages, a custom server, logs, or diagnostics profiling.
+Vide is a modern VS Code development environment for Verilog/SystemVerilog developers. It helps the editor understand module hierarchy, port connections, macro definitions, and include relationships in hardware projects. Work that used to depend on search, experience, and manual signal tracing becomes navigation, completion, checking, and refactoring directly in code. Whether you are taking over an unfamiliar design, completing instance ports, tracing a signal source, or using Qihe for deeper project analysis, Vide brings feedback into the editor workflow so RTL code is faster to read, modify, and maintain.
+
+If you only want to try the core features first, open the [Online Experience](./online-experience/) directly and use the core features without configuration. If you want to use Vide in your own project, start with [VS Code Installation](./vscode-installation/).
+
+## Start Here
 
 <CardGrid>
   <LinkCard
-    title="Quick Start"
-    href="./quick-start/"
-    description="Install the extension, open an RTL directory, check the status bar, then try diagnostics, navigation, completion, and hover."
+    title="Online Experience"
+    href="./online-experience/"
+    description="Try navigation, code insight, completion, and refactoring in the browser without installing the local extension."
   />
   <LinkCard
-    title="First Project"
+    title="VS Code Installation"
+    href="./vscode-installation/"
+    description="Install the Marketplace extension, open an RTL directory, and confirm that Vide starts in the editor."
+  />
+</CardGrid>
+
+## Reading Guide
+
+After trying Vide, continue in the order below. First-time users should read the tutorial and feature pages first; project configuration fields and VS Code settings are references to look up when needed.
+
+<CardGrid>
+  <LinkCard
+    title="Configure the First Project"
     href="./first-project/"
-    description="Understand the default vide.toml, workspace root, and when real sources become useful."
+    description="Write the first vide.toml for a small project and learn the source, include, macro, and reload flow."
   />
   <LinkCard
-    title="Project Configuration"
+    title="Feature Details"
+    href="./features/"
+    description="Find go to definition, references, hover, completion, rename, highlighting, inlay hints, diagnostics, formatting, and Qihe by feature."
+  />
+  <LinkCard
+    title="Project Configuration Reference"
     href="./project-configuration/"
-    description="Configure sources, include_dirs, defines, libraries, top_modules, and exclude."
+    description="Look up sources, include_dirs, defines, libraries, top_modules, and exclude."
   />
   <LinkCard
-    title="Daily Use"
-    href="./daily-use/"
-    description="Find language support, diagnostics, navigation, structure help, completion, signature help, quick fixes, formatting, and Qihe by task."
-  />
-  <LinkCard
-    title="Playground"
-    href="../playground/"
-    description="Try multi-file RTL examples in the browser without installing the local extension."
+    title="VS Code Settings Reference"
+    href="./vscode-settings/"
+    description="Look up vide.* settings for Qihe, diagnostics, formatting, inlay hints, and server launch."
   />
 </CardGrid>

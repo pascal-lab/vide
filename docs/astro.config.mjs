@@ -41,6 +41,9 @@ export default defineConfig({
         Footer: './src/components/SiteFooter.astro',
       },
       customCss: ['./src/assets/landing.css'],
+      components: {
+        Sidebar: './src/components/Sidebar.astro',
+      },
       plugins: [
         starlightUtils({
           multiSidebar: {
@@ -58,23 +61,39 @@ export default defineConfig({
           translations: { en: 'User Guide' },
           items: [
             'user-guide',
-            'user-guide/quick-start',
+            'user-guide/online-experience',
+            'user-guide/vscode-installation',
             'user-guide/first-project',
-            'user-guide/project-configuration',
             {
-              label: '日常使用',
-              translations: { en: 'Daily Use' },
+              label: '功能特性',
+              translations: { en: 'Features' },
               items: [
-                'user-guide/daily-use',
-                'user-guide/daily-use/language-support',
-                'user-guide/daily-use/diagnostics',
-                'user-guide/daily-use/navigation',
-                'user-guide/daily-use/structure',
-                'user-guide/daily-use/completion',
-                'user-guide/daily-use/signature-help',
-                'user-guide/daily-use/quick-fixes',
-                'user-guide/daily-use/formatting',
-                'user-guide/daily-use/qihe',
+                'user-guide/features',
+                'user-guide/features/navigation',
+                'user-guide/features/references',
+                'user-guide/features/hover',
+                'user-guide/features/completion',
+                'user-guide/features/rename',
+                'user-guide/features/syntax-highlighting',
+                'user-guide/features/semantic-highlighting',
+                'user-guide/features/inlay-hints',
+                'user-guide/features/document-symbols',
+                'user-guide/features/folding',
+                'user-guide/features/quick-fixes',
+                'user-guide/features/diagnostics',
+                'user-guide/features/signature-help',
+                'user-guide/features/selection-range',
+                'user-guide/features/formatting',
+                'user-guide/features/qihe',
+              ],
+            },
+            {
+              label: '参考',
+              translations: { en: 'Reference' },
+              items: [
+                'user-guide/project-configuration',
+                'user-guide/vscode-settings',
+                'user-guide/commands-status-logs',
               ],
             },
           ],
@@ -84,13 +103,24 @@ export default defineConfig({
           translations: { en: 'Advanced' },
           items: [
             'advanced-guide',
-            'advanced-guide/advanced-installation',
-            'advanced-guide/build-from-source',
-            'advanced-guide/check-server',
-            'advanced-guide/commands-status-logs',
-            'advanced-guide/troubleshooting',
-            'advanced-guide/parsing-and-analysis',
-            'advanced-guide/vscode-settings',
+            {
+              label: '安装与构建',
+              translations: { en: 'Installation and Build' },
+              items: ['advanced-guide/advanced-installation', 'advanced-guide/build-from-source'],
+            },
+            {
+              label: '排障与日志',
+              translations: { en: 'Troubleshooting and Logs' },
+              items: [
+                'advanced-guide/check-server',
+                'advanced-guide/troubleshooting',
+              ],
+            },
+            {
+              label: '分析模型',
+              translations: { en: 'Analysis Model' },
+              items: ['advanced-guide/parsing-and-analysis'],
+            },
           ],
         },
         {
@@ -130,6 +160,7 @@ export default defineConfig({
             },
             {
               label: 'Playground',
+              translations: { en: 'Playground' },
               link: '/playground/',
             },
           ],

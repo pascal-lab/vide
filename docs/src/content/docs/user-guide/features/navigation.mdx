@@ -1,0 +1,46 @@
+---
+title: 定义跳转
+description: 从实例、符号和端口连接跳到 Vide 解析到的真实定义。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VideLab from '../../../../components/VideLab.astro';
+import gotoDefGif from '../../assets/features/goto-def.gif';
+import { navigationFiles } from '../../../../examples/dailyUse';
+
+## 什么是定义跳转
+
+定义跳转让你从当前引用位置直接进入它指向的声明或定义位置。阅读 RTL 时，最常见的场景是从模块实例跳到模块定义，从端口连接跳到目标端口，或者从信号使用位置跳到对应声明。
+
+Vide 会把 VS Code 的 `转到定义`、`查看定义`、`转到声明` 和 `转到类型定义` 接到 RTL 解析结果上。`转到声明` 会优先返回声明位置；没有单独声明位置时，会使用定义跳转结果。
+
+## 演示
+
+<FeatureExample
+  image={gotoDefGif}
+  imageAlt="VS Code 中从 top 模块跳转到 and_gate 定义的动图"
+  imageCaption="VS Code 中的跨文件定义跳转"
+  labCaption="在浏览器里尝试同一个跳转"
+>
+  <VideLab
+    projectId="daily-definition"
+    projectLabel="Features: Definition"
+    entryFile="top.v"
+    files={navigationFiles}
+    height="100%"
+    initialActiveFile="top.v"
+    initialSelection="8:5-8:13"
+    title="从实例跳转到模块定义"
+    description="加载后在 and_gate 上执行转到定义；目标模块在另一个文件里。"
+  />
+</FeatureExample>
+
+## 项目配置影响
+
+定义跳转需要 Vide 能解析到目标文件。没有 `vide.toml` 时，Vide 会扫描工作区，为阅读代码提供基础跳转；写好 `vide.toml` 后，跳转会按 `vide.toml` 描述的工程结构解析目标。
+
+## 同名模块
+
+没有项目配置时，如果一个实例能对应多个同名模块，Vide 会为了阅读体验在扫描结果里选择就近且唯一的候选。如果无法成功分析到唯一目标则会给予代码一个「提示」。
+
+该行为并非标准行为。在正式工程里，同名模块应该通过明确的项目配置、库边界或编译脚本处理。相关规则见 [分析模型](../../../advanced-guide/parsing-and-analysis/#跳转和同名模块)。

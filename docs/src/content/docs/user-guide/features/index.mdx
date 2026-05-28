@@ -1,0 +1,95 @@
+---
+title: 功能详解
+description: 按 homepage 顺序了解 Vide 的定义跳转、引用搜索、悬停、补全、重命名、语法高亮、语义高亮、代码注解、符号大纲、折叠、自动重构、诊断、签名提示、语义选区、格式化和 Qihe。
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+这里按 IDE 功能介绍 Vide 在 VS Code 中提供的阅读、编辑能力。
+
+在每个功能页中，你会看到这个功能解决的问题，一个示意图或者可以直接操作的演示，并在最后说明如何通过 `vide.toml` 或 VS Code 设置调整行为。
+
+<CardGrid>
+  <LinkCard
+    title="定义跳转"
+    href="./navigation/"
+    description="从实例、符号和端口连接跳到 Vide 解析到的真实定义。"
+  />
+  <LinkCard
+    title="引用搜索"
+    href="./references/"
+    description="查找模块、端口、参数和信号在工程中的使用位置。"
+  />
+  <LinkCard
+    title="悬停信息"
+    href="./hover/"
+    description="在代码旁查看模块、端口、参数、任务函数和字面量信息。"
+  />
+  <LinkCard
+    title="代码补全"
+    href="./completion/"
+    description="在表达式、实例连接、参数和预处理位置获得补全候选。"
+  />
+  <LinkCard
+    title="重命名"
+    href="./rename/"
+    description="在工程范围内重命名 RTL 符号，并同步更新声明和引用。"
+  />
+  <LinkCard
+    title="语法高亮"
+    href="./syntax-highlighting/"
+    description="确认文件识别、基础高亮和语言服务器的边界。"
+  />
+  <LinkCard
+    title="语义高亮"
+    href="./semantic-highlighting/"
+    description="用 RTL 语义标记端口方向、时钟复位和读写位置。"
+  />
+  <LinkCard
+    title="代码注解"
+    href="./inlay-hints/"
+    description="在实例连接和结构结尾处显示端口、参数和结构名称提示。"
+  />
+  <LinkCard
+    title="符号大纲"
+    href="./document-symbols/"
+    description="在大纲、面包屑和符号视图中浏览 RTL 文件结构。"
+  />
+  <LinkCard
+    title="折叠"
+    href="./folding/"
+    description="按 RTL 语法结构折叠模块、端口列表、声明、块语句和注释。"
+  />
+  <LinkCard
+    title="自动重构"
+    href="./quick-fixes/"
+    description="使用代码操作补齐端口参数、转换连接写法和转换数字进制。"
+  />
+  <LinkCard
+    title="实时诊断"
+    href="./diagnostics/"
+    description="理解问题面板、保存/输入时刷新，以及诊断规则配置。"
+  />
+  <LinkCard
+    title="签名提示"
+    href="./signature-help/"
+    description="在实例参数和端口列表中查看目标模块的参数、端口和当前位置。"
+  />
+  <LinkCard
+    title="语义选区"
+    href="./selection-range/"
+    description="使用扩大/缩小选择按 RTL 语法节点选择代码。"
+  />
+  <LinkCard
+    title="格式化"
+    href="./formatting/"
+    description="配置 verible，并使用文档、选区和 Enter 格式化入口。"
+  />
+  <LinkCard
+    title="骑河（Qihe）"
+    href="./qihe/"
+    description="在 Vide 中集成骑河，对项目或单个文件运行深度静态分析。"
+  />
+</CardGrid>
+
+需要控制工程结构时，配置工作区里的 `vide.toml`；需要控制编辑器行为时，配置 VS Code Settings。完整字段见 [项目配置参考](../project-configuration/) 和 [VS Code 设置参考](../vscode-settings/)。

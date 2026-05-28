@@ -1,0 +1,50 @@
+---
+title: Find References
+description: Find where modules, ports, parameters, and signals are used across the project.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import findAllReferencesImage from '../../../assets/features/find-all-references.png';
+import { usageFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Find References answers “where is this symbol used?” In RTL projects, it is useful for tracing module instances, port connections, parameters, and signals, and for checking whether a connection relationship is complete.
+
+Vide responds to VS Code's `Find All References` and `Peek References`. Results are deduplicated before they are shown in the references view.
+
+## Demo
+
+<FeatureExample
+  image={findAllReferencesImage}
+  imageAlt="Screenshot showing references for a Verilog symbol in VS Code"
+  imageCaption="References in VS Code"
+  labCaption="Search the same symbol in the browser"
+>
+  <VideLab
+    projectId="daily-references"
+    projectLabel="Features: References"
+    entryFile="usage.v"
+    files={usageFiles}
+    height="100%"
+    initialActiveFile="usage.v"
+    initialSelection="26:10-26:25"
+    title="Find signal references"
+    description="Run Find All References on one_cycle_pulse and inspect the declaration, port connection, and assign usage."
+  />
+</FeatureExample>
+
+## Project Configuration
+
+The reference search scope comes from the files Vide has resolved. Without `vide.toml`, Vide searches workspace scan results. After `vide.toml` is configured, reference search follows the project scope described by `vide.toml`.
+
+## Related Settings
+
+The instance-count lens above module declarations is controlled by `vide.lens.instantiations.enable`; it uses the same reference-resolution result to count where a module is instantiated. Whether local symbols can be searched across scopes is controlled by `vide.scope.visibility`; keep the default for normal projects.
+
+See [Lens settings](../../vscode-settings/#lens) and [Scope settings](../../vscode-settings/#scope).
+
+## Relationship to Rename
+
+[Rename](../rename/) uses the same symbol resolution result. Find References only shows locations; rename generates workspace edits, so it has stricter scope requirements.

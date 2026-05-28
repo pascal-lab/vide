@@ -1,0 +1,95 @@
+---
+title: Feature Details
+description: Learn Vide go to definition, references, hover, completion, rename, syntax highlighting, semantic highlighting, inlay hints, document symbols, folding, refactoring, diagnostics, signature help, selection ranges, formatting, and Qihe.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+This section introduces the reading and editing capabilities Vide provides in VS Code, organized by IDE feature.
+
+On each feature page, you will see the problem the feature solves, a screenshot or interactive demo, and how to adjust behavior through `vide.toml` or VS Code Settings.
+
+<CardGrid>
+  <LinkCard
+    title="Go to Definition"
+    href="./navigation/"
+    description="Jump from instances, symbols, and port connections to the real definitions Vide resolves."
+  />
+  <LinkCard
+    title="Find References"
+    href="./references/"
+    description="Find module, port, parameter, and signal usages across the project."
+  />
+  <LinkCard
+    title="Hover"
+    href="./hover/"
+    description="Inspect modules, ports, parameters, tasks, functions, and number literals beside the code."
+  />
+  <LinkCard
+    title="Completion"
+    href="./completion/"
+    description="Get candidates in expressions, instance connections, parameters, and preprocessor positions."
+  />
+  <LinkCard
+    title="Rename"
+    href="./rename/"
+    description="Rename RTL symbols across the project and update declarations and references together."
+  />
+  <LinkCard
+    title="Syntax Highlighting"
+    href="./syntax-highlighting/"
+    description="Confirm file recognition, basic highlighting, and the boundary between syntax and semantic features."
+  />
+  <LinkCard
+    title="Semantic Highlighting"
+    href="./semantic-highlighting/"
+    description="Use RTL semantics to distinguish port directions, clock/reset ports, instances, and types."
+  />
+  <LinkCard
+    title="Inlay Hints"
+    href="./inlay-hints/"
+    description="Show port, parameter, and structure-name hints inside instance connections and block endings."
+  />
+  <LinkCard
+    title="Document Symbols"
+    href="./document-symbols/"
+    description="Browse RTL file structure through Outline, breadcrumbs, and symbol views."
+  />
+  <LinkCard
+    title="Folding"
+    href="./folding/"
+    description="Fold modules, port lists, declarations, statement blocks, comments, and RTL syntax regions."
+  />
+  <LinkCard
+    title="Automatic Refactoring"
+    href="./quick-fixes/"
+    description="Use code actions to fill ports and parameters, convert connection styles, and convert number bases."
+  />
+  <LinkCard
+    title="Diagnostics"
+    href="./diagnostics/"
+    description="Understand the Problems panel, on-save/on-type refresh, and diagnostic rules."
+  />
+  <LinkCard
+    title="Signature Help"
+    href="./signature-help/"
+    description="Inspect target module parameters, ports, and the current connection position inside instance lists."
+  />
+  <LinkCard
+    title="Selection Range"
+    href="./selection-range/"
+    description="Use expand/shrink selection to select code by RTL syntax nodes."
+  />
+  <LinkCard
+    title="Formatting"
+    href="./formatting/"
+    description="Configure verible and use document, selection, and Enter formatting entry points."
+  />
+  <LinkCard
+    title="Qihe Analysis"
+    href="./qihe/"
+    description="Integrate Qihe in Vide and run deep static analysis on a project or a single file."
+  />
+</CardGrid>
+
+Use `vide.toml` to describe project structure, and VS Code Settings to tune editor behavior. See [Project Configuration Reference](../project-configuration/) and [VS Code Settings Reference](../vscode-settings/) for the full references.

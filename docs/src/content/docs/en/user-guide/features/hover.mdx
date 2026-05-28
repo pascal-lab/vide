@@ -1,0 +1,44 @@
+---
+title: Hover
+description: Inspect modules, ports, parameters, tasks, functions, and literals next to the code.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import hoverGif from '../../../assets/features/hover.gif';
+import { hoverFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Hover is a lightweight explanation shown near the cursor. It is useful when you want to check a module interface, port direction, parameter declaration, task/function signature, or number literal without leaving the current file.
+
+Vide generates VS Code hover content from the resolved symbol at the current position. The content is shown as Markdown with a readable structure.
+
+## Demo
+
+<FeatureExample
+  image={hoverGif}
+  imageAlt="Animation showing module hover information in VS Code"
+  imageCaption="Hover in VS Code"
+  labCaption="Inspect the same instance in the browser"
+>
+  <VideLab
+    projectId="daily-hover"
+    projectLabel="Features: Hover"
+    entryFile="hover.v"
+    files={hoverFiles}
+    height="100%"
+    initialActiveFile="hover.v"
+    initialSelection="18:5-18:12"
+    title="Inspect an instance target"
+    description="Place the cursor on blinker or a number literal to inspect the module interface and literal interpretation."
+  />
+</FeatureExample>
+
+## Project Configuration
+
+Hover needs Vide to resolve the symbol at the current position. Declarations in the current file can be shown directly; cross-file modules, ports, and parameters require the target file to be resolved. After `vide.toml` is configured, hover uses the real include paths, macro branches, and libraries.
+
+## Related Features
+
+Use [Go to Definition](../navigation/) when the hover target is the code you want to inspect. Use [Find References](../references/) to see where the target is used.

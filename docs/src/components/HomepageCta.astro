@@ -1,6 +1,13 @@
 ---
 import { LinkButton } from '@astrojs/starlight/components';
-import { homepageCtaActions } from '../data/homepage';
+import { getHomepageCtaActions, normalizeHomepageLocale, type HomepageLocale } from '../data/homepage';
+
+interface Props {
+  locale?: HomepageLocale;
+}
+
+const locale = normalizeHomepageLocale(Astro.props.locale);
+const homepageCtaActions = getHomepageCtaActions(locale);
 ---
 
 <section class="vide-cta">

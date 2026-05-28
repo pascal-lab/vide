@@ -1,0 +1,56 @@
+---
+title: Diagnostics
+description: Use Vide diagnostics in the Problems panel, tune refresh behavior, and adjust diagnostic rules.
+---
+
+import Codicon from '../../../../../components/Codicon.astro';
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import diagnosticImage from '../../../assets/features/diagnostic.png';
+import { slangDiagnosticFiles } from '../../../../../examples/dailyUse';
+
+## What Diagnostics Are
+
+Diagnostics are the <Codicon name="error" label="Error icon" color="#f14c4c" /> errors, <Codicon name="warning" label="Warning icon" color="#facc15" /> warnings, and <Codicon name="info" label="Hint icon" color="#3794ff" /> hints that Vide asks the editor to show. They appear in the VS Code Problems panel, as editor underlines, and near the affected code, helping you find syntax errors, parse errors, and semantic issues found by project analysis.
+
+## Demo
+
+<FeatureExample
+  image={diagnosticImage}
+  imageAlt="VS Code screenshot showing an undeclared identifier diagnostic"
+  imageCaption="Undeclared identifier diagnostic in VS Code"
+  labCaption="Inspect the same diagnostic in the browser"
+>
+  <VideLab
+    projectId="daily-diagnostics"
+    projectLabel="Features: Diagnostics"
+    entryFile="diagnostics.v"
+    files={slangDiagnosticFiles}
+    height="100%"
+    initialActiveFile="diagnostics.v"
+    initialSelection="15:32-15:44"
+    initialDiagnosticsOpen
+    title="Undeclared identifier diagnostic"
+    description="missing_step and missing_enable are not declared. Load the example, open the diagnostics panel, and inspect the markers and diagnostic list."
+  />
+</FeatureExample>
+
+## Project Configuration
+
+After you open a Verilog/SystemVerilog file, Vide can report syntax and parse issues in that file. Cross-file semantic diagnostics need a configured `vide.toml` in the workspace so Vide knows which source files, headers, macro branches, and dependencies belong to the same project. See [Configure the First Project](../../first-project/) and [Project Configuration Reference](../../project-configuration/).
+
+## Refresh Strategy
+
+The default `vide.diagnostics.update` value is `onSave`, so diagnostics refresh when files are saved. Large projects should usually keep this default to avoid running heavier analysis on every edit. To refresh while typing, set:
+
+```json
+{
+  "vide.diagnostics.update": "onType"
+}
+```
+
+## Diagnostic Rules
+
+Place the cursor on a diagnostic and open the lightbulb menu. For slang diagnostics with recognizable codes, Vide can write quick fixes into user or workspace settings, such as ignoring that diagnostic or lowering an error to a warning.
+
+You can also edit `vide.diagnostics.slang.rules` manually in VS Code Settings. See [Diagnostics settings](../../vscode-settings/#diagnostics) for the full reference.

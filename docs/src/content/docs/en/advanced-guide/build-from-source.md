@@ -98,27 +98,37 @@ This command:
 5. Calls `vsce package --target <target>` to generate `vide-vscode-<target>-debug.vsix`.
 6. Cleans up the temporary runtime binary after packaging.
 
-For release packages or target-specific verification, use a target script:
+The release workflow currently produces release VSIX packages for these targets:
 
 ```powershell
-npm run package:win32-x64
-npm run package:win32-arm64
 npm run package:linux-x64
 npm run package:linux-arm64
-npm run package:darwin-x64
+npm run package:win32-x64
 npm run package:darwin-arm64
 npm run package:alpine-x64
 npm run package:alpine-arm64
 ```
 
 These scripts compile the extension, prepare a release server binary for the
-target platform, and generate `vide-vscode-<target>.vsix`. When the target
-matches the current host platform, the script runs `cargo build --release` and
-copies the result. Alpine targets add the matching Rust musl target and
-cross-compile it. Other non-host targets are not automatically cross-compiled;
-the matching `vide` or `vide.exe` must already exist under
-`editors/vscode/server/<target>/`, or you should package on a matching native
-runner.
+target platform, and generate `vide-vscode-<target>.vsix`. The current release
+workflow only covers the targets above: glibc Linux, Windows x64, macOS arm64,
+and Alpine/musl x64 and arm64.
+
+`package.json` also keeps `package:win32-arm64` and `package:darwin-x64` entry
+points for manual verification or future release-matrix expansion. The current
+release flow does not publish official VSIX artifacts for those two targets.
+
+Server binary preparation is controlled by `editors/vscode/scripts/package.ts`:
+
+- When the target matches the current host platform, the script runs
+  `cargo build --release` and copies the result.
+- Alpine targets are built in musl containers in CI. The local script adds the
+  matching Rust musl target, but still needs a working musl cross-compilation
+  environment.
+- Other non-host targets are not automatically cross-compiled; the matching
+  `vide` or `vide.exe` must already exist under
+  `editors/vscode/server/<target>/`, or you should package on a matching native
+  runner.
 
 ## Install a Local VSIX
 

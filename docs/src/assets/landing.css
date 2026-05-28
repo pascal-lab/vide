@@ -42,7 +42,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 57.999rem), (hover: none), (pointer: coarse) {
+@media (max-width: 57.999rem) {
   .title-wrapper .site-title + ul {
     display: none;
   }

@@ -1,0 +1,56 @@
+---
+title: 自动重构
+description: 使用代码操作补齐端口参数、转换连接写法、清理空连接和转换数字进制。
+---
+
+import Codicon from '../../../../components/Codicon.astro';
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VideLab from '../../../../components/VideLab.astro';
+import missingPortGif from '../../assets/features/missing-port.gif';
+import { missingPortFiles } from '../../../../examples/dailyUse';
+
+## 什么是自动重构
+
+自动重构是 VS Code <Codicon name="lightbulb" label="灯泡菜单图标" color="#facc15" /> 灯泡菜单里的 Code Actions。Vide 会根据当前位置、实例结构和部分诊断生成修复或重写操作，用来处理端口连接、参数赋值和数字字面量基数转换这类重复但容易出错的编辑工作。
+
+## 演示
+
+<FeatureExample
+  image={missingPortGif}
+  imageAlt="VS Code 中打开代码操作菜单并补齐缺失端口连接的动图"
+  imageCaption="VS Code 中补齐缺失端口连接"
+  labCaption="在浏览器里操作同一个缺失端口示例"
+>
+  <VideLab
+    projectId="daily-code-actions"
+    projectLabel="Features: Code Actions"
+    entryFile="missing_port_example.v"
+    files={missingPortFiles}
+    height="100%"
+    initialActiveFile="missing_port_example.v"
+    initialSelection="14:5-17:6"
+    title="补齐缺失端口连接"
+    description="child.y 没有连接。加载后在 u_child 附近打开灯泡菜单，执行补全连接。"
+  />
+</FeatureExample>
+
+## 支持的操作
+
+把光标放到对应实例、数字 literal 或诊断附近，打开灯泡菜单。Vide 目前支持这些常见操作：
+
+- `Fill connections`：补齐缺失端口连接。
+- `Fill parameters`：补齐缺失参数赋值。
+- `Convert ordered port connections to named connections`：把有序端口连接转换为命名连接。
+- `Convert ordered parameter assignments to named assignments`：把有序参数赋值转换为命名赋值。
+- `Remove empty port connections`：清理多余空端口连接。
+- `Add explicit empty port connection`：把 `.port` 改成显式 `.port()`。
+- `Add empty instance port list`：给没有端口列表的实例补上空端口列表。
+- `Convert literal to binary/octal/decimal/hexadecimal`：转换整数 literal 进制。
+
+## 项目配置影响
+
+端口和参数相关操作需要目标模块能被解析到。跨文件工程里，`sources`、`include_dirs`、`defines` 和 `libraries` 决定 Vide 能看到哪些模块。诊断驱动的 quick fix 还需要对应诊断已经出现在当前文件里。
+
+## 相关功能
+
+自动重构改的是局部结构。如果要把同一符号的声明和引用一起改名，使用 [重命名](../rename/)。

@@ -93,25 +93,33 @@ npm run package:debug
 5. 调用 `vsce package --target <target>` 生成 `vide-vscode-<target>-debug.vsix`。
 6. 打包后清理临时运行时二进制。
 
-发布或验证 release 包时使用目标平台脚本：
+发布流程当前会产出这些平台的 release VSIX：
 
 ```powershell
-npm run package:win32-x64
-npm run package:win32-arm64
 npm run package:linux-x64
 npm run package:linux-arm64
-npm run package:darwin-x64
+npm run package:win32-x64
 npm run package:darwin-arm64
 npm run package:alpine-x64
 npm run package:alpine-arm64
 ```
 
-这些脚本会先编译扩展，然后为目标平台准备 release 版语言服务器，再生成
-`vide-vscode-<target>.vsix`。当目标等于当前宿主平台时，脚本会执行
-`cargo build --release` 并复制产物；Alpine 目标会先添加对应的 Rust musl
-target 再交叉编译。其他非宿主平台目标不会自动交叉编译语言服务器，需要
-`editors/vscode/server/<target>/` 下已经存在对应的 `vide` 或 `vide.exe`，
-或者在匹配的原生 runner 上打包。
+这些脚本会先编译扩展，然后准备目标平台的 release 版语言服务器，再生成
+`vide-vscode-<target>.vsix`。当前 release workflow 只覆盖上面这些目标：
+glibc Linux、Windows x64、macOS arm64，以及 Alpine/musl x64 和 arm64。
+
+`package.json` 里也保留了 `package:win32-arm64` 和 `package:darwin-x64`
+入口，供手动验证或未来 release matrix 扩展使用；当前 release 流程不会
+发布这两个目标的官方 VSIX。
+
+语言服务器的准备规则由 `editors/vscode/scripts/package.ts` 决定：
+
+- 目标等于当前宿主平台时，脚本执行 `cargo build --release` 并复制产物。
+- Alpine 目标在 CI 的 musl 容器中构建；本地脚本会添加对应 Rust musl
+  target，但仍需要可用的 musl 交叉编译环境。
+- 其他非宿主平台目标不会自动交叉编译语言服务器，需要
+  `editors/vscode/server/<target>/` 下已经存在对应的 `vide` 或 `vide.exe`，
+  或者在匹配的原生 runner 上打包。
 
 ## 安装本地 VSIX
 

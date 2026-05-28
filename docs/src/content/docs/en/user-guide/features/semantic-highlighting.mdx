@@ -1,0 +1,47 @@
+---
+title: Semantic Highlighting
+description: Distinguish port directions, clock/reset ports, instances, and types with RTL semantics.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import semanticTokensImage from '../../../assets/features/semantic-tokens.png';
+import { semanticTokenFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Syntax highlighting only knows whether a token looks like a keyword, number, or comment. Semantic highlighting uses Vide's parse result so RTL identifiers that look the same can use different styles. When reading code, you can more quickly distinguish clock/reset ports, input/output ports, module instance names, and `typedef` types. In the default display, input ports are bold (for example <strong>data_i</strong>), output ports are bold and underlined (for example <strong><u>data_o</u></strong>), and clock/reset ports use colors that differ from ordinary ports.
+
+## Demo
+
+<FeatureExample
+  image={semanticTokensImage}
+  imageAlt="Screenshot showing semantic colors for input/output ports, clk/rst ports, instances, and types"
+  imageCaption="Semantic highlighting in VS Code"
+  labCaption="Inspect the same semantic markings in the browser"
+>
+  <VideLab
+    projectId="daily-semantic-tokens"
+    projectLabel="Features: Semantic Highlighting"
+    entryFile="semantic-token-demo.v"
+    files={semanticTokenFiles}
+    height="100%"
+    initialActiveFile="semantic-token-demo.v"
+    initialSelection="1:1-18:10"
+    title="Semantic highlighting"
+    description="Compare semantic colors for input/output ports, clk/rst ports, instance names, and type names."
+  />
+</FeatureExample>
+
+## Project Configuration
+
+Basic semantic markings for the current file can be computed directly. Cross-file resolution, macro branches, and include relationships affect target modules, ports, and declarations. After `vide.toml` is configured, semantic highlighting refreshes from the project structure described by `vide.toml`.
+
+## Settings
+
+Semantic highlighting also depends on the active VS Code theme. Vide provides two switches:
+
+- `vide.semantic.tokens.port.clk.rst.enable`: controls clock/reset port tokens.
+- `vide.semantic.tokens.port.input.output.enable`: controls input/output direction tokens.
+
+See [Semantic Tokens settings](../../vscode-settings/#semantic-tokens) for the full reference.

@@ -1,0 +1,56 @@
+---
+title: 实时诊断
+description: 使用 Vide 诊断查看问题面板、刷新策略和诊断规则。
+---
+
+import Codicon from '../../../../components/Codicon.astro';
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VideLab from '../../../../components/VideLab.astro';
+import diagnosticImage from '../../assets/features/diagnostic.png';
+import { slangDiagnosticFiles } from '../../../../examples/dailyUse';
+
+## 什么是诊断
+
+诊断就是 Vide 让编辑器显示的 <Codicon name="error" label="报错图标" color="#f14c4c" /> 报错、<Codicon name="warning" label="警告图标" color="#facc15" /> 警告和 <Codicon name="info" label="提示图标" color="#3794ff" /> 提示。它会出现在 VS Code 的 `问题` 面板、编辑器下划线和对应代码位置附近，帮助你发现语法错误、解析错误，以及项目分析发现的语义问题。
+
+## 演示
+
+<FeatureExample
+  image={diagnosticImage}
+  imageAlt="VS Code 中提示未声明标识符的诊断截图"
+  imageCaption="VS Code 中的未声明标识符诊断"
+  labCaption="在浏览器里查看同一个诊断"
+>
+  <VideLab
+    projectId="daily-diagnostics"
+    projectLabel="Features: Diagnostics"
+    entryFile="diagnostics.v"
+    files={slangDiagnosticFiles}
+    height="100%"
+    initialActiveFile="diagnostics.v"
+    initialSelection="15:32-15:44"
+    initialDiagnosticsOpen
+    title="未声明标识符诊断"
+    description="missing_step 和 missing_enable 没有声明。加载后打开诊断面板，查看标记和诊断列表。"
+  />
+</FeatureExample>
+
+## 项目配置影响
+
+打开一个 Verilog/SystemVerilog 文件后，Vide 可以直接报告当前文件里的语法和解析问题。跨文件语义诊断需要工作区里有写好的 `vide.toml`，这样 Vide 才知道哪些源文件、头文件、宏分支和依赖属于同一个工程。配置方式见 [配置第一个项目](../../first-project/) 和 [项目配置参考](../../project-configuration/)。
+
+## 刷新策略
+
+默认 `vide.diagnostics.update` 是 `onSave`，保存文件时刷新诊断。大型工程建议保持这个默认值，避免输入时反复触发较重分析。需要输入时刷新时，可以在 VS Code Settings 中写：
+
+```json
+{
+  "vide.diagnostics.update": "onType"
+}
+```
+
+## 调整诊断规则
+
+把光标放在对应诊断位置，打开灯泡菜单。对于带有可识别诊断代码的 slang 诊断，Vide 会提供写入用户设置或工作区设置的快速修复，例如忽略此类诊断，或把错误降级为警告。
+
+也可以在 VS Code Settings 里手动编辑 `vide.diagnostics.slang.rules`。完整写法见 [Diagnostics 设置参考](../../vscode-settings/#diagnostics)。

@@ -1,0 +1,156 @@
+---
+title: VS Code 设置
+description: Vide VS Code 扩展的 vide.* 设置参考。
+---
+
+import VscodeSettingsTable from '../../../components/VscodeSettingsTable.astro';
+
+VS Code 设置控制编辑器里的行为，例如诊断刷新、Qihe 命令、格式化工具、行内提示和语言服务器启动参数。工程源文件、include 目录、宏定义和依赖库请写在 [项目配置](../project-configuration/) 的 `vide.toml` 里。
+
+所有设置都在 `vide.*` 命名空间下。可以在 VS Code 设置界面搜索 `Vide`，也可以直接编辑用户或工作区的 `settings.json`。
+
+## 常用设置速查
+
+| 你想做什么 | 常用设置 |
+| --- | --- |
+| 让 VS Code 调用本机的 Qihe | `vide.qihe.command` |
+| 指定本机的 `verible-verilog-format` | `vide.formatter.path` |
+| 控制诊断刷新是保存后还是输入时 | `vide.diagnostics.update` |
+| 开关端口、参数、结构结尾的行内提示 | `vide.inlayHints.*` |
+| 开关模块声明上方的实例数量提示 | `vide.lens.instantiations.enable` |
+| 项目配置变化后是否自动刷新 | `vide.workspace.auto.reload` |
+
+服务器启动命令、文件监听、诊断规则和通信跟踪更偏排障或开发场景；常规使用保持默认值即可。
+
+## Server
+
+这组设置用于替换或调试后台语言服务器。常规使用保持默认值即可。
+
+<VscodeSettingsTable
+  locale="zh"
+  settings={[
+    'vide.server.command',
+    'vide.server.args',
+    'vide.server.additionalArgs',
+    'vide.server.cwd',
+    'vide.trace.server',
+  ]}
+/>
+
+这些服务器启动设置变更后，扩展会提示 `重启`：`vide.server.command`、`vide.server.args`、`vide.server.additionalArgs`、`vide.server.cwd`、`vide.trace.server`。
+
+## Qihe
+
+运行 `Vide：运行 Qihe 分析` 时才需要看这组设置。默认情况下，Vide 会从当前 `vide.toml` 推导 Qihe 编译模式、顶层模块、include 目录和宏定义。
+
+相关功能：[骑河分析](../features/qihe/)。
+
+<VscodeSettingsTable
+  locale="zh"
+  settings={[
+    'vide.qihe.command',
+    'vide.qihe.autoConfigureArgsFromManifest',
+    'vide.qihe.compileArgs',
+    'vide.qihe.runArgs',
+  ]}
+/>
+
+## Files
+
+这组设置主要用于文件监听排障。选择哪些 RTL 文件属于项目，优先写在 `vide.toml` 的 `sources` / `exclude` 中。
+
+相关文档：[项目配置参考](../project-configuration/)。
+
+<VscodeSettingsTable locale="zh" settings={['vide.files.excludeDirs', 'vide.files.watcher']} />
+
+## Workspace
+
+相关文档：[配置第一个项目](../first-project/) 和 [项目配置参考](../project-configuration/)。
+
+<VscodeSettingsTable locale="zh" settings={['vide.workspace.auto.reload']} />
+
+## Scope
+
+这组设置会影响引用搜索、重命名和当前位置高亮里的局部符号可见性；常规使用保持默认值即可。
+
+相关功能：[引用搜索](../features/references/) 和 [重命名](../features/rename/)。
+
+<VscodeSettingsTable locale="zh" settings={['vide.scope.visibility']} />
+
+## Formatter 和 Formatting
+
+配置格式化时看这组。Vide 会调用外部 `verible-verilog-format`。
+
+相关功能：[格式化](../features/formatting/)。
+
+<VscodeSettingsTable
+  locale="zh"
+  settings={[
+    'vide.formatter.provider',
+    'vide.formatter.path',
+    'vide.formatter.args',
+    'vide.formatting.on.enter',
+    'vide.formatting.in.comments',
+    'vide.formatting.indent.width',
+  ]}
+/>
+
+## Inlay Hints
+
+行内提示会直接显示在编辑器里，适合日常阅读端口和参数连接。
+
+相关功能：[代码注解](../features/inlay-hints/)。
+
+<VscodeSettingsTable
+  locale="zh"
+  settings={[
+    'vide.inlayHints.port.connection.enable',
+    'vide.inlayHints.parameter.assignment.enable',
+    'vide.inlayHints.end.structure.enable',
+  ]}
+/>
+
+## Lens
+
+实例数量提示会显示在模块声明上方。
+
+相关功能：[符号大纲](../features/document-symbols/) 和 [引用搜索](../features/references/)。
+
+<VscodeSettingsTable locale="zh" settings={['vide.lens.instantiations.enable']} />
+
+## Semantic Tokens
+
+语义高亮会在主题支持时让端口方向、时钟和复位信号更容易区分。
+
+相关功能：[语义高亮](../features/semantic-highlighting/)。
+
+<VscodeSettingsTable
+  locale="zh"
+  settings={['vide.semantic.tokens.port.clk.rst.enable', 'vide.semantic.tokens.port.input.output.enable']}
+/>
+
+## Diagnostics
+
+诊断会显示在 VS Code 的 `Problems` 面板和编辑器下划线里。
+
+相关功能：[实时诊断](../features/diagnostics/)。
+
+<VscodeSettingsTable
+  locale="zh"
+  settings={[
+    'vide.diagnostics.enable',
+    'vide.diagnostics.update',
+    'vide.diagnostics.parse.enable',
+    'vide.diagnostics.semantic.enable',
+    'vide.diagnostics.slang.warnings',
+    'vide.diagnostics.slang.rules',
+  ]}
+/>
+
+## Signature Help
+
+签名帮助用于实例端口连接和参数赋值列表。
+
+相关功能：[签名提示](../features/signature-help/)。
+
+<VscodeSettingsTable locale="zh" settings={['vide.signature.help.params.only']} />

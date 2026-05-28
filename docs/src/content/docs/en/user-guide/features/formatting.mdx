@@ -1,0 +1,52 @@
+---
+title: Formatting
+description: Configure verible and use document, selection, and Enter formatting.
+---
+
+import ThinLinkCard from '../../../../../components/ThinLinkCard.astro';
+
+## What Formatting Is
+
+Formatting keeps indentation, line breaks, and style consistent so the code is easier to read.
+
+Formatting entry points include VS Code's `Format Document`, `Format Selection`, and the automatic indentation behavior when pressing Enter. The only current formatter backend is `verible`, which calls the external `verible-verilog-format` executable. Vide does not bundle that tool, so you need to configure the executable yourself.
+
+## Configure verible
+
+Verible is a ChipsAlliance SystemVerilog tool suite that includes a formatter. Vide's formatting support depends on its `verible-verilog-format` executable. Install Verible first, then configure it in VS Code.
+
+<ThinLinkCard
+  href="https://github.com/chipsalliance/verible#installation"
+  title="Verible Installation"
+  action="Open"
+>
+  Install or update the external <code>verible-verilog-format</code> tool.
+</ThinLinkCard>
+
+In VS Code Settings, when `vide.formatter.path` is empty, Vide looks for `verible-verilog-format` on the `PATH` seen by the VS Code process. When the path is set, Vide invokes that executable directly:
+
+```json
+{
+  "vide.formatter.path": "D:\\tools\\verible\\verible-verilog-format.exe"
+}
+```
+
+Use `vide.formatter.args` to pass options to `verible-verilog-format` and adjust formatting behavior.
+
+<ThinLinkCard
+  href="https://chipsalliance.github.io/verible/verilog_format.html"
+  title="verible-verilog-format Options"
+  action="Open"
+>
+  Review the options that <code>vide.formatter.args</code> can pass to the external formatter.
+</ThinLinkCard>
+
+## Formatting Commands
+
+`Format Document` sends the whole file to `verible-verilog-format`. `Format Selection` sends the selected line range to the same formatter. Both commands use the current `vide.formatter.path` and `vide.formatter.args`; `vide.formatting.indent.width` is passed as `--indentation_spaces`.
+
+## Enter Behavior
+
+Enter assistance is controlled by `vide.formatting.on.enter`, and comment handling is controlled by `vide.formatting.in.comments`. Projects that only want manual formatting can disable Enter behavior while keeping `Format Document` and `Format Selection`.
+
+See [Formatter and Formatting settings](../../vscode-settings/#formatter-and-formatting) for the full reference.

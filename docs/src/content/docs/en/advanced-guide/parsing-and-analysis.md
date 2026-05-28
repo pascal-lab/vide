@@ -1,80 +1,77 @@
 ---
-title: Parsing and Analysis Model
-description: Why Vide can sometimes only read files and sometimes run full project analysis.
+title: "Indexing, Project Configuration, and Diagnostics"
+description: How Vide loads files, builds project analysis, produces diagnostics, and runs Qihe in configured and unconfigured workspaces.
 ---
 
-Three terms are useful:
+This page explains Vide's analysis boundaries: why some navigation and completion features work without `vide.toml`, and why diagnostics, rename, and Qihe become more complete after `vide.toml` is configured.
 
-- Best-effort indexing: when there is no full project configuration, Vide still tries to read Verilog/SystemVerilog files in the workspace so navigation, references, hover, and completion can work where possible.
-- Project analysis: the project view Vide builds from `vide.toml`, including `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`. Cross-file diagnostics and Qihe project analysis depend on it.
-- Diagnostics: errors, warnings, and hints in the VS Code `Problems` panel. Single-file syntax issues can be reported without full project configuration; cross-file semantic issues need project analysis.
+For field syntax, see [Configure the First Project](../../user-guide/first-project/) and [Project Configuration Reference](../../user-guide/project-configuration/). This page only explains what those fields change.
 
-## sources Is the Main Switch
+## Three Working States
 
-`sources` decides whether files are treated as part of the project.
+Vide enters different working states depending on whether the workspace has `vide.toml` and whether `sources` is configured explicitly:
 
-| Configuration | What Vide reads | Project analysis |
+| State | What gets loaded | What it is for |
 | --- | --- | --- |
-| No project manifest | Best-effort indexes the workspace | Not created |
-| Manifest exists but omits `sources` | Best-effort indexes the workspace | Not created for those default-indexed files |
-| Omits `sources`, but sets `include_dirs` | Best-effort indexes the workspace and loads include directories | Include directories can be used by project analysis; default-indexed files do not participate |
-| `sources = []` | Does not scan the workspace automatically | Not created |
-| `sources = []` with `include_dirs` | Loads only include directories | Include directories can be used by project analysis |
-| `sources = ["rtl/**"]` | Loads matching source files | Created |
+| No `vide.toml` | Verilog/SystemVerilog files in the workspace are scanned as best-effort indexes | Reading code first: basic go to definition, references, hover, and completion |
+| `vide.toml` exists but omits `sources` | Best-effort indexing continues; if `include_dirs` is configured, those directories are loaded as include search paths | Transitional state; not recommended as a long-term setup |
+| `sources = []` | Workspace source scanning is explicitly disabled; if `include_dirs` is configured, only those include directories are loaded | Newly created templates, or workspaces where Vide should not guess the source layout |
+| `sources = ["rtl/**"]` | Project source files are loaded from `sources`, then combined with `include_dirs`, `defines`, `libraries`, and `top_modules` to build project analysis | Normal project configuration |
 
-A short way to remember it: omitted `sources` means "read the workspace for me, but do not pretend it is fully configured"; `sources = []` means "do not scan the workspace automatically"; `sources = ["rtl/**"]` means "these files belong to my project."
+A short way to remember it:
 
-`include_dirs` only controls include search. If you set `sources` explicitly but omit `include_dirs`, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory. When `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, no fallback is used.
+- Omitted `sources`: read the workspace for me, but do not treat the scan result as the real project.
+- `sources = []`: do not scan source files automatically.
+- `sources = ["rtl/**"]`: these files are the current project sources.
 
-`libraries` are loaded as dependency workspaces and participate in the current project's analysis. `exclude` is a workspace-relative glob that filters generated files, simulation output, or black-box files out of loaded files. See [Project Configuration](../../user-guide/project-configuration/#paths-and-globs) for glob syntax.
+## Best-Effort Indexing and Project Analysis
+
+Best-effort indexing is for reading code. It tries to load RTL files in the workspace so go to definition, references, hover, completion, and instance-count lens can work early. It is not a real compile configuration, and it does not enable full project semantic diagnostics or project rename.
+
+Project analysis comes from `vide.toml`. After `sources` points to real source files, Vide puts those files into the project view and uses `include_dirs`, `defines`, `libraries`, and `top_modules` for cross-file parsing, diagnostics, rename, and Qihe project analysis.
+
+`libraries` are loaded as dependency workspaces and participate in the current project analysis. `exclude` removes generated files, simulation output, or black-box files from already loaded files. See [Project Configuration Reference](../../user-guide/project-configuration/#path-and-glob-rules-for-sources-and-exclude) for path and glob syntax.
+
+## How Include Directories Participate
+
+`include_dirs` are include search paths. They do not mean every file in those directories is an independent compile entry.
+
+Header files (`.vh`, `.svh`, `.svi`) usually participate after a `.v` or `.sv` file includes them. Opening a header directly, or listing its directory in `include_dirs`, does not mean Vide runs full standalone project diagnostics for that header.
+
+If `sources` is explicit but `include_dirs` is omitted, Vide infers default include directories from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as a default include directory. Setting `include_dirs = []` explicitly disables that fallback.
 
 ## Why Diagnostics Differ
 
-Single-file parse diagnostics only need the current file, for example a missing semicolon or unmatched parenthesis. Cross-file semantic diagnostics need more project information: include directories, predefined macros, library paths, and which files belong to the same project.
+Diagnostics have two layers:
 
-Common outcomes:
+- Single-file parse diagnostics: only need the current file, such as syntax errors, unmatched brackets, or parse failures.
+- Cross-file semantic diagnostics: need project information, such as target modules, include directories, macro branches, libraries, and top modules.
 
-| File state | Single-file parse diagnostics | Cross-file semantic diagnostics |
+Common behavior:
+
+| File state | Parse diagnostics | Cross-file semantic diagnostics |
 | --- | --- | --- |
-| `.v` or `.sv` files loaded through explicit `sources` | Can run | Can run when project analysis is available |
-| Headers found through `include_dirs` | Participate through the source file that includes them | Participate through the including source file's project analysis |
-| Files only found through best-effort indexing | Usually opened files only | Not run |
-| Files filtered by `exclude` | Not run | Not run |
+| Source file explicitly loaded by `sources` | Available | Available |
+| Header found through `include_dirs` | Participates through the source file that includes it | Participates through the including source file's project analysis |
+| File only found through best-effort indexing | Usually only for opened files | Not used as a project diagnostic entry |
+| File filtered by `exclude` | Not run | Not run |
 
-Header files (`.vh`, `.svh`, `.svi`) are usually not standalone compile entries. They mainly participate after a `.v` or `.sv` file includes them. Opening a header directly, or only listing its directory in `include_dirs`, does not mean Vide will run full standalone diagnostics for that header.
+So it is normal to see basic diagnostics in an unconfigured workspace. For cross-file semantic diagnostics, configure `vide.toml` first.
 
 ## Navigation and Duplicate Modules
 
-Go to definition, references, hover, completion, and code lens prefer information from loaded indexes. Best-effort indexing makes these features available early, but it is not a strict compile configuration.
+Go to definition, references, hover, completion, and instance-count lens prefer already loaded index information. Best-effort indexing lets those features work in unconfigured workspaces, but it can only make editor-level reading guesses.
 
-In project analysis, duplicate module names are handled through the project view. Vide does not treat directory names as implicit namespaces.
+In project analysis, duplicate module names are handled through the current project view. Vide does not treat directory names as implicit namespaces; if several duplicate module names are visible, the project should resolve that ambiguity through project configuration, library boundaries, or build scripts.
 
-In best-effort indexing, if several modules with the same name are visible, Vide makes an editor-only nearest-candidate guess: same file first, then deepest shared directory, then same scan root. The guess is used only when there is one best candidate; ties stay ambiguous.
+In best-effort indexing, if one instance can match several modules with the same name, Vide makes a nearest-candidate guess for reading features only: same file first, then deepest shared directory, then same scan root. The guess is used only when there is one best candidate; ties stay ambiguous.
 
-This guess is not a SystemVerilog language rule. If there is one nearest candidate, Vide does not report a diagnostic. If no unique candidate exists, Vide reports `ambiguous-module-instantiation` as information. In configured projects, duplicate module names are still handled by stricter semantic rules; when slang semantic diagnostics are enabled, Vide prefers slang's diagnostics.
+This guess is not a SystemVerilog language rule. If there is one nearest candidate, Vide does not report a diagnostic. If no unique candidate exists, Vide reports an informational `ambiguous-module-instantiation` diagnostic. Configured projects still use stricter semantic rules; when third-party `slang` semantic diagnostics are enabled, Vide prefers slang's diagnostics.
 
-## Qihe Project Analysis
+## When Qihe Runs as a Project
 
-Automatic Qihe project analysis uses the same manifest discovery result as Vide's project model. If the working directory contains `vide.toml`, Vide uses project analysis.
+Qihe integration reuses Vide's project configuration discovery result. If the working directory has a usable `vide.toml` and the compile plan contains real source files, Vide passes project files, `--top`, `-I`, and `-D` arguments.
 
-When a project manifest exists, Qihe uses the compile plan from project analysis. Vide only passes project files, `--top`, `-I`, and `-D` arguments when that plan has real source files.
+If the current file only comes from best-effort indexing, or if the project configuration does not produce a usable compile plan, Vide falls back to single-file Qihe input. This avoids treating unconfigured scan results as a real project configuration.
 
-If the current file only comes from best-effort indexing, or if no project compile plan is available, Vide lets Qihe fall back to single-file input. This prevents default indexing from accidentally triggering project analysis.
-
-## FAQ
-
-### Why can navigation work without `vide.toml`, while cross-file diagnostics are incomplete?
-
-Navigation, references, hover, and completion can use information from best-effort indexing. Cross-file semantic diagnostics need explicit project analysis, usually from `vide.toml` entries such as `sources`, include directories, macro definitions, and libraries.
-
-### Why does `sources = []` stop Vide from scanning the workspace automatically?
-
-`sources = []` explicitly tells Vide not to scan the workspace automatically. Add files to `sources` when they should participate in the project view.
-
-### Why does a header listed through `include_dirs` not always get standalone diagnostics?
-
-`include_dirs` only provides include search paths. Header files usually participate through the source file that includes them; being in an include directory does not make a header a standalone compile entry.
-
-### Why does Qihe sometimes use project analysis and sometimes fall back to single-file analysis?
-
-Qihe reuses Vide's project manifest discovery result. Vide passes project files, `--top`, `-I`, and `-D` arguments only when a usable project manifest exists and the compile plan has real source files. Otherwise it falls back to single-file input.
+For Qihe command shapes, settings, and failure handling, see [Qihe Analysis](../../user-guide/features/qihe/).

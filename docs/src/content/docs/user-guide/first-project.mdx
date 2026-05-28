@@ -1,34 +1,19 @@
 ---
-title: 第一个工程
-description: 为 Vide 准备第一个 Verilog/SystemVerilog 工程目录。
+title: 配置第一个项目
+description: 用一个小工程写第一份 vide.toml。
 ---
 
 import { FileTree } from '@astrojs/starlight/components';
 
-## 推荐目录
+Vide 打开任何 Verilog/SystemVerilog 项目后，都可以提供语法高亮和基础的编辑体验。要让 Vide 更准确地做跨文件跳转、补全、诊断、宏分支判断和 Qihe 参数推导，就需要在工作区根目录放一个项目配置文件：`vide.toml`。
 
-小工程可以先用这种结构：
+这页内容会指导大家进行项目的配置，完整字段和边界规则见 [项目配置参考](../project-configuration/)。
 
-<FileTree>
-- my-rtl/
-  - rtl/
-    - top.sv
-    - alu.sv
-  - include/
-    - defs.svh
-</FileTree>
+## 1. 创建项目配置文件
 
-直接用 VS Code 打开 `my-rtl`。后面说到“工作区根目录”时，指的就是 VS Code 当前打开的这个顶层目录：
+用 VS Code 打开 RTL 工程目录。如果目录里有 RTL 文件但没有 `vide.toml`，Vide 会提示创建项目配置文件。你也可以点击右下角 `Vide` 状态项，在状态菜单里选择 `创建项目配置文件`。
 
-```powershell
-code D:\work\my-rtl
-```
-
-然后打开 Verilog `.v`/`.vh` 文件，或 SystemVerilog `.sv`/`.svh`/`.svi` 文件。安装扩展后，VS Code 应该能识别语言、显示语法高亮，并启动 Vide 语言服务器。
-
-## 没有项目配置文件时会怎样
-
-如果工作区根目录下有 Verilog/SystemVerilog 文件，但没有 `vide.toml`，扩展会提示创建默认 `vide.toml`。选择创建后，扩展会写入下面的文件并重新加载 Vide：
+默认模板会创建一个空的项目配置：
 
 ```toml
 #:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
@@ -41,33 +26,132 @@ sources = []
 # exclude = ["build/**"]
 ```
 
-这个默认项目配置文件写入 `sources = []`，意思是：先不要自动扫描整个工作区。确认工程结构后，再把需要分析的目录写进 `sources`。
+:::note
+默认模板里的 `sources = []` 只是一个待填写状态：它会阻止 Vide 直接扫描整个工作区。把 `sources` 改成 `rtl/**` 这类真实路径后，Vide 才会按你的工程结构分析。
+:::
 
-如果你手写 `vide.toml` 但不写 `sources`，Vide 会尽力索引工作区里的 Verilog/SystemVerilog 文件。尽力索引可以让跳转、引用、悬停等阅读功能尽量可用，但它仍然不等于完整工程配置。显式写入 `sources = []` 则表示不要自动扫描工作区。
+## 2. 按目录结构编写配置
 
-头文件（`.vh`、`.svh`、`.svi`）通常通过被 `.v` 或 `.sv` 文件 include 后参与诊断。只打开一个头文件，或者只把目录写进 `include_dirs`，不一定会得到独立的头文件诊断。
+假设你的工程长这样：
 
-## 什么时候需要编辑项目配置文件
+<FileTree>
+- my-rtl/
+  - vide.toml
+  - rtl/ # 使用 rtl/** 递归匹配该目录下所有文件
+    - top.sv
+    - counter.sv
+  - include/ # 目录名即 include
+    - defs.svh
+  - sim/ # 目录名即 sim
+    - work/
+  - build/
+</FileTree>
 
-可以先按上面的方式跑起来。出现下面这些需求时，再编辑工作区根目录下的 `vide.toml`：
-
-- 你希望跨文件跳转、引用、补全和诊断更接近真实工程。
-- 工程源码集中在 `rtl` 和 `include`，仿真输出、生成目录或第三方缓存需要排除。
-- 你需要设置宏，也就是 `defines`。
-- 你需要告诉 Vide include 文件在哪里，也就是 `include_dirs`。
-- 你有外部库目录，希望它们作为依赖参与分析。
-- 你想显式声明 `top_modules`。
-
-一个常见的小工程可以这样配置：
+对应的第一份配置可以写成：
 
 ```toml
-top_modules = ["top"]
-defines = ["SYNTHESIS", "DATA_WIDTH=32"]
 sources = ["rtl/**"]
 include_dirs = ["include"]
-exclude = ["build/**", "out/**"]
+defines = ["SYNTHESIS"]
+top_modules = ["top"]
+exclude = ["build/**", "sim/work/**"]
 ```
 
-项目配置文件只会从你打开的工作区根目录读取。Vide 不会自动向父目录或子目录搜索其它项目配置文件。
+这几项分别告诉 Vide：
 
-下一步可以阅读 [项目配置](../project-configuration/)，把 `sources`、`include_dirs`、`defines` 和排除规则按你的工程结构写清楚。
+- `sources`：哪些 RTL 源文件属于这个工程。例如 `rtl/**` 递归匹配目录下所有文件，或 `rtl/*.sv` 匹配该目录下一级所有的 `sv` 后缀的文件。
+- `include_dirs`：提示 Vide `` `include "defs.svh" `` 这类头文件从哪里找。例如 `include`。
+- `defines`：预先打开哪些宏分支，例如可以写 `"SYNTHESIS"` 或 `"DATA_WIDTH=32"`。
+- `top_modules`：当前工程的顶层模块名，提示 Vide 从哪里开始分析。
+- `exclude`：可以用于排除生成目录、仿真输出和缓存目录，Vide 不会分析这些目录。
+
+:::note
+路径统一写 `/`，即使在 Windows 上也写 `rtl/**`，不要写 `rtl\**`。所有路径只能在工作区根目录中。
+:::
+
+## 3. 一个更接近真实工程的例子
+
+上面的 `my-rtl` 是一个很小的工程。真实工程通常已经有 FuseSoC core 文件、Makefile、仿真脚本或综合脚本；这些文件可以帮助你判断入口模块、宏定义和需要参与分析的 RTL 文件。
+
+下面以 [darklife/darkriscv](https://github.com/darklife/darkriscv) 为例。仓库根目录有一份 `darkriscv.core`，其中 default target 的顶层模块是 `darksocv`。`darksocv.v` 会实例化 `darkpll`、`darkbridge`、`darkram`、`darkio` 等模块，所以 `sources` 需要覆盖这些模块定义。对应的 `vide.toml` 可以写成：
+
+```toml
+#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
+
+sources = [
+  "rtl/*.v",
+]
+
+include_dirs = [
+  "rtl",
+  "src",
+]
+
+top_modules = ["darksocv"]
+```
+
+这里的对应关系是：
+
+- `top_modules = ["darksocv"]` 来自 `.core` 里 default target 的 `toplevel: darksocv`。
+- `sources = ["rtl/*.v"]` 覆盖 `darksocv` 直接或间接用到的 `darkpll.v`、`darkbridge.v`、`darkram.v`、`darkio.v`、`darkriscv.v`、`darkuart.v` 等模块定义。
+- `.core` 里的 `rtl/config.vh` 是 include 文件，所以用 `include_dirs = ["rtl"]` 让 Vide 找到它。
+- `.core` 里的 `src/darksocv.mem` 是仿真/初始化数据，不是 Verilog 源文件。把 `src` 放进 `include_dirs`，但不用把 `.mem` 写进 `sources`。
+
+如果只把 `.core` 中 `rtl` fileset 明确列出的 `rtl/darkriscv.v`、`rtl/darksocv.v`、`rtl/darkuart.v` 放进 `sources`，`darksocv.v` 中的 `darkpll`、`darkbridge`、`darkram`、`darkio` 会因为找不到模块定义而报 `unknown module`。写 `vide.toml` 时，优先让编辑器看到完整的 RTL 模块集合。
+
+如果要按 `.core` 里的 `sim` target 分析仿真入口，就把 `tb` fileset 里的 `sim/darksimv.v` 加进来，并把顶层换成 `darksimv`。`sim` target 的 icarus 配置里有 `-g2012`，而 `config.vh` 里会根据 `__ICARUS__` 切换仿真分支，所以这里也把宏写进 `defines`：
+
+```toml
+sources = [
+  "rtl/*.v",
+  "sim/darksimv.v",
+]
+
+include_dirs = [
+  "rtl",
+  "src",
+  "sim",
+]
+
+defines = ["__ICARUS__"]
+top_modules = ["darksimv"]
+```
+
+板级 target 也按同样方式翻译。例如 `colorlight_i5` target 使用 `rtl` 和 `colorlighti5` 两个 fileset，并启用 `__YOSYS__`、`LATTICE_ECP5_COLORLIGHTI5` 两个 vlog define。对应配置可以写成：
+
+```toml
+sources = [
+  "rtl/*.v",
+  "boards/colorlighti5/pll_ref_25MHz.v",
+]
+
+include_dirs = ["rtl", "src"]
+defines = ["__YOSYS__", "LATTICE_ECP5_COLORLIGHTI5"]
+top_modules = ["darksocv"]
+```
+
+文件开头的 `#:schema ...` 是 TOML 注释。它只帮助编辑器识别配置格式，不会改变 Vide 读取项目配置文件的方式。
+
+## 4. 刷新项目
+
+保存 `vide.toml` 后，Vide 默认会自动刷新项目配置。实际使用时可以把状态分成三类：
+
+- 没有 `vide.toml`：Vide 会扫描工作区，先提供阅读类功能，但不会创建项目级编译配置。
+- 刚创建的空模板：默认写着 `sources = []`，表示暂时不扫描整个工作区，等你填入真实源码路径。
+- 写好 `vide.toml`：Vide 按 `sources`、`include_dirs`、`defines`、`libraries` 等字段理解工程。
+
+具体来说，各行为是否配置项目的差异可以见以下表格。
+
+## 项目配置前后的行为差异
+
+| 能力 | 没有项目配置文件 | 写好 `vide.toml` 后 |
+| --- | --- | --- |
+| [定义跳转](../features/navigation/)、[引用搜索](../features/references/) 与 [悬停信息](../features/hover/) | 扫描工作区，先提供读代码所需的跳转、引用和符号信息 | 按 `sources`、`libraries`、include 目录和宏分支解析真实目标 |
+| [代码补全](../features/completion/) 与 [签名提示](../features/signature-help/) | 使用当前文件和已扫描文件给候选；目标模块解析后显示端口/参数提示 | 结合目标模块、include 目录和宏分支给出候选和当前位置提示 |
+| [重命名](../features/rename/) 与 [自动重构](../features/quick-fixes/) | 局部代码操作可用；工程重命名不启用 | 按工程范围补齐/转换端口参数，并更新声明、引用和连接 |
+| [语法高亮](../features/syntax-highlighting/) 与 [语义高亮](../features/semantic-highlighting/) | 语法高亮可用，当前文件有基础语义标记 | 结合项目解析标记端口方向、读写位置和宏分支 |
+| [代码注解](../features/inlay-hints/)、[符号大纲](../features/document-symbols/)、[折叠](../features/folding/) 与 [语义选区](../features/selection-range/) | 当前文件的大纲、折叠、选区可用；目标模块解析后显示代码注解 | 按工程结构显示端口、参数、实例数量、大纲、折叠和语义选区 |
+| [实时诊断](../features/diagnostics/) | 打开的文件有语法和解析诊断；没有项目级语义诊断 | 使用 `sources`、`include_dirs`、`defines` 做跨文件语义诊断 |
+| [骑河（Qihe）](../features/qihe/) | 使用当前文件作为分析输入 | 从 `sources`、`top_modules`、`include_dirs`、`defines` 推导编译参数 |
+
+下一步可以阅读 [功能特性](../features/)。需要查字段细节时，再看 [项目配置参考](../project-configuration/)。

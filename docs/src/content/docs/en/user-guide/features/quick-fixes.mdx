@@ -1,0 +1,56 @@
+---
+title: Automatic Refactoring
+description: Fill ports and parameters, convert connection styles, remove empty connections, and convert numeric literal bases.
+---
+
+import Codicon from '../../../../../components/Codicon.astro';
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import missingPortGif from '../../../assets/features/missing-port.gif';
+import { missingPortFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Automatic refactoring is VS Code <Codicon name="lightbulb" label="Lightbulb menu icon" color="#facc15" /> lightbulb Code Actions. Vide generates fixes or rewrites from the current position, instance structure, and selected diagnostics to handle repetitive and error-prone RTL edits such as port connections, parameter assignments, and integer literal base conversion.
+
+## Demo
+
+<FeatureExample
+  image={missingPortGif}
+  imageAlt="Animation showing VS Code code actions completing a missing port connection"
+  imageCaption="Completing a missing port connection in VS Code"
+  labCaption="Edit the same missing-port example in the browser"
+>
+  <VideLab
+    projectId="daily-code-actions"
+    projectLabel="Features: Code Actions"
+    entryFile="missing_port_example.v"
+    files={missingPortFiles}
+    height="100%"
+    initialActiveFile="missing_port_example.v"
+    initialSelection="14:5-17:6"
+    title="Complete a missing port connection"
+    description="child.y is not connected. Load the example, open the lightbulb menu near u_child, and run the connection completion action."
+  />
+</FeatureExample>
+
+## Supported Actions
+
+Place the cursor near an instance, integer literal, or diagnostic, then open the lightbulb menu. Vide currently supports:
+
+- `Fill connections`
+- `Fill parameters`
+- `Convert ordered port connections to named connections`
+- `Convert ordered parameter assignments to named assignments`
+- `Remove empty port connections`
+- `Add explicit empty port connection`
+- `Add empty instance port list`
+- `Convert literal to binary/octal/decimal/hexadecimal`
+
+## Project Configuration
+
+Port and parameter actions need the target module to resolve. In cross-file projects, `sources`, `include_dirs`, `defines`, and `libraries` decide which modules Vide can see. Diagnostic-driven quick fixes also require the matching diagnostic to be present in the current file.
+
+## Related Feature
+
+Code actions edit local structures. To change one symbol's declaration and references together, use [Rename](../rename/).

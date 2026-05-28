@@ -1,6 +1,6 @@
 ---
 title: Project Configuration
-description: Configure the vide.toml project manifest, source files, include directories, and macro definitions.
+description: Look up vide.toml fields, path globs, include directories, macro definitions, libraries, and exclusion rules.
 ---
 
 import VideLab from "../../../../components/VideLab.astro";
@@ -94,13 +94,11 @@ endmodule
   },
 ];
 
-The project manifest tells Vide three things: which RTL files belong to the project, where include files live, and which macros or dependency libraries should be used. The file name must be `vide.toml`.
+This is a `vide.toml` project configuration reference. For first-time setup, first use [Configure the First Project](../first-project/) to write a working project configuration file.
 
-The project manifest usually lives in the workspace root: the top-level folder you opened in VS Code. Vide does not automatically search parent or child directories for other manifests.
+## Field Quick Reference
 
-## Minimal Configuration
-
-Most small projects can start with:
+A common small project can use these fields:
 
 ```toml
 sources = ["rtl/**"]
@@ -108,69 +106,6 @@ include_dirs = ["include"]
 defines = ["SYNTHESIS"]
 top_modules = ["top"]
 ```
-
-- `sources`: tells Vide which RTL files belong to the project. `rtl/**` recursively includes files under `rtl`.
-- `include_dirs`: tells Vide where to search for include files.
-- `defines`: predefines macros, similar to `+define+SYNTHESIS` or `-D SYNTHESIS` in a compile command.
-- `top_modules`: declares top-level module names. It does not decide which files are scanned; it helps project analysis match your real entry points.
-
-If you only want to open files and check syntax highlighting or single-file errors, you can temporarily keep the default `sources = []`. When the project layout is clear, replace it with real source patterns.
-
-## Paths and Globs
-
-`sources` and `exclude` are not plain directory paths. They are workspace-relative globs. A glob is a path pattern with wildcards: `*.sv` matches `.sv` files in one directory, while `rtl/**` recursively matches content under `rtl`. For background, see this [glob overview](https://en.wikipedia.org/wiki/Glob_(programming)).
-
-Vide applies these rules to `sources` and `exclude`:
-
-- Patterns are relative to the workspace root, for example `rtl/**`.
-- Use `/` as the path separator. Do not write `rtl\**`.
-- Absolute paths and any pattern containing a `..` path component are rejected.
-- `*` does not cross directories. Use `**` for recursive directories.
-
-Whether a trailing `/` matters depends on the field:
-
-- In `sources` and `exclude`, `rtl/` does not mean "recursively include this directory." Use `rtl/**` to include files under `rtl`; use `build/**` to exclude content under `build`.
-- In `include_dirs` and `libraries`, values are normal paths resolved relative to the directory that contains the current project manifest. `include` and `include/` normally refer to the same directory; for consistency, prefer `include`.
-
-## Common Complete Example
-
-```toml
-#:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
-
-top_modules = ["top"]
-
-defines = [
-  "SYNTHESIS",
-  "DATA_WIDTH=32",
-  "RESET_VALUE=0",
-]
-
-sources = [
-  "rtl/**",
-  "ip/local_ip/src/**/*.sv",
-]
-
-include_dirs = [
-  "include",
-  "rtl",
-]
-
-libraries = [
-  "../common_cells",
-  "../bus_ip",
-]
-
-exclude = [
-  "build/**",
-  "sim/work/**",
-  "generated/tmp/**",
-  "**/*_bb.v",
-]
-```
-
-The `#:schema ...` line is a TOML comment. It helps editors understand the manifest format, but it does not change how Vide reads the file. For the default template created by VS Code, see [First Project](../first-project/).
-
-## Fields
 
 | Field | Type | Purpose |
 | --- | --- | --- |
@@ -181,7 +116,29 @@ The `#:schema ...` line is a TOML comment. It helps editors understand the manif
 | `libraries` | Array of paths | External libraries or dependency project directories. |
 | `exclude` | Array of globs | Filters generated directories, simulation output, or black-box files out of loaded files. |
 
-## sources and include_dirs
+## Path and Glob Rules for `sources` and `exclude`
+
+`sources` and `exclude` are not plain directory paths. They are path patterns with wildcards, also called globs. The two most common wildcards are:
+
+- `*`: matches names within one directory. For example, `rtl/*.sv` only matches `.sv` files directly under `rtl`.
+- `**`: matches across nested directories. For example, `rtl/**` continues matching files inside subdirectories under `rtl`.
+
+:::note
+For background, see this [glob overview](https://en.wikipedia.org/wiki/Glob_(programming)).
+:::
+
+Vide applies these rules to `sources` and `exclude`:
+
+- Patterns are relative to the workspace root, for example `rtl/**`.
+- Use `/` as the path separator. Do not write `rtl\**`.
+- Absolute paths and any pattern containing a `..` path component are rejected.
+- `*` does not cross directories; use `**` when you need recursive matching.
+
+In `include_dirs` and `libraries`, values are ordinary paths resolved relative to the directory that contains the current project configuration file. `include` and `include/` refer to the same directory; for consistency, this documentation uses `include`.
+
+## Field Details
+
+### sources and include_dirs
 
 `sources` has three common states:
 
@@ -206,21 +163,11 @@ The current project loader reads these extensions:
 - `.svi`
 - `.map`
 
-`include_dirs` controls `` `include "file.svh" `` search. If `include_dirs` is not configured explicitly and `sources` is set explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory. If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, no fallback is used.
+`include_dirs` controls `` `include "file.svh" `` search. If `include_dirs` is not configured explicitly and `sources` is set explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory.
 
-<VideLab
-  projectId="configuration-include-macro"
-  projectLabel="Project Configuration: Include and Macros"
-  entryFile="rtl/feature_gate.sv"
-  files={configuredProjectFiles}
-  height="360px"
-  activeFile="rtl/feature_gate.sv"
-  selection="5:17-5:31"
-  title="Include Directories and Macros"
-  description="This example contains vide.toml, an include file, and an RTL file. Removing include_dirs makes the `include` fail; removing FEATURE_PIPELINE changes which branch is active."
-/>
+If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, this fallback is not used either.
 
-## defines
+### defines
 
 Each entry in `defines` is one macro definition:
 
@@ -234,29 +181,17 @@ defines = [
 
 Macro names must be valid identifiers. Macros with values are parsed as `NAME=value`; `value` may contain spaces.
 
-<VideLab
-  projectId="configuration-defines-highlight"
-  projectLabel="Project Configuration: Defines"
-  entryFile="rtl/define_highlight_demo.sv"
-  files={defineHighlightFiles}
-  height="360px"
-  activeFile="rtl/define_highlight_demo.sv"
-  selection="8:8-8:27"
-  title="Change defines to Inspect Conditional Compilation"
-  description={'Open vide.toml, change defines to ["USE_INVERT_PATH"] or [], then return to the RTL file and watch the `ifdef branch highlighting change.'}
-/>
+### libraries
 
-## libraries
+`libraries` declares dependency libraries. Paths are resolved relative to the directory that contains the current project configuration file. Each library path is loaded as another workspace:
 
-`libraries` declares dependency libraries. Paths are resolved relative to the directory that contains the current project manifest. Each library path is loaded as another workspace:
-
-- If the library directory contains `vide.toml`, Vide loads the library with that manifest.
-- If the library directory has no manifest, Vide loads it as an unconfigured library.
+- If the library directory contains `vide.toml`, Vide loads the library with that project configuration file.
+- If the library directory has no project configuration file, Vide loads it as an unconfigured library.
 - Dependencies participate in the current project's analysis, and transitive dependencies are supported.
 
 `libraries` does not replace the current project's own `sources`. The current workspace's RTL should still be declared through `sources`; `libraries` only describes external projects or library directories referenced by the current project.
 
-## exclude
+### exclude
 
 `exclude` uses the same workspace-relative glob syntax described above. It is useful for generated directories, simulation output, cache directories, or black-box stubs:
 
@@ -268,6 +203,5 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 ## Notes
 
-- The manifest file name must be `vide.toml`.
-- Vide does not automatically discover manifests from subdirectories. When you open `repo`, it only checks `repo/vide.toml`.
-- Projects configured with `sources = []` can still load include directories, which is useful for header-only workspaces or workspaces where you do not want to scan RTL yet.
+- The project configuration file name must be `vide.toml`.
+- Vide does not automatically discover project configuration files from subdirectories. When you open `repo`, it only checks `repo/vide.toml`.

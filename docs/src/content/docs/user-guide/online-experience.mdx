@@ -1,0 +1,108 @@
+---
+title: 在线体验
+description: 无需安装本地扩展，在浏览器中体验 Vide 的核心 RTL IDE 功能。
+---
+
+import VideLab from '../../../components/VideLab.astro';
+import {
+  completionFiles,
+  editAidFiles,
+  navigationFiles,
+  structureFiles,
+} from '../../../examples/dailyUse';
+
+我们提供了无需额外配置，也可以直接在浏览器里操作几个最小 RTL 工程，试用跳转、行内提示、补全和重构。正式接入本地工程时，再阅读 [VS Code 安装](../vscode-installation/) 和 [配置第一个项目](../first-project/)。
+
+初次加载需要等待编辑器右上角的圆圈指示变绿，然后即可从已经选中的代码位置开始操作；你可以改 RTL、切换文件、打开诊断面板，必要时用工具栏里的重置按钮恢复初始状态。
+
+## 符号导航
+
+从 `top.v` 里的实例跳到 `and_gate.v` 的模块定义，再回到连接点查看相关信号。
+
+操作步骤：
+
+1. 加载示例后，`top.v` 里的 `u_and_gate` 已经被选中。
+2. 在 `u_and_gate` 或 `and_gate` 上执行 `转到定义`，跳到 `and_gate.v`。
+3. 回到 `top.v`，在 `gate_out` 上执行查找引用或查看高亮。
+
+<VideLab
+  projectId="online-navigation"
+  projectLabel="符号导航"
+  entryFile="top.v"
+  files={navigationFiles}
+  load="visible"
+  activeFile="top.v"
+  selection="8:5-8:13"
+  title="从实例跳转到模块定义"
+  description="加载后在 u_and_gate 上执行转到定义，跳到 and_gate.v。"
+/>
+
+## 代码理解
+
+不用打开 `mux2` 定义，也能在 `u_mux` 实例旁边看到每个实参连到哪个端口。
+
+操作步骤：
+
+1. 加载示例后，查看 `u_mux` 每个连接旁边的端口提示。
+2. 把鼠标停在 `mux2` 或 `u_mux` 上，查看模块和实例信息。
+3. 打开 `mux2` 定义，对照端口列表和实例连接。
+
+<VideLab
+  projectId="online-insight"
+  projectLabel="代码理解"
+  entryFile="inlay_hints.v"
+  files={structureFiles}
+  load="visible"
+  activeFile="inlay_hints.v"
+  selection="18:5-23:6"
+  title="查看端口连接行内提示"
+  description="加载后查看 u_mux 旁边的端口提示，或悬停 mux2 / u_mux。"
+/>
+
+## 精准补全
+
+在实例端口连接、参数赋值和表达式附近触发补全，让端口名和局部信号从候选列表里直接填入。
+
+操作步骤：
+
+1. 加载示例后，把光标移到 `adder8 u0(...)` 的端口列表里。
+2. 删除一处端口名，或在新行输入 `.` 后触发补全。
+3. 选择端口候选后，再在括号里补齐要连接的信号。
+
+<VideLab
+  projectId="online-completion"
+  projectLabel="精准补全"
+  entryFile="completion.v"
+  files={completionFiles}
+  load="visible"
+  activeFile="completion.v"
+  selection="16:5-16:12"
+  title="在端口连接处触发补全"
+  description="加载后在 u0 的端口列表中输入 . 并触发补全。"
+/>
+
+## 自动重构
+
+用代码操作补齐实例连接，用重命名同步更新信号的声明、连接和使用点。
+
+操作步骤：
+
+1. 加载示例后，先手动删掉 `u_counter` 里的一行端口连接。
+2. 把光标放回 `u_counter` 实例附近，打开代码操作菜单，执行端口补齐。
+3. 在 `smp_cnt` 上执行重命名，检查声明、连接和使用点是否一起更新。
+
+<VideLab
+  projectId="online-refactor"
+  projectLabel="自动重构"
+  entryFile="code_action_rename.v"
+  files={editAidFiles}
+  load="visible"
+  activeFile="code_action_rename.v"
+  selection="22:16-22:23"
+  title="补齐端口并重命名符号"
+  description="加载后删除一个端口连接再打开代码操作，或对 smp_cnt 执行重命名。"
+/>
+
+## 下一步
+
+如果你准备在本地工程中使用 Vide，先完成 [VS Code 安装](../vscode-installation/)，再用 [配置第一个项目](../first-project/) 写出第一份 `vide.toml`。

@@ -1,0 +1,44 @@
+---
+title: 代码补全
+description: 在 Verilog/SystemVerilog 表达式、实例连接、参数和预处理位置获得补全候选。
+---
+
+import FeatureExample from '../../../../components/FeatureExample.astro';
+import VideLab from '../../../../components/VideLab.astro';
+import completionGif from '../../assets/features/completion.gif';
+import { completionFiles } from '../../../../examples/dailyUse';
+
+## 什么是代码补全
+
+代码补全是在当前位置给出可插入的候选项。Vide 的补全会结合语法位置和语义尽可能给出合适的、抑制不合适的补全项：在实例端口列表里补目标端口，在参数列表里补目标参数，在表达式里补当前可见符号，在预处理位置补指令和宏相关内容。
+
+常见触发位置包括实例 `#(...)` 和 `(...)`、表达式、成员访问 `.`、事件控制 `@(...)`、系统任务 `$`、预处理反引号 `` ` `` 和整数 literal 进制标记 `'`。
+
+## 演示
+
+<FeatureExample
+  image={completionGif}
+  imageAlt="VS Code 中在 Verilog 文件里触发补全的动图"
+  imageCaption="VS Code 中的 Verilog 补全"
+  labCaption="在浏览器里操作同一段 Verilog"
+>
+  <VideLab
+    projectId="daily-completion"
+    projectLabel="Features: Completion"
+    entryFile="completion.v"
+    files={completionFiles}
+    height="100%"
+    initialActiveFile="completion.v"
+    initialSelection="16:5-16:12"
+    title="实例端口补全"
+    description="加载后在 u0 的端口列表里触发补全，查看端口名和连接表达式候选。"
+  />
+</FeatureExample>
+
+## 项目配置影响
+
+单文件场景下，补全使用当前文件和已经索引到的内容。端口、参数和实例相关补全需要目标模块能被解析到；跨文件工程里，`vide.toml` 决定 Vide 能看到哪些模块和宏分支。
+
+## 相关功能
+
+补全用于插入候选项；如果你已经在填写实例参数或端口列表，需要确认当前正在填哪一项，可以同时看到 [签名提示](../signature-help/)。

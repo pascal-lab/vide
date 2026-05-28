@@ -1,6 +1,24 @@
 ---
-import { homepageFeatures } from '../data/homepage';
+import { getHomepageFeatures, normalizeHomepageLocale, type HomepageLocale } from '../data/homepage';
 
+interface Props {
+  locale?: HomepageLocale;
+}
+
+const locale = normalizeHomepageLocale(Astro.props.locale);
+const homepageFeatures = getHomepageFeatures(locale);
+const copy =
+  locale === 'en'
+    ? {
+        carouselLabel: (title: string) => `${title} screenshot carousel`,
+        previous: 'Previous image',
+        next: 'Next image',
+      }
+    : {
+        carouselLabel: (title: string) => `${title}截图切换`,
+        previous: '上一张',
+        next: '下一张',
+      };
 ---
 
 <div class="vide-home-feature" data-home-feature>
@@ -30,12 +48,12 @@ import { homepageFeatures } from '../data/homepage';
           </div>
 
           {feature.images.length > 1 && (
-            <div class="vide-feature-carousel__pager" aria-label={`${feature.title}截图切换`}>
+            <div class="vide-feature-carousel__pager" aria-label={copy.carouselLabel(feature.title)}>
               <button
                 class="vide-feature-carousel__arrow"
                 type="button"
                 data-dir="-1"
-                aria-label="上一张"
+                aria-label={copy.previous}
               >
                 <svg viewBox="0 0 32 32" aria-hidden="true">
                   <path d="M26 16H7" />
@@ -51,7 +69,7 @@ import { homepageFeatures } from '../data/homepage';
                 class="vide-feature-carousel__arrow"
                 type="button"
                 data-dir="1"
-                aria-label="下一张"
+                aria-label={copy.next}
               >
                 <svg viewBox="0 0 32 32" aria-hidden="true">
                   <path d="M6 16H25" />

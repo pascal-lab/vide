@@ -1,11 +1,19 @@
 ---
 title: 进阶
-description: 面向本地 VSIX、服务器替换、日志、项目分析模型和高级排障的 Vide 文档。
+description: 面向本地安装、源码构建、启动排障、日志和项目分析模型的 Vide 进阶文档。
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-进阶面向需要理解扩展启动、服务器替换、本地 VSIX、日志、profiling 和项目分析模型的人。普通 RTL 编辑流程请从 [用户手册](../user-guide/) 开始。
+进阶主要处理三类问题：
+
+- 安装和构建：本地 VSIX、预发布包、自定义语言服务器和源码构建。
+- 排障和日志：确认语言服务器是否启动、查看命令入口、打开输出通道和生成 profiling 产物。
+- 分析模型：理解为什么无配置工程也能跳转，为什么写好 `vide.toml` 后诊断、重命名和 Qihe 行为会变化。
+
+普通 RTL 编辑流程请从 [用户手册](../user-guide/) 开始；有关功能使用请看用户手册的 [功能特性](../user-guide/features/)。
+
+## 安装与构建
 
 <CardGrid>
   <LinkCard
@@ -18,29 +26,29 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
     href="./build-from-source/"
     description="构建 Rust 服务器、VS Code 扩展和本地 VSIX。"
   />
+</CardGrid>
+
+## 排障与日志
+
+<CardGrid>
   <LinkCard
     title="启动自检"
     href="./check-server/"
-    description="按状态栏、输出通道、版本命令和启动参数确认服务器是否正常。"
-  />
-  <LinkCard
-    title="操作参考"
-    href="./commands-status-logs/"
-    description="查命令 ID、状态栏、输出通道和诊断性能分析产物。"
+    description="只回答一个问题：扩展有没有把语言服务器启动起来。"
   />
   <LinkCard
     title="高级故障排查"
     href="./troubleshooting/"
-    description="处理自定义服务器、bundled server、watcher、日志和 profiling 相关问题。"
+    description="按症状处理本地 VSIX、自定义服务器、文件监听、日志和 profiling 问题。"
   />
+</CardGrid>
+
+## 分析模型
+
+<CardGrid>
   <LinkCard
-    title="VS Code 设置参考"
-    href="./vscode-settings/"
-    description="查阅完整 vide.* 设置，并回到对应日常使用章节。"
-  />
-  <LinkCard
-    title="Changelog"
-    href="../changelog/"
-    description="查看每个正式版本的用户可见变更和升级影响。"
+    title="Vide 如何分析工程"
+    href="./parsing-and-analysis/"
+    description="理解尽力索引、项目分析、诊断范围、同名模块和 Qihe 工程分析。"
   />
 </CardGrid>
