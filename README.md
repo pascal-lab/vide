@@ -7,30 +7,27 @@
   </a>
 </p>
 
-# Vide - 现代 SystemVerilog 编程 IDE
+# Vide - Verilog/SystemVerilog Coding IDE
 
-[![Homepage](https://img.shields.io/badge/homepage-vide.pascal--lab.net-0969da)](https://vide.pascal-lab.net/)
+[![Homepage](https://img.shields.io/badge/homepage-vide.pascal--lab.net-0969da)](https://vide.pascal-lab.net/en/)
+[![中文 README](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-d73a31)](README.zh-CN.md)
 [![CI](https://github.com/pascal-lab/vide/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/pascal-lab/vide/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/pascal-lab/vide?sort=semver&color=2ea44f)](https://github.com/pascal-lab/vide/releases)
 [![VS Code Marketplace](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpascal-lab.gallery.vsassets.io%2F_apis%2Fpublic%2Fgallery%2Fpublisher%2Fpascal-lab%2Fextension%2Fvide-ide%2Flatest%2Fassetbyname%2FMicrosoft.VisualStudio.Code.Manifest&query=%24.version&label=Marketplace&prefix=v&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI2ZmZiIgZD0iTTIzLjE1IDIuNTkgMTguMjEuMjFhMS40OSAxLjQ5IDAgMCAwLTEuNy4yOUw3LjA2IDkuMTEgMi45NCA1Ljk5YTEgMSAwIDAgMC0xLjI3LjA2TC4zMyA3LjI2YTEgMSAwIDAgMCAwIDEuNDhMMy45IDEyIC4zMyAxNS4yNmExIDEgMCAwIDAgMCAxLjQ4bDEuMzQgMS4yMWExIDEgMCAwIDAgMS4yNy4wNmw0LjEyLTMuMTIgOS40NSA4LjYxYTEuNDkgMS40OSAwIDAgMCAxLjcuMjlsNC45NC0yLjM4QTEuNSAxLjUgMCAwIDAgMjQgMjAuMDZWMy45NGExLjUgMS41IDAgMCAwLS44NS0xLjM1Wk0xOCAxNy40NSAxMC44MyAxMiAxOCA2LjU1djEwLjlaIi8%2BPC9zdmc%2B&logoColor=white&color=007ACC)](https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide-ide)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Vide 是专为 Verilog/SystemVerilog 开发者打造的现代化编程 IDE，旨在让硬件设计像软件开发一样流畅顺手。Vide 提供了大量现代软件 IDE 标配，而硬件 IDE 缺失的代码分析功能，包括[定义跳转](https://vide.pascal-lab.net/user-guide/features/navigation/)、[代码注解](https://vide.pascal-lab.net/user-guide/features/annotations/)、[精准补全](https://vide.pascal-lab.net/user-guide/features/completion/)和[自动重构](https://vide.pascal-lab.net/user-guide/features/quick-fixes/)等。借助 Vide，硬件开发者可以更高效地理解、编写和维护 Verilog/SystemVerilog 代码。
+Vide is a modern coding IDE for Verilog/SystemVerilog developers, designed to make hardware design feel as fluid as software development. Vide brings IDE-standard code analysis features that hardware IDEs often lack, including [definition navigation](https://vide.pascal-lab.net/en/user-guide/features/navigation/), [annotations](https://vide.pascal-lab.net/en/user-guide/features/annotations/), [precise completion](https://vide.pascal-lab.net/en/user-guide/features/completion/), and [automatic refactoring](https://vide.pascal-lab.net/en/user-guide/features/quick-fixes/). With Vide, hardware developers can understand, write, and maintain Verilog/SystemVerilog code more efficiently.
 
-## 了解更多
+Feature demos, installation guides, the online playground, and the user manual are available on the [Vide homepage](https://vide.pascal-lab.net/en/).
 
-功能展示、安装说明、在线体验和用户手册请访问 [Vide 主页](https://vide.pascal-lab.net/)。
+Build instructions for the language server, VS Code extension, and local VSIX packages are available in [Build from Source](https://vide.pascal-lab.net/en/advanced-guide/build-from-source/).
 
-## 开发
+If you run into problems or want to contribute, please use GitHub Issues and Pull Requests.
 
-构建语言服务器、VS Code 扩展和本地 VSIX 的步骤见 [从源码构建](https://vide.pascal-lab.net/advanced-guide/build-from-source/)。
+## License and Acknowledgements
 
-如果你遇到问题或希望参与开发，请使用 GitHub Issues 和 Pull Requests。
+Vide is licensed under the [MIT License](LICENSE).
 
-## 许可证与致谢
+Vide uses [slang](https://github.com/MikePopoloski/slang) for SystemVerilog parsing and diagnostics. slang is licensed under the MIT License.
 
-Vide 使用 [MIT License](LICENSE)。
-
-Vide 使用 [slang](https://github.com/MikePopoloski/slang) 提供 SystemVerilog 解析与诊断能力；slang 使用 MIT License。
-
-Vide 的格式化功能可调用 [Verible](https://github.com/chipsalliance/verible) 的 `verible-verilog-format`；Verible 使用 Apache License 2.0。Verible 不随 Vide 打包，需要用户自行安装配置。
+Vide's formatting feature can call [Verible](https://github.com/chipsalliance/verible) `verible-verilog-format`. Verible is licensed under Apache License 2.0. Verible is not bundled with Vide and must be installed and configured separately.
