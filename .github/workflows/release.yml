@@ -285,6 +285,44 @@ jobs:
             exit 1
           fi
 
+          failed=()
+          log_dir="${RUNNER_TEMP}/vsce-publish-logs"
+          mkdir -p "${log_dir}"
           for vsix in "${vsixes[@]}"; do
-            node node_modules/@vscode/vsce/vsce publish --packagePath "$vsix"
+            log_file="${log_dir}/$(basename "${vsix}").log"
+            echo "::group::Publish ${vsix}"
+            if node node_modules/@vscode/vsce/vsce publish --packagePath "$vsix" 2>&1 | tee "${log_file}"; then
+              echo "Published ${vsix}"
+            else
+              status=$?
+              echo "::error::Failed to publish ${vsix} with exit code ${status}"
+              failed+=("${vsix}|${status}|${log_file}")
+            fi
+            echo "::endgroup::"
           done
+
+          if (( ${#failed[@]} > 0 )); then
+            {
+              echo "## VS Code Marketplace publish failures"
+              echo
+              echo "Failed to publish ${#failed[@]} VSIX package(s)."
+              echo
+            } >> "${GITHUB_STEP_SUMMARY}"
+
+            echo "Failed to publish ${#failed[@]} VSIX package(s):" >&2
+            for item in "${failed[@]}"; do
+              IFS='|' read -r vsix status log_file <<< "${item}"
+              echo "  ${vsix} (exit ${status})" >&2
+              {
+                echo "### ${vsix}"
+                echo
+                echo "Exit code: ${status}"
+                echo
+                echo '```text'
+                tail -n 80 "${log_file}" || true
+                echo '```'
+                echo
+              } >> "${GITHUB_STEP_SUMMARY}"
+            done
+            exit 1
+          fi
