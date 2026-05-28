@@ -10,6 +10,7 @@
 # Vide - Verilog/SystemVerilog Coding IDE
 
 [![Homepage](https://img.shields.io/badge/homepage-vide.pascal--lab.net-0969da)](https://vide.pascal-lab.net/en/)
+[![Playground](https://img.shields.io/badge/playground-try%20online-7c3aed)](https://vide.pascal-lab.net/en/playground/)
 [![中文 README](https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-d73a31)](README.zh-CN.md)
 [![CI](https://github.com/pascal-lab/vide/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/pascal-lab/vide/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/pascal-lab/vide?sort=semver&color=2ea44f)](https://github.com/pascal-lab/vide/releases)
@@ -18,7 +19,7 @@
 
 Vide is a modern coding IDE for Verilog/SystemVerilog developers, designed to make hardware design feel as fluid as software development. Vide brings IDE-standard code analysis features that hardware IDEs often lack, including [definition navigation](https://vide.pascal-lab.net/en/user-guide/features/navigation/), [annotations](https://vide.pascal-lab.net/en/user-guide/features/annotations/), [precise completion](https://vide.pascal-lab.net/en/user-guide/features/completion/), and [automatic refactoring](https://vide.pascal-lab.net/en/user-guide/features/quick-fixes/). With Vide, hardware developers can understand, write, and maintain Verilog/SystemVerilog code more efficiently.
 
-Feature demos, installation guides, the online playground, and the user manual are available on the [Vide homepage](https://vide.pascal-lab.net/en/).
+**Feature demos, installation guides, and the user manual are available on the [Vide homepage](https://vide.pascal-lab.net/en/).**
 
 Build instructions for the language server, VS Code extension, and local VSIX packages are available in [Build from Source](https://vide.pascal-lab.net/en/advanced-guide/build-from-source/).
 

@@ -118,7 +118,7 @@ exclude = ["build/**", "sim/work/**"]
 | `include_dirs` | 路径数组或省略 | include 搜索目录，例如 `["include"]`。 |
 | `defines` | 字符串数组 | 预定义宏。支持 `"NAME"` 和 `"NAME=value"`。 |
 | `top_modules` | 字符串数组 | 声明当前工程的顶层模块名。 |
-| `libraries` | 路径数组 | 外部库或依赖工程目录。 |
+| `libraries` | 路径数组 | 外部库或依赖工程目录。Vide 会单独加载它们，并在分析当前工程时解析依赖。 |
 | `exclude` | glob 数组 | 从已加载文件中过滤生成目录、仿真输出或黑盒文件。 |
 
 ## `sources` 和 `exclude` 的路径和 glob
@@ -143,7 +143,7 @@ Vide 对 `sources` 和 `exclude` 有几条固定规则：
 
 ## 字段详解
 
-### sources 和 include_dirs
+### sources
 
 `sources` 有三种常见状态：
 
@@ -168,9 +168,11 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 - `.svi`
 - `.map`
 
+### include_dirs
+
 `include_dirs` 用于处理 `` `include "file.svh" ``。如果你已经写了 `sources`，但没有写 `include_dirs`，Vide 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。
 
-如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也不会使用这个回退。
+如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也表示不使用从 `sources` 推导出来的默认 include 目录。
 
 ### defines
 
@@ -206,20 +208,7 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 `exclude = ["build"]` 只匹配名为 `build` 的路径本身，不会递归排除目录内容；目录递归请写 `build/**`。如果你还希望 VS Code 自己减少文件监听，可以同时配置 VS Code 的 `files.watcherExclude`。Vide 的 `exclude` 和 VS Code 的文件监听设置是两套机制。
 
-## 常见注意事项
+## 项目文件发现规则
 
 - 项目配置文件名必须是 `vide.toml`。
 - Vide 不会从子目录自动发现项目配置文件。打开 `repo` 时，只检查 `repo/vide.toml`。
-
-
-## 项目配置前后的行为差异
-
-| 能力 | 没有项目配置文件 | 写好 `vide.toml` 后 |
-| --- | --- | --- |
-| [定义跳转](../features/navigation/)、[引用搜索](../features/references/) 与 [悬停信息](../features/hover/) | 扫描工作区，先提供读代码所需的跳转、引用和符号信息 | 按 `sources`、`libraries`、include 目录和宏分支解析真实目标 |
-| [代码补全](../features/completion/) 与 [签名提示](../features/signature-help/) | 使用当前文件和已扫描文件给候选；目标模块解析后显示端口/参数提示 | 结合目标模块、include 目录和宏分支给出候选和当前位置提示 |
-| [重命名](../features/rename/) 与 [自动重构](../features/quick-fixes/) | 局部代码操作可用；工程重命名不启用 | 按工程范围补齐/转换端口参数，并更新声明、引用和连接 |
-| [语法高亮](../features/syntax-highlighting/) 与 [语义高亮](../features/semantic-highlighting/) | 语法高亮可用，当前文件有基础语义标记 | 结合项目解析标记端口方向、读写位置和宏分支 |
-| [代码注解](../features/annotations/)、[符号大纲](../features/document-symbols/)、[折叠](../features/folding/) 与 [语义选区](../features/selection-range/) | 当前文件的大纲、折叠、选区可用；目标模块解析后显示代码注解 | 按工程结构显示端口、参数、实例数量、大纲、折叠和语义选区 |
-| [实时诊断](../features/diagnostics/) | 打开的文件有语法和解析诊断；没有项目级语义诊断 | 使用 `sources`、`include_dirs`、`defines` 做跨文件语义诊断 |
-| [骑河（Qihe）](../features/qihe/) | 使用当前文件作为分析输入 | 从 `sources`、`top_modules`、`include_dirs`、`defines` 推导编译参数 |

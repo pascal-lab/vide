@@ -38,17 +38,17 @@ Use `vide.formatter.args` to pass options to `verible-verilog-format` and adjust
   title="verible-verilog-format Options"
   action="Open"
 >
-  Review the options that <code>vide.formatter.args</code> can pass to the external formatter.
+  Review the options that <code>vide.formatter.args</code> can pass to the external formatting tool.
 </ThinLinkCard>
 
-## Formatting Commands
+## Document and Selection Formatting
 
-`Format Document` sends the whole file to `verible-verilog-format`. `Format Selection` sends the selected line range to the same formatter. Both commands use the current `vide.formatter.path` and `vide.formatter.args`; `vide.formatting.indent.width` is passed as `--indentation_spaces`.
+`Format Document` sends the whole file to `verible-verilog-format`. `Format Selection` sends the selected line range to the same external formatting tool. Both commands use the current `vide.formatter.path` and `vide.formatter.args`; `vide.formatting.indent.width` is passed as `--indentation_spaces`.
 
 ## Enter Behavior
 
 Besides manually running `Format Document` and `Format Selection`, Vide can adjust the new line's indentation when you press Enter. This behavior is controlled by `vide.formatting.on.enter`.
 
-If you only want Enter assistance outside comments, disable `vide.formatting.in.comments`. If the project only needs manual formatting, disable `vide.formatting.on.enter` and keep `Format Document` and `Format Selection`.
+If you only want Enter indentation assistance outside comments, disable `vide.formatting.in.comments`; pressing Enter inside comments will no longer trigger this behavior. If the project does not need Enter-based indentation adjustment, disable `vide.formatting.on.enter` and keep `Format Document` and `Format Selection`.
 
 See [Formatter and Formatting settings](../../vscode-settings/#formatter-and-formatting).

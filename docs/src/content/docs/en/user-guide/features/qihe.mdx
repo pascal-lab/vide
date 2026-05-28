@@ -138,7 +138,7 @@ qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-
 qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 ```
 
-`<input-files>` means the Verilog/SystemVerilog input files passed to `qihe compile`. In project mode, they come from files resolved from `sources` and `libraries`; in single-file mode, it is the currently open file.
+`<input-files>` means the Verilog/SystemVerilog input files passed to `qihe compile`. `vide.qihe.autoConfigureArgsFromManifest` only controls whether arguments such as `--top`, `-I`, and `-D` are added automatically. It does not change which files Vide analyzes: when `vide.toml` is configured, Vide analyzes the project's source files; when no usable project configuration is available, Vide analyzes only the currently open file.
 
 For example:
 
@@ -150,7 +150,7 @@ For example:
 }
 ```
 
-If you need to adjust Qihe arguments further, first decide whether the arguments belong to `qihe compile` or `qihe run`. The command arguments are documented here:
+If you are not sure where an option belongs, use its purpose as the guide: options that affect how source files are compiled or parsed go in `vide.qihe.compileArgs`; options that affect which Qihe analyses run or how they run go in `vide.qihe.runArgs`. Command arguments are documented here:
 
 <ThinLinkCard
   href="https://qihe-docs.pascal-lab.net/platform-cli/compile.html"

@@ -136,7 +136,7 @@ qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-
 qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 ```
 
-这里的 `<input-files>` 是传给 `qihe compile` 的 Verilog/SystemVerilog 输入文件。项目模式下，它来自 `sources` 和 `libraries` 解析出的文件；单文件模式下，它就是当前打开的文件。
+这里的 `<input-files>` 是传给 `qihe compile` 的 Verilog/SystemVerilog 输入文件。`vide.qihe.autoConfigureArgsFromManifest` 只控制是否自动追加 `--top`、`-I` 和 `-D` 这类参数，不影响 Vide 选择要分析哪些文件：项目已经写好 `vide.toml` 时，Vide 会分析项目里的源码；没有可用项目配置时，Vide 只分析当前打开的文件。
 
 例如：
 
@@ -148,7 +148,7 @@ qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 }
 ```
 
-如果需要进一步调整骑河参数，请先确认参数应该传给 `qihe compile` 还是 `qihe run`。两条命令的参数详见以下文档：
+如果不确定参数应该写在哪，可以按用途区分：影响源码如何被编译或解析的参数，写到 `vide.qihe.compileArgs`；影响 Qihe 运行哪些分析、怎么运行分析的参数，写到 `vide.qihe.runArgs`。具体参数名见：
 
 <ThinLinkCard
   href="https://qihe-docs.pascal-lab.net/platform-cli/compile.html"

@@ -10,6 +10,7 @@
 # Vide - 现代 SystemVerilog 编程 IDE
 
 [![Homepage](https://img.shields.io/badge/homepage-vide.pascal--lab.net-0969da)](https://vide.pascal-lab.net/)
+[![Playground](https://img.shields.io/badge/playground-try%20online-7c3aed)](https://vide.pascal-lab.net/playground/)
 [![English README](https://img.shields.io/badge/README-English-0969da)](README.md)
 [![CI](https://github.com/pascal-lab/vide/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/pascal-lab/vide/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/pascal-lab/vide?sort=semver&color=2ea44f)](https://github.com/pascal-lab/vide/releases)
@@ -18,7 +19,7 @@
 
 Vide 是专为 Verilog/SystemVerilog 开发者打造的现代化编程 IDE，旨在让硬件设计像软件开发一样流畅顺手。Vide 提供了大量现代软件 IDE 标配，而硬件 IDE 缺失的代码分析功能，包括[定义跳转](https://vide.pascal-lab.net/user-guide/features/navigation/)、[代码注解](https://vide.pascal-lab.net/user-guide/features/annotations/)、[精准补全](https://vide.pascal-lab.net/user-guide/features/completion/)和[自动重构](https://vide.pascal-lab.net/user-guide/features/quick-fixes/)等。借助 Vide，硬件开发者可以更高效地理解、编写和维护 Verilog/SystemVerilog 代码。
 
-功能展示、安装说明、在线体验和用户手册请访问 [Vide 主页](https://vide.pascal-lab.net/)。
+**功能展示、安装说明和用户手册请访问 [Vide 主页](https://vide.pascal-lab.net/)。**
 
 构建语言服务器、VS Code 扩展和本地 VSIX 的步骤见 [从源码构建](https://vide.pascal-lab.net/advanced-guide/build-from-source/)。
 

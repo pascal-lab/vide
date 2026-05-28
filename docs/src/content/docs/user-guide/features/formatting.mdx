@@ -23,7 +23,7 @@ Verible 是 ChipsAlliance 提供的一系列 SystemVerilog 开发工具，其中
   安装或更新外部 <code>verible-verilog-format</code> 工具。
 </ThinLinkCard>
 
-VS Code 设置里，当`vide.formatter.path` 留空时，Vide 会从 VS Code 进程可见的 `PATH` 查找 `verible-verilog-format`；写入路径时，会直接调用这个可执行文件：
+VS Code 设置里，当 `vide.formatter.path` 留空时，Vide 会从 VS Code 进程可见的 `PATH` 查找 `verible-verilog-format`；写入路径时，会直接调用这个可执行文件：
 
 ```json
 {
@@ -31,24 +31,24 @@ VS Code 设置里，当`vide.formatter.path` 留空时，Vide 会从 VS Code 进
 }
 ```
 
-使用 `vide.formatter.args` 可以控制传入 `verible-verilog-format` 的参数以控制其格式化行为。
+使用 `vide.formatter.args` 可以继续传入 `verible-verilog-format` 支持的命令行参数。
 
 <ThinLinkCard
   href="https://chipsalliance.github.io/verible/verilog_format.html"
   title="verible-verilog-format 参数文档"
   action="打开"
 >
-  查看 <code>vide.formatter.args</code> 可以传给外部 formatter 的参数。
+  查看 <code>vide.formatter.args</code> 可以传给外部格式化工具的参数。
 </ThinLinkCard>
 
-## 格式化入口
+## 文档和选区格式化
 
-`格式化文档` 会把整个文件交给 `verible-verilog-format`。`格式化选定内容` 会把选区对应的行范围传给同一个 formatter。两者都会使用当前的 `vide.formatter.path` 和 `vide.formatter.args`；`vide.formatting.indent.width` 会作为 `--indentation_spaces` 传入。
+`格式化文档` 会把整个文件交给 `verible-verilog-format`。`格式化选定内容` 会把选区所在的行范围传给同一个外部格式化工具。两者都会使用当前的 `vide.formatter.path` 和 `vide.formatter.args`；`vide.formatting.indent.width` 会作为 `--indentation_spaces` 传入。
 
 ## Enter 行为
 
 除了手动执行 `格式化文档` 和 `格式化选定内容`，Vide 还可以在按 Enter 时自动调整新行缩进。这个行为由 `vide.formatting.on.enter` 控制。
 
-如果你只想在注释外启用 Enter 辅助格式化，可以关闭 `vide.formatting.in.comments`。如果项目只需要手动格式化，可以关闭 `vide.formatting.on.enter`，保留 `格式化文档` 和 `格式化选定内容`。
+如果你只想在注释外启用 Enter 辅助缩进，可以关闭 `vide.formatting.in.comments`，这样按 Enter 时不会在注释内部触发这个行为。如果项目不需要按 Enter 自动调整缩进，可以关闭 `vide.formatting.on.enter`，保留 `格式化文档` 和 `格式化选定内容`。
 
 完整参考见 [Formatter 和 Formatting 设置](../../vscode-settings/#formatter-和-formatting)。

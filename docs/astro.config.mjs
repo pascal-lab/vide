@@ -91,6 +91,7 @@ export default defineConfig({
               translations: { en: 'Reference' },
               items: [
                 'user-guide/project-configuration',
+                'user-guide/project-configuration-effects',
                 'user-guide/vscode-settings',
                 'user-guide/commands-status-logs',
               ],

@@ -1,0 +1,27 @@
+---
+title: 项目配置前后的行为差异
+description: 对比没有 vide.toml、默认空模板和写好 vide.toml 后各功能的行为。
+---
+
+在 `vide.toml` 没有妥善配置的时候，Vide 有时可以尽量进行分析，但有时候一些功能必须依靠完整的项目结构。本页介绍了 Vide 各功能在不同项目配置状态下的行为差异。
+
+## 三种项目状态
+
+- **没有 `vide.toml`**：Vide 会尽量扫描工作区，让跳转、引用、悬停、符号信息等读代码功能先可用，但不会创建项目级编译配置。
+- **默认空模板**：刚创建的 `vide.toml` 默认包含 `sources = []`，表示暂时不扫描整个工作区，等你填入真实源码路径。
+- **写好 `vide.toml`**：Vide 按 `sources`、`include_dirs`、`defines`、`libraries` 和 `top_modules` 理解工程，跨文件分析会更接近真实编译入口。
+
+## 差异清单
+
+| 能力 | 没有项目配置文件 | 写好 `vide.toml` 后 |
+| --- | --- | --- |
+| [定义跳转](./features/navigation/)、[引用搜索](./features/references/) 与 [悬停信息](./features/hover/) | 尽量扫描工作区，提供读代码所需的跳转、引用和符号信息 | 按 `sources`、`libraries`、include 目录和宏分支解析真实目标 |
+| [代码补全](./features/completion/) 与 [签名提示](./features/signature-help/) | 使用当前文件和已扫描文件给候选；目标模块解析后显示端口/参数提示 | 结合目标模块、include 目录和宏分支给出候选和当前位置提示 |
+| [重命名](./features/rename/) 与 [自动重构](./features/quick-fixes/) | 局部代码操作可用；工程范围重命名不启用 | 按工程范围补齐/转换端口参数，并更新声明、引用和连接 |
+| [语法高亮](./features/syntax-highlighting/) 与 [语义高亮](./features/semantic-highlighting/) | 语法高亮可用，当前文件有基础语义样式 | 结合项目解析显示端口方向、读写位置和宏分支相关语义样式 |
+| [代码注解](./features/annotations/) | 当前文件内可解析到的端口、参数和结构结尾可以显示注解；实例数量统计可能不完整 | 按工程结构显示端口、参数、结构名称和实例数量注解 |
+| [符号大纲](./features/document-symbols/)、[折叠](./features/folding/) 与 [语义选区](./features/selection-range/) | 当前文件的大纲、折叠和选区可用 | include 文件和宏分支按工程配置解析，结构范围更接近真实工程 |
+| [实时诊断](./features/diagnostics/) | 打开的文件有语法和解析诊断；没有项目级语义诊断 | 使用 `sources`、`include_dirs`、`defines` 做跨文件语义诊断 |
+| [Qihe 集成](./features/qihe/) | 使用当前打开的文件作为分析输入 | 输入文件来自项目编译计划，并可从 `top_modules`、`include_dirs`、`defines` 推导编译参数 |
+
+字段写法见 [项目配置参考](./project-configuration/)。

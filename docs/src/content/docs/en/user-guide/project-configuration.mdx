@@ -118,7 +118,7 @@ If the project has no external libraries or generated directories, remove `libra
 | `include_dirs` | Array of paths, or omitted | Include search directories, for example `["include"]`. |
 | `defines` | Array of strings | Predefined macros. Supports both `"NAME"` and `"NAME=value"`. |
 | `top_modules` | Array of strings | Declares top-level modules for the current project. |
-| `libraries` | Array of paths | External libraries or dependency project directories. |
+| `libraries` | Array of paths | External libraries or dependency project directories. Vide loads them separately and resolves them while analyzing the current project. |
 | `exclude` | Array of globs | Filters generated directories, simulation output, or black-box files out of loaded files. |
 
 ## Path and Glob Rules for `sources` and `exclude`
@@ -143,7 +143,7 @@ In `include_dirs` and `libraries`, values are ordinary paths resolved relative t
 
 ## Field Details
 
-### sources and include_dirs
+### sources
 
 `sources` has three common states:
 
@@ -168,9 +168,11 @@ The current project loader reads these extensions:
 - `.svi`
 - `.map`
 
+### include_dirs
+
 `include_dirs` controls `` `include "file.svh" `` search. If `include_dirs` is not configured explicitly and `sources` is set explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory.
 
-If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, this fallback is not used either.
+If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, Vide also does not use the default include directories inferred from `sources`.
 
 ### defines
 
@@ -206,19 +208,9 @@ exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 
 `exclude = ["build"]` only matches the path named `build` itself and does not recursively exclude the directory contents. Use `build/**` for recursive directory exclusion. If you also want VS Code to reduce file watching, configure VS Code's `files.watcherExclude` as well. Vide's `exclude` and VS Code's watcher settings are separate mechanisms.
 
-## Notes
+## Project File Discovery Rules
 
 - The project configuration file name must be `vide.toml`.
 - Vide does not automatically discover project configuration files from subdirectories. When you open `repo`, it only checks `repo/vide.toml`.
 
-## What Changes After Configuration
-
-| Area | Without a project configuration file | After `vide.toml` is configured |
-| --- | --- | --- |
-| [Go to Definition](../features/navigation/), [Find References](../features/references/), and [Hover](../features/hover/) | Scans the workspace and provides the jumps, references, and symbol information needed while reading code | Resolves actual targets through `sources`, `libraries`, include directories, and macro branches |
-| [Completion](../features/completion/) and [Signature Help](../features/signature-help/) | Uses the current file and scanned files for candidates; shows port/parameter help once the target module is resolved | Uses target modules, include directories, and macro branches for candidates and position-aware hints |
-| [Rename](../features/rename/) and [Automatic Refactoring](../features/quick-fixes/) | Local code actions are available; project rename is disabled | Fills or converts ports and parameters across the project, and updates declarations, references, and connections |
-| [Syntax Highlighting](../features/syntax-highlighting/) and [Semantic Highlighting](../features/semantic-highlighting/) | Syntax highlighting is available, and the current file gets basic semantic markings | Uses project analysis to mark port directions, read/write locations, and macro branches |
-| [Annotations](../features/annotations/), [Document Symbols](../features/document-symbols/), [Folding](../features/folding/), and [Selection Range](../features/selection-range/) | The current file gets outline, folding, and selection ranges; annotations are shown after the target module is resolved | Shows ports, parameters, instance counts, outline, folding, and semantic selection ranges according to the project structure |
-| [Diagnostics](../features/diagnostics/) | Open files get syntax and parse diagnostics; project-level semantic diagnostics are not created | Uses `sources`, `include_dirs`, and `defines` for cross-file semantic diagnostics |
-| [Qihe Integration](../features/qihe/) | Uses the current file as the analysis input | Derives compile arguments from `sources`, `top_modules`, `include_dirs`, and `defines` |
+Feature behavior before and after project configuration is summarized in [Behavior With and Without Project Configuration](../project-configuration-effects/).

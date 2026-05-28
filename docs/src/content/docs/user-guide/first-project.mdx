@@ -5,9 +5,9 @@ description: 用一个小工程写第一份 vide.toml。
 
 import { FileTree } from '@astrojs/starlight/components';
 
-Vide 打开任何 Verilog/SystemVerilog 项目后，都可以提供语法高亮和基础的编辑体验。要让 Vide 更准确地做跨文件跳转、补全、诊断、宏分支判断和 Qihe 参数推导，就需要在工作区根目录放一个项目配置文件：`vide.toml`。
+Vide 打开任何 Verilog/SystemVerilog 项目后，都可以提供语法高亮和基础编辑体验。要让 Vide 更准确地做跨文件跳转、补全、诊断和宏分支判断，就需要在工作区根目录放一个项目配置文件：`vide.toml`。
 
-这页内容会指导大家进行项目的配置，完整字段和边界规则见 [项目配置参考](../project-configuration/)。
+这页会用一个小工程写出第一份 `vide.toml`，完整字段和边界规则见 [项目配置参考](../project-configuration/)。
 
 ## 1. 创建项目配置文件
 
@@ -64,7 +64,7 @@ exclude = ["build/**", "sim/work/**"]
 - `include_dirs`：**推荐填写**，提示 Vide `` `include "defs.svh" `` 这类头文件从哪里找。例如 `include`。
 - `defines`：**可选**，预先打开哪些宏分支，例如可以写 `"SYNTHESIS"` 或 `"DATA_WIDTH=32"`。
 - `top_modules`：**推荐填写**，当前工程的顶层模块名，提示 Vide 从哪里开始分析。
-- `exclude`：**可选**，可以用于排除生成目录、仿真输出和缓存目录，Vide 不会分析这些目录。在本例中，`exclude` 字段也可以不写，因为 `sources` 没有被 `exclude` 内容干扰。
+- `exclude`：**可选**，可以用于排除生成目录、仿真输出和缓存目录，Vide 不会分析这些目录。在本例中，`exclude` 字段也可以不写，因为 `sources` 不包含这些目录。
 
 :::note
 路径统一写 `/`，即使在 Windows 上也写 `rtl/**`，不要写 `rtl\**`。所有路径只能在工作区根目录中。
@@ -72,7 +72,7 @@ exclude = ["build/**", "sim/work/**"]
 
 ## 3. 一个更接近真实工程的例子
 
-上面的 `my-rtl` 是一个很小的工程，下面我们以一个真实工程 [darklife/darkriscv](https://github.com/darklife/darkriscv) 为例。仓库根目录有一份 `darkriscv.core`，定义了项目信息，其对应的 `vide.toml` 可以写成：
+上面的 `my-rtl` 是一个很小的工程，下面我们以一个真实工程 [darklife/darkriscv](https://github.com/darklife/darkriscv) 为例。仓库根目录有一份 `darkriscv.core`，里面已经描述了 fileset、target、顶层模块和工具参数。参考它，`vide.toml` 可以写成：
 
 ```toml
 #:schema https://vide.pascal-lab.net/schemas/v1/vide.schema.json
@@ -83,21 +83,22 @@ sources = [
 ]
 include_dirs = [
   "rtl",
-  "src",
 ]
 ```
 
-这里的对应关系是：
+这里每个字段是这么来的：
 
 - `top_modules = ["darksocv"]`：来自 `.core` 里 default target 的 `toplevel: darksocv`。
-- `sources = ["rtl/*.v"]`：覆盖 `darksocv` 直接或间接用到的 `darkpll.v`、`darkbridge.v`、`darkram.v`、`darkio.v`、`darkriscv.v`、`darkuart.v` 等模块定义。
-- `include_dirs = ["rtl", "src"]`
-  - `rtl/config.vh` 是 include 文件，因此 `rtl` 是 include 目录。
-  - `src/darksocv.mem` 是仿真/初始化数据，在源码中被使用了，因此把 `src` 放进 `include_dirs`。
+- `sources = ["rtl/*.v"]`：把 `rtl` 目录下的 Verilog 源文件加入分析。这个写法比 `.core` 里的 `rtl` fileset 稍宽一些，适合作为第一次配置；如果你想严格跟随 `.core`，也可以逐个列出 fileset 里的 Verilog 文件。
+- `include_dirs = ["rtl"]`：`rtl/config.vh` 是通过反引号 `` `include `` 引入的头文件，所以把 `rtl` 加入 include 搜索目录。
+
+`src/darksocv.mem` 是运行时通过 `$readmemh("../src/darksocv.mem", MEM, 0)` 读取的内存初始化文件，不是 `` `include `` 头文件。它不需要写进 `include_dirs`；如果仿真或综合脚本需要复制这个文件，仍由原来的工程脚本处理。
 
 以上的配置文件只涵盖了可综合的部分，如果想连带仿真代码一起分析，我们应该怎么写 `vide.toml` 呢？
 
-例如按 `.core` 里的 `sim` target 分析仿真入口，就把 `tb` fileset 里的 `sim/darksimv.v` 加进来，并把顶层换成 `darksimv`。`sim` target 的 icarus 配置里有 `-g2012`，而 `config.vh` 里会根据 `__ICARUS__` 切换仿真分支，所以这里也把宏写进 `defines`：
+如果按 `.core` 里的 `sim` target 分析仿真入口，就在 default target 的基础上追加 `tb` fileset 里的 `sim/darksimv.v`，并把顶层从 `darksocv` 换成 `darksimv`。
+
+这个 target 的默认仿真器是 Icarus Verilog。`sim/darksimv.v` 和 `rtl/config.vh` 会根据 `__ICARUS__` 选择仿真分支，所以这里把 `__ICARUS__` 写进 `defines`。`.core` 中的 `-g2012` 是传给 Icarus Verilog 的语言版本参数，不需要写进 `vide.toml`：
 
 ```toml
 sources = [
@@ -107,7 +108,6 @@ sources = [
 
 include_dirs = [
   "rtl",
-  "src",
   "sim",
 ]
 
@@ -115,7 +115,7 @@ defines = ["__ICARUS__"]
 top_modules = ["darksimv"]
 ```
 
-同理，板级 target 也按同样方式编写配置文件。例如 `colorlight_i5` target 使用 `rtl` 和 `colorlighti5` 两个 fileset，并启用 `__YOSYS__`、`LATTICE_ECP5_COLORLIGHTI5` 两个 vlog define。对应配置可以写成：
+板级 target 也按同样思路编写配置文件。例如 `colorlight_i5` target 使用 `rtl` 和 `colorlighti5` 两个 fileset，并通过 parameters 向综合工具传入 `__YOSYS__`、`LATTICE_ECP5_COLORLIGHTI5` 两个 Verilog 宏。对应配置可以写成：
 
 ```toml
 sources = [
@@ -123,23 +123,29 @@ sources = [
   "boards/colorlighti5/pll_ref_25MHz.v",
 ]
 
-include_dirs = ["rtl", "src"]
+include_dirs = ["rtl"]
 defines = ["__YOSYS__", "LATTICE_ECP5_COLORLIGHTI5"]
 top_modules = ["darksocv"]
 ```
 
-## 4. 项目状态
+## 4. 常见注意事项
+
+- 项目配置文件名必须是 `vide.toml`。
+- `vide.toml` 应放在 VS Code 打开的工作区根目录。Vide 不会从子目录自动发现项目配置文件。
+- `sources` 和 `exclude` 使用工作区相对 glob；`include_dirs` 和 `libraries` 使用相对 `vide.toml` 所在目录的普通路径。
+
+## 5. 项目状态
 
 保存 `vide.toml` 后，Vide 默认会自动刷新项目配置。
 
 实际使用时可以把项目状态分成三类：
 
-- 没有 `vide.toml`：Vide 会扫描工作区，先提供阅读类功能，但不会创建项目级编译配置。
+- 没有 `vide.toml`：Vide 会尽量扫描工作区，先让跳转、引用、悬停、符号信息等读代码功能可用，但不会创建项目级编译配置。
 - 刚创建的空模板：默认写着 `sources = []`，表示暂时不扫描整个工作区，等你填入真实源码路径。
 - 写好 `vide.toml`：Vide 按 `sources`、`include_dirs`、`defines`、`libraries` 等字段理解工程。
 
-具体来说，各行为是否配置项目的差异可以在各 [功能特性](../features/) 末尾看到。我们也总结了差异清单，请见 [项目配置前后的行为差异](../project-configuration/#项目配置前后的行为差异)。
+接下来介绍每个功能特性时，会继续说明是否配置项目对该功能的影响。这份影响清单也单独整理在 [项目配置前后的行为差异](../project-configuration-effects/)。
 
 ## 下一步
 
-下一步可以阅读 [功能特性](../features/)。当需要查字段细节时，再看 [项目配置参考](../project-configuration/)。
+下一步可以阅读 [功能特性](../features/)，按功能确认写好配置后能获得哪些效果。

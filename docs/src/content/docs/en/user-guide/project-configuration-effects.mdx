@@ -1,0 +1,27 @@
+---
+title: Behavior With and Without Project Configuration
+description: Compare feature behavior with no vide.toml, the default empty template, and a configured vide.toml.
+---
+
+This page summarizes how the same feature behaves under different project configuration states. It is useful when a feature works only partially and you need to know whether project configuration is the missing piece.
+
+## Project States
+
+- **No `vide.toml`**: Vide scans the workspace on a best-effort basis so code-reading features such as navigation, references, hover, and symbols can work first, but it does not create a project-level compilation profile.
+- **Default empty template**: A newly created `vide.toml` contains `sources = []`, which tells Vide not to scan the whole workspace until you fill in real source paths.
+- **Configured `vide.toml`**: Vide understands the project through `sources`, `include_dirs`, `defines`, `libraries`, and `top_modules`, so cross-file analysis is closer to the real compilation entry.
+
+## Behavior Checklist
+
+| Area | Without a project configuration file | After `vide.toml` is configured |
+| --- | --- | --- |
+| [Go to Definition](./features/navigation/), [Find References](./features/references/), and [Hover](./features/hover/) | Scans the workspace on a best-effort basis and provides jumps, references, and symbol information for code reading | Resolves actual targets through `sources`, `libraries`, include directories, and macro branches |
+| [Completion](./features/completion/) and [Signature Help](./features/signature-help/) | Uses the current file and scanned files for candidates; shows port/parameter help once the target module is resolved | Uses target modules, include directories, and macro branches for candidates and position-aware hints |
+| [Rename](./features/rename/) and [Automatic Refactoring](./features/quick-fixes/) | Local code actions are available; project-wide rename is disabled | Fills or converts ports and parameters across the project, and updates declarations, references, and connections |
+| [Syntax Highlighting](./features/syntax-highlighting/) and [Semantic Highlighting](./features/semantic-highlighting/) | Syntax highlighting is available, and the current file gets basic semantic styling | Uses project analysis to style port directions, read/write locations, and macro-branch-related semantics |
+| [Annotations](./features/annotations/) | Ports, parameters, and structure endings that can be resolved in the current file can show annotations; instance counts can be incomplete | Shows port, parameter, structure-name, and instance-count annotations according to the project structure |
+| [Document Symbols](./features/document-symbols/), [Folding](./features/folding/), and [Selection Range](./features/selection-range/) | The current file gets outline, folding, and selection ranges | Include files and macro branches are parsed from project configuration, so structure ranges better match the actual project |
+| [Diagnostics](./features/diagnostics/) | Open files get syntax and parse diagnostics; project-level semantic diagnostics are not created | Uses `sources`, `include_dirs`, and `defines` for cross-file semantic diagnostics |
+| [Qihe Integration](./features/qihe/) | Uses the currently open file as the analysis input | Uses input files from the project compile plan and can derive compile arguments from `top_modules`, `include_dirs`, and `defines` |
+
+For field syntax, see [Project Configuration Reference](./project-configuration/).
