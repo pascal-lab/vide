@@ -3,19 +3,6 @@ name: Build docs
 on:
   push:
     branches: [master]
-    paths:
-      - "docs/**"
-      - "playground/**"
-      - "src/**"
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".github/actions/setup-emscripten/**"
-      - ".github/actions/setup-rust/**"
-      - ".github/actions/setup-sccache/**"
-      - ".github/workflows/docs-preview.yml"
-      - ".github/workflows/deploy-docs.yml"
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
@@ -37,8 +24,9 @@ permissions:
 
 env:
   ASTRO_SITE: https://vide.pascal-lab.net
-  ASTRO_BASE: ${{ github.event_name == 'pull_request' && format('/preview/pr-{0}/', github.event.pull_request.number) || '/' }}
+  ASTRO_BASE: ${{ github.event_name == 'pull_request' && format('/preview/pr-{0}/', github.event.pull_request.number) || '/stating/' }}
   PREVIEW_URL: ${{ github.event_name == 'pull_request' && format('https://vide.pascal-lab.net/preview/pr-{0}/', github.event.pull_request.number) || '' }}
+  STATING_URL: https://vide.pascal-lab.net/stating/
   EMSDK_VERSION: 5.0.2
 
 jobs:
@@ -173,5 +161,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vide-docs-preview
+          path: docs/dist
+          retention-days: 7
+
+      - name: Add master docs summary
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          echo "Master docs will be deployed to ${STATING_URL}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload master docs artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-docs-master
           path: docs/dist
           retention-days: 7

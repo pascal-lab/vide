@@ -2,7 +2,7 @@ name: Deploy docs to Aliyun OSS
 
 on:
   workflow_run:
-    workflows: ["Build docs"]
+    workflows: ["Build docs", "Release"]
     types: [completed]
   workflow_dispatch:
   release:
@@ -28,9 +28,9 @@ jobs:
     name: Sync PR preview
     if: >
       github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'Build docs' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      vars.ENABLE_DOCS_DEPLOY == 'true'
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Resolve preview target
@@ -238,11 +238,84 @@ jobs:
               core.warning(`Docs preview was deployed, but the PR comment could not be updated: ${error.message}`);
             }
 
+  deploy-master:
+    name: Sync master docs
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'Build docs' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download master docs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vide-docs-master
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: master-dist
+
+      - name: Setup ossutil
+        env:
+          OSS_ENDPOINT: ${{ secrets.endpoint }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.accessKeyId }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.accessKeySecret }}
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/ossutil"
+          archive="${RUNNER_TEMP}/ossutil.zip"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL \
+            "https://github.com/aliyun/ossutil/releases/download/v${OSSUTIL_VERSION}/ossutil-v${OSSUTIL_VERSION}-linux-amd64.zip" \
+            -o "${archive}"
+          unzip -q -o "${archive}" -d "${install_dir}"
+
+          ossutil_bin="${install_dir}/ossutil-v${OSSUTIL_VERSION}-linux-amd64/ossutil"
+          chmod +x "${ossutil_bin}"
+          echo "$(dirname "${ossutil_bin}")" >> "${GITHUB_PATH}"
+
+          "${ossutil_bin}" --version
+          "${ossutil_bin}" help cp | grep -F -- "--disable-dir-object" > /dev/null
+          "${ossutil_bin}" config -e "${OSS_ENDPOINT}" -i "${OSS_ACCESS_KEY_ID}" -k "${OSS_ACCESS_KEY_SECRET}" -L CH
+
+      - name: Deploy master docs to OSS
+        env:
+          OSS_BUCKET_NAME: ${{ secrets.bucketName }}
+          MASTER_PATH: stating/
+          MASTER_URL: https://vide.pascal-lab.net/stating/
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OSS_BUCKET_NAME}" ]; then
+            echo "OSS bucketName secret is required."
+            exit 1
+          fi
+
+          if [ "${MASTER_PATH}" != "stating/" ]; then
+            echo "Invalid master docs path: ${MASTER_PATH}"
+            exit 1
+          fi
+
+          target="oss://${OSS_BUCKET_NAME}/${MASTER_PATH}"
+          ossutil rm "${target}" -rf || true
+          ossutil cp master-dist "${target}" -rf --disable-dir-object
+
+          echo "Master docs deployed to ${MASTER_URL}" >> "${GITHUB_STEP_SUMMARY}"
+
   deploy-production:
     name: Deploy production docs
     if: >
-      (github.event_name == 'release' && github.event.release.prerelease != true && vars.ENABLE_DOCS_DEPLOY == 'true') ||
-      (github.event_name == 'workflow_dispatch' && vars.ENABLE_DOCS_DEPLOY == 'true')
+      (github.event_name == 'release' && github.event.release.prerelease != true) ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.name == 'Release' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
     runs-on: ubuntu-latest
     environment:
       name: docs
@@ -252,6 +325,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.event.release.tag_name || github.ref }}
 
       - name: Restore playground WASM cache
         id: playground-wasm-cache
