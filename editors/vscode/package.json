@@ -1,6 +1,6 @@
 {
   "name": "vide-ls",
-  "displayName": "Vide - A Verilog/SystemVerilog Language Support",
+  "displayName": "Vide - Verilog/SystemVerilog Language Support",
   "description": "%extension.description%",
   "version": "0.1.6",
   "publisher": "pascal-lab",
