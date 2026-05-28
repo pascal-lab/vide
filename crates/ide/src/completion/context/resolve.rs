@@ -18,6 +18,8 @@ pub(super) fn expectations(
 
     if let Some(expectation) = local.filter(|expectation| local_overrides(*expectation)) {
         push_unique(&mut expectations, expectation);
+    } else if let Some(expectation) = dot_trigger_connection_name(&parser, trigger) {
+        push_unique(&mut expectations, expectation);
     } else if let Some(expectation) = keyword_prefix(&parser, prefix) {
         push_unique(&mut expectations, expectation);
     } else if let Some(expectation) = port_keyword(&parser, prefix, trigger) {
@@ -41,6 +43,23 @@ pub(super) fn expectations(
     }
 
     expectations
+}
+
+fn dot_trigger_connection_name(
+    parser: &ParserExpectations,
+    trigger: Option<TriggerChar>,
+) -> Option<CompletionExpectation> {
+    if trigger != Some(TriggerChar::Dot) {
+        return None;
+    }
+
+    let source = ExpectationSource::Trigger(TriggerChar::Dot);
+    parser.items().iter().find_map(|expectation| match expectation.syntax {
+        ExpectedSyntax::PortConnection => {
+            Some(CompletionExpectation { syntax: ExpectedSyntax::PortConnectionName, source })
+        }
+        _ => None,
+    })
 }
 
 fn local_overrides(expectation: CompletionExpectation) -> bool {
@@ -140,5 +159,48 @@ fn push_unique(
 ) {
     if !expectations.iter().any(|existing| existing.syntax == expectation.syntax) {
         expectations.push(expectation);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use syntax::{ParserExpectedSyntax, TokenKind};
+
+    use super::*;
+    use crate::completion::context::parser;
+
+    fn parser_item(name: &str) -> ParserExpectedSyntax {
+        ParserExpectedSyntax {
+            code: 0,
+            subsystem: 0,
+            name: name.to_owned(),
+            token_kind: TokenKind::UNKNOWN,
+            keyword_context: None,
+            location: None,
+        }
+    }
+
+    fn first_syntax(
+        items: Vec<ParserExpectedSyntax>,
+        trigger: Option<TriggerChar>,
+    ) -> Option<ExpectedSyntax> {
+        let parser = parser::expectations(Some(&items));
+        expectations(parser, None, false, "", trigger).first().map(|expectation| expectation.syntax)
+    }
+
+    #[test]
+    fn dot_trigger_selects_port_connection_name_from_parser_port_connection() {
+        assert_eq!(
+            first_syntax(vec![parser_item("ExpectedPortConnection")], Some(TriggerChar::Dot)),
+            Some(ExpectedSyntax::PortConnectionName)
+        );
+    }
+
+    #[test]
+    fn dot_trigger_leaves_argument_expr_alone() {
+        assert_eq!(
+            first_syntax(vec![parser_item("ExpectedArgument")], Some(TriggerChar::Dot)),
+            Some(ExpectedSyntax::ArgumentExpr)
+        );
     }
 }
