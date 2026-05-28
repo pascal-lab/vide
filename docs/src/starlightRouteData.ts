@@ -21,6 +21,12 @@ export function onRequest(
     route.locale && route.id.startsWith(`${route.locale}/`)
       ? route.id.slice(route.locale.length + 1)
       : route.id;
+
+  if (routeId === '' || routeId === 'index' || routeId === route.locale) {
+    route.hasSidebar = true;
+    return next();
+  }
+
   const section = getSection(routeId);
 
   if (!section) {
