@@ -135,6 +135,7 @@ export default defineConfig({
           translations: { en: 'Changelog' },
           items: [
             'changelog',
+            'changelog/v0-1-6',
             'changelog/v0-1-5',
             'changelog/v0-1-4',
             'changelog/v0-1-3',
