@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Require changelog entry for release tag
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.SKIP_CHANGELOG_CHECK != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -51,6 +51,10 @@ jobs:
       - name: Skip changelog check for beta release
         if: github.event_name == 'workflow_dispatch'
         run: echo "Beta releases do not require a versioned changelog entry."
+
+      - name: Skip changelog check by repository variable
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.SKIP_CHANGELOG_CHECK == 'true'
+        run: echo "SKIP_CHANGELOG_CHECK=true; skipping release changelog validation."
 
   build-and-package:
     name: Package ${{ matrix.target }}
