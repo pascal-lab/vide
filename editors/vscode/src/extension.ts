@@ -52,6 +52,12 @@ const languageServerOutputChannelName = 'Vide Language Server';
 const qiheOutputChannelName = 'Vide Qihe';
 const versionTimeoutMs = 5000;
 
+interface ExtensionBuildInfo {
+  kind?: string;
+  commitHash?: string;
+  buildDate?: string;
+}
+
 const activeQiheTokens = new Set<string>();
 const qiheProgressNotifications = new Map<string, { resolve: () => void }>();
 let qiheStatusHideTimer: NodeJS.Timeout | undefined;
@@ -86,6 +92,30 @@ function showOutput(): void {
 
 function showQiheOutput(): void {
   requireQiheOutputChannel().show(true);
+}
+
+function extensionVersion(context: vscode.ExtensionContext): string {
+  const packageJson = context.extension.packageJSON as { version?: unknown };
+  return typeof packageJson.version === 'string' && packageJson.version.length > 0
+    ? packageJson.version
+    : 'unknown';
+}
+
+function extensionBuildInfo(context: vscode.ExtensionContext): ExtensionBuildInfo | undefined {
+  const buildInfoPath = path.join(context.extensionPath, 'build-info.json');
+  if (!fs.existsSync(buildInfoPath)) {
+    return undefined;
+  }
+  return JSON.parse(fs.readFileSync(buildInfoPath, 'utf8')) as ExtensionBuildInfo;
+}
+
+function extensionBuildLabel(context: vscode.ExtensionContext): string {
+  const version = extensionVersion(context);
+  const buildInfo = extensionBuildInfo(context);
+  const details = [buildInfo?.kind, buildInfo?.commitHash, buildInfo?.buildDate].filter(
+    (part): part is string => typeof part === 'string' && part.length > 0,
+  );
+  return details.length > 0 ? `${version} (${details.join(', ')})` : version;
 }
 
 async function showLanguageServerErrorMessage(message: string): Promise<void> {
@@ -692,7 +722,13 @@ async function showServerVersion(context: vscode.ExtensionContext): Promise<void
     const output = `${stdout}${stderr}`.trim() || vscode.l10n.t('No version output');
     const firstLine = output.split(/\r?\n/, 1)[0] ?? output;
     log(`[INFO] Server version output:\n${output}`);
-    vscode.window.showInformationMessage(vscode.l10n.t('Vide server: {0}', firstLine));
+    vscode.window.showInformationMessage(
+      vscode.l10n.t(
+        'Vide extension: {0}; server: {1}',
+        extensionBuildLabel(context),
+        firstLine,
+      ),
+    );
   } catch (error) {
     const message = vscode.l10n.t(
       'Failed to query Vide server version: {0}',
@@ -811,6 +847,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   updateServerStatus('stopped');
 
   log('[INFO] Vide extension activating...');
+  log(`[INFO] Extension version: ${extensionBuildLabel(context)}`);
   log(`[INFO] Extension path: ${context.extensionPath}`);
   log(`[INFO] Platform: ${process.platform}-${process.arch}`);
   log(`[INFO] VS Code version: ${vscode.version}`);

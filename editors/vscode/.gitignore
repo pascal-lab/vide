@@ -3,6 +3,7 @@ dist/
 out/
 *.vsix
 README.md
+build-info.json
 .vscode-test/
 *.log
 .DS_Store

@@ -14,6 +14,7 @@ const repoRoot = path.resolve(vscodeDir, '..', '..');
 const binName = 'vide';
 
 type BuildProfile = 'debug' | 'release';
+type ServerMode = 'build' | 'prebuilt';
 
 const cargoTargets: Partial<Record<PlatformFolder, string>> = {
   'alpine-arm64': 'aarch64-unknown-linux-musl',
@@ -117,24 +118,35 @@ function cargoOutputDir(profile: BuildProfile, cargoTarget?: string): string {
   return path.join(...pathParts);
 }
 
+function ensureServerExecutable(serverPath: string, target: PlatformFolder): void {
+  if (!target.startsWith('win32-')) {
+    fs.chmodSync(serverPath, 0o755);
+  }
+}
+
 function ensureTargetServerBinary(
   target: PlatformFolder,
   binFile: string,
   profile: BuildProfile,
+  serverMode: ServerMode,
 ): string {
   const serverOutDir = path.join(vscodeDir, 'server', target);
+  const serverPath = path.join(serverOutDir, binFile);
+  if (serverMode === 'prebuilt') {
+    if (fs.existsSync(serverPath)) {
+      ensureServerExecutable(serverPath, target);
+      return serverPath;
+    }
+    throw new Error(`missing prebuilt server binary: ${serverPath}`);
+  }
+
   const hostTarget = hostPlatformFolder();
   const cargoTarget = cargoTargets[target];
   if (target !== hostTarget && !cargoTarget) {
-    const serverPath = path.join(serverOutDir, binFile);
-    if (!fs.existsSync(serverPath)) {
-      throw new Error(
-        `missing bundled server binary: ${serverPath}\n` +
-          'tip: run packaging on a matching native runner or copy the target binary first.',
-      );
-    }
-
-    return serverPath;
+    throw new Error(
+      `missing bundled server binary: ${serverPath}\n` +
+        'tip: run packaging on a matching native runner or copy the target binary first.',
+    );
   }
 
   if (cargoTarget) {
@@ -147,9 +159,7 @@ function ensureTargetServerBinary(
   const destPath = path.join(serverOutDir, binFile);
   fs.mkdirSync(serverOutDir, { recursive: true });
   fs.copyFileSync(sourcePath, destPath);
-  if (!target.startsWith('win32-')) {
-    fs.chmodSync(destPath, 0o755);
-  }
+  ensureServerExecutable(destPath, target);
 
   return destPath;
 }
@@ -177,18 +187,62 @@ function syncReadmeFromRepoRoot(): void {
   fs.copyFileSync(path.join(repoRoot, 'README.md'), path.join(vscodeDir, 'README.md'));
 }
 
-function parseArgs(): { target: PlatformFolder; profile: BuildProfile } {
+function readExtensionVersion(): string {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(vscodeDir, 'package.json'), 'utf8')) as {
+    version?: unknown;
+  };
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error('VS Code extension package.json must define a version.');
+  }
+  return packageJson.version;
+}
+
+function optionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function writeBuildInfo(target: PlatformFolder, profile: BuildProfile): void {
+  const buildInfo = {
+    version: readExtensionVersion(),
+    target,
+    profile,
+    kind: optionalEnv('VIDE_EXTENSION_BUILD_KIND') ?? 'local',
+    commitHash: optionalEnv('VIDE_EXTENSION_COMMIT_HASH'),
+    buildDate: optionalEnv('VIDE_EXTENSION_BUILD_DATE'),
+  };
+  fs.writeFileSync(
+    path.join(vscodeDir, 'build-info.json'),
+    `${JSON.stringify(buildInfo, null, 2)}\n`,
+  );
+}
+
+function parseServerMode(value: string): ServerMode {
+  if (value === 'build' || value === 'prebuilt') {
+    return value;
+  }
+  throw new Error(`unsupported server mode: ${value}`);
+}
+
+function parseArgs(): { target: PlatformFolder; profile: BuildProfile; serverMode: ServerMode } {
   const args = process.argv.slice(2);
-  const profile = args[0] === '--debug' ? 'debug' : 'release';
-  if (profile === 'debug') {
-    args.shift();
+  let profile: BuildProfile = 'release';
+  let serverMode: ServerMode = 'build';
+  let target: string | undefined;
+
+  for (const arg of args) {
+    if (arg === '--debug') {
+      profile = 'debug';
+    } else if (arg.startsWith('--server=')) {
+      serverMode = parseServerMode(arg.slice('--server='.length));
+    } else if (!target) {
+      target = arg;
+    } else {
+      throw new Error(`unexpected package argument: ${arg}`);
+    }
   }
 
-  const target = args[0] ?? hostPlatformFolder();
-  if (args.length > 1) {
-    throw new Error(`unexpected package arguments: ${args.join(' ')}`);
-  }
-
+  target ??= hostPlatformFolder();
   if (!isPlatformFolder(target)) {
     throw new Error(
       `unsupported target platform: ${target}\n` +
@@ -196,14 +250,19 @@ function parseArgs(): { target: PlatformFolder; profile: BuildProfile } {
     );
   }
 
-  return { target, profile };
+  return { target, profile, serverMode };
 }
 
-function packageExtension(target: PlatformFolder, profile: BuildProfile): string {
+function packageExtension(
+  target: PlatformFolder,
+  profile: BuildProfile,
+  serverMode: ServerMode,
+): string {
   syncReadmeFromRepoRoot();
+  writeBuildInfo(target, profile);
 
   const binFile = binaryFileForTarget(target);
-  const targetServerPath = ensureTargetServerBinary(target, binFile, profile);
+  const targetServerPath = ensureTargetServerBinary(target, binFile, profile, serverMode);
   cleanRuntimeServerFiles();
   const runtimeServerPath = stageRuntimeServer(targetServerPath, target, binFile);
 
@@ -227,8 +286,8 @@ function packageExtension(target: PlatformFolder, profile: BuildProfile): string
 }
 
 function main(): void {
-  const { target, profile } = parseArgs();
-  const vsixPath = packageExtension(target, profile);
+  const { target, profile, serverMode } = parseArgs();
+  const vsixPath = packageExtension(target, profile, serverMode);
   console.log(vsixPath);
 }
 

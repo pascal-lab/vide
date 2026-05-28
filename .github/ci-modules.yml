@@ -1,0 +1,39 @@
+server: &server
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - "build.rs"
+  - "rust-toolchain.toml"
+  - "src/**"
+  - "crates/**"
+
+rust:
+  - *server
+  - "xtask/**"
+  - ".github/actions/setup-rust/**"
+  - ".github/actions/setup-sccache/**"
+  - ".github/ci-modules.yml"
+  - ".github/workflows/ci.yml"
+
+vscode:
+  - "editors/vscode/**"
+  - ".github/ci-modules.yml"
+  - ".github/workflows/ci.yml"
+
+package:
+  - *server
+  - "README.md"
+  - "editors/vscode/LICENSE"
+  - "editors/vscode/THIRD_PARTY_NOTICES.md"
+  - "editors/vscode/language-configuration.json"
+  - "editors/vscode/package.json"
+  - "editors/vscode/package-lock.json"
+  - "editors/vscode/package.nls*.json"
+  - "editors/vscode/l10n/**"
+  - "editors/vscode/media/**"
+  - "editors/vscode/scripts/**"
+  - "editors/vscode/src/**"
+  - "editors/vscode/syntaxes/**"
+  - ".github/actions/setup-rust/**"
+  - ".github/actions/setup-sccache/**"
+  - ".github/ci-modules.yml"
+  - ".github/workflows/ci.yml"

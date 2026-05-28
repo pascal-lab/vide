@@ -28,13 +28,8 @@ mod lsp_ext;
 pub const DEFAULT_PROCESS_NAME: &str = env!("CARGO_PKG_NAME");
 const DEBUG: bool = cfg!(debug_assertions);
 const BUILD_PROFILE: &str = if DEBUG { "DEBUG" } else { "RELEASE" };
-pub const VERSION: &str = formatcp!(
-    "{}_{}+{}.{}",
-    env!("CARGO_PKG_VERSION"),
-    BUILD_PROFILE,
-    env!("VIDE_COMMIT_HASH"),
-    env!("VIDE_BUILD_DATE")
-);
+pub const VERSION: &str =
+    formatcp!("{}_{}{}", env!("CARGO_PKG_VERSION"), BUILD_PROFILE, env!("VIDE_BUILD_METADATA"));
 
 #[derive(Clone, Debug, Parser)]
 #[clap(name = DEFAULT_PROCESS_NAME, version = VERSION)]

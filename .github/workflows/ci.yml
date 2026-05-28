@@ -3,32 +3,41 @@ name: CI
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - "docs/**"
-      - "playground/**"
-      - "crates/vide-lsp-wasm/**"
-      - ".github/actions/setup-emscripten/**"
-      - ".github/workflows/docs-preview.yml"
-      - ".github/workflows/deploy-docs.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     branches: ["**"]
-    paths-ignore:
-      - "docs/**"
-      - "playground/**"
-      - "crates/vide-lsp-wasm/**"
-      - ".github/actions/setup-emscripten/**"
-      - ".github/workflows/docs-preview.yml"
-      - ".github/workflows/deploy-docs.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      vscode: ${{ steps.filter.outputs.vscode }}
+      package: ${{ steps.filter.outputs.package }}
+      server: ${{ steps.filter.outputs.server }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v4
+        with:
+          filters: .github/ci-modules.yml
+
   rust-lint:
     name: Rust Linting
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +54,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}
-          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
+          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Format Check
@@ -55,6 +64,8 @@ jobs:
 
   rust-test:
     name: Rust Tests (${{ matrix.os }})
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -74,7 +85,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}
-          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
+          key: workspace-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Test
@@ -82,6 +93,8 @@ jobs:
 
   vscode-extension:
     name: VS Code Checks
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.vscode == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -101,7 +114,8 @@ jobs:
 
   dev-package:
     name: Dev Package (${{ matrix.target }})
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.package == 'true')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -119,22 +133,33 @@ jobs:
     defaults:
       run:
         working-directory: editors/vscode
+    env:
+      SERVER_BIN: ${{ startsWith(matrix.target, 'win32-') && 'vide.exe' || 'vide' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Restore bundled server cache
+        id: bundled-server-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: editors/vscode/server/${{ matrix.target }}/${{ env.SERVER_BIN }}
+          key: bundled-server-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
       - name: Install Rust
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
       - name: Setup sccache
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
       - name: Rust Cache
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'editors/vscode/scripts/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Setup Node
@@ -150,11 +175,19 @@ jobs:
         shell: bash
         run: |
           commit_hash="$(git rev-parse --short "$GITHUB_SHA")"
-          echo "VIDE_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
           echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
-          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_KIND=nightly" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
-        run: npm run package:debug -- ${{ matrix.target }}
+        run: npm run package:debug -- ${{ matrix.target }} ${{ steps.bundled-server-cache.outputs.cache-hit == 'true' && '--server=prebuilt' || '--server=build' }}
+      - name: Save bundled server cache
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: editors/vscode/server/${{ matrix.target }}/${{ env.SERVER_BIN }}
+          key: ${{ steps.bundled-server-cache.outputs.cache-primary-key }}
       - name: Upload dev VSIX
         uses: actions/upload-artifact@v4
         with:
@@ -165,7 +198,8 @@ jobs:
 
   dev-alpine-package:
     name: Dev Package (${{ matrix.target }})
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.package == 'true')
     runs-on: ubuntu-22.04
     container: ${{ matrix.image }}
     strategy:
@@ -181,6 +215,8 @@ jobs:
     defaults:
       run:
         working-directory: editors/vscode
+    env:
+      SERVER_BIN: ${{ startsWith(matrix.target, 'win32-') && 'vide.exe' || 'vide' }}
     steps:
       - name: Install build dependencies
         working-directory: .
@@ -195,23 +231,33 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Restore bundled server cache
+        id: bundled-server-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: editors/vscode/server/${{ matrix.target }}/${{ env.SERVER_BIN }}
+          key: bundled-server-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+
       - name: Install Rust
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
           targets: ${{ matrix.rust-target }}
 
       - name: Setup sccache
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
 
       - name: Rust Cache
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}-${{ matrix.target }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'editors/vscode/scripts/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -231,12 +277,21 @@ jobs:
         working-directory: .
         run: |
           commit_hash="$(git rev-parse --short "$GITHUB_SHA")"
-          echo "VIDE_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
           echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
-          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_KIND=nightly" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
       - name: Package extension
-        run: npm run package:debug -- ${{ matrix.target }}
+        run: npm run package:debug -- ${{ matrix.target }} ${{ steps.bundled-server-cache.outputs.cache-hit == 'true' && '--server=prebuilt' || '--server=build' }}
+
+      - name: Save bundled server cache
+        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: editors/vscode/server/${{ matrix.target }}/${{ env.SERVER_BIN }}
+          key: ${{ steps.bundled-server-cache.outputs.cache-primary-key }}
 
       - name: Upload dev VSIX
         uses: actions/upload-artifact@v4

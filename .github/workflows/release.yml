@@ -92,7 +92,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'editors/vscode/scripts/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -110,8 +110,13 @@ jobs:
       - name: Set build metadata
         shell: bash
         run: |
-          echo "VIDE_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
-          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          else
+            echo "VIDE_EXTENSION_BUILD_KIND=stable" >> "$GITHUB_ENV"
+          fi
 
       - name: Build VSIX
         working-directory: editors/vscode
@@ -168,7 +173,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}-${{ matrix.target }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'editors/vscode/scripts/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -186,8 +191,13 @@ jobs:
       - name: Set build metadata
         shell: bash
         run: |
-          echo "VIDE_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
-          echo "VIDE_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          else
+            echo "VIDE_EXTENSION_BUILD_KIND=stable" >> "$GITHUB_ENV"
+          fi
 
       - name: Build VSIX
         working-directory: editors/vscode

@@ -35,7 +35,7 @@
   "Vide Language Server": "Vide 语言服务器",
   "Failed to start Vide Language Server: {0}": "无法启动 Vide 语言服务器：{0}",
   "No version output": "没有版本输出",
-  "Vide server: {0}": "Vide 服务器：{0}",
+  "Vide extension: {0}; server: {1}": "Vide 扩展：{0}；服务器：{1}",
   "Failed to query Vide server version: {0}": "无法查询 Vide 服务器版本：{0}",
   "Show Output": "显示输出",
   "Show Qihe Output": "显示 Qihe 输出",

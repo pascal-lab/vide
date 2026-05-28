@@ -35,9 +35,14 @@ cargo build
 cargo build --release
 ```
 
-发布构建会把构建元数据写入 `vide --version` 输出。本地构建如果没有设置
-`VIDE_COMMIT_HASH` 和 `VIDE_BUILD_DATE`，会自动使用当前 Git 短提交和 UTC
-构建时间；CI 或发布脚本仍然可以通过这两个环境变量覆盖默认值。
+`vide --version` 默认只包含包版本和构建 profile，不会自动读取当前 Git
+提交。需要给 beta、nightly 或内部构建加额外标记时，可以显式设置
+`VIDE_BUILD_METADATA`：
+
+```powershell
+$env:VIDE_BUILD_METADATA = "abc1234.20260529T120000Z"
+cargo build --release
+```
 
 验证版本：
 

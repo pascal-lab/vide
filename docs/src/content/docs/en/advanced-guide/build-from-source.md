@@ -38,10 +38,15 @@ Release build:
 cargo build --release
 ```
 
-Release builds embed build metadata in the `vide --version` output. Local
-builds automatically use the current short Git commit and UTC build time when
-`VIDE_COMMIT_HASH` and `VIDE_BUILD_DATE` are not set; CI or release scripts
-can still override the defaults with those environment variables.
+By default, `vide --version` only includes the package version and build
+profile; it does not read the current Git commit automatically. For beta,
+nightly, or internal builds that need an extra marker, set
+`VIDE_BUILD_METADATA` explicitly:
+
+```powershell
+$env:VIDE_BUILD_METADATA = "abc1234.20260529T120000Z"
+cargo build --release
+```
 
 Verify the version:
 

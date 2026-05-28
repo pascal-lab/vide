@@ -333,7 +333,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: playground/public/wasm
-          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
 
       - name: Verify cached playground WASM
         if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
@@ -360,7 +360,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: docs-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
-          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
