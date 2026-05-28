@@ -288,7 +288,7 @@ const comparisonProductFeatures = (locale: HomepageLocale): ComparisonProduct[] 
     name: 'Verible',
     meta: 'Most-Starred OSS',
     features: {
-      syntaxHighlighting: 'en' ? 'Does not support itself, requires editor-provided syntax highlighting' : '自身不支持，需要编辑器提供语法高亮',
+      syntaxHighlighting: locale == 'en' ? 'Does not support itself, requires editor-provided syntax highlighting' : '自身不支持，需要编辑器提供语法高亮',
       definition: true,
       references: true,
       hover: false,
@@ -297,7 +297,7 @@ const comparisonProductFeatures = (locale: HomepageLocale): ComparisonProduct[] 
       semanticHighlighting: false,
       signatureHelp: false,
       documentSymbols: true,
-      folding: 'en' ? 'Does not support itself, requires editor-provided folding' : '自身不支持，需要编辑器提供缩进折叠',
+      folding: locale == 'en' ? 'Does not support itself, requires editor-provided folding' : '自身不支持，需要编辑器提供缩进折叠',
       selectionRange: false,
       codeActions:
         locale === 'en' ? 'Only supports linter quick fixes and autoexpand' : '仅支持 linter 的 quickfix 和 autoexpand',

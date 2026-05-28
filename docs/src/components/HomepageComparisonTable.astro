@@ -236,7 +236,7 @@ const getFeatureCell = (product: ComparisonProduct, key: ComparisonFeatureKey): 
     padding: 0.08rem 0.22rem;
     border-radius: 0.2rem;
     background: var(--vide-accent);
-    color: #fff;
+    color: var(--vide-accent-opposite);
     font-size: 0.52rem;
     font-weight: 800;
     line-height: 1;
@@ -292,5 +292,90 @@ const getFeatureCell = (product: ComparisonProduct, key: ComparisonFeatureKey): 
   .vide-comparison-table__with-tooltip:focus-visible .vide-comparison-table__tooltip {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+  }
+
+  @media (max-width: 44rem) {
+    .vide-comparison-table-wrap {
+      overflow-x: visible;
+    }
+
+    .vide-comparison-table {
+      min-width: 0;
+      font-size: 0.82rem;
+    }
+
+    .vide-comparison-table th:first-child,
+    .vide-comparison-table td:first-child {
+      width: 26%;
+    }
+
+    .vide-comparison-table th,
+    .vide-comparison-table td {
+      padding: 0.68rem 0.24rem;
+      overflow-wrap: anywhere;
+    }
+
+    .vide-comparison-table strong {
+      font-size: 0.9rem;
+      white-space: normal;
+    }
+
+    .vide-comparison-table__meta {
+      margin-top: 0.22rem;
+      font-size: 0.64rem;
+      line-height: 1.1;
+    }
+
+    .vide-comparison-table__true,
+    .vide-comparison-table__false,
+    .vide-comparison-table__partial {
+      width: 1.9rem;
+      height: 1.9rem;
+      font-size: 1.35rem;
+    }
+
+    .vide-comparison-table__beta {
+      top: -0.22rem;
+      right: -0.7rem;
+      padding: 0.06rem 0.16rem;
+      font-size: 0.42rem;
+    }
+  }
+
+  @media (max-width: 24rem) {
+    .vide-comparison-table {
+      font-size: 0.76rem;
+    }
+
+    .vide-comparison-table th:first-child,
+    .vide-comparison-table td:first-child {
+      width: 24%;
+    }
+
+    .vide-comparison-table th,
+    .vide-comparison-table td {
+      padding: 0.58rem 0.16rem;
+    }
+
+    .vide-comparison-table strong {
+      font-size: 0.78rem;
+    }
+
+    .vide-comparison-table__meta {
+      font-size: 0.56rem;
+    }
+
+    .vide-comparison-table__true,
+    .vide-comparison-table__false,
+    .vide-comparison-table__partial {
+      width: 1.55rem;
+      height: 1.55rem;
+      font-size: 1.12rem;
+    }
+
+    .vide-comparison-table__beta {
+      right: -0.52rem;
+      font-size: 0.36rem;
+    }
   }
 </style>
