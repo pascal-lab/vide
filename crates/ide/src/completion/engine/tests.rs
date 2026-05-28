@@ -924,6 +924,52 @@ fn unresolved_instantiation_does_not_complete_connections() {
 }
 
 #[test]
+fn dot_triggered_port_connection_completion_uses_typed_dot() {
+    let items = completions_in_text(
+        r#"
+module adder8 (
+    input  wire [7:0] lhs,
+    input  wire [7:0] rhs,
+    output wire [7:0] sum
+);
+    assign sum = lhs + rhs;
+endmodule
+
+module top (
+    input  wire [7:0] a,
+    input  wire [7:0] b,
+    output wire [7:0] y
+);
+    wire [7:0] result;
+
+    adder8 u0(
+        /*caret*/
+    );
+
+    assign y = result;
+endmodule
+"#,
+        Some(TriggerChar::Dot),
+    );
+    let item = items.iter().find(|item| item.label == "lhs").expect("port completion expected");
+
+    assert_eq!(item.edit.as_ref().unwrap().ins, "lhs()");
+    assert_eq!(item.snippet_edit.as_ref().unwrap().ins, "lhs(${1:expr})");
+}
+
+#[test]
+fn dot_triggered_param_assignment_completion_uses_typed_dot() {
+    let items = completions_in_text(
+        "module child #(parameter int W = 1, parameter int Z = 2) (); endmodule\nmodule top; child #(.W(1), /*caret*/) u0(); endmodule\n",
+        Some(TriggerChar::Dot),
+    );
+    let item = items.iter().find(|item| item.label == "Z").expect("parameter completion expected");
+
+    assert_eq!(item.edit.as_ref().unwrap().ins, "Z()");
+    assert_eq!(item.snippet_edit.as_ref().unwrap().ins, "Z(${1:expr})");
+}
+
+#[test]
 fn named_port_expr_without_known_type_does_not_fallback_to_all_values() {
     let items = completions_in_text(
         "module m(input custom_t a); endmodule\nmodule top; wire sig; m u0(.a(/*caret*/)); endmodule\n",

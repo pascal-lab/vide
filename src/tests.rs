@@ -421,6 +421,17 @@ fn request_reference_uris(
     needle: &str,
     request_id: i32,
 ) -> Vec<Url> {
+    request_reference_uris_with_declaration(client, uri, text, needle, request_id, true)
+}
+
+fn request_reference_uris_with_declaration(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+    include_declaration: bool,
+) -> Vec<Url> {
     let request_id = lsp_server::RequestId::from(request_id);
     client
         .sender
@@ -432,7 +443,7 @@ fn request_reference_uris(
                     text_document: TextDocumentIdentifier { uri },
                     position: position_of(text, needle),
                 },
-                context: lsp_types::ReferenceContext { include_declaration: true },
+                context: lsp_types::ReferenceContext { include_declaration },
                 work_done_progress_params: WorkDoneProgressParams::default(),
                 partial_result_params: Default::default(),
             },
@@ -1321,6 +1332,48 @@ fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
     assert!(
         definition_uris.contains(&child_uri),
         "definition should include unopened child.sv from default index: {definition_uris:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn references_respect_include_declaration_flag() {
+    let child_text = "module child;\nendmodule\n";
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("child.sv", child_text), ("top.sv", top_text)],
+    );
+    let child_uri = uris[0].clone();
+    let top_uri = uris[1].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let with_declaration = request_reference_uris_with_declaration(
+        &client,
+        child_uri.clone(),
+        child_text,
+        "child;",
+        2,
+        true,
+    );
+    assert!(
+        with_declaration.contains(&child_uri) && with_declaration.contains(&top_uri),
+        "references with declarations should include definition and usage: {with_declaration:?}"
+    );
+
+    let without_declaration = request_reference_uris_with_declaration(
+        &client,
+        child_uri.clone(),
+        child_text,
+        "child;",
+        3,
+        false,
+    );
+    assert!(
+        !without_declaration.contains(&child_uri) && without_declaration.contains(&top_uri),
+        "references without declarations should exclude the definition: {without_declaration:?}"
     );
 
     shutdown_test_server(&client, server_thread);

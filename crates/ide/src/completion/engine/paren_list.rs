@@ -23,7 +23,7 @@ use super::{
 };
 use crate::{
     completion::{
-        context::CompletionContext,
+        context::{CompletionContext, TriggerChar},
         request::{HashKind, ParenListKind},
     },
     module_resolution::resolve_instantiation_target,
@@ -167,8 +167,7 @@ fn complete_port_connections(
             .filter(|name| !used_named_ports.contains(name))
             .map(|name| {
                 let label = name.to_string();
-                let plain = format!(".{label}()");
-                let snippet = format!(".{label}(${{1:expr}})");
+                let (plain, snippet) = named_connection_text(ctx, &label);
                 CompletionCandidate::text_snippet(label, ctx.replacement, plain, snippet)
             })
             .collect();
@@ -251,8 +250,7 @@ fn complete_param_value_assignment(
             .filter(|name| !used_named_params.contains(name))
             .map(|name| {
                 let label = name.to_string();
-                let plain = format!(".{label}()");
-                let snippet = format!(".{label}(${{1:expr}})");
+                let (plain, snippet) = named_connection_text(ctx, &label);
                 CompletionCandidate::text_snippet(label, ctx.replacement, plain, snippet)
             })
             .collect();
@@ -310,4 +308,9 @@ fn resolve_target_module_id(
     instantiation: ast::HierarchyInstantiation<'_>,
 ) -> Option<hir::hir_def::module::ModuleId> {
     resolve_instantiation_target(db, from_file, instantiation).unique()
+}
+
+fn named_connection_text(ctx: &CompletionContext, label: &str) -> (String, String) {
+    let dot = if ctx.trigger == Some(TriggerChar::Dot) { "" } else { "." };
+    (format!("{dot}{label}()"), format!("{dot}{label}(${{1:expr}})"))
 }

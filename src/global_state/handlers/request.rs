@@ -348,6 +348,7 @@ pub(crate) fn handle_references(
     params: lsp_types::ReferenceParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::Location>>> {
     let position = from_proto::file_position(&snap, params.text_document_position)?;
+    let include_declaration = params.context.include_declaration;
     let config = snap.config.references();
     let Some(refs) = snap.analysis.references(position, config)? else {
         return Ok(None);
@@ -356,10 +357,10 @@ pub(crate) fn handle_references(
     let locations = refs
         .into_iter()
         .flat_map(|References { def, refs }| {
-            let decl = def
-                .into_iter()
-                .flatten()
-                .map(|nav| FileRange { file_id: nav.file_id, range: nav.focus_or_full_range() });
+            let decl = def.into_iter().flatten().filter_map(|nav| {
+                include_declaration
+                    .then_some(FileRange { file_id: nav.file_id, range: nav.focus_or_full_range() })
+            });
 
             let refs = refs.into_iter().flat_map(|(file_id, refs)| {
                 refs.into_iter().map(move |(range, _)| FileRange { file_id, range })
