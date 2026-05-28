@@ -25,6 +25,10 @@ Vide 是专为 Verilog/SystemVerilog 开发者打造的现代化编程 IDE，旨
 
 如果你遇到问题或希望参与开发，请使用 GitHub Issues 和 Pull Requests。
 
-## 许可证
+## 许可证与致谢
 
 Vide 使用 [MIT License](LICENSE)。
+
+Vide 使用 [slang](https://github.com/MikePopoloski/slang) 提供 SystemVerilog 解析与诊断能力；slang 使用 MIT License。
+
+Vide 的格式化功能可调用 [Verible](https://github.com/chipsalliance/verible) 的 `verible-verilog-format`；Verible 使用 Apache License 2.0。Verible 不随 Vide 打包，需要用户自行安装配置。
