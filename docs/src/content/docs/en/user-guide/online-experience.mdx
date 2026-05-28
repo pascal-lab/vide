@@ -45,13 +45,13 @@ This example demonstrates go to definition and find references.
 
 In a typical editing flow, checking module signatures and port connections often means jumping back and forth between files. Even converting a numeric literal between bases can require an external tool. These interruptions make it harder to stay focused on the RTL design.
 
-Vide provides hover information and inlay hints at the edit location, so you can inspect modules, literals, and port connections in one window with fewer context switches.
+Vide provides hover information and code annotations at the edit location, so you can inspect modules, literals, and port connections in one window with fewer context switches.
 
-This example demonstrates hover information for module signatures and instances, plus inlay hints for port names.
+This example demonstrates hover information for module signatures and instances, plus annotations for port names.
 
 ### Steps
 
-1. Load the example and read the port hints next to each `u_mux` connection.
+1. Load the example and read the port annotations next to each `u_mux` connection.
 2. Hover over `mux2` or `u_mux` to inspect module and instance information.
 3. Open the `mux2` definition and compare its port list with the instance connections.
 
@@ -63,8 +63,8 @@ This example demonstrates hover information for module signatures and instances,
   load="visible"
   activeFile="inlay_hints.v"
   selection="18:5-23:6"
-  title="Inspect port-connection inlay hints"
-  description="Load the example, then read the port hints around u_mux or hover over mux2 / u_mux."
+  title="Inspect port-connection annotations"
+  description="Load the example, then read the port annotations around u_mux or hover over mux2 / u_mux."
 />
 
 ## Precise Completion

@@ -5,7 +5,7 @@ description: Reference for Vide VS Code extension vide.* settings.
 
 import VscodeSettingsTable from '../../../../components/VscodeSettingsTable.astro';
 
-VS Code settings control editor behavior such as diagnostic refresh, Qihe commands, formatting tools, inlay hints, and language-server launch arguments. Project source files, include directories, macro definitions, and dependency libraries belong in the `vide.toml` project configuration file described in [Project Configuration](../project-configuration/).
+VS Code settings control editor behavior such as diagnostic refresh, Qihe commands, formatting tools, annotations, and language-server launch arguments. Project source files, include directories, macro definitions, and dependency libraries belong in the `vide.toml` project configuration file described in [Project Configuration](../project-configuration/).
 
 All settings are under the `vide.*` namespace. Search for `Vide` in the VS Code Settings UI or edit user/workspace `settings.json` directly.
 
@@ -16,8 +16,8 @@ All settings are under the `vide.*` namespace. Search for `Vide` in the VS Code 
 | Point VS Code at a local Qihe executable | `vide.qihe.command` |
 | Point Vide at `verible-verilog-format` | `vide.formatter.path` |
 | Refresh diagnostics on save or while typing | `vide.diagnostics.update` |
-| Toggle port, parameter, and end-structure inlay hints | `vide.inlayHints.*` |
-| Toggle instance counts above module declarations | `vide.lens.instantiations.enable` |
+| Toggle port, parameter, and end-structure annotations | `vide.inlayHints.*` |
+| Toggle instance-count annotations above module declarations | `vide.lens.instantiations.enable` |
 | Refresh project information after configuration changes | `vide.workspace.auto.reload` |
 
 Server launch, file watching, diagnostic rules, and protocol tracing are mostly for troubleshooting or development. Keep their defaults unless you have a specific reason to change them.
@@ -99,7 +99,7 @@ Related feature: [Formatting](../features/formatting/).
 
 Inlay hints appear directly in the editor and are useful for reading port and parameter connections.
 
-Related feature: [Inlay Hints](../features/inlay-hints/).
+Related feature: [Annotations](../features/annotations/).
 
 <VscodeSettingsTable
   locale="en"
@@ -112,9 +112,9 @@ Related feature: [Inlay Hints](../features/inlay-hints/).
 
 ## Lens
 
-Instance-count lens entries appear above module declarations.
+Instance-count annotations appear above module declarations.
 
-Related features: [Document Symbols](../features/document-symbols/) and [Find References](../features/references/).
+Related features: [Annotations](../features/annotations/), [Document Symbols](../features/document-symbols/), and [Find References](../features/references/).
 
 <VscodeSettingsTable locale="en" settings={['vide.lens.instantiations.enable']} />
 

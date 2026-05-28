@@ -1,0 +1,57 @@
+---
+title: Annotations
+description: Show inlay hints and lens annotations for ports, parameters, structure endings, and instance counts.
+---
+
+import FeatureExample from '../../../../../components/FeatureExample.astro';
+import VideLab from '../../../../../components/VideLab.astro';
+import inlayHintsGif from '../../../assets/features/inlay-hints.gif';
+import { inlayHintFiles } from '../../../../../examples/dailyUse';
+
+## What It Is
+
+Annotations are editor-overlaid signals shown next to the relevant code, including Inlay Hints and Lens entries. Vide inlay hints show target port names and direction arrows next to instance port connections: input `←`, output `→`, inout `↔`, ref `&`; if the port name already exists in code, Vide only shows the direction arrow to avoid repetition. It also shows target parameter names next to ordered parameter assignments and structure names near endings such as `endmodule`.
+
+The instance-count lens above module declarations is also an annotation. It shows how many times the current module is instantiated.
+
+These annotations display the relationship between the target module and the current position directly in the editor. Ctrl-click or double-click can trigger different navigation or code actions.
+
+## Demo
+
+<FeatureExample
+  image={inlayHintsGif}
+  imageAlt="Animation showing instance port annotations in VS Code"
+  imageCaption="Port annotations in VS Code"
+  labCaption="Inspect the same mux connection in the browser"
+>
+  <VideLab
+    projectId="daily-inlay-hints"
+    projectLabel="Features: Annotations"
+    entryFile="inlay_hints.v"
+    files={inlayHintFiles}
+    height="100%"
+    initialActiveFile="inlay_hints.v"
+    initialSelection="18:5-18:40"
+    title="Instance port annotations"
+    description="Inspect the parameter and port names shown beside u_mux ordered parameter and port connections."
+  />
+</FeatureExample>
+
+## Project Configuration
+
+Port and parameter annotations need the target module to resolve, and the instance-count lens needs the reference index. Without project configuration, Vide uses the current file and workspace scan results. After `vide.toml` is configured, annotations resolve modules, includes, and macro branches from the real project scope.
+
+## Settings
+
+Search for `Vide Inlay Hints` or `Vide Lens` in VS Code Settings, or configure:
+
+```json
+{
+  "vide.inlayHints.port.connection.enable": true,
+  "vide.inlayHints.parameter.assignment.enable": true,
+  "vide.inlayHints.end.structure.enable": true,
+  "vide.lens.instantiations.enable": true
+}
+```
+
+See [Inlay Hints settings](../../vscode-settings/#inlay-hints) and [Lens settings](../../vscode-settings/#lens) for the full reference.

@@ -81,7 +81,7 @@ export default defineConfig({
                 'user-guide/features/rename',
                 'user-guide/features/syntax-highlighting',
                 'user-guide/features/semantic-highlighting',
-                'user-guide/features/inlay-hints',
+                'user-guide/features/annotations',
                 'user-guide/features/document-symbols',
                 'user-guide/features/folding',
                 'user-guide/features/quick-fixes',
