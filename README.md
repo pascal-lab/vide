@@ -23,7 +23,7 @@ Vide 由两部分组成：
 普通用户请从 VS Code 扩展市场安装：
 
 ```powershell
-code --install-extension vizsla.vizsla-lsp
+code --install-extension pascal-lab.vide
 ```
 
 也可以在 VS Code 扩展面板中搜索 `Vide` 并点击 Install。

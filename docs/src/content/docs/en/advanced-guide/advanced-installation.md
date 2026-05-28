@@ -11,7 +11,7 @@ You can download a `.vsix` file and install it manually. Choose the source based
 
 | Version | Source | Use when |
 | --- | --- | --- |
-| Stable | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vizsla.vizsla-lsp), or the latest non-prerelease entry in [GitHub Releases](https://github.com/pascal-lab/vide/releases) | Daily use and offline installation |
+| Stable | [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide), or the latest non-prerelease entry in [GitHub Releases](https://github.com/pascal-lab/vide/releases) | Daily use and offline installation |
 | Beta | A prerelease entry in [GitHub Releases](https://github.com/pascal-lab/vide/releases) | You want to try the next version early |
 | Nightly dev package | Artifacts from [GitHub Actions CI](https://github.com/pascal-lab/vide/actions/workflows/ci.yml), named like `vide-vscode-dev-<target>-<commit>` | You need to verify a specific commit or a latest fix |
 
