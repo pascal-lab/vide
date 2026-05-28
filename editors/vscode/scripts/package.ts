@@ -173,6 +173,10 @@ function cleanRuntimeServerFiles(): void {
   }
 }
 
+function syncReadmeFromRepoRoot(): void {
+  fs.copyFileSync(path.join(repoRoot, 'README.md'), path.join(vscodeDir, 'README.md'));
+}
+
 function parseArgs(): { target: PlatformFolder; profile: BuildProfile } {
   const args = process.argv.slice(2);
   const profile = args[0] === '--debug' ? 'debug' : 'release';
@@ -196,6 +200,8 @@ function parseArgs(): { target: PlatformFolder; profile: BuildProfile } {
 }
 
 function packageExtension(target: PlatformFolder, profile: BuildProfile): string {
+  syncReadmeFromRepoRoot();
+
   const binFile = binaryFileForTarget(target);
   const targetServerPath = ensureTargetServerBinary(target, binFile, profile);
   cleanRuntimeServerFiles();

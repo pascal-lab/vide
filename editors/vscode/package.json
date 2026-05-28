@@ -1,10 +1,11 @@
 {
-  "name": "vide-ls",
-  "displayName": "Vide - Verilog/SystemVerilog Language Support",
+  "name": "vide-ide",
+  "displayName": "Vide - Verilog/SystemVerilog Coding IDE",
   "description": "%extension.description%",
   "version": "0.1.6",
   "publisher": "pascal-lab",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/pascal-lab/vide"

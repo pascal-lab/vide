@@ -1,5 +1,5 @@
 {
-  "extension.description": "Language support for Verilog and SystemVerilog powered by the Vide language server.",
+  "extension.description": "A Verilog/SystemVerilog Coding IDE for navigation, completion, diagnostics, refactoring, and project analysis.",
   "configuration.trace.server.description": "Traces the communication between VS Code and the language server.",
   "configuration.server.command.description": "Override command used to launch the Vide language server. Leave empty to use the bundled binary.",
   "configuration.server.args.description": "Arguments passed before any additional arguments when a custom command is provided.",
