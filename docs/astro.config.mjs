@@ -14,6 +14,13 @@ export default defineConfig({
         'zh-CN': 'VIDE',
         en: 'Vide Docs',
       },
+      logo: {
+        light: './src/assets/vide-logo-light.svg',
+        dark: './src/assets/vide-logo-dark.svg',
+        alt: 'Vide',
+        replacesTitle: true,
+      },
+      favicon: '/favicon.svg',
       description:
         'Documentation for the Vide Verilog/SystemVerilog language server, VS Code extension, and playground.',
       locales: {
