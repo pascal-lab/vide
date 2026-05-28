@@ -1,5 +1,5 @@
 {
-  "extension.description": "面向导航、补全、诊断、重构和项目分析的 Verilog/SystemVerilog 编程 IDE。",
+  "extension.description": "一款现代 SystemVerilog 编程 IDE。",
   "configuration.trace.server.description": "跟踪 VS Code 与语言服务器之间的通信。",
   "configuration.server.command.description": "覆盖用于启动 Vide 语言服务器的命令。留空则使用随扩展捆绑的二进制文件。",
   "configuration.server.args.description": "使用自定义命令时，在其他参数之前传递的参数。",
