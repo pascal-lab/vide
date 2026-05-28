@@ -284,8 +284,8 @@ jobs:
       - name: Deploy master docs to OSS
         env:
           OSS_BUCKET_NAME: ${{ secrets.bucketName }}
-          MASTER_PATH: stating/
-          MASTER_URL: https://vide.pascal-lab.net/stating/
+          MASTER_PATH: staging/
+          MASTER_URL: https://vide.pascal-lab.net/staging/
         run: |
           set -euo pipefail
 
@@ -294,7 +294,7 @@ jobs:
             exit 1
           fi
 
-          if [ "${MASTER_PATH}" != "stating/" ]; then
+          if [ "${MASTER_PATH}" != "staging/" ]; then
             echo "Invalid master docs path: ${MASTER_PATH}"
             exit 1
           fi
@@ -442,7 +442,7 @@ jobs:
             exit 1
           fi
 
-          for key in _astro pagefind advanced-guide changelog en playground schemas user-guide developer-guide staging 404.html index.html robots.txt sitemap-0.xml sitemap-index.xml; do
+          for key in _astro pagefind advanced-guide changelog en playground schemas user-guide developer-guide stating 404.html index.html robots.txt sitemap-0.xml sitemap-index.xml; do
             ossutil rm "oss://${OSS_BUCKET_NAME}/${key}" -rf || true
           done
 

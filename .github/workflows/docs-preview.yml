@@ -24,9 +24,9 @@ permissions:
 
 env:
   ASTRO_SITE: https://vide.pascal-lab.net
-  ASTRO_BASE: ${{ github.event_name == 'pull_request' && format('/preview/pr-{0}/', github.event.pull_request.number) || '/stating/' }}
+  ASTRO_BASE: ${{ github.event_name == 'pull_request' && format('/preview/pr-{0}/', github.event.pull_request.number) || '/staging/' }}
   PREVIEW_URL: ${{ github.event_name == 'pull_request' && format('https://vide.pascal-lab.net/preview/pr-{0}/', github.event.pull_request.number) || '' }}
-  STATING_URL: https://vide.pascal-lab.net/stating/
+  STAGING_URL: https://vide.pascal-lab.net/staging/
   EMSDK_VERSION: 5.0.2
 
 jobs:
@@ -168,7 +168,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          echo "Master docs will be deployed to ${STATING_URL}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Master docs will be deployed to ${STAGING_URL}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload master docs artifact
         if: github.event_name == 'push'
