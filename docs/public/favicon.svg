@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="930" height="280" viewBox="0 0 1120 280" role="img" aria-labelledby="title desc">
+  <title id="title">Vide logo</title>
+  <desc id="desc">A transparent logo composed of stylized V, I, D, and E circuit symbols.</desc>
+  <style>
+    .mark {
+      stroke: #4b5563;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .mark {
+        stroke: #d5d5d5;
+      }
+    }
+  </style>
+  <g class="mark" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="17">
+    <path d="M55 39H245L150 205Z" />
+    <circle cx="150" cy="224" r="21" />
+    <path d="M382 55V166" />
+    <path d="M317 166H447" />
+    <path d="M342 196H422" />
+    <path d="M364 226H400" />
+    <path d="M527 39H593C650 39 698 85 698 137C698 189 650 236 593 236H527Z" />
+    <circle cx="723" cy="137" r="22" />
+    <path d="M835 39H968" />
+    <path d="M835 39V236" />
+    <path d="M835 236H968" />
+    <path d="M835 137H960" />
+    <path d="M942 122L960 137L942 153" />
+  </g>
+</svg>

@@ -33,6 +33,10 @@
   color: var(--sl-color-gray-2);
 }
 
+.site-title img {
+  height: 1.95rem;
+}
+
 .title-wrapper .site-title + ul {
   min-width: max-content;
   white-space: nowrap;
