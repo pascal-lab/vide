@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 864 280" role="img" aria-labelledby="title desc">
+  <title id="title">Vide loading</title>
+  <desc id="desc">The Vide logo is repeatedly drawn as a loading indicator.</desc>
+  <style>
+    .guide,
+    .draw {
+      fill: none;
+      stroke: #d5d5d5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 17;
+    }
+
+    .guide {
+      opacity: 0.18;
+    }
+
+    .draw path,
+    .draw circle {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: vide-logo-loading 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+      animation-delay: var(--delay);
+    }
+
+    @keyframes vide-logo-loading {
+      0% {
+        stroke-dashoffset: 1;
+        opacity: 0;
+      }
+      7% {
+        opacity: 1;
+      }
+      34%,
+      78% {
+        stroke-dashoffset: 0;
+        opacity: 1;
+      }
+      98%,
+      100% {
+        stroke-dashoffset: 0;
+        opacity: 0;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .draw path,
+      .draw circle {
+        animation: none;
+        stroke-dashoffset: 0;
+        opacity: 1;
+      }
+    }
+  </style>
+  <g transform="matrix(0.830357,0,0,0.830357,0,23.75)">
+    <g class="guide">
+      <path d="M55 39H245L150 205Z" />
+      <circle cx="150" cy="224" r="21" />
+      <path d="M382 55V166" />
+      <path d="M317 166H447" />
+      <path d="M342 196H422" />
+      <path d="M364 226H400" />
+      <g transform="matrix(1,0,0,1,3.612903,0)">
+        <path d="M527 39H593C650 39 698 85 698 137C698 189 650 236 593 236H527Z" />
+        <circle cx="723" cy="137" r="22" />
+      </g>
+      <g transform="matrix(1,0,0,1,-6.021506,0)">
+        <path d="M835 39H968" />
+        <path d="M835 39V236" />
+        <path d="M835 236H968" />
+        <path d="M835 137H960" />
+        <path d="M942 122L960 137L942 153" />
+      </g>
+    </g>
+    <g class="draw">
+      <path pathLength="1" style="--delay: 0s" d="M55 39H245L150 205Z" />
+      <circle pathLength="1" style="--delay: 0.067s" cx="150" cy="224" r="21" />
+      <path pathLength="1" style="--delay: 0.133s" d="M382 55V166" />
+      <path pathLength="1" style="--delay: 0.2s" d="M317 166H447" />
+      <path pathLength="1" style="--delay: 0.267s" d="M342 196H422" />
+      <path pathLength="1" style="--delay: 0.333s" d="M364 226H400" />
+      <g transform="matrix(1,0,0,1,3.612903,0)">
+        <path pathLength="1" style="--delay: 0.4s" d="M527 39H593C650 39 698 85 698 137C698 189 650 236 593 236H527Z" />
+        <circle pathLength="1" style="--delay: 0.467s" cx="723" cy="137" r="22" />
+      </g>
+      <g transform="matrix(1,0,0,1,-6.021506,0)">
+        <path pathLength="1" style="--delay: 0.533s" d="M835 39H968" />
+        <path pathLength="1" style="--delay: 0.6s" d="M835 39V236" />
+        <path pathLength="1" style="--delay: 0.667s" d="M835 236H968" />
+        <path pathLength="1" style="--delay: 0.733s" d="M835 137H960" />
+        <path pathLength="1" style="--delay: 0.8s" d="M942 122L960 137L942 153" />
+      </g>
+    </g>
+  </g>
+</svg>
