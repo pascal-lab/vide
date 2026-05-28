@@ -145,11 +145,11 @@ export default defineConfig({
               translations: { en: 'Advanced' },
               link: '/advanced-guide/',
             },
-            {
-              label: '更新日志',
-              translations: { en: 'Changelog' },
-              link: '/changelog/',
-            },
+            // {
+            //   label: '更新日志',
+            //   translations: { en: 'Changelog' },
+            //   link: '/changelog/',
+            // },
             {
               label: 'Playground',
               translations: { en: 'Playground' },
