@@ -14,6 +14,16 @@ Find References answers “where is this symbol used?” In RTL projects, it is 
 
 Run VS Code's `Find All References` or `Peek References` on a symbol. Vide searches for its usage locations, deduplicates them, and shows them in the references view.
 
+By default, the references view also includes the declaration location so you can confirm where the symbol comes from. If you want usage locations only, add this to VS Code Settings:
+
+```json
+{
+  "vide.references.includeDeclaration": false
+}
+```
+
+See [VS Code Settings](../../vscode-settings/#scope) for the full reference.
+
 ## Demo
 
 <FeatureExample

@@ -16,6 +16,7 @@ All settings are under the `vide.*` namespace. Search for `Vide` in the VS Code 
 | Point VS Code at a local Qihe executable | `vide.qihe.command` |
 | Point Vide at `verible-verilog-format` | `vide.formatter.path` |
 | Refresh diagnostics on save or while typing | `vide.diagnostics.update` |
+| Show usage locations only in Find References | `vide.references.includeDeclaration` |
 | Toggle port, parameter, and end-structure annotations | `vide.inlayHints.*` |
 | Toggle instance-count annotations above module declarations | `vide.lens.instantiations.enable` |
 | Refresh project information after configuration changes | `vide.workspace.auto.reload` |
@@ -71,11 +72,14 @@ Related docs: [Configure the First Project](../first-project/) and [Project Conf
 
 ## Scope
 
-This setting affects local-symbol visibility in find references, rename, and document highlights. Keep the default when unsure.
+These settings affect local-symbol visibility in find references, rename, and document highlights, and whether the declaration location is included in reference results. Keep the defaults when unsure.
 
 Related features: [Find References](../features/references/) and [Rename](../features/rename/).
 
-<VscodeSettingsTable locale="en" settings={['vide.scope.visibility']} />
+<VscodeSettingsTable
+  locale="en"
+  settings={['vide.scope.visibility', 'vide.references.includeDeclaration']}
+/>
 
 ## Formatter and Formatting
 

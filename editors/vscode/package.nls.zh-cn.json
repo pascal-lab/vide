@@ -16,6 +16,7 @@
   "configuration.files.watcher.description": "控制 Vide 如何监视项目文件。",
   "configuration.workspace.auto.reload.description": "项目配置文件变化时自动刷新项目信息。",
   "configuration.scope.visibility.description": "控制作用域内除端口以外的符号是否在作用域外可见。",
+  "configuration.references.includeDeclaration.description": "查找引用时是否包含声明位置。",
   "configuration.formatter.provider.enum.verible": "使用外部 verible-verilog-format 可执行文件。支持格式化文档和格式化选区。",
   "configuration.formatter.provider.description": "Vide 使用的格式化后端。",
   "configuration.formatter.path.description": "当 vide.formatter.provider 为 verible 时，verible-verilog-format 的路径。留空则从 PATH 中查找。",

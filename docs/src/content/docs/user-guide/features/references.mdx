@@ -14,6 +14,16 @@ import { usageFiles } from '../../../../examples/dailyUse';
 
 你可以在 VS Code 中执行 `查找所有引用` 或 `查看引用`。Vide 会查找对应符号的使用位置，去重后显示在引用视图里。
 
+默认情况下，引用结果会把声明位置一起显示，方便你从列表里确认符号是从哪里引入的。如果你只想看真正的使用位置，可以在 VS Code Settings 里写：
+
+```json
+{
+  "vide.references.includeDeclaration": false
+}
+```
+
+完整参考见 [VS Code 设置](../../vscode-settings/#scope)。
+
 ## 演示
 
 <FeatureExample
