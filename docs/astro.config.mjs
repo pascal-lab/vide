@@ -8,6 +8,7 @@ const site = process.env.ASTRO_SITE ?? 'https://vide.pascal-lab.net';
 export default defineConfig({
   site,
   base,
+  trailingSlash: 'always',
   integrations: [
     starlight({
       title: {
