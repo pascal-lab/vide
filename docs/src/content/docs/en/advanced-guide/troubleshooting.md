@@ -21,7 +21,7 @@ If a feature behaves incorrectly, please open a report in [GitHub Issues](https:
 
 Start by running `Vide: Show Server Version`, then `Vide: Show Language Server Output`, and attach the relevant content from the `Vide Language Server` output channel to the issue.
 
-If the output is still not enough, or the problem only appears in a longer-running flow, enable a more detailed file log. Add `--log` and `--log_file` through `vide.server.additionalArgs`, then restart the language server:
+If the `Vide Language Server` output channel still does not provide enough information, or the problem only appears in a longer-running flow, enable a more detailed file log. Add `--log` and `--log_file` through `vide.server.additionalArgs`, then restart the language server:
 
 ```json
 {
