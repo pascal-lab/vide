@@ -96,8 +96,9 @@ if (image) {
     }
 
     .stack {
+      --hero-stack-gap: clamp(0.2rem, calc(0.2rem + 0.25vw), 0.45rem);
       flex-direction: column;
-      gap: clamp(1.5rem, calc(1.5rem + 1vw), 2rem);
+      gap: var(--hero-stack-gap);
       text-align: center;
     }
 
@@ -130,7 +131,7 @@ if (image) {
     }
 
     .hero-platform {
-      margin: calc(-1 * clamp(1.5rem, calc(1.5rem + 1vw), 2rem) + 0.2rem) 0 0;
+      margin: calc(-1 * var(--hero-stack-gap) + 0.2rem) 0 0;
       color: var(--sl-color-gray-3);
       font-size: 0.875rem;
       line-height: 1.4;

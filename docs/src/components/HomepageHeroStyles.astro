@@ -99,6 +99,12 @@
     }
   }
 
+  @media (max-width: 30rem) {
+    html:lang(zh-CN)[data-has-hero] .hero h1 {
+      font-size: clamp(1.45rem, 7vw, 1.7rem);
+    }
+  }
+
   html[data-has-hero]:not([data-has-sidebar]),
   html[data-has-hero][data-has-sidebar] {
     --sl-content-width: 78rem;
