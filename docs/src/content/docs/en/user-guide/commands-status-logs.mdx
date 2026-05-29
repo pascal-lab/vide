@@ -4,6 +4,7 @@ description: Status bar items, Command Palette commands, and log entry points fo
 ---
 
 import Codicon from '../../../../components/Codicon.astro';
+import StatusBarPreview from '../../../../components/StatusBarPreview.astro';
 
 This page lists the status bar items, Command Palette commands, and log entry points provided by the Vide VS Code extension.
 
@@ -11,12 +12,12 @@ This page lists the status bar items, Command Palette commands, and log entry po
 
 The main status item is named `Vide` and appears on the right side of the VS Code status bar. It reports language server and project configuration state:
 
-| State | Meaning |
+| Status bar preview | Meaning |
 | --- | --- |
-| `Vide` | The server has started; hover to see project configuration state. |
-| <Codicon name="sync" modifier="spin" label="Sync spin icon" /> `Vide` | Server startup, shutdown, or project configuration loading is in progress. |
-| <Codicon name="warning" label="Warning icon" /> `Vide` | Usually means the current workspace has no project configuration file. |
-| <Codicon name="error" label="Error icon" /> `Vide` | Server startup or project configuration loading failed. |
+| <StatusBarPreview variant="normal" label="Normal status bar preview" /> | The server has started; hover to see project configuration state. This is the normal state when no extra status cue is shown. |
+| <StatusBarPreview variant="busy" label="Busy status bar preview" /> | Server startup, shutdown, or project configuration loading is in progress. |
+| <StatusBarPreview variant="warning" label="Warning status bar preview" /> | Usually means the current workspace has no project configuration file. |
+| <StatusBarPreview variant="error" label="Error status bar preview" /> | Server startup or project configuration loading failed. |
 
 Click the `Vide` status item or run `Vide: Show Status` to open the status menu. Menu items vary with project state; common actions include opening or creating the project configuration file, profiling diagnostics, reloading the project, restarting the language server, and showing output.
 

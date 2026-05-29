@@ -4,6 +4,7 @@ description: Vide VS Code 扩展的状态栏、命令面板命令和日志入口
 ---
 
 import Codicon from '../../../components/Codicon.astro';
+import StatusBarPreview from '../../../components/StatusBarPreview.astro';
 
 本页列出 Vide VS Code 扩展的状态栏含义、命令面板命令和日志入口。
 
@@ -11,12 +12,12 @@ import Codicon from '../../../components/Codicon.astro';
 
 主状态项名为 `Vide`，位于 VS Code 右侧状态栏。它用于显示语言服务器和项目配置状态：
 
-| 状态 | 含义 |
+| 状态栏显示 | 含义 |
 | --- | --- |
-| `Vide` | 语言服务器已接上；悬停可查看项目配置状态。 |
-| <Codicon name="sync" modifier="spin" label="同步旋转图标" /> `Vide` | 语言服务器启动、停止或项目配置加载进行中。 |
-| <Codicon name="warning" label="警告图标" /> `Vide` | 通常表示当前工作区缺少项目配置文件。 |
-| <Codicon name="error" label="错误图标" /> `Vide` | 语言服务器启动失败或项目配置加载失败。 |
+| <StatusBarPreview variant="normal" label="正常状态栏预览" /> | 语言服务器已接上；悬停可查看项目配置状态。没有额外状态提示时，会显示这一常规状态。 |
+| <StatusBarPreview variant="busy" label="加载状态栏预览" /> | 语言服务器启动、停止或项目配置加载进行中。 |
+| <StatusBarPreview variant="warning" label="警告状态栏预览" /> | 通常表示当前工作区缺少项目配置文件。 |
+| <StatusBarPreview variant="error" label="错误状态栏预览" /> | 语言服务器启动失败或项目配置加载失败。 |
 
 点击 `Vide` 状态项或执行 `Vide：显示状态` 会打开状态菜单。菜单项会随当前项目状态变化，常见操作包括打开或创建项目配置文件、分析诊断性能、重新加载项目、重启语言服务器和显示输出。
 

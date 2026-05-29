@@ -1,0 +1,64 @@
+---
+import Codicon from './Codicon.astro';
+
+interface Props {
+  variant?: 'normal' | 'busy' | 'warning' | 'error';
+  text?: string;
+  label?: string;
+}
+
+const { variant = 'normal', text = 'Vide', label } = Astro.props as Props;
+
+const iconProps =
+  variant === 'busy'
+    ? { name: 'sync', modifier: 'spin' as const, label: label ?? 'Loading status icon' }
+    : variant === 'warning'
+      ? { name: 'warning', label: label ?? 'Warning status icon' }
+      : variant === 'error'
+        ? { name: 'error', label: label ?? 'Error status icon' }
+        : undefined;
+---
+
+<span class:list={['vide-status-preview', `vide-status-preview--${variant}`]}>
+  {iconProps && <Codicon {...iconProps} />}
+  <span class="vide-status-preview__text">{text}</span>
+</span>
+
+<style>
+  .vide-status-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 1.7rem;
+    padding: 0.2rem 0.55rem;
+    border: none;
+    border-radius: 0;
+    color: #fff;
+    font-size: 0.88rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .vide-status-preview--normal,
+  .vide-status-preview--busy {
+    background: #007acc;
+  }
+
+  .vide-status-preview--warning {
+    background: #b89500;
+  }
+
+  .vide-status-preview--error {
+    background: #c72e0f;
+  }
+
+  .vide-status-preview__text {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .vide-status-preview :global(.vide-codicon) {
+    color: inherit;
+  }
+</style>
