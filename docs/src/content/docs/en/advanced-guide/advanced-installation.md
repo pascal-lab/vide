@@ -10,7 +10,9 @@ In most cases, follow [VS Code Installation](../../user-guide/vscode-installatio
 - you want to build and install Vide from source: see [Build and Install from Source](#build-and-install-from-source).
 - you want to try a prerelease build: see [Install a Prerelease Build](#install-a-prerelease-build).
 
-## Build and Install from Source {#build-and-install-from-source}
+<a id="build-and-install-from-source"></a>
+
+## Build and Install from Source
 
 This section is for users who want to install Vide from source, modify the codebase, or package their own VSIX files.
 
@@ -161,7 +163,9 @@ code --install-extension ./vide-vscode-win32-x64-debug.vsix
 
 This command requires `code` to be available on `PATH`.
 
-## Install a Prerelease Build {#install-a-prerelease-build}
+<a id="install-a-prerelease-build"></a>
+
+## Install a Prerelease Build
 
 Prerelease installation lets you try upcoming Vide beta features. Before installing, first obtain a `.vsix` package.
 

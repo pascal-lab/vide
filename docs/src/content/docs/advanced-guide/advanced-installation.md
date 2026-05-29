@@ -10,7 +10,9 @@ description: 从源码构建 Vide、打包本地 VSIX，或安装预发布版本
 - 如果你想基于或修改源码来安装，可以查看 [从源码构建安装](#build-from-source-installation)。
 - 如果你想体验预发布版本，可以查看 [从预发布版本安装](#prerelease-installation)。
 
-## 从源码构建安装 {#build-from-source-installation}
+<a id="build-from-source-installation"></a>
+
+## 从源码构建安装
 
 本节面向想基于或修改源码来安装 Vide 的用户。
 
@@ -141,7 +143,9 @@ code --install-extension ./vide-vscode-win32-x64-debug.vsix
 
 这个命令要求 `code` 已经加入 `PATH`。
 
-## 从预发布版本安装 {#prerelease-installation}
+<a id="prerelease-installation"></a>
+
+## 从预发布版本安装
 
 从预发布版本安装可以提前体验 Vide 的 Beta 特性。在安装前，你需要先拿到 `.vsix` 安装文件。
 
