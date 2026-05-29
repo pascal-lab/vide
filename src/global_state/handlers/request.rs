@@ -347,6 +347,7 @@ pub(crate) fn handle_references(
     snap: GlobalStateSnapshot,
     params: lsp_types::ReferenceParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::Location>>> {
+    let include_declaration = params.context.include_declaration;
     let position = from_proto::file_position(&snap, params.text_document_position)?;
     let config = snap.config.references();
     let Some(refs) = snap.analysis.references(position, config)? else {
@@ -356,9 +357,8 @@ pub(crate) fn handle_references(
     let locations = refs
         .into_iter()
         .flat_map(|References { def, refs }| {
-            let decl = def
+            let decl = if include_declaration { def.unwrap_or_default() } else { Vec::new() }
                 .into_iter()
-                .flatten()
                 .map(|nav| FileRange { file_id: nav.file_id, range: nav.focus_or_full_range() });
 
             let refs = refs.into_iter().flat_map(|(file_id, refs)| {

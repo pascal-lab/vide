@@ -45,6 +45,18 @@ Vide searches references in all Verilog/SystemVerilog files scanned from the wor
 
 After `vide.toml` is configured, reference search follows the project scope described by `sources` and `libraries`, and uses include directories and macro definitions to decide which files participate in analysis.
 
+## Result Display
+
+By default, the references view also includes the declaration location so you can confirm where the symbol comes from. If you want usage locations only, add this to VS Code Settings:
+
+```json
+{
+  "vide.references.includeDeclaration": false
+}
+```
+
+See [Scope settings](../../vscode-settings/#scope) for the full reference.
+
 ## Relationship to Rename
 
 Find References only shows locations and does not modify files. Rename edits declarations and references, so it usually needs `vide.toml` to make the editable project scope explicit.
