@@ -381,6 +381,14 @@ function readConfiguration(): ServerConfiguration {
   };
 }
 
+function includeDeclarationInReferences(document: vscode.TextDocument): boolean {
+  return (
+    vscode.workspace
+      .getConfiguration('vide', document)
+      .get<boolean>('references.includeDeclaration') ?? true
+  );
+}
+
 function resolveWorkingDirectory(
   context: vscode.ExtensionContext,
   configuredCwd: string | undefined,
@@ -649,6 +657,12 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
     traceOutputChannel: channel,
     revealOutputChannelOn: RevealOutputChannelOn.Never,
     initializationOptions: serverInitializationOptions(vscode.workspace.getConfiguration('vide')),
+    middleware: {
+      provideReferences: async (document, position, options, token, next) => {
+        options.includeDeclaration = includeDeclarationInReferences(document);
+        return await next(document, position, options, token);
+      },
+    },
     ...(config.trace !== 'off' && { trace: config.trace }),
   };
 

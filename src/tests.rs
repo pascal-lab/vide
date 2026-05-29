@@ -421,6 +421,17 @@ fn request_reference_uris(
     needle: &str,
     request_id: i32,
 ) -> Vec<Url> {
+    request_reference_uris_with_include_declaration(client, uri, text, needle, request_id, true)
+}
+
+fn request_reference_uris_with_include_declaration(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+    include_declaration: bool,
+) -> Vec<Url> {
     let request_id = lsp_server::RequestId::from(request_id);
     client
         .sender
@@ -432,7 +443,7 @@ fn request_reference_uris(
                     text_document: TextDocumentIdentifier { uri },
                     position: position_of(text, needle),
                 },
-                context: lsp_types::ReferenceContext { include_declaration: true },
+                context: lsp_types::ReferenceContext { include_declaration },
                 work_done_progress_params: WorkDoneProgressParams::default(),
                 partial_result_params: Default::default(),
             },
@@ -3252,6 +3263,64 @@ fn include_expanded_parameter_decls_keep_module_navigation_available() {
     let resolved = resolve_code_lens(&client, lens, 5);
     let title = resolved.command.expect("resolved code lens should have a command").title;
     assert_eq!(title, "1 instance");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn references_request_respects_include_declaration() {
+    let temp_dir = TempDir::new("references-include-declaration");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+
+    let top_text = "module top;\n  child u_child();\nendmodule\n";
+    let child_text = "module child();\nendmodule\n";
+
+    fs::write(
+        temp_dir.path().join("vide.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.v\"]\ninclude_dirs = [\"rtl\"]\n",
+    )
+    .unwrap();
+    let top_path = rtl_dir.join("top.v");
+    let child_path = rtl_dir.join("child.v");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&child_path, child_text).unwrap();
+
+    let root_path = temp_dir.path().to_path_buf();
+    let (client, server_thread) =
+        spawn_test_workspace(root_path, ClientCapabilities::default(), UserConfig::default());
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let child_uri = to_proto::url_from_abs_path(child_path.as_path()).unwrap();
+
+    open_test_document(&client, top_uri.clone(), top_text);
+    open_test_document(&client, child_uri.clone(), child_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let refs_with_decl = request_reference_uris_with_include_declaration(
+        &client,
+        child_uri.clone(),
+        child_text,
+        "child()",
+        2,
+        true,
+    );
+    assert!(
+        refs_with_decl.contains(&child_uri) && refs_with_decl.contains(&top_uri),
+        "include_declaration=true should include the declaration and instantiation: {refs_with_decl:?}"
+    );
+
+    let refs_without_decl = request_reference_uris_with_include_declaration(
+        &client,
+        child_uri.clone(),
+        child_text,
+        "child()",
+        3,
+        false,
+    );
+    assert!(
+        !refs_without_decl.contains(&child_uri) && refs_without_decl.contains(&top_uri),
+        "include_declaration=false should exclude the declaration while keeping instantiations: {refs_without_decl:?}"
+    );
 
     shutdown_test_server(&client, server_thread);
 }

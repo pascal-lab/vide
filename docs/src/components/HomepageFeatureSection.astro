@@ -7,9 +7,77 @@ interface Props {
 }
 
 const locale = normalizeHomepageLocale(Astro.props.locale);
+const baseUrl = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
 ---
 
 <section class="vide-feature" data-locale={locale}>
+  <div class="vide-feature__intro">
+    {
+      locale === 'en' ? (
+        <>
+          <p>
+            <strong class="vide-feature__accent">Vide</strong> is an open-source, modern SystemVerilog Coding IDE
+            developed by the
+            <a
+              class="vide-feature__intro-link"
+              href="https://pascal-lab.net/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img src={`${baseUrl}pascal.svg`} alt="" aria-hidden="true" />
+              <span>PASCAL Research Group</span>
+            </a>
+            at Nanjing University, including Jiayan Wu, Jiarong Hong, and others. It brings hardware
+            developers 10+ code analysis features often missing from traditional
+            hardware IDEs, including
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/navigation/">
+              precise completion
+            </a>
+            ,
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/annotations/">
+              code annotations
+            </a>
+            ,
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/completion/">
+              automatic refactoring
+            </a>
+            , and
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/quick-fixes/">
+              semantic highlighting
+            </a>
+            . With Vide, hardware developers can understand, write, and maintain Verilog /
+            SystemVerilog code more efficiently.
+          </p>
+        </>
+      ) : (
+        <>
+          <p>
+            <strong class="vide-feature__accent">Vide</strong> 是由
+            <a
+              class="vide-feature__intro-link"
+              href="https://pascal-lab.net/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img src={`${baseUrl}pascal.svg`} alt="" aria-hidden="true" />
+              <span>南京大学 PASCAL 研究组</span>
+            </a>（吴家焱、洪佳荣等）
+            研发的开源现代 SystemVerilog 编程 IDE，为硬件开发者带来了传统硬件 IDE
+            中常常缺失的十余种代码分析功能，包括
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/navigation/">精准补全</a>、
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/annotations/">代码标注</a>、
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/completion/">自动重构</a>
+            以及
+            <a class="vide-feature__intro-text-link" href="./user-guide/features/quick-fixes/">语义高亮</a>
+            等。借助 Vide，硬件开发者能够更加高效地理解、编写和维护 Verilog / SystemVerilog 代码。
+          </p>
+          <p></p>
+        </>
+      )
+    }
+  </div>
   <h2>
     {
       locale === 'en' ? (
@@ -29,12 +97,77 @@ const locale = normalizeHomepageLocale(Astro.props.locale);
 
 <style>
   .vide-feature {
-    margin-block: clamp(2rem, 6vw, 3rem);
+    margin-block: 0 clamp(2rem, 6vw, 3rem);
+  }
+
+  .vide-feature__intro {
+    max-width: 64rem;
+    margin: 0 auto clamp(2rem, 5vw, 3.5rem);
+    padding: clamp(1rem, 2.4vw, 1.35rem) clamp(1rem, 3vw, 1.5rem);
+    border: 1px solid hsla(var(--vide-accent-hsl), 0.14);
+    border-radius: 6px;
+    background: hsla(var(--vide-accent-hsl), 0.07);
+    box-shadow: 0 0.5rem 1.25rem hsla(var(--vide-accent-hsl), 0.08);
+    color: #334155;
+    font-size: clamp(1rem, 1.45vw, 1.2rem);
+    line-height: 1.85;
+    text-align: left;
+  }
+
+  .vide-feature__intro p {
+    margin-block: 0 0.75rem;
+  }
+
+  .vide-feature__intro p:last-child {
+    margin-bottom: 0;
+  }
+
+  .vide-feature__intro-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--vide-accent);
+    font-weight: 650;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+    vertical-align: -0.1em;
+  }
+
+  .vide-feature__intro-link:hover {
+    color: var(--vide-accent);
+    text-decoration-thickness: 1.5px;
+  }
+
+  .vide-feature__intro-text-link {
+    color: var(--vide-accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+
+  .vide-feature__intro-text-link:hover {
+    color: var(--vide-accent);
+    text-decoration-thickness: 1.5px;
+  }
+
+  .vide-feature__intro-link img {
+    width: 1em;
+    height: 1em;
+    flex: none;
+  }
+
+  :root[data-theme='dark'] .vide-feature__intro {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: color-mix(in srgb, var(--sl-color-black) 88%, var(--vide-accent) 12%);
+    box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.12);
+    color: var(--sl-color-gray-2);
   }
 
   .vide-feature h2 {
     max-width: 20ch;
-    margin-block: 0.75rem clamp(2.75rem, 5vw, 4.5rem);
+    margin-block: 0.75rem clamp(1.5rem, 3vw, 2.75rem);
     color: var(--sl-color-white);
     font-size: clamp(2rem, 5vw, 3rem);
     letter-spacing: 0;

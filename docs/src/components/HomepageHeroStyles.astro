@@ -1,6 +1,7 @@
 <style is:global>
   [data-has-hero] .hero {
     padding-block-start: clamp(1.25rem, 4vw, 3.75rem);
+    padding-block-end: clamp(1.5rem, 2.5vw, 2.25rem);
   }
 
   [data-has-hero] .hero h1 {
@@ -63,6 +64,10 @@
     text-align: center;
   }
 
+  [data-has-hero] .hero .stack {
+    gap: clamp(1.25rem, 2.4vw, 2rem);
+  }
+
   [data-has-hero] .hero .actions {
     justify-content: center;
   }
@@ -96,6 +101,12 @@
     [data-has-hero] .hero .actions {
       flex-wrap: wrap;
       max-width: calc(100vw - 2rem);
+    }
+  }
+
+  @media (max-width: 30rem) {
+    html:lang(zh-CN)[data-has-hero] .hero h1 {
+      font-size: clamp(1.45rem, 7vw, 1.7rem);
     }
   }
 
