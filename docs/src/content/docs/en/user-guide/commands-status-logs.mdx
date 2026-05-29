@@ -1,27 +1,11 @@
 ---
-title: "Commands, Status, and Logs"
-description: Vide command IDs, status item meanings, and output channel inventory.
+title: "VS Code Status Bar, Command Palette, and Logs"
+description: Status bar items, Command Palette commands, and log entry points for the Vide VS Code extension.
 ---
 
 import Codicon from '../../../../components/Codicon.astro';
 
-This page lists commands, status bar meanings, and output channels contributed by the Vide VS Code extension. For failures, start with [Troubleshooting and Bug Reports](../../advanced-guide/troubleshooting/).
-
-## Command Palette Commands
-
-The VS Code extension contributes these commands. Use the Command Palette title in daily work; command IDs are mainly for keybindings or scripts.
-
-| Command ID | Command Palette title | Purpose |
-| --- | --- | --- |
-| `vide.showOutput` | `Vide: Show Language Server Output` | Opens the `Vide Language Server` output channel. |
-| `vide.restartServer` | `Vide: Restart Language Server` | Stops and restarts the current language server. |
-| `vide.showServerVersion` | `Vide: Show Server Version` | Shows the current extension version, then runs the current server command with the current cwd and environment, combines `vide.server.args` with `--version`, and does not append `vide.server.additionalArgs`. |
-| `vide.reloadWorkspace` | `Vide: Reload Project Configuration` | Rereads project configuration files and refreshes project information without restarting the server. |
-| `vide.showStatus` | `Vide: Show Status` | Opens the Vide status menu. |
-| `vide.runQiheAnalysis` | `Vide: Run Qihe Analysis` | Runs Qihe analysis for the current local Verilog/SystemVerilog file. |
-| `vide.profileDiagnostics` | `Vide: Profile Diagnostics` | Starts a temporary language server and runs one diagnostics profiling pass for the workspace or current file. |
-
-`vide.runQiheAnalysis` is available only for local files whose extension is `.v`, `.vh`, `.sv`, `.svh`, or `.svi`.
+This page lists the status bar items, Command Palette commands, and log entry points provided by the Vide VS Code extension.
 
 ## Status Bar
 
@@ -38,7 +22,25 @@ Click the `Vide` status item or run `Vide: Show Status` to open the status menu.
 
 When Qihe analysis runs, a separate `Qihe` status item appears. If Qihe fails, clicking that item opens the `Vide Qihe` output channel.
 
-## Output Channels
+If the status bar shows <Codicon name="warning" label="Warning icon" /> or <Codicon name="error" label="Error icon" />, start with `Vide: Show Status` and `Vide: Show Language Server Output`. For deeper investigation, continue with [Troubleshooting and Bug Reports](../../advanced-guide/troubleshooting/).
+
+## Command Palette Commands
+
+Press `F1`, or use `Ctrl+Shift+P` / `Cmd+Shift+P`, to open the Command Palette in VS Code. The table below lists the commands contributed by Vide. In normal use, look at the Command Palette title; command IDs are mainly for keybindings or scripts.
+
+| Command ID | Command Palette title | Purpose |
+| --- | --- | --- |
+| `vide.showOutput` | `Vide: Show Language Server Output` | Opens the `Vide Language Server` output channel. |
+| `vide.restartServer` | `Vide: Restart Language Server` | Stops and restarts the current language server. |
+| `vide.showServerVersion` | `Vide: Show Server Version` | Shows the current extension version, then runs the current server command with the current cwd and environment, combines `vide.server.args` with `--version`, and does not append `vide.server.additionalArgs`. |
+| `vide.reloadWorkspace` | `Vide: Reload Project Configuration` | Rereads project configuration files and refreshes project information without restarting the server. |
+| `vide.showStatus` | `Vide: Show Status` | Opens the Vide status menu. |
+| `vide.runQiheAnalysis` | `Vide: Run Qihe Analysis` | Runs Qihe analysis for the current local Verilog/SystemVerilog file. |
+| `vide.profileDiagnostics` | `Vide: Profile Diagnostics` | Starts a temporary language server and runs one diagnostics profiling pass for the workspace or current file. |
+
+## Logs
+
+Vide writes runtime information to VS Code output channels. You can open them from the status menu through `Show Output`, or through the related Command Palette commands. The table below lists what each output channel contains.
 
 | Output channel | Records |
 | --- | --- |
@@ -59,15 +61,3 @@ When Qihe analysis runs, a separate `Qihe` status item appears. If Qihe fails, c
 | `server.log` | Temporary language server log. |
 
 Profiling uses an isolated temporary language server process, so it does not restart or affect the language server used by your editor session.
-
-## Server Launch Setting Changes
-
-After these settings change, the extension prompts you to `Restart`:
-
-- `vide.server.command`
-- `vide.server.args`
-- `vide.server.additionalArgs`
-- `vide.server.cwd`
-- `vide.trace.server`
-
-Choose `Restart` in the prompt or run `vide.restartServer` manually.

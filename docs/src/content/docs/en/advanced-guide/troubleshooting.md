@@ -8,7 +8,7 @@ Vide can still fail in some cases.
 Some failures are product issues. In that case, please report them through [GitHub Issues](https://github.com/pascal-lab/vide/issues) and attach a reproducible example when possible.
 Some failures come from workspace or extension configuration. In that case, start with the common cases on this page.
 
-For normal feature usage questions, go back to the related page under [Features](../../user-guide/features/). Command names, status bar meanings, and output channel names are listed in [Commands, Status, and Logs](../../user-guide/commands-status-logs/).
+For normal feature usage questions, go back to the related page under [Features](../../user-guide/features/). Command names, status bar meanings, and output channel names are listed in [VS Code Status Bar, Command Palette, and Logs](../../user-guide/commands-status-logs/).
 
 ## Report a Bug
 
