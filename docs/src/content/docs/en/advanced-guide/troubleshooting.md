@@ -69,12 +69,6 @@ You can also validate the same binary directly in a terminal:
 vide --version
 ```
 
-Windows custom-server example:
-
-```powershell
-D:/tools/vide/vide.exe --version
-```
-
 If you configured a custom server, also check:
 
 - `vide.server.command` uses an absolute path

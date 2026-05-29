@@ -20,24 +20,24 @@ This section is for users who want to install Vide from source, modify the codeb
 
 If you only need to build the Vide language server, install:
 
-- Rust `nightly-2026-05-24`
+- Rust nightly-2026-05-24
   - This repository pins that toolchain; `cargo` comes with it
-- CMake `3.20` through `3.29`
-- Python `3`
+- CMake 3.20 through 3.29
+- Python 3
 - A C++20-capable compiler
-  - Linux: GCC `11` or newer, or Clang `16` or newer
-  - macOS: Xcode `15` or newer
+  - Linux: GCC 11 or newer, or Clang 16 or newer
+  - macOS: Xcode 15 or newer
   - Windows: the latest Visual Studio 2022 Build Tools, with the `Desktop development with C++` workload
 
 If you also want to build the VS Code extension or package a VSIX, additionally install:
 
-- Node.js `22.x`
+- Node.js 22.x
 - npm
   - The npm bundled with Node.js 22 is sufficient
 
 If you also want to build the Playground WASM version, additionally install:
 
-- Emscripten SDK `5.0.2`
+- Emscripten SDK 5.0.2
 - `ninja`
 - The Rust `wasm32-unknown-emscripten` target
   - `playground/scripts/build-vide-wasm.mjs` automatically runs `rustup target add wasm32-unknown-emscripten`
@@ -50,7 +50,7 @@ You do not need to install a separate system `slang` command first; Vide uses th
 
 Vide's core is a Rust language server. Semantic editor features such as navigation, completion, hover, rename, and diagnostics are primarily provided by that server; the VS Code extension starts it, communicates with it, and connects its results to the editor UI.
 
-Run this from the repository root:
+To build that language server, run this from the repository root:
 
 ```powershell
 cargo build
@@ -64,25 +64,15 @@ cargo build --release
 
 For ordinary local builds, you do not need to set `VIDE_BUILD_METADATA`. In beta, nightly, or release workflows, CI and release scripts set it when needed so that `vide --version` carries the extra build marker.
 
-Verify the version:
-
-```powershell
-.\target\release\vide.exe --version
-```
-
-On non-Windows platforms:
-
-```powershell
-./target/release/vide --version
-```
-
-If you already installed the VS Code extension, you can point it at the server you just built:
+If you already installed the VS Code extension, you can point it at the server you just built. The plain `cargo build` command above produces a debug binary, so point VS Code at `target/debug`:
 
 ```json
 {
-  "vide.server.command": "D:/Proj/vizsla/target/release/vide.exe"
+  "vide.server.command": "D:/Proj/vizsla/target/debug/vide.exe"
 }
 ```
+
+If you built with `cargo build --release`, use `D:/Proj/vizsla/target/release/vide.exe` instead.
 
 After saving, VS Code prompts you to `Restart`; accept that, then run `Vide: Show Server Version` to verify the binary used by the extension. If you also need startup arguments or a working directory, see the full [VS Code Settings Reference](../../user-guide/vscode-settings/#server).
 
@@ -195,6 +185,8 @@ After you have a `.vsix` file, install it from the VS Code command palette:
 1. Open the command palette.
 2. Run `Extensions: Install from VSIX...`.
 3. Select the `vide-vscode-*.vsix` file for your platform.
+
+You can also drag the `.vsix` file directly into the VS Code Extensions view. When installation succeeds, VS Code shows a confirmation notification in the lower-right corner.
 
 You can also install from the command line:
 
