@@ -153,6 +153,12 @@ In `include_dirs` and `libraries`, values are ordinary paths resolved relative t
 | `sources = []` | Disables automatic workspace scanning. This is useful when you want to open the project safely and configure it later. |
 | `sources = ["rtl/**"]` | Loads matching files with globs and adds them to project analysis. |
 
+A short way to remember it:
+
+- Omitted `sources`: scan the workspace for code reading, but do not treat the scan result as the configured project.
+- `sources = []`: do not scan source files automatically.
+- `sources = ["rtl/**"]`: these files are the current project sources.
+
 Common examples:
 
 ```toml
@@ -171,6 +177,8 @@ The current project loader reads these extensions:
 ### include_dirs
 
 `include_dirs` controls `` `include "file.svh" `` search. If `include_dirs` is not configured explicitly and `sources` is set explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory.
+
+`include_dirs` are include search paths only. They do not mean every file in those directories becomes an independent compile entry. Header files usually participate only after a `.v` or `.sv` file includes them; opening a header directly, or listing its directory in `include_dirs`, does not mean Vide runs full standalone project diagnostics for that header.
 
 If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, Vide also does not use the default include directories inferred from `sources`.
 

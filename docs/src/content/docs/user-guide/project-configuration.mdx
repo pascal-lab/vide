@@ -153,6 +153,12 @@ Vide 对 `sources` 和 `exclude` 有几条固定规则：
 | `sources = []` | 不自动扫描工作区。用于先打开工程，之后再手动补配置。 |
 | `sources = ["rtl/**"]` | 按 glob 加载匹配文件，并让这些文件进入项目分析。 |
 
+可以记成：
+
+- 省略 `sources`：先帮我读一下工作区，但不要把扫描结果当成正式工程。
+- `sources = []`：不要自动扫描源码。
+- `sources = ["rtl/**"]`：这些文件就是当前工程源码。
+
 常用写法：
 
 ```toml
@@ -171,6 +177,8 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 ### include_dirs
 
 `include_dirs` 用于处理 `` `include "file.svh" ``。如果你已经写了 `sources`，但没有写 `include_dirs`，Vide 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。
+
+`include_dirs` 只表示 include 搜索路径，不表示这些目录里的文件都是独立编译入口。头文件通常通过被 `.v` 或 `.sv` 文件 `` `include `` 后参与解析；只打开头文件，或者只把目录写进 `include_dirs`，不等于 Vide 会为这个头文件单独跑完整工程诊断。
 
 如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也表示不使用从 `sources` 推导出来的默认 include 目录。
 
