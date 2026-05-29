@@ -1,15 +1,14 @@
 ---
 title: Advanced
-description: Vide advanced documentation for local installation, source builds, troubleshooting and bug reports, and the project analysis model.
+description: Vide advanced documentation for local installation, source builds, and troubleshooting and bug reports.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Advanced is not a second user guide. It covers three kinds of work:
+Advanced is not a second user guide. It covers two kinds of work:
 
 - Installation and build: source builds, local VSIX packages, prerelease packages, and custom language servers.
 - Troubleshooting and bug reports: filing issues and handling common startup, configuration, and refresh problems by symptom.
-- Analysis model: understanding why an unconfigured workspace can still navigate code, and why diagnostics, rename, and Qihe change after `vide.toml` is configured.
 
 For normal RTL editing, start with the [User Guide](../user-guide/). For feature usage, start with [Features](../user-guide/features/).
 
@@ -30,15 +29,5 @@ For normal RTL editing, start with the [User Guide](../user-guide/). For feature
     title="Troubleshooting and Bug Reports"
     href="./troubleshooting/"
     description="Report problems and troubleshoot common startup, configuration, and refresh issues."
-  />
-</CardGrid>
-
-## Analysis Model
-
-<CardGrid>
-  <LinkCard
-    title="How Vide Analyzes Projects"
-    href="./parsing-and-analysis/"
-    description="Understand best-effort indexing, project analysis, diagnostic scope, duplicate modules, and Qihe project analysis."
   />
 </CardGrid>

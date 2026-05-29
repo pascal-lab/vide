@@ -41,7 +41,7 @@ You can use this feature through VS Code's `Go to Definition`, `Peek Definition`
 
 Vide uses the current file and Verilog/SystemVerilog files scanned from the workspace to provide basic jumps. This is often enough for small projects or quick code reading, but include paths, macro branches, library boundaries, and duplicate modules may not be fully understood.
 
-For example, if one instance name can match multiple modules with the same name, Vide only jumps when the scanned files provide a nearby and unique candidate. If no unique target can be determined, the editor shows a hint asking you to add project configuration. See [Analysis Model](../../../advanced-guide/parsing-and-analysis/#navigation-and-duplicate-modules) for details.
+For example, if one instance name can match multiple modules with the same name, Vide first guesses the most likely target by proximity: same file first, then deepest shared directory, then a candidate that is still closer to the current file within the same workspace. It only jumps when there is one best candidate; if no unique target can be determined, the editor shows a hint asking you to add project configuration.
 
 ### With Complete Configuration
 

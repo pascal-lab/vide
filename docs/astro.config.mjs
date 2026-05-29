@@ -113,11 +113,6 @@ export default defineConfig({
               translations: { en: 'Troubleshooting and Bug Reports' },
               items: ['advanced-guide/troubleshooting'],
             },
-            {
-              label: '分析模型',
-              translations: { en: 'Analysis Model' },
-              items: ['advanced-guide/parsing-and-analysis'],
-            },
           ],
         },
         {
