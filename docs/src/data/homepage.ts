@@ -307,7 +307,7 @@ const comparisonProductFeatures = (locale: HomepageLocale): ComparisonProduct[] 
   },
   {
     name: 'Vide',
-    meta: locale === 'en' ? 'PASCAL' : 'Ours',
+    meta: locale === 'en' ? 'PASCAL Group' : '南京大学 PASCAL 研究组',
     highlighted: true,
     betaFeatureKeys: ['diagnostics'],
     features: {

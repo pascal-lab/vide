@@ -1,0 +1,63 @@
+---
+import { normalizeHomepageLocale, type HomepageLocale } from '../data/homepage';
+
+interface Props {
+  locale?: HomepageLocale;
+}
+
+const locale = normalizeHomepageLocale(Astro.props.locale);
+
+const copy =
+  locale === 'en'
+    ? {
+        body:
+          'Vide is an <strong>open-source</strong> modern SystemVerilog coding IDE developed by <a href="https://pascal-lab.net/" target="_blank" rel="noopener noreferrer">PASCAL group</a> at Nanjing University, designed to make hardware design feel as fluid as software development. Vide brings more than a dozen code analysis capabilities that traditional hardware IDEs often lack, such as <a href="./user-guide/features/navigation/">Go to Definition</a>, <a href="./user-guide/features/annotations/">Annotations</a>, <a href="./user-guide/features/completion/">Precise Completion</a>, and <a href="./user-guide/features/quick-fixes/">Automatic Refactoring</a>. With Vide, hardware developers can understand, write, and maintain Verilog/SystemVerilog code more efficiently.',
+      }
+    : {
+        body:
+          'Vide 是由南京大学 <a href="https://pascal-lab.net/" target="_blank" rel="noopener noreferrer">PASCAL 研究组</a> 研发的<strong>开源</strong>现代 SystemVerilog 编程 IDE，旨在让硬件设计像软件开发一样流畅。Vide 为硬件开发者带来了十多项传统硬件 IDE 中常常缺失的代码分析能力，包括<a href="./user-guide/features/navigation/">定义跳转</a>、<a href="./user-guide/features/annotations/">代码注解</a>、<a href="./user-guide/features/completion/">精准补全</a>和<a href="./user-guide/features/quick-fixes/">自动重构</a>等。借助 Vide，硬件开发者能够更加高效地理解、编写和维护 Verilog/SystemVerilog 代码。',
+      };
+---
+
+<section class="vide-homepage-intro" data-locale={locale}>
+  <p set:html={copy.body} />
+</section>
+
+<style>
+  .vide-homepage-intro {
+    width: min(64rem, calc(100vw - 2rem));
+    margin: 0 auto clamp(2rem, 5vw, 3rem);
+    padding: clamp(1rem, 2.4vw, 1.35rem) clamp(1.1rem, 2.8vw, 1.6rem);
+    border: 1px solid color-mix(in srgb, var(--vide-accent) 18%, var(--sl-color-gray-5));
+    border-radius: 1rem;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--vide-accent) 8%, transparent), transparent 42%),
+      color-mix(in srgb, var(--sl-color-black) 82%, var(--sl-color-gray-6));
+    box-shadow: 0 20px 50px color-mix(in srgb, var(--sl-color-black) 24%, transparent);
+  }
+
+  .vide-homepage-intro p {
+    margin: 0;
+    color: var(--sl-color-gray-2);
+    font-size: clamp(1rem, 1.6vw, 1.08rem);
+    line-height: 1.85;
+  }
+
+  .vide-homepage-intro :global(strong) {
+    color: var(--sl-color-white);
+    font-weight: 700;
+  }
+
+  .vide-homepage-intro :global(a) {
+    color: var(--vide-accent);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--vide-accent) 72%, transparent);
+    text-underline-offset: 0.16em;
+  }
+
+  .vide-homepage-intro :global(a:hover),
+  .vide-homepage-intro :global(a:focus-visible) {
+    color: color-mix(in srgb, var(--vide-accent) 86%, white);
+    text-decoration-color: currentColor;
+  }
+</style>
