@@ -40,6 +40,7 @@ export default defineConfig({
       ],
       components: {
         Footer: './src/components/SiteFooter.astro',
+        Hero: './src/components/Hero.astro',
         Sidebar: './src/components/Sidebar.astro',
       },
       customCss: ['./src/assets/landing.css'],
