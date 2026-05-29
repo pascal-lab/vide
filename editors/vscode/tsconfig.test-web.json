@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["mocha"]
+  },
+  "include": [
+    "test-web/suite/**/*.ts"
+  ],
+  "exclude": []
+}

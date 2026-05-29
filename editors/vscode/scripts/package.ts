@@ -12,9 +12,11 @@ import {
 const vscodeDir = findExtensionRoot(__dirname);
 const repoRoot = path.resolve(vscodeDir, '..', '..');
 const binName = 'vide';
+const webTarget = 'web';
 
 type BuildProfile = 'debug' | 'release';
 type ServerMode = 'build' | 'prebuilt';
+type PackageTarget = PlatformFolder | typeof webTarget;
 
 const cargoTargets: Partial<Record<PlatformFolder, string>> = {
   'alpine-arm64': 'aarch64-unknown-linux-musl',
@@ -202,7 +204,7 @@ function optionalEnv(name: string): string | undefined {
   return value ? value : undefined;
 }
 
-function writeBuildInfo(target: PlatformFolder, profile: BuildProfile): void {
+function writeBuildInfo(target: PackageTarget, profile: BuildProfile): void {
   const buildInfo = {
     version: readExtensionVersion(),
     target,
@@ -224,7 +226,7 @@ function parseServerMode(value: string): ServerMode {
   throw new Error(`unsupported server mode: ${value}`);
 }
 
-function parseArgs(): { target: PlatformFolder; profile: BuildProfile; serverMode: ServerMode } {
+function parseArgs(): { target: PackageTarget; profile: BuildProfile; serverMode: ServerMode } {
   const args = process.argv.slice(2);
   let profile: BuildProfile = 'release';
   let serverMode: ServerMode = 'build';
@@ -243,10 +245,13 @@ function parseArgs(): { target: PlatformFolder; profile: BuildProfile; serverMod
   }
 
   target ??= hostPlatformFolder();
+  if (target === webTarget) {
+    return { target, profile, serverMode };
+  }
   if (!isPlatformFolder(target)) {
     throw new Error(
       `unsupported target platform: ${target}\n` +
-      `supported targets: ${SUPPORTED_PLATFORM_FOLDERS.join(', ')}`,
+      `supported targets: ${[...SUPPORTED_PLATFORM_FOLDERS, webTarget].join(', ')}`,
     );
   }
 
@@ -254,30 +259,40 @@ function parseArgs(): { target: PlatformFolder; profile: BuildProfile; serverMod
 }
 
 function packageExtension(
-  target: PlatformFolder,
+  target: PackageTarget,
   profile: BuildProfile,
   serverMode: ServerMode,
 ): string {
   syncReadmeFromRepoRoot();
   writeBuildInfo(target, profile);
 
+  const debugSuffix = profile === 'debug' ? '-debug' : '';
+  const vsixOut = `vide-vscode-${target}${debugSuffix}.vsix`;
+  const vsceBin = path.join(vscodeDir, 'node_modules', '@vscode', 'vsce', 'vsce');
+
+  if (target === webTarget) {
+    cleanRuntimeServerFiles();
+    run(
+      process.execPath,
+      [vsceBin, 'package', '--target', target, '--out', vsixOut],
+      vscodeDir,
+      sanitizedVsceEnv(),
+    );
+    return path.join(vscodeDir, vsixOut);
+  }
+
   const binFile = binaryFileForTarget(target);
   const targetServerPath = ensureTargetServerBinary(target, binFile, profile, serverMode);
   cleanRuntimeServerFiles();
   const runtimeServerPath = stageRuntimeServer(targetServerPath, target, binFile);
 
-  const debugSuffix = profile === 'debug' ? '-debug' : '';
-  const vsixOut = `vide-vscode-${target}${debugSuffix}.vsix`;
-  const vsceBin = path.join(vscodeDir, 'node_modules', '@vscode', 'vsce', 'vsce');
   try {
-    run(process.execPath, [
-      vsceBin,
-      'package',
-      '--target',
-      target,
-      '--out',
-      vsixOut,
-    ], vscodeDir, sanitizedVsceEnv());
+    run(
+      process.execPath,
+      [vsceBin, 'package', '--target', target, '--out', vsixOut],
+      vscodeDir,
+      sanitizedVsceEnv(),
+    );
   } finally {
     fs.rmSync(runtimeServerPath, { force: true });
   }

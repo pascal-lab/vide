@@ -5,6 +5,7 @@ out/
 README.md
 build-info.json
 .vscode-test/
+.vscode-test-web/
 *.log
 .DS_Store
 bun.lock

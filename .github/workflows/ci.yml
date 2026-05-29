@@ -16,6 +16,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
+env:
+  EMSDK_VERSION: 5.0.2
+
 jobs:
   changes:
     name: Detect changes
@@ -111,6 +114,77 @@ jobs:
         run: npm ci
       - name: Test extension
         run: npm test
+
+  vscode-web-smoke:
+    name: VS Code Web Smoke
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.vscode == 'true' || needs.changes.outputs.package == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore playground WASM cache
+        id: playground-wasm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+      - name: Verify cached playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
+        working-directory: .
+        run: |
+          test -s playground/public/wasm/vide-lsp.js
+          test -s playground/public/wasm/vide-core.js
+          test -s playground/public/wasm/vide-core.wasm
+      - name: Install Rust
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+      - name: Setup sccache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+      - name: Rust Cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: vscode-web-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - name: Install Emscripten SDK
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-emscripten
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        working-directory: playground
+        run: |
+          source "${EMSDK}/emsdk_env.sh"
+          npm run build:wasm
+      - name: Save playground WASM cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: playground/public/wasm
+          key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
+      - name: Web smoke test
+        run: npm run test:web
 
   dev-package:
     name: Dev Package (${{ matrix.target }})
@@ -218,6 +292,94 @@ jobs:
         with:
           name: vide-lsp-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
           path: vide-${{ matrix.target }}*
+          if-no-files-found: error
+          retention-days: 14
+
+  dev-web-package:
+    name: Dev Package (web)
+    needs: changes
+    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.package == 'true')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore playground WASM cache
+        id: playground-wasm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+      - name: Verify cached playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
+        working-directory: .
+        run: |
+          test -s playground/public/wasm/vide-lsp.js
+          test -s playground/public/wasm/vide-core.js
+          test -s playground/public/wasm/vide-core.wasm
+      - name: Install Rust
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+      - name: Setup sccache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+      - name: Rust Cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: vscode-web-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - name: Install Emscripten SDK
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-emscripten
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        working-directory: playground
+        run: |
+          source "${EMSDK}/emsdk_env.sh"
+          npm run build:wasm
+      - name: Save playground WASM cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: playground/public/wasm
+          key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
+      - name: Set build metadata
+        id: build-metadata
+        shell: bash
+        working-directory: .
+        run: |
+          commit_hash="$(git rev-parse --short "$GITHUB_SHA")"
+          echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
+          echo "VIDE_EXTENSION_BUILD_KIND=nightly" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
+          echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+      - name: Package extension
+        run: npm run package:web
+      - name: Upload dev VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-vscode-dev-web-${{ steps.build-metadata.outputs.commit_hash }}
+          path: editors/vscode/vide-vscode-web.vsix
           if-no-files-found: error
           retention-days: 14
 

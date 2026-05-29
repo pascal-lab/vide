@@ -77,5 +77,6 @@
   "Failed to run Qihe analysis: {0}": "无法运行 Qihe 分析：{0}",
   "Unable to update Vide diagnostic rules: {0}": "无法更新 Vide 诊断规则：{0}",
   "Restart": "重启",
-  "Vide server configuration changed. Restart the language server to apply it.": "Vide 服务器配置已更改。请重启语言服务器以应用更改。"
+  "Vide server configuration changed. Restart the language server to apply it.": "Vide 服务器配置已更改。请重启语言服务器以应用更改。",
+  "{0} is not available in vscode.dev yet.": "{0} 暂时无法在 vscode.dev 中使用。"
 }
