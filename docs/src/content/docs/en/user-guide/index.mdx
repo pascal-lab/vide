@@ -7,9 +7,11 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 Vide is a fully open-source modern SystemVerilog coding IDE developed by [the PASCAL Research Group](https://pascal-lab.net/) at Nanjing University, designed to make hardware design feel as fluid as software development. Vide brings more than a dozen code analysis capabilities that traditional hardware IDEs often lack, such as [Go to Definition](./features/navigation/), [Annotations](./features/annotations/), [Precise Completion](./features/completion/), and [Automatic Refactoring](./features/quick-fixes/). With Vide, hardware developers can understand, write, and maintain Verilog/SystemVerilog code more efficiently.
 
-If you only want to get a feel for the core features, open the [Online Experience](./online-experience/) and try them without configuration. If you want to use Vide in your own project, we recommend starting with [VS Code Installation](./vscode-installation/). If you use Neovim or Emacs, read [Neovim Installation](./neovim-installation/) or [Emacs Installation](./emacs-installation/). We will add more editor integrations based on user needs.
-
 ## Start Here
+
+If you only want to get a feel for the core features, open the [Online Experience](./online-experience/) and try them without configuration. If you want to use Vide in your own project, we recommend starting with [VS Code Installation](./vscode-installation/) because installing the extension gives you one-step installation and startup of the Vide language server, with the most complete and straightforward experience. If you use Neovim or Emacs, read [Neovim Installation](./neovim-installation/) or [Emacs Installation](./emacs-installation/).
+
+Vide's core is a language server that implements the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/), so it can in principle be adapted to more LSP-capable editors. We will expand support for more editors over time based on user needs.
 
 <CardGrid>
   <LinkCard

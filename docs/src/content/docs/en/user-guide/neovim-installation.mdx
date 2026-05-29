@@ -3,11 +3,11 @@ title: Neovim Installation
 description: Download the Vide language server and configure Neovim's built-in LSP client.
 ---
 
-This page is for users who already use Neovim's built-in LSP client. Vide currently publishes a language server binary without a Neovim plugin; Neovim starts `vide` and connects go-to-definition, completion, hover, and diagnostics to the editor UI.
+This page is for users who already use Neovim's built-in LSP client. It walks you through downloading the Vide language server and configuring Neovim to start it for Verilog/SystemVerilog files, so features such as go-to-definition, completion, hover, and diagnostics show up in the editor UI.
 
 ## 1. Download Vide
 
-Choose the language server binary for your platform:
+Choose the language server binary for your platform, and rename it to `vide` (`vide.exe` on Windows):
 
 | Platform | Download |
 | --- | --- |
@@ -37,27 +37,28 @@ Invoke-WebRequest "https://github.com/pascal-lab/vide/releases/latest/download/v
 
 After downloading, confirm that `vide --version` runs and returns version information.
 
-## 2. Confirm the Config File Location
+You can add the directory containing `vide` (or `vide.exe`) to `PATH` to make the next steps more convenient, but this is optional.
 
-Neovim only reads user configuration from fixed locations. According to Neovim's official [config](https://neovim.io/doc/user/starting/#config) documentation, the default config file on Windows is `~/AppData/Local/nvim/init.lua` or `~/AppData/Local/nvim/init.vim`, while on Linux / macOS it is typically `~/.config/nvim/init.lua`.
+## 2. Find Your Neovim Config File
 
-Run this inside Neovim to see the actual config directory on your system:
+Next, you need to edit your Neovim configuration. Run these commands inside Neovim to confirm the config directory and the config file currently in use:
 
 ```vim
 :echo stdpath('config')
+:echo $MYVIMRC
 ```
 
-On Windows, it usually prints something like:
+If the second command prints nothing, you do not have a config file yet. In that case, create `init.lua` under the directory returned by `stdpath('config')`. For example, on Windows the first command usually prints something like:
 
 ```text
 C:\Users\<user>\AppData\Local\nvim
 ```
 
-Put the Lua configuration from the following sections in `init.lua` under that directory.
+That means your config file should be created at `C:\Users\<user>\AppData\Local\nvim\init.lua`.
 
-## 3. Configure File Types
+## 3. Configure Neovim to Start Vide
 
-Neovim starts Vide only when the current buffer's `filetype` matches `verilog` or `systemverilog`. Defaults may differ between Neovim versions and user setups for `.v`/`.vh`. Declare these extensions explicitly in `init.lua`:
+Add the following to the `init.lua` file mentioned above:
 
 ```lua
 vim.filetype.add({
@@ -69,21 +70,7 @@ vim.filetype.add({
     svi = 'systemverilog',
   },
 })
-```
 
-After opening a file, verify the result with:
-
-```vim
-:set filetype?
-```
-
-Expected results: `.v`/`.vh` should show `filetype=verilog`, and `.sv`/`.svh`/`.svi` should show `filetype=systemverilog`.
-
-## 4. Configure LSP
-
-Neovim 0.11 or newer can add the following to `init.lua`, after the `vim.filetype.add` block above:
-
-```lua
 vim.lsp.config('vide', {
   cmd = { 'vide' },
   filetypes = { 'verilog', 'systemverilog' },
@@ -93,17 +80,30 @@ vim.lsp.config('vide', {
 vim.lsp.enable('vide')
 ```
 
+This configuration does two things:
+
+- It explicitly maps `.v`, `.vh`, `.sv`, `.svh`, and `.svi` to `verilog` or `systemverilog`, so filetype detection does not depend on Neovim version or local defaults.
+- It tells Neovim to start the `vide` language server for those filetypes and use `vide.toml` or `.git` as project-root markers.
+
 If `vide` from step 1 is not on `PATH`, use an absolute path in `cmd`, for example:
 
 ```lua
 cmd = { 'D:/vide/vide.exe' }
 ```
 
-## 5. Prepare Project Configuration
+After opening a file, you can verify the detected filetype with:
+
+```vim
+:set filetype?
+```
+
+Expected results: `.v`/`.vh` should show `filetype=verilog`, and `.sv`/`.svh`/`.svi` should show `filetype=systemverilog`.
+
+## 4. Prepare Project Configuration
 
 Create `vide.toml` in the project root so Vide knows which source files, include directories, and macros to analyze. See [Configure the First Project](../first-project/) for the first setup.
 
-## 6. Verify
+## 5. Verify
 
 Open a `.v` or `.sv` file in your project, then run this in Neovim:
 
@@ -111,6 +111,8 @@ Open a `.v` or `.sv` file in your project, then run this in Neovim:
 :lua print(vim.inspect(vim.lsp.get_clients({ name = 'vide' })))
 ```
 
-If the output contains a `vide` client, the language server has started. You can also test go-to-definition, hover, or completion in code.
+If the output contains a `vide` client, the language server has started. You can also directly try go-to-definition, hover, completion, or diagnostics in code.
 
-After installation, continue with [Configure the First Project](../first-project/) and [Features](../features/).
+## Next Step
+
+Continue with [Features](../features/). Although the examples there focus on VS Code, most of those capabilities are provided by the Vide language server, so you can still use them in Neovim.

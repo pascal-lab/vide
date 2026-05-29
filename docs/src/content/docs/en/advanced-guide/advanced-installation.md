@@ -1,11 +1,11 @@
 ---
-title: Advanced Installation
-description: Build Vide from source, package local VSIX files, or install prerelease builds.
+title: VS Code Advanced Installation
+description: Build Vide from source, package local VSIX files, or install prerelease VS Code builds.
 ---
 
 ## Introduction
 
-In most cases, follow [VS Code Installation](../../user-guide/vscode-installation/) and install the stable Marketplace extension. Use this page instead when:
+In most cases, start with [VS Code Installation](../../user-guide/vscode-installation/) and install the stable Marketplace extension in one step. Use this page instead when:
 
 - you want to build and install Vide from source: see [Build and Install from Source](#build-and-install-from-source).
 - you want to try a prerelease build: see [Install a Prerelease Build](#install-a-prerelease-build).

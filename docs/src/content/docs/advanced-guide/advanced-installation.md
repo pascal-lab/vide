@@ -1,11 +1,11 @@
 ---
-title: 高级安装
-description: 从源码构建 Vide、打包本地 VSIX，或安装预发布版本。
+title: VS Code 高级安装
+description: 从源码构建 Vide、打包本地 VSIX，或安装预发布 VS Code 扩展。
 ---
 
 ## 引言
 
-我们建议用户按 [VS Code 安装](../../user-guide/vscode-installation/) 直接从 VS Code Marketplace 安装稳定版。但是：
+我们仍然推荐先按 [VS Code 安装](../../user-guide/vscode-installation/) 直接从 VS Code Marketplace 一键安装稳定版。下面这些内容主要适合以下情况：
 
 - 如果你想基于或修改源码来安装，可以查看 [从源码构建安装](#build-from-source-installation)。
 - 如果你想体验预发布版本，可以查看 [从预发布版本安装](#prerelease-installation)。

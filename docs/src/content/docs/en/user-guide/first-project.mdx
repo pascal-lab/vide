@@ -5,17 +5,13 @@ description: Write the first vide.toml for a small project, then learn how to co
 
 import { FileTree } from '@astrojs/starlight/components';
 
-Vide provides syntax highlighting and basic editing as soon as you open a Verilog/SystemVerilog project. To make cross-file navigation, completion, diagnostics, and macro-branch selection more accurate, add a project configuration file named `vide.toml` to the workspace root.
+Vide provides syntax highlighting and basic editing as soon as you open a Verilog/SystemVerilog project. To make cross-file navigation, completion, diagnostics, and macro-branch selection more accurate, add a project configuration file named `vide.toml` to the project root.
 
 This page first walks through a lightweight first `vide.toml`, then shows how to write `vide.toml` for a real project. For complete field details and boundary rules, see [Project Configuration Reference](../project-configuration/).
 
 ## 1. Create the Project Configuration File
 
 Open your RTL project directory in VS Code. If the directory contains RTL files but no `vide.toml`, Vide prompts you to create a project configuration file. You can also click the `Vide` status item in the lower-right status bar and choose `Create Project Configuration File`.
-
-:::note
-Later pages use “workspace root” to mean this top-level directory opened in VS Code.
-:::
 
 The default template creates an empty project configuration:
 
@@ -31,7 +27,7 @@ sources = []
 ```
 
 :::note
-- The default `sources = []` is an unfinished state: it tells Vide not to scan the whole workspace yet. Replace it with actual paths such as `rtl/**`, and Vide will analyze the project according to that structure.
+- The default `sources = []` is an unfinished state: it tells Vide not to scan the whole project yet. Replace it with actual paths such as `rtl/**`, and Vide will analyze the project according to that structure.
 - The leading `#:schema ...` line is a TOML comment. It can help editors identify the configuration format.
 :::
 
@@ -135,9 +131,7 @@ top_modules = ["darksocv"]
 ## 4. Common Notes
 
 - The project configuration file must be named `vide.toml`.
-- Put `vide.toml` in the workspace root opened by VS Code. Vide does not automatically discover project configuration files from subdirectories.
-- `sources` and `exclude` use paths relative to the workspace root. Use `**` when you need to match nested directories.
-- `include_dirs` and `libraries` use ordinary directory paths. The current project's `vide.toml` should be in the workspace root, so these paths are usually workspace-root-relative as well. If a directory listed in `libraries` contains its own `vide.toml`, paths in that library configuration are resolved relative to that library's own `vide.toml`.
+- Put `vide.toml` in the project root opened by VS Code. Vide does not automatically discover project configuration files from subdirectories.
 
 ## 5. Project Status
 
@@ -145,8 +139,8 @@ After you save `vide.toml`, Vide reloads project configuration automatically by 
 
 In practice there are three project states:
 
-- No `vide.toml`: Vide scans the workspace on a best-effort basis so code-reading features such as navigation, references, hover, and symbols can work first, but it does not create a project-level compilation profile.
-- The empty default template: `sources = []` tells Vide not to scan the whole workspace yet, because the actual source paths still need to be filled in.
+- No `vide.toml`: Vide scans the project on a best-effort basis so code-reading features such as navigation, references, hover, and symbols can work first, but it does not create a project-level compilation profile.
+- The empty default template: `sources = []` tells Vide not to scan the whole project yet, because the actual source paths still need to be filled in.
 - A configured `vide.toml`: Vide understands the project through `sources`, `include_dirs`, `defines`, `libraries`, and related fields.
 
 Each feature page explains how project configuration affects that feature.
