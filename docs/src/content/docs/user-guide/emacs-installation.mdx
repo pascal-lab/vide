@@ -1,0 +1,103 @@
+---
+title: Emacs 安装
+description: 下载 Vide 语言服务器，并配置 Emacs Eglot。
+---
+
+本页面向已经使用 Emacs 编辑 Verilog/SystemVerilog 的用户。Vide 目前发布的是语言服务器二进制，不包含 Emacs 插件；Emacs 通过 Eglot 启动 `vide`，并把跳转、补全、悬停和诊断接入编辑器界面。
+
+## 1. 下载 Vide
+
+从下面选择与你平台匹配的语言服务器二进制：
+
+| 平台 | 下载链接 |
+| --- | --- |
+| Linux x64 | [`vide-linux-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-x64) |
+| Linux arm64 | [`vide-linux-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-arm64) |
+| Windows x64 | [`vide-win32-x64.exe`](https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe) |
+| macOS arm64 | [`vide-darwin-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-darwin-arm64) |
+| Alpine/musl x64 | [`vide-alpine-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-x64) |
+| Alpine/musl arm64 | [`vide-alpine-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-arm64) |
+
+Linux x64 示例：
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-x64 -o ~/.local/bin/vide
+chmod +x ~/.local/bin/vide
+vide --version
+```
+
+macOS arm64 示例：
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/pascal-lab/vide/releases/latest/download/vide-darwin-arm64 -o ~/.local/bin/vide
+chmod +x ~/.local/bin/vide
+vide --version
+```
+
+Windows PowerShell 示例：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\vide"
+Invoke-WebRequest "https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe" -OutFile "$env:LOCALAPPDATA\vide\vide.exe"
+& "$env:LOCALAPPDATA\vide\vide.exe" --version
+```
+
+如果 `vide --version` 不能执行，先处理 `PATH` 或二进制路径问题，再继续配置 Emacs。
+
+## 2. 配置 Eglot
+
+Emacs 29 及更新版本内置 Eglot。把下面配置加入你的 Emacs 配置文件：
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((verilog-mode verilog-ts-mode) . ("vide"))))
+```
+
+如果 `vide` 不在 `PATH` 中，把 `"vide"` 改成绝对路径：
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((verilog-mode verilog-ts-mode) . ("D:/tools/vide/vide.exe"))))
+```
+
+如果希望打开 Verilog/SystemVerilog 文件时自动启动 Eglot，可以再加：
+
+```elisp
+(add-hook 'verilog-mode-hook #'eglot-ensure)
+(add-hook 'verilog-ts-mode-hook #'eglot-ensure)
+```
+
+## 3. 准备项目配置
+
+在工程根目录编写 `vide.toml`，让 Vide 知道要分析哪些源文件、头文件目录和宏定义。第一次配置可以先看[配置第一个项目](../first-project/)。
+
+建议从工程目录打开文件，并让工程目录包含 `vide.toml` 或 `.git`。这样 Eglot 和 Emacs 的 `project.el` 更容易为语言服务器找到正确的项目根目录。
+
+## 4. 启动和验证
+
+打开工程中的 `.v` 或 `.sv` 文件后，执行：
+
+```text
+M-x eglot
+```
+
+如果已经配置自动启动，打开文件后 Eglot 会自动连接。验证方式：
+
+```text
+M-x eglot-events-buffer
+```
+
+如果能看到与 `vide` 相关的 LSP 日志，说明语言服务器已经启动。也可以在代码中测试跳转定义、悬停或补全。
+
+如果没有启动，按顺序检查：
+
+- `M-x describe-mode` 里当前 major mode 是否是 `verilog-mode` 或 `verilog-ts-mode`。
+- 在 Emacs 外部终端执行 `vide --version` 是否成功。
+- Emacs 的 `PATH` 是否和外部终端一致；不一致时优先在 `eglot-server-programs` 中写绝对路径。
+- 当前文件是否位于包含 `vide.toml` 或 `.git` 的工程目录下。
+
+安装完成后，继续阅读[配置第一个项目](../first-project/)和[功能特性](../features/)。

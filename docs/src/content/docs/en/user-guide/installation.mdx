@@ -1,0 +1,28 @@
+---
+title: Installation Guide
+description: Install Vide for your editor.
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Vide's core features are provided by its language server. The VS Code extension bundles and starts the language server automatically. Neovim and Emacs users need to download the Vide language server binary first, then configure the editor's LSP client to start it.
+
+<CardGrid>
+  <LinkCard
+    title="VS Code Installation"
+    href="../vscode-installation/"
+    description="Install the Vide VS Code extension and confirm that the language service has started."
+  />
+  <LinkCard
+    title="Neovim Installation"
+    href="../neovim-installation/"
+    description="Download the Vide language server and configure Neovim's built-in LSP client."
+  />
+  <LinkCard
+    title="Emacs Installation"
+    href="../emacs-installation/"
+    description="Download the Vide language server and configure Emacs Eglot."
+  />
+</CardGrid>
+
+If you only want to try the core features first, open the [Online Experience](../online-experience/) without installing anything locally.

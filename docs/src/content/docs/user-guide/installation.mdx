@@ -1,0 +1,28 @@
+---
+title: 安装指南
+description: 根据你使用的编辑器安装 Vide。
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Vide 的核心能力由语言服务器提供。VS Code 扩展会自动携带并启动语言服务器；Neovim 和 Emacs 需要先下载 Vide 语言服务器二进制，再在编辑器的 LSP 客户端里配置启动命令。
+
+<CardGrid>
+  <LinkCard
+    title="VS Code 安装"
+    href="../vscode-installation/"
+    description="安装 Vide 的 VS Code 扩展，并确认语言服务已经启动。"
+  />
+  <LinkCard
+    title="Neovim 安装"
+    href="../neovim-installation/"
+    description="下载 Vide 语言服务器，并配置 Neovim 内置 LSP。"
+  />
+  <LinkCard
+    title="Emacs 安装"
+    href="../emacs-installation/"
+    description="下载 Vide 语言服务器，并配置 Emacs Eglot。"
+  />
+</CardGrid>
+
+如果你只是想先感受核心功能，也可以直接打开[在线体验](../online-experience/)，无需本地安装。

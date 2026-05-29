@@ -62,7 +62,16 @@ export default defineConfig({
           items: [
             'user-guide',
             'user-guide/online-experience',
-            'user-guide/vscode-installation',
+            {
+              label: '安装指南',
+              translations: { en: 'Installation Guide' },
+              items: [
+                'user-guide/installation',
+                'user-guide/vscode-installation',
+                'user-guide/neovim-installation',
+                'user-guide/emacs-installation',
+              ],
+            },
             'user-guide/first-project',
             {
               label: '功能特性',

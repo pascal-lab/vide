@@ -1,0 +1,116 @@
+---
+title: Neovim Installation
+description: Download the Vide language server and configure Neovim's built-in LSP client.
+---
+
+This page is for users who already use Neovim's built-in LSP client. Vide currently publishes a language server binary without a Neovim plugin; Neovim starts `vide` and connects go-to-definition, completion, hover, and diagnostics to the editor UI.
+
+## 1. Download Vide
+
+Choose the language server binary for your platform:
+
+| Platform | Download |
+| --- | --- |
+| Linux x64 | [`vide-linux-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-x64) |
+| Linux arm64 | [`vide-linux-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-arm64) |
+| Windows x64 | [`vide-win32-x64.exe`](https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe) |
+| macOS arm64 | [`vide-darwin-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-darwin-arm64) |
+| Alpine/musl x64 | [`vide-alpine-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-x64) |
+| Alpine/musl arm64 | [`vide-alpine-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-arm64) |
+
+On Linux or macOS, run the following (replace `<platform>` with the matching platform name):
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/pascal-lab/vide/releases/latest/download/vide-<platform> -o ~/.local/bin/vide
+chmod +x ~/.local/bin/vide
+vide --version
+```
+
+Windows PowerShell example:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\vide"
+Invoke-WebRequest "https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe" -OutFile "$env:LOCALAPPDATA\vide\vide.exe"
+& "$env:LOCALAPPDATA\vide\vide.exe" --version
+```
+
+After downloading, confirm that `vide --version` runs and returns version information.
+
+## 2. Confirm the Config File Location
+
+Neovim only reads user configuration from fixed locations. According to Neovim's official [config](https://neovim.io/doc/user/starting/#config) documentation, the default config file on Windows is `~/AppData/Local/nvim/init.lua` or `~/AppData/Local/nvim/init.vim`, while on Linux / macOS it is typically `~/.config/nvim/init.lua`.
+
+Run this inside Neovim to see the actual config directory on your system:
+
+```vim
+:echo stdpath('config')
+```
+
+On Windows, it usually prints something like:
+
+```text
+C:\Users\<user>\AppData\Local\nvim
+```
+
+Put the Lua configuration from the following sections in `init.lua` under that directory.
+
+## 3. Configure File Types
+
+Neovim starts Vide only when the current buffer's `filetype` matches `verilog` or `systemverilog`. Defaults may differ between Neovim versions and user setups for `.v`/`.vh`. Declare these extensions explicitly in `init.lua`:
+
+```lua
+vim.filetype.add({
+  extension = {
+    v = 'verilog',
+    vh = 'verilog',
+    sv = 'systemverilog',
+    svh = 'systemverilog',
+    svi = 'systemverilog',
+  },
+})
+```
+
+After opening a file, verify the result with:
+
+```vim
+:set filetype?
+```
+
+Expected results: `.v`/`.vh` should show `filetype=verilog`, and `.sv`/`.svh`/`.svi` should show `filetype=systemverilog`.
+
+## 4. Configure LSP
+
+Neovim 0.11 or newer can add the following to `init.lua`, after the `vim.filetype.add` block above:
+
+```lua
+vim.lsp.config('vide', {
+  cmd = { 'vide' },
+  filetypes = { 'verilog', 'systemverilog' },
+  root_markers = { 'vide.toml', '.git' },
+})
+
+vim.lsp.enable('vide')
+```
+
+If `vide` from step 1 is not on `PATH`, use an absolute path in `cmd`, for example:
+
+```lua
+cmd = { 'D:/vide/vide.exe' }
+```
+
+## 5. Prepare Project Configuration
+
+Create `vide.toml` in the project root so Vide knows which source files, include directories, and macros to analyze. See [Configure the First Project](../first-project/) for the first setup.
+
+## 6. Verify
+
+Open a `.v` or `.sv` file in your project, then run this in Neovim:
+
+```vim
+:lua print(vim.inspect(vim.lsp.get_clients({ name = 'vide' })))
+```
+
+If the output contains a `vide` client, the language server has started. You can also test go-to-definition, hover, or completion in code.
+
+After installation, continue with [Configure the First Project](../first-project/) and [Features](../features/).

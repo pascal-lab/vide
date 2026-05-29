@@ -1,13 +1,13 @@
 ---
 title: 配置第一个项目
-description: 用一个小工程写第一份 vide.toml。
+description: 用一个小工程写第一份 vide.toml，并学习给真实项目编写配置。
 ---
 
 import { FileTree } from '@astrojs/starlight/components';
 
-Vide 打开任何 Verilog/SystemVerilog 项目后，都可以提供语法高亮和基础编辑体验。要让 Vide 更准确地做跨文件跳转、补全、诊断和宏分支判断，就需要在工作区根目录放一个项目配置文件：`vide.toml`。
+Vide 打开任何 Verilog/SystemVerilog 项目后，都可以提供语法高亮和基础编辑体验。要让 Vide 更准确地做跨文件跳转、补全、诊断和宏分支判断，就需要在项目根目录放一个项目配置文件：`vide.toml`。
 
-这页会用一个小工程写出第一份 `vide.toml`，完整字段和边界规则见 [项目配置参考](../project-configuration/)。
+这页会先用一个小工程写出第一份 `vide.toml`，再教你给真实项目编写 `vide.toml`。完整字段和边界规则见 [项目配置参考](../project-configuration/)。
 
 ## 1. 创建项目配置文件
 
@@ -27,7 +27,7 @@ sources = []
 ```
 
 :::note
-- 默认模板里的 `sources = []` 只是一个待填写状态：它会阻止 Vide 直接扫描整个工作区。把 `sources` 改成 `rtl/**` 这类真实路径后，Vide 才会按你的工程结构分析。
+- 默认模板里的 `sources = []` 只是一个待填写状态：它会阻止 Vide 直接扫描整个项目。把 `sources` 改成 `rtl/**` 这类真实路径后，Vide 才会按你的工程结构分析。
 - 配置文件开头的 `#:schema ...` 是 TOML 注释。未来，它能够帮助编辑器识别配置格式。
 :::
 
@@ -131,8 +131,7 @@ top_modules = ["darksocv"]
 ## 4. 常见注意事项
 
 - 项目配置文件名必须是 `vide.toml`。
-- `vide.toml` 应放在 VS Code 打开的工作区根目录。Vide 不会从子目录自动发现项目配置文件。
-- `sources` 和 `exclude` 使用工作区相对 glob；`include_dirs` 和 `libraries` 使用相对 `vide.toml` 所在目录的普通路径。
+- `vide.toml` 应放在 VS Code 打开的项目根目录。Vide 不会从子目录自动发现项目配置文件。
 
 ## 5. 项目状态
 
@@ -140,11 +139,11 @@ top_modules = ["darksocv"]
 
 实际使用时可以把项目状态分成三类：
 
-- 没有 `vide.toml`：Vide 会尽量扫描工作区，先让跳转、引用、悬停、符号信息等读代码功能可用，但不会创建项目级编译配置。
-- 刚创建的空模板：默认写着 `sources = []`，表示暂时不扫描整个工作区，等你填入真实源码路径。
+- 没有 `vide.toml`：Vide 会尽量扫描项目，先让跳转、引用、悬停、符号信息等读代码功能可用，但不会创建项目级编译配置。
+- 刚创建的空模板：默认写着 `sources = []`，表示暂时不扫描整个项目，等你填入真实源码路径。
 - 写好 `vide.toml`：Vide 按 `sources`、`include_dirs`、`defines`、`libraries` 等字段理解工程。
 
-接下来介绍每个功能特性时，会继续说明是否配置项目对该功能的影响。这份影响清单也单独整理在 [项目配置前后的行为差异](../project-configuration-effects/)。
+接下来介绍每个功能特性时，会继续说明是否配置项目对该功能的影响。
 
 ## 下一步
 

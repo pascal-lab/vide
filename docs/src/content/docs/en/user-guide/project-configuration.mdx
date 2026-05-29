@@ -176,11 +176,13 @@ The current project loader reads these extensions:
 
 ### include_dirs
 
-`include_dirs` controls `` `include "file.svh" `` search. If `include_dirs` is not configured explicitly and `sources` is set explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory.
+`include_dirs` tells Vide which directories to search for `file.svh` in `` `include "file.svh" ``.
 
-`include_dirs` are include search paths only. They do not mean every file in those directories becomes an independent compile entry. Header files usually participate only after a `.v` or `.sv` file includes them; opening a header directly, or listing its directory in `include_dirs`, does not mean Vide runs full standalone project diagnostics for that header.
+If `sources` is set but `include_dirs` is not configured explicitly, Vide infers a default include directory from `sources`. For example, `sources = ["rtl/**/*.sv"]` uses `rtl` as the default include directory. If `sources` is omitted, Vide does not infer include directories from best-effort indexing.
 
-If `sources` is omitted, Vide does not infer include directories from best-effort indexing. If `include_dirs = []` is set explicitly, Vide also does not use the default include directories inferred from `sources`.
+In all cases, an explicit `include_dirs = []` means forcing the include search path to be empty; Vide will not infer a default.
+
+`include_dirs` are include search paths only. They do not mean every file in those directories becomes an independent compile entry. Vide analyzes `.v`/`.sv` code after included headers are expanded. Opening a header directly, or listing its directory in `include_dirs`, does not mean Vide runs full standalone project diagnostics for that header. As a result, features that depend on full project context are usually less complete inside header files than inside `.v`/`.sv` source files.
 
 ### defines
 
@@ -214,7 +216,9 @@ Macro names must be valid identifiers. Macros with values are parsed as `NAME=va
 exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 ```
 
-`exclude = ["build"]` only matches the path named `build` itself and does not recursively exclude the directory contents. Use `build/**` for recursive directory exclusion. If you also want VS Code to reduce file watching, configure VS Code's `files.watcherExclude` as well. Vide's `exclude` and VS Code's watcher settings are separate mechanisms.
+`exclude = ["build"]` only matches the path named `build` itself and does not recursively exclude the directory contents. Use `build/**` for recursive directory exclusion.
+
+`exclude` only controls which files Vide selects for project analysis. If you use VS Code and also want VS Code itself to watch fewer large directories, configure VS Code's `files.watcherExclude` separately. These settings do not replace each other: the former controls what Vide analyzes, while the latter controls what the VS Code file watcher pays less attention to.
 
 ## Project File Discovery Rules
 

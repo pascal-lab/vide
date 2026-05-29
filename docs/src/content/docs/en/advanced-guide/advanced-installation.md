@@ -94,7 +94,7 @@ npm run compile
 2. Bundles `src/extension.ts` into `dist/extension.js` with esbuild.
 3. Copies the speedscope static assets required by the diagnostics profiling view into `dist/speedscope`.
 
-### Package a VSIX
+### Package the VS Code Extension as a VSIX
 
 If you want a local debug build or a VSIX with debug binaries, run this under `editors/vscode`:
 
@@ -125,7 +125,7 @@ npm run package:alpine-arm64
 These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64 and arm64.
 Those are also the VSIX targets currently built by CI. Even if `package.json` contains script entries for other platforms, that does not mean they can be packaged directly in a local environment or in the current workflows.
 
-Server binary preparation is controlled by `editors/vscode/scripts/package.ts`:
+All packaging commands above need to prepare the language server binary for the target platform first. The exact rules for that step are controlled by `editors/vscode/scripts/package.ts`:
 
 - When the target matches the current host platform, the script runs `cargo build --release` and copies the result.
 - Alpine targets are built in musl containers in CI. The local script adds the matching Rust musl target, but still needs a working musl cross-compilation environment.

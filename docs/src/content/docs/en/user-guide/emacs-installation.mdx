@@ -1,0 +1,103 @@
+---
+title: Emacs Installation
+description: Download the Vide language server and configure Emacs Eglot.
+---
+
+This page is for users who edit Verilog/SystemVerilog in Emacs. Vide currently publishes a language server binary, not an Emacs plugin. Emacs starts `vide` through Eglot and connects navigation, completion, hover, and diagnostics to the editor UI.
+
+## 1. Download Vide
+
+Choose the language server binary for your platform:
+
+| Platform | Download |
+| --- | --- |
+| Linux x64 | [`vide-linux-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-x64) |
+| Linux arm64 | [`vide-linux-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-arm64) |
+| Windows x64 | [`vide-win32-x64.exe`](https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe) |
+| macOS arm64 | [`vide-darwin-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-darwin-arm64) |
+| Alpine/musl x64 | [`vide-alpine-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-x64) |
+| Alpine/musl arm64 | [`vide-alpine-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-arm64) |
+
+Linux x64 example:
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-x64 -o ~/.local/bin/vide
+chmod +x ~/.local/bin/vide
+vide --version
+```
+
+macOS arm64 example:
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/pascal-lab/vide/releases/latest/download/vide-darwin-arm64 -o ~/.local/bin/vide
+chmod +x ~/.local/bin/vide
+vide --version
+```
+
+Windows PowerShell example:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\vide"
+Invoke-WebRequest "https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe" -OutFile "$env:LOCALAPPDATA\vide\vide.exe"
+& "$env:LOCALAPPDATA\vide\vide.exe" --version
+```
+
+If `vide --version` does not run, fix `PATH` or the binary path before configuring Emacs.
+
+## 2. Configure Eglot
+
+Emacs 29 and newer include Eglot. Add this to your Emacs configuration:
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((verilog-mode verilog-ts-mode) . ("vide"))))
+```
+
+If `vide` is not on `PATH`, replace `"vide"` with an absolute path:
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '((verilog-mode verilog-ts-mode) . ("D:/tools/vide/vide.exe"))))
+```
+
+To start Eglot automatically when opening Verilog/SystemVerilog files, also add:
+
+```elisp
+(add-hook 'verilog-mode-hook #'eglot-ensure)
+(add-hook 'verilog-ts-mode-hook #'eglot-ensure)
+```
+
+## 3. Prepare Project Configuration
+
+Create `vide.toml` in the project root so Vide knows which source files, include directories, and macros to analyze. See [Configure the First Project](../first-project/) for the first setup.
+
+Open files from the project directory and make sure the project contains `vide.toml` or `.git`. This helps Eglot and Emacs `project.el` find the correct root for the language server.
+
+## 4. Start and Verify
+
+Open a `.v` or `.sv` file in your project and run:
+
+```text
+M-x eglot
+```
+
+If you configured automatic startup, Eglot connects after opening the file. To verify it, run:
+
+```text
+M-x eglot-events-buffer
+```
+
+If the buffer contains LSP logs related to `vide`, the language server has started. You can also test go to definition, hover, or completion in code.
+
+If it does not start, check these in order:
+
+- `M-x describe-mode` shows `verilog-mode` or `verilog-ts-mode` as the current major mode.
+- `vide --version` works in an external terminal.
+- Emacs may not inherit the same `PATH` as your terminal. Prefer an absolute path in `eglot-server-programs` when in doubt.
+- The current file is under a project directory containing `vide.toml` or `.git`.
+
+After installation, continue with [Configure the First Project](../first-project/) and [Features](../features/).

@@ -176,11 +176,13 @@ sources = ["rtl/**", "ip/**/*.sv", "tb/**/*.sv"]
 
 ### include_dirs
 
-`include_dirs` 用于处理 `` `include "file.svh" ``。如果你已经写了 `sources`，但没有写 `include_dirs`，Vide 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。
+`include_dirs` 用于告诉 Vide 去哪些目录查找 `` `include "file.svh" `` 中的 `file.svh`。
 
-`include_dirs` 只表示 include 搜索路径，不表示这些目录里的文件都是独立编译入口。头文件通常通过被 `.v` 或 `.sv` 文件 `` `include `` 后参与解析；只打开头文件，或者只把目录写进 `include_dirs`，不等于 Vide 会为这个头文件单独跑完整工程诊断。
+如果你已经写了 `sources`，但没有写 `include_dirs`，Vide 会从 `sources` 推导一个默认 include 目录。例如 `sources = ["rtl/**/*.sv"]` 会把 `rtl` 作为默认 include 目录。但如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。
 
-如果 `sources` 被省略，Vide 不会从尽力索引结果反推 include 目录。显式写成 `include_dirs = []` 时，也表示不使用从 `sources` 推导出来的默认 include 目录。
+任何情况下，显式写成 `include_dirs = []` 时，都表示强制使用空 include 目录，Vide 不会进行推导。
+
+`include_dirs` 只表示 include 搜索路径，不表示这些目录里的文件都是独立编译入口。Vide 实际分析的是引入头文件后的 `.v`/`.sv` 代码；只打开头文件，或者只把目录写进 `include_dirs`，不等于 Vide 会为这个头文件单独跑完整工程诊断。因此在头文件中，依赖完整工程上下文的功能通常不如在 `.v`/`.sv` 源文件中完整。
 
 ### defines
 
@@ -214,7 +216,9 @@ defines = [
 exclude = ["build/**", "out/**", "sim/work/**", "**/*_bb.v"]
 ```
 
-`exclude = ["build"]` 只匹配名为 `build` 的路径本身，不会递归排除目录内容；目录递归请写 `build/**`。如果你还希望 VS Code 自己减少文件监听，可以同时配置 VS Code 的 `files.watcherExclude`。Vide 的 `exclude` 和 VS Code 的文件监听设置是两套机制。
+`exclude = ["build"]` 只匹配名为 `build` 的路径本身，不会递归排除目录内容；目录递归请写 `build/**`。
+
+`exclude` 只影响 Vide 选择哪些文件进入项目分析。如果你使用 VS Code，并且还想让 VS Code 自己也少监听某些大目录，可以另外配置 VS Code 的 `files.watcherExclude`。这两个设置互不替代：前者决定 Vide 分析什么，后者决定 VS Code 文件监听器少关注什么。
 
 ## 项目文件发现规则
 

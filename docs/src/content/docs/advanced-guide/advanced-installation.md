@@ -42,7 +42,7 @@ description: 从源码构建 Vide、打包本地 VSIX，或安装预发布版本
 
 ### 构建 Vide 语言服务器
 
-Vide 的核心是一个用 Rust 编写的语言服务器。VS Code 中的代码导航、补全、悬停、重命名、诊断等语义能力主要由这个语言服务器提供；扩展负责启动服务器、与之通信，并把结果接入编辑器界面。
+Vide 的核心是一个用 Rust 编写的语言服务器。VS Code 中的代码导航、补全、悬停、重命名、诊断等语义能力主要由这个语言服务器提供；VS Code 扩展负责启动服务器、与之通信，并把结果接入编辑器界面。
 
 要构建这个语言服务器，先在仓库根目录运行：
 
@@ -80,7 +80,7 @@ npm run compile
 2. 用 esbuild 把 `src/extension.ts` 打包到 `dist/extension.js`。
 3. 把诊断性能分析视图需要的 Speedscope 静态资源复制到 `dist/speedscope`。
 
-### 打包 VSIX
+### 打包 VS Code 扩展为 VSIX
 
 如果你只想在本机调试，或者要打包一个带调试信息的 VSIX，在 `editors/vscode` 下运行：
 
@@ -111,7 +111,7 @@ npm run package:alpine-arm64
 这些脚本会先编译扩展，然后准备目标平台的 release 版语言服务器，再生成 `vide-vscode-<target>.vsix`。当前 release workflow 只覆盖上面这些目标：glibc Linux、Windows x64、macOS arm64，以及 Alpine/musl x64 和 arm64。
 这几项也是当前 CI 会实际构建的 VSIX 目标。其他平台即使在 `package.json` 里有脚本入口，也不表示它们在本地或当前 workflow 里一定能直接打包成功。
 
-语言服务器的准备规则由 `editors/vscode/scripts/package.ts` 决定：
+上面的打包命令都需要先准备目标平台的语言服务器二进制；这一步的具体规则由 `editors/vscode/scripts/package.ts` 决定：
 
 - 目标等于当前宿主平台时，脚本执行 `cargo build --release` 并复制产物。
 - Alpine 目标在 CI 的 musl 容器中构建；本地脚本会添加对应 Rust musl target，但仍需要可用的 musl 交叉编译环境。

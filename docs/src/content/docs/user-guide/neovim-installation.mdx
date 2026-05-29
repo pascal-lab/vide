@@ -1,0 +1,116 @@
+---
+title: Neovim 安装
+description: 下载 Vide 语言服务器，并配置 Neovim 内置 LSP。
+---
+
+本页面向已经使用 Neovim 内置 LSP 的用户。Vide 每次更新都会发布语言服务器的二进制文件。Neovim 负责启动 Vide 语言服务器，并把跳转、补全、悬停和诊断接入编辑器界面。
+
+## 1. 下载 Vide
+
+从下面选择与你平台匹配的语言服务器二进制：
+
+| 平台 | 下载链接 |
+| --- | --- |
+| Linux x64 | [`vide-linux-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-x64) |
+| Linux arm64 | [`vide-linux-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-linux-arm64) |
+| Windows x64 | [`vide-win32-x64.exe`](https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe) |
+| macOS arm64 | [`vide-darwin-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-darwin-arm64) |
+| Alpine/musl x64 | [`vide-alpine-x64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-x64) |
+| Alpine/musl arm64 | [`vide-alpine-arm64`](https://github.com/pascal-lab/vide/releases/latest/download/vide-alpine-arm64) |
+
+Linux 或 macOS 可以用以下命令（注意把 `<platform>` 替换为对应平台名称）：
+
+```bash
+mkdir -p ~/.local/bin
+curl -L https://github.com/pascal-lab/vide/releases/latest/download/vide-<platform> -o ~/.local/bin/vide
+chmod +x ~/.local/bin/vide
+vide --version
+```
+
+Windows PowerShell 示例：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\vide"
+Invoke-WebRequest "https://github.com/pascal-lab/vide/releases/latest/download/vide-win32-x64.exe" -OutFile "$env:LOCALAPPDATA\vide\vide.exe"
+& "$env:LOCALAPPDATA\vide\vide.exe" --version
+```
+
+下载后，请确认 `vide --version` 可以执行并返回版本信息。
+
+## 2. 确认配置文件位置
+
+Neovim 只会读取固定位置的用户配置文件。根据 Neovim 官方文档的 [config](https://neovim.io/doc/user/starting/#config) 说明，Windows 上默认配置文件是 `~/AppData/Local/nvim/init.lua` 或 `~/AppData/Local/nvim/init.vim`，而 Linux / macOS 则一般是 `~/.config/nvim/init.lua`。
+
+在 Neovim 里执行下面的命令，可以看到当前系统实际使用的配置目录：
+
+```vim
+:echo stdpath('config')
+```
+
+Windows 上通常会输出类似：
+
+```text
+C:\Users\<user>\AppData\Local\nvim
+```
+
+请把下面几节提到的 Lua 配置放到这个目录下的 `init.lua`。
+
+## 3. 配置文件类型
+
+Neovim 只有在当前打开文件的 `filetype` 命中 `verilog` 或 `systemverilog` 时才会启动 Vide。不同 Neovim 版本和用户配置对 `.v`/`.vh` 的默认识别可能不同。所以，可以在 `init.lua` 中显式声明这些扩展名：
+
+```lua
+vim.filetype.add({
+  extension = {
+    v = 'verilog',
+    vh = 'verilog',
+    sv = 'systemverilog',
+    svh = 'systemverilog',
+    svi = 'systemverilog',
+  },
+})
+```
+
+打开文件后，可以用下面的命令确认结果：
+
+```vim
+:set filetype?
+```
+
+期望结果是 `.v`/`.vh` 显示 `filetype=verilog`，`.sv`/`.svh`/`.svi` 显示 `filetype=systemverilog`。
+
+## 4. 配置 LSP
+
+Neovim 0.11 或更新版本可以直接把下面配置加入 `init.lua`，并放在上面的 `vim.filetype.add` 之后：
+
+```lua
+vim.lsp.config('vide', {
+  cmd = { 'vide' },
+  filetypes = { 'verilog', 'systemverilog' },
+  root_markers = { 'vide.toml', '.git' },
+})
+
+vim.lsp.enable('vide')
+```
+
+如果第一步下载的 `vide` 不在 `PATH` 中，请把 `cmd` 改成绝对路径，例如：
+
+```lua
+cmd = { 'D:/vide/vide.exe' }
+```
+
+## 5. 准备项目配置
+
+在项目的根目录编写 `vide.toml`，让 Vide 知道要分析哪些源文件、头文件目录和宏定义。第一次配置可以先看[配置第一个项目](../first-project/)。
+
+## 6. 验证
+
+打开工程中的 `.v` 或 `.sv` 文件，然后在 Neovim 中执行：
+
+```vim
+:lua print(vim.inspect(vim.lsp.get_clients({ name = 'vide' })))
+```
+
+如果输出里能看到 `vide` client，说明语言服务器已经启动。也可以在代码中测试跳转定义、悬停或补全。
+
+安装完成后，继续阅读[配置第一个项目](../first-project/)和[功能特性](../features/)。

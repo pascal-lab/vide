@@ -1,13 +1,13 @@
 ---
 title: Configure the First Project
-description: Write the first vide.toml for a small project.
+description: Write the first vide.toml for a small project, then learn how to configure a real project.
 ---
 
 import { FileTree } from '@astrojs/starlight/components';
 
 Vide provides syntax highlighting and basic editing as soon as you open a Verilog/SystemVerilog project. To make cross-file navigation, completion, diagnostics, and macro-branch selection more accurate, add a project configuration file named `vide.toml` to the workspace root.
 
-This page walks through a lightweight first `vide.toml`. For complete field details and boundary rules, see [Project Configuration Reference](../project-configuration/).
+This page first walks through a lightweight first `vide.toml`, then shows how to write `vide.toml` for a real project. For complete field details and boundary rules, see [Project Configuration Reference](../project-configuration/).
 
 ## 1. Create the Project Configuration File
 
@@ -136,7 +136,8 @@ top_modules = ["darksocv"]
 
 - The project configuration file must be named `vide.toml`.
 - Put `vide.toml` in the workspace root opened by VS Code. Vide does not automatically discover project configuration files from subdirectories.
-- `sources` and `exclude` use workspace-relative globs. `include_dirs` and `libraries` are ordinary paths resolved relative to the directory that contains `vide.toml`.
+- `sources` and `exclude` use paths relative to the workspace root. Use `**` when you need to match nested directories.
+- `include_dirs` and `libraries` use ordinary directory paths. The current project's `vide.toml` should be in the workspace root, so these paths are usually workspace-root-relative as well. If a directory listed in `libraries` contains its own `vide.toml`, paths in that library configuration are resolved relative to that library's own `vide.toml`.
 
 ## 5. Project Status
 
@@ -148,7 +149,7 @@ In practice there are three project states:
 - The empty default template: `sources = []` tells Vide not to scan the whole workspace yet, because the actual source paths still need to be filled in.
 - A configured `vide.toml`: Vide understands the project through `sources`, `include_dirs`, `defines`, `libraries`, and related fields.
 
-Each feature page explains how project configuration affects that feature. The same checklist is also available as [Behavior With and Without Project Configuration](../project-configuration-effects/).
+Each feature page explains how project configuration affects that feature.
 
 ## Next Step
 
