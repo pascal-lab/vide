@@ -21,14 +21,6 @@ If a feature behaves incorrectly, please open a report in [GitHub Issues](https:
 
 Start by running `Vide: Show Server Version`, then `Vide: Show Language Server Output`, and attach the relevant content from the `Vide Language Server` output channel to the issue.
 
-The `Vide Language Server` output channel usually already contains the most useful troubleshooting data, including:
-
-- extension activation and current platform
-- VS Code version
-- the actual server command, arguments, and working directory
-- the result of `Vide: Show Server Version`
-- startup failures or exit errors
-
 If the output is still not enough, or the problem only appears in a longer-running flow, enable a more detailed file log. Add `--log` and `--log_file` through `vide.server.additionalArgs`, then restart the language server:
 
 ```json
@@ -37,7 +29,7 @@ If the output is still not enough, or the problem only appears in a longer-runni
 }
 ```
 
-If the server itself cannot start, first use "The Extension or Custom Server Cannot Start" below to confirm that the actual server command used by the extension is runnable; that is usually more useful than jumping straight to a file log.
+If the server itself cannot start, go straight to "The Extension or Custom Server Cannot Start" below.
 
 ## Common Cases and Responses
 
@@ -62,14 +54,14 @@ See [Build and Install from Source](../advanced-installation/#build-and-install-
 
 ### The Extension or Custom Server Cannot Start
 
-First confirm the command actually used by the extension. Click the `Vide` status item, or run `Vide: Show Status` and `Vide: Show Language Server Output`, then record:
+First confirm the command actually used by the extension. Run `Vide: Show Status`, `Vide: Show Language Server Output`, and `Vide: Show Server Version`, then record:
 
 - `Platform`
 - `Server command`
 - `Server args`
 - `Working directory`
 
-Then run `Vide: Show Server Version`. If that command also fails, the server command, working directory, or base arguments currently used by the extension are not runnable yet.
+If `Vide: Show Server Version` also fails, the server command, working directory, or base arguments currently used by the extension are not runnable yet.
 
 You can also validate the same binary directly in a terminal:
 
