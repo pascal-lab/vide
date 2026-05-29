@@ -5,11 +5,11 @@ description: Install the Vide extension and confirm that the language service ha
 
 import ThinLinkCard from '../../../../components/ThinLinkCard.astro';
 
-This page helps you install the Vide VS Code extension and verify that it is working. If you have not installed VS Code yet, download it from the [VS Code website](https://code.visualstudio.com/).
+This page walks you through installing the Vide VS Code extension and verifying that Vide is working correctly. If you have not installed VS Code yet, download it from the [VS Code website](https://code.visualstudio.com/).
 
 ## 1. Install the Extension
 
-For regular use, install the stable Marketplace extension.
+For regular use, simply install the stable version published on the VS Code Marketplace. The card below links to the Marketplace:
 
 <ThinLinkCard
   href="https://marketplace.visualstudio.com/items?itemName=pascal-lab.vide-ide"
@@ -21,23 +21,29 @@ For regular use, install the stable Marketplace extension.
 
 You can also search for the display name `Vide` or the extension ID `pascal-lab.vide-ide` in the VS Code Extensions view.
 
-![vide in extension market](../../assets/quick-start/extension-marketplace.png)
+![vide in extension market](../../assets/en/quick-start/extension-marketplace.png)
 
 ## 2. Open an RTL Project Directory
 
 Open the project folder that contains your RTL source code in VS Code.
 
-If the project contains Verilog/SystemVerilog source files but has no project configuration file named `vide.toml`, the extension prompts you to create a default configuration. For exploration, you can skip this step for now, because Vide can still provide some analysis without configuration.
+If the project contains Verilog/SystemVerilog source files but has no project configuration file named `vide.toml`, the extension prompts you to create a default configuration. For exploration, you can skip this step for now, because Vide can still provide some analysis without a configuration.
 
-![notification for creating a project configuration file](../../assets/quick-start/create-manifest-notification.png)
+![notification for creating a project configuration file](../../assets/en/quick-start/create-manifest-notification.png)
 
 We will create the first `vide.toml` in [Configure the First Project](../first-project/).
 
 ## 3. Confirm Vide Started
 
-After the extension activates, the right side of the VS Code status bar shows a status item named `Vide`. When startup is normal, the item displays `Vide`. Hover over the status item and check the current status details to confirm that Vide has started.
+After the extension activates, a status item named `Vide` appears in the VS Code status bar. When startup is normal, the item displays `Vide`. The status bar may appear yellow at this point because no `vide.toml` configuration file has been created yet.
 
-![status bar](../../assets/quick-start/status-bar.png)
+![status bar](../../assets/en/quick-start/status-0.png)
+
+If `vide.toml` is properly configured, hovering over the status item shows the status details as pictured below.
+
+![status bar](../../assets/en/quick-start/status-1.png)
+
+Both states indicate that Vide has started and you can continue exploring.
 
 :::note
 If the `Vide` status item does not appear, reload VS Code and open the project folder. If it still does not appear after restarting, please [contact us](https://github.com/pascal-lab/vide/issues/new).
@@ -47,8 +53,8 @@ If the `Vide` status item does not appear, reload VS Code and open the project f
 
 Open a Verilog `.v`/`.vh` file or a SystemVerilog `.sv`/`.svh`/`.svi` file. VS Code can recognize the language and enable syntax highlighting and Vide analysis.
 
-![example](../../assets/quick-start/editor-example.png)
+![example](../../assets/en/quick-start/editor-example.png)
 
 ## Next Step
 
-After installation is verified, use [Configure the First Project](../first-project/) to write the first `vide.toml`, then read [Features](../features/).
+After installation is verified, use [Configure the First Project](../first-project/) to write your first `vide.toml`, then read [Features](../features/) to learn about the editing capabilities.
