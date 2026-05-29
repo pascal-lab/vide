@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
 
@@ -24,10 +25,7 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
-      vscode: ${{ steps.filter.outputs.vscode }}
-      package: ${{ steps.filter.outputs.package }}
-      server: ${{ steps.filter.outputs.server }}
+      plan: ${{ steps.plan.outputs.result }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect changed paths
@@ -36,11 +34,36 @@ jobs:
         uses: dorny/paths-filter@v4
         with:
           filters: .github/ci-modules.yml
+      - name: Plan CI jobs
+        id: plan
+        uses: actions/github-script@v9
+        env:
+          FILTER_RUST: ${{ steps.filter.outputs.rust }}
+          FILTER_VSCODE: ${{ steps.filter.outputs.vscode }}
+          FILTER_PACKAGE: ${{ steps.filter.outputs.package }}
+        with:
+          retries: 3
+          result-encoding: string
+          script: |
+            const { pathToFileURL } = await import('node:url');
+            const scriptUrl = pathToFileURL(`${process.env.GITHUB_WORKSPACE}/.github/scripts/ci-plan.mjs`);
+            const { planCi } = await import(scriptUrl.href);
+            const plan = await planCi({
+              github,
+              context,
+              core,
+              filters: {
+                rust: process.env.FILTER_RUST === 'true',
+                vscode: process.env.FILTER_VSCODE === 'true',
+                package: process.env.FILTER_PACKAGE === 'true',
+              },
+            });
+            return JSON.stringify(plan);
 
   rust-lint:
     name: Rust Linting
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.rust == 'true'
+    if: fromJSON(needs.changes.outputs.plan).run_rust_lint == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,11 +91,10 @@ jobs:
   rust-test:
     name: Rust Tests (${{ matrix.os }})
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.rust == 'true'
+    if: fromJSON(needs.changes.outputs.plan).run_rust_test == true
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+      matrix: ${{ fromJSON(needs.changes.outputs.plan).rust_test_matrix }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -97,7 +119,7 @@ jobs:
   vscode-extension:
     name: VS Code Checks
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.vscode == 'true'
+    if: fromJSON(needs.changes.outputs.plan).run_vscode_extension == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,7 +140,7 @@ jobs:
   vscode-web-smoke:
     name: VS Code Web Smoke
     needs: changes
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.vscode == 'true' || needs.changes.outputs.package == 'true'
+    if: fromJSON(needs.changes.outputs.plan).run_vscode_web_smoke == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -189,21 +211,12 @@ jobs:
   dev-package:
     name: Dev Package (${{ matrix.target }})
     needs: changes
-    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.package == 'true')
+    if: fromJSON(needs.changes.outputs.plan).run_dev_package == true
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Keep the Linux x64 VSIX compatible with Ubuntu 22.04 glibc/libstdc++.
-          - os: ubuntu-22.04
-            target: linux-x64
-          - os: ubuntu-24.04-arm
-            target: linux-arm64
-          - os: windows-latest
-            target: win32-x64
-          - os: macos-15
-            target: darwin-arm64
+        include: ${{ fromJSON(needs.changes.outputs.plan).dev_package_matrix }}
     defaults:
       run:
         working-directory: editors/vscode
@@ -298,7 +311,7 @@ jobs:
   dev-web-package:
     name: Dev Package (web)
     needs: changes
-    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.package == 'true')
+    if: fromJSON(needs.changes.outputs.plan).run_dev_web_package == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -386,19 +399,13 @@ jobs:
   dev-alpine-package:
     name: Dev Package (${{ matrix.target }})
     needs: changes
-    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.package == 'true')
+    if: fromJSON(needs.changes.outputs.plan).run_dev_alpine_package == true
     runs-on: ubuntu-22.04
     container: ${{ matrix.image }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: alpine-x64
-            image: ghcr.io/blackdex/rust-musl:x86_64-musl-nightly
-            rust-target: x86_64-unknown-linux-musl
-          - target: alpine-arm64
-            image: ghcr.io/blackdex/rust-musl:aarch64-musl-nightly
-            rust-target: aarch64-unknown-linux-musl
+        include: ${{ fromJSON(needs.changes.outputs.plan).dev_alpine_matrix }}
     defaults:
       run:
         working-directory: editors/vscode

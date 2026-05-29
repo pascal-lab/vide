@@ -11,12 +11,14 @@ rust:
   - "xtask/**"
   - ".github/actions/setup-rust/**"
   - ".github/actions/setup-sccache/**"
+  - ".github/scripts/**"
   - ".github/ci-modules.yml"
   - ".github/workflows/ci.yml"
 
 vscode:
   - "editors/vscode/**"
   - "packages/vide-extension-shared/**"
+  - ".github/scripts/**"
   - ".github/ci-modules.yml"
   - ".github/workflows/ci.yml"
 
@@ -42,5 +44,6 @@ package:
   - ".github/actions/setup-rust/**"
   - ".github/actions/setup-sccache/**"
   - ".github/actions/setup-emscripten/**"
+  - ".github/scripts/**"
   - ".github/ci-modules.yml"
   - ".github/workflows/ci.yml"
