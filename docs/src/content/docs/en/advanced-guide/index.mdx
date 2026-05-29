@@ -1,6 +1,6 @@
 ---
 title: Advanced
-description: Vide advanced documentation for local installation, source builds, startup troubleshooting, logs, and the project analysis model.
+description: Vide advanced documentation for local installation, source builds, troubleshooting and bug reports, and the project analysis model.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -8,7 +8,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 Advanced is not a second user guide. It covers three kinds of work:
 
 - Installation and build: source builds, local VSIX packages, prerelease packages, and custom language servers.
-- Troubleshooting and logs: checking whether the language server started, finding command entry points, opening output channels, and generating profiling artifacts.
+- Troubleshooting and bug reports: filing issues and handling common startup, configuration, and refresh problems by symptom.
 - Analysis model: understanding why an unconfigured workspace can still navigate code, and why diagnostics, rename, and Qihe change after `vide.toml` is configured.
 
 For normal RTL editing, start with the [User Guide](../user-guide/). For feature usage, start with [Features](../user-guide/features/).
@@ -23,18 +23,13 @@ For normal RTL editing, start with the [User Guide](../user-guide/). For feature
   />
 </CardGrid>
 
-## Troubleshooting and Logs
+## Troubleshooting and Bug Reports
 
 <CardGrid>
   <LinkCard
-    title="When the Extension Fails to Start"
-    href="./check-server/"
-    description="Answer one question: did the extension start the language server?"
-  />
-  <LinkCard
-    title="Advanced Troubleshooting"
+    title="Troubleshooting and Bug Reports"
     href="./troubleshooting/"
-    description="Troubleshoot local VSIX packages, custom servers, file watching, logs, and profiling by symptom."
+    description="Report problems and troubleshoot common startup, configuration, and refresh issues."
   />
 </CardGrid>
 

@@ -198,4 +198,4 @@ You can also install from the command line:
 code --install-extension ./vide-vscode-win32-x64.vsix
 ```
 
-If the status bar reports an error after installation, use [When the Extension Fails to Start](../check-server/) to confirm the server path and platform package.
+If the status bar reports an error after installation, use [Troubleshooting and Bug Reports](../troubleshooting/) to confirm the server path and platform package.

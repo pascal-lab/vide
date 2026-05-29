@@ -1,53 +1,95 @@
 ---
-title: 高级故障排查
-description: 按症状排查本地 VSIX、自定义服务器、文件监听、日志和 profiling 问题。
+title: 故障报告与排查
+description: 报告 Vide 故障，并按常见症状处理启动和文件刷新问题。
 ---
 
-本页处理已经超出普通功能使用的问题，例如本地 VSIX、替换服务器、文件监听、服务器日志和诊断性能分析。诊断、跳转、格式化或 Qihe 的普通使用问题，优先回到 [功能特性](../../user-guide/features/) 中对应功能页。
+有时 Vide 可能出现故障。
 
-如果你还不能确认语言服务器是否启动，先看 [当扩展无法正常启动](../check-server/)。命令、状态栏和输出通道名称见 [命令、状态和日志](../../user-guide/commands-status-logs/)。
+有些故障是 Vide 本身的问题，这种情况欢迎通过 [GitHub Issues](https://github.com/pascal-lab/vide/issues) 向我们报告，并尽量附上可复现例子。
+有些故障来自工作区或扩展配置，这种情况可以先按本页的常见问题和应对处理。
 
-## 先按症状分流
+普通功能使用问题，优先回到 [功能特性](../../user-guide/features/) 的对应页面。命令、状态栏含义和输出通道名称见 [命令、状态和日志](../../user-guide/commands-status-logs/)。
 
-| 症状 | 先看哪里 | 常见原因 |
-| --- | --- | --- |
-| 状态栏显示语言服务器错误 | `Vide Language Server` 输出通道 | VSIX 平台不匹配、自定义命令不存在、工作目录错误 |
-| 本地 VSIX 安装后找不到服务器 | 本页“本地 VSIX 找不到服务器” | 只编译了扩展，没有把服务器二进制打进 VSIX |
-| 自定义服务器在终端能跑，在扩展里失败 | 本页“自定义服务器启动失败” | `vide.server.cwd`、参数数组、VS Code 进程 PATH 和终端不同 |
-| 改文件后没有刷新 | 本页“文件变化没有触发刷新” | 文件 watcher 没收到事件，或文件被排除 |
-| 需要内部日志或性能数据 | 本页“服务器日志”和“诊断性能分析” | 需要额外启动参数或 profiling 产物 |
+## 故障报告
 
-## 本地 VSIX 找不到服务器
+如果出现功能异常，欢迎在 [GitHub Issues](https://github.com/pascal-lab/vide/issues) 向我们报告，并尽量附上：
 
-扩展默认在自己的安装目录下寻找 `server/vide.exe` 或 `server/vide`。本地调试时，如果只运行 `npm run compile`，只会生成扩展 JavaScript，不会构建服务器，也不会把服务器复制进扩展目录。
+- 触发问题的最小例子
+- 期望行为和实际行为
+- 使用的平台、VS Code 版本，以及 `Vide：显示服务器版本` 看到的扩展版本和服务器版本
+- 能稳定复现时的操作步骤
 
-要生成包含服务器的本地 VSIX，在 `editors/vscode` 下运行：
+建议先执行 `Vide：显示服务器版本`，再执行 `Vide：显示语言服务器输出`，把 `Vide Language Server` 输出通道里的相关内容一起附到 issue。
 
-```powershell
-npm run package:debug
-```
+`Vide Language Server` 输出通道通常已经包含排查最需要的信息，例如：
 
-如果只是想让已安装扩展使用本地构建的服务器，可以改用自定义服务器路径：
+- 扩展激活和当前平台
+- VS Code 版本
+- 实际使用的服务器命令、参数和工作目录
+- `Vide：显示服务器版本` 查询结果
+- 启动失败或退出时的错误
+
+如果 output 里的信息还不够，或者问题只会在较长流程里出现，再打开更详细的文件日志。在 `vide.server.additionalArgs` 中加入 `--log` 和 `--log_file`，然后重启语言服务器：
 
 ```json
 {
-  "vide.server.command": "D:/Proj/vizsla/target/release/vide.exe"
+  "vide.server.additionalArgs": ["--log", "debug", "--log_file", "D:/work/vide-server.log"]
 }
 ```
 
-保存后选择提示里的 `重启`，或执行 `Vide：重启语言服务器`。完整构建流程见 [从源码构建安装](../advanced-installation/#build-from-source-installation)。
+如果服务器本身还启动不了，可以先看下面的“扩展或自定义服务器无法启动”，先确认扩展实际使用的服务器命令能正常运行。
 
-## 自定义服务器启动失败
+## 常见问题和应对
 
-先确认扩展实际使用的命令。打开 `Vide Language Server` 输出通道，找到 `Server command`、`Server args` 和 `Working directory`。
+### 状态栏提示语言服务器错误
 
-然后检查：
+先打开 `Vide Language Server` 输出通道，重点看最后一条错误，以及是否出现：
 
-- `vide.server.command` 使用绝对路径。
-- 这个命令能在终端执行 `--version`。
-- `vide.server.args` 和 `vide.server.additionalArgs` 都是字符串数组。
-- `vide.server.cwd` 如果设置，必须是已经存在的目录。
-- 修改 `vide.server.command`、`vide.server.args`、`vide.server.additionalArgs`、`vide.server.cwd` 或 `vide.trace.server` 后，需要重启语言服务器。
+```text
+[INFO] Language server started successfully
+```
+
+常见问题是：
+
+- `Bundled Vide Language Server binary not found` 或 `Unsupported platform-architecture combination`：
+  先核对安装的 VSIX 和当前平台是否匹配。本地打包时，只有 `npm run package:*` 或 `npm run package:debug` 会把服务器打进 VSIX；单独执行 `npm run compile` 只会编译扩展前端。
+- `Failed to start language server`、自定义命令不存在、无执行权限：
+  继续看下面的“扩展或自定义服务器无法启动”。
+- 状态栏只是提示 `vide.toml`、`manifest` 或 `failed to load workspace`：
+  这通常不是启动问题，应该回到工作区根目录检查 `vide.toml`。相关说明见 [配置第一个项目](../../user-guide/first-project/) 和 [项目配置参考](../../user-guide/project-configuration/)。
+
+完整的本地打包和安装流程见 [从源码构建安装](../advanced-installation/#build-from-source-installation)。
+
+### 扩展或自定义服务器无法启动
+
+先确认扩展实际使用的命令。点击状态栏的 `Vide`，或执行 `Vide：显示状态` 和 `Vide：显示语言服务器输出`，记录下面几项：
+
+- `Platform`
+- `Server command`
+- `Server args`
+- `Working directory`
+
+然后执行 `Vide：显示服务器版本`。如果这个命令也失败，说明扩展当前使用的服务器命令、工作目录或基础参数还不能正常运行。
+
+也可以在终端直接验证同一个二进制：
+
+```powershell
+vide --version
+```
+
+Windows 自定义服务器示例：
+
+```powershell
+D:/tools/vide/vide.exe --version
+```
+
+如果配置了自定义服务器，再继续检查：
+
+- `vide.server.command` 使用绝对路径
+- 这个命令能在终端正常执行 `--version`
+- `vide.server.args` 和 `vide.server.additionalArgs` 都是字符串数组
+- `vide.server.cwd` 如果设置，必须是已经存在的目录
+- 修改 `vide.server.command`、`vide.server.args`、`vide.server.additionalArgs`、`vide.server.cwd` 或 `vide.trace.server` 后，需要重启语言服务器
 
 示例：
 
@@ -62,16 +104,7 @@ npm run package:debug
 
 完整字段说明见 [Server 设置](../../user-guide/vscode-settings/#server)。
 
-## 状态栏显示项目配置错误
-
-状态栏的错误不一定来自语言服务器启动。点击 `Vide` 状态项并打开输出后，先区分错误来源：
-
-- 出现 `Bundled Vide Language Server binary not found`、`Unsupported platform-architecture combination`、`Failed to start language server`：继续检查 VSIX 或自定义服务器。
-- 出现 `failed to load workspace`、`manifest ...`、`vide.toml` 相关错误：这是项目配置错误。
-
-项目配置错误应该回到 [配置第一个项目](../../user-guide/first-project/) 或 [项目配置参考](../../user-guide/project-configuration/) 修正工作区根目录下的 `vide.toml`。
-
-## 文件变化没有触发刷新
+### 文件变化没有触发刷新
 
 默认 `vide.files.watcher` 是 `client`，会优先使用 VS Code 的文件变化通知。客户端不支持动态监听文件时，Vide 会回退到服务端监听。
 
@@ -84,27 +117,3 @@ npm run package:debug
 ```
 
 `vide.files.excludeDirs` 只接受工作区相对目录，不支持 glob。项目文件选择请优先使用 `vide.toml` 的 `sources` 和 `exclude`；如果还要减少 VS Code 自己的文件监听事件，再配置 VS Code 的 `files.watcherExclude`。
-
-## 打开更详细的服务器日志
-
-如果语言服务器能启动，但需要看内部日志，在 `vide.server.additionalArgs` 中添加 `--log` 和 `--log_file`，然后重启语言服务器：
-
-```json
-{
-  "vide.server.additionalArgs": ["--log", "debug", "--log_file", "D:/work/vide-server.log"]
-}
-```
-
-如果服务器本身还启动不了，先不要加复杂日志参数；先看 [当扩展无法正常启动](../check-server/) 确认服务器路径、平台和 `--version`。
-
-## 诊断性能分析没有产物
-
-`Vide：分析诊断性能` 会启动独立的临时语言服务器，不会复用当前编辑会话。产物目录、trace、summary 和 flamegraph 路径会写到 `Vide Profiling` 输出通道。
-
-如果没有产物：
-
-- 确认当前工作区或当前文件能被正常分析。
-- 打开 `Vide Profiling` 输出通道查看临时服务器启动错误。
-- 临时服务器仍然使用当前 `vide.server.command`、`vide.server.args` 和相关配置；自定义服务器错误会影响 profiling。
-
-产物格式说明见 [命令、状态和日志](../../user-guide/commands-status-logs/#高级诊断性能分析产物)。

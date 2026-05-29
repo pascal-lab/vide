@@ -1,53 +1,95 @@
 ---
-title: Advanced Troubleshooting
-description: Troubleshoot local VSIX packages, custom servers, file watching, logs, and profiling by symptom.
+title: Troubleshooting and Bug Reports
+description: Report Vide issues and troubleshoot common startup and refresh problems.
 ---
 
-This page handles issues beyond normal feature usage, such as local VSIX packages, replacement servers, file watching, server logs, and diagnostics profiling. For ordinary diagnostics, navigation, formatting, or Qihe usage problems, start from the related page in [Features](../../user-guide/features/).
+Vide can still fail in some cases.
 
-If you cannot yet confirm whether the language server started, start with [When the Extension Fails to Start](../check-server/). Command, status bar, and output channel names are listed in [Commands, Status, and Logs](../../user-guide/commands-status-logs/).
+Some failures are product issues. In that case, please report them through [GitHub Issues](https://github.com/pascal-lab/vide/issues) and attach a reproducible example when possible.
+Some failures come from workspace or extension configuration. In that case, start with the common cases on this page.
 
-## Start from the Symptom
+For normal feature usage questions, go back to the related page under [Features](../../user-guide/features/). Command names, status bar meanings, and output channel names are listed in [Commands, Status, and Logs](../../user-guide/commands-status-logs/).
 
-| Symptom | Start here | Common cause |
-| --- | --- | --- |
-| The status bar shows a language-server error | `Vide Language Server` output channel | VSIX platform mismatch, missing custom command, invalid working directory |
-| A local VSIX cannot find the server | "Local VSIX Cannot Find the Server" on this page | The extension was compiled without bundling the server into the VSIX |
-| A custom server works in a terminal but fails in the extension | "Custom Server Startup Fails" on this page | `vide.server.cwd`, argument arrays, or VS Code process PATH differ from the terminal |
-| File changes do not refresh | "File Changes Do Not Trigger Refresh" on this page | File watcher events are missing, or files are excluded |
-| You need internal logs or performance data | "Server Logs" and "Diagnostics Profiling" on this page | Additional startup arguments or profiling artifacts are needed |
+## Report a Bug
 
-## Local VSIX Cannot Find the Server
+If a feature behaves incorrectly, please open a report in [GitHub Issues](https://github.com/pascal-lab/vide/issues) and include, when possible:
 
-The extension looks for `server/vide.exe` or `server/vide` under its own installation directory. During local debugging, running only `npm run compile` builds the extension JavaScript, but does not build the server or copy it into the extension directory.
+- a minimal example that triggers the problem
+- the expected behavior and the actual behavior
+- your platform, VS Code version, and the extension/server versions shown by `Vide: Show Server Version`
+- stable reproduction steps when the problem is reproducible
 
-To create a local VSIX that includes the server, run this under `editors/vscode`:
+Start by running `Vide: Show Server Version`, then `Vide: Show Language Server Output`, and attach the relevant content from the `Vide Language Server` output channel to the issue.
 
-```powershell
-npm run package:debug
-```
+The `Vide Language Server` output channel usually already contains the most useful troubleshooting data, including:
 
-If you only want an installed extension to use a locally built server, configure a custom server path instead:
+- extension activation and current platform
+- VS Code version
+- the actual server command, arguments, and working directory
+- the result of `Vide: Show Server Version`
+- startup failures or exit errors
+
+If the output is still not enough, or the problem only appears in a longer-running flow, enable a more detailed file log. Add `--log` and `--log_file` through `vide.server.additionalArgs`, then restart the language server:
 
 ```json
 {
-  "vide.server.command": "D:/Proj/vizsla/target/release/vide.exe"
+  "vide.server.additionalArgs": ["--log", "debug", "--log_file", "D:/work/vide-server.log"]
 }
 ```
 
-After saving, accept the `Restart` prompt or run `Vide: Restart Language Server`. See [Build and Install from Source](../advanced-installation/#build-and-install-from-source) for the full build flow.
+If the server itself cannot start, first use "The Extension or Custom Server Cannot Start" below to confirm that the actual server command used by the extension is runnable; that is usually more useful than jumping straight to a file log.
 
-## Custom Server Startup Fails
+## Common Cases and Responses
 
-First confirm the command that the extension is actually using. Open the `Vide Language Server` output channel and find `Server command`, `Server args`, and `Working directory`.
+### The Status Bar Shows a Language Server Error
 
-Then check:
+Open the `Vide Language Server` output channel first. Focus on the last error, and on whether you see:
 
-- `vide.server.command` uses an absolute path.
-- The command can run `--version` in a terminal.
-- `vide.server.args` and `vide.server.additionalArgs` are arrays of strings.
-- If `vide.server.cwd` is set, it points to an existing directory.
-- After changing `vide.server.command`, `vide.server.args`, `vide.server.additionalArgs`, `vide.server.cwd`, or `vide.trace.server`, restart the language server.
+```text
+[INFO] Language server started successfully
+```
+
+Common branches are:
+
+- `Bundled Vide Language Server binary not found` or `Unsupported platform-architecture combination`:
+  first confirm that the installed VSIX matches the current platform. For local packaging, only `npm run package:*` or `npm run package:debug` bundles the server into the VSIX; `npm run compile` only builds the extension frontend.
+- `Failed to start language server`, missing custom command, or permission failure:
+  continue with "The Extension or Custom Server Cannot Start" below.
+- The status bar only mentions `vide.toml`, `manifest`, or `failed to load workspace`:
+  this is usually not a startup problem. Go back to the workspace-root `vide.toml`. See [Configure the First Project](../../user-guide/first-project/) and [Project Configuration Reference](../../user-guide/project-configuration/).
+
+See [Build and Install from Source](../advanced-installation/#build-and-install-from-source) for the full local packaging and installation flow.
+
+### The Extension or Custom Server Cannot Start
+
+First confirm the command actually used by the extension. Click the `Vide` status item, or run `Vide: Show Status` and `Vide: Show Language Server Output`, then record:
+
+- `Platform`
+- `Server command`
+- `Server args`
+- `Working directory`
+
+Then run `Vide: Show Server Version`. If that command also fails, the server command, working directory, or base arguments currently used by the extension are not runnable yet.
+
+You can also validate the same binary directly in a terminal:
+
+```powershell
+vide --version
+```
+
+Windows custom-server example:
+
+```powershell
+D:/tools/vide/vide.exe --version
+```
+
+If you configured a custom server, also check:
+
+- `vide.server.command` uses an absolute path
+- the command can run `--version` successfully in a terminal
+- `vide.server.args` and `vide.server.additionalArgs` are arrays of strings
+- if `vide.server.cwd` is set, it points to an existing directory
+- after changing `vide.server.command`, `vide.server.args`, `vide.server.additionalArgs`, `vide.server.cwd`, or `vide.trace.server`, restart the language server
 
 Example:
 
@@ -62,16 +104,7 @@ Example:
 
 See [Server settings](../../user-guide/vscode-settings/#server) for the full field reference.
 
-## Status Bar Shows a Project Configuration Error
-
-A status bar error does not always come from language-server startup. Click the `Vide` status item, open the output, and separate the source:
-
-- `Bundled Vide Language Server binary not found`, `Unsupported platform-architecture combination`, or `Failed to start language server`: continue checking the VSIX or custom server.
-- `failed to load workspace`, `manifest ...`, or `vide.toml` related errors: this is a project configuration error.
-
-Project configuration errors should be fixed in the workspace root `vide.toml`. See [Configure the First Project](../../user-guide/first-project/) or [Project Configuration Reference](../../user-guide/project-configuration/).
-
-## File Changes Do Not Trigger Refresh
+### File Changes Do Not Trigger Refresh
 
 The default `vide.files.watcher` is `client`, so Vide prefers VS Code watched-file notifications. If the client does not support dynamic watched files, Vide falls back to the server-side watcher.
 
@@ -84,27 +117,3 @@ If project file changes do not trigger a refresh, temporarily switch to the serv
 ```
 
 `vide.files.excludeDirs` only accepts workspace-relative directories and does not support globs. Prefer `sources` and `exclude` in `vide.toml` for project file selection. If you also want to reduce VS Code watcher events, configure VS Code's `files.watcherExclude` separately.
-
-## Open More Detailed Server Logs
-
-If the language server starts but you need internal logs, add `--log` and `--log_file` through `vide.server.additionalArgs`, then restart the language server:
-
-```json
-{
-  "vide.server.additionalArgs": ["--log", "debug", "--log_file", "D:/work/vide-server.log"]
-}
-```
-
-If the server itself still cannot start, avoid complex log arguments first. Use [When the Extension Fails to Start](../check-server/) to confirm the server path, platform, and `--version`.
-
-## Diagnostics Profiling Artifacts Are Missing
-
-`Vide: Profile Diagnostics` starts an isolated temporary language server and does not reuse the current editor session. The artifact directory, trace, summary, and flamegraph paths are written to the `Vide Profiling` output channel.
-
-If no artifacts appear:
-
-- Confirm that the current workspace or current file can be analyzed normally.
-- Open the `Vide Profiling` output channel and check the temporary server startup error.
-- The temporary server still uses the current `vide.server.command`, `vide.server.args`, and related settings; custom server errors also affect profiling.
-
-Artifact formats are described in [Commands, Status, and Logs](../../user-guide/commands-status-logs/#advanced-diagnostics-profiling-artifacts).

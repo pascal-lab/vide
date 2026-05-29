@@ -109,12 +109,9 @@ export default defineConfig({
               items: ['advanced-guide/advanced-installation'],
             },
             {
-              label: '排障与日志',
-              translations: { en: 'Troubleshooting and Logs' },
-              items: [
-                'advanced-guide/check-server',
-                'advanced-guide/troubleshooting',
-              ],
+              label: '故障报告与排查',
+              translations: { en: 'Troubleshooting and Bug Reports' },
+              items: ['advanced-guide/troubleshooting'],
             },
             {
               label: '分析模型',

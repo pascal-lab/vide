@@ -1,6 +1,6 @@
 ---
 title: 进阶
-description: 面向本地安装、源码构建、启动排障、日志和项目分析模型的 Vide 进阶文档。
+description: 面向本地安装、源码构建、故障报告与排查，以及工程分析模型的 Vide 进阶文档。
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -8,7 +8,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 进阶主要处理三类问题：
 
 - 安装和构建：源码构建、本地 VSIX、预发布包和自定义语言服务器。
-- 排障和日志：确认语言服务器是否启动、查看命令入口、打开输出通道和生成 profiling 产物。
+- 故障报告与排查：提交 issue，并按常见症状处理启动、配置和文件刷新问题。
 - 分析模型：理解为什么无配置工程也能跳转，为什么写好 `vide.toml` 后诊断、重命名和 Qihe 行为会变化。
 
 普通 RTL 编辑流程请从 [用户手册](../user-guide/) 开始；有关功能使用请看用户手册的 [功能特性](../user-guide/features/)。
@@ -23,18 +23,13 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
   />
 </CardGrid>
 
-## 排障与日志
+## 故障报告与排查
 
 <CardGrid>
   <LinkCard
-    title="当扩展无法正常启动"
-    href="./check-server/"
-    description="只回答一个问题：扩展有没有把语言服务器启动起来。"
-  />
-  <LinkCard
-    title="高级故障排查"
+    title="故障报告与排查"
     href="./troubleshooting/"
-    description="按症状处理本地 VSIX、自定义服务器、文件监听、日志和 profiling 问题。"
+    description="报告问题，并按常见症状处理启动、配置和文件刷新问题。"
   />
 </CardGrid>
 
