@@ -129,6 +129,30 @@ jobs:
           path: editors/vscode/vide-vscode-${{ matrix.target }}.vsix
           if-no-files-found: error
 
+      - name: Upload language server binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          server_dir="editors/vscode/server/${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == win32-* ]]; then
+            src="${server_dir}/vide.exe"
+            dst="vide-${{ matrix.target }}.exe"
+          else
+            src="${server_dir}/vide"
+            dst="vide-${{ matrix.target }}"
+          fi
+          if [[ ! -f "$src" ]]; then
+            echo "Language server binary not found: $src" >&2
+            exit 1
+          fi
+          cp "$src" "$dst"
+      - name: Upload language server binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-lsp-${{ matrix.target }}
+          path: vide-${{ matrix.target }}*
+          if-no-files-found: error
+
   build-alpine-package:
     name: Package ${{ matrix.target }}
     needs: changelog
@@ -210,6 +234,25 @@ jobs:
           path: editors/vscode/vide-vscode-${{ matrix.target }}.vsix
           if-no-files-found: error
 
+      - name: Upload language server binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          server_dir="editors/vscode/server/${{ matrix.target }}"
+          src="${server_dir}/vide"
+          dst="vide-${{ matrix.target }}"
+          if [[ ! -f "$src" ]]; then
+            echo "Language server binary not found: $src" >&2
+            exit 1
+          fi
+          cp "$src" "$dst"
+      - name: Upload language server binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-lsp-${{ matrix.target }}
+          path: vide-${{ matrix.target }}
+          if-no-files-found: error
+
   publish:
     name: Publish ${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }} release
     needs: [build-and-package, build-alpine-package]
@@ -232,7 +275,7 @@ jobs:
           git tag -f beta "$GITHUB_SHA"
           git push -f origin beta
 
-      - name: Download VSIX artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -247,7 +290,9 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           overwrite_files: true
-          files: artifacts/**/*.vsix
+          files: |
+            artifacts/**/*.vsix
+            artifacts/vide-lsp-*/**
 
   publish-marketplace:
     name: Publish VS Code Marketplace

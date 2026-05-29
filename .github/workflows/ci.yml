@@ -195,6 +195,31 @@ jobs:
           path: editors/vscode/vide-vscode-${{ matrix.target }}-debug.vsix
           if-no-files-found: error
           retention-days: 14
+      - name: Upload dev language server binary
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          server_dir="editors/vscode/server/${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == win32-* ]]; then
+            src="${server_dir}/vide.exe"
+            dst="vide-${{ matrix.target }}.exe"
+          else
+            src="${server_dir}/vide"
+            dst="vide-${{ matrix.target }}"
+          fi
+          if [[ ! -f "$src" ]]; then
+            echo "Language server binary not found: $src" >&2
+            exit 1
+          fi
+          cp "$src" "$dst"
+      - name: Upload dev language server binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-lsp-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
+          path: vide-${{ matrix.target }}*
+          if-no-files-found: error
+          retention-days: 14
 
   dev-alpine-package:
     name: Dev Package (${{ matrix.target }})
@@ -298,5 +323,25 @@ jobs:
         with:
           name: vide-vscode-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
           path: editors/vscode/vide-vscode-${{ matrix.target }}-debug.vsix
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload dev language server binary
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          server_dir="editors/vscode/server/${{ matrix.target }}"
+          src="${server_dir}/vide"
+          dst="vide-${{ matrix.target }}"
+          if [[ ! -f "$src" ]]; then
+            echo "Language server binary not found: $src" >&2
+            exit 1
+          fi
+          cp "$src" "$dst"
+      - name: Upload dev language server binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-lsp-dev-${{ matrix.target }}-${{ steps.build-metadata.outputs.commit_hash }}
+          path: vide-${{ matrix.target }}
           if-no-files-found: error
           retention-days: 14
