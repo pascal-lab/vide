@@ -4,10 +4,12 @@ node_modules/**
 out/**
 src/**
 test/**
+test-web/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
 **/tsconfig.json
+**/tsconfig.*.json
 **/.eslintrc.json
 **/*.map
 **/*.ts
@@ -16,3 +18,4 @@ pnpm-lock.yaml
 bun.lock
 scripts/**
 server/*/
+dist/test-web/**

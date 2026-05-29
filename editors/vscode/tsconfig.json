@@ -3,7 +3,6 @@
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
-    "rootDir": ".",
     "outDir": "out",
     "strict": true,
     "esModuleInterop": true,
@@ -11,8 +10,14 @@
     "skipLibCheck": true
   },
   "include": [
+    "../../packages/vide-extension-shared/src/**/*.ts",
     "scripts/**/*.ts",
     "src/**/*.ts",
-    "test/**/*.ts"
+    "test/**/*.ts",
+    "test-web/runTests.ts"
+  ],
+  "exclude": [
+    "src/browser/**/*.ts",
+    "test-web/suite/**/*.ts"
   ]
 }

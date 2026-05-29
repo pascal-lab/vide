@@ -1,8 +1,6 @@
-import * as path from 'node:path';
-
 import * as vscode from 'vscode';
 
-import { PROJECT_CONFIG_FILE_NAME } from './projectConfig';
+import { PROJECT_CONFIG_FILE_NAME } from './projectConfigCommon';
 import {
   asProjectStatus,
   getVideStatusPresentation,
@@ -294,7 +292,7 @@ async function openProjectManifest(status: ProjectStatus): Promise<void> {
     status.manifestUris.map((uri) => {
       const displayPath = uriDisplayPath(uri);
       return {
-        label: path.basename(displayPath),
+        label: baseName(displayPath),
         description: displayPath,
         uri,
       };
@@ -308,4 +306,10 @@ async function openProjectManifest(status: ProjectStatus): Promise<void> {
   }
 
   await openUri(selected.uri);
+}
+
+function baseName(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '');
+  const slashIndex = normalized.lastIndexOf('/');
+  return slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
 }

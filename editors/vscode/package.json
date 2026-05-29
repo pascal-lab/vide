@@ -28,6 +28,7 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
+  "browser": "./dist/browser/extension.js",
   "l10n": "./l10n",
   "contributes": {
     "languages": [
@@ -390,19 +391,26 @@
       "editor/title": [
         {
           "command": "vide.runQiheAnalysis",
-          "when": "resourceLangId == verilog || resourceLangId == systemverilog",
+          "when": "!isWeb && (resourceLangId == verilog || resourceLangId == systemverilog)",
           "group": "navigation@10"
         }
       ]
     }
   },
   "scripts": {
-    "bundle": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js && npm run copy-speedscope",
+    "bundle:node": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js && npm run copy-speedscope",
+    "bundle:browser:extension": "esbuild src/browser/extension.ts --bundle --platform=browser --target=es2022 --format=cjs --external:vscode --outfile=dist/browser/extension.js",
+    "bundle:browser:worker": "esbuild src/browser/worker.ts --bundle --platform=browser --target=es2022 --format=iife --outfile=dist/browser/vide-lsp.worker.js",
+    "bundle:browser": "npm run bundle:browser:extension && npm run bundle:browser:worker && npm run copy-web-assets",
+    "bundle:test-web": "esbuild test-web/suite/index.ts --bundle --platform=browser --target=es2022 --format=cjs --external:vscode --outfile=dist/test-web/suite/index.js",
     "clean": "tsx scripts/clean.ts",
     "copy-speedscope": "tsx scripts/copy-speedscope-assets.ts",
-    "typecheck": "tsc -p . --noEmit",
-    "compile": "npm run clean && npm run typecheck && npm run bundle",
+    "copy-web-assets": "tsx scripts/copy-web-assets.ts",
+    "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.test-web.json --noEmit",
+    "compile": "npm run clean && npm run typecheck && npm run bundle:node",
+    "compile:web": "npm run clean && npm run typecheck && npm run bundle:node && npm run bundle:browser",
     "test": "npm run compile && node --import tsx --test \"test/**/*.test.ts\"",
+    "test:web": "npm run bundle:browser && npm run bundle:test-web && tsx test-web/runTests.ts",
     "package:debug": "npm run compile && tsx scripts/package.ts --debug",
     "package:alpine-arm64": "npm run compile && tsx scripts/package.ts alpine-arm64",
     "package:alpine-x64": "npm run compile && tsx scripts/package.ts alpine-x64",
@@ -410,6 +418,7 @@
     "package:darwin-x64": "npm run compile && tsx scripts/package.ts darwin-x64",
     "package:linux-x64": "npm run compile && tsx scripts/package.ts linux-x64",
     "package:linux-arm64": "npm run compile && tsx scripts/package.ts linux-arm64",
+    "package:web": "npm run compile:web && tsx scripts/package.ts web",
     "package:win32-x64": "npm run compile && tsx scripts/package.ts win32-x64",
     "package:win32-arm64": "npm run compile && tsx scripts/package.ts win32-arm64",
     "install-extension": "tsx scripts/install-extension.ts"
@@ -418,11 +427,14 @@
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "22.15.1",
     "@types/vscode": "1.101.0",
     "@vscode/l10n-dev": "^0.0.35",
+    "@vscode/test-web": "^0.0.80",
     "@vscode/vsce": "^3.6.2",
     "esbuild": "^0.28.0",
+    "mocha": "^11.7.6",
     "speedscope": "1.25.0",
     "tsx": "^4.22.0",
     "typescript": "^5.9.3"

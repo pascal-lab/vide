@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && 'beta' || github.ref }}
   cancel-in-progress: false
 
+env:
+  EMSDK_VERSION: 5.0.2
+
 jobs:
   changelog:
     name: Check changelog
@@ -253,9 +256,110 @@ jobs:
           path: vide-${{ matrix.target }}
           if-no-files-found: error
 
+  build-web-package:
+    name: Package web
+    needs: changelog
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore playground WASM cache
+        id: playground-wasm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: playground/public/wasm
+          key: playground-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+
+      - name: Verify cached playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit == 'true'
+        working-directory: .
+        run: |
+          test -s playground/public/wasm/vide-lsp.js
+          test -s playground/public/wasm/vide-core.js
+          test -s playground/public/wasm/vide-core.wasm
+
+      - name: Setup Rust
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+
+      - name: Setup sccache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-sccache
+        with:
+          cmake-launcher: "true"
+
+      - name: Rust Cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: release-web-wasm-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+          key: wasm-src-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'playground/scripts/build-vide-wasm.mjs', 'playground/scripts/script-utils.mjs', '.github/actions/setup-emscripten/**', '.github/actions/setup-rust/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+
+      - name: Install Emscripten SDK
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: ./.github/actions/setup-emscripten
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build playground WASM
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        working-directory: playground
+        run: |
+          source "${EMSDK}/emsdk_env.sh"
+          npm run build:wasm
+
+      - name: Save playground WASM cache
+        if: steps.playground-wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: playground/public/wasm
+          key: ${{ steps.playground-wasm-cache.outputs.cache-primary-key }}
+
+      - name: Set build metadata
+        shell: bash
+        working-directory: .
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          else
+            echo "VIDE_EXTENSION_BUILD_KIND=stable" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build VSIX
+        run: npm run package:web
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-web
+          path: editors/vscode/vide-vscode-web.vsix
+          if-no-files-found: error
+
   publish:
     name: Publish ${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }} release
-    needs: [build-and-package, build-alpine-package]
+    needs: [build-and-package, build-alpine-package, build-web-package]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'beta' || github.ref_name }}
@@ -297,7 +401,7 @@ jobs:
   publish-marketplace:
     name: Publish VS Code Marketplace
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build-and-package, publish]
+    needs: [build-and-package, build-web-package, publish]
     runs-on: ubuntu-latest
     defaults:
       run:

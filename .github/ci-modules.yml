@@ -16,6 +16,7 @@ rust:
 
 vscode:
   - "editors/vscode/**"
+  - "packages/vide-extension-shared/**"
   - ".github/ci-modules.yml"
   - ".github/workflows/ci.yml"
 
@@ -33,7 +34,13 @@ package:
   - "editors/vscode/scripts/**"
   - "editors/vscode/src/**"
   - "editors/vscode/syntaxes/**"
+  - "packages/vide-extension-shared/**"
+  - "playground/package.json"
+  - "playground/package-lock.json"
+  - "playground/scripts/build-vide-wasm.mjs"
+  - "playground/scripts/script-utils.mjs"
   - ".github/actions/setup-rust/**"
   - ".github/actions/setup-sccache/**"
+  - ".github/actions/setup-emscripten/**"
   - ".github/ci-modules.yml"
   - ".github/workflows/ci.yml"

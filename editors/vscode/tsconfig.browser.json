@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "Bundler"
+  },
+  "include": [
+    "../../packages/vide-extension-shared/src/**/*.ts",
+    "src/browser/**/*.ts",
+    "src/diagnosticActions.ts",
+    "src/diagnosticRules.ts",
+    "src/generated/**/*.ts",
+    "src/initializationOptions.ts",
+    "src/projectConfigCommon.ts",
+    "src/status.ts",
+    "src/videStatus.ts"
+  ],
+  "exclude": []
+}
