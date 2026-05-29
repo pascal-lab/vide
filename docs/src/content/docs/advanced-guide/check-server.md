@@ -1,6 +1,6 @@
 ---
 title: 当扩展无法正常启动
-description: 用一条自检流程确认 Vide 扩展能否启动语言服务器。
+description: 按步骤确认 Vide 扩展是否成功启动语言服务器。
 ---
 
 这页只处理“扩展是否把语言服务器拉起来了”这一类问题。命令 ID、状态项含义和输出通道清单见 [命令、状态和日志](../../user-guide/commands-status-logs/)；已经确认进程能启动但行为异常时，转到 [高级故障排查](../troubleshooting/)。
@@ -51,7 +51,7 @@ vide --version
 Windows 自定义服务器示例：
 
 ```powershell
-D:\tools\vide\vide.exe --version
+D:/tools/vide/vide.exe --version
 ```
 
 ## 4. 分清扩展自带服务器和自定义服务器

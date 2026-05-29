@@ -5,7 +5,7 @@ description: Troubleshoot local VSIX packages, custom servers, file watching, lo
 
 This page handles issues beyond normal feature usage, such as local VSIX packages, replacement servers, file watching, server logs, and diagnostics profiling. For ordinary diagnostics, navigation, formatting, or Qihe usage problems, start from the related page in [Features](../../user-guide/features/).
 
-If you cannot yet confirm whether the language server started, run through [Server Self-Check](../check-server/) first. Command, status bar, and output channel names are listed in [Commands, Status, and Logs](../../user-guide/commands-status-logs/).
+If you cannot yet confirm whether the language server started, start with [When the Extension Fails to Start](../check-server/). Command, status bar, and output channel names are listed in [Commands, Status, and Logs](../../user-guide/commands-status-logs/).
 
 ## Start from the Symptom
 
@@ -31,11 +31,11 @@ If you only want an installed extension to use a locally built server, configure
 
 ```json
 {
-  "vide.server.command": "D:\\Proj\\vide\\target\\release\\vide.exe"
+  "vide.server.command": "D:/Proj/vizsla/target/release/vide.exe"
 }
 ```
 
-After saving, accept the `Restart` prompt or run `Vide: Restart Language Server`. See [Build from Source](../build-from-source/) for the full build flow.
+After saving, accept the `Restart` prompt or run `Vide: Restart Language Server`. See [Build and Install from Source](../advanced-installation/#build-and-install-from-source) for the full build flow.
 
 ## Custom Server Startup Fails
 
@@ -53,9 +53,9 @@ Example:
 
 ```json
 {
-  "vide.server.command": "D:\\tools\\vide\\vide.exe",
+  "vide.server.command": "D:/tools/vide/vide.exe",
   "vide.server.args": [],
-  "vide.server.cwd": "D:\\work\\chip",
+  "vide.server.cwd": "D:/work/chip",
   "vide.server.additionalArgs": ["--log", "debug"]
 }
 ```
@@ -91,11 +91,11 @@ If the language server starts but you need internal logs, add `--log` and `--log
 
 ```json
 {
-  "vide.server.additionalArgs": ["--log", "debug", "--log_file", "D:\\work\\vide-server.log"]
+  "vide.server.additionalArgs": ["--log", "debug", "--log_file", "D:/work/vide-server.log"]
 }
 ```
 
-If the server itself still cannot start, avoid complex log arguments first. Use [Server Self-Check](../check-server/) to confirm the server path, platform, and `--version`.
+If the server itself still cannot start, avoid complex log arguments first. Use [When the Extension Fails to Start](../check-server/) to confirm the server path, platform, and `--version`.
 
 ## Diagnostics Profiling Artifacts Are Missing
 

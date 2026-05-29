@@ -1,6 +1,6 @@
 ---
-title: Server Self-Check Flow
-description: Step-by-step checks for the Vide bundled server or a custom server launch.
+title: When the Extension Fails to Start
+description: Step-by-step checks to confirm whether the Vide extension actually started the language server.
 ---
 
 Use this page only for the question "did the extension start the language server?" Command IDs, status item meanings, and output channel inventory live in [Commands, Status, and Logs](../../user-guide/commands-status-logs/). If the process starts but behavior is still wrong, continue with [Advanced Troubleshooting](../troubleshooting/).
@@ -51,7 +51,7 @@ vide --version
 Windows custom-server example:
 
 ```powershell
-D:\tools\vide\vide.exe --version
+D:/tools/vide/vide.exe --version
 ```
 
 ## 4. Identify Bundled vs. Custom Server Selection

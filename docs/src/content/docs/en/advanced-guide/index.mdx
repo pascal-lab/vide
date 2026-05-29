@@ -7,7 +7,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 Advanced is not a second user guide. It covers three kinds of work:
 
-- Installation and build: local VSIX packages, prerelease packages, custom language servers, and source builds.
+- Installation and build: source builds, local VSIX packages, prerelease packages, and custom language servers.
 - Troubleshooting and logs: checking whether the language server started, finding command entry points, opening output channels, and generating profiling artifacts.
 - Analysis model: understanding why an unconfigured workspace can still navigate code, and why diagnostics, rename, and Qihe change after `vide.toml` is configured.
 
@@ -19,12 +19,7 @@ For normal RTL editing, start with the [User Guide](../user-guide/). For feature
   <LinkCard
     title="Advanced Installation"
     href="./advanced-installation/"
-    description="Install local VSIX packages, choose release channels, or configure a custom language server."
-  />
-  <LinkCard
-    title="Build from Source"
-    href="./build-from-source/"
-    description="Build the Rust server, VS Code extension, and local VSIX packages."
+    description="Source builds, local VSIX files, prerelease packages, and replacement language servers."
   />
 </CardGrid>
 
@@ -32,7 +27,7 @@ For normal RTL editing, start with the [User Guide](../user-guide/). For feature
 
 <CardGrid>
   <LinkCard
-    title="Server Self-Check"
+    title="When the Extension Fails to Start"
     href="./check-server/"
     description="Answer one question: did the extension start the language server?"
   />

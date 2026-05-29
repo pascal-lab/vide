@@ -7,7 +7,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 进阶主要处理三类问题：
 
-- 安装和构建：本地 VSIX、预发布包、自定义语言服务器和源码构建。
+- 安装和构建：源码构建、本地 VSIX、预发布包和自定义语言服务器。
 - 排障和日志：确认语言服务器是否启动、查看命令入口、打开输出通道和生成 profiling 产物。
 - 分析模型：理解为什么无配置工程也能跳转，为什么写好 `vide.toml` 后诊断、重命名和 Qihe 行为会变化。
 
@@ -19,12 +19,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
   <LinkCard
     title="高级安装"
     href="./advanced-installation/"
-    description="安装本地 VSIX、选择发布渠道，或配置自定义语言服务器。"
-  />
-  <LinkCard
-    title="从源码构建"
-    href="./build-from-source/"
-    description="构建 Rust 服务器、VS Code 扩展和本地 VSIX。"
+    description="源码构建、本地 VSIX、预发布版本，以及替换语言服务器。"
   />
 </CardGrid>
 
@@ -32,7 +27,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 <CardGrid>
   <LinkCard
-    title="启动自检"
+    title="当扩展无法正常启动"
     href="./check-server/"
     description="只回答一个问题：扩展有没有把语言服务器启动起来。"
   />

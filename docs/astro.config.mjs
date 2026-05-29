@@ -106,7 +106,7 @@ export default defineConfig({
             {
               label: '安装与构建',
               translations: { en: 'Installation and Build' },
-              items: ['advanced-guide/advanced-installation', 'advanced-guide/build-from-source'],
+              items: ['advanced-guide/advanced-installation'],
             },
             {
               label: '排障与日志',
