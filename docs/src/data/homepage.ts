@@ -214,17 +214,17 @@ export const getHomepageFeatures = (localeInput?: string): HomepageFeature[] => 
 export const homepageFeatures = getHomepageFeatures('zh');
 
 const comparisonColumnSpecs = [
+  { key: 'completion', slug: 'completion', zh: '精准补全', en: 'Precise Completion' },
+  { key: 'annotations', slug: 'annotations', zh: '代码标注', en: 'Code Annotations' },
+  { key: 'codeActions', slug: 'quick-fixes', zh: '自动重构', en: 'Automatic Refactoring' },
+  { key: 'semanticHighlighting', slug: 'semantic-highlighting', zh: '语义高亮', en: 'Semantic Highlighting' },
   { key: 'definition', slug: 'navigation', zh: '定义跳转', en: 'Go to Definition' },
   { key: 'references', slug: 'references', zh: '引用搜索', en: 'Find References' },
   { key: 'hover', slug: 'hover', zh: '悬停信息', en: 'Hover' },
-  { key: 'completion', slug: 'completion', zh: '代码补全', en: 'Completion' },
   { key: 'rename', slug: 'rename', zh: '重命名', en: 'Rename' },
   { key: 'syntaxHighlighting', slug: 'syntax-highlighting', zh: '语法高亮', en: 'Syntax Highlighting' },
-  { key: 'semanticHighlighting', slug: 'semantic-highlighting', zh: '语义高亮', en: 'Semantic Highlighting' },
-  { key: 'annotations', slug: 'annotations', zh: '代码注解', en: 'Annotations' },
   { key: 'documentSymbols', slug: 'document-symbols', zh: '符号大纲', en: 'Document Symbols' },
   { key: 'folding', slug: 'folding', zh: '折叠', en: 'Folding' },
-  { key: 'codeActions', slug: 'quick-fixes', zh: '自动重构', en: 'Automatic Refactoring' },
   { key: 'diagnostics', slug: 'diagnostics', zh: '实时诊断', en: 'Diagnostics' },
   { key: 'signatureHelp', slug: 'signature-help', zh: '签名提示', en: 'Signature Help' },
   { key: 'selectionRange', slug: 'selection-range', zh: '语义选区', en: 'Selection Range' },
