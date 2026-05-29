@@ -219,6 +219,23 @@ function writeBuildInfo(target: PackageTarget, profile: BuildProfile): void {
   );
 }
 
+function packageJsonPath(): string {
+  return path.join(vscodeDir, 'package.json');
+}
+
+function stagePackageJsonForTarget(target: PackageTarget): string | undefined {
+  if (target === webTarget) {
+    return undefined;
+  }
+
+  const packagePath = packageJsonPath();
+  const originalPackageJson = fs.readFileSync(packagePath, 'utf8');
+  const packageJson = JSON.parse(originalPackageJson) as { browser?: unknown };
+  delete packageJson.browser;
+  fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+  return originalPackageJson;
+}
+
 function parseServerMode(value: string): ServerMode {
   if (value === 'build' || value === 'prebuilt') {
     return value;
@@ -285,6 +302,7 @@ function packageExtension(
   const targetServerPath = ensureTargetServerBinary(target, binFile, profile, serverMode);
   cleanRuntimeServerFiles();
   const runtimeServerPath = stageRuntimeServer(targetServerPath, target, binFile);
+  const originalPackageJson = stagePackageJsonForTarget(target);
 
   try {
     run(
@@ -295,6 +313,9 @@ function packageExtension(
     );
   } finally {
     fs.rmSync(runtimeServerPath, { force: true });
+    if (originalPackageJson) {
+      fs.writeFileSync(packageJsonPath(), originalPackageJson);
+    }
   }
 
   return path.join(vscodeDir, vsixOut);
