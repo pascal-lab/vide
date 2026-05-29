@@ -16,6 +16,7 @@
   "configuration.files.watcher.description": "Controls how Vide watches project files.",
   "configuration.workspace.auto.reload.description": "Automatically refresh project information when project manifests change.",
   "configuration.scope.visibility.description": "Controls whether symbols inside scopes, except ports, are visible outside those scopes.",
+  "configuration.references.includeDeclaration.description": "Include declarations when finding references.",
   "configuration.formatter.provider.enum.verible": "Use an external verible-verilog-format executable. Supports Format Document and Format Selection.",
   "configuration.formatter.provider.description": "Formatter backend used by Vide.",
   "configuration.formatter.path.description": "Path to verible-verilog-format when vide.formatter.provider is verible. Leave empty to find it on PATH.",

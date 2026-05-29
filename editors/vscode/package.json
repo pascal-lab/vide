@@ -199,6 +199,11 @@
           "default": "private",
           "description": "%configuration.scope.visibility.description%"
         },
+        "vide.references.includeDeclaration": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.references.includeDeclaration.description%"
+        },
         "vide.formatter.provider": {
           "type": "string",
           "enum": [

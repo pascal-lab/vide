@@ -90,6 +90,7 @@ test('contributes settings for the complete Vide user configuration surface', ()
     'vide.files.watcher',
     'vide.workspace.auto.reload',
     'vide.scope.visibility',
+    'vide.references.includeDeclaration',
     'vide.formatter.provider',
     'vide.formatter.path',
     'vide.formatter.args',
