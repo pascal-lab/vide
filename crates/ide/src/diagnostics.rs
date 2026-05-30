@@ -1,11 +1,14 @@
-use base_db::{
-    diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
-    project::CompilationProfileId,
-    source_db::{SourceDb, SourceRootDb},
-    source_root::{SourceRootDiagnosticScope, SourceRootRole},
+use hir::{
+    base_db::{
+        diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
+        project::CompilationProfileId,
+        source_db::{SourceDb, SourceRootDb},
+        source_root::{SourceRootDiagnosticScope, SourceRootRole},
+    },
+    db::HirDb,
+    hir_def::module::ModuleId,
+    source_map::IsSrc,
 };
-use hir::{db::HirDb, hir_def::module::ModuleId, source_map::IsSrc};
-use ide_db::root_db::RootDb;
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::{
     get::Get,
@@ -13,7 +16,10 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name};
+use crate::{
+    db::root_db::RootDb,
+    module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name},
+};
 
 const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
     VideDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
@@ -428,15 +434,15 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{
+    use hir::base_db::{
         change::Change,
+        compilation_plan::compilation_source_buffers_for_plan,
         diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::Durability,
         source_db::{SourceDb, SourceRootDb},
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
-    use ide_db::root_db::RootDb;
     use triomphe::Arc;
     use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
@@ -445,6 +451,7 @@ mod tests {
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
         DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, diagnostics, source_root_diagnostics,
     };
+    use crate::db::root_db::RootDb;
 
     fn db_with_files(files: &[(&str, &str)], configured: bool) -> RootDb {
         db_with_files_in_role(files, SourceRootRole::Local, configured)
@@ -898,7 +905,7 @@ mod tests {
 
         let plan = db.compilation_plan_for_root(SourceRootId(0));
         assert_eq!(plan.roots, vec![FileId(0), FileId(1)]);
-        let buffers = base_db::compilation_plan::compilation_source_buffers_for_plan(&db, &plan);
+        let buffers = compilation_source_buffers_for_plan(&db, &plan);
         let buffer_paths = buffers.iter().map(|buffer| buffer.path.as_str()).collect::<Vec<_>>();
         let a_path = a_path.to_string();
         let b_path = b_path.to_string();

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use base_db::{change::Change, source_root::SourceRoot};
+use hir::base_db::{change::Change, source_root::SourceRoot};
 use insta::assert_debug_snapshot;
 use triomphe::Arc;
 use utils::{lines::LineEnding, text_edit::TextSize};

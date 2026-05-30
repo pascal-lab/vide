@@ -1,5 +1,5 @@
-use base_db::intern::Lookup;
 use hir::{
+    base_db::intern::Lookup,
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     hir_def::{
@@ -19,7 +19,6 @@ use hir::{
     },
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
-use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
 use syntax::{
     SyntaxTokenWithParent,
@@ -32,7 +31,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{SymbolKind, definitions::DefinitionOrigin};
+use crate::{SymbolKind, db::root_db::RootDb, definitions::DefinitionOrigin};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NavTarget {

@@ -7,7 +7,7 @@ use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 
-use crate::{
+use crate::base_db::{
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     preproc_index::{self, PreprocFileIndex},

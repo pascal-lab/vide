@@ -1,4 +1,3 @@
-use base_db::intern::Lookup;
 use proc_macro_utils::impl_container;
 use smol_str::SmolStr;
 use triomphe::Arc;
@@ -6,6 +5,7 @@ use utils::define_enum_deriving_from;
 use vfs::FileId;
 
 use crate::{
+    base_db::intern::Lookup,
     db::{HirDb, InternDb},
     file::HirFileId,
     hir_def::{

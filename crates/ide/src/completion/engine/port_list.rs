@@ -4,13 +4,15 @@ use hir::{
     scope::{ModuleEntry, UnitEntry},
     semantics::Semantics,
 };
-use ide_db::root_db::RootDb;
-use span::FilePosition;
 use syntax::ast;
 use utils::get::Get;
 
 use super::candidate::CompletionCandidate;
-use crate::completion::{context::CompletionContext, request::PortListKind};
+use crate::{
+    FilePosition,
+    completion::{context::CompletionContext, request::PortListKind},
+    db::root_db::RootDb,
+};
 
 pub(super) fn complete_in_port_list(
     db: &RootDb,

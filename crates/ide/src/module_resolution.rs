@@ -1,22 +1,24 @@
 use std::cmp::Ordering;
 
-use base_db::{source_db::SourceRootDb, source_root::SourceRootRole};
 use hir::{
+    base_db::{source_db::SourceRootDb, source_root::SourceRootRole},
     container::InModule,
     db::HirDb,
     hir_def::{
-        Ident, declaration::Declaration, expr::declarator::DeclaratorParent, module::ModuleId,
+        Ident, declaration::Declaration, expr::declarator::DeclaratorParent, lower_ident_opt,
+        module::ModuleId,
     },
     scope::{ModuleEntry, ScopeResolution},
     semantics::pathres::PathResolution,
 };
-use ide_db::root_db::RootDb;
 use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
 use utils::get::GetRef;
 use vfs::{FileId, VfsPath};
+
+use crate::db::root_db::RootDb;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModuleResolution {
@@ -47,7 +49,7 @@ pub(crate) fn resolve_instantiation_target(
     from_file: FileId,
     instantiation: ast::HierarchyInstantiation,
 ) -> ModuleResolution {
-    let Some(name) = hir::hir_def::lower_ident_opt(instantiation.type_()) else {
+    let Some(name) = lower_ident_opt(instantiation.type_()) else {
         return ModuleResolution::Unresolved;
     };
     resolve_module_name(db, from_file, &name)
@@ -67,7 +69,7 @@ pub(crate) fn resolve_named_port_connection(
     from_file: FileId,
     conn: ast::NamedPortConnection,
 ) -> Option<PathResolution> {
-    let name = hir::hir_def::lower_ident_opt(conn.name())?;
+    let name = lower_ident_opt(conn.name())?;
     let instantiation =
         SyntaxAncestors::start_from(conn.syntax()).find_map(ast::HierarchyInstantiation::cast)?;
     resolve_named_port_in_instantiation(db, from_file, instantiation, &name)
@@ -78,7 +80,7 @@ pub(crate) fn resolve_named_param_assignment(
     from_file: FileId,
     assign: ast::NamedParamAssignment,
 ) -> Option<PathResolution> {
-    let name = hir::hir_def::lower_ident_opt(assign.name())?;
+    let name = lower_ident_opt(assign.name())?;
     let instantiation =
         SyntaxAncestors::start_from(assign.syntax()).find_map(ast::HierarchyInstantiation::cast)?;
     resolve_named_param_in_instantiation(db, from_file, instantiation, &name)
@@ -279,8 +281,11 @@ fn dir_ancestors(path: VfsPath) -> Vec<VfsPath> {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot};
-    use hir::{container::InModule, semantics::pathres::PathResolution};
+    use hir::{
+        base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot},
+        container::InModule,
+        semantics::pathres::PathResolution,
+    };
     use smol_str::SmolStr;
     use syntax::{SyntaxNodeExt, ast};
     use triomphe::Arc;

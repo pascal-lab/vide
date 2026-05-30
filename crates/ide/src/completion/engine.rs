@@ -18,13 +18,14 @@ mod typed_filter;
 #[cfg(test)]
 mod tests;
 
-use ide_db::root_db::RootDb;
-use span::FilePosition;
-
 pub use self::item::{CompletionItem, CompletionItemKind};
-use crate::completion::{
-    context::{CompletionContext, TriggerChar, completion_context},
-    request::CompletionRequest,
+use crate::{
+    FilePosition,
+    completion::{
+        context::{CompletionContext, TriggerChar, completion_context},
+        request::CompletionRequest,
+    },
+    db::root_db::RootDb,
 };
 
 pub fn completions(
