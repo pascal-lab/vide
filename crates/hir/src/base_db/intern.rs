@@ -13,12 +13,12 @@ pub trait Lookup {
 #[macro_export]
 macro_rules! impl_intern_key {
     ($name:ident) => {
-        impl $crate::salsa::InternKey for $name {
-            fn from_intern_id(v: $crate::salsa::InternId) -> Self {
+        impl $crate::base_db::salsa::InternKey for $name {
+            fn from_intern_id(v: $crate::base_db::salsa::InternId) -> Self {
                 $name(v)
             }
 
-            fn as_intern_id(&self) -> $crate::salsa::InternId {
+            fn as_intern_id(&self) -> $crate::base_db::salsa::InternId {
                 self.0
             }
         }
@@ -28,7 +28,7 @@ macro_rules! impl_intern_key {
 #[macro_export]
 macro_rules! impl_intern_lookup {
     ($db:ident, $id:ident, $loc:ident, $intern:ident, $lookup:ident) => {
-        impl $crate::intern::Intern for $loc {
+        impl $crate::base_db::intern::Intern for $loc {
             type Database<'db> = dyn $db + 'db;
             type ID = $id;
 
@@ -37,7 +37,7 @@ macro_rules! impl_intern_lookup {
             }
         }
 
-        impl $crate::intern::Lookup for $id {
+        impl $crate::base_db::intern::Lookup for $id {
             type Data = $loc;
             type Database<'db> = dyn $db + 'db;
 

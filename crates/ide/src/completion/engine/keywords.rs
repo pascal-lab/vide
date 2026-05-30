@@ -1,13 +1,15 @@
 use hir::db::HirDb;
-use ide_db::root_db::RootDb;
-use span::FilePosition;
 
 use super::candidate::CompletionCandidate;
-use crate::completion::{
-    context::CompletionContext,
-    engine::snippets,
-    request::{KeywordProvider, KeywordSnippetScope},
-    syntax_keywords,
+use crate::{
+    FilePosition,
+    completion::{
+        context::CompletionContext,
+        engine::snippets,
+        request::{KeywordProvider, KeywordSnippetScope},
+        syntax_keywords,
+    },
+    db::root_db::RootDb,
 };
 
 pub(super) fn complete_keywords(

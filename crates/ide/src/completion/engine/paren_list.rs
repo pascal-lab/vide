@@ -1,7 +1,13 @@
-use hir::{db::HirDb, hir_def::lower_ident_opt, semantics::Semantics};
-use ide_db::root_db::RootDb;
+use hir::{
+    db::HirDb,
+    hir_def::{
+        Ident, lower_ident_opt,
+        module::{ModuleId, ModuleSrc},
+    },
+    scope::{ModuleEntry, UnitEntry},
+    semantics::Semantics,
+};
 use rustc_hash::FxHashSet;
-use span::FilePosition;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
@@ -22,10 +28,12 @@ use super::{
     },
 };
 use crate::{
+    FilePosition,
     completion::{
         context::CompletionContext,
         request::{HashKind, ParenListKind},
     },
+    db::root_db::RootDb,
     module_resolution::resolve_instantiation_target,
 };
 
@@ -83,21 +91,17 @@ fn complete_parameter_port_list_with_typedefs(
         return Vec::new();
     };
     let (_, file_src_map) = db.hir_file_with_source_map(file_id);
-    let module_src = hir::hir_def::module::ModuleSrc::from(module);
-    let Some(module_id) =
-        file_src_map.get(module_src).map(|id| hir::hir_def::module::ModuleId::new(file_id, id))
-    else {
+    let module_src = ModuleSrc::from(module);
+    let Some(module_id) = file_src_map.get(module_src).map(|id| ModuleId::new(file_id, id)) else {
         return Vec::new();
     };
 
     let mut items: Vec<CompletionCandidate> = db
         .unit_scope()
         .iter()
-        .filter_map(|(ident, entry)| {
-            matches!(entry, hir::scope::UnitEntry::FiledTypedefId(_)).then_some(ident)
-        })
+        .filter_map(|(ident, entry)| matches!(entry, UnitEntry::FiledTypedefId(_)).then_some(ident))
         .chain(db.module_scope(module_id).iter().filter_map(|(ident, entry)| {
-            matches!(entry, hir::scope::ModuleEntry::TypedefId(_)).then_some(ident)
+            matches!(entry, ModuleEntry::TypedefId(_)).then_some(ident)
         }))
         .map(|ident| ident.to_string())
         .filter(|name| name.starts_with(prefix))
@@ -149,7 +153,7 @@ fn complete_port_connections(
 
     let mut has_named = false;
     let mut has_ordered = false;
-    let mut used_named_ports: FxHashSet<hir::hir_def::Ident> = FxHashSet::default();
+    let mut used_named_ports: FxHashSet<Ident> = FxHashSet::default();
     for conn in instance.connections().children() {
         if let Some(named) = conn.as_named_port_connection() {
             has_named = true;
@@ -233,7 +237,7 @@ fn complete_param_value_assignment(
 
     let mut has_named = false;
     let mut has_ordered = false;
-    let mut used_named_params: FxHashSet<hir::hir_def::Ident> = FxHashSet::default();
+    let mut used_named_params: FxHashSet<Ident> = FxHashSet::default();
     for assignment in params.parameters().children() {
         if let Some(named) = assignment.as_named_param_assignment() {
             has_named = true;
@@ -308,6 +312,6 @@ fn resolve_target_module_id(
     _sema: &Semantics<'_, RootDb>,
     from_file: vfs::FileId,
     instantiation: ast::HierarchyInstantiation<'_>,
-) -> Option<hir::hir_def::module::ModuleId> {
+) -> Option<ModuleId> {
     resolve_instantiation_target(db, from_file, instantiation).unique()
 }

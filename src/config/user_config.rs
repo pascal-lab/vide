@@ -1,4 +1,4 @@
-use base_db::diagnostics_config::{
+use hir::base_db::diagnostics_config::{
     DiagnosticPhaseConfig, DiagnosticRule, DiagnosticRuleSeverity, DiagnosticSelector,
     DiagnosticSource, DiagnosticsConfig, SlangDiagnosticsConfig,
 };

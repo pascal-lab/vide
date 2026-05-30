@@ -6,12 +6,9 @@ use std::{
 };
 
 use anyhow::Context as _;
-use base_db::source_db::SourceDb;
 use dissimilar::Chunk;
-use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
+use hir::{base_db::source_db::SourceDb, semantics::Semantics};
 use itertools::Itertools;
-use span::FilePosition;
 use syntax::{
     SyntaxCursor, SyntaxCursorExt, SyntaxKind, SyntaxTrivia, Trivia, has_text_range::HasTextRange,
     token::SyntaxTokenWithParentExt, trivia::TriviaKindExt,
@@ -25,6 +22,8 @@ use utils::{
     text_edit::TextEdit,
 };
 use vfs::FileId;
+
+use crate::{FilePosition, db::root_db::RootDb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -373,9 +372,7 @@ fn format_previous<'a>(
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_root::SourceRoot};
-    use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
-    use span::FilePosition;
+    use hir::base_db::{change::Change, source_root::SourceRoot};
     use triomphe::Arc;
     use utils::{
         cancellation::CancellationToken,
@@ -385,6 +382,10 @@ mod tests {
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{FmtConfig, FormatterProvider, format_on_type};
+    use crate::{
+        FilePosition,
+        db::{line_index_db::LineIndexDb, root_db::RootDb},
+    };
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId(0);

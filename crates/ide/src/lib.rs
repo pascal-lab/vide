@@ -1,7 +1,7 @@
 #![feature(try_blocks)]
 #![feature(decl_macro)]
 
-pub use base_db::Cancelled;
+pub use hir::base_db::Cancelled;
 use hir::hir_def::{
     block::BlockId,
     expr::declarator::DeclId,
@@ -9,6 +9,7 @@ use hir::hir_def::{
     stmt::StmtId,
 };
 use syntax::{SyntaxKind, ast, match_ast_kind};
+pub use types::{ErasedFileAstId, FilePosition, FileRange, RangeInfo};
 pub type Cancellable<T> = Result<T, Cancelled>;
 
 pub mod analysis;
@@ -23,6 +24,7 @@ pub mod source_change;
 pub mod code_action;
 pub mod code_lens;
 pub mod completion;
+pub mod db;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_symbols;
@@ -39,6 +41,7 @@ pub mod semantic_tokens;
 pub mod signature_help;
 #[cfg(test)]
 mod test_utils;
+pub mod types;
 #[cfg(test)]
 mod verilog_2005;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

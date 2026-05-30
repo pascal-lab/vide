@@ -1,4 +1,3 @@
-use base_db::intern::Lookup;
 use la_arena::{Arena, Idx};
 use proc_macro_utils::define_container;
 use rustc_hash::FxHashMap;
@@ -31,6 +30,7 @@ use super::{
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
 use crate::{
+    base_db::intern::Lookup,
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
     define_src_with_name,
