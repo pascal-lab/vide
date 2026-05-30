@@ -520,6 +520,40 @@ fn recv_publish_diagnostics_for_uri(client: &Connection, uri: &Url) -> Vec<lsp_t
     panic!("publishDiagnostics notification not received for {uri}");
 }
 
+fn recv_empty_publish_diagnostics_for_uri(
+    client: &Connection,
+    uri: &Url,
+    context: &str,
+) -> Vec<lsp_types::Diagnostic> {
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut last_diagnostics = None;
+    while let Some(message) = recv_lsp_message_until(client, deadline, context) {
+        match message {
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::PublishDiagnostics::METHOD =>
+            {
+                let params =
+                    serde_json::from_value::<PublishDiagnosticsParams>(notification.params)
+                        .unwrap();
+                if &params.uri == uri {
+                    if params.diagnostics.is_empty() {
+                        return params.diagnostics;
+                    }
+                    last_diagnostics = Some(params.diagnostics);
+                }
+            }
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::Progress::METHOD => {}
+            Message::Request(request) => handle_test_server_request(client, request, context),
+            _ => {}
+        }
+    }
+
+    panic!(
+        "empty publishDiagnostics notification not received for {uri} during {context}; last diagnostics: {last_diagnostics:?}"
+    );
+}
+
 fn recv_response<T: DeserializeOwned>(
     client: &Connection,
     request_id: lsp_server::RequestId,
@@ -3085,7 +3119,11 @@ fn legacy_publish_diagnostics_refreshes_dependent_open_files() {
         )))
         .unwrap();
 
-    let second_top_diags = recv_publish_diagnostics_for_uri(&client, &top_uri);
+    let second_top_diags = recv_empty_publish_diagnostics_for_uri(
+        &client,
+        &top_uri,
+        "dependent diagnostics after child.sv edit",
+    );
     assert!(
         second_top_diags.is_empty(),
         "top.sv diagnostics should refresh when child.sv changes: {second_top_diags:?}"
@@ -3144,7 +3182,11 @@ fn legacy_on_save_diagnostics_refresh_profile_dependents() {
         )))
         .unwrap();
 
-    let second_top_diags = recv_publish_diagnostics_for_uri(&client, &top_uri);
+    let second_top_diags = recv_empty_publish_diagnostics_for_uri(
+        &client,
+        &top_uri,
+        "dependent diagnostics after child.sv save",
+    );
     assert!(
         second_top_diags.is_empty(),
         "saving child.sv should refresh dependent top.sv diagnostics: {second_top_diags:?}"
@@ -3205,7 +3247,11 @@ fn legacy_on_save_watched_include_refreshes_profile_dependents() {
         )))
         .unwrap();
 
-    let second_top_diags = recv_publish_diagnostics_for_uri(&client, &top_uri);
+    let second_top_diags = recv_empty_publish_diagnostics_for_uri(
+        &client,
+        &top_uri,
+        "dependent diagnostics after watched include change",
+    );
     assert!(
         second_top_diags.is_empty(),
         "watched include changes should refresh dependent top.sv diagnostics: {second_top_diags:?}"
