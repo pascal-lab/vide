@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "npm run prepare:playground && astro dev",
     "start": "npm run dev",
-    "build": "npm run prepare:playground && astro build",
+    "build": "npm run prepare:playground && astro build && npm run postbuild:404 && npm run check:links",
+    "check:links": "node scripts/check-links.mjs",
+    "postbuild:404": "node scripts/create-404-alias.mjs",
     "prepare:playground": "npm --prefix ../playground run build:embed && node ../playground/scripts/copy-docs-assets.mjs",
     "preview": "astro preview"
   },
