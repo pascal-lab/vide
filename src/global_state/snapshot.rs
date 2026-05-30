@@ -367,8 +367,12 @@ impl GlobalStateSnapshot {
         self.analysis.source_root_role(file_id).ok()
     }
 
-    pub(crate) fn file_allows_workspace_edits(&self, file_id: FileId) -> bool {
-        self.source_root_role(file_id).is_none_or(SourceRootRole::allows_workspace_edits)
+    pub(crate) fn rename_config(&self, file_id: FileId) -> ide::rename::RenameConfig {
+        let mut config = self.config.rename();
+        if matches!(self.source_root_role(file_id), Some(SourceRootRole::BestEffortIndex)) {
+            config = config.with_edit_scope(ide::rename::RenameEditScope::SingleFile);
+        }
+        config
     }
 
     pub(crate) fn workspace_diagnostic_file_ids(&self) -> Vec<FileId> {

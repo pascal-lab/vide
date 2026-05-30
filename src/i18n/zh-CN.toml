@@ -57,6 +57,7 @@ convert_literal_to_hexadecimal = "将字面量转换为十六进制"
 no_ref_found = "当前位置未找到引用"
 no_def_found = "未找到该标记的定义"
 overlapping_edits = "生成了相互重叠的编辑"
+project_scope_required = "这次重命名可能影响其他文件。请添加 vide.toml，明确可编辑的工程范围。"
 
 [code_action_resolve]
 no_data = "代码操作缺少数据"

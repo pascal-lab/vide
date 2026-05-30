@@ -172,8 +172,12 @@ impl Analysis {
         self.with_db(|db| references::references(db, position, config))
     }
 
-    pub fn prepare_rename(&self, position: FilePosition) -> Cancellable<RenameResult<TextRange>> {
-        self.with_db(|db| rename::prepare_rename(db, position))
+    pub fn prepare_rename(
+        &self,
+        position: FilePosition,
+        config: RenameConfig,
+    ) -> Cancellable<RenameResult<TextRange>> {
+        self.with_db(|db| rename::prepare_rename(db, position, config))
     }
 
     pub fn rename(

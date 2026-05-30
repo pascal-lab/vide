@@ -298,7 +298,7 @@ impl Config {
 
     pub(crate) fn rename(&self) -> RenameConfig {
         let scope_visibility = self.user_config.scope_visibility.into();
-        RenameConfig { scope_visibility }
+        RenameConfig::workspace(scope_visibility)
     }
 
     pub(crate) fn fmt(&self) -> FmtConfig {

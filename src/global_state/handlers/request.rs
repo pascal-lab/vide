@@ -379,14 +379,12 @@ pub(crate) fn handle_prepare_rename(
     params: lsp_types::TextDocumentPositionParams,
 ) -> anyhow::Result<Option<lsp_types::PrepareRenameResponse>> {
     let position = from_proto::file_position(&snap, params)?;
-    if !snap.file_allows_workspace_edits(position.file_id) {
-        return Ok(None);
-    }
+    let config = snap.rename_config(position.file_id);
     let line_index = snap.line_info(position.file_id)?;
 
     let text_range = snap
         .analysis
-        .prepare_rename(position)?
+        .prepare_rename(position, config)?
         .map_err(|err| to_proto::rename_error(snap.config.i18n, err))?;
     let range = to_proto::range(&line_index, text_range);
     Ok(Some(lsp_types::PrepareRenameResponse::Range(range)))
@@ -397,10 +395,7 @@ pub(crate) fn handle_rename(
     params: lsp_types::RenameParams,
 ) -> anyhow::Result<Option<lsp_types::WorkspaceEdit>> {
     let position = from_proto::file_position(&snap, params.text_document_position)?;
-    if !snap.file_allows_workspace_edits(position.file_id) {
-        return Ok(None);
-    }
-    let config = snap.config.rename();
+    let config = snap.rename_config(position.file_id);
     let change = snap
         .analysis
         .rename(position, config, &params.new_name)?

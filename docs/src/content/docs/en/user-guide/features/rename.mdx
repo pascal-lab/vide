@@ -37,7 +37,7 @@ Rename updates the declaration and references of the same SystemVerilog symbol t
 
 ### Without Complete Configuration
 
-Without `vide.toml`, Vide can use workspace scan results for reference search, but project-wide rename is not enabled. This avoids modifying files when the project scope is unclear.
+Without `vide.toml`, Vide only performs rename when all edits are proven to stay inside the current file. If the symbol may affect other files, rename is rejected and Vide asks you to add `vide.toml` to make the editable project scope explicit.
 
 ### With Complete Configuration
 
@@ -45,6 +45,6 @@ With complete configuration, rename can work accurately.
 
 ## Boundaries
 
-If the position does not resolve to a unique symbol, or if the target file is outside the editable scope managed by the current project configuration, VS Code does not enter the rename flow. When this happens, first check whether `vide.toml` includes the relevant source files, include directories, macro definitions, and libraries.
+If the position does not resolve to a unique symbol, or if the symbol's editable scope reaches beyond what Vide can trace at all, VS Code does not enter the rename flow. When this happens, first check whether `vide.toml` includes the relevant source files, include directories, macro definitions, and libraries.
 
-Local symbols are renamed only inside the scope where they are actually visible by default. You only need `vide.scope.visibility` when you want to adjust local-symbol cross-scope search behavior. See [Scope settings](../../vscode-settings/#scope).
+Local symbols are renamed only inside the scope where they are actually visible by default. You only need `vide.scope.visibility` when you want to adjust local-symbol cross-scope search behavior.

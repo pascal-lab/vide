@@ -57,6 +57,7 @@ convert_literal_to_hexadecimal = "Convert literal to hexadecimal"
 no_ref_found = "No references found at position"
 no_def_found = "No definitions found for the token"
 overlapping_edits = "Generated overlapping edits"
+project_scope_required = "This rename can affect other files. Add vide.toml to make the editable project scope explicit."
 
 [code_action_resolve]
 no_data = "code action without data"

@@ -45,6 +45,10 @@ impl ReferencesConfig {
     pub fn new(scope_visibility: ScopeVisibility, search_scope: Option<SearchScope>) -> Self {
         Self { scope_visibility, search_scope }
     }
+
+    pub(crate) fn search_scope(&self, db: &RootDb, def: &Definition) -> SearchScope {
+        SearchScope::new(db, def, self.clone())
+    }
 }
 
 #[derive(Debug, Clone)]

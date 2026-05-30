@@ -37,7 +37,7 @@ import { codeActionRenameFiles } from '../../../../examples/dailyUse';
 
 ### 没有完整配置时
 
-没有 `vide.toml` 时，Vide 可以用工作区扫描结果进行引用搜索，但不会启用工程范围重命名。这样可以避免在工程范围不明确时误改文件。
+没有 `vide.toml` 时，Vide 只会执行可证明所有编辑都落在当前文件内的重命名。如果符号可能影响其他文件，重命名会被拒绝，并提示添加 `vide.toml` 来明确工程范围。
 
 ### 有完整配置时
 
@@ -45,6 +45,6 @@ import { codeActionRenameFiles } from '../../../../examples/dailyUse';
 
 ## 使用边界
 
-如果当前位置不能解析为唯一符号，或者目标文件不在当前项目配置管理的可编辑范围内，VS Code 不会进入重命名流程。遇到这种情况，通常先检查 `vide.toml` 是否包含相关源文件、include 目录、宏定义和依赖库。
+如果当前位置不能解析为唯一符号，或者符号的可编辑范围已经超出 Vide 当前能追踪到的边界，VS Code 不会进入重命名流程。遇到这种情况，通常先检查 `vide.toml` 是否包含相关源文件、include 目录、宏定义和依赖库。
 
-局部符号默认只会在它实际可见的作用域里重命名。只有在需要调整局部符号跨作用域搜索策略时，才需要查看 `vide.scope.visibility`。完整参考见 [Scope 设置](../../vscode-settings/#scope)。
+局部符号默认只会在它实际可见的作用域里重命名。只有在需要调整局部符号跨作用域搜索策略时，才需要查看 `vide.scope.visibility`。

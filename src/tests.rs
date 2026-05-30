@@ -455,6 +455,48 @@ fn request_reference_uris_with_include_declaration(
     references.unwrap_or_default().into_iter().map(|location| location.uri).collect()
 }
 
+fn request_rename_response(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    new_name: &str,
+    request_id: i32,
+) -> lsp_server::Response {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            lsp_types::request::Rename::METHOD.to_string(),
+            lsp_types::RenameParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, needle),
+                },
+                new_name: new_name.to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+
+    recv_raw_response(client, request_id, "rename")
+}
+
+fn request_rename(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    new_name: &str,
+    request_id: i32,
+) -> Option<lsp_types::WorkspaceEdit> {
+    let response = request_rename_response(client, uri, text, needle, new_name, request_id);
+    assert!(response.error.is_none(), "rename returned error: {:?}", response.error);
+    serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
+        .unwrap_or_else(|err| panic!("failed to decode rename response: {err}"))
+}
+
 fn request_workspace_diagnostic_report(
     client: &Connection,
     request_id: i32,
@@ -559,14 +601,21 @@ fn recv_response<T: DeserializeOwned>(
     request_id: lsp_server::RequestId,
     label: &str,
 ) -> T {
+    let response = recv_raw_response(client, request_id, label);
+    assert!(response.error.is_none(), "{label} returned error: {:?}", response.error);
+    serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
+        .unwrap_or_else(|err| panic!("failed to decode {label} response: {err}"))
+}
+
+fn recv_raw_response(
+    client: &Connection,
+    request_id: lsp_server::RequestId,
+    label: &str,
+) -> lsp_server::Response {
     let deadline = Instant::now() + LSP_TEST_TIMEOUT;
     while let Some(message) = recv_lsp_message_until(client, deadline, label) {
         match message {
-            Message::Response(response) if response.id == request_id => {
-                assert!(response.error.is_none(), "{label} returned error: {:?}", response.error);
-                return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
-                    .unwrap_or_else(|err| panic!("failed to decode {label} response: {err}"));
-            }
+            Message::Response(response) if response.id == request_id => return response,
             Message::Notification(notification)
                 if notification.method == lsp_types::notification::Progress::METHOD => {}
             Message::Notification(notification)
@@ -1366,6 +1415,108 @@ fn unconfigured_workspace_goto_definition_uses_indexed_unopened_files() {
     assert!(
         definition_uris.contains(&child_uri),
         "definition should include unopened child.sv from default index: {definition_uris:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unconfigured_workspace_rename_updates_file_local_symbol() {
+    let temp_dir = TempDir::new("unconfigured-index-rename-local");
+    let top_path = temp_dir.path().join("top.sv");
+    let top_text = "module top;\n  logic sig;\n  always_comb sig = sig;\nendmodule\n";
+    fs::write(&top_path, top_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let edit = request_rename(&client, top_uri.clone(), top_text, "sig = sig", "renamed_sig", 2)
+        .expect("best-effort local rename should return an edit");
+
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("rename should use document edits: {edit:?}");
+    };
+    assert_eq!(document_edits.len(), 1, "local rename should stay in one file: {document_edits:?}");
+    let document_edit = &document_edits[0];
+    assert_eq!(document_edit.text_document.uri, top_uri);
+    let text_edits = document_edit
+        .edits
+        .iter()
+        .map(|edit| match edit {
+            lsp_types::OneOf::Left(edit) => edit,
+            lsp_types::OneOf::Right(_) => panic!("rename should not emit annotated edits"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(text_edits.len(), 3, "rename should update declaration and both uses");
+    assert!(text_edits.iter().all(|edit| edit.new_text == "renamed_sig"));
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unconfigured_workspace_rename_rejects_cross_file_symbol() {
+    let temp_dir = TempDir::new("unconfigured-index-rename-cross-file");
+    let child_path = temp_dir.path().join("child.sv");
+    let top_path = temp_dir.path().join("top.sv");
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    fs::write(&child_path, "module child;\nendmodule\n").unwrap();
+    fs::write(&top_path, top_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let response =
+        request_rename_response(&client, top_uri, top_text, "child u", "renamed_child", 2);
+    let error = response.error.expect("cross-file best-effort rename should be rejected");
+    assert!(
+        error
+            .message
+            .contains("This rename can affect other files. Add vide.toml to make the editable project scope explicit."),
+        "unexpected rename error: {error:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn configured_workspace_rename_updates_cross_file_symbol() {
+    let child_text = "module child;\nendmodule\n";
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("child.sv", child_text), ("top.sv", top_text)],
+    );
+    let child_uri = uris[0].clone();
+    let top_uri = uris[1].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let edit = request_rename(&client, top_uri, top_text, "child u", "renamed_child", 2)
+        .expect("configured cross-file rename should return an edit");
+
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("rename should use document edits: {edit:?}");
+    };
+    assert_eq!(
+        document_edits.len(),
+        2,
+        "cross-file rename should edit both declaration and use sites: {document_edits:?}"
+    );
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == child_uri),
+        "configured cross-file rename should edit child declaration: {document_edits:?}"
     );
 
     shutdown_test_server(&client, server_thread);

@@ -40,7 +40,7 @@ impl SearchScope {
         SearchScope(res)
     }
 
-    fn new(
+    pub(crate) fn new(
         db: &RootDb,
         def: &Definition,
         ReferencesConfig { scope_visibility, search_scope }: ReferencesConfig,
@@ -126,6 +126,10 @@ impl SearchScope {
         });
 
         self
+    }
+
+    pub(crate) fn is_within_file(&self, file_id: FileId) -> bool {
+        self.0.keys().all(|candidate| *candidate == file_id)
     }
 }
 

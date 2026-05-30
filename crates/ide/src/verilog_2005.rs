@@ -31,7 +31,7 @@ use crate::{
     folding_ranges::FoldingConfig,
     hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
-    rename::RenameConfig,
+    rename::{RenameConfig, RenameEditScope, RenameError},
     semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
     test_utils::normalize_fixture_text,
 };
@@ -110,6 +110,27 @@ fn setup_with_path(text: &str, path: &str) -> (AnalysisHost, FileId) {
     let mut host = AnalysisHost::default();
     host.apply_change(change);
     (host, file_id)
+}
+
+fn setup_best_effort_with_path(text: &str, path: &str) -> (AnalysisHost, FileId, String) {
+    let text = normalize_fixture_text(text);
+    let file_id = FileId(0);
+    let path = VfsPath::new_virtual_path(path.to_string());
+
+    let mut file_set = FileSet::default();
+    file_set.insert(file_id, path);
+    let root = SourceRoot::new_best_effort_index(file_set);
+
+    let mut change = Change::new();
+    change.set_roots(vec![root]);
+    change.add_changed_file(ChangedFile {
+        file_id,
+        change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    (host, file_id, text)
 }
 
 #[test]
@@ -346,6 +367,68 @@ fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
 }
 
 #[test]
+fn best_effort_single_file_rename_updates_local_symbol() {
+    let text = r#"
+module top;
+  logic sig;
+  always_comb sig = sig;
+endmodule
+"#;
+    let (host, file_id, clean_text) = setup_best_effort_with_path(text, "/feature.sv");
+    let offset = TextSize::from(clean_text.find("sig = sig").expect("signal use") as u32);
+    let config = RenameConfig::workspace(ScopeVisibility::Private)
+        .with_edit_scope(RenameEditScope::SingleFile);
+
+    let rename = host
+        .make_analysis()
+        .rename(FilePosition { file_id, offset }, config, "renamed_sig")
+        .unwrap()
+        .expect("best-effort local rename expected");
+    let edit = rename.text_edits.get(&file_id).expect("rename should edit the current file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("logic renamed_sig;"));
+    assert!(renamed.contains("always_comb renamed_sig = renamed_sig;"));
+}
+
+#[test]
+fn best_effort_single_file_rename_rejects_cross_file_symbol() {
+    let child_text = "module child;\nendmodule\n";
+    let top_text = "module top;\n  child u();\nendmodule\n";
+    let child_file_id = FileId(0);
+    let top_file_id = FileId(1);
+
+    let mut file_set = FileSet::default();
+    file_set.insert(child_file_id, VfsPath::new_virtual_path("/child.sv".to_owned()));
+    file_set.insert(top_file_id, VfsPath::new_virtual_path("/top.sv".to_owned()));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_best_effort_index(file_set)]);
+    change.add_changed_file(ChangedFile {
+        file_id: child_file_id,
+        change_kind: ChangeKind::Create(Arc::from(child_text), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+
+    let config = RenameConfig::workspace(ScopeVisibility::Private)
+        .with_edit_scope(RenameEditScope::SingleFile);
+    let offset = TextSize::from(top_text.find("child u").expect("module reference") as u32);
+    let err = host
+        .make_analysis()
+        .rename(FilePosition { file_id: top_file_id, offset }, config, "renamed_child")
+        .unwrap()
+        .expect_err("cross-file best-effort rename should be rejected");
+
+    assert!(matches!(err, RenameError::ProjectScopeRequired));
+}
+
+#[test]
 fn verilog_2005_navigation_rename_hover_and_completion_smoke() {
     let text = r#"
 module child(input wire a, output wire y);
@@ -428,7 +511,7 @@ endconfig
     let rename = analysis
         .rename(
             position(file_id, &markers, "sig_ref"),
-            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            RenameConfig::workspace(ScopeVisibility::Private),
             "renamed_sig",
         )
         .unwrap()
@@ -671,7 +754,7 @@ endmodule
     let rename = analysis
         .rename(
             position(file_id, &markers, "case_scope_ref"),
-            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            RenameConfig::workspace(ScopeVisibility::Private),
             "renamed_g_case",
         )
         .unwrap()
@@ -891,7 +974,7 @@ include "vendor.map";
     let rename = analysis
         .rename(
             position(file_id, &markers, "library_def"),
-            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            RenameConfig::workspace(ScopeVisibility::Private),
             "renamed_work",
         )
         .unwrap()
@@ -1283,7 +1366,7 @@ endmodule
     let rename = analysis
         .rename(
             position(file_id, &markers, "task_value_ref"),
-            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            RenameConfig::workspace(ScopeVisibility::Private),
             "drive_value",
         )
         .unwrap()
@@ -1472,7 +1555,7 @@ endmodule
     let rename = analysis
         .rename(
             position(file_id, &markers, "event_ref"),
-            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            RenameConfig::workspace(ScopeVisibility::Private),
             "renamed_ev",
         )
         .unwrap()
@@ -1623,7 +1706,7 @@ endmodule
     let rename = analysis
         .rename(
             position(file_id, &markers, "sig_ref"),
-            RenameConfig { scope_visibility: ScopeVisibility::Private },
+            RenameConfig::workspace(ScopeVisibility::Private),
             "renamed_sig",
         )
         .unwrap()
@@ -1738,7 +1821,7 @@ fn verilog_2005_lsp_snapshots() {
         let rename = analysis
             .rename(
                 position(file_id, &markers, marker),
-                RenameConfig { scope_visibility: ScopeVisibility::Private },
+                RenameConfig::workspace(ScopeVisibility::Private),
                 new_name,
             )
             .unwrap()

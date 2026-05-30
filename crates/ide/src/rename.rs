@@ -21,16 +21,57 @@ use crate::{
     definitions::{Definition, DefinitionClass},
     references::{
         ReferencesConfig,
-        search::{ReferenceToken, ReferencesCtx},
+        search::{ReferenceToken, ReferencesCtx, SearchScope},
     },
     source_change::SourceChange,
 };
 
 pub type RenameResult<T> = Result<T, RenameError>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenameEditScope {
+    Workspace,
+    SingleFile,
+}
+
 #[derive(Debug, Clone)]
 pub struct RenameConfig {
-    pub scope_visibility: ScopeVisibility,
+    scope_visibility: ScopeVisibility,
+    edit_scope: RenameEditScope,
+}
+
+impl RenameConfig {
+    pub fn workspace(scope_visibility: ScopeVisibility) -> Self {
+        Self { scope_visibility, edit_scope: RenameEditScope::Workspace }
+    }
+
+    pub fn with_edit_scope(mut self, edit_scope: RenameEditScope) -> Self {
+        self.edit_scope = edit_scope;
+        self
+    }
+
+    fn references_config(
+        &self,
+        db: &RootDb,
+        def: &Definition,
+        file_id: FileId,
+    ) -> RenameResult<ReferencesConfig> {
+        let mut config = ReferencesConfig::new(self.scope_visibility.clone(), None);
+
+        match self.edit_scope {
+            RenameEditScope::Workspace => Ok(config),
+            RenameEditScope::SingleFile => {
+                let natural_scope = config.search_scope(db, def);
+                if !natural_scope.is_within_file(file_id) || !origins_are_editable(db, def, file_id)
+                {
+                    return Err(RenameError::ProjectScopeRequired);
+                }
+
+                config.search_scope = Some(SearchScope::single_file(file_id));
+                Ok(config)
+            }
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -41,11 +82,14 @@ pub enum RenameError {
     NoDefFound,
     #[error("Generated overlapping edits")]
     OverlappingEdits,
+    #[error("Project configuration required for this rename")]
+    ProjectScopeRequired,
 }
 
 pub(crate) fn prepare_rename(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
+    config: RenameConfig,
 ) -> RenameResult<TextRange> {
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
@@ -53,14 +97,15 @@ pub(crate) fn prepare_rename(
     let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
-    DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)?;
+    let def = resolve_rename_definition(&sema, hir_file_id, token)?;
+    let _ = config.references_config(db, &def, file_id)?;
     Ok(text_range)
 }
 
 pub(crate) fn rename(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
-    RenameConfig { scope_visibility }: RenameConfig,
+    config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
@@ -68,16 +113,12 @@ pub(crate) fn rename(
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
-    let def =
-        match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
-            DefinitionClass::Definition(def) => def,
-            DefinitionClass::PortConnShorthand { local, .. } => local,
-            DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
-        };
+    let def = resolve_rename_definition(&sema, hir_file_id, token)?;
+    let refs_config = config.references_config(db, &def, file_id)?;
 
     let old_name = lower_ident(Some(token.tok)).ok_or(RenameError::NoRefFound)?;
     let mut source_changes = SourceChange::default();
-    ReferencesCtx::new(&sema, &def, ReferencesConfig::new(scope_visibility, None))
+    ReferencesCtx::new(&sema, &def, refs_config)
         .search()
         .into_iter()
         .map(|file_toks| edits_from_refs(&sema, file_toks, &def, &old_name, new_name))
@@ -101,6 +142,27 @@ pub(crate) fn rename(
     }
 
     Ok(source_changes)
+}
+
+fn resolve_rename_definition(
+    sema: &Semantics<'_, RootDb>,
+    hir_file_id: hir::file::HirFileId,
+    token: SyntaxTokenWithParent<'_>,
+) -> RenameResult<Definition> {
+    match DefinitionClass::resolve(sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
+        DefinitionClass::Definition(def) => Ok(def),
+        DefinitionClass::PortConnShorthand { local, .. } => Ok(local),
+        DefinitionClass::Ambiguous(_) => Err(RenameError::NoDefFound),
+    }
+}
+
+fn origins_are_editable(db: &RootDb, def: &Definition, file_id: FileId) -> bool {
+    def.origins().into_iter().all(|origin| {
+        matches!(
+            origin.name_range(db),
+            Some(InFile { file_id: origin_file_id, .. }) if origin_file_id.file_id() == file_id
+        )
+    })
 }
 
 fn edits_from_refs(
