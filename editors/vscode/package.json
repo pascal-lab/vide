@@ -2,7 +2,7 @@
   "name": "vide-ide",
   "displayName": "Vide - Verilog/SystemVerilog Coding IDE",
   "description": "%extension.description%",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "publisher": "pascal-lab",
   "license": "MIT",
   "icon": "media/icon.png",
