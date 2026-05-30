@@ -315,10 +315,12 @@ mod tests {
             .spawn()
             .expect("process tree command should spawn");
         let token = CancellationToken::new();
+        let waiter_token = token.clone();
+        let waiter = thread::spawn(move || wait_with_cancellation(&mut child, &waiter_token));
 
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(1000));
         token.cancel();
-        let error = wait_with_cancellation(&mut child, &token).unwrap_err();
+        let error = waiter.join().expect("process wait thread should not panic").unwrap_err();
 
         assert!(error.is::<CancellationError>(), "{error:#}");
         thread::sleep(Duration::from_millis(2200));
@@ -369,6 +371,7 @@ Set-Content -LiteralPath $Marker -Value done
             &child,
             r#"
 param([string]$Grandchild, [string]$Marker)
+Start-Sleep -Milliseconds 500
 Start-Process -FilePath powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', $Grandchild, $Marker)
 Start-Sleep -Seconds 30
 "#,
