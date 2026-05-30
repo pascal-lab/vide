@@ -10,17 +10,24 @@ use lsp_types::{
     WorkspaceFileOperationsServerCapabilities, WorkspaceFoldersServerCapabilities,
     WorkspaceServerCapabilities,
 };
-use utils::{line_index::WideEncoding, lines::PositionEncoding, try_, try_or_default};
+use utils::{line_index::WideEncoding, lines::PositionEncoding};
 
 use crate::{
     config::Config,
     lsp_ext::ext::{self, RELOAD_WORKSPACE_COMMAND, RUN_QIHE_ANALYSIS_COMMAND},
 };
 
+macro_rules! check_support {
+    ($expr:expr) => {{
+        let support = try { $expr };
+        matches!(support, Some(true))
+    }};
+}
+
 impl Config {
     #[allow(dead_code)]
     pub fn cli_completion_label_details_support(&self) -> bool {
-        try_!(
+        check_support! {
             self.client_caps
                 .text_document
                 .as_ref()?
@@ -28,15 +35,13 @@ impl Config {
                 .as_ref()?
                 .completion_item
                 .as_ref()?
-                .label_details_support
-                .as_ref()?
-        )
-        .is_some()
+                .label_details_support?
+        }
     }
 
     #[allow(dead_code)]
     pub fn cli_completion_item_edit_resolve(&self) -> bool {
-        try_!(
+        check_support! {
             self.client_caps
                 .text_document
                 .as_ref()?
@@ -49,12 +54,12 @@ impl Config {
                 .properties
                 .iter()
                 .any(|cap_string| cap_string.as_str() == "additionalTextEdits")
-        ) == Some(true)
+        }
     }
 
     pub fn cli_completion_snippet_support(&self) -> bool {
-        try_or_default!(
-            self.client_caps
+        check_support! {
+             self.client_caps
                 .text_document
                 .as_ref()?
                 .completion
@@ -62,48 +67,54 @@ impl Config {
                 .completion_item
                 .as_ref()?
                 .snippet_support?
-        )
+        }
     }
 
     pub fn hierarchical_symbols(&self) -> bool {
-        try_!(
-            self.client_caps
+        check_support! {
+             self.client_caps
                 .text_document
                 .as_ref()?
                 .document_symbol
                 .as_ref()?
                 .hierarchical_document_symbol_support?
-        )
-        .unwrap_or_default()
+        }
     }
 
     pub fn location_link(&self) -> bool {
-        try_or_default!(self.client_caps.text_document.as_ref()?.definition?.link_support?)
+        check_support! {
+            self.client_caps
+            .text_document
+            .as_ref()?
+            .definition?
+            .link_support?
+        }
     }
 
     pub fn cli_did_save_dyn_reg(&self) -> bool {
-        let caps =
-            try_or_default!(self.client_caps.text_document.as_ref()?.synchronization.clone()?);
-        caps.did_save == Some(true) && caps.dynamic_registration == Some(true)
+        check_support! {{
+            let sync = self.client_caps.text_document.as_ref()?.synchronization.as_ref()?;
+            sync.did_save? && sync.dynamic_registration?
+        }}
     }
 
     pub fn cli_did_change_watched_files_dyn_reg(&self) -> bool {
-        try_or_default!(
+        check_support! {
             self.client_caps
                 .workspace
                 .as_ref()?
                 .did_change_watched_files
                 .as_ref()?
                 .dynamic_registration?
-        )
+        }
     }
 
     pub fn cli_work_done_progress(&self) -> bool {
-        try_or_default!(self.client_caps.window.as_ref()?.work_done_progress?)
+        check_support!(self.client_caps.window.as_ref()?.work_done_progress?)
     }
 
     pub fn cli_line_folding_only(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
             .text_document.as_ref()?
             .folding_range.as_ref()?
@@ -112,7 +123,7 @@ impl Config {
     }
 
     pub fn cli_hover_markdown_support(&self) -> HoverFormat {
-        let support_markdown = try_or_default! {
+        let support_markdown = check_support! {
             self.client_caps
             .text_document.as_ref()?
             .hover.as_ref()?
@@ -124,7 +135,7 @@ impl Config {
     }
 
     pub fn cli_inlay_hint_refresh_support(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
             .workspace.as_ref()?
             .inlay_hint.as_ref()?
@@ -133,7 +144,7 @@ impl Config {
     }
 
     pub fn cli_code_lens_refresh_support(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
             .workspace.as_ref()?
             .code_lens.as_ref()?
@@ -142,7 +153,7 @@ impl Config {
     }
 
     pub fn cli_workspace_diagnostic_refresh_support(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
             .workspace.as_ref()?
             .diagnostic.as_ref()?
@@ -151,11 +162,18 @@ impl Config {
     }
 
     pub fn cli_pull_diagnostics_support(&self) -> bool {
-        try_!(self.client_caps.text_document.as_ref()?.diagnostic.as_ref()).is_some()
+        check_support! {
+            self.client_caps
+                .text_document
+                .as_ref()?
+                .diagnostic
+                .as_ref()
+                .is_some()
+        }
     }
 
     pub fn cli_signature_help_label_offsets_support(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
                 .text_document
                 .as_ref()?
@@ -170,7 +188,7 @@ impl Config {
     }
 
     pub fn cli_code_action_literals(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
             .text_document
             .as_ref()?
@@ -178,12 +196,12 @@ impl Config {
             .as_ref()?
             .code_action_literal_support
             .as_ref()
+            .is_some()
         }
-        .is_some()
     }
 
     pub fn cli_code_action_resolve(&self) -> bool {
-        try_or_default! {
+        check_support! {
             self.client_caps
             .text_document
             .as_ref()?
