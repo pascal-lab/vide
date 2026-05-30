@@ -8,11 +8,11 @@ mod parser;
 mod resolve;
 mod util;
 
-use base_db::source_db::{SourceDb, SourceRootDb};
-use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
+use hir::{
+    base_db::source_db::{SourceDb, SourceRootDb},
+    semantics::Semantics,
+};
 use smallvec::{SmallVec, smallvec};
-use span::FilePosition;
 use syntax::{
     ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt,
     has_text_range::HasTextRange,
@@ -20,6 +20,7 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
+use crate::{FilePosition, db::root_db::RootDb};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexContext {

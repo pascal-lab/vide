@@ -1,10 +1,10 @@
-use base_db::{change::Change, source_root::SourceRoot};
-use ide_db::root_db::RootDb;
+use hir::base_db::{change::Change, source_root::SourceRoot};
 use triomphe::Arc;
 use utils::{lines::LineEnding, text_edit::TextSize};
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
+use crate::db::root_db::RootDb;
 
 fn db_with_file(text: &str) -> (RootDb, FileId, TextSize) {
     let marker = "/*caret*/";

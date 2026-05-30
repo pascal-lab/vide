@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use ide::{folding_ranges::FoldingConfig, references::References};
+use ide::{FilePosition, FileRange, folding_ranges::FoldingConfig, references::References};
 use itertools::Itertools;
-use span::{FilePosition, FileRange};
 use utils::text_edit::TextRange;
 use vfs::FileId;
 

@@ -1,15 +1,21 @@
 use hir::{
     container::InContainer,
     db::HirDb,
-    hir_def::{Ident, declaration::Declaration, module::ModuleId},
+    hir_def::{
+        Ident,
+        declaration::{Declaration, DeclarationId, DeclarationSrc},
+        expr::declarator::DeclaratorParent,
+        module::{ModuleId, port::Ports},
+    },
     scope::ModuleEntry,
     semantics::pathres::PathResolution,
     type_infer::{
         Ty, TyClass, packed_bit_width, type_class, type_of_decl, type_of_path_resolution,
     },
 };
-use ide_db::root_db::RootDb;
 use utils::get::{Get, GetRef};
+
+use crate::db::root_db::RootDb;
 
 pub(super) fn expected_port_ty(
     db: &RootDb,
@@ -42,9 +48,7 @@ pub(super) fn expected_param_ty(
         return None;
     };
 
-    let hir::hir_def::expr::declarator::DeclaratorParent::DeclarationId(declaration_id) =
-        target_module.get(decl_id).parent
-    else {
+    let DeclaratorParent::DeclarationId(declaration_id) = target_module.get(decl_id).parent else {
         return None;
     };
     let Declaration::ParamDecl(_) = target_module.get(declaration_id) else {
@@ -77,7 +81,7 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
     }
 
     match &module.ports {
-        hir::hir_def::module::port::Ports::Ansi(port_decls) => {
+        Ports::Ansi(port_decls) => {
             for (_, port_decl) in port_decls.iter() {
                 for decl_id in port_decl.decls.clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
@@ -87,7 +91,7 @@ pub(super) fn value_candidates_in_module(db: &RootDb, module_id: ModuleId) -> Ve
                 }
             }
         }
-        hir::hir_def::module::port::Ports::NonAnsi { decls, .. } => {
+        Ports::NonAnsi { decls, .. } => {
             for (_, port_decl) in decls.iter() {
                 for decl_id in port_decl.decls.clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
@@ -148,13 +152,11 @@ pub(super) fn is_compatible_typed_value(db: &RootDb, expected: &Ty, candidate: &
 fn is_overridable_parameter_decl(
     db: &RootDb,
     module_id: ModuleId,
-    declaration_id: hir::hir_def::declaration::DeclarationId,
+    declaration_id: DeclarationId,
 ) -> bool {
     let (_, module_src_map) = db.module_with_source_map(module_id);
     let tree = db.parse(module_id.file_id);
-    let Some(hir::hir_def::declaration::DeclarationSrc::ParameterDeclaration(ptr)) =
-        module_src_map.get(declaration_id)
-    else {
+    let Some(DeclarationSrc::ParameterDeclaration(ptr)) = module_src_map.get(declaration_id) else {
         return false;
     };
     let Some(node) = ptr.to_node(&tree) else {

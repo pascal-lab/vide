@@ -1,12 +1,11 @@
 use hir::{container::InFile, file::HirFileId, semantics::Semantics};
-use ide_db::root_db::RootDb;
-use span::FilePosition;
 use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
-    ScopeVisibility,
+    FilePosition, ScopeVisibility,
+    db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     references::{
         self, ReferenceCategory, ReferencesConfig,
@@ -100,7 +99,7 @@ fn highlight_refs<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use base_db::{change::Change, source_root::SourceRoot};
+    use hir::base_db::{change::Change, source_root::SourceRoot};
     use insta::assert_debug_snapshot;
     use triomphe::Arc;
     use utils::{lines::LineEnding, text_edit::TextSize};

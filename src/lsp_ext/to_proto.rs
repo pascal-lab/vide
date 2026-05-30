@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use anyhow::{Context, Error};
 use hir::container::InFile;
 use ide::{
-    SymbolKind,
+    FilePosition, FileRange, SymbolKind,
     code_action::{CodeAction, CodeActionKind},
     code_lens::{CodeLens, CodeLensKind},
     diagnostics as ide_diagnostics,
@@ -20,7 +20,6 @@ use ide::{
     source_change::SourceChange,
 };
 use itertools::Itertools;
-use span::{FilePosition, FileRange};
 use syntax::DiagnosticSeverity as SlangDiagnosticSeverity;
 use utils::{
     cancellation::CancellationError,
