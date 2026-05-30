@@ -16,6 +16,10 @@ import inlayHintsImage from '../assets/homepage-features/inlay-hints.png';
 import missingPortsImage from '../assets/homepage-features/missing-ports.png';
 import peekDefinitionImage from '../assets/homepage-features/peek-definition.png';
 import renameImage from '../assets/homepage-features/rename-updated.png';
+import completionGif from '../content/docs/assets/features/completion.gif';
+import gotoDefinitionGif from '../content/docs/assets/features/goto-def.gif';
+import hoverGif from '../content/docs/assets/features/hover.gif';
+import missingPortGif from '../content/docs/assets/features/missing-port.gif';
 
 export type HomepageLocale = 'zh' | 'en';
 export type HomepageFeatureLayout = 'image-left' | 'image-right';
@@ -70,6 +74,7 @@ export const normalizeHomepageLocale = (locale?: string): HomepageLocale =>
 
 const featureImages = {
   navigation: [
+    { src: gotoDefinitionGif, alt: { zh: 'Go to Definition 动图', en: 'Go to Definition animation' } },
     { src: peekDefinitionImage, alt: { zh: 'Peek Definition 截图', en: 'Peek Definition screenshot' } },
     {
       src: findAllReferencesImage,
@@ -78,6 +83,7 @@ const featureImages = {
     { src: documentSymbolImage, alt: { zh: 'Document Symbol 截图', en: 'Document Symbol screenshot' } },
   ],
   insight: [
+    { src: hoverGif, alt: { zh: 'Hover 信息动图', en: 'Hover information animation' } },
     { src: hoverModuleNameImage, alt: { zh: '模块 Hover 信息截图', en: 'Module hover screenshot' } },
     {
       src: hoverInstanceNameImage,
@@ -90,6 +96,7 @@ const featureImages = {
     { src: inlayHintsImage, alt: { zh: 'Inlay Hints 截图', en: 'Inlay Hints screenshot' } },
   ],
   completion: [
+    { src: completionGif, alt: { zh: '补全功能动图', en: 'Completion animation' } },
     {
       src: completionModuleDeclImage,
       alt: { zh: '模块声明补全截图', en: 'Module declaration completion screenshot' },
@@ -106,6 +113,7 @@ const featureImages = {
     },
   ],
   refactoring: [
+    { src: missingPortGif, alt: { zh: '补全缺失端口 Code Action 动图', en: 'Missing-port code action animation' } },
     {
       src: missingPortsImage,
       alt: { zh: '补全缺失端口 Code Action 截图', en: 'Missing-port code action screenshot' },
