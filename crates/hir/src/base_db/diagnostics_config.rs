@@ -144,6 +144,7 @@ mod tests {
             subsystem: 2,
             severity: DiagnosticSeverity::Error,
             message: "error".into(),
+            args: Vec::new(),
             name: "test".into(),
             option_name: None,
             groups: Vec::new(),

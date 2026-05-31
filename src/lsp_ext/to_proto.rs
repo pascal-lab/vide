@@ -178,6 +178,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "name": diag.name,
         "option": diag.option_name,
         "groups": diag.groups,
+        "args": diag.args.clone(),
         "selectorHints": diagnostic_selector_hints(diag),
     })
 }
@@ -991,6 +992,7 @@ mod tests {
             range: TextRange::new(TextSize::from(0), TextSize::from(14)),
             severity: DiagnosticSeverity::Note,
             message: "inactive".to_owned(),
+            args: Vec::new(),
             message_key: None,
             message_args: Vec::new(),
             tags: vec![DiagnosticTag::Unnecessary],

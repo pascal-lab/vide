@@ -11,8 +11,8 @@ pub struct CodeActionDiagnostic {
     pub code: Option<DiagnosticCode>,
     pub name: Option<String>,
     pub option: Option<String>,
-    pub message: Option<String>,
     pub range: Option<TextRange>,
+    pub expected_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,18 +83,13 @@ impl CodeActionDiagnostic {
             RepairKind::InsertExpectedToken => {
                 self.source == Some(DiagnosticSource::Parse)
                     && self.name.as_deref() == Some("ExpectedToken")
-                    && self.message.as_deref().and_then(expected_token_from_message).is_some()
+                    && self.expected_token.as_deref().is_some_and(safe_insertable_token)
             }
         }
     }
 }
 
-pub(crate) fn expected_token_from_message(message: &str) -> Option<&str> {
-    let token = message.strip_prefix("expected '")?.strip_suffix('\'')?;
-    safe_insertable_token(token).then_some(token)
-}
-
-fn safe_insertable_token(token: &str) -> bool {
+pub(crate) fn safe_insertable_token(token: &str) -> bool {
     !token.is_empty()
         && token.len() <= 32
         && token.bytes().all(|byte| {

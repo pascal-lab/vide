@@ -3,7 +3,6 @@ use utils::text_edit::TextSize;
 
 use crate::code_action::{
     CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-    diagnostics::expected_token_from_message,
 };
 
 const ID: CodeActionId = CodeActionId {
@@ -21,7 +20,7 @@ pub(super) fn insert_expected_token(
     }
 
     let (token, range) = ctx.diagnostics().items.iter().find_map(|diag| {
-        let token = diag.message.as_deref().and_then(expected_token_from_message)?;
+        let token = diag.expected_token.as_deref()?;
         Some((token, diag.range.unwrap_or_else(|| ctx.range())))
     })?;
     let offset = range.start();
