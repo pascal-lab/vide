@@ -14,6 +14,14 @@ class TestConfiguration {
   }
 }
 
+class TestVscodeConfiguration extends TestConfiguration {
+  inspect<T>(section: string): { defaultValue?: T; globalValue?: T } | undefined {
+    return {
+      defaultValue: this.get<T>(section),
+    };
+  }
+}
+
 test('server initialization options include user configuration for startup', () => {
   const options = serverInitializationOptions(
     new TestConfiguration({
@@ -41,6 +49,22 @@ test('server initialization options include user configuration for startup', () 
   });
   assert.deepEqual(options.qihe, {
     command: 'custom-qihe',
+    autoConfigureArgsFromManifest: true,
+    compileArgs: [],
+    runArgs: ['-g', 'std'],
+  });
+});
+
+test('server initialization options treat the VS Code Qihe default as platform-owned', () => {
+  const options = serverInitializationOptions(
+    new TestVscodeConfiguration({
+      'qihe.command': 'qihe',
+    }),
+    'win32',
+  );
+
+  assert.deepEqual(options.qihe, {
+    command: 'qihe.bat',
     autoConfigureArgsFromManifest: true,
     compileArgs: [],
     runArgs: ['-g', 'std'],

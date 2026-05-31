@@ -114,7 +114,7 @@ qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 
 如果 `vide.qihe.compileArgs` 已经包含 `--mode`、`--mode=...` 或 `-m ...`，Vide 不会再自动追加 `--mode sv`。
 
-常用默认值如下：
+常用默认值如下。在 Windows 上，如果没有显式配置 `vide.qihe.command`，Vide 会使用 `qihe.bat`：
 
 ```json
 {
