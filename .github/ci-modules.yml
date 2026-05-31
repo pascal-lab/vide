@@ -5,6 +5,10 @@ server: &server
   - "rust-toolchain.toml"
   - "src/**"
   - "crates/**"
+  - "schemas/**"
+  - "editors/vscode/package.json"
+  - "editors/vscode/src/generated/configuration.ts"
+  - "editors/vscode/src/generated/projectConfigSchema.ts"
 
 rust:
   - *server

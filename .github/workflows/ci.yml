@@ -85,6 +85,8 @@ jobs:
           cache-on-failure: true
       - name: Format Check
         run: cargo fmt --all -- --check
+      - name: Config Artifact Check
+        run: cargo xtask check-config-artifacts
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
