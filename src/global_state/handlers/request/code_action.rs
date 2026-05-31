@@ -182,6 +182,8 @@ fn code_action_diagnostic_from_ide(diag: &ide_diagnostics::Diagnostic) -> CodeAc
         code: Some(DiagnosticCode { subsystem: diag.subsystem, code: diag.code }),
         name: Some(diag.name.clone()),
         option: diag.option_name.clone(),
+        message: Some(diag.message.clone()),
+        range: Some(diag.range),
     }
 }
 
@@ -326,6 +328,15 @@ mod tests {
 
         let diag = ide_diagnostic("MixingOrderedAndNamedPorts", 2, 0, None);
         assert!(quick_fix_diagnostics(None, &[diag]).is_none());
+    }
+
+    #[test]
+    fn quick_fix_diagnostics_match_parse_expected_token() {
+        let mut diag = ide_diagnostic("ExpectedToken", 1, 116, None);
+        diag.source = IdeDiagnosticSource::SlangParse;
+        diag.message = "expected ';'".to_owned();
+
+        assert!(quick_fix_diagnostics(Some(RepairKind::InsertExpectedToken), &[diag]).is_some());
     }
 
     #[test]

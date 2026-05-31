@@ -49,6 +49,10 @@ impl<'a> CodeActionCtx<'a> {
         self.diagnostics.allows_repair(repair)
     }
 
+    pub(crate) fn diagnostics(&self) -> &CodeActionDiagnostics {
+        &self.diagnostics
+    }
+
     fn offset(&self) -> TextSize {
         self.range.start()
     }

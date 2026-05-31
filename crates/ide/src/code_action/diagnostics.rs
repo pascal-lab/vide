@@ -1,3 +1,5 @@
+use utils::text_edit::TextRange;
+
 #[derive(Debug, Clone, Default)]
 pub struct CodeActionDiagnostics {
     pub items: Vec<CodeActionDiagnostic>,
@@ -9,6 +11,8 @@ pub struct CodeActionDiagnostic {
     pub code: Option<DiagnosticCode>,
     pub name: Option<String>,
     pub option: Option<String>,
+    pub message: Option<String>,
+    pub range: Option<TextRange>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +36,7 @@ pub enum RepairKind {
     RemoveEmptyPortConnections,
     AddImplicitNamedPortParens,
     AddInstanceParens,
+    InsertExpectedToken,
 }
 
 impl CodeActionDiagnostics {
@@ -75,6 +80,50 @@ impl CodeActionDiagnostic {
                 self.source == Some(DiagnosticSource::Semantic)
                     && self.name.as_deref() == Some("InstanceMissingParens")
             }
+            RepairKind::InsertExpectedToken => {
+                self.source == Some(DiagnosticSource::Parse)
+                    && self.name.as_deref() == Some("ExpectedToken")
+                    && self.message.as_deref().and_then(expected_token_from_message).is_some()
+            }
         }
     }
+}
+
+pub(crate) fn expected_token_from_message(message: &str) -> Option<&str> {
+    let token = message.strip_prefix("expected '")?.strip_suffix('\'')?;
+    safe_insertable_token(token).then_some(token)
+}
+
+fn safe_insertable_token(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= 32
+        && token.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'_' | b'$'
+                        | b'#'
+                        | b'('
+                        | b')'
+                        | b'['
+                        | b']'
+                        | b'{'
+                        | b'}'
+                        | b';'
+                        | b':'
+                        | b','
+                        | b'.'
+                        | b'*'
+                        | b'/'
+                        | b'='
+                        | b'<'
+                        | b'>'
+                        | b'+'
+                        | b'-'
+                        | b'!'
+                        | b'?'
+                        | b'@'
+                        | b'`'
+                )
+        })
 }
