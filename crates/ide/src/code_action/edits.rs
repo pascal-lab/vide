@@ -93,7 +93,7 @@ fn missing_list_edit(
     Some(MissingListEdit { range, replacement })
 }
 
-fn line_indent(text: &str, offset: TextSize) -> String {
+pub(crate) fn line_indent(text: &str, offset: TextSize) -> String {
     let offset = usize::from(offset).min(text.len());
     let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
     text[line_start..offset].chars().take_while(|ch| *ch == ' ' || *ch == '\t').collect()
@@ -104,4 +104,12 @@ fn item_line_indent(text: &str, offset: TextSize) -> Option<String> {
     let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
     let before_item = &text[line_start..offset];
     before_item.chars().all(|ch| ch == ' ' || ch == '\t').then(|| before_item.to_owned())
+}
+
+pub(crate) fn text_at(text: &str, range: TextRange) -> Option<String> {
+    text.get(std::ops::Range::<usize>::from(range)).map(ToOwned::to_owned)
+}
+
+pub(crate) fn newline_style(text: &str) -> &'static str {
+    if text.contains("\r\n") { "\r\n" } else { "\n" }
 }
