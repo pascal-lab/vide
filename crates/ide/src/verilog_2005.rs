@@ -1064,7 +1064,7 @@ module /*marker:module_def*/child #(parameter WIDTH = 8) (
 endmodule
 
 module top;
-  /*marker:module_ref*/child u_child(.clk());
+  /*marker:module_ref*/child /*marker:instance_ref*/u_child(.clk());
 endmodule
 "#;
     let (host, file_id, _clean_text, markers) = setup_marked(text);
@@ -1098,6 +1098,22 @@ endmodule
         ),
         "instantiation module name hover should reuse module signature: {}",
         inst_module_hover.info.as_str()
+    );
+
+    let instance_hover = analysis
+        .hover(
+            position(file_id, &markers, "instance_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("instance hover expected");
+    assert!(
+        instance_hover.info.as_str().contains("instance u_child of child")
+            && instance_hover.info.as_str().contains(
+                "module child #(\n    parameter logic WIDTH = 8\n) (\n    input wire logic clk\n)"
+            ),
+        "instance hover should include the target module signature: {}",
+        instance_hover.info.as_str()
     );
 
     let port_hover = analysis

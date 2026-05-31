@@ -16,6 +16,7 @@ use hir::{
         literal::Literal,
         module::{
             ModuleId,
+            instantiation::InstanceId,
             port::{NonAnsiPortId, Ports},
         },
         subroutine::{SubroutineId, SubroutineKind, SubroutinePortId},
@@ -36,6 +37,7 @@ use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
     definitions::{Definition, DefinitionOrigin},
     markup::Markup,
+    module_resolution::resolve_module_name,
 };
 
 pub(crate) fn render_literal(literal: &Literal) -> Option<Markup> {
@@ -217,6 +219,7 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opti
         DefinitionOrigin::NonAnsiPort(port_id) => render_non_ansi_port_signature(db, *port_id),
         DefinitionOrigin::Decl(decl_id) => render_decl_signature(db, *decl_id),
         DefinitionOrigin::Typedef(typedef) => typedef.display_signature(db).ok(),
+        DefinitionOrigin::Instance(instance_id) => render_instance_signature(db, *instance_id),
         _ => render_label_signature(db, origin),
     }
 }
@@ -377,6 +380,25 @@ fn render_non_ansi_port_signature(db: &RootDb, port_id: InModule<NonAnsiPortId>)
     let port = module.get(port_id.value);
     let label = port.label.as_ref()?;
     Some(format!("port {label}"))
+}
+
+fn render_instance_signature(db: &RootDb, instance_id: InModule<InstanceId>) -> Option<String> {
+    let parent_module = db.module(instance_id.module_id);
+    let instance = parent_module.get(instance_id.value);
+    let instance_name = instance.name.as_ref()?;
+    let instantiation = parent_module.get(instance.parent);
+    let module_name = instantiation.module_name.as_ref()?;
+
+    let mut signature = format!("instance {instance_name} of {module_name}");
+    if let Some(target_module_id) =
+        resolve_module_name(db, instance_id.module_id.file_id.file_id(), module_name).unique()
+        && let Some(module_signature) = render_module_signature(db, target_module_id)
+    {
+        signature.push_str("\n\n");
+        signature.push_str(&module_signature);
+    }
+
+    Some(signature)
 }
 
 fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<String> {
