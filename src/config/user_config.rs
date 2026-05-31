@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use base_db::diagnostics_config::{
     DiagnosticPhaseConfig, DiagnosticRule, DiagnosticRuleSeverity, DiagnosticSelector,
     DiagnosticSource, DiagnosticsConfig, SlangDiagnosticsConfig,
@@ -13,13 +15,17 @@ use ide::{
     semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
     signature_help::SignatureHelpConfig,
 };
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Serialize,
+    de::{DeserializeOwned, Error as _},
+};
 use utils::paths::Utf8PathBuf;
 
 use super::Config;
 
 const DEFAULT_QIHE_COMMAND: &str = "qihe";
 const DEFAULT_QIHE_RUN_ARGS: &[&str] = &["-g", "std"];
+const USER_CONFIG_SCHEMA_FIELD: &str = "$schema";
 #[cfg(feature = "user-config-schema")]
 const USER_CONFIG_SCHEMA_URL: &str =
     "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json";
@@ -96,7 +102,7 @@ pub(crate) struct QiheConfig {
     pub(crate) run_args: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
@@ -121,25 +127,6 @@ pub(crate) struct UserConfig {
     pub(crate) diagnostics: DiagnosticsUserConfig,
     pub(crate) signature: SignatureUserConfig,
     pub(crate) qihe: QiheUserConfig,
-}
-
-impl Default for UserConfig {
-    fn default() -> Self {
-        Self {
-            files: FilesUserConfig::default(),
-            workspace: WorkspaceUserConfig::default(),
-            scope: ScopeUserConfig::default(),
-            references: ReferencesUserConfig::default(),
-            formatter: FormatterUserConfig::default(),
-            formatting: FormattingUserConfig::default(),
-            inlay_hints: InlayHintsUserConfig::default(),
-            lens: LensUserConfig::default(),
-            semantic: SemanticUserConfig::default(),
-            diagnostics: DiagnosticsUserConfig::default(),
-            signature: SignatureUserConfig::default(),
-            qihe: QiheUserConfig::default(),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -293,7 +280,7 @@ impl Default for FormatterUserConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
@@ -301,16 +288,6 @@ pub(crate) struct FormattingUserConfig {
     pub(crate) on: FormattingOnUserConfig,
     pub(crate) r#in: FormattingInUserConfig,
     pub(crate) indent: FormattingIndentUserConfig,
-}
-
-impl Default for FormattingUserConfig {
-    fn default() -> Self {
-        Self {
-            on: FormattingOnUserConfig::default(),
-            r#in: FormattingInUserConfig::default(),
-            indent: FormattingIndentUserConfig::default(),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -674,6 +651,15 @@ pub fn generated_user_config_schema() -> serde_json::Value {
     if let Some(root) = schema.as_object_mut() {
         root.insert("$id".to_owned(), serde_json::json!(USER_CONFIG_SCHEMA_URL));
         root.insert("x-vide-config-kind".to_owned(), serde_json::json!("user"));
+        if let Some(properties) = root.get_mut("properties").and_then(|it| it.as_object_mut()) {
+            properties.insert(
+                USER_CONFIG_SCHEMA_FIELD.to_owned(),
+                serde_json::json!({
+                    "type": "string",
+                    "description": "JSON schema URL used by editors for completion and validation. Vide ignores this field.",
+                }),
+            );
+        }
     }
     schema
 }
@@ -1204,6 +1190,209 @@ pub fn generated_vscode_configuration_typescript() -> String {
     out
 }
 
+const USER_CONFIG_KNOWN_PATHS: &[&[&str]] = &[
+    &["diagnostics", "enable"],
+    &["diagnostics", "parse", "enable"],
+    &["diagnostics", "semantic", "enable"],
+    &["diagnostics", "slang", "rules"],
+    &["diagnostics", "slang", "warnings"],
+    &["diagnostics", "update"],
+    &["files", "excludeDirs"],
+    &["files", "watcher"],
+    &["formatter", "args"],
+    &["formatter", "path"],
+    &["formatter", "provider"],
+    &["formatting", "in", "comments"],
+    &["formatting", "indent", "width"],
+    &["formatting", "on", "enter"],
+    &["inlayHints", "end", "structure", "enable"],
+    &["inlayHints", "parameter", "assignment", "enable"],
+    &["inlayHints", "port", "connection", "enable"],
+    &["lens", "instantiations", "enable"],
+    &["qihe", "autoConfigureArgsFromManifest"],
+    &["qihe", "command"],
+    &["qihe", "compileArgs"],
+    &["qihe", "runArgs"],
+    &["references", "includeDeclaration"],
+    &["scope", "visibility"],
+    &["semantic", "tokens", "port", "clk", "rst", "enable"],
+    &["semantic", "tokens", "port", "input", "output", "enable"],
+    &["signature", "help", "params", "only"],
+    &["workspace", "auto", "reload"],
+];
+
+#[derive(Default)]
+struct UserConfigPathNode {
+    children: BTreeMap<&'static str, UserConfigPathNode>,
+}
+
+impl UserConfigPathNode {
+    fn insert(&mut self, path: &'static [&'static str]) {
+        let mut current = self;
+        for segment in path {
+            current = current.children.entry(segment).or_default();
+        }
+    }
+}
+
+fn user_config_path_tree() -> UserConfigPathNode {
+    let mut root = UserConfigPathNode::default();
+    for path in USER_CONFIG_KNOWN_PATHS {
+        root.insert(path);
+    }
+    root
+}
+
+fn escape_json_pointer_segment(segment: &str) -> String {
+    segment.replace('~', "~0").replace('/', "~1")
+}
+
+fn user_config_pointer(path: &[&str]) -> String {
+    let mut pointer = String::new();
+    for segment in path {
+        pointer.push('/');
+        pointer.push_str(&escape_json_pointer_segment(segment));
+    }
+    pointer
+}
+
+fn child_pointer(parent: &str, child: &str) -> String {
+    format!("{parent}/{}", escape_json_pointer_segment(child))
+}
+
+fn config_error(message: impl std::fmt::Display) -> serde_json::Error {
+    serde_json::Error::custom(message)
+}
+
+fn validate_user_config_shape(
+    json: &serde_json::Value,
+    node: &UserConfigPathNode,
+    pointer: &str,
+    error_sink: &mut Vec<(String, serde_json::Error)>,
+) {
+    if node.children.is_empty() {
+        return;
+    }
+
+    let Some(object) = json.as_object() else {
+        let display_pointer = if pointer.is_empty() { "/" } else { pointer };
+        error_sink.push((display_pointer.to_owned(), config_error("expected object")));
+        return;
+    };
+
+    for (key, value) in object {
+        if pointer.is_empty() && key == USER_CONFIG_SCHEMA_FIELD {
+            continue;
+        }
+
+        let next_pointer = child_pointer(pointer, key);
+        if let Some(child) = node.children.get(key.as_str()) {
+            validate_user_config_shape(value, child, &next_pointer, error_sink);
+        } else {
+            error_sink.push((next_pointer, config_error("unknown field")));
+        }
+    }
+}
+
+fn parse_user_config_field<T: DeserializeOwned>(
+    json: &serde_json::Value,
+    config: &mut UserConfig,
+    error_sink: &mut Vec<(String, serde_json::Error)>,
+    path: &[&str],
+    apply: impl FnOnce(&mut UserConfig, T),
+) {
+    let pointer = user_config_pointer(path);
+    let Some(value) = json.pointer(&pointer) else {
+        return;
+    };
+
+    match serde_json::from_value(value.clone()) {
+        Ok(value) => apply(config, value),
+        Err(error) => error_sink.push((pointer, error)),
+    }
+}
+
+fn apply_user_config_fields(
+    json: &serde_json::Value,
+    config: &mut UserConfig,
+    error_sink: &mut Vec<(String, serde_json::Error)>,
+) {
+    macro_rules! field {
+        ($path:expr, $ty:ty, | $cfg:ident, $value:ident | $body:expr) => {
+            parse_user_config_field::<$ty>(json, config, error_sink, $path, |$cfg, $value| $body);
+        };
+    }
+
+    field!(&["diagnostics", "enable"], bool, |cfg, value| cfg.diagnostics.enable = value);
+    field!(&["diagnostics", "parse", "enable"], bool, |cfg, value| {
+        cfg.diagnostics.parse.enable = value
+    });
+    field!(&["diagnostics", "semantic", "enable"], bool, |cfg, value| {
+        cfg.diagnostics.semantic.enable = value
+    });
+    field!(&["diagnostics", "slang", "rules"], Vec<DiagnosticRuleUserConfig>, |cfg, value| {
+        cfg.diagnostics.slang.rules = value
+    });
+    field!(&["diagnostics", "slang", "warnings"], Vec<String>, |cfg, value| {
+        cfg.diagnostics.slang.warnings = value
+    });
+    field!(&["diagnostics", "update"], DiagnosticsUpdateUserConfig, |cfg, value| {
+        cfg.diagnostics.update = value
+    });
+    field!(&["files", "excludeDirs"], Vec<Utf8PathBuf>, |cfg, value| {
+        cfg.files.exclude_dirs = value
+    });
+    field!(&["files", "watcher"], FilesWatcherDef, |cfg, value| cfg.files.watcher = value);
+    field!(&["formatter", "args"], Vec<String>, |cfg, value| cfg.formatter.args = value);
+    field!(&["formatter", "path"], Option<Utf8PathBuf>, |cfg, value| {
+        cfg.formatter.path = value
+    });
+    field!(&["formatter", "provider"], FormatterProviderUserConfig, |cfg, value| {
+        cfg.formatter.provider = value
+    });
+    field!(&["formatting", "in", "comments"], bool, |cfg, value| {
+        cfg.formatting.r#in.comments = value
+    });
+    field!(&["formatting", "indent", "width"], usize, |cfg, value| {
+        cfg.formatting.indent.width = value
+    });
+    field!(&["formatting", "on", "enter"], bool, |cfg, value| { cfg.formatting.on.enter = value });
+    field!(&["inlayHints", "end", "structure", "enable"], bool, |cfg, value| {
+        cfg.inlay_hints.end.structure.enable = value
+    });
+    field!(&["inlayHints", "parameter", "assignment", "enable"], bool, |cfg, value| {
+        cfg.inlay_hints.parameter.assignment.enable = value
+    });
+    field!(&["inlayHints", "port", "connection", "enable"], bool, |cfg, value| {
+        cfg.inlay_hints.port.connection.enable = value
+    });
+    field!(&["lens", "instantiations", "enable"], bool, |cfg, value| {
+        cfg.lens.instantiations.enable = value
+    });
+    field!(&["qihe", "autoConfigureArgsFromManifest"], bool, |cfg, value| {
+        cfg.qihe.auto_configure_args_from_manifest = value
+    });
+    field!(&["qihe", "command"], String, |cfg, value| cfg.qihe.command = value);
+    field!(&["qihe", "compileArgs"], Vec<String>, |cfg, value| { cfg.qihe.compile_args = value });
+    field!(&["qihe", "runArgs"], Vec<String>, |cfg, value| cfg.qihe.run_args = value);
+    field!(&["references", "includeDeclaration"], bool, |cfg, value| {
+        cfg.references.include_declaration = value
+    });
+    field!(&["scope", "visibility"], ScopeVisibility, |cfg, value| cfg.scope.visibility = value);
+    field!(&["semantic", "tokens", "port", "clk", "rst", "enable"], bool, |cfg, value| {
+        cfg.semantic.tokens.port.clk.rst.enable = value
+    });
+    field!(&["semantic", "tokens", "port", "input", "output", "enable"], bool, |cfg, value| {
+        cfg.semantic.tokens.port.input.output.enable = value
+    });
+    field!(&["signature", "help", "params", "only"], bool, |cfg, value| {
+        cfg.signature.help.params.only = value
+    });
+    field!(&["workspace", "auto", "reload"], bool, |cfg, value| {
+        cfg.workspace.auto.reload = value
+    });
+}
+
 impl UserConfig {
     pub(crate) fn from_json(
         json: serde_json::Value,
@@ -1213,10 +1402,12 @@ impl UserConfig {
             return Self::default();
         }
 
-        serde_json::from_value(json).unwrap_or_else(|err| {
-            error_sink.push(("/".to_owned(), err));
-            Self::default()
-        })
+        let mut config = Self::default();
+        validate_user_config_shape(&json, &user_config_path_tree(), "", error_sink);
+        if json.is_object() {
+            apply_user_config_fields(&json, &mut config, error_sink);
+        }
+        config
     }
 
     pub(crate) fn diagnostics_config(&self) -> DiagnosticsConfig {
@@ -1399,6 +1590,30 @@ fn parses_nested_diagnostics_config() {
     assert!(!config.semantic.enabled);
     assert_eq!(config.slang.warnings, ["default", "no-unused"]);
     assert_eq!(config.slang.rules.len(), 2);
+}
+
+#[test]
+fn keeps_valid_user_config_fields_when_other_fields_are_invalid() {
+    let json = serde_json::json!({
+        "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
+        "diagnostics": {
+            "update": "onType",
+            "semantic": { "enable": false },
+            "unknown": true
+        },
+        "qihe": {
+            "compileArgs": 42
+        }
+    });
+    let mut errors = vec![];
+    let user_cfg = UserConfig::from_json(json, &mut errors);
+
+    assert_eq!(user_cfg.diagnostics.update, DiagnosticsUpdateUserConfig::OnType);
+    assert!(!user_cfg.diagnostics.semantic.enable);
+    assert_eq!(user_cfg.qihe.compile_args, Vec::<String>::new());
+    assert!(errors.iter().any(|(path, _)| path == "/diagnostics/unknown"));
+    assert!(errors.iter().any(|(path, _)| path == "/qihe/compileArgs"));
+    assert!(!errors.iter().any(|(path, _)| path == "/$schema"));
 }
 
 #[test]

@@ -140,6 +140,10 @@
           "std"
         ]
       }
+    },
+    "$schema": {
+      "type": "string",
+      "description": "JSON schema URL used by editors for completion and validation. Vide ignores this field."
     }
   },
   "additionalProperties": false,
