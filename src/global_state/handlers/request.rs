@@ -324,6 +324,35 @@ pub(crate) fn handle_document_symbol(
     Ok(Some(res))
 }
 
+pub(crate) fn handle_workspace_symbol(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::WorkspaceSymbolParams,
+) -> anyhow::Result<Option<lsp_types::WorkspaceSymbolResponse>> {
+    let mut file_ids = snap.file_ids();
+    file_ids.sort_unstable_by_key(|file_id| file_id.0);
+    file_ids.dedup();
+
+    let symbols = snap.analysis.workspace_symbol(&params.query, file_ids)?;
+    let mut last_file_info = None;
+    let res = symbols
+        .into_iter()
+        .map(|symbol| {
+            let file_id = symbol.file_id;
+            if last_file_info
+                .as_ref()
+                .is_none_or(|(cached_file_id, _, _)| *cached_file_id != file_id)
+            {
+                last_file_info =
+                    Some((file_id, to_proto::url(&snap, file_id)?, snap.line_info(file_id)?));
+            }
+            let (_, url, line_info) = last_file_info.as_ref().unwrap();
+            Ok(to_proto::workspace_symbol_information(symbol, url, line_info))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(Some(lsp_types::WorkspaceSymbolResponse::Flat(res)))
+}
+
 pub(crate) fn handle_document_highlight(
     snap: GlobalStateSnapshot,
     params: lsp_types::DocumentHighlightParams,

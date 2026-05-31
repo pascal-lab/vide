@@ -43,7 +43,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{SymbolKind, db::root_db::RootDb};
+use crate::SymbolKind;
 
 #[derive(Debug, Clone)]
 pub struct DocumentSymbol {
@@ -188,7 +188,7 @@ impl AddRegionSymbol for Peekable<RegionTreeIterator<'_>> {
 }
 
 // TODO: add ty info in detail
-pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymbol> {
+pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentSymbol> {
     let file_id = HirFileId(file_id);
     let (file, src_map) = db.hir_file_with_source_map(file_id);
     let (file, src_map) = (file.as_ref(), src_map.as_ref());
@@ -243,7 +243,7 @@ pub(crate) fn document_symbols(db: &RootDb, file_id: FileId) -> Vec<DocumentSymb
 }
 
 fn collect_module_items(
-    db: &RootDb,
+    db: &dyn HirDb,
     module_id: ModuleId,
     module_src: ModuleSrc,
     collector: &mut SymbolCollecter,
@@ -338,7 +338,7 @@ fn collect_module_items(
 }
 
 fn collect_block_items(
-    db: &RootDb,
+    db: &dyn HirDb,
     collector: &mut SymbolCollecter,
     block_id: BlockId,
     block_src: BlockSrc,
@@ -375,7 +375,7 @@ fn collect_block_items(
 }
 
 fn build_stmt<Arn, SrcMap>(
-    db: &RootDb,
+    db: &dyn HirDb,
     collector: &mut SymbolCollecter,
     stmt_id: Idx<Stmt>,
     arena: &Arn,
@@ -474,7 +474,7 @@ fn build_declaration<Arn, SrcMap>(
 
 #[inline]
 fn build_generate_region<Arn, SrcMap>(
-    db: &RootDb,
+    db: &dyn HirDb,
     collector: &mut SymbolCollecter,
     generate_region_id: GenerateRegionId,
     arena: &Arn,
@@ -540,7 +540,7 @@ fn build_generate_region<Arn, SrcMap>(
 }
 
 fn build_generate_block(
-    db: &RootDb,
+    db: &dyn HirDb,
     collector: &mut SymbolCollecter,
     generate_block_id: GenerateBlockId,
 ) {

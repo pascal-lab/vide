@@ -19,14 +19,17 @@ use hir::{
 use triomphe::Arc;
 use vfs::{FileId, anchored_path::AnchoredPath};
 
-use crate::db::line_index_db::LineIndexDbStorage;
+use crate::db::{
+    line_index_db::LineIndexDbStorage, workspace_symbol_index_db::WorkspaceSymbolIndexDbStorage,
+};
 
 #[salsa::database(
     SourceDbStorage,
     SourceRootDbStorage,
     HirDbStorage,
     InternDbStorage,
-    LineIndexDbStorage
+    LineIndexDbStorage,
+    WorkspaceSymbolIndexDbStorage
 )]
 pub struct RootDb {
     // `ManuallyDrop` is used to avoid duplicating drop glue like `Weak::drop'
