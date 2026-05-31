@@ -56,7 +56,7 @@ test('default project config starts with empty analysis', () => {
   );
 });
 
-test('project config schema URL resolves to a published docs asset', () => {
+test('project config schema URL resolves to a checked-in schema source', () => {
   const schemaUrl = new URL(PROJECT_CONFIG_SCHEMA_URL);
 
   assert.match(PROJECT_CONFIG_SCHEMA_VERSION, /^v\d+$/);
@@ -68,8 +68,8 @@ test('project config schema URL resolves to a published docs asset', () => {
   );
   assert.match(schemaUrl.pathname, /^\/schemas\/v\d+\/vide\.schema\.json$/);
 
-  const docsPublicPath = path.join(__dirname, '..', '..', '..', 'docs', 'public');
-  const schemaPath = path.join(docsPublicPath, schemaUrl.pathname.replace(/^\//, ''));
+  const repoRoot = path.join(__dirname, '..', '..', '..');
+  const schemaPath = path.join(repoRoot, schemaUrl.pathname.replace(/^\//, ''));
   assert.equal(fs.existsSync(schemaPath), true);
 
   const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8')) as { $id?: string };
