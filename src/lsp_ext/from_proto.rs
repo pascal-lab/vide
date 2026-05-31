@@ -1,5 +1,4 @@
-use ide::code_lens::CodeLensKind;
-use span::{FilePosition, FileRange};
+use ide::{FilePosition, FileRange, code_lens::CodeLensKind};
 use utils::{
     line_index::{LineCol, TextRange, TextSize, WideLineCol},
     lines::{LineInfo, PositionEncoding},

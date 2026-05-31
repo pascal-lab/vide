@@ -1,21 +1,31 @@
 use std::{fmt, mem::ManuallyDrop};
 
-use base_db::{
-    diagnostics_config::DiagnosticsConfig,
-    project::ProjectConfig,
-    salsa::{self, Durability},
-    source_db::{FileLoader, SourceDb, SourceRootDb},
+use hir::{
+    base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::ProjectConfig,
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, ParseSrcForCompilationQuery, ParseSrcQuery, SourceDb, SourceDbStorage,
+            SourceRootDb, SourceRootDbStorage,
+        },
+    },
+    db::{
+        BlockQuery, BlockScopeQuery, BlockWithSourceMapQuery, FileScopeQuery, HirDbStorage,
+        HirFileQuery, HirFileWithSourceMapQuery, InternDbStorage, ModuleQuery, ModuleScopeQuery,
+        ModuleWithSourceMapQuery,
+    },
 };
 use triomphe::Arc;
 use vfs::{FileId, anchored_path::AnchoredPath};
 
-use crate::line_index_db::LineIndexDbStorage;
+use crate::db::line_index_db::LineIndexDbStorage;
 
 #[salsa::database(
-    base_db::source_db::SourceDbStorage,
-    base_db::source_db::SourceRootDbStorage,
-    hir::db::HirDbStorage,
-    hir::db::InternDbStorage,
+    SourceDbStorage,
+    SourceRootDbStorage,
+    HirDbStorage,
+    InternDbStorage,
     LineIndexDbStorage
 )]
 pub struct RootDb {
@@ -63,19 +73,17 @@ impl RootDb {
 
     pub fn update_parse_query_lru_capacity(&mut self, lru_capacity: Option<usize>) {
         let lru_capacity = lru_capacity.unwrap_or(DEFAULT_PARSE_LRU_CAP);
-        base_db::source_db::ParseSrcQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        base_db::source_db::ParseSrcForCompilationQuery
-            .in_db_mut(self)
-            .set_lru_capacity(lru_capacity);
-        hir::db::HirFileWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::ModuleWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::BlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::HirFileQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::ModuleQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::BlockQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::FileScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::ModuleScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
-        hir::db::BlockScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        ParseSrcQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        ParseSrcForCompilationQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        HirFileWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        ModuleWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        BlockWithSourceMapQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        HirFileQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        ModuleQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        BlockQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        FileScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        ModuleScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
+        BlockScopeQuery.in_db_mut(self).set_lru_capacity(lru_capacity);
     }
 }
 

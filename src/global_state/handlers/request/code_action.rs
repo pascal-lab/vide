@@ -1,11 +1,11 @@
 use ide::{
+    FileRange,
     code_action::{
         CodeActionDiagnostic, CodeActionDiagnostics, CodeActionKind, CodeActionResolveStrategy,
         DiagnosticCode, DiagnosticSource, RepairKind,
     },
     diagnostics as ide_diagnostics,
 };
-use span::FileRange;
 use utils::text_edit::TextRange;
 use vfs::FileId;
 

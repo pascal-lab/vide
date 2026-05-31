@@ -1,13 +1,14 @@
-use ide_db::root_db::RootDb;
-use span::FilePosition;
-
 use super::{
     CompletionItem, candidate, expr, keywords, literal, member, named, paren_list, port_list,
     preproc, sensitivity_list, system,
 };
-use crate::completion::{
-    context::CompletionContext,
-    request::{CompletionProvider, CompletionRequest},
+use crate::{
+    FilePosition,
+    completion::{
+        context::CompletionContext,
+        request::{CompletionProvider, CompletionRequest},
+    },
+    db::root_db::RootDb,
 };
 
 pub(super) fn complete_request(

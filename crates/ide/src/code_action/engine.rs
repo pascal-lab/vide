@@ -1,5 +1,4 @@
 use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
 use utils::text_edit::TextRange;
 use vfs::FileId;
 
@@ -7,6 +6,7 @@ use super::{
     CodeAction, CodeActionCollector, CodeActionCtx, CodeActionDiagnostics,
     CodeActionResolveStrategy, handlers,
 };
+use crate::db::root_db::RootDb;
 
 pub(crate) fn code_action(
     db: &RootDb,

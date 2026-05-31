@@ -1,13 +1,13 @@
 use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
 use itertools::Itertools;
-use span::FilePosition;
 use syntax::{
     SyntaxCursorExt, SyntaxNodeExt, TokenKind,
     has_text_range::HasTextRange,
     token::{SyntaxTokenWithParentExt, TokenKindExt},
 };
 use utils::line_index::TextRange;
+
+use crate::{FilePosition, db::root_db::RootDb};
 
 pub(crate) fn selection_ranges(
     db: &RootDb,
@@ -99,8 +99,7 @@ fn token_precedence(kind: TokenKind) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_root::SourceRoot};
-    use ide_db::root_db::RootDb;
+    use hir::base_db::{change::Change, source_root::SourceRoot};
     use triomphe::Arc;
     use utils::{
         line_index::{TextRange, TextSize},
@@ -109,6 +108,7 @@ mod tests {
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::selection_ranges;
+    use crate::{FilePosition, db::root_db::RootDb};
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId(0);
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn empty_file_keeps_cursor_selection_range() {
         let (db, file_id) = db_with_file("");
-        let ranges = selection_ranges(&db, span::FilePosition { file_id, offset: 0.into() });
+        let ranges = selection_ranges(&db, FilePosition { file_id, offset: 0.into() });
 
         assert_eq!(ranges.first(), Some(&TextRange::empty(0.into())));
     }
@@ -142,7 +142,7 @@ mod tests {
     fn trivia_only_file_keeps_cursor_and_comment_ranges() {
         let text = "// hello";
         let (db, file_id) = db_with_file(text);
-        let ranges = selection_ranges(&db, span::FilePosition { file_id, offset: 3.into() });
+        let ranges = selection_ranges(&db, FilePosition { file_id, offset: 3.into() });
 
         assert_eq!(ranges.first(), Some(&TextRange::empty(3.into())));
         assert!(ranges.contains(&TextRange::new(0.into(), TextSize::of(text))));

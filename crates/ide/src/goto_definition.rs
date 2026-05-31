@@ -1,7 +1,5 @@
 use hir::{container::InFile, file::HirFileId, semantics::Semantics};
-use ide_db::root_db::RootDb;
 use itertools::Itertools;
-use span::{FilePosition, RangeInfo};
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
@@ -9,6 +7,8 @@ use syntax::{
 };
 
 use crate::{
+    FilePosition, RangeInfo,
+    db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
 };

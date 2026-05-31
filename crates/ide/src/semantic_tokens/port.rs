@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
-use base_db::intern::Lookup;
 use hir::{
+    base_db::intern::Lookup,
     db::HirDb,
     hir_def::{
         expr::{
@@ -17,7 +17,6 @@ use hir::{
     semantics::Semantics,
     source_map::{IsNamedSrc, IsSrc},
 };
-use ide_db::root_db::RootDb;
 use regex::{Regex, RegexBuilder};
 use smallvec::SmallVec;
 use utils::{
@@ -26,7 +25,10 @@ use utils::{
 };
 
 use super::{SemaTokenCollector, SemaTokenTag};
-use crate::semantic_tokens::{SemaToken, SemaTokenModifier, SemaTokenPort, check_range};
+use crate::{
+    db::root_db::RootDb,
+    semantic_tokens::{SemaToken, SemaTokenModifier, SemaTokenPort, check_range},
+};
 
 pub(super) fn collect_port(
     sema: &Semantics<'_, RootDb>,

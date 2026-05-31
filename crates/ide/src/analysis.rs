@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use base_db::{
+use hir::base_db::{
     Cancelled,
     compilation_plan::CompilationPlan,
     project::CompilationProfileId,
@@ -8,8 +8,6 @@ use base_db::{
     source_db::{SourceDb, SourceRootDb},
     source_root::{SourceRootId, SourceRootRole},
 };
-use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
-use span::{FilePosition, RangeInfo};
 use triomphe::Arc;
 use utils::{
     cancellation::CancellationToken,
@@ -20,13 +18,14 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    Cancellable,
+    Cancellable, FilePosition, RangeInfo,
     code_action::{self, CodeAction, CodeActionDiagnostics, CodeActionResolveStrategy},
     code_lens::{self, CodeLens, CodeLensConfig, CodeLensKind},
     completion::{
         CompletionItem,
         context::{CompletionContext, TriggerChar},
     },
+    db::{line_index_db::LineIndexDb, root_db::RootDb},
     diagnostics,
     document_highlight::{self, DocumentHighlight, DocumentHighlightConfig},
     document_symbols::{self, DocumentSymbol},

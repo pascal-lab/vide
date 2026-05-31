@@ -1,4 +1,4 @@
-use base_db::{project::CompilationProfileId, source_root::SourceRootId};
+use hir::base_db::{project::CompilationProfileId, source_root::SourceRootId};
 use lsp_types::Url;
 use vfs::FileId;
 

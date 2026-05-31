@@ -4,17 +4,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use base_db::{
-    change::Change,
-    preproc_index::MacroIncludeTarget,
-    project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-    source_db::SourceDb,
-    source_root::{SourceRoot, SourceRootId},
+use hir::{
+    base_db::{
+        change::Change,
+        preproc_index::MacroIncludeTarget,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        source_db::SourceDb,
+        source_root::{SourceRoot, SourceRootId},
+    },
+    semantics::Semantics,
 };
-use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
 use insta::assert_snapshot;
-use span::FilePosition;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
@@ -23,9 +23,10 @@ use utils::{
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use crate::{
-    ScopeVisibility,
+    FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
     completion::CompletionItem,
+    db::root_db::RootDb,
     document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
     folding_ranges::FoldingConfig,
@@ -1607,14 +1608,17 @@ endmodule
         use hir::{
             db::HirDb,
             file::HirFileId,
-            hir_def::{module::ModuleId, stmt::StmtKind},
+            hir_def::{
+                module::ModuleId,
+                stmt::{CaseItem, Stmt, StmtId, StmtKind},
+            },
         };
         use la_arena::Arena;
 
         fn stmt_tree_has(
             db: &dyn HirDb,
-            stmts: &Arena<hir::hir_def::stmt::Stmt>,
-            stmt_id: hir::hir_def::stmt::StmtId,
+            stmts: &Arena<Stmt>,
+            stmt_id: StmtId,
             matches_kind: impl Copy + Fn(&StmtKind) -> bool,
         ) -> bool {
             let stmt = &stmts[stmt_id];
@@ -1640,8 +1644,7 @@ endmodule
                             .is_some_and(|stmt_id| stmt_tree_has(db, stmts, stmt_id, matches_kind))
                 }
                 StmtKind::Case { items, .. } => items.iter().any(|item| match item {
-                    hir::hir_def::stmt::CaseItem::Case { clause, .. }
-                    | hir::hir_def::stmt::CaseItem::Default(clause) => {
+                    CaseItem::Case { clause, .. } | CaseItem::Default(clause) => {
                         stmt_tree_has(db, stmts, *clause, matches_kind)
                     }
                 }),
@@ -1656,7 +1659,7 @@ endmodule
 
         fn stmt_arena_has(
             db: &dyn HirDb,
-            stmts: &Arena<hir::hir_def::stmt::Stmt>,
+            stmts: &Arena<Stmt>,
             matches_kind: impl Copy + Fn(&StmtKind) -> bool,
         ) -> bool {
             stmts.iter().any(|(stmt_id, _)| stmt_tree_has(db, stmts, stmt_id, matches_kind))

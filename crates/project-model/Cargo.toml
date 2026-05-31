@@ -11,8 +11,8 @@ manifest-schema = ["dep:schemars", "dep:serde_json"]
 [dependencies]
 vfs.workspace = true
 anyhow.workspace = true
-base-db.workspace = true
 const_format.workspace = true
+hir.workspace = true
 itertools.workspace = true
 regex.workspace = true
 rustc-hash.workspace = true

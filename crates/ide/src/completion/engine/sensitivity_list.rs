@@ -1,10 +1,12 @@
 use hir::{db::HirDb, file::HirFileId, hir_def::module::ModuleId, source_map::IsSrc};
-use ide_db::root_db::RootDb;
-use span::FilePosition;
 use utils::{get::Get, text_edit::TextSize};
 
 use super::{candidate::CompletionCandidate, typed_filter::value_candidates_in_module};
-use crate::completion::{context::CompletionContext, syntax_keywords};
+use crate::{
+    FilePosition,
+    completion::{context::CompletionContext, syntax_keywords},
+    db::root_db::RootDb,
+};
 
 pub(super) fn complete_sensitivity_list(
     db: &RootDb,

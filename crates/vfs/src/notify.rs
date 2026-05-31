@@ -1,8 +1,8 @@
 use std::{fs, mem, sync::atomic::AtomicUsize};
 
+use ::notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use itertools::Itertools;
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use rustc_hash::FxHashSet;
 use utils::{
@@ -10,8 +10,9 @@ use utils::{
     paths::{AbsPath, AbsPathBuf},
     thread,
 };
-use vfs::loader::{self, LoadResult};
 use walkdir::WalkDir;
+
+use crate::loader::{self, LoadResult};
 
 #[derive(Debug)]
 pub struct NotifyHandle {
@@ -160,7 +161,7 @@ impl BrowserLoader {
     }
 }
 
-type NotifyEvent = notify::Result<notify::Event>;
+type NotifyEvent = ::notify::Result<::notify::Event>;
 
 struct NotifyActor {
     sender: loader::Sender,
@@ -203,7 +204,7 @@ impl NotifyActor {
 
     fn run(mut self, server_inbox: Receiver<ServerMsg>) {
         while let Some(event) = self.next_event(&server_inbox) {
-            tracing::debug!(?event, "vfs-notify event");
+            tracing::debug!(?event, "vfs-loader event");
             match event {
                 Event::ServerMsg(msg) => match msg {
                     ServerMsg::Config(config) => {
@@ -342,7 +343,7 @@ impl NotifyActor {
         }
     }
 
-    fn process_notify_event(&mut self, event: notify::Event) -> Vec<(AbsPathBuf, LoadResult)> {
+    fn process_notify_event(&mut self, event: ::notify::Event) -> Vec<(AbsPathBuf, LoadResult)> {
         if !(event.kind.is_create() || event.kind.is_modify() || event.kind.is_remove()) {
             return Vec::new();
         }
@@ -522,7 +523,7 @@ fn read(path: &AbsPath) -> LoadResult {
     LoadResult::Loaded(text, ending)
 }
 
-fn log_notify_error<T>(res: notify::Result<T>) -> Option<T> {
+fn log_notify_error<T>(res: ::notify::Result<T>) -> Option<T> {
     res.map_err(|err| tracing::warn!("notify error: {}", err)).ok()
 }
 
@@ -530,17 +531,17 @@ fn log_notify_error<T>(res: notify::Result<T>) -> Option<T> {
 mod tests {
     use std::time::Duration;
 
-    use notify::{
+    use ::notify::{
         Event as NotifyEvent, EventKind,
         event::{CreateKind, RemoveKind},
     };
     use utils::paths::AbsPathBuf;
-    use vfs::{
+
+    use super::*;
+    use crate::{
         PathMatcher,
         loader::{self, Handle as _},
     };
-
-    use super::*;
 
     struct TestDir {
         _dir: tempfile::TempDir,
@@ -641,7 +642,7 @@ mod tests {
 
     #[test]
     fn removed_config_file_is_unloaded() {
-        let dir = TestDir::new("vfs-notify-unload-file");
+        let dir = TestDir::new("vfs-loader-unload-file");
         let file = dir.join("top.sv");
         std::fs::write(&file, "module top; endmodule\n").unwrap();
         let (mut handle, receiver) = spawn_loader();
@@ -673,7 +674,7 @@ mod tests {
 
     #[test]
     fn configured_missing_file_is_not_reconciled_twice() {
-        let dir = TestDir::new("vfs-notify-missing-config-file");
+        let dir = TestDir::new("vfs-loader-missing-config-file");
         let file = dir.join("top.sv");
         std::fs::write(&file, "module top; endmodule\n").unwrap();
         let (mut handle, receiver) = spawn_loader();
@@ -714,7 +715,7 @@ mod tests {
 
     #[test]
     fn removed_config_directory_is_unloaded() {
-        let dir = TestDir::new("vfs-notify-unload-directory");
+        let dir = TestDir::new("vfs-loader-unload-directory");
         let source_dir = dir.join("rtl");
         std::fs::create_dir_all(&source_dir).unwrap();
         let file = source_dir.join("top.sv");
@@ -753,7 +754,7 @@ mod tests {
 
     #[test]
     fn created_watched_directory_is_loaded_immediately() {
-        let dir = TestDir::new("vfs-notify-created-directory-load");
+        let dir = TestDir::new("vfs-loader-created-directory-load");
         let root = dir.join("workspace");
         let created_dir = root.join("generated");
         let nested_dir = created_dir.join("nested");
@@ -788,7 +789,7 @@ mod tests {
 
     #[test]
     fn removed_watched_directory_unloads_loaded_descendants() {
-        let dir = TestDir::new("vfs-notify-removed-directory-unload");
+        let dir = TestDir::new("vfs-loader-removed-directory-unload");
         let root = dir.join("workspace");
         let removed_dir = root.join("removed");
         let top = removed_dir.join("top.sv");

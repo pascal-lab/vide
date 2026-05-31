@@ -1,5 +1,4 @@
-use base_db::source_db::SourceDb;
-use hir::db::HirDb;
+use hir::{base_db::source_db::SourceDb, db::HirDb};
 use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},
