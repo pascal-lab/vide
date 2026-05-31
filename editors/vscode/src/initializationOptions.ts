@@ -1,3 +1,5 @@
+import { USER_CONFIG_SETTINGS } from './generated/configuration';
+
 type ConfigurationReader = {
   get<T>(section: string): T | undefined;
 };
@@ -9,81 +11,17 @@ function setting<T>(config: ConfigurationReader, section: string, fallback: T): 
 export function serverInitializationOptions(
   config: ConfigurationReader,
 ): Record<string, unknown> {
-  return {
-    files: {
-      excludeDirs: setting(config, 'files.excludeDirs', []),
-      watcher: setting(config, 'files.watcher', 'client'),
-    },
-    workspace: {
-      auto: { reload: setting(config, 'workspace.auto.reload', true) },
-    },
-    scope: {
-      visibility: setting(config, 'scope.visibility', 'private'),
-    },
-    formatter: {
-      provider: setting(config, 'formatter.provider', 'verible'),
-      path: setting<string | null>(config, 'formatter.path', null),
-      args: setting(config, 'formatter.args', ['--failsafe_success=false']),
-    },
-    formatting: {
-      on: { enter: setting(config, 'formatting.on.enter', true) },
-      in: { comments: setting(config, 'formatting.in.comments', true) },
-      indent: { width: setting(config, 'formatting.indent.width', 4) },
-    },
-    inlayHints: {
-      port: {
-        connection: { enable: setting(config, 'inlayHints.port.connection.enable', true) },
-      },
-      parameter: {
-        assignment: { enable: setting(config, 'inlayHints.parameter.assignment.enable', true) },
-      },
-      end: {
-        structure: { enable: setting(config, 'inlayHints.end.structure.enable', true) },
-      },
-    },
-    lens: {
-      instantiations: { enable: setting(config, 'lens.instantiations.enable', true) },
-    },
-    semantic: {
-      tokens: {
-        port: {
-          clk: {
-            rst: { enable: setting(config, 'semantic.tokens.port.clk.rst.enable', true) },
-          },
-          input: {
-            output: {
-              enable: setting(config, 'semantic.tokens.port.input.output.enable', true),
-            },
-          },
-        },
-      },
-    },
-    diagnostics: {
-      enable: setting(config, 'diagnostics.enable', true),
-      update: setting(config, 'diagnostics.update', 'onSave'),
-      parse: { enable: setting(config, 'diagnostics.parse.enable', true) },
-      semantic: { enable: setting(config, 'diagnostics.semantic.enable', true) },
-      slang: {
-        warnings: setting(config, 'diagnostics.slang.warnings', []),
-        rules: setting(config, 'diagnostics.slang.rules', []),
-      },
-    },
-    signature: {
-      help: {
-        params: { only: setting(config, 'signature.help.params.only', false) },
-      },
-    },
-    qihe: {
-      command: setting(config, 'qihe.command', 'qihe'),
-      autoConfigureArgsFromManifest: setting(
-        config,
-        'qihe.autoConfigureArgsFromManifest',
-        true,
-      ),
-      compileArgs: setting(config, 'qihe.compileArgs', []),
-      runArgs: setting(config, 'qihe.runArgs', ['-g', 'std']),
-    },
-  };
+  const options: Record<string, unknown> = {};
+
+  for (const configSetting of USER_CONFIG_SETTINGS) {
+    assignNestedValue(
+      options,
+      configSetting.path,
+      setting(config, configSetting.vscodeSection, configSetting.defaultValue),
+    );
+  }
+
+  return options;
 }
 
 export function diagnosticsProfilingInitializationOptions(
@@ -98,4 +36,28 @@ export function diagnosticsProfilingInitializationOptions(
       watcher: 'server',
     },
   };
+}
+
+function assignNestedValue(
+  target: Record<string, unknown>,
+  path: readonly string[],
+  value: unknown,
+): void {
+  let cursor = target;
+
+  for (const key of path.slice(0, -1)) {
+    const existing = cursor[key];
+    if (typeof existing === 'object' && existing !== null && !Array.isArray(existing)) {
+      cursor = existing as Record<string, unknown>;
+    } else {
+      const next: Record<string, unknown> = {};
+      cursor[key] = next;
+      cursor = next;
+    }
+  }
+
+  const leaf = path.at(-1);
+  if (leaf) {
+    cursor[leaf] = value;
+  }
 }

@@ -678,6 +678,532 @@ pub fn generated_user_config_schema() -> serde_json::Value {
     schema
 }
 
+#[cfg(feature = "user-config-schema")]
+pub struct ConfigSettingMeta {
+    pub path: &'static [&'static str],
+    pub vscode_key: &'static str,
+    pub docs_group: &'static str,
+    pub description_key: &'static str,
+    pub markdown_description_key: Option<&'static str>,
+    pub enum_descriptions: &'static [(&'static str, &'static str)],
+    pub exposed_in_vscode: bool,
+    default: ConfigSettingDefault,
+    schema: ConfigSettingSchema,
+}
+
+#[cfg(feature = "user-config-schema")]
+#[derive(Clone, Copy)]
+enum ConfigSettingDefault {
+    Bool(bool),
+    String(&'static str),
+    Null,
+    StringArray(&'static [&'static str]),
+    Usize(usize),
+}
+
+#[cfg(feature = "user-config-schema")]
+#[derive(Clone, Copy)]
+enum ConfigSettingSchema {
+    Boolean,
+    String,
+    StringOrNull,
+    StringArray,
+    Integer { minimum: usize },
+    Enum { values: &'static [&'static str] },
+    DiagnosticRules,
+}
+
+#[cfg(feature = "user-config-schema")]
+impl ConfigSettingMeta {
+    fn vscode_section(&self) -> &'static str {
+        self.vscode_key.strip_prefix("vide.").unwrap_or(self.vscode_key)
+    }
+
+    fn default_json(&self) -> serde_json::Value {
+        match self.default {
+            ConfigSettingDefault::Bool(value) => serde_json::json!(value),
+            ConfigSettingDefault::String(value) => serde_json::json!(value),
+            ConfigSettingDefault::Null => serde_json::Value::Null,
+            ConfigSettingDefault::StringArray(values) => serde_json::json!(values),
+            ConfigSettingDefault::Usize(value) => serde_json::json!(value),
+        }
+    }
+
+    fn package_property(&self) -> serde_json::Value {
+        let mut property = serde_json::Map::new();
+        self.insert_schema(&mut property);
+        property.insert("default".to_owned(), self.default_json());
+
+        if let Some(markdown_key) = self.markdown_description_key {
+            property.insert(
+                "markdownDescription".to_owned(),
+                serde_json::json!(format!("%{markdown_key}%")),
+            );
+        } else {
+            property.insert(
+                "description".to_owned(),
+                serde_json::json!(format!("%{}%", self.description_key)),
+            );
+        }
+
+        if !self.enum_descriptions.is_empty() {
+            let descriptions = self
+                .enum_descriptions
+                .iter()
+                .map(|(_, key)| format!("%{key}%"))
+                .collect::<Vec<_>>();
+            property.insert("enumDescriptions".to_owned(), serde_json::json!(descriptions));
+        }
+
+        serde_json::Value::Object(property)
+    }
+
+    fn insert_schema(&self, property: &mut serde_json::Map<String, serde_json::Value>) {
+        match self.schema {
+            ConfigSettingSchema::Boolean => {
+                property.insert("type".to_owned(), serde_json::json!("boolean"));
+            }
+            ConfigSettingSchema::String => {
+                property.insert("type".to_owned(), serde_json::json!("string"));
+            }
+            ConfigSettingSchema::StringOrNull => {
+                property.insert("type".to_owned(), serde_json::json!(["string", "null"]));
+            }
+            ConfigSettingSchema::StringArray => {
+                property.insert("type".to_owned(), serde_json::json!("array"));
+                property.insert("items".to_owned(), serde_json::json!({ "type": "string" }));
+            }
+            ConfigSettingSchema::Integer { minimum } => {
+                property.insert("type".to_owned(), serde_json::json!("integer"));
+                property.insert("minimum".to_owned(), serde_json::json!(minimum));
+            }
+            ConfigSettingSchema::Enum { values } => {
+                property.insert("type".to_owned(), serde_json::json!("string"));
+                property.insert("enum".to_owned(), serde_json::json!(values));
+            }
+            ConfigSettingSchema::DiagnosticRules => {
+                property.insert("type".to_owned(), serde_json::json!("array"));
+                property.insert(
+                    "items".to_owned(),
+                    serde_json::json!({
+                        "type": "object",
+                        "required": ["selector", "severity"],
+                        "properties": {
+                            "selector": {
+                                "type": "string",
+                                "pattern": "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$",
+                                "markdownDescription": "%configuration.diagnostics.slang.rules.selector.markdownDescription%",
+                            },
+                            "severity": {
+                                "type": "string",
+                                "enum": ["ignore", "info", "warning", "error", "fatal"],
+                                "description": "%configuration.diagnostics.slang.rules.severity.description%",
+                            },
+                            "force": {
+                                "type": "boolean",
+                                "default": false,
+                                "description": "%configuration.diagnostics.slang.rules.force.description%",
+                            },
+                        },
+                        "additionalProperties": false,
+                    }),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(feature = "user-config-schema")]
+const FILES_WATCHER_ENUM_DESCRIPTIONS: &[(&str, &str)] = &[
+    ("client", "configuration.files.watcher.enum.client"),
+    ("notify", "configuration.files.watcher.enum.notify"),
+    ("server", "configuration.files.watcher.enum.server"),
+];
+
+#[cfg(feature = "user-config-schema")]
+const FORMATTER_PROVIDER_ENUM_DESCRIPTIONS: &[(&str, &str)] =
+    &[("verible", "configuration.formatter.provider.enum.verible")];
+
+#[cfg(feature = "user-config-schema")]
+const USER_CONFIG_SETTINGS: &[ConfigSettingMeta] = &[
+    ConfigSettingMeta {
+        path: &["qihe", "command"],
+        vscode_key: "vide.qihe.command",
+        docs_group: "Qihe",
+        description_key: "configuration.qihe.command.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::String(DEFAULT_QIHE_COMMAND),
+        schema: ConfigSettingSchema::String,
+    },
+    ConfigSettingMeta {
+        path: &["qihe", "autoConfigureArgsFromManifest"],
+        vscode_key: "vide.qihe.autoConfigureArgsFromManifest",
+        docs_group: "Qihe",
+        description_key: "configuration.qihe.autoConfigureArgsFromManifest.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["qihe", "compileArgs"],
+        vscode_key: "vide.qihe.compileArgs",
+        docs_group: "Qihe",
+        description_key: "configuration.qihe.compileArgs.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::StringArray(&[]),
+        schema: ConfigSettingSchema::StringArray,
+    },
+    ConfigSettingMeta {
+        path: &["qihe", "runArgs"],
+        vscode_key: "vide.qihe.runArgs",
+        docs_group: "Qihe",
+        description_key: "configuration.qihe.runArgs.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::StringArray(DEFAULT_QIHE_RUN_ARGS),
+        schema: ConfigSettingSchema::StringArray,
+    },
+    ConfigSettingMeta {
+        path: &["files", "excludeDirs"],
+        vscode_key: "vide.files.excludeDirs",
+        docs_group: "Files",
+        description_key: "configuration.files.excludeDirs.markdownDescription",
+        markdown_description_key: Some("configuration.files.excludeDirs.markdownDescription"),
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::StringArray(&[]),
+        schema: ConfigSettingSchema::StringArray,
+    },
+    ConfigSettingMeta {
+        path: &["files", "watcher"],
+        vscode_key: "vide.files.watcher",
+        docs_group: "Files",
+        description_key: "configuration.files.watcher.description",
+        markdown_description_key: None,
+        enum_descriptions: FILES_WATCHER_ENUM_DESCRIPTIONS,
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::String("client"),
+        schema: ConfigSettingSchema::Enum { values: &["client", "notify", "server"] },
+    },
+    ConfigSettingMeta {
+        path: &["workspace", "auto", "reload"],
+        vscode_key: "vide.workspace.auto.reload",
+        docs_group: "Workspace",
+        description_key: "configuration.workspace.auto.reload.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["scope", "visibility"],
+        vscode_key: "vide.scope.visibility",
+        docs_group: "Navigation",
+        description_key: "configuration.scope.visibility.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::String("private"),
+        schema: ConfigSettingSchema::Enum { values: &["private", "public"] },
+    },
+    ConfigSettingMeta {
+        path: &["references", "includeDeclaration"],
+        vscode_key: "vide.references.includeDeclaration",
+        docs_group: "Navigation",
+        description_key: "configuration.references.includeDeclaration.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["formatter", "provider"],
+        vscode_key: "vide.formatter.provider",
+        docs_group: "Formatting",
+        description_key: "configuration.formatter.provider.description",
+        markdown_description_key: None,
+        enum_descriptions: FORMATTER_PROVIDER_ENUM_DESCRIPTIONS,
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::String("verible"),
+        schema: ConfigSettingSchema::Enum { values: &["verible"] },
+    },
+    ConfigSettingMeta {
+        path: &["formatter", "path"],
+        vscode_key: "vide.formatter.path",
+        docs_group: "Formatting",
+        description_key: "configuration.formatter.path.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Null,
+        schema: ConfigSettingSchema::StringOrNull,
+    },
+    ConfigSettingMeta {
+        path: &["formatter", "args"],
+        vscode_key: "vide.formatter.args",
+        docs_group: "Formatting",
+        description_key: "configuration.formatter.args.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::StringArray(&["--failsafe_success=false"]),
+        schema: ConfigSettingSchema::StringArray,
+    },
+    ConfigSettingMeta {
+        path: &["formatting", "on", "enter"],
+        vscode_key: "vide.formatting.on.enter",
+        docs_group: "Formatting",
+        description_key: "configuration.formatting.on.enter.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["formatting", "in", "comments"],
+        vscode_key: "vide.formatting.in.comments",
+        docs_group: "Formatting",
+        description_key: "configuration.formatting.in.comments.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["formatting", "indent", "width"],
+        vscode_key: "vide.formatting.indent.width",
+        docs_group: "Formatting",
+        description_key: "configuration.formatting.indent.width.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Usize(4),
+        schema: ConfigSettingSchema::Integer { minimum: 0 },
+    },
+    ConfigSettingMeta {
+        path: &["inlayHints", "port", "connection", "enable"],
+        vscode_key: "vide.inlayHints.port.connection.enable",
+        docs_group: "Annotations",
+        description_key: "configuration.inlayHints.port.connection.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["inlayHints", "parameter", "assignment", "enable"],
+        vscode_key: "vide.inlayHints.parameter.assignment.enable",
+        docs_group: "Annotations",
+        description_key: "configuration.inlayHints.parameter.assignment.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["inlayHints", "end", "structure", "enable"],
+        vscode_key: "vide.inlayHints.end.structure.enable",
+        docs_group: "Annotations",
+        description_key: "configuration.inlayHints.end.structure.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["lens", "instantiations", "enable"],
+        vscode_key: "vide.lens.instantiations.enable",
+        docs_group: "Annotations",
+        description_key: "configuration.lens.instantiations.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["semantic", "tokens", "port", "clk", "rst", "enable"],
+        vscode_key: "vide.semantic.tokens.port.clk.rst.enable",
+        docs_group: "Semantic Highlighting",
+        description_key: "configuration.semantic.tokens.port.clk.rst.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["semantic", "tokens", "port", "input", "output", "enable"],
+        vscode_key: "vide.semantic.tokens.port.input.output.enable",
+        docs_group: "Semantic Highlighting",
+        description_key: "configuration.semantic.tokens.port.input.output.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["diagnostics", "enable"],
+        vscode_key: "vide.diagnostics.enable",
+        docs_group: "Diagnostics",
+        description_key: "configuration.diagnostics.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["diagnostics", "update"],
+        vscode_key: "vide.diagnostics.update",
+        docs_group: "Diagnostics",
+        description_key: "configuration.diagnostics.update.markdownDescription",
+        markdown_description_key: Some("configuration.diagnostics.update.markdownDescription"),
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::String("onSave"),
+        schema: ConfigSettingSchema::Enum { values: &["onSave", "onType"] },
+    },
+    ConfigSettingMeta {
+        path: &["diagnostics", "parse", "enable"],
+        vscode_key: "vide.diagnostics.parse.enable",
+        docs_group: "Diagnostics",
+        description_key: "configuration.diagnostics.parse.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["diagnostics", "semantic", "enable"],
+        vscode_key: "vide.diagnostics.semantic.enable",
+        docs_group: "Diagnostics",
+        description_key: "configuration.diagnostics.semantic.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
+        path: &["diagnostics", "slang", "warnings"],
+        vscode_key: "vide.diagnostics.slang.warnings",
+        docs_group: "Diagnostics",
+        description_key: "configuration.diagnostics.slang.warnings.markdownDescription",
+        markdown_description_key: Some(
+            "configuration.diagnostics.slang.warnings.markdownDescription",
+        ),
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::StringArray(&[]),
+        schema: ConfigSettingSchema::StringArray,
+    },
+    ConfigSettingMeta {
+        path: &["diagnostics", "slang", "rules"],
+        vscode_key: "vide.diagnostics.slang.rules",
+        docs_group: "Diagnostics",
+        description_key: "configuration.diagnostics.slang.rules.markdownDescription",
+        markdown_description_key: Some("configuration.diagnostics.slang.rules.markdownDescription"),
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::StringArray(&[]),
+        schema: ConfigSettingSchema::DiagnosticRules,
+    },
+    ConfigSettingMeta {
+        path: &["signature", "help", "params", "only"],
+        vscode_key: "vide.signature.help.params.only",
+        docs_group: "Signature Help",
+        description_key: "configuration.signature.help.params.only.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(false),
+        schema: ConfigSettingSchema::Boolean,
+    },
+];
+
+#[cfg(feature = "user-config-schema")]
+pub fn generated_vscode_package_properties() -> serde_json::Map<String, serde_json::Value> {
+    USER_CONFIG_SETTINGS
+        .iter()
+        .filter(|setting| setting.exposed_in_vscode)
+        .map(|setting| (setting.vscode_key.to_owned(), setting.package_property()))
+        .collect()
+}
+
+#[cfg(feature = "user-config-schema")]
+pub fn generated_vscode_configuration_typescript() -> String {
+    let mut out = String::from(
+        "// Generated by `cargo xtask generate-config-artifacts`; do not edit.\n\n\
+         export type GeneratedUserConfigSetting = {\n\
+         \treadonly path: readonly string[];\n\
+         \treadonly vscodeKey: string;\n\
+         \treadonly vscodeSection: string;\n\
+         \treadonly docsGroup: string;\n\
+         \treadonly descriptionKey: string;\n\
+         \treadonly markdownDescriptionKey: string | null;\n\
+         \treadonly defaultValue: unknown;\n\
+         };\n\n\
+         export const USER_CONFIG_SETTINGS = [\n",
+    );
+
+    for setting in USER_CONFIG_SETTINGS {
+        out.push_str("\t{\n");
+        out.push_str(&format!(
+            "\t\tpath: {},\n",
+            serde_json::to_string(setting.path).expect("setting path should serialize")
+        ));
+        out.push_str(&format!(
+            "\t\tvscodeKey: {},\n",
+            serde_json::to_string(setting.vscode_key).expect("setting key should serialize")
+        ));
+        out.push_str(&format!(
+            "\t\tvscodeSection: {},\n",
+            serde_json::to_string(setting.vscode_section())
+                .expect("setting section should serialize")
+        ));
+        out.push_str(&format!(
+            "\t\tdocsGroup: {},\n",
+            serde_json::to_string(setting.docs_group).expect("docs group should serialize")
+        ));
+        out.push_str(&format!(
+            "\t\tdescriptionKey: {},\n",
+            serde_json::to_string(setting.description_key)
+                .expect("description key should serialize")
+        ));
+        out.push_str(&format!(
+            "\t\tmarkdownDescriptionKey: {},\n",
+            setting
+                .markdown_description_key
+                .map_or_else(|| "null".to_owned(), |key| serde_json::to_string(key).unwrap())
+        ));
+        out.push_str(&format!(
+            "\t\tdefaultValue: {},\n",
+            serde_json::to_string(&setting.default_json()).expect("default should serialize")
+        ));
+        out.push_str("\t},\n");
+    }
+
+    out.push_str("] as const satisfies readonly GeneratedUserConfigSetting[];\n");
+    out
+}
+
 impl UserConfig {
     pub(crate) fn from_json(
         json: serde_json::Value,

@@ -179,12 +179,12 @@
             "server"
           ],
           "default": "client",
+          "description": "%configuration.files.watcher.description%",
           "enumDescriptions": [
             "%configuration.files.watcher.enum.client%",
             "%configuration.files.watcher.enum.notify%",
             "%configuration.files.watcher.enum.server%"
-          ],
-          "description": "%configuration.files.watcher.description%"
+          ]
         },
         "vide.workspace.auto.reload": {
           "type": "boolean",
@@ -211,10 +211,10 @@
             "verible"
           ],
           "default": "verible",
+          "description": "%configuration.formatter.provider.description%",
           "enumDescriptions": [
             "%configuration.formatter.provider.enum.verible%"
-          ],
-          "description": "%configuration.formatter.provider.description%"
+          ]
         },
         "vide.formatter.path": {
           "type": [
@@ -314,8 +314,6 @@
         },
         "vide.diagnostics.slang.rules": {
           "type": "array",
-          "default": [],
-          "markdownDescription": "%configuration.diagnostics.slang.rules.markdownDescription%",
           "items": {
             "type": "object",
             "required": [
@@ -346,7 +344,9 @@
               }
             },
             "additionalProperties": false
-          }
+          },
+          "default": [],
+          "markdownDescription": "%configuration.diagnostics.slang.rules.markdownDescription%"
         },
         "vide.signature.help.params.only": {
           "type": "boolean",

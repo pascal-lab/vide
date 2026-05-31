@@ -26,7 +26,10 @@ mod i18n;
 mod lsp_ext;
 
 #[cfg(feature = "user-config-schema")]
-pub use config::user_config::generated_user_config_schema;
+pub use config::user_config::{
+    generated_user_config_schema, generated_vscode_configuration_typescript,
+    generated_vscode_package_properties,
+};
 
 pub const DEFAULT_PROCESS_NAME: &str = env!("CARGO_PKG_NAME");
 const DEBUG: bool = cfg!(debug_assertions);

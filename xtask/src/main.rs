@@ -8,6 +8,8 @@ use std::{
 use anyhow::{Context, Result, bail};
 
 const VSCODE_SCHEMA_CONSTANTS_PATH: &str = "editors/vscode/src/generated/projectConfigSchema.ts";
+const VSCODE_CONFIGURATION_PATH: &str = "editors/vscode/src/generated/configuration.ts";
+const VSCODE_PACKAGE_PATH: &str = "editors/vscode/package.json";
 const USER_CONFIG_SCHEMA_PATH: &str = "/schemas/v1/user-config.schema.json";
 
 fn main() -> Result<()> {
@@ -22,6 +24,8 @@ fn main() -> Result<()> {
     }
 
     match command.as_str() {
+        "generate-config-artifacts" => write_config_artifacts(&workspace_root()?),
+        "check-config-artifacts" => check_config_artifacts(&workspace_root()?),
         "generate-schemas" | "generate-manifest-schema" => write_schemas(&workspace_root()?),
         "check-schemas" | "check-manifest-schema" => check_schemas(&workspace_root()?),
         "-h" | "--help" | "help" => {
@@ -33,7 +37,9 @@ fn main() -> Result<()> {
 }
 
 fn print_help() {
-    eprintln!("Usage: cargo xtask <command>\n\nCommands:\n  generate-schemas\n  check-schemas");
+    eprintln!(
+        "Usage: cargo xtask <command>\n\nCommands:\n  generate-config-artifacts\n  check-config-artifacts\n  generate-schemas\n  check-schemas"
+    );
 }
 
 fn workspace_root() -> Result<PathBuf> {
@@ -53,6 +59,14 @@ fn checked_in_user_config_schema_path(workspace_root: &Path) -> PathBuf {
 
 fn vscode_schema_constants_path(workspace_root: &Path) -> PathBuf {
     workspace_root.join(VSCODE_SCHEMA_CONSTANTS_PATH)
+}
+
+fn vscode_configuration_path(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(VSCODE_CONFIGURATION_PATH)
+}
+
+fn vscode_package_path(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(VSCODE_PACKAGE_PATH)
 }
 
 fn generated_manifest_schema() -> serde_json::Value {
@@ -80,6 +94,71 @@ fn generated_vscode_schema_constants_text() -> Result<String> {
          export const PROJECT_CONFIG_SCHEMA_PATH = {path};\n\
          export const PROJECT_CONFIG_SCHEMA_URL = {url};\n"
     ))
+}
+
+fn generated_vscode_configuration_text() -> String {
+    vide::generated_vscode_configuration_typescript()
+}
+
+fn generated_vscode_package_text(workspace_root: &Path) -> Result<String> {
+    let path = vscode_package_path(workspace_root);
+    let mut package = read_json_file(&path)?;
+    patch_vscode_package_properties(&mut package)?;
+    Ok(format!("{}\n", serde_json::to_string_pretty(&package)?))
+}
+
+fn patch_vscode_package_properties(package: &mut serde_json::Value) -> Result<()> {
+    let Some(properties) = package
+        .pointer_mut("/contributes/configuration/properties")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        bail!("editors/vscode/package.json has no contributes.configuration.properties object");
+    };
+
+    properties.retain(|key, _| !is_generated_vscode_setting(key));
+    properties.extend(vide::generated_vscode_package_properties());
+    Ok(())
+}
+
+fn is_generated_vscode_setting(key: &str) -> bool {
+    key.starts_with("vide.") && !is_extension_only_vscode_setting(key)
+}
+
+fn is_extension_only_vscode_setting(key: &str) -> bool {
+    matches!(
+        key,
+        "vide.trace.server"
+            | "vide.server.command"
+            | "vide.server.args"
+            | "vide.server.cwd"
+            | "vide.server.additionalArgs"
+    )
+}
+
+fn write_config_artifacts(workspace_root: &Path) -> Result<()> {
+    write_schemas(workspace_root)?;
+    write_generated_file(
+        &vscode_configuration_path(workspace_root),
+        &generated_vscode_configuration_text(),
+    )?;
+    write_generated_file(
+        &vscode_package_path(workspace_root),
+        &generated_vscode_package_text(workspace_root)?,
+    )?;
+    Ok(())
+}
+
+fn check_config_artifacts(workspace_root: &Path) -> Result<()> {
+    check_schemas(workspace_root)?;
+    check_file_matches(
+        &vscode_configuration_path(workspace_root),
+        &generated_vscode_configuration_text(),
+    )?;
+    check_file_matches(
+        &vscode_package_path(workspace_root),
+        &generated_vscode_package_text(workspace_root)?,
+    )?;
+    Ok(())
 }
 
 fn write_schemas(workspace_root: &Path) -> Result<()> {
@@ -118,6 +197,12 @@ fn write_generated_file(path: &Path, contents: &str) -> Result<()> {
     fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))?;
     eprintln!("wrote {}", path.display());
     Ok(())
+}
+
+fn read_json_file(path: &Path) -> Result<serde_json::Value> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 fn check_file_matches(path: &Path, expected: &str) -> Result<()> {
