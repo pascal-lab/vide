@@ -931,6 +931,59 @@ endmodule
 }
 
 #[test]
+fn code_action_request_returns_expected_token_quickfix_for_parse_diagnostic() {
+    let text = "\
+module top;
+  logic a
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+
+    let diagnostics_id = lsp_server::RequestId::from(212);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            diagnostics_id.clone(),
+            DocumentDiagnosticRequest::METHOD.to_string(),
+            DocumentDiagnosticParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                identifier: None,
+                previous_result_id: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        )))
+        .unwrap();
+    let (_result_id, diagnostics) = recv_document_diagnostics(&client, diagnostics_id);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message == "expected ';'"),
+        "expected parse diagnostic for missing semicolon, got {diagnostics:?}"
+    );
+
+    let actions = request_code_actions(
+        &client,
+        uri,
+        text,
+        "\nendmodule",
+        CodeActionContext {
+            diagnostics,
+            only: Some(vec![CodeActionKind::QUICKFIX]),
+            trigger_kind: None,
+        },
+        213,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "Insert missing ';'"),
+        "expected expected-token quickfix, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn vide_diagnostics_are_localized_for_chinese_locale() {
     let text = "\
 module child;
