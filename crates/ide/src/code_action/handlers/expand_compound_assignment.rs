@@ -14,11 +14,21 @@ const ID: CodeActionId = CodeActionId {
     repair: None,
 };
 const LABEL: &str = "Expand compound assignment";
+const COLLAPSE_ID: CodeActionId = CodeActionId {
+    name: "collapse_compound_assignment",
+    kind: CodeActionKind::RefactorRewrite,
+    repair: None,
+};
+const COLLAPSE_LABEL: &str = "Collapse compound assignment";
 
 pub(super) fn expand_compound_assignment(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
 ) -> Option<()> {
+    expand_compound(collector, ctx).or_else(|| collapse_compound(collector, ctx))
+}
+
+fn expand_compound(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> Option<()> {
     let expr = ctx.find_node_at_offset::<ast::BinaryExpression>()?;
     let op_token = expr.operator_token()?;
     let op_text = op_token.value_text().to_string();
@@ -39,6 +49,33 @@ pub(super) fn expand_compound_assignment(
     Some(())
 }
 
+fn collapse_compound(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> Option<()> {
+    let expr = ctx.find_node_at_offset::<ast::BinaryExpression>()?;
+    if expr.operator_token()?.value_text().to_string() != "=" {
+        return None;
+    }
+
+    let right = expr.right().as_binary_expression()?;
+    let op_text = right.operator_token()?.value_text().to_string();
+    let compound_op = simple_operator(&op_text)?;
+
+    let text = ctx.sema().db.file_text(ctx.file_id());
+    let left = text_at(&text, expr.left().syntax().text_range()?)?;
+    let right_left = text_at(&text, right.left().syntax().text_range()?)?;
+    let right_right = text_at(&text, right.right().syntax().text_range()?)?;
+    if left.trim() != right_left.trim() {
+        return None;
+    }
+
+    let range = expr.syntax().text_range()?;
+    let replacement = format!("{} {compound_op} {}", left.trim(), right_right.trim());
+    collector.add(COLLAPSE_ID, COLLAPSE_LABEL, range, |builder| {
+        builder.replace(range, replacement);
+    });
+
+    Some(())
+}
+
 fn compound_operator(op: &str) -> Option<&'static str> {
     match op {
         "+=" => Some("+"),
@@ -53,6 +90,24 @@ fn compound_operator(op: &str) -> Option<&'static str> {
         ">>=" => Some(">>"),
         "<<<=" => Some("<<<"),
         ">>>=" => Some(">>>"),
+        _ => None,
+    }
+}
+
+fn simple_operator(op: &str) -> Option<&'static str> {
+    match op {
+        "+" => Some("+="),
+        "-" => Some("-="),
+        "*" => Some("*="),
+        "/" => Some("/="),
+        "%" => Some("%="),
+        "&" => Some("&="),
+        "|" => Some("|="),
+        "^" => Some("^="),
+        "<<" => Some("<<="),
+        ">>" => Some(">>="),
+        "<<<" => Some("<<<="),
+        ">>>" => Some(">>>="),
         _ => None,
     }
 }

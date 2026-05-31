@@ -20,6 +20,10 @@ pub(super) fn unwrap_single_statement_block(
     ctx: &CodeActionCtx,
 ) -> Option<()> {
     let block = ctx.find_node_at_offset::<ast::BlockStatement>()?;
+    if !is_control_flow_body(block) {
+        return None;
+    }
+
     let mut items = block.items().children();
     let item = items.next()?;
     if items.next().is_some() {
@@ -38,4 +42,35 @@ pub(super) fn unwrap_single_statement_block(
     });
 
     Some(())
+}
+
+fn is_control_flow_body(block: ast::BlockStatement<'_>) -> bool {
+    let syntax = block.syntax();
+    let Some(parent) = syntax.parent() else {
+        return false;
+    };
+
+    ast::ConditionalStatement::cast(parent)
+        .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::ElseClause::cast(parent).is_some_and(|parent| parent.clause().syntax() == syntax)
+        || ast::ForLoopStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::ForeachLoopStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::ForeverStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::LoopStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::DoWhileStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::WaitStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::TimingControlStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::StandardCaseItem::cast(parent)
+            .is_some_and(|parent| parent.clause().syntax() == syntax)
+        || ast::DefaultCaseItem::cast(parent)
+            .is_some_and(|parent| parent.clause().syntax() == syntax)
+        || ast::PatternCaseItem::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
 }

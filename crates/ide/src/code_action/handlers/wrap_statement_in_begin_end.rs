@@ -24,6 +24,9 @@ pub(super) fn wrap_statement_in_begin_end(
     if stmt.as_block_statement().is_some() {
         return None;
     }
+    if !is_control_flow_body(stmt) {
+        return None;
+    }
 
     let range = stmt.syntax().text_range()?;
     let text = ctx.sema().db.file_text(ctx.file_id());
@@ -37,4 +40,35 @@ pub(super) fn wrap_statement_in_begin_end(
     });
 
     Some(())
+}
+
+fn is_control_flow_body(stmt: ast::Statement<'_>) -> bool {
+    let syntax = stmt.syntax();
+    let Some(parent) = syntax.parent() else {
+        return false;
+    };
+
+    ast::ConditionalStatement::cast(parent)
+        .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::ElseClause::cast(parent).is_some_and(|parent| parent.clause().syntax() == syntax)
+        || ast::ForLoopStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::ForeachLoopStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::ForeverStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::LoopStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::DoWhileStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::WaitStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::TimingControlStatement::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
+        || ast::StandardCaseItem::cast(parent)
+            .is_some_and(|parent| parent.clause().syntax() == syntax)
+        || ast::DefaultCaseItem::cast(parent)
+            .is_some_and(|parent| parent.clause().syntax() == syntax)
+        || ast::PatternCaseItem::cast(parent)
+            .is_some_and(|parent| parent.statement().syntax() == syntax)
 }
