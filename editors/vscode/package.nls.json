@@ -5,7 +5,7 @@
   "configuration.server.args.description": "Arguments passed before any additional arguments when a custom command is provided.",
   "configuration.server.cwd.description": "Working directory for the Vide language server process. Defaults to the first workspace folder.",
   "configuration.server.additionalArgs.description": "Additional arguments appended when launching the Vide language server.",
-  "configuration.qihe.command.description": "Command used to invoke Qihe. It must be available in the environment PATH seen by VS Code.",
+  "configuration.qihe.command.description": "Command used to invoke Qihe. When not explicitly configured, Vide uses qihe.bat on Windows and qihe elsewhere. The command must be available in the environment PATH seen by VS Code.",
   "configuration.qihe.autoConfigureArgsFromManifest.description": "Automatically add Qihe compile mode and forwarded slang options from the Vide project manifest. Disable this to provide those options manually through Qihe compile and run arguments.",
   "configuration.qihe.compileArgs.description": "Arguments inserted after `qihe compile`. Use this for compile mode selection or forwarded `slang` options such as `--mode sv -- -I include`.",
   "configuration.qihe.runArgs.description": "Arguments inserted after `qihe run` when the Qihe analysis button is used.",

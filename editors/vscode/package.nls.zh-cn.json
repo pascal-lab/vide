@@ -5,7 +5,7 @@
   "configuration.server.args.description": "使用自定义命令时，在其他参数之前传递的参数。",
   "configuration.server.cwd.description": "Vide 语言服务器进程的工作目录。默认使用第一个工作区文件夹。",
   "configuration.server.additionalArgs.description": "启动 Vide 语言服务器时追加的额外参数。",
-  "configuration.qihe.command.description": "用于调用 Qihe 的命令。它必须在 VS Code 可见的环境 PATH 中可用。",
+  "configuration.qihe.command.description": "用于调用 Qihe 的命令。未显式配置时，Vide 在 Windows 上使用 qihe.bat，在其他平台使用 qihe。该命令必须在 VS Code 可见的环境 PATH 中可用。",
   "configuration.qihe.autoConfigureArgsFromManifest.description": "根据 Vide 项目配置文件自动添加 Qihe 编译模式和转发给 slang 的选项。关闭后可通过 Qihe 编译和运行参数手动提供这些选项。",
   "configuration.qihe.compileArgs.description": "插入到 `qihe compile` 之后的参数。可用于选择编译模式，或转发 `slang` 选项，例如 `--mode sv -- -I include`。",
   "configuration.qihe.runArgs.description": "使用 Qihe 分析按钮时，插入到 `qihe run` 之后的参数。",
