@@ -1,0 +1,143 @@
+---
+title: User Configuration for LSP Editors
+description: Pass Vide user configuration when Neovim, Emacs, or another LSP editor starts the language server.
+---
+
+Use this page after `vide` already starts in Neovim, Emacs, or another editor, and you want to change diagnostics refresh, inlay hints, formatting, or Qihe arguments.
+
+If you use VS Code, change these options in the VS Code Settings UI; the full list is in [User Configuration](../../user-guide/vscode-settings/).
+
+## Where It Goes
+
+Vide reads two kinds of configuration:
+
+- Project configuration lives in `vide.toml` in your project. It describes source files, include directories, macro definitions, libraries, and top modules. If you are setting up a project for the first time, start with [Configure the First Project](../../user-guide/first-project/).
+- User configuration is sent by the editor to the language server. It changes behavior such as diagnostics, inlay hints, formatting, file watching, and Qihe. The full option list and defaults are in [User Configuration](../../user-guide/vscode-settings/).
+
+Editors such as Neovim and Emacs usually start Vide through LSP. LSP is the protocol between the editor and the language server. When the editor starts the server, it can also send a JSON object. LSP clients usually call that object initialization options. Vide reads those initialization options as user configuration.
+
+## Convert VS Code Names to LSP Names
+
+[User Configuration](../../user-guide/vscode-settings/) shows both `User config` and `VS Code name`. In LSP editors, use the `User config` column and do not use the `vide.` prefix.
+
+For example, this VS Code setting:
+
+```json
+{
+  "vide.diagnostics.update": "onType",
+  "vide.inlayHints.port.connection.enable": true
+}
+```
+
+becomes this LSP initialization options object:
+
+```json
+{
+  "diagnostics": {
+    "update": "onType"
+  },
+  "inlayHints": {
+    "port": {
+      "connection": {
+        "enable": true
+      }
+    }
+  }
+}
+```
+
+The Neovim and Emacs examples below translate the same JSON shape into each editor's configuration syntax.
+
+## Neovim
+
+If you use the setup from [Neovim Installation](../../user-guide/neovim-installation/), add `init_options` to the same `vim.lsp.config('vide', { ... })` call:
+
+```lua
+vim.lsp.config('vide', {
+  cmd = { 'vide' },
+  filetypes = { 'verilog', 'systemverilog' },
+  root_markers = { 'vide.toml', '.git' },
+  init_options = {
+    diagnostics = {
+      update = 'onType',
+    },
+    inlayHints = {
+      port = {
+        connection = {
+          enable = true,
+        },
+      },
+    },
+  },
+})
+
+vim.lsp.enable('vide')
+```
+
+If your `cmd` already uses an absolute path to the `vide` executable, keep that path. User configuration only needs to be added under `init_options`.
+
+## Emacs Eglot
+
+If you use the Eglot setup from [Emacs Installation](../../user-guide/emacs-installation/), add `:initializationOptions` after the server command:
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list
+   'eglot-server-programs
+   '((verilog-mode verilog-ts-mode)
+     . ("vide"
+        :initializationOptions
+        (:diagnostics (:update "onType")
+         :inlayHints (:port (:connection (:enable t))))))))
+```
+
+If your `"vide"` entry already uses an absolute executable path, keep that path. `t` is sent as JSON `true`.
+
+## Other LSP Editors
+
+Different editors or plugins may call the field `initializationOptions`, `init_options`, or something similar. The meaning is the same: send a JSON object when the language server starts.
+
+The object sent to Vide still uses user configuration names:
+
+```json
+{
+  "diagnostics": {
+    "update": "onType"
+  }
+}
+```
+
+Do not wrap it under a `vide` field, and do not add the `vide.` prefix unless your editor explicitly asks for VS Code setting names.
+
+## Schema
+
+A JSON schema describes the shape of a configuration file. When your editor or config tool supports JSON schema validation, it can provide completion and catch misspelled fields before the server starts.
+
+The user configuration schema URL is:
+
+```text
+https://vide.pascal-lab.net/schemas/v1/user-config.schema.json
+```
+
+If you keep user configuration in a standalone JSON file, you can add `$schema` at the top:
+
+```json
+{
+  "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
+  "diagnostics": {
+    "update": "onType"
+  }
+}
+```
+
+When writing options directly in Neovim `init_options` or Emacs `:initializationOptions`, you usually do not need `$schema`.
+
+## Apply Changes
+
+User configuration is sent when the language server starts. After changing editor configuration, restart the current language server. The simplest way is to close the related Verilog/SystemVerilog buffer and open it again, or restart the editor.
+
+If the configuration does not take effect, check these first:
+
+- The option name comes from the `User config` column in [User Configuration](../../user-guide/vscode-settings/).
+- The LSP initialization options do not include the `vide.` prefix.
+- The Vide language server was restarted after the configuration change.

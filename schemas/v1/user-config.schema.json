@@ -1,0 +1,682 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vide language server user configuration",
+  "description": "Initialization options and dynamic configuration accepted by the Vide language server. These options are useful for editors that configure LSP servers directly, such as Neovim and Emacs.",
+  "type": "object",
+  "properties": {
+    "files": {
+      "$ref": "#/$defs/FilesUserConfig",
+      "default": {
+        "excludeDirs": [],
+        "watcher": "client"
+      }
+    },
+    "workspace": {
+      "$ref": "#/$defs/WorkspaceUserConfig",
+      "default": {
+        "auto": {
+          "reload": true
+        }
+      }
+    },
+    "scope": {
+      "$ref": "#/$defs/ScopeUserConfig",
+      "default": {
+        "visibility": "private"
+      }
+    },
+    "references": {
+      "$ref": "#/$defs/ReferencesUserConfig",
+      "default": {
+        "includeDeclaration": true
+      }
+    },
+    "formatter": {
+      "$ref": "#/$defs/FormatterUserConfig",
+      "default": {
+        "provider": "verible",
+        "path": null,
+        "args": [
+          "--failsafe_success=false"
+        ]
+      }
+    },
+    "formatting": {
+      "$ref": "#/$defs/FormattingUserConfig",
+      "default": {
+        "on": {
+          "enter": true
+        },
+        "in": {
+          "comments": true
+        },
+        "indent": {
+          "width": 4
+        }
+      }
+    },
+    "inlayHints": {
+      "$ref": "#/$defs/InlayHintsUserConfig",
+      "default": {
+        "port": {
+          "connection": {
+            "enable": true
+          }
+        },
+        "parameter": {
+          "assignment": {
+            "enable": true
+          }
+        },
+        "end": {
+          "structure": {
+            "enable": true
+          }
+        }
+      }
+    },
+    "lens": {
+      "$ref": "#/$defs/LensUserConfig",
+      "default": {
+        "instantiations": {
+          "enable": true
+        }
+      }
+    },
+    "semantic": {
+      "$ref": "#/$defs/SemanticUserConfig",
+      "default": {
+        "tokens": {
+          "port": {
+            "clk": {
+              "rst": {
+                "enable": true
+              }
+            },
+            "input": {
+              "output": {
+                "enable": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "$ref": "#/$defs/DiagnosticsUserConfig",
+      "default": {
+        "enable": true,
+        "update": "onSave",
+        "parse": {
+          "enable": true
+        },
+        "semantic": {
+          "enable": true
+        },
+        "slang": {
+          "warnings": [],
+          "rules": []
+        }
+      }
+    },
+    "signature": {
+      "$ref": "#/$defs/SignatureUserConfig",
+      "default": {
+        "help": {
+          "params": {
+            "only": false
+          }
+        }
+      }
+    },
+    "qihe": {
+      "$ref": "#/$defs/QiheUserConfig",
+      "default": {
+        "command": "qihe",
+        "autoConfigureArgsFromManifest": true,
+        "compileArgs": [],
+        "runArgs": [
+          "-g",
+          "std"
+        ]
+      }
+    },
+    "$schema": {
+      "type": "string",
+      "description": "JSON schema URL used by editors for completion and validation. Vide ignores this field."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "FilesUserConfig": {
+      "type": "object",
+      "properties": {
+        "excludeDirs": {
+          "description": "Workspace-relative directories ignored by Vide. Globs are not supported.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "watcher": {
+          "description": "Controls how Vide watches project files.",
+          "$ref": "#/$defs/FilesWatcherDef",
+          "default": "client"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FilesWatcherDef": {
+      "type": "string",
+      "enum": [
+        "client",
+        "notify",
+        "server"
+      ]
+    },
+    "WorkspaceUserConfig": {
+      "type": "object",
+      "properties": {
+        "auto": {
+          "$ref": "#/$defs/WorkspaceAutoUserConfig",
+          "default": {
+            "reload": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "WorkspaceAutoUserConfig": {
+      "type": "object",
+      "properties": {
+        "reload": {
+          "description": "Automatically refresh project information when project manifests change.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScopeUserConfig": {
+      "type": "object",
+      "properties": {
+        "visibility": {
+          "description": "Controls whether symbols inside scopes, except ports, are visible outside those scopes.",
+          "$ref": "#/$defs/ScopeVisibility",
+          "default": "private"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScopeVisibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "private"
+      ]
+    },
+    "ReferencesUserConfig": {
+      "type": "object",
+      "properties": {
+        "includeDeclaration": {
+          "description": "Include declarations when finding references.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "FormatterUserConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "description": "Formatter backend used by Vide.",
+          "$ref": "#/$defs/FormatterProviderUserConfig",
+          "default": "verible"
+        },
+        "path": {
+          "description": "Path to verible-verilog-format when formatter.provider is verible. Use null to find it on PATH.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "args": {
+          "description": "Arguments passed to verible-verilog-format when formatter.provider is verible.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "--failsafe_success=false"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "FormatterProviderUserConfig": {
+      "type": "string",
+      "enum": [
+        "verible"
+      ]
+    },
+    "FormattingUserConfig": {
+      "type": "object",
+      "properties": {
+        "on": {
+          "$ref": "#/$defs/FormattingOnUserConfig",
+          "default": {
+            "enter": true
+          }
+        },
+        "in": {
+          "$ref": "#/$defs/FormattingInUserConfig",
+          "default": {
+            "comments": true
+          }
+        },
+        "indent": {
+          "$ref": "#/$defs/FormattingIndentUserConfig",
+          "default": {
+            "width": 4
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "FormattingOnUserConfig": {
+      "type": "object",
+      "properties": {
+        "enter": {
+          "description": "Enable formatting behavior when pressing Enter.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "FormattingInUserConfig": {
+      "type": "object",
+      "properties": {
+        "comments": {
+          "description": "Enable formatting inside comments.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "FormattingIndentUserConfig": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "description": "Fallback indentation width used when editor formatting options are unavailable.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "default": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "InlayHintsUserConfig": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "$ref": "#/$defs/InlayHintsPortUserConfig",
+          "default": {
+            "connection": {
+              "enable": true
+            }
+          }
+        },
+        "parameter": {
+          "$ref": "#/$defs/InlayHintsParameterUserConfig",
+          "default": {
+            "assignment": {
+              "enable": true
+            }
+          }
+        },
+        "end": {
+          "$ref": "#/$defs/InlayHintsEndUserConfig",
+          "default": {
+            "structure": {
+              "enable": true
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "InlayHintsPortUserConfig": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "EnableUserConfig": {
+      "type": "object",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "InlayHintsParameterUserConfig": {
+      "type": "object",
+      "properties": {
+        "assignment": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "InlayHintsEndUserConfig": {
+      "type": "object",
+      "properties": {
+        "structure": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "LensUserConfig": {
+      "type": "object",
+      "properties": {
+        "instantiations": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SemanticUserConfig": {
+      "type": "object",
+      "properties": {
+        "tokens": {
+          "$ref": "#/$defs/SemanticTokensUserConfig",
+          "default": {
+            "port": {
+              "clk": {
+                "rst": {
+                  "enable": true
+                }
+              },
+              "input": {
+                "output": {
+                  "enable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SemanticTokensUserConfig": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "$ref": "#/$defs/SemanticTokensPortUserConfig",
+          "default": {
+            "clk": {
+              "rst": {
+                "enable": true
+              }
+            },
+            "input": {
+              "output": {
+                "enable": true
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SemanticTokensPortUserConfig": {
+      "type": "object",
+      "properties": {
+        "clk": {
+          "$ref": "#/$defs/SemanticTokensClockUserConfig",
+          "default": {
+            "rst": {
+              "enable": true
+            }
+          }
+        },
+        "input": {
+          "$ref": "#/$defs/SemanticTokensInputUserConfig",
+          "default": {
+            "output": {
+              "enable": true
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SemanticTokensClockUserConfig": {
+      "type": "object",
+      "properties": {
+        "rst": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SemanticTokensInputUserConfig": {
+      "type": "object",
+      "properties": {
+        "output": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiagnosticsUserConfig": {
+      "type": "object",
+      "properties": {
+        "enable": {
+          "description": "Enable diagnostics.",
+          "type": "boolean",
+          "default": true
+        },
+        "update": {
+          "description": "Controls when diagnostics are refreshed.",
+          "$ref": "#/$defs/DiagnosticsUpdateUserConfig",
+          "default": "onSave"
+        },
+        "parse": {
+          "$ref": "#/$defs/DiagnosticsPhaseUserConfig",
+          "default": {
+            "enable": true
+          }
+        },
+        "semantic": {
+          "$ref": "#/$defs/DiagnosticsPhaseUserConfig",
+          "default": {
+            "enable": true
+          }
+        },
+        "slang": {
+          "$ref": "#/$defs/SlangDiagnosticsUserConfig",
+          "default": {
+            "warnings": [],
+            "rules": []
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiagnosticsUpdateUserConfig": {
+      "type": "string",
+      "enum": [
+        "onType",
+        "onSave"
+      ]
+    },
+    "DiagnosticsPhaseUserConfig": {
+      "type": "object",
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "SlangDiagnosticsUserConfig": {
+      "type": "object",
+      "properties": {
+        "warnings": {
+          "description": "Additional slang warning groups or aliases to enable.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "rules": {
+          "description": "Per-diagnostic severity overrides.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DiagnosticRuleUserConfig"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiagnosticRuleUserConfig": {
+      "type": "object",
+      "properties": {
+        "selector": {
+          "type": "string",
+          "pattern": "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$"
+        },
+        "severity": {
+          "$ref": "#/$defs/DiagnosticRuleSeverityUserConfig"
+        },
+        "force": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "selector",
+        "severity"
+      ]
+    },
+    "DiagnosticRuleSeverityUserConfig": {
+      "type": "string",
+      "enum": [
+        "ignore",
+        "info",
+        "warning",
+        "error",
+        "fatal"
+      ]
+    },
+    "SignatureUserConfig": {
+      "type": "object",
+      "properties": {
+        "help": {
+          "$ref": "#/$defs/SignatureHelpUserConfig",
+          "default": {
+            "params": {
+              "only": false
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SignatureHelpUserConfig": {
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/SignatureHelpParamsUserConfig",
+          "default": {
+            "only": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SignatureHelpParamsUserConfig": {
+      "type": "object",
+      "properties": {
+        "only": {
+          "description": "Only show parameter signature help.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "QiheUserConfig": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "Command used to invoke Qihe.",
+          "type": "string",
+          "default": "qihe"
+        },
+        "autoConfigureArgsFromManifest": {
+          "description": "Automatically add Qihe compile mode and forwarded slang options from the Vide project manifest.",
+          "type": "boolean",
+          "default": true
+        },
+        "compileArgs": {
+          "description": "Arguments inserted after qihe compile.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "runArgs": {
+          "description": "Arguments inserted after qihe run.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-g",
+            "std"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
+  "x-vide-config-kind": "user"
+}

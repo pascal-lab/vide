@@ -120,6 +120,11 @@ export default defineConfig({
               items: ['advanced-guide/advanced-installation'],
             },
             {
+              label: '用户配置',
+              translations: { en: 'User Configuration' },
+              items: ['advanced-guide/user-configuration'],
+            },
+            {
               label: '故障报告与排查',
               translations: { en: 'Troubleshooting and Bug Reports' },
               items: ['advanced-guide/troubleshooting'],

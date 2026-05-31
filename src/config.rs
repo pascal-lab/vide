@@ -172,7 +172,7 @@ impl Config {
 
     pub fn files(&self) -> FilesConfig {
         FilesConfig {
-            watcher: match self.user_config.files_watcher {
+            watcher: match self.user_config.files.watcher {
                 FilesWatcherDef::Client if self.cli_did_change_watched_files_dyn_reg() => {
                     FilesWatcher::Client
                 }
@@ -180,7 +180,8 @@ impl Config {
             },
             exclude: self
                 .user_config
-                .files_excludeDirs
+                .files
+                .exclude_dirs
                 .iter()
                 .map(|it| self.root_path.join(it))
                 .collect(),

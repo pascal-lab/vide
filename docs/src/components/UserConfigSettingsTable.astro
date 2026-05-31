@@ -1,0 +1,161 @@
+---
+import {
+  getUserConfigSettingRows,
+  type UserConfigSettingsLocale,
+} from "../data/userConfigSettings";
+
+interface Props {
+  locale: UserConfigSettingsLocale;
+  settings: string[];
+}
+
+const { locale, settings } = Astro.props;
+const rows = getUserConfigSettingRows(settings, locale);
+const labels =
+  locale === "zh"
+    ? {
+        setting: "用户配置",
+        vscode: "VS Code 中的名字",
+        defaultValue: "默认值",
+        description: "说明",
+        options: "可选值",
+        table: "用户配置表",
+      }
+    : {
+        setting: "User config",
+        vscode: "VS Code name",
+        defaultValue: "Default",
+        description: "Description",
+        options: "Options",
+        table: "User configuration table",
+      };
+
+function renderInlineMarkdown(value: string): string {
+  return addPreferredBreaks(escapeHtml(value)).replace(
+    /`([^`]+)`/g,
+    '<code dir="auto">$1</code>',
+  );
+}
+
+function renderConfigPath(value: string): string {
+  return escapeHtml(value).replaceAll(".", ".<wbr>");
+}
+
+function addPreferredBreaks(value: string): string {
+  return value.replaceAll("、", "、<wbr>");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+---
+
+<div class="user-config-settings-table-wrap" role="region" aria-label={labels.table} tabindex="0">
+  <table class="user-config-settings-table">
+    <colgroup>
+      <col class="user-config-settings-table__setting-column" />
+      <col class="user-config-settings-table__vscode-column" />
+      <col class="user-config-settings-table__default-column" />
+      <col class="user-config-settings-table__description-column" />
+    </colgroup>
+    <thead>
+      <tr>
+        <th>{labels.setting}</th>
+        <th>{labels.vscode}</th>
+        <th>{labels.defaultValue}</th>
+        <th>{labels.description}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr>
+            <td>
+              <code set:html={renderConfigPath(row.name)}></code>
+            </td>
+            <td>
+              <code set:html={renderConfigPath(row.vscodeName)}></code>
+            </td>
+            <td>
+              <code>{row.defaultValue}</code>
+            </td>
+            <td>
+              <span set:html={renderInlineMarkdown(row.description)} />
+              {row.enumValues && (
+                <div class="user-config-settings-options">
+                  {labels.options}:
+                  <ul>
+                    {row.enumValues.map((enumValue) => (
+                      <li>
+                        <code>{enumValue.value}</code>
+                        {enumValue.description && (
+                          <>
+                            {" "}
+                            <span set:html={renderInlineMarkdown(enumValue.description)} />
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .user-config-settings-table-wrap {
+    overflow-x: auto;
+  }
+
+  .user-config-settings-table-wrap:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 0.25rem;
+  }
+
+  .user-config-settings-table-wrap > .user-config-settings-table {
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    min-width: 72rem;
+  }
+
+  .user-config-settings-table__setting-column {
+    width: 18rem;
+  }
+
+  .user-config-settings-table__vscode-column {
+    width: 21rem;
+  }
+
+  .user-config-settings-table__default-column {
+    width: 13rem;
+  }
+
+  .user-config-settings-table :global(code) {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .user-config-settings-table :global(th),
+  .user-config-settings-table :global(td) {
+    vertical-align: top;
+  }
+
+  .user-config-settings-options {
+    margin-top: 0.5rem;
+  }
+
+  .user-config-settings-options ul {
+    margin: 0.25rem 0 0;
+    padding-inline-start: 1.25rem;
+  }
+</style>

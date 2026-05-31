@@ -1,31 +1,203 @@
 ---
-title: VS Code Settings
-description: Reference for Vide VS Code extension vide.* settings.
+title: User Configuration
+description: Adjust Vide language-server behavior in VS Code, Neovim, Emacs, and other editors.
 ---
 
+import UserConfigSettingsTable from '../../../../components/UserConfigSettingsTable.astro';
 import VscodeSettingsTable from '../../../../components/VscodeSettingsTable.astro';
 
-VS Code settings control editor behavior such as diagnostic refresh, Qihe commands, formatting tools, annotations, and language-server launch arguments. Project source files, include directories, macro definitions, and dependency libraries belong in the `vide.toml` project configuration file described in [Project Configuration](../project-configuration/).
+Use this page to look up Vide user configuration. User configuration changes language-server behavior, such as when diagnostics refresh, whether annotations are shown, which formatter is used, and which Qihe arguments are passed.
 
-All settings are under the `vide.*` namespace. Search for `Vide` in the VS Code Settings UI or edit user/workspace `settings.json` directly.
+User configuration does not describe which files belong to the project. Source files, include directories, macro definitions, libraries, and top modules belong in `vide.toml`; if you are setting up a project for the first time, start with [Configure the First Project](../first-project/).
 
-## Common Settings Quick Reference
+## Where to Put It
 
-| Goal | Common settings |
-| --- | --- |
-| Point VS Code at a local Qihe executable | `vide.qihe.command` |
-| Point Vide at `verible-verilog-format` | `vide.formatter.path` |
-| Refresh diagnostics on save or while typing | `vide.diagnostics.update` |
-| Show usage locations only in Find References | `vide.references.includeDeclaration` |
-| Toggle port, parameter, and end-structure annotations | `vide.inlayHints.*` |
-| Toggle instance-count annotations above module declarations | `vide.lens.instantiations.enable` |
-| Refresh project information after configuration changes | `vide.workspace.auto.reload` |
+The same option has slightly different names in different editors.
 
-Server launch, file watching, diagnostic rules, and protocol tracing are mostly for troubleshooting or development. Keep their defaults unless you have a specific reason to change them.
+VS Code users can search for `Vide` in the Settings UI or edit `settings.json` directly. VS Code setting names use a `vide.` prefix:
 
-## Server
+```json
+{
+  "vide.diagnostics.update": "onType",
+  "vide.inlayHints.port.connection.enable": true
+}
+```
 
-These settings replace or debug the background language server. A normal installation does not need them.
+Editors such as Neovim and Emacs usually start Vide through LSP. LSP is the protocol between the editor and the language server. These editors usually pass the same configuration as initialization options. Initialization options are the JSON object that the editor sends when it starts the language server. This form does not use the `vide.` prefix:
+
+```json
+{
+  "diagnostics": {
+    "update": "onType"
+  },
+  "inlayHints": {
+    "port": {
+      "connection": {
+        "enable": true
+      }
+    }
+  }
+}
+```
+
+If you use Neovim, Emacs, or another LSP editor, the advanced guide shows where to put these options and includes complete examples: [User Configuration for LSP Editors](../../advanced-guide/user-configuration/).
+
+## How to Read the Table
+
+The `User config` column uses dot paths to describe positions inside the JSON object. For example, `diagnostics.update` means:
+
+```json
+{
+  "diagnostics": {
+    "update": "onSave"
+  }
+}
+```
+
+The `VS Code name` column shows the same option name in VS Code `settings.json`. For example, `diagnostics.update` maps to `vide.diagnostics.update`.
+
+Start with defaults and only change an option when you have a reason.
+
+## Qihe
+
+If you do not use `Vide: Run Qihe Analysis`, keep these defaults. By default, Vide derives the Qihe compile mode, top module, include directories, and macro definitions from the current `vide.toml`.
+
+Related feature: [Qihe Integration](../features/qihe/).
+
+<UserConfigSettingsTable
+  locale="en"
+  settings={[
+    'qihe.command',
+    'qihe.autoConfigureArgsFromManifest',
+    'qihe.compileArgs',
+    'qihe.runArgs',
+  ]}
+/>
+
+## Files
+
+These settings are mainly for file-watching troubleshooting. Use `sources` / `exclude` in `vide.toml` for project file selection.
+
+Related docs: [Project Configuration Reference](../project-configuration/).
+
+<UserConfigSettingsTable locale="en" settings={['files.excludeDirs', 'files.watcher']} />
+
+## Workspace
+
+After project configuration changes, Vide reloads `vide.toml` and refreshes project information by default.
+
+Related docs: [Configure the First Project](../first-project/) and [Project Configuration Reference](../project-configuration/).
+
+<UserConfigSettingsTable locale="en" settings={['workspace.auto.reload']} />
+
+<span id="scope"></span>
+
+## Scope and References
+
+These settings affect local-symbol visibility in find references, rename, and document highlights, and whether the declaration location is included in reference results. Keep the defaults when unsure.
+
+Related features: [Find References](../features/references/) and [Rename](../features/rename/).
+
+<UserConfigSettingsTable
+  locale="en"
+  settings={['scope.visibility', 'references.includeDeclaration']}
+/>
+
+## Formatter and Formatting
+
+Configure these only if you use Verilog/SystemVerilog formatting. Vide calls an external `verible-verilog-format`.
+
+Related feature: [Formatting](../features/formatting/).
+
+<UserConfigSettingsTable
+  locale="en"
+  settings={[
+    'formatter.provider',
+    'formatter.path',
+    'formatter.args',
+    'formatting.on.enter',
+    'formatting.in.comments',
+    'formatting.indent.width',
+  ]}
+/>
+
+## Inlay Hints
+
+Inlay hints appear directly in the editor and are useful for reading port and parameter connections.
+
+Related feature: [Annotations](../features/annotations/).
+
+<UserConfigSettingsTable
+  locale="en"
+  settings={[
+    'inlayHints.port.connection.enable',
+    'inlayHints.parameter.assignment.enable',
+    'inlayHints.end.structure.enable',
+  ]}
+/>
+
+## Lens
+
+Instance-count annotations appear above module declarations.
+
+Related features: [Annotations](../features/annotations/), [Document Symbols](../features/document-symbols/), and [Find References](../features/references/).
+
+<UserConfigSettingsTable locale="en" settings={['lens.instantiations.enable']} />
+
+## Semantic Tokens
+
+Semantic tokens can make port direction, clock signals, and reset signals easier to distinguish when your theme supports them.
+
+Related feature: [Semantic Highlighting](../features/semantic-highlighting/).
+
+<UserConfigSettingsTable
+  locale="en"
+  settings={['semantic.tokens.port.clk.rst.enable', 'semantic.tokens.port.input.output.enable']}
+/>
+
+## Diagnostics
+
+Diagnostics appear in the editor's problem list, underlines, or floating messages. The display differs by editor, but these options mean the same thing.
+
+Related feature: [Diagnostics](../features/diagnostics/).
+
+<UserConfigSettingsTable
+  locale="en"
+  settings={[
+    'diagnostics.enable',
+    'diagnostics.update',
+    'diagnostics.parse.enable',
+    'diagnostics.semantic.enable',
+    'diagnostics.slang.warnings',
+    'diagnostics.slang.rules',
+  ]}
+/>
+
+## Signature Help
+
+Signature help is used for instance port connections and parameter assignment lists.
+
+Related feature: [Signature Help](../features/signature-help/).
+
+<UserConfigSettingsTable locale="en" settings={['signature.help.params.only']} />
+
+## Schema URL
+
+A JSON schema describes the shape of a configuration file. When your editor or config tool supports JSON schema validation, it can offer completion and catch typos such as `diagnostic` instead of `diagnostics` before the server starts.
+
+The user configuration schema URL is:
+
+```text
+https://vide.pascal-lab.net/schemas/v1/user-config.schema.json
+```
+
+If you keep user configuration in a standalone JSON file, you can add `$schema` at the top and point it to this URL. `$schema` is only for editor completion and validation; Vide ignores it when reading configuration. When writing options directly in Neovim `init_options` or Emacs `:initializationOptions`, you usually do not need `$schema`.
+
+<span id="server"></span>
+
+## VS Code Extension Startup Settings
+
+These are not language-server user configuration. They are VS Code extension settings used to start the background language server. Change them only when you need to replace the local `vide` executable, add startup arguments, set a working directory, or debug LSP communication.
 
 <VscodeSettingsTable
   locale="en"
@@ -39,122 +211,3 @@ These settings replace or debug the background language server. A normal install
 />
 
 After these server launch settings change, the extension prompts you to `Restart`: `vide.server.command`, `vide.server.args`, `vide.server.additionalArgs`, `vide.server.cwd`, `vide.trace.server`.
-
-## Qihe
-
-If you do not use `Vide: Run Qihe Analysis`, keep these defaults. By default, Vide derives the Qihe compile mode, top module, include directories, and macro definitions from the current `vide.toml`.
-
-Related feature: [Qihe Integration](../features/qihe/).
-
-<VscodeSettingsTable
-  locale="en"
-  settings={[
-    'vide.qihe.command',
-    'vide.qihe.autoConfigureArgsFromManifest',
-    'vide.qihe.compileArgs',
-    'vide.qihe.runArgs',
-  ]}
-/>
-
-## Files
-
-These settings are mainly for file-watching troubleshooting. Use `sources` / `exclude` in `vide.toml` for project file selection.
-
-Related docs: [Project Configuration Reference](../project-configuration/).
-
-<VscodeSettingsTable locale="en" settings={['vide.files.excludeDirs', 'vide.files.watcher']} />
-
-## Workspace
-
-Related docs: [Configure the First Project](../first-project/) and [Project Configuration Reference](../project-configuration/).
-
-<VscodeSettingsTable locale="en" settings={['vide.workspace.auto.reload']} />
-
-## Scope
-
-These settings affect local-symbol visibility in find references, rename, and document highlights, and whether the declaration location is included in reference results. Keep the defaults when unsure.
-
-Related features: [Find References](../features/references/) and [Rename](../features/rename/).
-
-<VscodeSettingsTable
-  locale="en"
-  settings={['vide.scope.visibility', 'vide.references.includeDeclaration']}
-/>
-
-## Formatter and Formatting
-
-Configure these only if you use Verilog/SystemVerilog formatting. Vide calls an external `verible-verilog-format`.
-
-Related feature: [Formatting](../features/formatting/).
-
-<VscodeSettingsTable
-  locale="en"
-  settings={[
-    'vide.formatter.provider',
-    'vide.formatter.path',
-    'vide.formatter.args',
-    'vide.formatting.on.enter',
-    'vide.formatting.in.comments',
-    'vide.formatting.indent.width',
-  ]}
-/>
-
-## Inlay Hints
-
-Inlay hints appear directly in the editor and are useful for reading port and parameter connections.
-
-Related feature: [Annotations](../features/annotations/).
-
-<VscodeSettingsTable
-  locale="en"
-  settings={[
-    'vide.inlayHints.port.connection.enable',
-    'vide.inlayHints.parameter.assignment.enable',
-    'vide.inlayHints.end.structure.enable',
-  ]}
-/>
-
-## Lens
-
-Instance-count annotations appear above module declarations.
-
-Related features: [Annotations](../features/annotations/), [Document Symbols](../features/document-symbols/), and [Find References](../features/references/).
-
-<VscodeSettingsTable locale="en" settings={['vide.lens.instantiations.enable']} />
-
-## Semantic Tokens
-
-Semantic tokens can make port direction, clock signals, and reset signals easier to distinguish when your theme supports them.
-
-Related feature: [Semantic Highlighting](../features/semantic-highlighting/).
-
-<VscodeSettingsTable
-  locale="en"
-  settings={['vide.semantic.tokens.port.clk.rst.enable', 'vide.semantic.tokens.port.input.output.enable']}
-/>
-
-## Diagnostics
-
-Diagnostics appear in the VS Code `Problems` panel and as editor underlines.
-
-Related feature: [Diagnostics](../features/diagnostics/).
-
-<VscodeSettingsTable
-  locale="en"
-  settings={[
-    'vide.diagnostics.enable',
-    'vide.diagnostics.update',
-    'vide.diagnostics.parse.enable',
-    'vide.diagnostics.semantic.enable',
-    'vide.diagnostics.slang.warnings',
-    'vide.diagnostics.slang.rules',
-  ]}
-/>
-
-## Signature Help
-
-Signature help is used for instance port connections and parameter assignment lists.
-
-Related feature: [Signature Help](../features/signature-help/).
-
-<VscodeSettingsTable locale="en" settings={['vide.signature.help.params.only']} />

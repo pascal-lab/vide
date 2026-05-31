@@ -114,7 +114,7 @@ impl GlobalState {
     }
 
     pub(crate) fn request_workspace_auto_reload(&mut self, cause: impl Into<String>) {
-        if self.config.user_config.workspace_auto_reload {
+        if self.config.user_config.workspace.auto.reload {
             self.request_workspace_reload(cause);
         }
     }

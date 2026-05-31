@@ -1,0 +1,143 @@
+---
+title: LSP 编辑器的用户配置
+description: 在 Neovim、Emacs 或其他 LSP 编辑器启动 Vide 时传入用户配置。
+---
+
+这页适合已经能在 Neovim、Emacs 或其他编辑器里启动 `vide`，但还想调整诊断刷新、行内提示、格式化或 Qihe 参数的用户。
+
+如果你使用 VS Code，请直接在 VS Code 设置界面修改，完整选项见[用户配置](../../user-guide/vscode-settings/)。
+
+## 先理解放在哪里
+
+Vide 会读取两类配置：
+
+- 项目配置写在工程里的 `vide.toml`，描述源文件、include 目录、宏定义、依赖库和顶层模块。第一次配置工程请看[配置第一个项目](../../user-guide/first-project/)。
+- 用户配置由编辑器传给语言服务器，改变诊断、行内提示、格式化、文件监听、Qihe 等行为。完整选项和默认值在[用户配置](../../user-guide/vscode-settings/)。
+
+Neovim、Emacs 这类编辑器通常通过 LSP 启动 Vide。LSP 是编辑器和语言服务器之间的通信协议。启动时，编辑器可以附带一个 JSON 对象；LSP 通常把它叫做 initialization options，中文可以理解为“初始化选项”。Vide 会把这段初始化选项当作用户配置读取。
+
+## 从 VS Code 名字换成 LSP 写法
+
+[用户配置](../../user-guide/vscode-settings/)会同时显示“用户配置”和“VS Code 中的名字”。在 LSP 编辑器里使用“用户配置”这一列，不使用 `vide.` 前缀。
+
+例如 VS Code 中的写法是：
+
+```json
+{
+  "vide.diagnostics.update": "onType",
+  "vide.inlayHints.port.connection.enable": true
+}
+```
+
+在 LSP 初始化选项里写成：
+
+```json
+{
+  "diagnostics": {
+    "update": "onType"
+  },
+  "inlayHints": {
+    "port": {
+      "connection": {
+        "enable": true
+      }
+    }
+  }
+}
+```
+
+下面的 Neovim 和 Emacs 示例只是把这段 JSON 结构翻译成各自编辑器的配置语法。
+
+## Neovim
+
+如果你使用 [Neovim 安装](../../user-guide/neovim-installation/)里的配置，在同一个 `vim.lsp.config('vide', { ... })` 里加入 `init_options`：
+
+```lua
+vim.lsp.config('vide', {
+  cmd = { 'vide' },
+  filetypes = { 'verilog', 'systemverilog' },
+  root_markers = { 'vide.toml', '.git' },
+  init_options = {
+    diagnostics = {
+      update = 'onType',
+    },
+    inlayHints = {
+      port = {
+        connection = {
+          enable = true,
+        },
+      },
+    },
+  },
+})
+
+vim.lsp.enable('vide')
+```
+
+如果你的 `cmd` 已经写成 `vide` 的绝对路径，保留原来的路径即可。用户配置只需要加在 `init_options` 里。
+
+## Emacs Eglot
+
+如果你使用 [Emacs 安装](../../user-guide/emacs-installation/)里的 Eglot 配置，在启动命令后面加 `:initializationOptions`：
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list
+   'eglot-server-programs
+   '((verilog-mode verilog-ts-mode)
+     . ("vide"
+        :initializationOptions
+        (:diagnostics (:update "onType")
+         :inlayHints (:port (:connection (:enable t))))))))
+```
+
+如果你的 `"vide"` 已经写成可执行文件的绝对路径，保留原来的路径即可。`t` 会发送成 JSON 里的 `true`。
+
+## 其他 LSP 编辑器
+
+不同编辑器或插件的字段名可能叫 `initializationOptions`、`init_options` 或类似名字。它们的含义相同：启动语言服务器时，把一个 JSON 对象一起发给服务器。
+
+传给 Vide 的对象仍然使用用户配置的写法：
+
+```json
+{
+  "diagnostics": {
+    "update": "onType"
+  }
+}
+```
+
+不要把它包在 `vide` 字段下面，也不要给选项名加 `vide.` 前缀，除非你的编辑器明确要求填写 VS Code 设置名。
+
+## 配置校验文件
+
+JSON schema 是一份描述配置结构的文件。编辑器或配置工具支持 JSON schema 时，可以用它提供补全，并在启动服务器前发现拼错字段的问题。
+
+用户配置的 schema 地址是：
+
+```text
+https://vide.pascal-lab.net/schemas/v1/user-config.schema.json
+```
+
+如果你把用户配置保存成单独的 JSON 文件，可以在文件顶部加 `$schema` 指向这个地址：
+
+```json
+{
+  "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
+  "diagnostics": {
+    "update": "onType"
+  }
+}
+```
+
+直接写在 Neovim `init_options` 或 Emacs `:initializationOptions` 里时，通常不需要写 `$schema`。
+
+## 修改后让配置生效
+
+用户配置会在语言服务器启动时发送给 Vide。修改编辑器配置后，请重启当前语言服务器；最简单的方式是关闭相关 Verilog/SystemVerilog buffer 后重新打开，或者重启编辑器。
+
+如果配置没有生效，优先检查三件事：
+
+- 选项名是否来自[用户配置](../../user-guide/vscode-settings/)里的“用户配置”列。
+- LSP 初始化选项里是否误加了 `vide.` 前缀。
+- 修改配置后是否重启了 Vide 语言服务器。

@@ -45,6 +45,7 @@ regex.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+schemars = { version = "1.2.1", features = ["preserve_order"], optional = true }
 thiserror.workspace = true
 toml.workspace = true
 tracing-subscriber = { version = "0.3.17", default-features = false, features = ["registry", "fmt", "tracing-log",] }
@@ -130,3 +131,6 @@ winapi.workspace = true
 
 [dev-dependencies]
 utils = { workspace = true, features = ["test-support"] }
+
+[features]
+user-config-schema = ["dep:schemars"]

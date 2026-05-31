@@ -8,3 +8,4 @@ edition.workspace = true
 anyhow.workspace = true
 project-model = { workspace = true, features = ["manifest-schema"] }
 serde_json.workspace = true
+vide = { path = "..", features = ["user-config-schema"] }
