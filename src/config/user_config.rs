@@ -1302,6 +1302,10 @@ fn parse_selector(selector: &str) -> Option<DiagnosticSelector> {
 }
 
 impl Config {
+    pub(crate) fn references_include_declaration(&self) -> bool {
+        self.user_config.references.include_declaration
+    }
+
     pub(crate) fn references(&self) -> ReferencesConfig {
         let scope_visibility = self.user_config.scope.visibility.into();
         ReferencesConfig::new(scope_visibility, None)
