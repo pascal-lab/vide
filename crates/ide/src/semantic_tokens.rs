@@ -18,7 +18,6 @@ use hir::{
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
-use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
 use utils::{
@@ -27,7 +26,10 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::module_resolution::{resolve_named_param_assignment, resolve_named_port_connection};
+use crate::{
+    db::root_db::RootDb,
+    module_resolution::{resolve_named_param_assignment, resolve_named_port_connection},
+};
 
 mod collector;
 mod port;
@@ -481,7 +483,7 @@ fn collect_resolved_path(
 mod tests {
     use std::path::PathBuf;
 
-    use base_db::{change::Change, source_root::SourceRoot};
+    use hir::base_db::{change::Change, source_root::SourceRoot};
     use insta::assert_debug_snapshot;
     use triomphe::Arc;
     use utils::{

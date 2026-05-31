@@ -1,6 +1,8 @@
 pub mod anchored_path;
 mod file_set;
 pub mod loader;
+#[cfg(feature = "notify-backend")]
+pub mod notify;
 mod path_glob;
 #[cfg(test)]
 mod test_support;

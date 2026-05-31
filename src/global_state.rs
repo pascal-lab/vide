@@ -19,12 +19,13 @@ use std::{
     time::Instant,
 };
 
-use base_db::{
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use hir::base_db::{
     project::{ProjectConfig, SharedProjectConfig},
+    salsa::Durability,
     source_db::SourceDb,
     source_root::SourceRootConfig,
 };
-use crossbeam_channel::{Receiver, Sender, unbounded};
 use ide::analysis_host::AnalysisHost;
 use lsp_server::{Message, ReqQueue, Request};
 use lsp_types::{TraceValue, Url};
@@ -39,7 +40,7 @@ use utils::{
     lines::LineEnding,
     thread::{Pool, ThreadIntent},
 };
-use vfs::{self, FileId, Vfs};
+use vfs::{self, FileId, Vfs, notify::NotifyHandle};
 
 #[cfg(test)]
 pub(crate) use self::workspace_state::VfsProgress;
@@ -212,7 +213,7 @@ impl GlobalState {
     ) -> GlobalState {
         let vfs_loader = {
             let (sender, receiver) = unbounded::<vfs::loader::Message>();
-            let handle: vfs_notify::NotifyHandle = vfs::loader::Handle::spawn(sender);
+            let handle: NotifyHandle = vfs::loader::Handle::spawn(sender);
             let handle = Box::new(handle) as Box<dyn vfs::loader::Handle>;
             Handle { handle, receiver }
         };
@@ -225,10 +226,9 @@ impl GlobalState {
 
         let mut analysis_host = AnalysisHost::new(None);
         let diagnostics_config = Arc::new(config.diagnostics_config());
-        analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
-            diagnostics_config,
-            base_db::salsa::Durability::HIGH,
-        );
+        analysis_host
+            .raw_db_mut()
+            .set_diagnostics_config_with_durability(diagnostics_config, Durability::HIGH);
 
         GlobalState {
             sender,

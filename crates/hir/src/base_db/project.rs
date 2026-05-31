@@ -1,7 +1,7 @@
 use triomphe::Arc;
 use utils::paths::AbsPathBuf;
 
-use crate::source_root::SourceRootId;
+use crate::base_db::source_root::SourceRootId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompilationProfileId(pub u32);

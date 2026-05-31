@@ -11,13 +11,13 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use base_db::compilation_plan::CompilationPlan;
+use hir::base_db::compilation_plan::CompilationPlan;
+use ide::FileRange;
 use lsp_types::{Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, NumberOrString};
 use project_model::project_manifest::{ProjectManifest, ProjectManifestFileName};
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
-use span::FileRange;
 use utils::{
     cancellation::{CancellationError, CancellationToken},
     line_index::{LineCol, TextRange, TextSize},
@@ -1070,8 +1070,8 @@ struct QiheJsonSupportInfo {
 mod tests {
     use std::{ffi::OsStr, io::Cursor, path::PathBuf, process::Command};
 
-    use base_db::compilation_plan::CompilationPlan;
     use crossbeam_channel::unbounded;
+    use hir::base_db::compilation_plan::CompilationPlan;
     use lsp_types::{
         Diagnostic, DiagnosticClientCapabilities, DiagnosticSeverity,
         DiagnosticWorkspaceClientCapabilities, NumberOrString, Position, Range,

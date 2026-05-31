@@ -1,4 +1,4 @@
-use base_db::{
+use hir::base_db::{
     change::Change,
     salsa::{Database, Durability},
     source_root::SourceRootId,
@@ -6,7 +6,7 @@ use base_db::{
 use itertools::{Either, Itertools};
 use rustc_hash::FxHashSet;
 
-use crate::root_db::RootDb;
+use crate::db::root_db::RootDb;
 
 impl RootDb {
     pub fn request_cancellation(&mut self) {

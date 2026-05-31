@@ -13,11 +13,9 @@ use hir::{
         AnsiPortEntry, BlockEntry, GenerateBlockEntry, ModuleEntry, NonAnsiPortEntry,
         SubroutineEntry, UnitEntry,
     },
-    semantics::Semantics,
+    semantics::{Semantics, pathres::PathResolution},
     type_infer::{Ty, normalize_data_ty, type_class, type_of_decl, type_of_path_resolution},
 };
-use ide_db::root_db::RootDb;
-use span::FilePosition;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxNodeExt,
     ast::{self, AstNode},
@@ -26,7 +24,7 @@ use syntax::{
 use utils::text_edit::TextSize;
 
 use super::{candidate::CompletionCandidate, system, typed_filter::is_compatible_typed_value};
-use crate::completion::context::CompletionContext;
+use crate::{FilePosition, completion::context::CompletionContext, db::root_db::RootDb};
 
 #[derive(Clone, Debug)]
 enum NameKind {
@@ -158,9 +156,10 @@ fn collect_container_names(
                     SubroutineEntry::SubroutinePortId(port_id) => {
                         let ty = type_of_path_resolution(
                             db,
-                            hir::semantics::pathres::PathResolution::SubroutinePort(
-                                InSubroutine::new(subroutine_id, port_id),
-                            ),
+                            PathResolution::SubroutinePort(InSubroutine::new(
+                                subroutine_id,
+                                port_id,
+                            )),
                         )
                         .ty;
                         names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
@@ -172,11 +171,7 @@ fn collect_container_names(
     }
 }
 
-fn collect_file_names(
-    db: &RootDb,
-    file_id: hir::file::HirFileId,
-    names: &mut BTreeMap<String, NameKind>,
-) {
+fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.file_scope(file_id);
     for (ident, entry) in scope.iter() {
         if let UnitEntry::FiledDeclId(decl_id) = entry {
@@ -191,11 +186,7 @@ fn collect_file_names(
     }
 }
 
-fn collect_module_names(
-    db: &RootDb,
-    module_id: hir::hir_def::module::ModuleId,
-    names: &mut BTreeMap<String, NameKind>,
-) {
+fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.module_scope(module_id);
     for (ident, entry) in scope.iter() {
         match entry {

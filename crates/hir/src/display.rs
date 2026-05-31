@@ -1,11 +1,11 @@
 use std::fmt::{self, Debug};
 
-use base_db::intern::Lookup;
 use syntax::TimeUnit;
 use triomphe::Arc;
 use utils::get::GetRef;
 
 use crate::{
+    base_db::intern::Lookup,
     container::{InContainer, InModule},
     db::HirDb,
     hir_def::{

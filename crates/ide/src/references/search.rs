@@ -1,12 +1,11 @@
 use std::cell::LazyCell;
 
-use base_db::{intern::Lookup, salsa::Database, source_db::SourceDb};
 use hir::{
+    base_db::{intern::Lookup, salsa::Database, source_db::SourceDb},
     container::{ContainerId, InFile},
     semantics::Semantics,
     source_map::IsSrc,
 };
-use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use memchr::memmem::Finder;
 use nohash_hasher::IntMap;
@@ -26,6 +25,7 @@ use vfs::FileId;
 use super::{ReferenceCategory, ReferencesConfig};
 use crate::{
     ScopeVisibility,
+    db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
 };
 

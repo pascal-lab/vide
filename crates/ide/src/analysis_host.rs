@@ -1,7 +1,6 @@
-use base_db::{change::Change, salsa::ParallelDatabase};
-use ide_db::root_db::RootDb;
+use hir::base_db::{change::Change, salsa::ParallelDatabase};
 
-use crate::analysis::Analysis;
+use crate::{analysis::Analysis, db::root_db::RootDb};
 
 pub struct AnalysisHost {
     db: RootDb,

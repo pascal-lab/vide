@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::Context;
-use base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
+use hir::base_db::source_root::{SourceRootDiagnosticScope, SourceRootRole};
 use ide::{Cancellable, analysis::Analysis};
 use lsp_types::Url;
 use nohash_hasher::IntMap;

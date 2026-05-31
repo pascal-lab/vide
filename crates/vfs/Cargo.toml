@@ -5,12 +5,24 @@ description = "Isolating high level crates from the file-system, preventing them
 
 edition.workspace = true
 
+[features]
+default = ["notify-backend"]
+notify-backend = ["dep:itertools", "dep:notify", "dep:rayon", "dep:tracing", "dep:walkdir"]
+
 [dependencies]
 crossbeam-channel.workspace = true
 fst = "0.4.7"
 globset.workspace = true
 indexmap = "2.0.0"
+itertools = { workspace = true, optional = true }
 nohash-hasher.workspace = true
+notify = { version = "6.1.1", optional = true }
+rayon = { version = "1.10.0", optional = true }
 rustc-hash.workspace = true
+tracing = { workspace = true, optional = true }
 triomphe.workspace = true
 utils.workspace = true
+walkdir = { version = "2.4.0", optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

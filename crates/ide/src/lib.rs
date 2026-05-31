@@ -1,13 +1,14 @@
 #![feature(try_blocks)]
 #![feature(decl_macro)]
 
-pub use base_db::Cancelled;
+pub use hir::base_db::Cancelled;
 use hir::hir_def::{
     block::BlockId,
     expr::declarator::DeclId,
     module::{ModuleId, instantiation::InstanceId, port::NonAnsiPortId},
     stmt::StmtId,
 };
+pub use range::{ErasedFileAstId, FilePosition, FileRange, RangeInfo};
 use syntax::{SyntaxKind, ast, match_ast_kind};
 pub type Cancellable<T> = Result<T, Cancelled>;
 
@@ -23,6 +24,7 @@ pub mod source_change;
 pub mod code_action;
 pub mod code_lens;
 pub mod completion;
+pub mod db;
 pub mod diagnostics;
 pub mod document_highlight;
 pub mod document_symbols;
@@ -32,6 +34,7 @@ pub mod goto_declaration;
 pub mod goto_definition;
 pub mod hover;
 pub mod inlay_hint;
+pub mod range;
 pub mod references;
 pub mod rename;
 pub mod selection_ranges;

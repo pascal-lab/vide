@@ -1,7 +1,7 @@
-use base_db::intern::Lookup;
 use utils::get::Get;
 
 use crate::{
+    base_db::intern::Lookup,
     container::InFile,
     db::HirDb,
     hir_def::{

@@ -1,9 +1,7 @@
 use hir::{file::HirFileId, semantics::Semantics};
-use ide_db::root_db::RootDb;
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
-use span::FilePosition;
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
@@ -13,7 +11,8 @@ use utils::line_index::TextRange;
 use vfs::FileId;
 
 use crate::{
-    ScopeVisibility,
+    FilePosition, ScopeVisibility,
+    db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
 };

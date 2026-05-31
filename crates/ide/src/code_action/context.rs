@@ -1,5 +1,4 @@
 use hir::semantics::{ParsedFile, Semantics};
-use ide_db::root_db::RootDb;
 use syntax::{
     SyntaxNode,
     ast::{AstNode, CompilationUnit},
@@ -8,6 +7,7 @@ use utils::text_edit::{TextRange, TextSize};
 use vfs::FileId;
 
 use super::{CodeActionDiagnostics, RepairKind};
+use crate::db::root_db::RootDb;
 
 pub(crate) struct CodeActionCtx<'a> {
     sema: &'a Semantics<'a, RootDb>,

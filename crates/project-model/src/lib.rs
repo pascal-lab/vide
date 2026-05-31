@@ -5,7 +5,7 @@ mod toml_workspace;
 use std::collections::VecDeque;
 
 use anyhow::{Context, bail};
-use base_db::{
+use hir::base_db::{
     project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRootConfig, SourceRootId, SourceRootRole},
 };
@@ -786,7 +786,7 @@ fn collect_dependency_roots(
 mod tests {
     use std::fs;
 
-    use base_db::{source_db::SourceFileKind, source_root::SourceRootRole};
+    use hir::base_db::{source_db::SourceFileKind, source_root::SourceRootRole};
     use utils::{lines::LineEnding, test_support::TestDir};
     use vfs::{Vfs, loader::LoadResult};
 
