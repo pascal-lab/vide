@@ -347,7 +347,8 @@ pub(crate) fn handle_references(
     snap: GlobalStateSnapshot,
     params: lsp_types::ReferenceParams,
 ) -> anyhow::Result<Option<Vec<lsp_types::Location>>> {
-    let include_declaration = params.context.include_declaration;
+    let include_declaration =
+        params.context.include_declaration && snap.config.references_include_declaration();
     let position = from_proto::file_position(&snap, params.text_document_position)?;
     let config = snap.config.references();
     let Some(refs) = snap.analysis.references(position, config)? else {
