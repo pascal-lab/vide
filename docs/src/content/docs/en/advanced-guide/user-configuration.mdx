@@ -1,0 +1,101 @@
+---
+title: User Configuration for LSP Editors
+description: Configure Vide language-server options in editors such as Neovim and Emacs, and use JSON schemas for completion and validation.
+---
+
+Editors such as Neovim and Emacs usually start Vide through LSP. LSP is the protocol between the editor and the language server. When the editor starts Vide, it can send a JSON object with language-server options; this page calls that JSON object user configuration.
+
+Most users configure Vide in two places:
+
+- `vide.toml` lives in your project and tells Vide which source files, include directories, macros, and libraries belong to the project.
+- User configuration lives in your editor and changes how the language server behaves, for example diagnostics refresh, file watching, formatting, inlay hints, and Qihe commands.
+
+If you use VS Code, edit these options in the VS Code Settings UI or `settings.json`; see [VS Code Settings](../../user-guide/vscode-settings/). If you use Neovim, Emacs, or another LSP editor, pass the same options as initialization options when starting Vide.
+
+## Schema URLs
+
+A JSON schema describes the shape of a configuration file. When your editor or config tool supports JSON schema validation, it can offer completion and catch typos such as `diagnostic` instead of `diagnostics` before the server starts.
+
+Vide publishes two schema URLs:
+
+- Project configuration file `vide.toml`: `https://vide.pascal-lab.net/schemas/v1/vide.schema.json`
+- LSP user configuration / initialization options: `https://vide.pascal-lab.net/schemas/v1/user-config.schema.json`
+
+## Minimal User Configuration
+
+This is a small user configuration example. You do not need to set every field; omitted fields use Vide defaults.
+
+```json
+{
+  "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
+  "diagnostics": {
+    "update": "onSave"
+  },
+  "inlayHints": {
+    "port": {
+      "connection": {
+        "enable": true
+      }
+    }
+  }
+}
+```
+
+## Neovim Example
+
+With Neovim's built-in LSP client, put options under `init_options`:
+
+```lua
+vim.lsp.config('vide', {
+  cmd = { 'vide' },
+  filetypes = { 'verilog', 'systemverilog' },
+  root_markers = { 'vide.toml', '.git' },
+  init_options = {
+    diagnostics = {
+      update = 'onSave',
+    },
+    files = {
+      watcher = 'client',
+    },
+    inlayHints = {
+      port = {
+        connection = {
+          enable = true,
+        },
+      },
+    },
+  },
+})
+```
+
+## Emacs Eglot Example
+
+With Eglot, pass initialization options with `:initializationOptions`:
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list
+   'eglot-server-programs
+   '((verilog-mode verilog-ts-mode)
+     . ("vide"
+        :initializationOptions
+        (:diagnostics (:update "onSave")
+         :files (:watcher "client")
+         :inlayHints (:port (:connection (:enable t))))))))
+```
+
+## Common Options
+
+Start with defaults and only change an option when you have a reason.
+
+| Goal | Option |
+| --- | --- |
+| Refresh diagnostics on save or while typing | `diagnostics.update` |
+| Enable or disable diagnostics phases | `diagnostics.parse.enable`, `diagnostics.semantic.enable` |
+| Choose file watching mode | `files.watcher` |
+| Hide generated or vendor directories | `files.excludeDirs` |
+| Configure `verible-verilog-format` | `formatter.path`, `formatter.args` |
+| Toggle inlay hints and code lenses | `inlayHints.*`, `lens.instantiations.enable` |
+| Configure Qihe command and arguments | `qihe.*` |
+
+Project source lists, include directories, defines, libraries, and top modules do not belong here. Put those in `vide.toml` instead.

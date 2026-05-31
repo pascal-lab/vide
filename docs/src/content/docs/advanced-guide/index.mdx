@@ -8,6 +8,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 进阶主要处理两类问题：
 
 - 安装和构建：源码构建、本地 VSIX、预发布包和自定义语言服务器。
+- 用户配置：Neovim、Emacs 和其他 LSP 编辑器里的可配置选项。
 - 故障报告与排查：提交 issue，并按常见症状处理启动、配置和文件刷新问题。
 
 ## 安装与构建
@@ -17,6 +18,16 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
     title="VS Code 高级安装"
     href="./advanced-installation/"
     description="源码构建、本地 VSIX、预发布版本，以及替换 VS Code 扩展使用的语言服务器。"
+  />
+</CardGrid>
+
+## 用户配置
+
+<CardGrid>
+  <LinkCard
+    title="LSP 编辑器的用户配置"
+    href="./user-configuration/"
+    description="在 Neovim、Emacs 和其他 LSP 编辑器里配置 Vide 启动选项，并使用 JSON schema（配置校验文件）检查拼写。"
   />
 </CardGrid>
 

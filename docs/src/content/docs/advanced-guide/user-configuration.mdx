@@ -1,0 +1,101 @@
+---
+title: LSP 编辑器的用户配置
+description: 在 Neovim、Emacs 等编辑器里配置 Vide 语言服务器选项，并使用 JSON schema（配置校验文件）获得补全和校验。
+---
+
+Neovim、Emacs 这类编辑器通常通过 LSP 启动 Vide。LSP 是编辑器和语言服务器之间的通信协议；编辑器启动语言服务器时，可以把一段 JSON 配置一起发给 Vide。这里把这段 JSON 配置称为用户配置。
+
+Vide 通常会用到两类配置：
+
+- `vide.toml` 放在工程里，用来告诉 Vide 哪些源文件、include 目录、宏定义和库属于这个工程。
+- 用户配置放在编辑器里，用来改变语言服务器行为，例如诊断刷新时机、文件监听、格式化、行内提示和 Qihe 命令。
+
+如果你使用 VS Code，请在 VS Code 设置界面或 `settings.json` 里修改这些选项，参考 [VS Code 设置](../../user-guide/vscode-settings/)。如果你使用 Neovim、Emacs 或其他 LSP 编辑器，则把同样的选项作为启动语言服务器时的初始化选项传给 Vide。
+
+## 配置校验文件 URL
+
+JSON schema 是一份描述配置结构的文件。编辑器或配置工具支持 JSON schema 时，可以用它提供补全，并在启动服务器前发现拼错字段的问题，例如把 `diagnostics` 写成 `diagnostic`。
+
+Vide 提供两个 schema 地址：
+
+- 项目配置文件 `vide.toml`：`https://vide.pascal-lab.net/schemas/v1/vide.schema.json`
+- LSP 用户配置 / 初始化选项：`https://vide.pascal-lab.net/schemas/v1/user-config.schema.json`
+
+## 最小用户配置示例
+
+下面是一个很小的用户配置示例。你不需要写全所有字段；没写的字段会使用 Vide 默认值。
+
+```json
+{
+  "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
+  "diagnostics": {
+    "update": "onSave"
+  },
+  "inlayHints": {
+    "port": {
+      "connection": {
+        "enable": true
+      }
+    }
+  }
+}
+```
+
+## Neovim 示例
+
+使用 Neovim 内置 LSP 时，把选项写在 `init_options` 里：
+
+```lua
+vim.lsp.config('vide', {
+  cmd = { 'vide' },
+  filetypes = { 'verilog', 'systemverilog' },
+  root_markers = { 'vide.toml', '.git' },
+  init_options = {
+    diagnostics = {
+      update = 'onSave',
+    },
+    files = {
+      watcher = 'client',
+    },
+    inlayHints = {
+      port = {
+        connection = {
+          enable = true,
+        },
+      },
+    },
+  },
+})
+```
+
+## Emacs Eglot 示例
+
+使用 Eglot 时，通过 `:initializationOptions` 传入初始化选项：
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list
+   'eglot-server-programs
+   '((verilog-mode verilog-ts-mode)
+     . ("vide"
+        :initializationOptions
+        (:diagnostics (:update "onSave")
+         :files (:watcher "client")
+         :inlayHints (:port (:connection (:enable t))))))))
+```
+
+## 常用选项
+
+建议从默认值开始，只在确实需要时再修改。
+
+| 目标 | 选项 |
+| --- | --- |
+| 控制诊断刷新是保存后还是输入时 | `diagnostics.update` |
+| 开关不同阶段的诊断 | `diagnostics.parse.enable`、`diagnostics.semantic.enable` |
+| 选择文件监听方式 | `files.watcher` |
+| 忽略生成目录或 vendor 目录 | `files.excludeDirs` |
+| 配置 `verible-verilog-format` | `formatter.path`、`formatter.args` |
+| 开关行内提示和 Code Lens | `inlayHints.*`、`lens.instantiations.enable` |
+| 配置 Qihe 命令和参数 | `qihe.*` |
+
+工程源文件、include 目录、宏定义、依赖库和顶层模块不应该写在这里，请写进 `vide.toml`。
