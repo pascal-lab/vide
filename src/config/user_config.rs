@@ -20,8 +20,12 @@ use super::Config;
 
 const DEFAULT_QIHE_COMMAND: &str = "qihe";
 const DEFAULT_QIHE_RUN_ARGS: &[&str] = &["-g", "std"];
+#[cfg(feature = "user-config-schema")]
+const USER_CONFIG_SCHEMA_URL: &str =
+    "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json";
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FilesWatcherDef {
     #[default]
@@ -31,6 +35,7 @@ pub(crate) enum FilesWatcherDef {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ScopeVisibility {
     Public,
@@ -48,6 +53,7 @@ impl From<ScopeVisibility> for ide::ScopeVisibility {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum FormatterProviderUserConfig {
     #[default]
@@ -63,6 +69,7 @@ impl From<FormatterProviderUserConfig> for ide::formatting::FormatterProvider {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum DiagnosticsUpdateUserConfig {
     OnType,
@@ -71,6 +78,7 @@ pub(crate) enum DiagnosticsUpdateUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum DiagnosticRuleSeverityUserConfig {
     Ignore,
@@ -89,7 +97,16 @@ pub(crate) struct QiheConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(
+    feature = "user-config-schema",
+    schemars(
+        title = "Vide language server user configuration",
+        description = "Initialization options and dynamic configuration accepted by the Vide language server. These options are useful for editors that configure LSP servers directly, such as Neovim and Emacs.",
+        deny_unknown_fields
+    )
+)]
 pub(crate) struct UserConfig {
     pub(crate) files: FilesUserConfig,
     pub(crate) workspace: WorkspaceUserConfig,
@@ -126,14 +143,31 @@ impl Default for UserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct FilesUserConfig {
     /// These directories will be ignored. They are relative to the workspace
     /// root, and globs are not supported. You may also need to add the folders
     /// to VS Code's `files.watcherExclude`.
     #[serde(rename = "excludeDirs")]
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Workspace-relative directories ignored by Vide. Globs are not supported.",
+            with = "Vec::<String>",
+            default = "empty_string_vec"
+        )
+    )]
     pub(crate) exclude_dirs: Vec<Utf8PathBuf>,
     /// Controls file watching.
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Controls how Vide watches project files.",
+            default = "FilesWatcherDef::default"
+        )
+    )]
     pub(crate) watcher: FilesWatcherDef,
 }
 
@@ -144,15 +178,26 @@ impl Default for FilesUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct WorkspaceUserConfig {
     pub(crate) auto: WorkspaceAutoUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct WorkspaceAutoUserConfig {
     /// Automatically refresh project info on toml changes.
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Automatically refresh project information when project manifests change.",
+            default = "default_true"
+        )
+    )]
     pub(crate) reload: bool,
 }
 
@@ -163,10 +208,19 @@ impl Default for WorkspaceAutoUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct ScopeUserConfig {
     /// If true, symbols within a scope, except for ports, are private to other
     /// scopes.
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Controls whether symbols inside scopes, except ports, are visible outside those scopes.",
+            default = "ScopeVisibility::default"
+        )
+    )]
     pub(crate) visibility: ScopeVisibility,
 }
 
@@ -177,9 +231,18 @@ impl Default for ScopeUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct ReferencesUserConfig {
     #[serde(rename = "includeDeclaration")]
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Include declarations when finding references.",
+            default = "default_true"
+        )
+    )]
     pub(crate) include_declaration: bool,
 }
 
@@ -190,10 +253,33 @@ impl Default for ReferencesUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct FormatterUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Formatter backend used by Vide.",
+            default = "FormatterProviderUserConfig::default"
+        )
+    )]
     pub(crate) provider: FormatterProviderUserConfig,
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Path to verible-verilog-format when formatter.provider is verible. Use null to find it on PATH.",
+            with = "Option::<String>"
+        )
+    )]
     pub(crate) path: Option<Utf8PathBuf>,
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Arguments passed to verible-verilog-format when formatter.provider is verible.",
+            default = "default_formatter_args"
+        )
+    )]
     pub(crate) args: Vec<String>,
 }
 
@@ -208,7 +294,9 @@ impl Default for FormatterUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct FormattingUserConfig {
     pub(crate) on: FormattingOnUserConfig,
     pub(crate) r#in: FormattingInUserConfig,
@@ -226,8 +314,17 @@ impl Default for FormattingUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct FormattingOnUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Enable formatting behavior when pressing Enter.",
+            default = "default_true"
+        )
+    )]
     pub(crate) enter: bool,
 }
 
@@ -238,8 +335,14 @@ impl Default for FormattingOnUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct FormattingInUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(description = "Enable formatting inside comments.", default = "default_true")
+    )]
     pub(crate) comments: bool,
 }
 
@@ -250,8 +353,18 @@ impl Default for FormattingInUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct FormattingIndentUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Fallback indentation width used when editor formatting options are unavailable.",
+            default = "default_indent_width",
+            range(min = 0)
+        )
+    )]
     pub(crate) width: usize,
 }
 
@@ -262,7 +375,9 @@ impl Default for FormattingIndentUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct InlayHintsUserConfig {
     pub(crate) port: InlayHintsPortUserConfig,
     pub(crate) parameter: InlayHintsParameterUserConfig,
@@ -270,64 +385,95 @@ pub(crate) struct InlayHintsUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct InlayHintsPortUserConfig {
     pub(crate) connection: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct InlayHintsParameterUserConfig {
     pub(crate) assignment: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct InlayHintsEndUserConfig {
     pub(crate) structure: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct LensUserConfig {
     pub(crate) instantiations: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SemanticUserConfig {
     pub(crate) tokens: SemanticTokensUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SemanticTokensUserConfig {
     pub(crate) port: SemanticTokensPortUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SemanticTokensPortUserConfig {
     pub(crate) clk: SemanticTokensClockUserConfig,
     pub(crate) input: SemanticTokensInputUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SemanticTokensClockUserConfig {
     pub(crate) rst: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SemanticTokensInputUserConfig {
     pub(crate) output: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct DiagnosticsUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(description = "Enable diagnostics.", default = "default_true")
+    )]
     pub(crate) enable: bool,
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Controls when diagnostics are refreshed.",
+            default = "DiagnosticsUpdateUserConfig::default"
+        )
+    )]
     pub(crate) update: DiagnosticsUpdateUserConfig,
     pub(crate) parse: DiagnosticsPhaseUserConfig,
     pub(crate) semantic: DiagnosticsPhaseUserConfig,
@@ -347,8 +493,11 @@ impl Default for DiagnosticsUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct DiagnosticsPhaseUserConfig {
+    #[cfg_attr(feature = "user-config-schema", schemars(default = "default_true"))]
     pub(crate) enable: bool,
 }
 
@@ -359,15 +508,36 @@ impl Default for DiagnosticsPhaseUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SlangDiagnosticsUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Additional slang warning groups or aliases to enable.",
+            default = "empty_string_vec"
+        )
+    )]
     pub(crate) warnings: Vec<String>,
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(description = "Per-diagnostic severity overrides.")
+    )]
     pub(crate) rules: Vec<DiagnosticRuleUserConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct DiagnosticRuleUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(regex(
+            pattern = "^(code:[0-9]+:[0-9]+|option:.+|group:.+|source:(parse|semantic))$"
+        ))
+    )]
     pub(crate) selector: String,
     pub(crate) severity: DiagnosticRuleSeverityUserConfig,
     #[serde(default)]
@@ -375,32 +545,69 @@ pub(crate) struct DiagnosticRuleUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SignatureUserConfig {
     pub(crate) help: SignatureHelpUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SignatureHelpUserConfig {
     pub(crate) params: SignatureHelpParamsUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct SignatureHelpParamsUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(description = "Only show parameter signature help.")
+    )]
     pub(crate) only: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct QiheUserConfig {
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(description = "Command used to invoke Qihe.", default = "default_qihe_command")
+    )]
     pub(crate) command: String,
     #[serde(rename = "autoConfigureArgsFromManifest")]
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Automatically add Qihe compile mode and forwarded slang options from the Vide project manifest.",
+            default = "default_true"
+        )
+    )]
     pub(crate) auto_configure_args_from_manifest: bool,
     #[serde(rename = "compileArgs")]
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Arguments inserted after qihe compile.",
+            default = "empty_string_vec"
+        )
+    )]
     pub(crate) compile_args: Vec<String>,
     #[serde(rename = "runArgs")]
+    #[cfg_attr(
+        feature = "user-config-schema",
+        schemars(
+            description = "Arguments inserted after qihe run.",
+            default = "default_qihe_run_args"
+        )
+    )]
     pub(crate) run_args: Vec<String>,
 }
 
@@ -416,8 +623,11 @@ impl Default for QiheUserConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct EnableUserConfig {
+    #[cfg_attr(feature = "user-config-schema", schemars(default = "default_true"))]
     pub(crate) enable: bool,
 }
 
@@ -425,6 +635,47 @@ impl Default for EnableUserConfig {
     fn default() -> Self {
         Self { enable: true }
     }
+}
+
+#[cfg(feature = "user-config-schema")]
+fn default_true() -> bool {
+    true
+}
+
+#[cfg(feature = "user-config-schema")]
+fn empty_string_vec() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(feature = "user-config-schema")]
+fn default_formatter_args() -> Vec<String> {
+    vec!["--failsafe_success=false".to_owned()]
+}
+
+#[cfg(feature = "user-config-schema")]
+fn default_indent_width() -> usize {
+    4
+}
+
+#[cfg(feature = "user-config-schema")]
+fn default_qihe_command() -> String {
+    DEFAULT_QIHE_COMMAND.to_owned()
+}
+
+#[cfg(feature = "user-config-schema")]
+fn default_qihe_run_args() -> Vec<String> {
+    DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_owned()).collect()
+}
+
+#[cfg(feature = "user-config-schema")]
+pub fn generated_user_config_schema() -> serde_json::Value {
+    let mut schema = serde_json::to_value(schemars::schema_for!(UserConfig))
+        .expect("user config schema should serialize");
+    if let Some(root) = schema.as_object_mut() {
+        root.insert("$id".to_owned(), serde_json::json!(USER_CONFIG_SCHEMA_URL));
+        root.insert("x-vide-config-kind".to_owned(), serde_json::json!("user"));
+    }
+    schema
 }
 
 impl UserConfig {
