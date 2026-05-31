@@ -182,9 +182,15 @@ fn code_action_diagnostic_from_ide(diag: &ide_diagnostics::Diagnostic) -> CodeAc
         code: Some(DiagnosticCode { subsystem: diag.subsystem, code: diag.code }),
         name: Some(diag.name.clone()),
         option: diag.option_name.clone(),
-        message: Some(diag.message.clone()),
         range: Some(diag.range),
+        expected_token: expected_token_from_diagnostic(diag),
     }
+}
+
+fn expected_token_from_diagnostic(diag: &ide_diagnostics::Diagnostic) -> Option<String> {
+    (diag.source == ide_diagnostics::DiagnosticSource::SlangParse && diag.name == "ExpectedToken")
+        .then(|| diag.args.first().cloned())
+        .flatten()
 }
 
 pub(crate) fn handle_code_action_resolve(
@@ -289,6 +295,7 @@ mod tests {
             range: TextRange::empty(TextSize::from(0)),
             severity: DiagnosticSeverity::Error,
             message: "localized message".to_owned(),
+            args: Vec::new(),
             message_key: None,
             message_args: Vec::new(),
             tags: Vec::new(),
@@ -334,7 +341,8 @@ mod tests {
     fn quick_fix_diagnostics_match_parse_expected_token() {
         let mut diag = ide_diagnostic("ExpectedToken", 1, 116, None);
         diag.source = IdeDiagnosticSource::SlangParse;
-        diag.message = "expected ';'".to_owned();
+        diag.message = "localized message".to_owned();
+        diag.args = vec![";".to_owned()];
 
         assert!(quick_fix_diagnostics(Some(RepairKind::InsertExpectedToken), &[diag]).is_some());
     }
@@ -369,6 +377,7 @@ mod tests {
             range: TextRange::empty(TextSize::from(6)),
             severity: DiagnosticSeverity::Error,
             message: "mixing ordered and named port connections is not allowed".to_owned(),
+            args: Vec::new(),
             message_key: None,
             message_args: Vec::new(),
             tags: Vec::new(),
@@ -393,6 +402,7 @@ mod tests {
             range: TextRange::empty(TextSize::from(0)),
             severity: DiagnosticSeverity::Error,
             message: "localized message".to_owned(),
+            args: Vec::new(),
             message_key: None,
             message_args: Vec::new(),
             tags: Vec::new(),
