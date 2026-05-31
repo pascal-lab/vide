@@ -6,7 +6,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{
+use crate::base_db::{
     preproc_index::MacroIncludeTarget,
     project::{CompilationProfileId, ProjectConfig},
     source_db::{SourceFileKind, SourceRootDb},

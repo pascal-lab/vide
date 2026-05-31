@@ -1,6 +1,4 @@
 use hir::{container::InContainer, file::HirFileId, hir_def::expr::Expr, semantics::Semantics};
-use ide_db::root_db::RootDb;
-use span::{FilePosition, RangeInfo};
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
@@ -9,7 +7,10 @@ use syntax::{
 };
 use utils::get::GetRef;
 
-use crate::{definitions::DefinitionClass, markup::Markup, render};
+use crate::{
+    FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
+    render,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoverFormat {

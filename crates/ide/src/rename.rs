@@ -1,7 +1,6 @@
-use base_db::source_db::SourceDb;
-use hir::{container::InFile, hir_def::lower_ident, semantics::Semantics};
-use ide_db::root_db::RootDb;
-use span::FilePosition;
+use hir::{
+    base_db::source_db::SourceDb, container::InFile, hir_def::lower_ident, semantics::Semantics,
+};
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
     ast::{self, AstNode},
@@ -17,7 +16,8 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    ScopeVisibility,
+    FilePosition, ScopeVisibility,
+    db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     references::{
         ReferencesConfig,

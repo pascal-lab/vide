@@ -6,9 +6,10 @@ use hir::{
     },
     semantics::Semantics,
 };
-use ide_db::root_db::RootDb;
 use smol_str::SmolStr;
 use utils::get::GetRef;
+
+use crate::db::root_db::RootDb;
 
 pub(crate) fn port_names(module: &Module) -> Vec<SmolStr> {
     match &module.ports {

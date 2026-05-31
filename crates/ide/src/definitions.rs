@@ -1,5 +1,5 @@
-use base_db::intern::Lookup;
 use hir::{
+    base_db::intern::Lookup,
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     file::HirFileId,
@@ -20,7 +20,6 @@ use hir::{
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
-use ide_db::root_db::RootDb;
 use smallvec::{SmallVec, smallvec};
 use smol_str::SmolStr;
 use syntax::{
@@ -37,9 +36,12 @@ use utils::{
     line_index::TextRange,
 };
 
-use crate::module_resolution::{
-    ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
-    resolve_named_port_connection,
+use crate::{
+    db::root_db::RootDb,
+    module_resolution::{
+        ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
+        resolve_named_port_connection,
+    },
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -573,16 +575,18 @@ fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_root::SourceRoot};
-    use hir::{container::InModule, semantics::pathres::PathResolution};
-    use ide_db::root_db::RootDb;
+    use hir::{
+        base_db::{change::Change, source_root::SourceRoot},
+        container::InModule,
+        semantics::pathres::PathResolution,
+    };
     use syntax::SyntaxNodeExt;
     use triomphe::Arc;
     use utils::{lines::LineEnding, text_edit::TextSize};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
-    use crate::analysis_host::AnalysisHost;
+    use crate::{analysis_host::AnalysisHost, db::root_db::RootDb};
 
     fn host_with_file(text: &str) -> (AnalysisHost, FileId) {
         let file_id = FileId(0);

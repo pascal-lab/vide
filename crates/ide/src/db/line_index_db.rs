@@ -1,4 +1,4 @@
-use base_db::{salsa, source_db::SourceDb};
+use hir::base_db::{salsa, source_db::SourceDb};
 use triomphe::Arc;
 use utils::line_index::LineIndex;
 use vfs::FileId;

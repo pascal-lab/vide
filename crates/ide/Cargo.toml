@@ -7,11 +7,9 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-base-db.workspace = true
 bitflags.workspace = true
 dissimilar = "1.0.9"
 hir.workspace = true
-ide-db.workspace = true
 itertools.workspace = true
 la-arena.workspace = true
 memchr.workspace = true
@@ -21,7 +19,6 @@ rustc-hash.workspace = true
 serde.workspace = true
 smol_str.workspace = true
 smallvec.workspace = true
-span.workspace = true
 syntax.workspace = true
 thiserror.workspace = true
 toml = "0.9.8"

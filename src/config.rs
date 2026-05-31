@@ -3,7 +3,7 @@ pub mod user_config;
 
 use std::fmt;
 
-use base_db::diagnostics_config::DiagnosticsConfig;
+use hir::base_db::diagnostics_config::DiagnosticsConfig;
 use itertools::Itertools;
 use lsp_types::ClientCapabilities;
 use project_model::project_manifest::ProjectManifest;
@@ -122,7 +122,7 @@ impl Config {
         if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 
-    pub fn diagnostics_config(&self) -> base_db::diagnostics_config::DiagnosticsConfig {
+    pub fn diagnostics_config(&self) -> DiagnosticsConfig {
         self.diagnostics_config.clone()
     }
 

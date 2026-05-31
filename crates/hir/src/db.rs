@@ -1,8 +1,8 @@
-use base_db::{impl_intern_key, impl_intern_lookup, salsa, source_db::SourceDb};
 use syntax::SyntaxTree;
 use triomphe::Arc;
 
 use crate::{
+    base_db::{salsa, source_db::SourceDb},
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
@@ -16,6 +16,7 @@ use crate::{
         },
         subroutine::{self, Subroutine, SubroutineId, SubroutineLoc, SubroutineSourceMap},
     },
+    impl_intern_key, impl_intern_lookup,
     scope::{BlockScope, GenerateBlockScope, ModuleScope, SubroutineScope, UnitScope},
 };
 

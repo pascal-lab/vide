@@ -1,7 +1,5 @@
 use hir::{hir_def::lower_ident_opt, semantics::Semantics};
-use ide_db::root_db::RootDb;
 use rustc_hash::FxHashSet;
-use span::FilePosition;
 use syntax::ast::{self, AstNode};
 
 use super::{
@@ -15,7 +13,8 @@ use super::{
     },
 };
 use crate::{
-    completion::context::CompletionContext, module_resolution::resolve_instantiation_target,
+    FilePosition, completion::context::CompletionContext, db::root_db::RootDb,
+    module_resolution::resolve_instantiation_target,
 };
 
 pub(super) fn complete_named_port_names(
@@ -129,7 +128,7 @@ pub(super) fn complete_named_port_conn_expr(
         return Vec::new();
     };
 
-    let Some(port_name) = hir::hir_def::lower_ident_opt(conn.name()) else {
+    let Some(port_name) = lower_ident_opt(conn.name()) else {
         return Vec::new();
     };
 
@@ -179,7 +178,7 @@ pub(super) fn complete_named_param_assign_expr(
         return Vec::new();
     };
 
-    let Some(param_name) = hir::hir_def::lower_ident_opt(assign.name()) else {
+    let Some(param_name) = lower_ident_opt(assign.name()) else {
         return Vec::new();
     };
 

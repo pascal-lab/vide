@@ -1,6 +1,6 @@
 use vfs::{FileId, FileSet, FileSetConfig, Vfs, VfsPath, anchored_path::AnchoredPath};
 
-use crate::source_db::SourceFileKind;
+use crate::base_db::source_db::SourceFileKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceRootId(pub u32);

@@ -1,5 +1,6 @@
 #![feature(decl_macro)]
 
+pub mod base_db;
 pub mod container;
 pub mod db;
 pub mod display;

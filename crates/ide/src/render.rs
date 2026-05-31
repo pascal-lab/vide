@@ -1,8 +1,8 @@
-use base_db::{
-    intern::Lookup,
-    source_db::{SourceDb, SourceRootDb},
-};
 use hir::{
+    base_db::{
+        intern::Lookup,
+        source_db::{SourceDb, SourceRootDb},
+    },
     container::{ContainerId, ContainerParent, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
     display::HirDisplay,
@@ -23,7 +23,6 @@ use hir::{
     region_tree::RegionParent,
     semantics::Semantics,
 };
-use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use itertools::Itertools;
 use syntax::{
     SVInt, SyntaxCursorExt, SyntaxNodeExt,
@@ -34,6 +33,7 @@ use syntax::{
 use utils::get::GetRef;
 
 use crate::{
+    db::{line_index_db::LineIndexDb, root_db::RootDb},
     definitions::{Definition, DefinitionOrigin},
     markup::Markup,
 };

@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 
-use base_db::intern::Lookup;
 use hir::{
+    base_db::intern::Lookup,
     container::InFile,
     db::HirDb,
     file::HirFileId,
@@ -22,7 +22,7 @@ use hir::{
                 GenerateBlockId, GenerateBlockItem, GenerateBlockLoc, GenerateItem, GenerateRegion,
                 GenerateRegionId, GenerateRegionSrc,
             },
-            instantiation::{Instance, InstanceId, Instantiation, InstantiationId},
+            instantiation::{Instance, InstanceId, InstanceSrc, Instantiation, InstantiationId},
             port::Ports,
             specify::{SpecifyBlock, SpecifyBlockId, SpecifyBlockItem, SpecifyBlockSrc},
         },
@@ -34,7 +34,6 @@ use hir::{
     region_tree::{RegionNode, RegionTreeIterator},
     source_map::{IsNamedSrc, IsSrc},
 };
-use ide_db::root_db::RootDb;
 use la_arena::Idx;
 use smol_str::SmolStr;
 use syntax::WalkEvent;
@@ -44,7 +43,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::SymbolKind;
+use crate::{SymbolKind, db::root_db::RootDb};
 
 #[derive(Debug, Clone)]
 pub struct DocumentSymbol {
@@ -494,7 +493,7 @@ fn build_generate_region<Arn, SrcMap>(
     SrcMap: Get<GenerateRegionId, Output = Option<GenerateRegionSrc>>
         + Get<DeclarationId, Output = Option<DeclarationSrc>>
         + Get<DeclId, Output = Option<DeclaratorSrc>>
-        + Get<InstanceId, Output = Option<hir::hir_def::module::instantiation::InstanceSrc>>
+        + Get<InstanceId, Output = Option<InstanceSrc>>
         + Get<LocalBlockId, Output = Option<BlockSrc>>
         + Get<LocalSubroutineId, Output = Option<SubroutineSrc>>
         + Get<StmtId, Output = Option<StmtSrc>>

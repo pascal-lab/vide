@@ -18,7 +18,6 @@ use hir::{
     scope::{AnsiPortEntry, ModuleEntry, ModuleScope, NonAnsiPortEntry},
     source_map::{IsNamedSrc, IsSrc},
 };
-use ide_db::root_db::RootDb;
 use syntax::{ast, match_ast_kind};
 use utils::{
     check_or_throw,
@@ -27,7 +26,7 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::{markup::Markup, module_resolution::resolve_module_name};
+use crate::{db::root_db::RootDb, markup::Markup, module_resolution::resolve_module_name};
 
 #[derive(Debug)]
 pub struct InlayHintConfig {
@@ -476,8 +475,7 @@ fn should_skip(expr: &Expr, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use base_db::{change::Change, source_root::SourceRoot};
-    use ide_db::root_db::RootDb;
+    use hir::base_db::{change::Change, source_root::SourceRoot};
     use triomphe::Arc;
     use utils::{
         lines::LineEnding,
@@ -486,6 +484,7 @@ mod tests {
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{InlayHintConfig, InlayKind, inlay_hint};
+    use crate::db::root_db::RootDb;
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
         let file_id = FileId(0);

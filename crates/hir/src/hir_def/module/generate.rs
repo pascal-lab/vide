@@ -1,4 +1,3 @@
-use base_db::intern::Lookup;
 use la_arena::{Arena, Idx};
 use proc_macro_utils::define_container;
 use smallvec::SmallVec;
@@ -23,6 +22,7 @@ use super::{
     },
 };
 use crate::{
+    base_db::intern::Lookup,
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
     file::HirFileId,

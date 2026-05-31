@@ -8,8 +8,6 @@ use hir::{
     semantics::{Semantics, pathres::PathResolution},
     source_map::IsSrc,
 };
-use ide_db::root_db::RootDb;
-use span::{FilePosition, FileRange};
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
@@ -18,7 +16,8 @@ use utils::{get::Get, text_edit::TextRange};
 use vfs::FileId;
 
 use crate::{
-    ScopeVisibility,
+    FilePosition, FileRange, ScopeVisibility,
+    db::root_db::RootDb,
     definitions::Definition,
     references::{
         ReferencesConfig,

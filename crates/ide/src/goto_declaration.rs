@@ -1,10 +1,10 @@
 use hir::semantics::Semantics;
-use ide_db::root_db::RootDb;
 use itertools::Itertools;
-use span::{FilePosition, RangeInfo};
 use syntax::{SyntaxNodeExt, has_text_range::HasTextRange};
 
 use crate::{
+    FilePosition, RangeInfo,
+    db::root_db::RootDb,
     definitions::DefinitionClass,
     goto_definition,
     navigation_target::{NavTarget, ToNav},

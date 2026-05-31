@@ -13,14 +13,14 @@ use vide::{Opt, run_server};
 
 const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "vide=trace,",
-    "base_db=trace,",
+    "hir::base_db=trace,",
     "hir=trace,",
     "ide=trace,",
     "project_model=trace,",
     "slang=trace,",
     "utils=trace,",
     "vfs=trace,",
-    "vfs_notify=trace"
+    "vfs::notify=trace"
 );
 
 fn profile_trace_path(opt: &Opt) -> Option<PathBuf> {

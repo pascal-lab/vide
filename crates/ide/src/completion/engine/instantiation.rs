@@ -1,13 +1,19 @@
 use hir::{
     db::HirDb,
-    hir_def::{Ident, module::ModuleId},
+    hir_def::{
+        Ident,
+        declaration::{Declaration, DeclarationSrc},
+        expr::declarator::DeclaratorParent,
+        module::{ModuleId, port::Ports},
+    },
 };
-use ide_db::root_db::RootDb;
 use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
 use utils::get::{Get, GetRef};
+
+use crate::db::root_db::RootDb;
 
 pub(super) fn ports_of_module_sorted(db: &RootDb, module_id: ModuleId) -> Vec<Ident> {
     let mut names = ports_of_module_in_order(db, module_id);
@@ -21,7 +27,7 @@ pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<
     let mut names = Vec::new();
 
     match &module.ports {
-        hir::hir_def::module::port::Ports::Ansi(port_decls) => {
+        Ports::Ansi(port_decls) => {
             for (_, port_decl) in port_decls.iter() {
                 for decl_id in port_decl.decls.clone() {
                     if let Some(name) = module.get(decl_id).name.as_ref() {
@@ -30,7 +36,7 @@ pub(super) fn ports_of_module_in_order(db: &RootDb, module_id: ModuleId) -> Vec<
                 }
             }
         }
-        hir::hir_def::module::port::Ports::NonAnsi { ports, .. } => {
+        Ports::NonAnsi { ports, .. } => {
             for (_, port) in ports.iter() {
                 if let Some(label) = port.label.as_ref() {
                     names.push(label.clone());
@@ -62,18 +68,14 @@ pub(super) fn overridable_params_of_module_in_order(
         if decl.name.is_none() {
             continue;
         }
-        let hir::hir_def::expr::declarator::DeclaratorParent::DeclarationId(declaration_id) =
-            decl.parent
-        else {
+        let DeclaratorParent::DeclarationId(declaration_id) = decl.parent else {
             continue;
         };
-        let hir::hir_def::declaration::Declaration::ParamDecl(_) = module.get(declaration_id)
-        else {
+        let Declaration::ParamDecl(_) = module.get(declaration_id) else {
             continue;
         };
 
-        let Some(hir::hir_def::declaration::DeclarationSrc::ParameterDeclaration(ptr)) =
-            module_src_map.get(declaration_id)
+        let Some(DeclarationSrc::ParameterDeclaration(ptr)) = module_src_map.get(declaration_id)
         else {
             continue;
         };

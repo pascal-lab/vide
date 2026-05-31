@@ -17,15 +17,12 @@ members = [".", "crates/*", "xtask"]
 edition = "2024"
 
 [dependencies]
-base-db.workspace = true
 hir.workspace = true
 ide.workspace = true
 project-model.workspace = true
-span.workspace = true
 syntax.workspace = true
 slang.workspace = true
 utils.workspace = true
-vfs-notify.workspace = true
 vfs.workspace = true
 
 always-assert.workspace = true
@@ -55,17 +52,13 @@ triomphe.workspace = true
 
 
 [workspace.dependencies]
-base-db = { path = "./crates/base-db/", version = "0.0.0" }
 hir = { path = "./crates/hir/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
-ide-db = { path = "./crates/ide-db/", version = "0.0.0" }
 proc-macro-utils = { path = "./crates/proc-macro-utils/", version = "0.0.0" }
 project-model = { path = "./crates/project-model/", version = "0.0.0" }
-span = { path = "./crates/span/", version = "0.0.0" }
 syntax = { path = "./crates/syntax/", version = "0.0.0" }
 utils = { path = "./crates/utils", version = "0.0.0" }
 vfs = { path = "./crates/vfs", version = "0.0.0" }
-vfs-notify = { path = "./crates/vfs-notify/", version = "0.0.0" }
 slang = { path = "./crates/slang", version = "0.0.1" }
 parking_lot = "0.12.1"
 

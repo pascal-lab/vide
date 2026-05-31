@@ -1,5 +1,5 @@
-use base_db::source_db::SourceDb;
 use hir::{
+    base_db::source_db::SourceDb,
     db::HirDb,
     file::HirFileId,
     hir_def::{
@@ -10,7 +10,6 @@ use hir::{
     region_tree::RegionTree,
     source_map::{IsNamedSrc, IsSrc, SourceMap},
 };
-use ide_db::{line_index_db::LineIndexDb, root_db::RootDb};
 use la_arena::Arena;
 use memchr::memmem::Finder;
 use rustc_hash::FxHashSet;
@@ -26,6 +25,8 @@ use utils::{
     text_edit::TextSize,
 };
 use vfs::FileId;
+
+use crate::db::{line_index_db::LineIndexDb, root_db::RootDb};
 
 #[derive(Debug, Clone, Copy)]
 pub struct FoldingConfig {
