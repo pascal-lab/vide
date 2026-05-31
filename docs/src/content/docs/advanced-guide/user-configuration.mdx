@@ -21,13 +21,14 @@ Vide 提供两个 schema 地址：
 - 项目配置文件 `vide.toml`：`https://vide.pascal-lab.net/schemas/v1/vide.schema.json`
 - LSP 用户配置 / 初始化选项：`https://vide.pascal-lab.net/schemas/v1/user-config.schema.json`
 
+如果你把用户配置保存成单独的 JSON 文件，可以在文件顶部加 `$schema` 指向这个 URL。`$schema` 只帮助编辑器补全和校验，Vide 读取配置时会忽略它。直接写在 Neovim `init_options` 或 Emacs `:initializationOptions` 里时，通常不需要 `$schema`。
+
 ## 最小用户配置示例
 
 下面是一个很小的用户配置示例。你不需要写全所有字段；没写的字段会使用 Vide 默认值。
 
 ```json
 {
-  "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
   "diagnostics": {
     "update": "onSave"
   },

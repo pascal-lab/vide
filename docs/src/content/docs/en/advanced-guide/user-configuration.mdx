@@ -21,13 +21,14 @@ Vide publishes two schema URLs:
 - Project configuration file `vide.toml`: `https://vide.pascal-lab.net/schemas/v1/vide.schema.json`
 - LSP user configuration / initialization options: `https://vide.pascal-lab.net/schemas/v1/user-config.schema.json`
 
+If you keep user configuration in a standalone JSON file, you can add `$schema` at the top and point it to this URL. `$schema` is only for editor completion and validation; Vide ignores it when reading configuration. When writing options directly in Neovim `init_options` or Emacs `:initializationOptions`, you usually do not need `$schema`.
+
 ## Minimal User Configuration
 
 This is a small user configuration example. You do not need to set every field; omitted fields use Vide defaults.
 
 ```json
 {
-  "$schema": "https://vide.pascal-lab.net/schemas/v1/user-config.schema.json",
   "diagnostics": {
     "update": "onSave"
   },
