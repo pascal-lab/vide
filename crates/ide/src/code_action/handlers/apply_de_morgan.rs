@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use hir::base_db::source_db::SourceDb;
 use syntax::{
     SyntaxKind,
@@ -5,9 +7,7 @@ use syntax::{
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, text_at,
-};
+use crate::code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind};
 
 const ID: CodeActionId =
     CodeActionId { name: "apply_de_morgan", kind: CodeActionKind::RefactorRewrite, repair: None };
@@ -255,7 +255,7 @@ fn replace_operator(
 ) -> Option<String> {
     let expr_range = expr.syntax().text_range()?;
     let op_range = expr.operator_token()?.text_range_in(expr.syntax())?;
-    let expr_text = text_at(text, expr_range)?;
+    let expr_text = text.get(Range::from(expr_range))?;
     let op_start = usize::from(op_range.start() - expr_range.start());
     let op_end = usize::from(op_range.end() - expr_range.start());
     let mut result = String::new();
@@ -267,5 +267,5 @@ fn replace_operator(
 
 fn trimmed_text(text: &str, expr: ast::Expression<'_>) -> Option<String> {
     let range = expr.syntax().text_range()?;
-    Some(text_at(text, range)?.trim().to_owned())
+    Some(text.get(Range::from(range))?.trim().to_owned())
 }

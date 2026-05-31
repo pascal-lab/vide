@@ -1,12 +1,15 @@
+use std::ops::Range;
+
 use hir::base_db::source_db::SourceDb;
+use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
+use utils::text_edit::TextRange;
 
 use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent, newline_style,
-    text_at,
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent,
 };
 
 const ID: CodeActionId = CodeActionId {
@@ -47,18 +50,22 @@ fn split_declaration<'a>(
 
     let text = ctx.sema().db.file_text(ctx.file_id());
     let first_range = declarators.first()?.syntax().text_range()?;
-    let prefix_range = utils::text_edit::TextRange::new(decl_range.start(), first_range.start());
-    let prefix = text_at(&text, prefix_range)?;
-    let indent = line_indent(&text, decl_range.start());
-    let newline = newline_style(&text);
-    let mut lines = Vec::new();
-    for declarator in declarators {
-        let declarator_text = text_at(&text, declarator.syntax().text_range()?)?;
-        lines.push(format!("{prefix}{};", declarator_text.trim()));
-    }
-    let replacement = lines.join(&format!("{newline}{indent}"));
+
+    let prefix_range = TextRange::new(decl_range.start(), first_range.start());
+    let prefix = text.get(Range::from(prefix_range))?;
+
+    let new_declarators = declarators
+        .iter()
+        .flat_map(|d| d.syntax().text_range())
+        .map(|range| text.get(Range::from(range)))
+        .collect::<Option<Vec<_>>>()?;
 
     collector.add(ID, LABEL, decl_range, |builder| {
+        let indent = line_indent(&text, decl_range.start());
+        let replacement = new_declarators
+            .into_iter()
+            .map(|declarator| format!("{prefix}{};", declarator.trim()))
+            .join(&format!("\n{indent}"));
         builder.replace(decl_range, replacement);
     });
 

@@ -1,12 +1,12 @@
+use std::ops::Range;
+
 use hir::base_db::source_db::SourceDb;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, text_at,
-};
+use crate::code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind};
 
 const ID: CodeActionId =
     CodeActionId { name: "invert_if_else", kind: CodeActionKind::RefactorRewrite, repair: None };
@@ -24,9 +24,9 @@ pub(super) fn invert_if_else(
     let else_range = else_clause.clause().syntax().text_range()?;
 
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let predicate = text_at(&text, pred_range)?;
-    let then_text = text_at(&text, then_range)?;
-    let else_text = text_at(&text, else_range)?;
+    let predicate = text.get(Range::from(pred_range))?;
+    let then_text = text.get(Range::from(then_range))?;
+    let else_text = text.get(Range::from(else_range))?;
 
     collector.add(ID, LABEL, if_stmt.syntax().text_range()?, |builder| {
         builder.replace(pred_range, format!("!({})", predicate.trim()));

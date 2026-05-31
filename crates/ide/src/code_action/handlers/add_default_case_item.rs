@@ -5,7 +5,7 @@ use syntax::{
 };
 
 use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent, newline_style,
+    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, line_indent,
 };
 
 const ID: CodeActionId =
@@ -23,7 +23,6 @@ pub(super) fn add_default_case_item(
 
     let endcase = case.endcase()?.text_range_in(case.syntax())?;
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let newline = newline_style(&text);
     let end_indent = line_indent(&text, endcase.start());
     let item_indent = case
         .items()
@@ -35,8 +34,8 @@ pub(super) fn add_default_case_item(
         .unwrap_or_else(|| format!("{end_indent}    "));
 
     let before_end = &text[..usize::from(endcase.start())];
-    let prefix = if before_end.ends_with('\n') { "" } else { newline };
-    let insertion = format!("{prefix}{item_indent}default: ;{newline}{end_indent}");
+    let prefix = if before_end.ends_with('\n') { "" } else { "\n" };
+    let insertion = format!("{prefix}{item_indent}default: ;\n{end_indent}");
     collector.add(ID, LABEL, endcase, |builder| {
         builder.insert(endcase.start(), insertion);
     });

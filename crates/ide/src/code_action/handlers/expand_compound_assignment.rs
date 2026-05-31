@@ -1,12 +1,12 @@
+use std::ops::Range;
+
 use hir::base_db::source_db::SourceDb;
 use syntax::{
     ast::{self, AstNode},
     has_text_range::HasTextRange,
 };
 
-use crate::code_action::{
-    CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, text_at,
-};
+use crate::code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind};
 
 const ID: CodeActionId = CodeActionId {
     name: "expand_compound_assignment",
@@ -38,12 +38,11 @@ fn expand_compound(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> 
     let left_range = expr.left().syntax().text_range()?;
     let right_range = expr.right().syntax().text_range()?;
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let left = text_at(&text, left_range)?;
-    let right = text_at(&text, right_range)?;
-    let replacement = format!("{} = {} {op} {}", left.trim(), left.trim(), right.trim());
+    let left = text.get(Range::from(left_range))?;
+    let right = text.get(Range::from(right_range))?;
 
     collector.add(ID, LABEL, range, |builder| {
-        builder.replace(range, replacement);
+        builder.replace(range, format!("{} = {} {op} {}", left.trim(), left.trim(), right.trim()));
     });
 
     Some(())
@@ -60,17 +59,16 @@ fn collapse_compound(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -
     let compound_op = simple_operator(&op_text)?;
 
     let text = ctx.sema().db.file_text(ctx.file_id());
-    let left = text_at(&text, expr.left().syntax().text_range()?)?;
-    let right_left = text_at(&text, right.left().syntax().text_range()?)?;
-    let right_right = text_at(&text, right.right().syntax().text_range()?)?;
+    let left = text.get(Range::from(expr.left().syntax().text_range()?))?;
+    let right_left = text.get(Range::from(right.left().syntax().text_range()?))?;
+    let right_right = text.get(Range::from(right.right().syntax().text_range()?))?;
     if left.trim() != right_left.trim() {
         return None;
     }
 
     let range = expr.syntax().text_range()?;
-    let replacement = format!("{} {compound_op} {}", left.trim(), right_right.trim());
     collector.add(COLLAPSE_ID, COLLAPSE_LABEL, range, |builder| {
-        builder.replace(range, replacement);
+        builder.replace(range, format!("{} {compound_op} {}", left.trim(), right_right.trim()));
     });
 
     Some(())

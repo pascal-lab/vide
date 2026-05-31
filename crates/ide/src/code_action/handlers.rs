@@ -14,10 +14,8 @@ mod expand_compound_assignment;
 mod expand_postfix_inc_dec;
 mod invert_if_else;
 mod remove_empty_port_connections;
-mod sort_named_parameter_assignments;
-mod sort_named_port_connections;
+mod sort_named_instantiation_items;
 mod split_declaration_declarators;
-mod unwrap_single_statement_block;
 mod wrap_statement_in_begin_end;
 
 pub(crate) fn all() -> &'static [Handler] {
@@ -31,11 +29,11 @@ pub(crate) fn all() -> &'static [Handler] {
         add_implicit_named_port_parens::add_implicit_named_port_parens,
         add_instance_parens::add_instance_parens,
         split_declaration_declarators::split_declaration_declarators,
-        sort_named_parameter_assignments::sort_named_parameter_assignments,
-        sort_named_port_connections::sort_named_port_connections,
+        sort_named_instantiation_items::sort_named_parameter_assignments,
+        sort_named_instantiation_items::sort_named_port_connections,
         add_default_case_item::add_default_case_item,
         invert_if_else::invert_if_else,
-        unwrap_single_statement_block::unwrap_single_statement_block,
+        wrap_statement_in_begin_end::unwrap_single_statement_block,
         wrap_statement_in_begin_end::wrap_statement_in_begin_end,
         expand_postfix_inc_dec::expand_postfix_inc_dec,
         expand_compound_assignment::expand_compound_assignment,

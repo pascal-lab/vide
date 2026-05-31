@@ -1,3 +1,4 @@
+use memchr::memrchr;
 use utils::text_edit::{TextRange, TextSize};
 
 use crate::source_change::SourceChangeBuilder;
@@ -40,7 +41,6 @@ fn missing_list_edit(
     let open_end_usize = usize::from(open_end);
     let close_start_usize = usize::from(close_start);
     let content = text.get(open_end_usize..close_start_usize)?;
-    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let multiline = content.contains('\n');
 
     let trimmed_len = content.trim_end_matches(char::is_whitespace).len();
@@ -77,9 +77,9 @@ fn missing_list_edit(
             lines.push(format!("{item_indent}{entry}{comma}"));
         }
 
-        let rendered_entries = lines.join(newline);
+        let rendered_entries = lines.join("\n");
         let prefix = if has_existing_text && !trailing_comma { "," } else { "" };
-        format!("{prefix}{newline}{rendered_entries}{newline}{close_indent}")
+        format!("{prefix}\n{rendered_entries}\n{close_indent}")
     } else {
         let rendered_entries = entries.join(", ");
         if has_existing_text {
@@ -95,21 +95,27 @@ fn missing_list_edit(
 
 pub(crate) fn line_indent(text: &str, offset: TextSize) -> String {
     let offset = usize::from(offset).min(text.len());
-    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    text[line_start..offset].chars().take_while(|ch| *ch == ' ' || *ch == '\t').collect()
+    let line_start = line_start(text, offset);
+    let indent_end = leading_indent_end(text, line_start, offset);
+    text[line_start..indent_end].to_owned()
 }
 
 fn item_line_indent(text: &str, offset: TextSize) -> Option<String> {
     let offset = usize::from(offset).min(text.len());
-    let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-    let before_item = &text[line_start..offset];
-    before_item.chars().all(|ch| ch == ' ' || ch == '\t').then(|| before_item.to_owned())
+    let line_start = line_start(text, offset);
+    (leading_indent_end(text, line_start, offset) == offset)
+        .then(|| text[line_start..offset].to_owned())
 }
 
-pub(crate) fn text_at(text: &str, range: TextRange) -> Option<String> {
-    text.get(std::ops::Range::<usize>::from(range)).map(ToOwned::to_owned)
+fn line_start(text: &str, offset: usize) -> usize {
+    memrchr(b'\n', &text.as_bytes()[..offset]).map(|idx| idx + 1).unwrap_or(0)
 }
 
-pub(crate) fn newline_style(text: &str) -> &'static str {
-    if text.contains("\r\n") { "\r\n" } else { "\n" }
+fn leading_indent_end(text: &str, start: usize, end: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut idx = start;
+    while idx < end && matches!(bytes[idx], b' ' | b'\t') {
+        idx += 1;
+    }
+    idx
 }
