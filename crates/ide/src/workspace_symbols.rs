@@ -5,7 +5,6 @@ use hir::{
     base_db::{source_db::SourceRootDb, source_root::SourceRootId},
     db::HirDb,
 };
-use rayon::prelude::*;
 use triomphe::Arc;
 use utils::line_index::TextRange;
 use vfs::FileId;
@@ -163,8 +162,8 @@ impl SymbolIndex {
 
     fn new(symbols: Vec<WorkspaceSymbol>) -> Self {
         let mut symbols =
-            symbols.into_par_iter().map(SymbolEntry::new).collect::<Vec<_>>().into_boxed_slice();
-        symbols.par_sort_by(|lhs, rhs| compare_symbol_entries(lhs, rhs));
+            symbols.into_iter().map(SymbolEntry::new).collect::<Vec<_>>().into_boxed_slice();
+        symbols.sort_by(compare_symbol_entries);
 
         if symbols.is_empty() {
             return Self { symbols, map: fst::Map::default() };

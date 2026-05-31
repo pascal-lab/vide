@@ -15,7 +15,6 @@ itertools.workspace = true
 la-arena.workspace = true
 memchr.workspace = true
 nohash-hasher.workspace = true
-rayon.workspace = true
 regex.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
