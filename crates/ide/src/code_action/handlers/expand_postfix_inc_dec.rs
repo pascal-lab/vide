@@ -103,7 +103,8 @@ fn expand_postfix(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> O
     let range = expr.syntax().text_range()?;
 
     collector.add(EXPAND_POSTFIX_ID, EXPAND_POSTFIX_LABEL, range, |builder| {
-        builder.replace(range, format!("{operand} = {operand} {} 1", expr.inc_dec.binary_operator()));
+        builder
+            .replace(range, format!("{operand} = {operand} {} 1", expr.inc_dec.binary_operator()));
     });
 
     Some(())
@@ -116,7 +117,8 @@ fn expand_prefix(collector: &mut CodeActionCollector, ctx: &CodeActionCtx) -> Op
     let range = expr.syntax().text_range()?;
 
     collector.add(EXPAND_PREFIX_ID, EXPAND_PREFIX_LABEL, range, |builder| {
-        builder.replace(range, format!("{operand} = {operand} {} 1", expr.inc_dec.binary_operator()));
+        builder
+            .replace(range, format!("{operand} = {operand} {} 1", expr.inc_dec.binary_operator()));
     });
 
     Some(())
@@ -148,7 +150,8 @@ fn convert_postfix_to_compound(
     let range = expr.syntax().text_range()?;
 
     collector.add(POSTFIX_TO_COMPOUND_ID, POSTFIX_TO_COMPOUND_LABEL, range, |builder| {
-        builder.replace(range, format!("{} {} 1", operand.trim(), expr.inc_dec.compound_operator()));
+        builder
+            .replace(range, format!("{} {} 1", operand.trim(), expr.inc_dec.compound_operator()));
     });
 
     Some(())
@@ -180,7 +183,8 @@ fn convert_prefix_to_compound(
     let range = expr.syntax().text_range()?;
 
     collector.add(PREFIX_TO_COMPOUND_ID, PREFIX_TO_COMPOUND_LABEL, range, |builder| {
-        builder.replace(range, format!("{} {} 1", operand.trim(), expr.inc_dec.compound_operator()));
+        builder
+            .replace(range, format!("{} {} 1", operand.trim(), expr.inc_dec.compound_operator()));
     });
 
     Some(())

@@ -94,9 +94,7 @@ fn push_replacement(
     text: &str,
     expr: ast::PrefixUnaryExpression<'_>,
 ) -> Option<(utils::text_edit::TextRange, String)> {
-    if expr.as_unary_logical_not_expression().is_none() {
-        return None;
-    }
+    expr.as_unary_logical_not_expression()?;
 
     let paren = expr.operand().as_primary_expression()?.as_parenthesized_expression()?;
     let inner = same_op_root(paren.expression().as_binary_expression()?);
