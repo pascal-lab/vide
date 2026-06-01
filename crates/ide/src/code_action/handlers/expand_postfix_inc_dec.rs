@@ -272,18 +272,27 @@ struct AssignmentIncDec {
 
 fn postfix_expr<'a>(ctx: &'a CodeActionCtx) -> Option<UnaryIncDec<'a>> {
     let expr = ctx.find_node_at_offset::<ast::PostfixUnaryExpression>()?;
+    if !has_discarded_value_context(expr.syntax()) {
+        return None;
+    }
     let inc_dec = IncDec::from_operator(&expr.operator_token()?.value_text().to_string())?;
     Some(UnaryIncDec { syntax: expr.syntax(), operand: expr.operand(), inc_dec })
 }
 
 fn prefix_expr<'a>(ctx: &'a CodeActionCtx) -> Option<UnaryIncDec<'a>> {
     let expr = ctx.find_node_at_offset::<ast::PrefixUnaryExpression>()?;
+    if !has_discarded_value_context(expr.syntax()) {
+        return None;
+    }
     let inc_dec = prefix_inc_dec(expr)?;
     Some(UnaryIncDec { syntax: expr.syntax(), operand: expr.operand(), inc_dec })
 }
 
 fn compound_expr(ctx: &CodeActionCtx) -> Option<CompoundIncDec> {
     let expr = ctx.find_node_at_offset::<ast::BinaryExpression>()?;
+    if !has_discarded_value_context(expr.syntax()) {
+        return None;
+    }
     let inc_dec = IncDec::from_compound_operator(&expr.operator_token()?.value_text().to_string())?;
     let text = ctx.sema().db.file_text(ctx.file_id());
     let right = text.get(Range::from(expr.right().syntax().text_range()?))?;
@@ -300,6 +309,9 @@ fn compound_expr(ctx: &CodeActionCtx) -> Option<CompoundIncDec> {
 
 fn assignment_expr(ctx: &CodeActionCtx) -> Option<AssignmentIncDec> {
     let expr = ctx.find_node_at_offset::<ast::BinaryExpression>()?;
+    if !has_discarded_value_context(expr.syntax()) {
+        return None;
+    }
     if expr.operator_token()?.value_text().to_string() != "=" {
         return None;
     }
@@ -315,6 +327,41 @@ fn assignment_expr(ctx: &CodeActionCtx) -> Option<AssignmentIncDec> {
     }
 
     Some(AssignmentIncDec { range: expr.syntax().text_range()?, operand: left.to_owned(), inc_dec })
+}
+
+fn has_discarded_value_context(syntax: syntax::SyntaxNode<'_>) -> bool {
+    let syntax = unwrap_parenthesized_expr(syntax);
+    let mut ancestor = syntax.parent();
+
+    while let Some(node) = ancestor {
+        if ast::ExpressionStatement::cast(node).is_some_and(|stmt| stmt.expr().syntax() == syntax) {
+            return true;
+        }
+
+        if ast::ForLoopStatement::cast(node)
+            .is_some_and(|for_loop| for_loop.steps().children().any(|step| step.syntax() == syntax))
+        {
+            return true;
+        }
+
+        ancestor = node.parent();
+    }
+
+    false
+}
+
+fn unwrap_parenthesized_expr(mut syntax: syntax::SyntaxNode<'_>) -> syntax::SyntaxNode<'_> {
+    while let Some(parent) = syntax.parent() {
+        let Some(parenthesized) = ast::ParenthesizedExpression::cast(parent) else {
+            break;
+        };
+        if parenthesized.expression().syntax() != syntax {
+            break;
+        }
+        syntax = parenthesized.syntax();
+    }
+
+    syntax
 }
 
 fn prefix_inc_dec(expr: ast::PrefixUnaryExpression<'_>) -> Option<IncDec> {
