@@ -83,42 +83,7 @@ impl CodeActionDiagnostic {
             RepairKind::InsertExpectedToken => {
                 self.source == Some(DiagnosticSource::Parse)
                     && self.name.as_deref() == Some("ExpectedToken")
-                    && self.expected_token.as_deref().is_some_and(safe_insertable_token)
             }
         }
     }
-}
-
-pub(crate) fn safe_insertable_token(token: &str) -> bool {
-    !token.is_empty()
-        && token.len() <= 32
-        && token.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
-                || matches!(
-                    byte,
-                    b'_' | b'$'
-                        | b'#'
-                        | b'('
-                        | b')'
-                        | b'['
-                        | b']'
-                        | b'{'
-                        | b'}'
-                        | b';'
-                        | b':'
-                        | b','
-                        | b'.'
-                        | b'*'
-                        | b'/'
-                        | b'='
-                        | b'<'
-                        | b'>'
-                        | b'+'
-                        | b'-'
-                        | b'!'
-                        | b'?'
-                        | b'@'
-                        | b'`'
-                )
-        })
 }
