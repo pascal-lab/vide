@@ -727,13 +727,11 @@ fn inc_dec_assists_are_limited_to_other_two_forms() {
     );
     let labels = labels
         .into_iter()
-        .filter(|label| {
-            label.contains("increment/decrement") || label.contains("compound assignment")
-        })
+        .filter(|label| label.contains("expression") || label.contains("compound assignment"))
         .collect::<Vec<_>>();
     assert_eq!(labels.len(), 3);
-    assert!(labels.iter().any(|label| label == "Expand postfix increment/decrement"));
-    assert!(labels.iter().any(|label| label == "Convert postfix to prefix increment/decrement"));
+    assert!(labels.iter().any(|label| label == "Expand postfix expression"));
+    assert!(labels.iter().any(|label| label == "Convert postfix to prefix expression"));
     assert!(labels.iter().any(|label| label == "Convert postfix to compound assignment"));
 }
 
@@ -742,8 +740,8 @@ fn inc_dec_assists_require_discarded_value_context() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb begin y = /*caret*/i++; end endmodule\n",
     );
-    assert!(!labels.iter().any(|label| label == "Expand postfix increment/decrement"));
-    assert!(!labels.iter().any(|label| label == "Convert postfix to prefix increment/decrement"));
+    assert!(!labels.iter().any(|label| label == "Expand postfix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert postfix to prefix expression"));
     assert!(!labels.iter().any(|label| label == "Convert postfix to compound assignment"));
 }
 
@@ -785,8 +783,8 @@ fn convert_assignment_inc_dec_requires_same_lhs_and_one() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb begin /*caret*/i = j + 1; end endmodule\n",
     );
-    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix"));
-    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix expression"));
 }
 
 #[test]
@@ -794,8 +792,8 @@ fn convert_assignment_inc_dec_requires_discarded_value_context() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb begin y = (/*caret*/i = i + 1); end endmodule\n",
     );
-    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix"));
-    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix expression"));
 }
 
 #[test]
@@ -803,8 +801,12 @@ fn convert_compound_inc_dec_requires_one() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb begin /*caret*/i += 2; end endmodule\n",
     );
-    assert!(!labels.iter().any(|label| label == "Convert compound assignment to postfix"));
-    assert!(!labels.iter().any(|label| label == "Convert compound assignment to prefix"));
+    assert!(
+        !labels.iter().any(|label| label == "Convert compound assignment to postfix expression")
+    );
+    assert!(
+        !labels.iter().any(|label| label == "Convert compound assignment to prefix expression")
+    );
 }
 
 #[test]

@@ -913,6 +913,39 @@ fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
         "remove_empty_port_connections" => keys::CODE_ACTION_REMOVE_EMPTY_PORT_CONNECTIONS,
         "add_implicit_named_port_parens" => keys::CODE_ACTION_ADD_IMPLICIT_NAMED_PORT_PARENS,
         "add_instance_parens" => keys::CODE_ACTION_ADD_INSTANCE_PARENS,
+        "split_declaration_declarators" => keys::CODE_ACTION_SPLIT_DECLARATION_DECLARATORS,
+        "sort_named_parameter_assignments" => keys::CODE_ACTION_SORT_NAMED_PARAMETER_ASSIGNMENTS,
+        "sort_named_port_connections" => keys::CODE_ACTION_SORT_NAMED_PORT_CONNECTIONS,
+        "add_default_case_item" => keys::CODE_ACTION_ADD_DEFAULT_CASE_ITEM,
+        "invert_if_else" => keys::CODE_ACTION_INVERT_IF_ELSE,
+        "unwrap_single_statement_block" => keys::CODE_ACTION_UNWRAP_SINGLE_STATEMENT_BLOCK,
+        "wrap_statement_in_begin_end" => keys::CODE_ACTION_WRAP_STATEMENT_IN_BEGIN_END,
+        "expand_postfix_inc_dec" => keys::CODE_ACTION_EXPAND_POSTFIX_INC_DEC,
+        "expand_prefix_inc_dec" => keys::CODE_ACTION_EXPAND_PREFIX_INC_DEC,
+        "convert_postfix_to_prefix_inc_dec" => keys::CODE_ACTION_CONVERT_POSTFIX_TO_PREFIX_INC_DEC,
+        "convert_postfix_to_compound_inc_dec" => {
+            keys::CODE_ACTION_CONVERT_POSTFIX_TO_COMPOUND_INC_DEC
+        }
+        "convert_prefix_to_postfix_inc_dec" => keys::CODE_ACTION_CONVERT_PREFIX_TO_POSTFIX_INC_DEC,
+        "convert_prefix_to_compound_inc_dec" => {
+            keys::CODE_ACTION_CONVERT_PREFIX_TO_COMPOUND_INC_DEC
+        }
+        "convert_compound_to_postfix_inc_dec" => {
+            keys::CODE_ACTION_CONVERT_COMPOUND_TO_POSTFIX_INC_DEC
+        }
+        "convert_compound_to_prefix_inc_dec" => {
+            keys::CODE_ACTION_CONVERT_COMPOUND_TO_PREFIX_INC_DEC
+        }
+        "convert_assignment_to_postfix_inc_dec" => {
+            keys::CODE_ACTION_CONVERT_ASSIGNMENT_TO_POSTFIX_INC_DEC
+        }
+        "convert_assignment_to_prefix_inc_dec" => {
+            keys::CODE_ACTION_CONVERT_ASSIGNMENT_TO_PREFIX_INC_DEC
+        }
+        "expand_compound_assignment" => keys::CODE_ACTION_EXPAND_COMPOUND_ASSIGNMENT,
+        "collapse_compound_assignment" => keys::CODE_ACTION_COLLAPSE_COMPOUND_ASSIGNMENT,
+        "apply_de_morgan" => keys::CODE_ACTION_APPLY_DE_MORGAN,
+        "factor_de_morgan" => keys::CODE_ACTION_FACTOR_DE_MORGAN,
         "convert_literal_base" => match label {
             "Convert literal to binary" => keys::CODE_ACTION_CONVERT_LITERAL_TO_BINARY,
             "Convert literal to octal" => keys::CODE_ACTION_CONVERT_LITERAL_TO_OCTAL,

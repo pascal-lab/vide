@@ -87,6 +87,43 @@ pub(crate) mod keys {
     pub(crate) const CODE_ACTION_ADD_IMPLICIT_NAMED_PORT_PARENS: &str =
         "code_action.add_implicit_named_port_parens";
     pub(crate) const CODE_ACTION_ADD_INSTANCE_PARENS: &str = "code_action.add_instance_parens";
+    pub(crate) const CODE_ACTION_SPLIT_DECLARATION_DECLARATORS: &str =
+        "code_action.split_declaration_declarators";
+    pub(crate) const CODE_ACTION_SORT_NAMED_PARAMETER_ASSIGNMENTS: &str =
+        "code_action.sort_named_parameter_assignments";
+    pub(crate) const CODE_ACTION_SORT_NAMED_PORT_CONNECTIONS: &str =
+        "code_action.sort_named_port_connections";
+    pub(crate) const CODE_ACTION_ADD_DEFAULT_CASE_ITEM: &str = "code_action.add_default_case_item";
+    pub(crate) const CODE_ACTION_INVERT_IF_ELSE: &str = "code_action.invert_if_else";
+    pub(crate) const CODE_ACTION_UNWRAP_SINGLE_STATEMENT_BLOCK: &str =
+        "code_action.unwrap_single_statement_block";
+    pub(crate) const CODE_ACTION_WRAP_STATEMENT_IN_BEGIN_END: &str =
+        "code_action.wrap_statement_in_begin_end";
+    pub(crate) const CODE_ACTION_EXPAND_POSTFIX_INC_DEC: &str =
+        "code_action.expand_postfix_inc_dec";
+    pub(crate) const CODE_ACTION_EXPAND_PREFIX_INC_DEC: &str = "code_action.expand_prefix_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_POSTFIX_TO_PREFIX_INC_DEC: &str =
+        "code_action.convert_postfix_to_prefix_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_POSTFIX_TO_COMPOUND_INC_DEC: &str =
+        "code_action.convert_postfix_to_compound_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_PREFIX_TO_POSTFIX_INC_DEC: &str =
+        "code_action.convert_prefix_to_postfix_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_PREFIX_TO_COMPOUND_INC_DEC: &str =
+        "code_action.convert_prefix_to_compound_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_COMPOUND_TO_POSTFIX_INC_DEC: &str =
+        "code_action.convert_compound_to_postfix_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_COMPOUND_TO_PREFIX_INC_DEC: &str =
+        "code_action.convert_compound_to_prefix_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_ASSIGNMENT_TO_POSTFIX_INC_DEC: &str =
+        "code_action.convert_assignment_to_postfix_inc_dec";
+    pub(crate) const CODE_ACTION_CONVERT_ASSIGNMENT_TO_PREFIX_INC_DEC: &str =
+        "code_action.convert_assignment_to_prefix_inc_dec";
+    pub(crate) const CODE_ACTION_EXPAND_COMPOUND_ASSIGNMENT: &str =
+        "code_action.expand_compound_assignment";
+    pub(crate) const CODE_ACTION_COLLAPSE_COMPOUND_ASSIGNMENT: &str =
+        "code_action.collapse_compound_assignment";
+    pub(crate) const CODE_ACTION_APPLY_DE_MORGAN: &str = "code_action.apply_de_morgan";
+    pub(crate) const CODE_ACTION_FACTOR_DE_MORGAN: &str = "code_action.factor_de_morgan";
     pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_BINARY: &str =
         "code_action.convert_literal_to_binary";
     pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_OCTAL: &str =
