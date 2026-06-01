@@ -13,21 +13,21 @@ const EXPAND_POSTFIX_ID: CodeActionId = CodeActionId {
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const EXPAND_POSTFIX_LABEL: &str = "Expand postfix increment/decrement";
+const EXPAND_POSTFIX_LABEL: &str = "Expand postfix expression";
 
 const EXPAND_PREFIX_ID: CodeActionId = CodeActionId {
     name: "expand_prefix_inc_dec",
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const EXPAND_PREFIX_LABEL: &str = "Expand prefix increment/decrement";
+const EXPAND_PREFIX_LABEL: &str = "Expand prefix expression";
 
 const POSTFIX_TO_PREFIX_ID: CodeActionId = CodeActionId {
     name: "convert_postfix_to_prefix_inc_dec",
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const POSTFIX_TO_PREFIX_LABEL: &str = "Convert postfix to prefix increment/decrement";
+const POSTFIX_TO_PREFIX_LABEL: &str = "Convert postfix to prefix expression";
 
 const POSTFIX_TO_COMPOUND_ID: CodeActionId = CodeActionId {
     name: "convert_postfix_to_compound_inc_dec",
@@ -41,7 +41,7 @@ const PREFIX_TO_POSTFIX_ID: CodeActionId = CodeActionId {
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const PREFIX_TO_POSTFIX_LABEL: &str = "Convert prefix to postfix increment/decrement";
+const PREFIX_TO_POSTFIX_LABEL: &str = "Convert prefix to postfix expression";
 
 const PREFIX_TO_COMPOUND_ID: CodeActionId = CodeActionId {
     name: "convert_prefix_to_compound_inc_dec",
@@ -55,28 +55,28 @@ const COMPOUND_TO_POSTFIX_ID: CodeActionId = CodeActionId {
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const COMPOUND_TO_POSTFIX_LABEL: &str = "Convert compound assignment to postfix";
+const COMPOUND_TO_POSTFIX_LABEL: &str = "Convert compound assignment to postfix expression";
 
 const COMPOUND_TO_PREFIX_ID: CodeActionId = CodeActionId {
     name: "convert_compound_to_prefix_inc_dec",
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const COMPOUND_TO_PREFIX_LABEL: &str = "Convert compound assignment to prefix";
+const COMPOUND_TO_PREFIX_LABEL: &str = "Convert compound assignment to prefix expression";
 
 const ASSIGNMENT_TO_POSTFIX_ID: CodeActionId = CodeActionId {
     name: "convert_assignment_to_postfix_inc_dec",
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const ASSIGNMENT_TO_POSTFIX_LABEL: &str = "Convert assignment to postfix";
+const ASSIGNMENT_TO_POSTFIX_LABEL: &str = "Convert assignment to postfix expression";
 
 const ASSIGNMENT_TO_PREFIX_ID: CodeActionId = CodeActionId {
     name: "convert_assignment_to_prefix_inc_dec",
     kind: CodeActionKind::RefactorRewrite,
     repair: None,
 };
-const ASSIGNMENT_TO_PREFIX_LABEL: &str = "Convert assignment to prefix";
+const ASSIGNMENT_TO_PREFIX_LABEL: &str = "Convert assignment to prefix expression";
 
 pub(super) fn expand_postfix_inc_dec(
     collector: &mut CodeActionCollector,

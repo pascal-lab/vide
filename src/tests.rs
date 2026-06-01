@@ -951,6 +951,50 @@ endmodule
 }
 
 #[test]
+fn code_actions_are_localized_for_chinese_locale() {
+    let text = "\
+module top;
+  logic a, b;
+endmodule
+";
+    let temp_dir = TempDir::new("vide-i18n-code-action");
+    let file_path = temp_dir.path().join("split.sv");
+    fs::write(&file_path, text).unwrap();
+    let root_path = temp_dir.path().to_path_buf();
+    let config = test_server_config_with_i18n(
+        root_path,
+        code_action_client_caps(),
+        UserConfig::default(),
+        I18n::new(Locale::ZhCn),
+    );
+    let (server, client) = Connection::memory();
+    let server_thread = spawn_default_test_server(config, server);
+    let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
+    open_test_document(&client, uri.clone(), text);
+
+    let actions = request_code_actions(
+        &client,
+        uri,
+        text,
+        "a, b",
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_REWRITE]),
+            trigger_kind: None,
+        },
+        221,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "拆分声明"),
+        "expected localized code action title, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn verilog_2005_memory_lsp_requests_handle_supported_constructs() {
     let file_text = "\
 module child(input wire a, output wire y);
