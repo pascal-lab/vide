@@ -738,6 +738,26 @@ fn inc_dec_assists_are_limited_to_other_two_forms() {
 }
 
 #[test]
+fn inc_dec_assists_require_discarded_value_context() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin y = /*caret*/i++; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Expand postfix increment/decrement"));
+    assert!(!labels.iter().any(|label| label == "Convert postfix to prefix increment/decrement"));
+    assert!(!labels.iter().any(|label| label == "Convert postfix to compound assignment"));
+}
+
+#[test]
+fn inc_dec_assists_support_for_loop_steps() {
+    let text = "module top; int i; logic y; always_comb for (i = 0; i < 4; /*caret*/i++) y = i; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
+    assert_eq!(
+        fixed,
+        "module top; int i; logic y; always_comb for (i = 0; i < 4; i = i + 1) y = i; endmodule\n"
+    );
+}
+
+#[test]
 fn compound_inc_dec_can_expand() {
     let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
     let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
@@ -764,6 +784,15 @@ fn convert_assignment_to_prefix_inc_dec_converts_decrement() {
 fn convert_assignment_inc_dec_requires_same_lhs_and_one() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb begin /*caret*/i = j + 1; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix"));
+}
+
+#[test]
+fn convert_assignment_inc_dec_requires_discarded_value_context() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin y = (/*caret*/i = i + 1); end endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Convert assignment to postfix"));
     assert!(!labels.iter().any(|label| label == "Convert assignment to prefix"));
