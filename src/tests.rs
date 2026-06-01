@@ -685,23 +685,46 @@ fn request_code_actions(
     request_id: i32,
 ) -> Vec<CodeActionOrCommand> {
     let position = position_of(text, needle);
-    let request_id = lsp_server::RequestId::from(request_id);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            CodeActionRequest::METHOD.to_string(),
-            CodeActionParams {
-                text_document: TextDocumentIdentifier { uri },
-                range: Range::new(position, position),
-                context,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
+    const CONTENT_MODIFIED_RETRIES: i32 = 5;
 
-    recv_response(client, request_id, "codeAction")
+    for attempt in 0..=CONTENT_MODIFIED_RETRIES {
+        let request_id = lsp_server::RequestId::from(request_id + attempt);
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                request_id.clone(),
+                CodeActionRequest::METHOD.to_string(),
+                CodeActionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    range: Range::new(position, position),
+                    context: context.clone(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: Default::default(),
+                },
+            )))
+            .unwrap();
+
+        let response = recv_raw_response(client, request_id, "codeAction");
+        if response.error.is_none() {
+            return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
+                .unwrap_or_else(|err| panic!("failed to decode codeAction response: {err}"));
+        }
+
+        if is_content_modified(&response) && attempt < CONTENT_MODIFIED_RETRIES {
+            continue;
+        }
+
+        panic!("codeAction returned error: {:?}", response.error);
+    }
+
+    unreachable!("codeAction retries should either return or panic")
+}
+
+fn is_content_modified(response: &lsp_server::Response) -> bool {
+    response
+        .error
+        .as_ref()
+        .is_some_and(|error| error.code == lsp_server::ErrorCode::ContentModified as i32)
 }
 
 fn request_code_lenses(client: &Connection, uri: Url, request_id: i32) -> Vec<lsp_types::CodeLens> {
