@@ -52,16 +52,16 @@
 }
 
 starlight-lang-select label {
-  --vide-language-label-width: 9.5em;
+  display: inline-grid;
+  grid-template-columns: max-content;
 }
 
 starlight-lang-select label::after {
   content: '语言/Languages';
-  position: absolute;
-  inset-inline-start: calc(var(--sl-label-icon-size) + var(--sl-inline-padding) + 0.25rem);
-  inset-inline-end: calc(var(--sl-caret-size) + var(--sl-inline-padding) + 0.25rem);
-  top: 50%;
-  transform: translateY(-50%);
+  grid-area: 1 / 1;
+  padding-block: 0.625rem;
+  padding-inline: calc(var(--sl-label-icon-size) + var(--sl-inline-padding) + 0.25rem)
+    calc(var(--sl-caret-size) + var(--sl-inline-padding) + 0.25rem);
   color: inherit;
   line-height: 1;
   pointer-events: none;
@@ -69,7 +69,8 @@ starlight-lang-select label::after {
 }
 
 starlight-lang-select select {
-  width: calc(var(--vide-language-label-width) + var(--sl-inline-padding) * 2);
+  grid-area: 1 / 1;
+  width: 100%;
   color: transparent;
 }
 
