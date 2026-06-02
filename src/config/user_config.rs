@@ -25,6 +25,8 @@ use super::Config;
 
 const DEFAULT_QIHE_COMMAND: &str = "qihe";
 const DEFAULT_QIHE_RUN_ARGS: &[&str] = &["-g", "std"];
+const DEFAULT_SLANG_WIDTH_WARNINGS: &[&str] =
+    &["width-expand", "width-trunc", "port-width-expand", "port-width-trunc"];
 const USER_CONFIG_SCHEMA_FIELD: &str = "$schema";
 #[cfg(feature = "user-config-schema")]
 const USER_CONFIG_SCHEMA_URL: &str =
@@ -484,7 +486,7 @@ impl Default for DiagnosticsPhaseUserConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
@@ -493,7 +495,7 @@ pub(crate) struct SlangDiagnosticsUserConfig {
         feature = "user-config-schema",
         schemars(
             description = "Additional slang warning groups or aliases to enable.",
-            default = "empty_string_vec"
+            default = "default_slang_width_warnings"
         )
     )]
     pub(crate) warnings: Vec<String>,
@@ -502,6 +504,16 @@ pub(crate) struct SlangDiagnosticsUserConfig {
         schemars(description = "Per-diagnostic severity overrides.")
     )]
     pub(crate) rules: Vec<DiagnosticRuleUserConfig>,
+}
+
+impl Default for SlangDiagnosticsUserConfig {
+    fn default() -> Self {
+        Self { warnings: default_slang_width_warnings(), rules: Vec::new() }
+    }
+}
+
+fn default_slang_width_warnings() -> Vec<String> {
+    DEFAULT_SLANG_WIDTH_WARNINGS.iter().map(|warning| (*warning).to_owned()).collect()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -1097,7 +1109,7 @@ const USER_CONFIG_SETTINGS: &[ConfigSettingMeta] = &[
         ),
         enum_descriptions: &[],
         exposed_in_vscode: true,
-        default: ConfigSettingDefault::StringArray(&[]),
+        default: ConfigSettingDefault::StringArray(DEFAULT_SLANG_WIDTH_WARNINGS),
         schema: ConfigSettingSchema::StringArray,
     },
     ConfigSettingMeta {
@@ -1563,6 +1575,10 @@ fn check_default() {
     let mut errors = vec![];
     let user_cfg = UserConfig::from_json(json, &mut errors);
     assert_eq!(user_cfg, UserConfig::default());
+    assert_eq!(
+        user_cfg.diagnostics_config().slang.warnings,
+        ["width-expand", "width-trunc", "port-width-expand", "port-width-trunc"]
+    );
 }
 
 #[test]
@@ -1590,6 +1606,22 @@ fn parses_nested_diagnostics_config() {
     assert!(!config.semantic.enabled);
     assert_eq!(config.slang.warnings, ["default", "no-unused"]);
     assert_eq!(config.slang.rules.len(), 2);
+}
+
+#[test]
+fn explicit_empty_slang_warnings_override_defaults() {
+    let json = serde_json::json!({
+        "diagnostics": {
+            "slang": {
+                "warnings": []
+            }
+        }
+    });
+    let mut errors = vec![];
+    let user_cfg = UserConfig::from_json(json, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    assert!(user_cfg.diagnostics_config().slang.warnings.is_empty());
 }
 
 #[test]
