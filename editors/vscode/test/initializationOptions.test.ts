@@ -43,7 +43,7 @@ test('server initialization options include user configuration for startup', () 
     parse: { enable: true },
     semantic: { enable: false },
     slang: {
-      warnings: [],
+      warnings: ['width-expand', 'width-trunc', 'port-width-expand', 'port-width-trunc'],
       rules: [{ selector: 'source:parse', severity: 'ignore' }],
     },
   });
@@ -90,7 +90,7 @@ test('diagnostics profiling initialization options reuse startup options with se
     parse: { enable: true },
     semantic: { enable: false },
     slang: {
-      warnings: [],
+      warnings: ['width-expand', 'width-trunc', 'port-width-expand', 'port-width-trunc'],
       rules: [],
     },
   });

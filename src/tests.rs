@@ -773,6 +773,10 @@ fn code_action_titles(actions: &[CodeActionOrCommand]) -> Vec<String> {
         .collect()
 }
 
+fn diagnostic_option(diagnostic: &lsp_types::Diagnostic) -> Option<&str> {
+    diagnostic.data.as_ref()?.get("option")?.as_str()
+}
+
 #[test]
 fn clearing_open_document_updates_analysis_state() {
     let text = "module stale_after_clear;\nendmodule\n";
@@ -817,6 +821,63 @@ fn clearing_open_document_updates_analysis_state() {
     };
 
     assert_eq!(symbol_count, 0, "cleared documents must not expose stale symbols");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn default_diagnostics_warn_on_port_width_mismatch() {
+    let text = "\
+module width_child(input logic [3:0] a);
+endmodule
+
+module top;
+  logic [7:0] wide;
+  width_child u(.a(wide));
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) = setup_configured_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        text,
+    );
+
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 190);
+
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic_option(diagnostic) == Some("port-width-trunc")),
+        "expected default port width warning, got {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn explicit_empty_slang_warnings_suppress_port_width_mismatch_warning() {
+    let text = "\
+module width_child(input logic [3:0] a);
+endmodule
+
+module top;
+  logic [7:0] wide;
+  width_child u(.a(wide));
+endmodule
+";
+    let mut user_config = UserConfig::default();
+    user_config.diagnostics.slang.warnings = Vec::new();
+    let (_temp_dir, client, server_thread, uri) =
+        setup_configured_diagnostics_test(ClientCapabilities::default(), user_config, text);
+
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, uri, 191);
+
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic_option(diagnostic) != Some("port-width-trunc")),
+        "explicit empty warnings should suppress port width warning, got {diagnostics:?}"
+    );
 
     shutdown_test_server(&client, server_thread);
 }
