@@ -171,7 +171,7 @@ export class VideBrowserClient {
                 token,
               ))
             ) {
-              return null;
+              return emptyRenameEdit();
             }
             return await next(document, position, newName, token);
           };
@@ -215,7 +215,7 @@ export class VideBrowserClient {
               token,
             ))
           ) {
-            return null;
+            return emptyRenameEdit();
           }
 
           const edit = await languageClient.sendRequest(
@@ -295,6 +295,10 @@ type PortConnectionRenameInfo = {
 type RenameCollisionInfo = {
   conflicts: number;
 };
+
+function emptyRenameEdit(): vscode.WorkspaceEdit {
+  return new vscode.WorkspaceEdit();
+}
 
 async function confirmRenameCollision(
   languageClient: VideLanguageClient,
