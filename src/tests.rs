@@ -23,8 +23,8 @@ use lsp_types::{
     },
     request::{
         CodeActionRequest, CodeLensRequest, CodeLensResolve, DocumentDiagnosticRequest,
-        DocumentSymbolRequest, FoldingRangeRequest, GotoDefinition, HoverRequest, References,
-        Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration,
+        DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest, GotoDefinition, HoverRequest,
+        References, Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration,
         WorkspaceDiagnosticRequest,
     },
 };
@@ -39,7 +39,15 @@ use crate::{
     },
     global_state::main_loop,
     i18n::{I18n, Locale},
-    lsp_ext::{ext::ProjectStatusNotification, to_proto},
+    lsp_ext::{
+        ext::{
+            PORT_CONNECTION_RENAME_COMMAND, PORT_CONNECTION_RENAME_INFO_COMMAND,
+            PortConnectionRenameInfoParams, PortConnectionRenameInfoResult,
+            PortConnectionRenameParams, ProjectStatusNotification, RENAME_COLLISION_INFO_COMMAND,
+            RenameCollisionInfoParams, RenameCollisionInfoResult,
+        },
+        to_proto,
+    },
 };
 
 type TempDir = TestDir;
@@ -495,6 +503,29 @@ fn request_rename(
     assert!(response.error.is_none(), "rename returned error: {:?}", response.error);
     serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
         .unwrap_or_else(|err| panic!("failed to decode rename response: {err}"))
+}
+
+fn request_execute_command_response(
+    client: &Connection,
+    command: &str,
+    arguments: Vec<serde_json::Value>,
+    request_id: i32,
+) -> lsp_server::Response {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            ExecuteCommand::METHOD.to_string(),
+            lsp_types::ExecuteCommandParams {
+                command: command.to_owned(),
+                arguments,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+
+    recv_raw_response(client, request_id, "executeCommand")
 }
 
 fn request_workspace_diagnostic_report(
@@ -1698,6 +1729,152 @@ fn configured_workspace_rename_updates_cross_file_symbol() {
     assert!(
         document_edits.iter().any(|edit| edit.text_document.uri == child_uri),
         "configured cross-file rename should edit child declaration: {document_edits:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn configured_workspace_port_connection_recursive_rename_command_updates_chain() {
+    let child_text = "module child(input a);\nendmodule\n";
+    let top_text = "module top(input a);\n  child u(.a(a));\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("child.sv", child_text), ("top.sv", top_text)],
+    );
+    let child_uri = uris[0].clone();
+    let top_uri = uris[1].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let text_document_position = TextDocumentPositionParams {
+        text_document: TextDocumentIdentifier { uri: top_uri.clone() },
+        position: position_of(top_text, "a);\n  child"),
+    };
+    let info_response = request_execute_command_response(
+        &client,
+        PORT_CONNECTION_RENAME_INFO_COMMAND,
+        vec![
+            serde_json::to_value(PortConnectionRenameInfoParams {
+                text_document_position: text_document_position.clone(),
+            })
+            .unwrap(),
+        ],
+        2,
+    );
+    assert!(info_response.error.is_none(), "rename info returned error: {:?}", info_response.error);
+    let info: PortConnectionRenameInfoResult =
+        serde_json::from_value(info_response.result.unwrap()).unwrap();
+    assert_eq!(info.additional_symbols, 1);
+
+    let rename_response = request_execute_command_response(
+        &client,
+        PORT_CONNECTION_RENAME_COMMAND,
+        vec![
+            serde_json::to_value(PortConnectionRenameParams {
+                text_document_position,
+                new_name: "renamed".to_owned(),
+            })
+            .unwrap(),
+        ],
+        3,
+    );
+    assert!(
+        rename_response.error.is_none(),
+        "recursive rename returned error: {:?}",
+        rename_response.error
+    );
+    let edit: lsp_types::WorkspaceEdit =
+        serde_json::from_value(rename_response.result.unwrap()).unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(document_edits)) = edit.document_changes else {
+        panic!("recursive rename should use document edits: {edit:?}");
+    };
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == top_uri),
+        "recursive rename should edit top file: {document_edits:?}"
+    );
+    assert!(
+        document_edits.iter().any(|edit| edit.text_document.uri == child_uri),
+        "recursive rename should edit child file: {document_edits:?}"
+    );
+    assert!(
+        document_edits.iter().flat_map(|edit| edit.edits.iter()).any(|edit| {
+            matches!(edit, lsp_types::OneOf::Left(edit) if edit.new_text == "renamed")
+        }),
+        "recursive rename should contain rename edits: {document_edits:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn configured_workspace_rename_collision_info_command_reports_conflicts() {
+    let text = "module top;\n  logic a;\n  logic b;\n  assign a = b;\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("top.sv", text)],
+    );
+    let uri = uris[0].clone();
+    let _ = request_document_diagnostics(&client, uri.clone(), 1);
+
+    let response = request_execute_command_response(
+        &client,
+        RENAME_COLLISION_INFO_COMMAND,
+        vec![
+            serde_json::to_value(RenameCollisionInfoParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, "b;"),
+                },
+                new_name: "a".to_owned(),
+                recursive: false,
+            })
+            .unwrap(),
+        ],
+        2,
+    );
+    assert!(response.error.is_none(), "rename collision info returned error: {:?}", response.error);
+    let info: RenameCollisionInfoResult = serde_json::from_value(response.result.unwrap()).unwrap();
+    assert_eq!(info.conflicts, 1);
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn unconfigured_workspace_port_connection_recursive_rename_command_rejects_cross_file_chain() {
+    let child_text = "module child(input a);\nendmodule\n";
+    let top_text = "module top(input a);\n  child u(.a(a));\nendmodule\n";
+    let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test_inner(
+        ClientCapabilities::default(),
+        UserConfig::default(),
+        &[("child.sv", child_text), ("top.sv", top_text)],
+        false,
+    );
+    let top_uri = uris[1].clone();
+    let _ = request_document_diagnostics(&client, top_uri.clone(), 1);
+
+    let response = request_execute_command_response(
+        &client,
+        PORT_CONNECTION_RENAME_COMMAND,
+        vec![
+            serde_json::to_value(PortConnectionRenameParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: top_uri },
+                    position: position_of(top_text, "a);\n  child"),
+                },
+                new_name: "renamed".to_owned(),
+            })
+            .unwrap(),
+        ],
+        2,
+    );
+    let error = response.error.expect("recursive cross-file rename should be rejected");
+    assert!(
+        error
+            .message
+            .contains("This rename can affect other files. Add vide.toml to make the editable project scope explicit."),
+        "unexpected recursive rename error: {error:?}"
     );
 
     shutdown_test_server(&client, server_thread);

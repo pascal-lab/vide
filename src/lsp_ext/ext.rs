@@ -142,6 +142,9 @@ pub enum CodeActionResolveError {
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";
 pub const RELOAD_WORKSPACE_COMMAND: &str = "vide.server.reloadWorkspace";
+pub const PORT_CONNECTION_RENAME_INFO_COMMAND: &str = "vide.server.portConnectionRenameInfo";
+pub const PORT_CONNECTION_RENAME_COMMAND: &str = "vide.server.portConnectionRename";
+pub const RENAME_COLLISION_INFO_COMMAND: &str = "vide.server.renameCollisionInfo";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,6 +152,40 @@ pub struct RunQiheAnalysisParams {
     pub uri: lsp_types::Url,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortConnectionRenameInfoParams {
+    pub text_document_position: lsp_types::TextDocumentPositionParams,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortConnectionRenameInfoResult {
+    pub additional_symbols: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortConnectionRenameParams {
+    pub text_document_position: lsp_types::TextDocumentPositionParams,
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameCollisionInfoParams {
+    pub text_document_position: lsp_types::TextDocumentPositionParams,
+    pub new_name: String,
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameCollisionInfoResult {
+    pub conflicts: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
