@@ -400,6 +400,10 @@ type RenameCollisionInfo = {
   conflicts: number;
 };
 
+function emptyRenameEdit(): vscode.WorkspaceEdit {
+  return new vscode.WorkspaceEdit();
+}
+
 async function confirmRenameCollision(
   textDocumentPosition: unknown,
   newName: string,
@@ -461,7 +465,7 @@ async function providePortConnectionRenameEdits(
   };
   const standardRename = async (): Promise<vscode.WorkspaceEdit | null | undefined> => {
     if (!(await confirmRenameCollision(textDocumentPosition, newName, false, token))) {
-      return null;
+      return emptyRenameEdit();
     }
     return await next(document, position, newName, token);
   };
@@ -495,7 +499,7 @@ async function providePortConnectionRenameEdits(
   }
 
   if (!(await confirmRenameCollision(textDocumentPosition, newName, true, token))) {
-    return null;
+    return emptyRenameEdit();
   }
 
   const edit = await languageClient.sendRequest(
