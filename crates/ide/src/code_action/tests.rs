@@ -1,6 +1,9 @@
 use hir::base_db::{change::Change, source_root::SourceRoot};
 use triomphe::Arc;
-use utils::{lines::LineEnding, text_edit::TextSize};
+use utils::{
+    lines::LineEnding,
+    text_edit::{TextRange, TextSize},
+};
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
@@ -46,6 +49,7 @@ fn apply_action(text: &str, repair: RepairKind) -> Option<String> {
             action.id.name == "add_implicit_named_port_parens"
         }
         RepairKind::AddInstanceParens => action.id.name == "add_instance_parens",
+        RepairKind::InsertExpectedToken => action.id.name == "insert_expected_token",
     })?;
     let mut text = text.replace("/*caret*/", "");
     let edit = action.source_change?.text_edits.remove(&file_id)?;
@@ -93,42 +97,64 @@ fn diagnostic_for_repair(repair: RepairKind) -> CodeActionDiagnostic {
             code: None,
             name: Some("UnconnectedNamedPort".to_owned()),
             option: Some("unconnected-port".to_owned()),
+            range: None,
+            expected_token: None,
         },
         RepairKind::MissingParameter => CodeActionDiagnostic {
             source: Some(DiagnosticSource::Semantic),
             code: Some(DiagnosticCode { subsystem: 2, code: 29 }),
             name: Some("ParamHasNoValue".to_owned()),
             option: None,
+            range: None,
+            expected_token: None,
         },
         RepairKind::ConvertOrderedPorts => CodeActionDiagnostic {
             source: Some(DiagnosticSource::Semantic),
             code: None,
             name: Some("MixingOrderedAndNamedPorts".to_owned()),
             option: None,
+            range: None,
+            expected_token: None,
         },
         RepairKind::ConvertOrderedParams => CodeActionDiagnostic {
             source: Some(DiagnosticSource::Semantic),
             code: None,
             name: Some("MixingOrderedAndNamedParams".to_owned()),
             option: None,
+            range: None,
+            expected_token: None,
         },
         RepairKind::RemoveEmptyPortConnections => CodeActionDiagnostic {
             source: Some(DiagnosticSource::Semantic),
             code: None,
             name: Some("MixingOrderedAndNamedPorts".to_owned()),
             option: None,
+            range: None,
+            expected_token: None,
         },
         RepairKind::AddImplicitNamedPortParens => CodeActionDiagnostic {
             source: Some(DiagnosticSource::Semantic),
             code: None,
             name: Some("ImplicitNamedPortNotFound".to_owned()),
             option: None,
+            range: None,
+            expected_token: None,
         },
         RepairKind::AddInstanceParens => CodeActionDiagnostic {
             source: Some(DiagnosticSource::Semantic),
             code: None,
             name: Some("InstanceMissingParens".to_owned()),
             option: None,
+            range: None,
+            expected_token: None,
+        },
+        RepairKind::InsertExpectedToken => CodeActionDiagnostic {
+            source: Some(DiagnosticSource::Parse),
+            code: None,
+            name: Some("ExpectedToken".to_owned()),
+            option: None,
+            range: None,
+            expected_token: Some(";".to_owned()),
         },
     }
 }
@@ -914,4 +940,42 @@ fn apply_de_morgan_requires_parenthesized_logical_expression() {
     let labels =
         action_labels_without_diagnostics("module top; assign y = /*caret*/!a; endmodule\n");
     assert!(!labels.iter().any(|label| label == "Apply De Morgan's law"));
+}
+
+#[test]
+fn expected_token_repair_inserts_missing_semicolon() {
+    let text = "module top;\nlogic a/*caret*/\nendmodule\n";
+    let fixed = apply_action(text, RepairKind::InsertExpectedToken).unwrap();
+    assert_eq!(fixed, "module top;\nlogic a;\nendmodule\n");
+}
+
+#[test]
+fn expected_token_repair_uses_diagnostic_range() {
+    let text = "/*caret*/module top;\nlogic a\nendmodule\n";
+    let clean_text = text.replace("/*caret*/", "");
+    let diagnostic_offset = TextSize::from(clean_text.find("\nendmodule").unwrap() as u32);
+    let (db, file_id, offset) = db_with_file(text);
+    let mut diagnostic = diagnostic_for_repair(RepairKind::InsertExpectedToken);
+    diagnostic.range = Some(TextRange::empty(diagnostic_offset));
+    let actions = code_action(
+        &db,
+        file_id,
+        TextRange::empty(offset),
+        CodeActionDiagnostics { items: vec![diagnostic] },
+        CodeActionResolveStrategy::All,
+    );
+    let action =
+        actions.into_iter().find(|action| action.id.name == "insert_expected_token").unwrap();
+    let mut fixed = clean_text;
+    let edit = action.source_change.unwrap().text_edits.remove(&file_id).unwrap();
+    edit.apply(&mut fixed);
+
+    assert_eq!(fixed, "module top;\nlogic a;\nendmodule\n");
+}
+
+#[test]
+fn expected_token_repair_requires_diagnostic() {
+    let text = "module top;\nlogic a/*caret*/\nendmodule\n";
+    let labels = action_labels_without_diagnostics(text);
+    assert!(!labels.iter().any(|label| label.starts_with("Insert missing ")));
 }

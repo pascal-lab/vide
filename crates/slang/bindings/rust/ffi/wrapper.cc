@@ -33,6 +33,28 @@ void apply_warning_options(slang::DiagnosticEngine& engine,
   (void)engine.setWarningOptions(options);
 }
 
+rust::Vec<rust::String> diagnostic_args(const Diagnostic& diag) {
+  rust::Vec<rust::String> result;
+  for (const auto& arg : diag.args) {
+    std::visit(
+      [&](auto&& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, std::string>)
+          result.emplace_back(rust::String(value));
+        else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, uint64_t>)
+          result.emplace_back(rust::String(std::to_string(value)));
+        else if constexpr (std::is_same_v<T, char>)
+          result.emplace_back(rust::String(std::string(1, value)));
+        else if constexpr (std::is_same_v<T, slang::ConstantValue>)
+          result.emplace_back(rust::String(value.toString()));
+        else
+          result.emplace_back(rust::String());
+      },
+      arg);
+  }
+  return result;
+}
+
 struct SyntaxTreeSourceInfo {
   const slang::SourceManager* sourceManager;
   slang::SourceLocation rootLocation;
@@ -341,6 +363,7 @@ std::unique_ptr<SourceRange> mapRawSourceRangeWithContext(
   rust_diag.subsystem = static_cast<uint16_t>(diag.code.getSubsystem());
   rust_diag.severity = static_cast<uint8_t>(engine.getSeverity(diag.code, diag.location));
   rust_diag.message = rust::String(engine.formatMessage(diag));
+  rust_diag.args = diagnostic_args(diag);
   rust_diag.name = rust::String(std::string(slang::toString(diag.code)));
   auto option_name = engine.getOptionName(diag.code);
   rust_diag.option_name = rust::String(std::string(option_name));

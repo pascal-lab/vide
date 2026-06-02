@@ -1,3 +1,5 @@
+use utils::text_edit::TextRange;
+
 #[derive(Debug, Clone, Default)]
 pub struct CodeActionDiagnostics {
     pub items: Vec<CodeActionDiagnostic>,
@@ -9,6 +11,8 @@ pub struct CodeActionDiagnostic {
     pub code: Option<DiagnosticCode>,
     pub name: Option<String>,
     pub option: Option<String>,
+    pub range: Option<TextRange>,
+    pub expected_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +36,7 @@ pub enum RepairKind {
     RemoveEmptyPortConnections,
     AddImplicitNamedPortParens,
     AddInstanceParens,
+    InsertExpectedToken,
 }
 
 impl CodeActionDiagnostics {
@@ -74,6 +79,10 @@ impl CodeActionDiagnostic {
             RepairKind::AddInstanceParens => {
                 self.source == Some(DiagnosticSource::Semantic)
                     && self.name.as_deref() == Some("InstanceMissingParens")
+            }
+            RepairKind::InsertExpectedToken => {
+                self.source == Some(DiagnosticSource::Parse)
+                    && self.name.as_deref() == Some("ExpectedToken")
             }
         }
     }
