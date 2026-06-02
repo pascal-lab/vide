@@ -243,7 +243,7 @@ export const USER_CONFIG_SETTINGS = [
 		docsGroup: "Diagnostics",
 		descriptionKey: "configuration.diagnostics.slang.warnings.markdownDescription",
 		markdownDescriptionKey: "configuration.diagnostics.slang.warnings.markdownDescription",
-		defaultValue: [],
+		defaultValue: ["width-expand","width-trunc","port-width-expand","port-width-trunc"],
 	},
 	{
 		path: ["diagnostics","slang","rules"],

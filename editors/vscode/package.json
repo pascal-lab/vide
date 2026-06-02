@@ -309,7 +309,12 @@
           "items": {
             "type": "string"
           },
-          "default": [],
+          "default": [
+            "width-expand",
+            "width-trunc",
+            "port-width-expand",
+            "port-width-trunc"
+          ],
           "markdownDescription": "%configuration.diagnostics.slang.warnings.markdownDescription%"
         },
         "vide.diagnostics.slang.rules": {
