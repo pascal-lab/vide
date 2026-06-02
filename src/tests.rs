@@ -685,23 +685,46 @@ fn request_code_actions(
     request_id: i32,
 ) -> Vec<CodeActionOrCommand> {
     let position = position_of(text, needle);
-    let request_id = lsp_server::RequestId::from(request_id);
-    client
-        .sender
-        .send(Message::Request(Request::new(
-            request_id.clone(),
-            CodeActionRequest::METHOD.to_string(),
-            CodeActionParams {
-                text_document: TextDocumentIdentifier { uri },
-                range: Range::new(position, position),
-                context,
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: Default::default(),
-            },
-        )))
-        .unwrap();
+    const CONTENT_MODIFIED_RETRIES: i32 = 5;
 
-    recv_response(client, request_id, "codeAction")
+    for attempt in 0..=CONTENT_MODIFIED_RETRIES {
+        let request_id = lsp_server::RequestId::from(request_id + attempt);
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                request_id.clone(),
+                CodeActionRequest::METHOD.to_string(),
+                CodeActionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    range: Range::new(position, position),
+                    context: context.clone(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: Default::default(),
+                },
+            )))
+            .unwrap();
+
+        let response = recv_raw_response(client, request_id, "codeAction");
+        if response.error.is_none() {
+            return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
+                .unwrap_or_else(|err| panic!("failed to decode codeAction response: {err}"));
+        }
+
+        if is_content_modified(&response) && attempt < CONTENT_MODIFIED_RETRIES {
+            continue;
+        }
+
+        panic!("codeAction returned error: {:?}", response.error);
+    }
+
+    unreachable!("codeAction retries should either return or panic")
+}
+
+fn is_content_modified(response: &lsp_server::Response) -> bool {
+    response
+        .error
+        .as_ref()
+        .is_some_and(|error| error.code == lsp_server::ErrorCode::ContentModified as i32)
 }
 
 fn request_code_lenses(client: &Connection, uri: Url, request_id: i32) -> Vec<lsp_types::CodeLens> {
@@ -945,6 +968,50 @@ endmodule
                 && !diag.message.contains("存在歧义")
         }),
         "expected localized Vide diagnostic message, got {diagnostics:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn code_actions_are_localized_for_chinese_locale() {
+    let text = "\
+module top;
+  logic a, b;
+endmodule
+";
+    let temp_dir = TempDir::new("vide-i18n-code-action");
+    let file_path = temp_dir.path().join("split.sv");
+    fs::write(&file_path, text).unwrap();
+    let root_path = temp_dir.path().to_path_buf();
+    let config = test_server_config_with_i18n(
+        root_path,
+        code_action_client_caps(),
+        UserConfig::default(),
+        I18n::new(Locale::ZhCn),
+    );
+    let (server, client) = Connection::memory();
+    let server_thread = spawn_default_test_server(config, server);
+    let uri = to_proto::url_from_abs_path(file_path.as_path()).unwrap();
+    open_test_document(&client, uri.clone(), text);
+
+    let actions = request_code_actions(
+        &client,
+        uri,
+        text,
+        "a, b",
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_REWRITE]),
+            trigger_kind: None,
+        },
+        221,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "拆分声明"),
+        "expected localized code action title, got {titles:?}"
     );
 
     shutdown_test_server(&client, server_thread);

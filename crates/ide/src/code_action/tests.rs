@@ -511,3 +511,407 @@ fn instance_missing_parens_repair_requires_diagnostics() {
     let labels = action_labels_without_diagnostics(text);
     assert!(!labels.iter().any(|label| label == "Add empty instance port list"));
 }
+
+#[test]
+fn split_declaration_declarators_splits_data_declaration() {
+    let text = "module top; /*caret*/logic [3:0] a, b = 4'h0; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "split_declaration_declarators").unwrap();
+    assert_eq!(fixed, "module top; logic [3:0] a;\nlogic [3:0] b = 4'h0; endmodule\n");
+}
+
+#[test]
+fn split_declaration_declarators_requires_multiple_declarators() {
+    let labels = action_labels_without_diagnostics("module top; /*caret*/logic a; endmodule\n");
+    assert!(!labels.iter().any(|label| label == "Split declaration"));
+}
+
+#[test]
+fn sort_named_parameter_assignments_sorts_named_assignments() {
+    let text = "module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule\nmodule top; child #(/*caret*/.DEPTH(16), .WIDTH(8)) u(); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "sort_named_parameter_assignments").unwrap();
+    assert_eq!(
+        fixed,
+        "module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule\nmodule top; child #(.WIDTH(8), .DEPTH(16)) u(); endmodule\n"
+    );
+}
+
+#[test]
+fn sort_named_parameter_assignments_rejects_mixed_assignments() {
+    let labels = action_labels_without_diagnostics(
+        "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/.B(2), 1) u(); endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Sort named parameter assignments"));
+}
+
+#[test]
+fn sort_named_port_connections_sorts_named_connections() {
+    let text = "module child(input z, input a); endmodule\nmodule top; child u(/*caret*/.a(y), .z(x)); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "sort_named_port_connections").unwrap();
+    assert_eq!(
+        fixed,
+        "module child(input z, input a); endmodule\nmodule top; child u(.z(x), .a(y)); endmodule\n"
+    );
+}
+
+#[test]
+fn sort_named_port_connections_uses_module_order_for_availability() {
+    let labels = action_labels_without_diagnostics(
+        "module child(input z, input a); endmodule\nmodule top; child u(/*caret*/.z(x), .a(y)); endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Sort named port connections"));
+}
+
+#[test]
+fn sort_named_port_connections_rejects_ordered_connections() {
+    let labels = action_labels_without_diagnostics(
+        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.b(y), x); endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Sort named port connections"));
+}
+
+#[test]
+fn add_default_case_item_adds_default_before_endcase() {
+    let text = "module top; always_comb case (/*caret*/sel)\n    1'b0: y = 0;\nendcase endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "add_default_case_item").unwrap();
+    assert_eq!(
+        fixed,
+        "module top; always_comb case (sel)\n    1'b0: y = 0;\n    default: ;\nendcase endmodule\n"
+    );
+}
+
+#[test]
+fn add_default_case_item_skips_existing_default() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb case (/*caret*/sel) default: ; endcase endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Add default case item"));
+}
+
+#[test]
+fn invert_if_else_swaps_branches_and_negates_condition() {
+    let text = "module top; always_comb if (/*caret*/a) y = 1; else y = 0; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "invert_if_else").unwrap();
+    assert_eq!(fixed, "module top; always_comb if (!(a)) y = 0; else y = 1; endmodule\n");
+}
+
+#[test]
+fn unwrap_single_statement_block_unwraps_single_statement() {
+    let text = "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "unwrap_single_statement_block").unwrap();
+    assert_eq!(fixed, "module top; always_comb if (a) y = 1; endmodule\n");
+}
+
+#[test]
+fn unwrap_single_statement_block_requires_single_statement() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb /*caret*/begin y = 1; z = 0; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Unwrap single-statement begin/end"));
+}
+
+#[test]
+fn unwrap_single_statement_block_requires_control_flow_body() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb /*caret*/begin y = 1; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Unwrap single-statement begin/end"));
+}
+
+#[test]
+fn unwrap_single_statement_block_unwraps_for_body() {
+    let text =
+        "module top; always_comb for (int i = 0; i < 4; i++) /*caret*/begin y = i; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "unwrap_single_statement_block").unwrap();
+    assert_eq!(fixed, "module top; always_comb for (int i = 0; i < 4; i++) y = i; endmodule\n");
+}
+
+#[test]
+fn wrap_statement_in_begin_end_wraps_statement() {
+    let text = "module top; always_comb if (a) /*caret*/y = 1; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "wrap_statement_in_begin_end").unwrap();
+    assert_eq!(fixed, "module top; always_comb if (a) begin\n    y = 1;\nend endmodule\n");
+}
+
+#[test]
+fn wrap_statement_in_begin_end_skips_existing_block() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Wrap statement in begin/end"));
+}
+
+#[test]
+fn wrap_statement_in_begin_end_requires_control_flow_body() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin /*caret*/y = 1; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Wrap statement in begin/end"));
+}
+
+#[test]
+fn wrap_statement_in_begin_end_wraps_for_body() {
+    let text = "module top; always_comb for (int i = 0; i < 4; i++) /*caret*/y = i; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "wrap_statement_in_begin_end").unwrap();
+    assert_eq!(
+        fixed,
+        "module top; always_comb for (int i = 0; i < 4; i++) begin\n    y = i;\nend endmodule\n"
+    );
+}
+
+#[test]
+fn expand_postfix_inc_dec_expands_increment() {
+    let text = "module top; always_comb begin /*caret*/i++; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i = i + 1; end endmodule\n");
+}
+
+#[test]
+fn expand_prefix_inc_dec_expands_decrement() {
+    let text = "module top; always_comb begin /*caret*/--i; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "expand_prefix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i = i - 1; end endmodule\n");
+}
+
+#[test]
+fn convert_postfix_to_prefix_inc_dec_converts_increment() {
+    let text = "module top; always_comb begin /*caret*/i++; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_postfix_to_prefix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin ++i; end endmodule\n");
+}
+
+#[test]
+fn convert_postfix_to_compound_inc_dec_converts_decrement() {
+    let text = "module top; always_comb begin /*caret*/i--; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_postfix_to_compound_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i -= 1; end endmodule\n");
+}
+
+#[test]
+fn convert_prefix_to_postfix_inc_dec_converts_decrement() {
+    let text = "module top; always_comb begin /*caret*/--i; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_prefix_to_postfix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i--; end endmodule\n");
+}
+
+#[test]
+fn convert_prefix_to_compound_inc_dec_converts_increment() {
+    let text = "module top; always_comb begin /*caret*/++i; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_prefix_to_compound_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i += 1; end endmodule\n");
+}
+
+#[test]
+fn convert_compound_to_postfix_inc_dec_converts_increment() {
+    let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_compound_to_postfix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i++; end endmodule\n");
+}
+
+#[test]
+fn convert_compound_to_prefix_inc_dec_converts_decrement() {
+    let text = "module top; always_comb begin /*caret*/i -= 1; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_compound_to_prefix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin --i; end endmodule\n");
+}
+
+#[test]
+fn inc_dec_assists_are_limited_to_other_two_forms() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin /*caret*/i++; end endmodule\n",
+    );
+    let labels = labels
+        .into_iter()
+        .filter(|label| label.contains("expression") || label.contains("compound assignment"))
+        .collect::<Vec<_>>();
+    assert_eq!(labels.len(), 3);
+    assert!(labels.iter().any(|label| label == "Expand postfix expression"));
+    assert!(labels.iter().any(|label| label == "Convert postfix to prefix expression"));
+    assert!(labels.iter().any(|label| label == "Convert postfix to compound assignment"));
+}
+
+#[test]
+fn inc_dec_assists_require_discarded_value_context() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin y = /*caret*/i++; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Expand postfix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert postfix to prefix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert postfix to compound assignment"));
+}
+
+#[test]
+fn inc_dec_assists_support_for_loop_steps() {
+    let text = "module top; int i; logic y; always_comb for (i = 0; i < 4; /*caret*/i++) y = i; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
+    assert_eq!(
+        fixed,
+        "module top; int i; logic y; always_comb for (i = 0; i < 4; i = i + 1) y = i; endmodule\n"
+    );
+}
+
+#[test]
+fn compound_inc_dec_can_expand() {
+    let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i = i + 1; end endmodule\n");
+}
+
+#[test]
+fn convert_assignment_to_postfix_inc_dec_converts_increment() {
+    let text = "module top; always_comb begin /*caret*/i = i + 1; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_assignment_to_postfix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin i++; end endmodule\n");
+}
+
+#[test]
+fn convert_assignment_to_prefix_inc_dec_converts_decrement() {
+    let text = "module top; always_comb begin /*caret*/i = i - 1; end endmodule\n";
+    let fixed =
+        apply_action_without_diagnostics(text, "convert_assignment_to_prefix_inc_dec").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin --i; end endmodule\n");
+}
+
+#[test]
+fn convert_assignment_inc_dec_requires_same_lhs_and_one() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin /*caret*/i = j + 1; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix expression"));
+}
+
+#[test]
+fn convert_assignment_inc_dec_requires_discarded_value_context() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin y = (/*caret*/i = i + 1); end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix expression"));
+    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix expression"));
+}
+
+#[test]
+fn convert_compound_inc_dec_requires_one() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin /*caret*/i += 2; end endmodule\n",
+    );
+    assert!(
+        !labels.iter().any(|label| label == "Convert compound assignment to postfix expression")
+    );
+    assert!(
+        !labels.iter().any(|label| label == "Convert compound assignment to prefix expression")
+    );
+}
+
+#[test]
+fn expand_compound_assignment_expands_assignment() {
+    let text = "module top; always_comb begin /*caret*/a += b; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin a = a + b; end endmodule\n");
+}
+
+#[test]
+fn collapse_compound_assignment_collapses_assignment() {
+    let text = "module top; always_comb begin /*caret*/a = a + b; end endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "collapse_compound_assignment").unwrap();
+    assert_eq!(fixed, "module top; always_comb begin a += b; end endmodule\n");
+}
+
+#[test]
+fn collapse_compound_assignment_requires_same_lhs() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin /*caret*/a = c + b; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Collapse compound assignment"));
+}
+
+#[test]
+fn expand_compound_assignment_skips_plain_assignment() {
+    let labels = action_labels_without_diagnostics(
+        "module top; always_comb begin /*caret*/a = b; end endmodule\n",
+    );
+    assert!(!labels.iter().any(|label| label == "Expand compound assignment"));
+}
+
+#[test]
+fn apply_de_morgan_rewrites_parenthesized_logical_expression() {
+    let text = "module top; assign y = /*caret*/!(a && b); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; assign y = !a || !b; endmodule\n");
+}
+
+#[test]
+fn apply_de_morgan_rewrites_logical_chain() {
+    let text = "module top; assign y = /*caret*/!(a && b && c); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; assign y = !a || !b || !c; endmodule\n");
+}
+
+#[test]
+fn apply_de_morgan_inverts_comparison_operators() {
+    let text = "module top; assign y = /*caret*/!(a == b || c != d || e <= f); endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; assign y = a != b && c == d && e > f; endmodule\n");
+}
+
+#[test]
+fn apply_de_morgan_triggers_across_if_condition() {
+    let text = "module top; always_comb if (!(a == b /*caret*/|| c != d)) y = 1; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; always_comb if (a != b && c == d) y = 1; endmodule\n");
+}
+
+#[test]
+fn factor_de_morgan_rewrites_negated_operands() {
+    let text = "module top; assign y = !a /*caret*/|| !b; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; assign y = !(a && b); endmodule\n");
+}
+
+#[test]
+fn factor_de_morgan_inverts_comparison_operators() {
+    let text = "module top; assign y = a == b /*caret*/&& c < d; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; assign y = !(a != b || c >= d); endmodule\n");
+}
+
+#[test]
+fn factor_de_morgan_rewrites_logical_chain() {
+    let text = "module top; assign y = a /*caret*/|| b || c; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; assign y = !(!a && !b && !c); endmodule\n");
+}
+
+#[test]
+fn factor_de_morgan_triggers_across_if_condition() {
+    let text = "module top; always_comb if (a == b /*caret*/&& c < d) y = 1; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; always_comb if (!(a != b || c >= d)) y = 1; endmodule\n");
+}
+
+#[test]
+fn factor_de_morgan_triggers_on_if_condition_operand() {
+    let text = "module top; always_comb if (a == /*caret*/b && c < d) y = 1; endmodule\n";
+    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
+    assert_eq!(fixed, "module top; always_comb if (!(a != b || c >= d)) y = 1; endmodule\n");
+}
+
+#[test]
+fn factor_de_morgan_requires_cursor_on_logical_operator() {
+    let labels =
+        action_labels_without_diagnostics("module top; assign y = /*caret*/!a || b; endmodule\n");
+    assert!(!labels.iter().any(|label| label == "Factor De Morgan's law"));
+}
+
+#[test]
+fn apply_de_morgan_requires_parenthesized_logical_expression() {
+    let labels =
+        action_labels_without_diagnostics("module top; assign y = /*caret*/!a; endmodule\n");
+    assert!(!labels.iter().any(|label| label == "Apply De Morgan's law"));
+}

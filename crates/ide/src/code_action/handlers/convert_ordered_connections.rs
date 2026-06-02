@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use hir::{base_db::source_db::SourceDb, db::HirDb};
 use itertools::Itertools;
 use syntax::{
@@ -33,6 +35,7 @@ pub(super) fn convert_ordered_ports(
 ) -> Option<()> {
     let sema = ctx.sema();
     let db = sema.db;
+    let text = db.file_text(ctx.file_id());
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
     let target_module_id =
@@ -49,7 +52,7 @@ pub(super) fn convert_ordered_ports(
             let name = port_names.get(idx)?;
             let expr = ordered.expr().syntax().text_range()?;
             let range = ordered.syntax().text_range()?;
-            Some((range, format!(".{name}({})", text_at(ctx, expr)?)))
+            Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();
 
@@ -72,6 +75,7 @@ pub(super) fn convert_ordered_params(
 ) -> Option<()> {
     let sema = ctx.sema();
     let db = sema.db;
+    let text = db.file_text(ctx.file_id());
     let ast_instantiation = ctx.find_node_at_offset::<ast::HierarchyInstantiation>()?;
     let target_module_id =
         resolve_instantiation_target(db, ctx.file_id(), ast_instantiation).unique()?;
@@ -88,7 +92,7 @@ pub(super) fn convert_ordered_params(
             let name = param_names.get(idx)?;
             let expr = ordered.expr().syntax().text_range()?;
             let range = ordered.syntax().text_range()?;
-            Some((range, format!(".{name}({})", text_at(ctx, expr)?)))
+            Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();
 
@@ -103,9 +107,4 @@ pub(super) fn convert_ordered_params(
     });
 
     Some(())
-}
-
-fn text_at(ctx: &CodeActionCtx, range: utils::text_edit::TextRange) -> Option<String> {
-    let text = ctx.sema().db.file_text(ctx.file_id());
-    Some(text[std::ops::Range::<usize>::from(range)].to_owned())
 }
