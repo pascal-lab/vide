@@ -178,6 +178,7 @@ fn diagnostic_data(diag: &ide_diagnostics::Diagnostic) -> serde_json::Value {
         "name": diag.name,
         "option": diag.option_name,
         "groups": diag.groups,
+        "args": diag.args.clone(),
         "selectorHints": diagnostic_selector_hints(diag),
     })
 }
@@ -899,9 +900,19 @@ pub(crate) fn code_action(
 }
 
 fn code_action_title(i18n: I18n, id: &str, label: &str) -> String {
+    if let Some(token) =
+        insert_expected_token_label(label).filter(|_| id == "insert_expected_token")
+    {
+        return i18n.format(keys::CODE_ACTION_INSERT_MISSING_TOKEN, [("token", token.to_owned())]);
+    }
+
     code_action_title_key(id, label)
         .map(|key| i18n.text(key).to_owned())
         .unwrap_or_else(|| label.to_owned())
+}
+
+fn insert_expected_token_label(label: &str) -> Option<&str> {
+    label.strip_prefix("Insert missing '")?.strip_suffix('\'')
 }
 
 fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
@@ -970,7 +981,7 @@ mod tests {
     };
     use vfs::FileId;
 
-    use super::diagnostic;
+    use super::{code_action_title, diagnostic};
     use crate::i18n::{I18n, Locale};
 
     #[test]
@@ -991,6 +1002,7 @@ mod tests {
             range: TextRange::new(TextSize::from(0), TextSize::from(14)),
             severity: DiagnosticSeverity::Note,
             message: "inactive".to_owned(),
+            args: Vec::new(),
             message_key: None,
             message_args: Vec::new(),
             tags: vec![DiagnosticTag::Unnecessary],
@@ -1001,5 +1013,17 @@ mod tests {
         assert_eq!(lsp_diag.severity, Some(lsp_types::DiagnosticSeverity::HINT));
         assert_eq!(lsp_diag.code, Some(lsp_types::NumberOrString::String("0:2".to_owned())));
         assert_eq!(lsp_diag.tags, Some(vec![lsp_types::DiagnosticTag::UNNECESSARY]));
+    }
+
+    #[test]
+    fn code_action_title_localizes_insert_expected_token() {
+        assert_eq!(
+            code_action_title(
+                I18n::new(Locale::ZhCn),
+                "insert_expected_token",
+                "Insert missing ';'"
+            ),
+            "插入缺失的 ';'"
+        );
     }
 }

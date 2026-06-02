@@ -12,6 +12,7 @@ mod convert_literal_base;
 mod convert_ordered_connections;
 mod expand_compound_assignment;
 mod expand_postfix_inc_dec;
+mod insert_expected_token;
 mod invert_if_else;
 mod remove_empty_port_connections;
 mod sort_named_instantiation_items;
@@ -38,5 +39,6 @@ pub(crate) fn all() -> &'static [Handler] {
         expand_postfix_inc_dec::expand_postfix_inc_dec,
         expand_compound_assignment::expand_compound_assignment,
         apply_de_morgan::apply_de_morgan,
+        insert_expected_token::insert_expected_token,
     ]
 }

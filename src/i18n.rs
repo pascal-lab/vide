@@ -124,6 +124,7 @@ pub(crate) mod keys {
         "code_action.collapse_compound_assignment";
     pub(crate) const CODE_ACTION_APPLY_DE_MORGAN: &str = "code_action.apply_de_morgan";
     pub(crate) const CODE_ACTION_FACTOR_DE_MORGAN: &str = "code_action.factor_de_morgan";
+    pub(crate) const CODE_ACTION_INSERT_MISSING_TOKEN: &str = "code_action.insert_missing_token";
     pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_BINARY: &str =
         "code_action.convert_literal_to_binary";
     pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_OCTAL: &str =
