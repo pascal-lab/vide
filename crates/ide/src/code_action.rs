@@ -13,7 +13,7 @@ pub(crate) use context::CodeActionCtx;
 pub use diagnostics::{
     CodeActionDiagnostic, CodeActionDiagnostics, DiagnosticCode, DiagnosticSource, RepairKind,
 };
-pub(crate) use edits::apply_missing_list_edit;
+pub(crate) use edits::{apply_missing_list_edit, line_indent};
 pub(crate) use engine::code_action;
 pub(crate) use module_members::{
     all_parameter_names, leading_parameter_names, missing_member_entry_text, port_names,
