@@ -430,6 +430,195 @@ fn best_effort_single_file_rename_rejects_cross_file_symbol() {
 }
 
 #[test]
+fn recursive_rename_follows_same_name_shorthand_port_connection_chain() {
+    let text = r#"
+module top(input a);
+  mid u_mid(.a);
+endmodule
+
+module mid(input a);
+  leaf u_leaf(.a);
+endmodule
+
+module leaf(input a);
+endmodule
+"#;
+    let (host, file_id) = setup_with_path(text, "/chain.sv");
+    let analysis = host.make_analysis();
+    let clean_text = normalize_fixture_text(text);
+    let offset = TextSize::from(clean_text.find("input a").expect("top port") as u32 + 6);
+    let position = FilePosition { file_id, offset };
+    let config = RenameConfig::workspace(ScopeVisibility::Private);
+
+    let info = analysis
+        .recursive_rename_info(position, config.clone())
+        .unwrap()
+        .expect("recursive rename info expected");
+    assert_eq!(info.additional_symbols, 2);
+
+    let recursive = analysis
+        .recursive_rename(position, config.clone(), "renamed")
+        .unwrap()
+        .expect("recursive rename expected");
+    let edit = recursive.text_edits.get(&file_id).expect("recursive rename should edit file");
+    let mut renamed = clean_text.clone();
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("module top(input renamed);"));
+    assert!(renamed.contains("module mid(input renamed);"));
+    assert!(renamed.contains("module leaf(input renamed);"));
+    assert!(renamed.contains("mid u_mid(.renamed);"));
+    assert!(renamed.contains("leaf u_leaf(.renamed);"));
+
+    let standard =
+        analysis.rename(position, config, "local_only").unwrap().expect("standard rename expected");
+    let edit = standard.text_edits.get(&file_id).expect("standard rename should edit file");
+    let mut standard_renamed = clean_text;
+    edit.apply(&mut standard_renamed);
+    assert!(standard_renamed.contains("module top(input local_only);"));
+    assert!(standard_renamed.contains("module mid(input a);"));
+    assert!(standard_renamed.contains("mid u_mid(.a(local_only));"));
+}
+
+#[test]
+fn recursive_rename_collapses_explicit_same_name_port_connection() {
+    let text = r#"
+module top(input a);
+  child u_child(.a(a));
+endmodule
+
+module child(input a);
+endmodule
+"#;
+    let (host, file_id) = setup_with_path(text, "/explicit.sv");
+    let analysis = host.make_analysis();
+    let clean_text = normalize_fixture_text(text);
+    let offset = TextSize::from(clean_text.find("input a").expect("top port") as u32 + 6);
+    let position = FilePosition { file_id, offset };
+    let config = RenameConfig::workspace(ScopeVisibility::Private);
+
+    let recursive = analysis
+        .recursive_rename(position, config, "renamed")
+        .unwrap()
+        .expect("recursive rename expected");
+    let edit = recursive.text_edits.get(&file_id).expect("recursive rename should edit file");
+    let mut renamed = clean_text;
+    edit.apply(&mut renamed);
+    assert!(renamed.contains("module top(input renamed);"));
+    assert!(renamed.contains("module child(input renamed);"));
+    assert!(renamed.contains("child u_child(.renamed);"));
+}
+
+#[test]
+fn recursive_rename_skips_non_same_name_or_complex_port_connections() {
+    let cases = [
+        (
+            "different actual",
+            "module top(input b); child u(.a(b)); endmodule\nmodule child(input a); endmodule\n",
+            "input b",
+        ),
+        (
+            "indexed actual",
+            "module top(input a); child u(.a(a[0])); endmodule\nmodule child(input a); endmodule\n",
+            "input a",
+        ),
+        (
+            "member actual",
+            "module top; obj_t obj; child u(.a(obj.a)); endmodule\nmodule child(input a); endmodule\n",
+            "input a",
+        ),
+        (
+            "ordered actual",
+            "module top(input a); child u(a); endmodule\nmodule child(input a); endmodule\n",
+            "input a",
+        ),
+        (
+            "wildcard actual",
+            "module top(input a); child u(.*); endmodule\nmodule child(input a); endmodule\n",
+            "input a",
+        ),
+    ];
+
+    for (label, text, needle) in cases {
+        let (host, file_id) = setup_with_path(text, "/negative.sv");
+        let analysis = host.make_analysis();
+        let clean_text = normalize_fixture_text(text);
+        let offset = TextSize::from(
+            clean_text.find(needle).unwrap_or_else(|| panic!("missing needle for {label}")) as u32
+                + needle.len() as u32
+                - 1,
+        );
+        let info = analysis
+            .recursive_rename_info(
+                FilePosition { file_id, offset },
+                RenameConfig::workspace(ScopeVisibility::Private),
+            )
+            .unwrap()
+            .expect("recursive rename info expected");
+        assert_eq!(info.additional_symbols, 0, "{label}");
+    }
+}
+
+#[test]
+fn rename_collision_info_reports_same_scope_conflicts() {
+    let text = r#"
+module top;
+  logic a;
+  logic b;
+  always_comb a = b;
+endmodule
+"#;
+    let (host, file_id) = setup_with_path(text, "/collision.sv");
+    let analysis = host.make_analysis();
+    let clean_text = normalize_fixture_text(text);
+    let offset = TextSize::from(clean_text.find("logic b").expect("b declaration") as u32 + 6);
+    let position = FilePosition { file_id, offset };
+    let config = RenameConfig::workspace(ScopeVisibility::Private);
+
+    let collision = analysis
+        .rename_collision_info(position, config.clone(), "a", false)
+        .unwrap()
+        .expect("collision info expected");
+    assert_eq!(collision.conflicts, 1);
+
+    let no_collision = analysis
+        .rename_collision_info(position, config, "b", false)
+        .unwrap()
+        .expect("collision info expected");
+    assert_eq!(no_collision.conflicts, 0);
+}
+
+#[test]
+fn recursive_rename_collision_info_checks_all_chain_targets() {
+    let text = r#"
+module top(input a);
+  logic renamed;
+  child u_child(.a(a));
+endmodule
+
+module child(input a);
+endmodule
+"#;
+    let (host, file_id) = setup_with_path(text, "/recursive_collision.sv");
+    let analysis = host.make_analysis();
+    let clean_text = normalize_fixture_text(text);
+    let offset = TextSize::from(clean_text.find("input a").expect("top port") as u32 + 6);
+    let position = FilePosition { file_id, offset };
+    let config = RenameConfig::workspace(ScopeVisibility::Private);
+
+    let collision = analysis
+        .rename_collision_info(position, config.clone(), "renamed", true)
+        .unwrap()
+        .expect("recursive collision info expected");
+    assert_eq!(collision.conflicts, 1);
+
+    let no_collision = analysis
+        .rename_collision_info(position, config, "a", true)
+        .unwrap()
+        .expect("recursive collision info expected");
+    assert_eq!(no_collision.conflicts, 0);
+}
+
+#[test]
 fn verilog_2005_navigation_rename_hover_and_completion_smoke() {
     let text = r#"
 module child(input wire a, output wire y);

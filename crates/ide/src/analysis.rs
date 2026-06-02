@@ -188,6 +188,33 @@ impl Analysis {
         self.with_db(|db| rename::rename(db, position, config, new_name))
     }
 
+    pub fn recursive_rename_info(
+        &self,
+        position: FilePosition,
+        config: RenameConfig,
+    ) -> Cancellable<RenameResult<rename::RecursiveRenameInfo>> {
+        self.with_db(|db| rename::recursive_rename_info(db, position, config))
+    }
+
+    pub fn recursive_rename(
+        &self,
+        position: FilePosition,
+        config: RenameConfig,
+        new_name: &str,
+    ) -> Cancellable<RenameResult<SourceChange>> {
+        self.with_db(|db| rename::recursive_rename(db, position, config, new_name))
+    }
+
+    pub fn rename_collision_info(
+        &self,
+        position: FilePosition,
+        config: RenameConfig,
+        new_name: &str,
+        recursive: bool,
+    ) -> Cancellable<RenameResult<rename::RenameCollisionInfo>> {
+        self.with_db(|db| rename::rename_collision_info(db, position, config, new_name, recursive))
+    }
+
     pub fn format(
         &self,
         file_id: FileId,

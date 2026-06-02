@@ -44,6 +44,9 @@ const showServerVersionCommand = 'vide.showServerVersion';
 const showQiheOutputCommand = 'vide.showQiheOutput';
 const runQiheAnalysisCommand = 'vide.runQiheAnalysis';
 const runQiheAnalysisRequest = 'vide.server.runQiheAnalysis';
+const portConnectionRenameInfoRequest = 'vide.server.portConnectionRenameInfo';
+const portConnectionRenameRequest = 'vide.server.portConnectionRename';
+const renameCollisionInfoRequest = 'vide.server.renameCollisionInfo';
 const qiheStatusNotification = 'vide/qiheStatus';
 const qiheLogNotification = 'vide/qiheLog';
 const qiheAnalysisIcon = '$(beaker)';
@@ -389,6 +392,123 @@ function includeDeclarationInReferences(document: vscode.TextDocument): boolean 
   );
 }
 
+type PortConnectionRenameInfo = {
+  additionalSymbols: number;
+};
+
+type RenameCollisionInfo = {
+  conflicts: number;
+};
+
+async function confirmRenameCollision(
+  textDocumentPosition: unknown,
+  newName: string,
+  recursive: boolean,
+  token: vscode.CancellationToken,
+): Promise<boolean> {
+  const languageClient = client;
+  if (!languageClient) {
+    return true;
+  }
+
+  const info = await languageClient.sendRequest<RenameCollisionInfo>(
+    'workspace/executeCommand',
+    {
+      command: renameCollisionInfoRequest,
+      arguments: [{ textDocumentPosition, newName, recursive }],
+    },
+    token,
+  );
+
+  if (info.conflicts === 0) {
+    return true;
+  }
+
+  const continueAction = vscode.l10n.t('Continue Rename');
+  const cancelAction = vscode.l10n.t('Cancel');
+  const selected = await vscode.window.showWarningMessage(
+    vscode.l10n.t(
+      'Renaming to "{0}" may collide with {1} existing symbol(s).',
+      newName,
+      info.conflicts,
+    ),
+    continueAction,
+    cancelAction,
+  );
+  return selected === continueAction;
+}
+
+async function providePortConnectionRenameEdits(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+  newName: string,
+  token: vscode.CancellationToken,
+  next: (
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    newName: string,
+    token: vscode.CancellationToken,
+  ) => vscode.ProviderResult<vscode.WorkspaceEdit>,
+): Promise<vscode.WorkspaceEdit | null | undefined> {
+  const languageClient = client;
+  if (!languageClient) {
+    return await next(document, position, newName, token);
+  }
+
+  const textDocumentPosition = {
+    textDocument: languageClient.code2ProtocolConverter.asTextDocumentIdentifier(document),
+    position: languageClient.code2ProtocolConverter.asPosition(position),
+  };
+  const standardRename = async (): Promise<vscode.WorkspaceEdit | null | undefined> => {
+    if (!(await confirmRenameCollision(textDocumentPosition, newName, false, token))) {
+      return null;
+    }
+    return await next(document, position, newName, token);
+  };
+
+  const info = await languageClient.sendRequest<PortConnectionRenameInfo>(
+    'workspace/executeCommand',
+    {
+      command: portConnectionRenameInfoRequest,
+      arguments: [{ textDocumentPosition }],
+    },
+    token,
+  );
+
+  if (info.additionalSymbols === 0) {
+    return await standardRename();
+  }
+
+  const recursiveAction = vscode.l10n.t('Rename Connected Ports/Signals');
+  const localAction = vscode.l10n.t('Only This Symbol');
+  const selected = await vscode.window.showInformationMessage(
+    vscode.l10n.t(
+      'Rename {0} connected port/signal symbol(s) as well?',
+      info.additionalSymbols,
+    ),
+    recursiveAction,
+    localAction,
+  );
+
+  if (selected !== recursiveAction) {
+    return await standardRename();
+  }
+
+  if (!(await confirmRenameCollision(textDocumentPosition, newName, true, token))) {
+    return null;
+  }
+
+  const edit = await languageClient.sendRequest(
+    'workspace/executeCommand',
+    {
+      command: portConnectionRenameRequest,
+      arguments: [{ textDocumentPosition, newName }],
+    },
+    token,
+  );
+  return await languageClient.protocol2CodeConverter.asWorkspaceEdit(edit as never, token);
+}
+
 function resolveWorkingDirectory(
   context: vscode.ExtensionContext,
   configuredCwd: string | undefined,
@@ -662,6 +782,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
         options.includeDeclaration = includeDeclarationInReferences(document);
         return await next(document, position, options, token);
       },
+      provideRenameEdits: providePortConnectionRenameEdits,
     },
     ...(config.trace !== 'off' && { trace: config.trace }),
   };
