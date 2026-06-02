@@ -114,7 +114,12 @@
           "enable": true
         },
         "slang": {
-          "warnings": [],
+          "warnings": [
+            "width-expand",
+            "width-trunc",
+            "port-width-expand",
+            "port-width-trunc"
+          ],
           "rules": []
         }
       }
@@ -527,7 +532,12 @@
         "slang": {
           "$ref": "#/$defs/SlangDiagnosticsUserConfig",
           "default": {
-            "warnings": [],
+            "warnings": [
+              "width-expand",
+              "width-trunc",
+              "port-width-expand",
+              "port-width-trunc"
+            ],
             "rules": []
           }
         }
@@ -560,7 +570,12 @@
           "items": {
             "type": "string"
           },
-          "default": []
+          "default": [
+            "width-expand",
+            "width-trunc",
+            "port-width-expand",
+            "port-width-trunc"
+          ]
         },
         "rules": {
           "description": "Per-diagnostic severity overrides.",
