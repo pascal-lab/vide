@@ -27,6 +27,113 @@ fn production_source(source: &str) -> &str {
     source.split("#[cfg(test)]").next().unwrap_or(source)
 }
 
+fn assert_no_patterns_in_production(dir: &Path, forbidden: &[&str], label: &str) {
+    for path in rust_files(dir) {
+        if path.file_name().is_some_and(|name| name == "architecture_tests.rs") {
+            continue;
+        }
+        let source = read(&path);
+        let source = production_source(&source);
+        for pattern in forbidden {
+            assert!(
+                !source.contains(pattern),
+                "{} must not contain {label} pattern `{pattern}`",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn syntax_crate_exposes_only_owned_syntax_boundary() {
+    let root = repo_root();
+    let syntax_root = root.join("crates/syntax");
+    let manifest = read(syntax_root.join("Cargo.toml"));
+    assert!(!manifest.contains("slang.workspace"), "syntax crate must not depend on raw slang");
+
+    let forbidden = ["pub use slang", "use slang", "slang::", "slang_ext"];
+    assert_no_patterns_in_production(&syntax_root.join("src"), &forbidden, "raw slang boundary");
+}
+
+#[test]
+fn hir_and_ide_do_not_depend_on_raw_slang_or_adapter_paths() {
+    let root = repo_root();
+    let forbidden = [
+        "use slang",
+        "slang::",
+        "use slang_adapter",
+        "slang_adapter::",
+        "syntax::slang_ext",
+        "slang_ext::",
+    ];
+
+    assert_no_patterns_in_production(&root.join("crates/hir/src"), &forbidden, "raw slang");
+    assert_no_patterns_in_production(&root.join("crates/ide/src"), &forbidden, "raw slang");
+}
+
+#[test]
+fn preproc_production_does_not_parse_through_raw_slang_or_adapter() {
+    let root = repo_root();
+    let forbidden = [
+        "use slang",
+        "slang::",
+        "use slang_adapter",
+        "slang_adapter::",
+        "syntax::slang_ext",
+        "slang_ext::",
+        "textual fallback",
+        "legacy fallback",
+    ];
+
+    assert_no_patterns_in_production(
+        &root.join("crates/preproc/src"),
+        &forbidden,
+        "preproc boundary",
+    );
+}
+
+#[test]
+fn raw_slang_usage_is_confined_to_vendor_and_adapter_dirs() {
+    let root = repo_root();
+    let allowed = [root.join("crates/slang"), root.join("crates/slang-adapter")];
+    let forbidden = ["pub use slang", "use slang", "slang::", "slang.workspace = true"];
+
+    for dir in [root.join("crates"), root.join("src")] {
+        for path in rust_files(&dir) {
+            if allowed.iter().any(|allowed| path.starts_with(allowed)) {
+                continue;
+            }
+            if path.file_name().is_some_and(|name| name == "architecture_tests.rs") {
+                continue;
+            }
+            let source = read(&path);
+            let source = production_source(&source);
+            for pattern in forbidden {
+                assert!(
+                    !source.contains(pattern),
+                    "{} must not contain raw slang pattern `{pattern}` outside crates/slang or crates/slang-adapter",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    for manifest in [
+        root.join("Cargo.toml"),
+        root.join("crates/hir/Cargo.toml"),
+        root.join("crates/ide/Cargo.toml"),
+        root.join("crates/preproc/Cargo.toml"),
+        root.join("crates/syntax/Cargo.toml"),
+    ] {
+        let source = read(&manifest);
+        assert!(
+            !source.contains("slang.workspace = true"),
+            "{} must not directly depend on raw slang",
+            manifest.display()
+        );
+    }
+}
+
 fn collect_rust_files(root: &Path, files: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(root).unwrap_or_else(|err| {
         panic!("failed to read directory {}: {err}", root.display());
