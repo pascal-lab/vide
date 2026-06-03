@@ -465,6 +465,7 @@ fn origins_are_editable(db: &RootDb, def: &Definition, file_id: FileId) -> bool 
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn edits_from_refs(
     sema: &Semantics<'_, RootDb>,
     file_id: FileId,
