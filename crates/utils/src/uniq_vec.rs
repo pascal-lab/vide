@@ -13,7 +13,7 @@ impl<T, K: Eq + Hash> Default for UniqVec<T, K> {
     }
 }
 
-impl<T, K: Eq + Hash + Clone> UniqVec<T, K> {
+impl<T, K: Eq + Hash> UniqVec<T, K> {
     pub fn push(&mut self, keys: impl IntoIterator<Item = K>, value: T) -> bool {
         let keys = keys.into_iter().collect::<Vec<_>>();
         if keys.iter().any(|key| self.seen.contains(key)) {
