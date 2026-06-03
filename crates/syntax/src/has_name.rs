@@ -1,10 +1,10 @@
-use slang::{
+use crate::{
     SyntaxToken,
     ast::{
         AstNode, BlockStatement, ConfigDeclaration, Declarator, FunctionDeclaration, GenerateBlock,
-        HierarchicalInstance, IdentifierName, LibraryDeclaration, ModuleDeclaration, NonAnsiPort,
-        ParamAssignment, PortConnection, PortReference, SpecparamDeclarator, Statement,
-        UdpDeclaration,
+        HierarchicalInstance, IdentifierName, LibraryDeclaration, ModuleDeclaration, Name,
+        NonAnsiPort, ParamAssignment, PortConnection, PortReference, SpecparamDeclarator,
+        Statement, UdpDeclaration,
     },
 };
 
@@ -97,6 +97,7 @@ impl<'a> HasName<'a> for PortConnection<'a> {
         }
     }
 }
+
 impl<'a> HasName<'a> for HierarchicalInstance<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
         self.decl()?.name()
@@ -111,7 +112,7 @@ impl<'a> HasName<'a> for Statement<'a> {
 
 impl<'a> HasName<'a> for FunctionDeclaration<'a> {
     fn name(&self) -> Option<SyntaxToken<'a>> {
-        fn rightmost_name_token(name: slang::ast::Name<'_>) -> Option<SyntaxToken<'_>> {
+        fn rightmost_name_token(name: Name<'_>) -> Option<SyntaxToken<'_>> {
             if let Some(name) = name.as_identifier_name() {
                 return name.identifier();
             }

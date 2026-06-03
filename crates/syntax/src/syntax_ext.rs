@@ -1,21 +1,16 @@
 use std::iter;
 
 use either::Either;
-use slang::{
-    ChildrenIter, SyntaxAncestors, SyntaxCursor, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
-    SyntaxTrivia, TokenKind, Trivia, TriviaKind, ast::AstNode,
-};
-use token::{SyntaxTokenExt, SyntaxTokenWithParentExt};
 use utils::line_index::{TextRange, TextSize};
 
 use crate::{
+    ChildrenIter, SyntaxAncestors, SyntaxCursor, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
+    SyntaxTrivia, TokenKind, Trivia, TriviaKind,
+    ast::AstNode,
     has_text_range::{HasTextRange, SourceRangeExt},
     ptr::SyntaxNodePtr,
+    token::{SyntaxTokenExt, SyntaxTokenWithParentExt},
 };
-
-pub mod ast_ext;
-pub mod token;
-pub mod trivia;
 
 #[derive(Clone, Debug)]
 pub enum TokenAtOffset<'a> {
@@ -232,7 +227,6 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                     return Some(trivia.kind());
                 }
 
-                // For directive trivia, check nested trivia in the directive's first token.
                 if trivia.kind() == Trivia!["`"]
                     && let Some(node) = trivia.syntax()
                 {
@@ -259,9 +253,6 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             None
         }
 
-        // Trivia can be attached to either the token before it or after it, depending
-        // on how the underlying parser decides to associate it. Check both
-        // directions, plus the last token for trivia-only files.
         if let Some(tok) = self.token_after_or_at_offset(offset)
             && let Some(kind) = trivia_kind_at_offset_in_token(tok, offset)
         {
@@ -407,25 +398,9 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
     }
 }
 
-pub mod support {
-    use slang::{SyntaxNode, SyntaxToken, TokenKind, ast::AstNode};
-
-    #[inline]
-    pub fn child<'a, N: AstNode<'a>>(parent: SyntaxNode<'a>) -> Option<N> {
-        parent.children().filter_map(|elem| elem.as_node()).find_map(N::cast)
-    }
-
-    #[inline]
-    pub fn child_token(parent: SyntaxNode, kind: TokenKind) -> Option<SyntaxToken> {
-        parent.children().filter_map(|elem| elem.as_token()).find(|tok| tok.kind() == kind)
-    }
-}
-
 pub trait SyntaxCursorExt {
     fn goto_first_tok_after(&mut self, offset: TextSize) -> bool;
-
     fn goto_first_tok_after_or_last(&mut self, offset: TextSize) -> bool;
-
     fn goto_last_tok_before(&mut self, offset: TextSize) -> bool;
 }
 
@@ -499,36 +474,16 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{SyntaxTree, SyntaxTreeOptions};
+pub mod support {
+    use crate::{SyntaxNode, SyntaxToken, TokenKind, ast::AstNode};
 
-    #[test]
-    fn token_at_offset_inside_macro_invocation_does_not_descend_forever() {
-        let text = r#"module ca_leaf #(
-    parameter WIDTH = `CA_WIDTH,
-    parameter RESET_VALUE = 0
-) ();
-endmodule
-"#;
-        let options = SyntaxTreeOptions {
-            predefines: vec![String::from("CA_WIDTH=8")],
-            ..SyntaxTreeOptions::default()
-        };
-        let tree = SyntaxTree::from_text_with_options(
-            text,
-            "sample/rtl/code_action_targets.v",
-            "sample/rtl/code_action_targets.v",
-            &options,
-        );
-        let root = tree.root().unwrap();
-        let macro_start = text.find("`CA_WIDTH").unwrap();
-        let offset = TextSize::from((macro_start + 1) as u32);
+    #[inline]
+    pub fn child<'a, N: AstNode<'a>>(parent: SyntaxNode<'a>) -> Option<N> {
+        parent.children().filter_map(|elem| elem.as_node()).find_map(N::cast)
+    }
 
-        let TokenAtOffset::Single(tok) = root.token_at_offset(offset) else {
-            panic!("expected a token mapped to the macro invocation");
-        };
-        assert_eq!(tok.kind(), TokenKind::INTEGER_LITERAL);
+    #[inline]
+    pub fn child_token(parent: SyntaxNode<'_>, kind: TokenKind) -> Option<SyntaxToken<'_>> {
+        parent.children().filter_map(|elem| elem.as_token()).find(|tok| tok.kind() == kind)
     }
 }

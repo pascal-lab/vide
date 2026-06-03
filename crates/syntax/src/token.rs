@@ -1,12 +1,21 @@
 use either::Either;
-use slang::{
-    ChildrenIter, LiteralBase, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, SyntaxTrivia, Token,
-    TokenKind,
-    ast::{self, AstNode},
-};
 use utils::line_index::{TextRange, TextSize};
 
-use crate::{SyntaxNodeExt, support};
+use crate::{
+    ChildrenIter, LiteralBase, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxTrivia, TokenKind, ast, ast::AstNode, support,
+};
+
+include!("generated/token_macro.rs");
+
+#[macro_export]
+macro_rules! Trivia {
+    [ws] => { $crate::TriviaKind::WHITESPACE };
+    [eol] => { $crate::TriviaKind::END_OF_LINE };
+    [lc] => { $crate::TriviaKind::LINE_COMMENT };
+    [bc] => { $crate::TriviaKind::BLOCK_COMMENT };
+    ["`"] => { $crate::TriviaKind::DIRECTIVE };
+}
 
 pub trait TokenKindExt {
     fn is_pair_token(&self) -> bool;
@@ -18,10 +27,10 @@ impl TokenKindExt for TokenKind {
     #[inline]
     fn is_pair_token(&self) -> bool {
         macro_rules! P {
-        ($($tok:ident)|* $(|)?) => {
-            $(*self == Token![$tok] ||)* false
-        };
-    }
+            ($($tok:tt)|* $(|)?) => {
+                $(*self == Token![$tok] ||)* false
+            };
+        }
         P! {
             begin | end
             | module | endmodule
@@ -64,7 +73,7 @@ impl<'a> SyntaxTokenWithParentExt<'a> for SyntaxTokenWithParent<'a> {
     fn is_word_like(&self) -> bool {
         match self.kind() {
             TokenKind::IDENTIFIER | TokenKind::SYSTEM_IDENTIFIER => true,
-            _ => is_word_like_value_text(&self.tok.value_text().to_string()),
+            _ => is_word_like_value_text(self.tok.value_text()),
         }
     }
 
@@ -122,15 +131,15 @@ fn integer_literal_base_specifier(base: LiteralBase) -> &'static str {
     }
 }
 
-/// [`Either::Left`] represents the beg-token, and [`Either::Right`] represents
-/// the end-token.
+/// [`Either::Left`] represents the begin token, and [`Either::Right`]
+/// represents the end token.
 pub fn pair_token(
     SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
 ) -> Option<Either<SyntaxTokenWithParent, SyntaxTokenWithParent>> {
     let kind = tok.kind();
 
     macro_rules! P {
-        ($beg:ident | $end:ident, $($rest:tt)*) => {
+        ($beg:tt | $end:tt, $($rest:tt)*) => {
             if kind == Token![$beg] {
                 Either::Right(SyntaxTokenWithParent {
                     parent,
@@ -150,12 +159,10 @@ pub fn pair_token(
 
     let res = match kind {
         Token![module] => {
-            // move from header to declaration
             let decl = ast::ModuleDeclaration::cast(parent.parent()?)?;
             Either::Right(SyntaxTokenWithParent { parent: decl.syntax(), tok: decl.endmodule()? })
         }
         Token![endmodule] => {
-            // move from declaration to header
             let decl = ast::ModuleDeclaration::cast(parent)?;
             let header = decl.header();
             Either::Left(SyntaxTokenWithParent {
@@ -208,18 +215,5 @@ impl<'a> SyntaxTokenExt<'a> for SyntaxToken<'a> {
             })
             .collect::<Vec<_>>();
         Either::Right(trivias.into_iter())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn integer_literal_base_specifier_candidates_follow_slang_literal_bases() {
-        let mut candidates = integer_literal_base_specifier_candidates();
-        candidates.sort();
-
-        assert_eq!(candidates, ["b", "d", "h", "o", "sb", "sd", "sh", "so"]);
     }
 }

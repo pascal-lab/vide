@@ -1,7 +1,8 @@
 use core::str;
 
-use slang::{SyntaxTrivia, Trivia, TriviaKind};
 use smol_str::{SmolStr, ToSmolStr};
+
+use crate::{SyntaxTrivia, Trivia, TriviaKind};
 
 pub trait TriviaKindExt {
     fn is_whitespace(&self) -> bool;
@@ -57,7 +58,7 @@ impl TriviaExt for SyntaxTrivia<'_> {
         if text.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return None;
         }
-        let caption = text.strip_prefix(":").unwrap_or(text).trim();
+        let caption = text.strip_prefix(':').unwrap_or(text).trim();
 
         if caption.is_empty() {
             return Some(None);

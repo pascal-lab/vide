@@ -12,5 +12,4 @@ either.workspace = true
 rowan.workspace = true
 serde.workspace = true
 smol_str.workspace = true
-slang.workspace = true
 utils.workspace = true

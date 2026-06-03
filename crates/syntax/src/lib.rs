@@ -1,11 +1,35 @@
+#![feature(trait_alias)]
+
+pub mod ast;
+pub mod ast_ext;
+pub mod facts;
 pub mod has_name;
 pub mod has_text_range;
 pub mod ptr;
 pub mod raw;
-pub mod slang_ext;
+pub mod token;
+pub mod trivia;
 
-pub use slang::*;
-pub use slang_ext::*;
+mod kinds;
+mod syntax_ext;
+mod tree;
+mod values;
+
+pub use facts::{SemanticFacts, SyntaxFacts};
+pub use kinds::{SyntaxKind, TokenKind, TriviaKind};
+pub use syntax_ext::{AstNodeExt, SyntaxCursorExt, SyntaxNodeExt, TokenAtOffset, support};
+pub use tree::{
+    DiagnosticSeverity, LexedTokenAtOffset, OwnedTrivia, ParserExpectedSyntax,
+    PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SourceBufferId,
+    SourceRange, SyntaxAncestors, SyntaxChildren, SyntaxCursor, SyntaxDiagnostic,
+    SyntaxElemPreorder, SyntaxElement, SyntaxElementKind, SyntaxIdxChildren, SyntaxKeywordContext,
+    SyntaxNode, SyntaxNodePreorder, SyntaxToken, SyntaxTokenWithParent, SyntaxTree,
+    SyntaxTreeBuffer, SyntaxTreeBufferIds, SyntaxTreeBuilder, SyntaxTreeOptions, SyntaxTrivia,
+    SyntaxTriviaLoc, WalkEvent,
+};
+pub use values::{Bit, LiteralBase, SVInt, SVLogic, TimeUnit};
+
+pub trait ChildrenIter<It> = DoubleEndedIterator<Item = It> + ExactSizeIterator + Clone;
 
 #[macro_export]
 macro_rules! match_ast {
