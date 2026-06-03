@@ -332,6 +332,42 @@ endmodule
     }
 
     #[test]
+    fn phase0_baseline_records_macro_directive_surface() {
+        let index = index(
+            r#"`define DECL_REG(name) logic name
+`include "defs.svh"
+`undef DECL_REG
+`DECL_REG(foo)
+"#,
+        );
+
+        assert_eq!(
+            index.directives.iter().map(|directive| directive.kind).collect::<Vec<_>>(),
+            vec![
+                MacroDirectiveKind::Define,
+                MacroDirectiveKind::Include,
+                MacroDirectiveKind::Undef,
+                MacroDirectiveKind::Usage,
+            ]
+        );
+
+        let define = &index.defines[0];
+        assert_eq!(define.name.as_deref(), Some("DECL_REG"));
+        assert_eq!(define.params.as_ref().unwrap()[0].name.as_deref(), Some("name"));
+        assert!(define.body.iter().any(|token| token.value == "logic"));
+
+        assert_eq!(
+            index.includes[0].target,
+            MacroIncludeTarget::Literal {
+                path: SmolStr::new("defs.svh"),
+                raw: SmolStr::new("\"defs.svh\"")
+            }
+        );
+        assert_eq!(index.undefs[0].name.as_deref(), Some("DECL_REG"));
+        assert_eq!(index.usages[0].name.as_deref(), Some("DECL_REG"));
+    }
+
+    #[test]
     fn indexes_conditional_directive_nodes() {
         let index = index(
             r#"`ifdef USE_A
