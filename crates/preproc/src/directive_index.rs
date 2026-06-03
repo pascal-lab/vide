@@ -36,6 +36,7 @@ pub struct MacroDirective {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefine {
     pub name: Option<SmolStr>,
+    pub name_range: Option<TextRange>,
     pub params: Option<Vec<MacroParam>>,
     pub body: Vec<MacroToken>,
     pub range: Option<TextRange>,
@@ -184,13 +185,26 @@ fn collect_preprocessor_directive(index: &mut PreprocFileIndex, directive: Prepr
             push_preprocessor_directive(index, MacroDirectiveKind::Branch, directive_index, range);
         }
         SyntaxKind::MACRO_USAGE => {
-            let directive_index = index.usages.len();
-            let range = directive.range.and_then(range_to_text_range);
-            index.usages.push(MacroUsage {
-                name: directive.name.map(|token| macro_name(token.value_text)),
-                range,
+            let range = directive.range.and_then(range_to_text_range).or_else(|| {
+                directive
+                    .name
+                    .as_ref()
+                    .and_then(|token| token.range.clone())
+                    .and_then(range_to_text_range)
             });
-            push_preprocessor_directive(index, MacroDirectiveKind::Usage, directive_index, range);
+            if let Some(range) = range {
+                let directive_index = index.usages.len();
+                index.usages.push(MacroUsage {
+                    name: directive.name.as_ref().map(|token| macro_name(token.value_text.clone())),
+                    range: Some(range),
+                });
+                push_preprocessor_directive(
+                    index,
+                    MacroDirectiveKind::Usage,
+                    directive_index,
+                    Some(range),
+                );
+            }
         }
         _ => {}
     }
@@ -199,6 +213,11 @@ fn collect_preprocessor_directive(index: &mut PreprocFileIndex, directive: Prepr
 fn collect_preprocessor_define(directive: PreprocessorDirective) -> MacroDefine {
     MacroDefine {
         name: directive.name.as_ref().map(preprocessor_token_value),
+        name_range: directive
+            .name
+            .as_ref()
+            .and_then(|token| token.range.clone())
+            .and_then(range_to_text_range),
         params: (!directive.params.is_empty())
             .then(|| directive.params.into_iter().map(macro_param_from_preprocessor).collect()),
         body: directive.body_tokens.into_iter().map(macro_token_from_preprocessor).collect(),

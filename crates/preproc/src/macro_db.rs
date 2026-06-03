@@ -75,6 +75,7 @@ pub struct MacroSource {
 pub enum MacroQueryFailure {
     CapabilityUnavailable { capability: SmolStr, reason: SmolStr },
     InactiveBranch { file_id: FileId, range: TextRange },
+    UnknownDefinition { id: MacroDefId },
     Unresolved { name: MacroName },
     Unsupported { reason: SmolStr },
 }
@@ -96,6 +97,13 @@ pub struct MacroUse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReference {
+    pub use_id: MacroUseId,
+    pub file_id: FileId,
+    pub range: Option<TextRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacroDefinitionAtResult {
     Definition(MacroSource),
     NoMacroUse,
@@ -104,7 +112,7 @@ pub enum MacroDefinitionAtResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacroReferencesResult {
-    References(Vec<MacroUseId>),
+    References(Vec<MacroReference>),
     Failed(MacroQueryFailure),
 }
 
@@ -205,6 +213,107 @@ impl MacroDb {
             })?;
         Ok(snapshot.visible.iter().filter_map(|id| self.definition(*id).cloned()).collect())
     }
+
+    pub fn macro_definition_at(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> MacroDefinitionAtResult {
+        if let Some(range) = self.inactive_range_at(file_id, offset) {
+            return MacroDefinitionAtResult::Failed(MacroQueryFailure::InactiveBranch {
+                file_id,
+                range,
+            });
+        }
+
+        let Some(macro_use) = self.macro_use_at(file_id, offset) else {
+            return MacroDefinitionAtResult::NoMacroUse;
+        };
+
+        match &macro_use.resolution {
+            MacroUseResolution::Resolved(id) => self
+                .definition(*id)
+                .cloned()
+                .map(MacroDefinitionAtResult::Definition)
+                .unwrap_or_else(|| {
+                    MacroDefinitionAtResult::Failed(MacroQueryFailure::UnknownDefinition {
+                        id: *id,
+                    })
+                }),
+            MacroUseResolution::Unresolved => {
+                MacroDefinitionAtResult::Failed(MacroQueryFailure::Unresolved {
+                    name: macro_use.name.clone(),
+                })
+            }
+            MacroUseResolution::Failed(failure) => MacroDefinitionAtResult::Failed(failure.clone()),
+        }
+    }
+
+    pub fn macro_references(&self, definition: MacroDefId) -> MacroReferencesResult {
+        if self.definition(definition).is_none() {
+            return MacroReferencesResult::Failed(MacroQueryFailure::UnknownDefinition {
+                id: definition,
+            });
+        }
+
+        MacroReferencesResult::References(
+            self.uses
+                .iter()
+                .filter_map(|macro_use| match macro_use.resolution {
+                    MacroUseResolution::Resolved(id) if id == definition => Some(MacroReference {
+                        use_id: macro_use.id,
+                        file_id: macro_use.file_id,
+                        range: macro_use.range,
+                    }),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    pub fn macro_references_at_definition(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> MacroReferencesResult {
+        if let Some(range) = self.inactive_range_at(file_id, offset) {
+            return MacroReferencesResult::Failed(MacroQueryFailure::InactiveBranch {
+                file_id,
+                range,
+            });
+        }
+
+        let Some(definition) = self.definition_at_source(file_id, offset) else {
+            return MacroReferencesResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability: SmolStr::new("macro_references_at_definition"),
+                reason: SmolStr::new("offset does not point at a MacroDb definition source"),
+            });
+        };
+
+        self.macro_references(definition)
+    }
+
+    fn definition_at_source(&self, file_id: FileId, offset: TextSize) -> Option<MacroDefId> {
+        self.definitions.iter().find_map(|definition| match definition.origin {
+            SourceOrigin::File { file_id: origin_file, range }
+                if origin_file == file_id && range_contains(Some(range), offset) =>
+            {
+                Some(definition.id)
+            }
+            _ => None,
+        })
+    }
+
+    fn inactive_range_at(&self, file_id: FileId, offset: TextSize) -> Option<TextRange> {
+        self.files
+            .iter()
+            .find(|file| file.file_id == file_id)?
+            .index
+            .inactive_ranges
+            .iter()
+            .copied()
+            .find(|range| range_contains(Some(*range), offset))
+    }
 }
 
 fn replay_file(
@@ -257,9 +366,12 @@ fn macro_source_from_define(
     next_id: usize,
 ) -> Option<MacroSource> {
     let name = MacroName::new(define.name.clone()?);
-    let origin =
-        define.range.map(|range| SourceOrigin::File { file_id, range }).unwrap_or_else(|| {
-            SourceOrigin::Unsupported { reason: SmolStr::new("macro define has no source range") }
+    let origin = define
+        .name_range
+        .or(define.range)
+        .map(|range| SourceOrigin::File { file_id, range })
+        .unwrap_or_else(|| SourceOrigin::Unsupported {
+            reason: SmolStr::new("macro define has no source range"),
         });
     Some(MacroSource { id: MacroDefId(next_id as u32), name, origin })
 }
@@ -327,6 +439,14 @@ mod tests {
         &db.macro_use(MacroUseId(id)).unwrap().resolution
     }
 
+    fn offset(text: &str, needle: &str) -> TextSize {
+        TextSize::from(text.find(needle).unwrap() as u32)
+    }
+
+    fn last_offset(text: &str, needle: &str) -> TextSize {
+        TextSize::from(text.rfind(needle).unwrap() as u32)
+    }
+
     #[test]
     fn macro_db_key_is_profile_aware() {
         let profile_a = MacroDb::new(input(MacroProfileId(1)));
@@ -392,6 +512,100 @@ mod tests {
         assert_eq!(
             visible.iter().map(|source| source.name.as_str()).collect::<Vec<_>>(),
             vec!["A", "B"]
+        );
+    }
+
+    #[test]
+    fn macro_definition_at_returns_visible_definition() {
+        let text = "`define WIDTH 8\nlogic [`WIDTH-1:0] data;\n";
+        let db = db_from_text(text);
+
+        let result = db.macro_definition_at(FileId(0), last_offset(text, "WIDTH"));
+
+        assert_eq!(
+            result,
+            MacroDefinitionAtResult::Definition(MacroSource {
+                id: MacroDefId(0),
+                name: MacroName::new("WIDTH"),
+                origin: SourceOrigin::File {
+                    file_id: FileId(0),
+                    range: TextRange::new(TextSize::from(8), TextSize::from(13)),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn macro_definition_at_returns_unresolved_reason() {
+        let text = "logic [`WIDTH-1:0] data;\n";
+        let db = db_from_text(text);
+
+        let result = db.macro_definition_at(FileId(0), offset(text, "WIDTH"));
+
+        assert_eq!(
+            result,
+            MacroDefinitionAtResult::Failed(MacroQueryFailure::Unresolved {
+                name: MacroName::new("WIDTH"),
+            })
+        );
+    }
+
+    #[test]
+    fn macro_definition_at_fails_closed_in_inactive_branch() {
+        let text = "`ifdef USE_A\n`WIDTH\n`endif\n";
+        let db = db_from_text(text);
+
+        let result = db.macro_definition_at(FileId(0), offset(text, "WIDTH"));
+
+        assert!(matches!(
+            result,
+            MacroDefinitionAtResult::Failed(MacroQueryFailure::InactiveBranch {
+                file_id: FileId(0),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn macro_references_return_resolved_uses_only() {
+        let text = "`define WIDTH 8\n`WIDTH\n`undef WIDTH\n`define WIDTH 16\n`WIDTH\n";
+        let db = db_from_text(text);
+
+        let first = db.macro_references(MacroDefId(0));
+        let second = db.macro_references(MacroDefId(1));
+
+        assert_eq!(
+            first,
+            MacroReferencesResult::References(vec![MacroReference {
+                use_id: MacroUseId(0),
+                file_id: FileId(0),
+                range: db.macro_use(MacroUseId(0)).unwrap().range,
+            }])
+        );
+        assert_eq!(
+            second,
+            MacroReferencesResult::References(vec![MacroReference {
+                use_id: MacroUseId(1),
+                file_id: FileId(0),
+                range: db.macro_use(MacroUseId(1)).unwrap().range,
+            }])
+        );
+    }
+
+    #[test]
+    fn macro_references_at_definition_uses_definition_name_source() {
+        let text = "`define WIDTH 8\n`WIDTH\n";
+        let db = db_from_text(text);
+
+        let references = db.macro_references_at_definition(FileId(0), offset(text, "WIDTH"));
+
+        assert_eq!(
+            references,
+            MacroReferencesResult::References(vec![MacroReference {
+                use_id: MacroUseId(0),
+                file_id: FileId(0),
+                range: db.macro_use(MacroUseId(0)).unwrap().range,
+            }])
         );
     }
 }
