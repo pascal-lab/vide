@@ -2,7 +2,7 @@ use la_arena::{Arena, Idx};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     ChildrenIter, SyntaxNode, SyntaxNodeExt, SyntaxToken, SyntaxTrivia, WalkEvent, ast,
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRangeIn,
     match_ast,
     token::SyntaxTokenExt,
     trivia::{TriviaExt, TriviaKindExt},

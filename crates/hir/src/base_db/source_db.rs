@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use sv_frontend::Compilation;
 use syntax::{
-    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
-    SyntaxTreeBufferIds,
+    ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer, SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -10,7 +10,7 @@ use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 use crate::base_db::{
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
-    preproc_index::{self, PreprocFileIndex},
+    preproc_index::PreprocFileIndex,
     project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -109,10 +109,10 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
                 include_buffer_count = 0usize
             )
             .entered();
-            SyntaxTree::from_text_with_options(&text, "", "", &options)
+            sv_frontend::parse_syntax_with_options(&text, "", "", &options)
         }
-        SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
-        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+        SourceFileKind::LibraryMap => sv_frontend::parse_library_map_syntax(&text, "", ""),
+        SourceFileKind::ProjectManifest => sv_frontend::parse_syntax("", "", ""),
     }
 }
 
@@ -132,7 +132,7 @@ fn preproc_file_index_with_predefines(
                 predefines,
                 ..syntax::SyntaxTreeOptions::without_include_expansion()
             };
-            Arc::new(preproc_index::preproc_file_index_from_text(&db.file_text(file_id), &options))
+            Arc::new(sv_frontend::preproc_file_index_from_text(&db.file_text(file_id), &options))
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
             Arc::new(PreprocFileIndex::default())
@@ -233,12 +233,12 @@ fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTr
                 include_buffer_count
             )
             .entered();
-            SyntaxTree::from_text_with_options(&text, &identity.name, &identity.path, &options)
+            sv_frontend::parse_syntax_with_options(&text, &identity.name, &identity.path, &options)
         }
         SourceFileKind::LibraryMap => {
-            SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path)
+            sv_frontend::parse_library_map_syntax(&text, &identity.name, &identity.path)
         }
-        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+        SourceFileKind::ProjectManifest => sv_frontend::parse_syntax("", "", ""),
     }
 }
 
@@ -257,7 +257,7 @@ fn parser_expected_syntax(
     let expected = match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             let options = syntax_tree_options_for_file(db, file_id);
-            SyntaxTree::expected_syntax_at_offset_with_options(
+            sv_frontend::expected_syntax_at_offset_with_options(
                 &text,
                 &identity.name,
                 &identity.path,
@@ -265,7 +265,7 @@ fn parser_expected_syntax(
                 &options,
             )
         }
-        SourceFileKind::LibraryMap => SyntaxTree::library_map_expected_syntax_at_offset(
+        SourceFileKind::LibraryMap => sv_frontend::library_map_expected_syntax_at_offset(
             &text,
             &identity.name,
             &identity.path,
@@ -290,7 +290,16 @@ fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagn
     let root_buffer_id = tree.buffer_id();
     let raw_diagnostics = {
         let _span = tracing::info_span!("slang.parse.raw_diagnostics", ?file_id).entered();
-        tree.diagnostics_with_options(&config.slang.warnings)
+        let text = db.file_text(file_id);
+        let identity = source_file_identity(db, file_id);
+        let options = syntax_tree_options_for_file(db, file_id);
+        sv_frontend::parse_diagnostics_with_options(
+            &text,
+            &identity.name,
+            &identity.path,
+            &options,
+            &config.slang.warnings,
+        )
     };
     let raw_diagnostic_count = raw_diagnostics.len();
     let mut non_root_buffer_count = 0usize;

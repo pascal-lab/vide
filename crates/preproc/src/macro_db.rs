@@ -715,11 +715,13 @@ fn range_contains(range: Option<TextRange>, offset: TextSize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use syntax::SyntaxTreeOptions;
+    use syntax::{
+        PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SyntaxKind,
+    };
 
     use super::*;
     use crate::{
-        directive_index::preproc_file_index_from_text,
+        directive_index::preproc_file_index_from_directives,
         trace::{
             CapabilityUnavailable, ExpandedToken, ExpansionId, MacroBody, MacroCall,
             SourceProvenance, TraceUnavailableReason,
@@ -738,12 +740,154 @@ mod tests {
     }
 
     fn file_input(file_id: FileId, text: &str) -> FileMacroInput {
-        FileMacroInput {
-            file_id,
-            index: preproc_file_index_from_text(
-                text,
-                &SyntaxTreeOptions::without_include_expansion(),
-            ),
+        FileMacroInput { file_id, index: test_preproc_index(text) }
+    }
+
+    fn test_preproc_index(text: &str) -> PreprocFileIndex {
+        preproc_file_index_from_directives(test_directives(text), text)
+    }
+
+    fn test_directives(text: &str) -> Vec<PreprocessorDirective> {
+        let mut directives = Vec::new();
+        let mut line_start = 0usize;
+        for line in text.split_inclusive('\n') {
+            let line_trimmed = line.trim_end_matches('\n');
+            if let Some(rest) = line_trimmed.strip_prefix("`define ") {
+                let name = rest
+                    .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'))
+                    .next()
+                    .unwrap_or_default();
+                directives.push(define_directive(text, line_start, line_trimmed, name));
+            } else if let Some(rest) = line_trimmed.strip_prefix("`undef ") {
+                let name = rest.trim();
+                let mut directive = base_directive(
+                    SyntaxKind::UNDEF_DIRECTIVE,
+                    Some(line_start..line_start + line_trimmed.len()),
+                );
+                directive.name = Some(token_at(text, name, name, line_start));
+                directives.push(directive);
+            } else if let Some(rest) = line_trimmed.strip_prefix("`include ") {
+                let target = rest.trim();
+                let mut directive = base_directive(
+                    SyntaxKind::INCLUDE_DIRECTIVE,
+                    Some(line_start..line_start + line_trimmed.len()),
+                );
+                directive.include_file_name = Some(token_at(text, target, target, line_start));
+                directives.push(directive);
+            } else if let Some(rest) = line_trimmed.strip_prefix("`ifdef ") {
+                let mut directive = base_directive(
+                    SyntaxKind::IF_DEF_DIRECTIVE,
+                    Some(line_start..line_start + line_trimmed.len()),
+                );
+                let name = rest.trim();
+                directive.expr_tokens.push(token_at(text, name, name, line_start));
+                if let Some(inactive) = inactive_branch_range(text, line_start + line.len()) {
+                    directive.disabled_ranges.push(inactive);
+                }
+                directives.push(directive);
+            } else if line_trimmed.starts_with("`else") {
+                directives.push(base_directive(
+                    SyntaxKind::ELSE_DIRECTIVE,
+                    Some(line_start..line_start + line_trimmed.len()),
+                ));
+            } else if line_trimmed.starts_with("`endif") {
+                directives.push(base_directive(
+                    SyntaxKind::END_IF_DIRECTIVE,
+                    Some(line_start..line_start + line_trimmed.len()),
+                ));
+            } else {
+                directives.extend(macro_usages_in_line(text, line_start, line_trimmed));
+            }
+            line_start += line.len();
+        }
+        directives
+    }
+
+    fn define_directive(
+        text: &str,
+        line_start: usize,
+        line: &str,
+        name: &str,
+    ) -> PreprocessorDirective {
+        let mut directive =
+            base_directive(SyntaxKind::DEFINE_DIRECTIVE, Some(line_start..line_start + line.len()));
+        directive.name = Some(token_at(text, name, name, line_start));
+        directive
+    }
+
+    fn macro_usages_in_line(
+        text: &str,
+        line_start: usize,
+        line: &str,
+    ) -> Vec<PreprocessorDirective> {
+        let mut directives = Vec::new();
+        let bytes = line.as_bytes();
+        let mut idx = 0usize;
+        while idx < bytes.len() {
+            if bytes[idx] != b'`' {
+                idx += 1;
+                continue;
+            }
+            let name_start = idx + 1;
+            let mut name_end = name_start;
+            while name_end < bytes.len()
+                && matches!(bytes[name_end], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'$')
+            {
+                name_end += 1;
+            }
+            if name_end > name_start {
+                let raw = &line[idx..name_end];
+                let mut directive = base_directive(
+                    SyntaxKind::MACRO_USAGE,
+                    Some(line_start + idx..line_start + name_end),
+                );
+                directive.name = Some(PreprocessorDirectiveToken {
+                    raw_text: raw.to_owned(),
+                    value_text: raw.to_owned(),
+                    range: Some(line_start + idx..line_start + name_end),
+                });
+                directives.push(directive);
+            }
+            idx = name_end.max(idx + 1);
+        }
+        let _ = text;
+        directives
+    }
+
+    fn inactive_branch_range(text: &str, branch_start: usize) -> Option<std::ops::Range<usize>> {
+        let endif = text[branch_start..].find("`endif").map(|offset| branch_start + offset)?;
+        let mut end = endif;
+        while end > branch_start
+            && text.as_bytes().get(end - 1).is_some_and(u8::is_ascii_whitespace)
+        {
+            end -= 1;
+        }
+        (branch_start < end).then_some(branch_start..end)
+    }
+
+    fn token_at(text: &str, raw: &str, value: &str, after: usize) -> PreprocessorDirectiveToken {
+        let start = text[after..].find(raw).map(|offset| after + offset).unwrap_or(after);
+        PreprocessorDirectiveToken {
+            raw_text: raw.to_owned(),
+            value_text: value.to_owned(),
+            range: Some(start..start + raw.len()),
+        }
+    }
+
+    fn base_directive(
+        kind: SyntaxKind,
+        range: Option<std::ops::Range<usize>>,
+    ) -> PreprocessorDirective {
+        PreprocessorDirective {
+            kind,
+            range,
+            directive: None,
+            name: None,
+            include_file_name: None,
+            params: Vec::<PreprocessorMacroParam>::new(),
+            body_tokens: Vec::new(),
+            expr_tokens: Vec::new(),
+            disabled_ranges: Vec::new(),
         }
     }
 

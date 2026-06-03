@@ -1,9 +1,8 @@
 use la_arena::Idx;
 use syntax::{
-    SyntaxKind, TokenKind,
+    AstNodeExt, SyntaxKind, TokenKind,
     ast::{self, AstNode},
     ptr::{SyntaxNodePtr, SyntaxTokenPtr},
-    slang_ext::AstNodeExt,
 };
 use utils::text_edit::TextRange;
 

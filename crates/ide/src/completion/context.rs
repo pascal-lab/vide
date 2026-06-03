@@ -264,7 +264,7 @@ fn parser_expected_syntax_for_text(
 
 fn directive_word_at_offset(source_text: &str, offset: TextSize) -> Option<CompletionWord> {
     let directive =
-        syntax::SyntaxTree::directive_at_offset(source_text, "source", "", usize::from(offset))?;
+        sv_frontend::directive_at_offset(source_text, "source", "", usize::from(offset))?;
     Some(CompletionWord {
         replacement: TextRange::new(
             TextSize::from(directive.replacement.start as u32),
@@ -283,8 +283,7 @@ fn library_map_word_at_offset(
         return None;
     }
 
-    let word =
-        syntax::SyntaxTree::token_word_at_offset(source_text, "source", "", usize::from(offset))?;
+    let word = sv_frontend::token_word_at_offset(source_text, "source", "", usize::from(offset))?;
     Some(CompletionWord {
         replacement: TextRange::new(
             TextSize::from(word.replacement.start as u32),
@@ -364,8 +363,6 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use syntax::SyntaxTree;
-
     use super::*;
 
     static PARSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -379,7 +376,7 @@ mod tests {
         let marker = "/*caret*/";
         let off = text.find(marker).expect("missing /*caret*/");
         let owned = text.replace(marker, "");
-        let tree = SyntaxTree::from_library_map_text(&owned, "test", "test.map");
+        let tree = sv_frontend::parse_library_map_syntax(&owned, "test", "test.map");
         let root = tree.root().unwrap();
         detect_completion_context_with_source_text(root, TextSize::from(off as u32), None, &owned)
     }
@@ -393,7 +390,7 @@ mod tests {
         owned = owned.replace(marker, "");
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
         let path = format!("test_{id}.v");
-        let tree = SyntaxTree::from_text(&owned, "test", &path);
+        let tree = sv_frontend::parse_syntax(&owned, "test", &path);
 
         let root = tree.root().unwrap();
         detect_completion_context_with_source_text(

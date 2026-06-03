@@ -1,10 +1,9 @@
 use la_arena::Idx;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxKind, TokenKind,
+    AstNodeExt, SyntaxKind, TokenKind,
     ast::{self, AstNode, DataType, StructUnionType},
     ptr::{SyntaxNodePtr, SyntaxTokenPtr},
-    slang_ext::AstNodeExt,
 };
 use utils::text_edit::TextRange;
 

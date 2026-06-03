@@ -19,7 +19,7 @@ use hir::{
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use smol_str::SmolStr;
-use syntax::{ast, has_text_range::HasTextRange};
+use syntax::ast;
 use utils::{
     get::{Get, GetRef},
     text_edit::TextRange,

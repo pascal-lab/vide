@@ -1,7 +1,5 @@
 use std::sync::OnceLock;
 
-use syntax::Compilation as SlangCompilation;
-
 use super::candidate::CompletionCandidate;
 use crate::completion::context::CompletionContext;
 
@@ -45,10 +43,10 @@ fn collect_system_subroutines(
 
 fn system_function_names() -> &'static [String] {
     static SYSTEM_FUNCTION_NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    SYSTEM_FUNCTION_NAMES.get_or_init(SlangCompilation::system_function_names)
+    SYSTEM_FUNCTION_NAMES.get_or_init(sv_frontend::system_function_names)
 }
 
 fn system_task_names() -> &'static [String] {
     static SYSTEM_TASK_NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    SYSTEM_TASK_NAMES.get_or_init(SlangCompilation::system_task_names)
+    SYSTEM_TASK_NAMES.get_or_init(sv_frontend::system_task_names)
 }

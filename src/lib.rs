@@ -7,7 +7,6 @@ use const_format::formatcp;
 use itertools::Itertools;
 use lsp_server::Connection;
 use lsp_types::{MessageType, ShowMessageParams};
-use slang as _;
 use utils::{
     json::from_json,
     paths::{AbsPathBuf, patch_path_prefix},

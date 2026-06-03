@@ -75,9 +75,8 @@ impl GenerateRegionSrc {
     /// parsed root file. Include-expanded members still lower into HIR, but
     /// have no source entry here.
     pub fn from_direct_member(member: &ast::Member<'_>) -> Option<Self> {
-        SourceAst::new(*member).map(|member| {
-            Self::DirectItem(syntax::slang_ext::AstNodeExt::to_ptr(&member.into_inner()))
-        })
+        SourceAst::new(*member)
+            .map(|member| Self::DirectItem(syntax::AstNodeExt::to_ptr(&member.into_inner())))
     }
 
     fn ptr(&self) -> SyntaxNodePtr {
@@ -124,13 +123,13 @@ impl<'a> ToAstNode<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
 
 impl From<ast::GenerateRegion<'_>> for GenerateRegionSrc {
     fn from(region: ast::GenerateRegion<'_>) -> Self {
-        Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region))
+        Self::GenerateRegion(syntax::AstNodeExt::to_ptr(&region))
     }
 }
 
 impl<'a> FromSourceAst<'a, ast::GenerateRegion<'a>> for GenerateRegionSrc {
     fn from_source_ast(region: SourceAst<ast::GenerateRegion<'a>>) -> Self {
-        Self::GenerateRegion(syntax::slang_ext::AstNodeExt::to_ptr(&region.into_inner()))
+        Self::GenerateRegion(syntax::AstNodeExt::to_ptr(&region.into_inner()))
     }
 }
 
@@ -242,7 +241,7 @@ impl From<ast::GenerateBlock<'_>> for GenerateBlockSrc {
     fn from(block: ast::GenerateBlock<'_>) -> Self {
         let syntax = block.syntax();
         GenerateBlockSrc::GenerateBlock {
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&block),
+            node: syntax::AstNodeExt::to_ptr(&block),
             name: generate_block_name(block)
                 .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
         }
@@ -253,7 +252,7 @@ impl From<ast::LoopGenerate<'_>> for GenerateBlockSrc {
     fn from(loop_generate: ast::LoopGenerate<'_>) -> Self {
         let block = loop_generate.block().as_generate_block();
         GenerateBlockSrc::LoopGenerate {
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&loop_generate),
+            node: syntax::AstNodeExt::to_ptr(&loop_generate),
             name: block.and_then(|block| {
                 generate_block_name(block).and_then(|name| {
                     root_token_in(block.syntax(), name).map(SyntaxTokenPtr::from_token)
@@ -265,10 +264,7 @@ impl From<ast::LoopGenerate<'_>> for GenerateBlockSrc {
 
 impl From<ast::Member<'_>> for GenerateBlockSrc {
     fn from(member: ast::Member<'_>) -> Self {
-        GenerateBlockSrc::SingleMember {
-            node: syntax::slang_ext::AstNodeExt::to_ptr(&member),
-            name: None,
-        }
+        GenerateBlockSrc::SingleMember { node: syntax::AstNodeExt::to_ptr(&member), name: None }
     }
 }
 

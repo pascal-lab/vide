@@ -20,6 +20,7 @@ serde.workspace = true
 smol_str.workspace = true
 smallvec.workspace = true
 syntax.workspace = true
+sv-frontend.workspace = true
 thiserror.workspace = true
 toml = "0.9.8"
 tracing.workspace = true

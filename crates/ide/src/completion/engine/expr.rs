@@ -19,7 +19,6 @@ use hir::{
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxNodeExt,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 use utils::text_edit::TextSize;
 

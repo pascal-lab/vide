@@ -196,13 +196,13 @@ macro_rules! define_src {
 
         impl From<ast::$ty<'_>> for $name {
             fn from(node: ast::$ty<'_>) -> Self {
-                Self(syntax::slang_ext::AstNodeExt::to_ptr(&node))
+                Self(syntax::AstNodeExt::to_ptr(&node))
             }
         }
 
         impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
             fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                Self(syntax::slang_ext::AstNodeExt::to_ptr(&node.into_inner()))
+                Self(syntax::AstNodeExt::to_ptr(&node.into_inner()))
             }
         }
 
@@ -256,13 +256,13 @@ macro_rules! define_src {
         $(
             impl From<ast::$ty<'_>> for $name {
                 fn from(node: ast::$ty<'_>) -> Self {
-                    Self::$ty(syntax::slang_ext::AstNodeExt::to_ptr(&node))
+                    Self::$ty(syntax::AstNodeExt::to_ptr(&node))
                 }
             }
 
             impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
                 fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                    Self::$ty(syntax::slang_ext::AstNodeExt::to_ptr(&node.into_inner()))
+                    Self::$ty(syntax::AstNodeExt::to_ptr(&node.into_inner()))
                 }
             }
         )*
@@ -312,7 +312,7 @@ macro_rules! define_src_with_name {
             fn from(node: ast::$ty<'_>) -> Self {
                 let syntax = syntax::ast::AstNode::syntax(&node);
                 Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    node: syntax::AstNodeExt::to_ptr(&node),
                     name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
                         .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
                 }
@@ -324,7 +324,7 @@ macro_rules! define_src_with_name {
                 let node = node.into_inner();
                 let syntax = syntax::ast::AstNode::syntax(&node);
                 Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    node: syntax::AstNodeExt::to_ptr(&node),
                     name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node)
                         .and_then(|name| {
                             $crate::source_map::root_token_in(syntax, name)
@@ -416,7 +416,7 @@ macro_rules! define_src_with_name {
                 fn from(node: ast::$ty<'_>) -> Self {
                     let syntax = syntax::ast::AstNode::syntax(&node);
                     Self::$ty {
-                        node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                        node: syntax::AstNodeExt::to_ptr(&node),
                         name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
                             .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
                     }
@@ -428,7 +428,7 @@ macro_rules! define_src_with_name {
                     let node = node.into_inner();
                     let syntax = syntax::ast::AstNode::syntax(&node);
                     Self::$ty {
-                        node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                        node: syntax::AstNodeExt::to_ptr(&node),
                         name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node)
                             .and_then(|name| {
                                 $crate::source_map::root_token_in(syntax, name)
@@ -511,7 +511,7 @@ macro_rules! define_src_with_name_and_token {
             fn from(node: ast::$ty<'_>) -> Self {
                 let syntax = syntax::ast::AstNode::syntax(&node);
                 Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    node: syntax::AstNodeExt::to_ptr(&node),
                     name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
                         .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
                     $token: node
@@ -526,7 +526,7 @@ macro_rules! define_src_with_name_and_token {
                 let node = node.into_inner();
                 let syntax = syntax::ast::AstNode::syntax(&node);
                 Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
+                    node: syntax::AstNodeExt::to_ptr(&node),
                     name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node).and_then(
                         |name| {
                             $crate::source_map::root_token_in(syntax, name)

@@ -1,7 +1,7 @@
 use hir::base_db::source_db::SourceDb;
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRangeIn,
 };
 
 use crate::code_action::{

@@ -4,7 +4,6 @@ use hir::base_db::source_db::SourceDb;
 use syntax::{
     SyntaxNode,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 
 use crate::code_action::{

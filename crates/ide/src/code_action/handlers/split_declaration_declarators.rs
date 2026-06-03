@@ -2,10 +2,7 @@ use std::ops::Range;
 
 use hir::base_db::source_db::SourceDb;
 use itertools::Itertools;
-use syntax::{
-    ast::{self, AstNode},
-    has_text_range::HasTextRange,
-};
+use syntax::ast::{self, AstNode};
 use utils::text_edit::TextRange;
 
 use crate::code_action::{

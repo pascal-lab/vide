@@ -1,7 +1,6 @@
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SyntaxKind,
-    SyntaxTree, SyntaxTreeOptions,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -96,19 +95,23 @@ pub struct MacroToken {
     pub range: Option<TextRange>,
 }
 
-pub fn preproc_file_index_from_text(text: &str, options: &SyntaxTreeOptions) -> PreprocFileIndex {
+pub fn preproc_file_index_from_directives(
+    directives: impl IntoIterator<Item = PreprocessorDirective>,
+    source: &str,
+) -> PreprocFileIndex {
     let mut index = PreprocFileIndex::default();
-    for directive in SyntaxTree::preprocessor_directives(text, "source", "", options) {
-        collect_preprocessor_directive(&mut index, directive, text);
+    for directive in directives {
+        collect_preprocessor_directive(&mut index, directive, source);
     }
-    normalize_token_include_targets(&mut index, text);
+    normalize_token_include_targets(&mut index, source);
     index
 }
 
-pub fn literal_include_directives(text: &str) -> Vec<MacroInclude> {
-    preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion())
+pub fn literal_include_directives_from_index(index: &PreprocFileIndex) -> Vec<MacroInclude> {
+    index
         .includes
-        .into_iter()
+        .iter()
+        .cloned()
         .filter(|include| matches!(include.target, MacroIncludeTarget::Literal { .. }))
         .collect()
 }
@@ -379,33 +382,164 @@ fn macro_name(name: String) -> SmolStr {
 
 #[cfg(test)]
 mod tests {
+    use syntax::{PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam};
+
     use super::*;
 
-    fn index(text: &str) -> PreprocFileIndex {
-        preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion())
+    fn index(source: &str, directives: Vec<PreprocessorDirective>) -> PreprocFileIndex {
+        preproc_file_index_from_directives(directives, source)
     }
 
-    fn literal_includes(text: &str) -> Vec<MacroInclude> {
-        literal_include_directives(text)
+    fn literal_includes(index: &PreprocFileIndex) -> Vec<MacroInclude> {
+        literal_include_directives_from_index(index)
     }
 
-    fn index_with_predefines(text: &str, predefines: Vec<String>) -> PreprocFileIndex {
-        preproc_file_index_from_text(
-            text,
-            &SyntaxTreeOptions { predefines, ..SyntaxTreeOptions::without_include_expansion() },
-        )
+    fn range(source: &str, needle: &str) -> std::ops::Range<usize> {
+        let start = source.find(needle).expect("fixture contains needle");
+        start..start + needle.len()
+    }
+
+    fn token(
+        raw: &str,
+        value: &str,
+        range: Option<std::ops::Range<usize>>,
+    ) -> PreprocessorDirectiveToken {
+        PreprocessorDirectiveToken { raw_text: raw.to_owned(), value_text: value.to_owned(), range }
+    }
+
+    fn base_directive(
+        kind: SyntaxKind,
+        range: Option<std::ops::Range<usize>>,
+    ) -> PreprocessorDirective {
+        PreprocessorDirective {
+            kind,
+            range,
+            directive: None,
+            name: None,
+            include_file_name: None,
+            params: Vec::new(),
+            body_tokens: Vec::new(),
+            expr_tokens: Vec::new(),
+            disabled_ranges: Vec::new(),
+        }
+    }
+
+    fn define_directive(
+        source: &str,
+        name: &str,
+        params: Vec<PreprocessorMacroParam>,
+        body_tokens: Vec<PreprocessorDirectiveToken>,
+    ) -> PreprocessorDirective {
+        let mut directive =
+            base_directive(SyntaxKind::DEFINE_DIRECTIVE, Some(range(source, "`define")));
+        directive.name = Some(token(name, name, Some(range(source, name))));
+        directive.params = params;
+        directive.body_tokens = body_tokens;
+        directive
+    }
+
+    fn param(
+        source: &str,
+        name: &str,
+        default: Option<Vec<PreprocessorDirectiveToken>>,
+    ) -> PreprocessorMacroParam {
+        PreprocessorMacroParam {
+            name: Some(token(name, name, Some(range(source, name)))),
+            default_tokens: default,
+            range: Some(range(source, name)),
+        }
+    }
+
+    fn include_directive(
+        source: &str,
+        raw: Option<&str>,
+        range_override: Option<std::ops::Range<usize>>,
+    ) -> PreprocessorDirective {
+        let token_range = raw.map(|raw| range(source, raw));
+        let directive_range = range_override.unwrap_or_else(|| {
+            token_range
+                .clone()
+                .map(|range| {
+                    let prefix = &source[..range.start];
+                    let start = prefix.rfind("`include").unwrap_or(range.start);
+                    start..range.end
+                })
+                .unwrap_or_else(|| range(source, "`include"))
+        });
+        let mut directive = base_directive(SyntaxKind::INCLUDE_DIRECTIVE, Some(directive_range));
+        if let Some(raw) = raw {
+            directive.include_file_name = Some(token(raw, raw, token_range));
+        }
+        directive
+    }
+
+    fn include_directive_with_token_range(
+        raw: &str,
+        token_range: Option<std::ops::Range<usize>>,
+        directive_range: std::ops::Range<usize>,
+    ) -> PreprocessorDirective {
+        let mut directive = base_directive(SyntaxKind::INCLUDE_DIRECTIVE, Some(directive_range));
+        directive.include_file_name = Some(token(raw, raw, token_range));
+        directive
+    }
+
+    fn undef_directive(source: &str, name: &str) -> PreprocessorDirective {
+        let mut directive =
+            base_directive(SyntaxKind::UNDEF_DIRECTIVE, Some(range(source, "`undef")));
+        directive.name = Some(token(name, name, Some(range(source, name))));
+        directive
+    }
+
+    fn usage_directive(
+        source: &str,
+        raw_name: &str,
+        range_override: Option<std::ops::Range<usize>>,
+    ) -> PreprocessorDirective {
+        let mut directive = base_directive(
+            SyntaxKind::MACRO_USAGE,
+            Some(range_override.clone().unwrap_or_else(|| range(source, raw_name))),
+        );
+        directive.name = Some(token(
+            raw_name,
+            raw_name,
+            Some(range_override.unwrap_or_else(|| range(source, raw_name))),
+        ));
+        directive
+    }
+
+    fn conditional_directive(
+        kind: SyntaxKind,
+        source: &str,
+        raw: &str,
+        expr: Vec<PreprocessorDirectiveToken>,
+    ) -> PreprocessorDirective {
+        let mut directive = base_directive(kind, Some(range(source, raw)));
+        directive.expr_tokens = expr;
+        directive
     }
 
     #[test]
     fn indexes_define_include_undef_and_usage_directives() {
-        let index = index(
-            r#"`define WIDTH(W=8) logic [W-1:0]
+        let source = r#"`define WIDTH(W=8) logic [W-1:0]
 `include "defs.svh"
 `undef WIDTH
 `WIDTH
 module top;
 endmodule
-"#,
+"#;
+        let index = index(
+            source,
+            vec![
+                define_directive(
+                    source,
+                    "WIDTH",
+                    vec![param(source, "W", Some(vec![token("8", "8", Some(range(source, "8")))]))],
+                    vec![token("logic", "logic", Some(range(source, "logic")))],
+                ),
+                include_directive(source, Some("\"defs.svh\""), None),
+                undef_directive(source, "WIDTH"),
+                usage_directive(source, "`WIDTH", None),
+            ],
         );
 
         assert_eq!(index.defines.len(), 1);
@@ -441,12 +575,24 @@ endmodule
 
     #[test]
     fn phase0_baseline_records_macro_directive_surface() {
-        let index = index(
-            r#"`define DECL_REG(name) logic name
+        let source = r#"`define DECL_REG(name) logic name
 `include "defs.svh"
 `undef DECL_REG
 `DECL_REG(foo)
-"#,
+"#;
+        let index = index(
+            source,
+            vec![
+                define_directive(
+                    source,
+                    "DECL_REG",
+                    vec![param(source, "name", None)],
+                    vec![token("logic", "logic", Some(range(source, "logic")))],
+                ),
+                include_directive(source, Some("\"defs.svh\""), None),
+                undef_directive(source, "DECL_REG"),
+                usage_directive(source, "`DECL_REG", None),
+            ],
         );
 
         assert_eq!(
@@ -477,13 +623,24 @@ endmodule
 
     #[test]
     fn indexes_conditional_directive_nodes() {
-        let index = index(
-            r#"`ifdef USE_A
+        let source = r#"`ifdef USE_A
 `include "a.sv"
 `else
 `include "b.sv"
 `endif
-"#,
+"#;
+        let index = index(
+            source,
+            vec![
+                conditional_directive(
+                    SyntaxKind::IF_DEF_DIRECTIVE,
+                    source,
+                    "`ifdef",
+                    vec![token("USE_A", "USE_A", Some(range(source, "USE_A")))],
+                ),
+                conditional_directive(SyntaxKind::ELSE_DIRECTIVE, source, "`else", Vec::new()),
+                conditional_directive(SyntaxKind::END_IF_DIRECTIVE, source, "`endif", Vec::new()),
+            ],
         );
 
         assert_eq!(
@@ -498,16 +655,23 @@ endmodule
     }
 
     #[test]
-    fn scans_literal_include_directives_without_full_parse() {
-        let includes = literal_includes(
-            r#"`include "defs.svh"
+    fn extracts_literal_include_directives_from_owned_index() {
+        let source = r#"`include "defs.svh"
 `include <vendor/pkg.svh>
 `include SOME_MACRO
 "`include \"string.svh\""
 // `include "comment.svh"
 /* `include "block_comment.svh" */
-"#,
+"#;
+        let index = index(
+            source,
+            vec![
+                include_directive(source, Some("\"defs.svh\""), None),
+                include_directive(source, Some("<vendor/pkg.svh>"), None),
+                include_directive(source, Some("SOME_MACRO"), None),
+            ],
         );
+        let includes = literal_includes(&index);
 
         assert_eq!(
             includes.iter().map(|include| &include.target).collect::<Vec<_>>(),
@@ -526,12 +690,18 @@ endmodule
 
     #[test]
     fn does_not_scan_include_target_past_line_end() {
-        let includes = literal_includes(
-            r#"`include
+        let source = r#"`include
 "next_line.svh"
 `include "same_line.svh"
-"#,
+"#;
+        let index = index(
+            source,
+            vec![
+                include_directive(source, None, Some(8..8)),
+                include_directive(source, Some("\"same_line.svh\""), None),
+            ],
         );
+        let includes = literal_includes(&index);
 
         assert_eq!(includes.len(), 1);
         assert_eq!(
@@ -552,8 +722,9 @@ endmodule
 `endif
 "#;
 
-        let without_define = index_with_predefines(text, Vec::new());
-        let with_define = index_with_predefines(text, vec!["USE_A=1".to_owned()]);
+        let without_define = index(text, vec![include_directive(text, Some("\"b.svh\""), None)]);
+
+        let with_define = index(text, vec![include_directive(text, Some("\"a.svh\""), None)]);
 
         assert_eq!(
             without_define.includes[0].target,
@@ -574,7 +745,13 @@ endmodule
     #[test]
     fn token_include_target_is_not_treated_as_literal_include() {
         let text = "`include `HEADER\n";
-        let index = index(text);
+        let index = index(
+            text,
+            vec![
+                include_directive(text, None, Some(0..8)),
+                usage_directive(text, "`HEADER", Some(9..16)),
+            ],
+        );
 
         assert_eq!(
             index.includes[0].target,
@@ -587,7 +764,13 @@ endmodule
     #[test]
     fn token_include_target_is_not_merged_across_lines() {
         let text = "`include\n`HEADER\n";
-        let index = index(text);
+        let index = index(
+            text,
+            vec![
+                include_directive(text, None, Some(8..8)),
+                usage_directive(text, "`HEADER", Some(9..16)),
+            ],
+        );
 
         assert_eq!(index.includes[0].target, MacroIncludeTarget::Token { raw: SmolStr::new("") });
         assert_eq!(
@@ -598,7 +781,23 @@ endmodule
 
     #[test]
     fn macro_expanded_include_literal_is_not_treated_as_source_literal() {
-        let index = index("`define HEADER \"defs.svh\"\n`include `HEADER\n");
+        let source = "`define HEADER \"defs.svh\"\n`include `HEADER\n";
+        let index = index(
+            source,
+            vec![
+                define_directive(
+                    source,
+                    "HEADER",
+                    Vec::new(),
+                    vec![token(
+                        "\"defs.svh\"",
+                        "\"defs.svh\"",
+                        Some(range(source, "\"defs.svh\"")),
+                    )],
+                ),
+                include_directive_with_token_range("\"defs.svh\"", None, range(source, "`include")),
+            ],
+        );
 
         assert_eq!(
             index.includes[0].target,
@@ -615,8 +814,15 @@ logic inactive;
 `endif
 "#;
 
-        let without_define = index_with_predefines(text, Vec::new());
-        let with_define = index_with_predefines(text, vec!["USE_A=1".to_owned()]);
+        let mut without_define_directive =
+            base_directive(SyntaxKind::IF_DEF_DIRECTIVE, Some(range(text, "`ifdef")));
+        without_define_directive.disabled_ranges.push(range(text, "logic active;"));
+        let without_define = index(text, vec![without_define_directive]);
+
+        let mut with_define_directive =
+            base_directive(SyntaxKind::IF_DEF_DIRECTIVE, Some(range(text, "`ifdef")));
+        with_define_directive.disabled_ranges.push(range(text, "logic inactive;"));
+        let with_define = index(text, vec![with_define_directive]);
 
         let inactive_range = without_define.inactive_ranges[0];
         assert_eq!(

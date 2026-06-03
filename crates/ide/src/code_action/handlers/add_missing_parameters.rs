@@ -5,7 +5,7 @@ use hir::{
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRangeIn,
 };
 use utils::get::GetRef;
 

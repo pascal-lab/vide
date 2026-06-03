@@ -1,0 +1,11 @@
+[package]
+name = "sv-frontend"
+version = "0.0.0"
+description = "SystemVerilog frontend facade over Vizsla-owned syntax contracts"
+
+edition.workspace = true
+
+[dependencies]
+preproc.workspace = true
+slang-adapter.workspace = true
+syntax.workspace = true

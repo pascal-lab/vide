@@ -6,7 +6,7 @@ use rustc_hash::FxHashMap;
 use smol_str::ToSmolStr;
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRangeIn,
 };
 use utils::text_edit::TextRange;
 

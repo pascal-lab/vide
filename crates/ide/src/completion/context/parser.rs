@@ -1,5 +1,5 @@
 use smallvec::{SmallVec, smallvec};
-use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxTree, TokenKind};
+use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, TokenKind};
 use utils::line_index::TextSize;
 
 use super::{CompletionExpectation, ExpectationSource, ExpectedSyntax};
@@ -36,9 +36,9 @@ pub(super) fn parser_expected_syntax_for_text(
 ) -> Vec<ParserExpectedSyntax> {
     let offset = usize::from(offset);
     if root.kind() == syntax::SyntaxKind::LIBRARY_MAP {
-        SyntaxTree::library_map_expected_syntax_at_offset(source_text, "source", "", offset)
+        sv_frontend::library_map_expected_syntax_at_offset(source_text, "source", "", offset)
     } else {
-        SyntaxTree::expected_syntax_at_offset(source_text, "source", "", offset)
+        sv_frontend::expected_syntax_at_offset(source_text, "source", "", offset)
     }
 }
 

@@ -26,7 +26,7 @@ use syntax::{
     SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
     has_name::HasName,
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRangeIn,
     match_ast,
     token::TokenKindExt,
 };

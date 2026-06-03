@@ -11,7 +11,6 @@ use rustc_hash::FxHashSet;
 use syntax::{
     SyntaxAncestors, SyntaxNodeExt,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
 };
 use utils::get::Get;
 
@@ -281,7 +280,7 @@ fn complete_param_value_assignment(
         .collect()
 }
 
-fn separated_list_index_at_offset<'a, T: AstNode<'a>>(
+fn separated_list_index_at_offset<'a, T: AstNode<'a> + 'a>(
     list: ast::SeparatedList<'a, T>,
     offset: utils::line_index::TextSize,
 ) -> usize {
