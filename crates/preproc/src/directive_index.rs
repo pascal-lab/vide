@@ -99,8 +99,9 @@ pub struct MacroToken {
 pub fn preproc_file_index_from_text(text: &str, options: &SyntaxTreeOptions) -> PreprocFileIndex {
     let mut index = PreprocFileIndex::default();
     for directive in SyntaxTree::preprocessor_directives(text, "source", "", options) {
-        collect_preprocessor_directive(&mut index, directive);
+        collect_preprocessor_directive(&mut index, directive, text);
     }
+    normalize_token_include_targets(&mut index);
     index
 }
 
@@ -119,7 +120,11 @@ fn range_to_text_range(range: std::ops::Range<usize>) -> Option<TextRange> {
     ))
 }
 
-fn collect_preprocessor_directive(index: &mut PreprocFileIndex, directive: PreprocessorDirective) {
+fn collect_preprocessor_directive(
+    index: &mut PreprocFileIndex,
+    directive: PreprocessorDirective,
+    source: &str,
+) {
     index.inactive_ranges.extend(directive.disabled_ranges.iter().filter_map(|range| {
         let range = range_to_text_range(range.clone())?;
         (!range.is_empty()).then_some(range)
@@ -148,7 +153,7 @@ fn collect_preprocessor_directive(index: &mut PreprocFileIndex, directive: Prepr
             let range = directive.range.and_then(range_to_text_range);
             let target = directive
                 .include_file_name
-                .map(|token| include_target_from_raw(token.raw_text.to_smolstr()))
+                .map(|token| include_target_from_token(token, range, source))
                 .unwrap_or_else(|| MacroIncludeTarget::Token { raw: SmolStr::new("") });
             index.includes.push(MacroInclude { target, range });
             push_preprocessor_directive(index, MacroDirectiveKind::Include, directive_index, range);
@@ -273,6 +278,77 @@ fn include_target_from_raw(raw: SmolStr) -> MacroIncludeTarget {
     } else {
         MacroIncludeTarget::Token { raw }
     }
+}
+
+fn include_target_from_token(
+    token: PreprocessorDirectiveToken,
+    directive_range: Option<TextRange>,
+    source: &str,
+) -> MacroIncludeTarget {
+    let raw = token.raw_text.to_smolstr();
+    let token_range = token.range.and_then(range_to_text_range);
+    if token_range.is_some_and(|token_range| {
+        directive_range.is_some_and(|directive_range| {
+            range_contains_range(directive_range, token_range)
+                && source_text_matches(source, token_range, &raw)
+        })
+    }) {
+        include_target_from_raw(raw)
+    } else {
+        MacroIncludeTarget::Token { raw }
+    }
+}
+
+fn normalize_token_include_targets(index: &mut PreprocFileIndex) {
+    for directive_position in 0..index.directives.len() {
+        let directive = index.directives[directive_position].clone();
+        if directive.kind != MacroDirectiveKind::Include {
+            continue;
+        }
+
+        let Some(include) = index.includes.get(directive.index) else {
+            continue;
+        };
+        if !matches!(&include.target, MacroIncludeTarget::Token { raw } if raw.is_empty()) {
+            continue;
+        }
+
+        let Some(next_directive) = index.directives.get(directive_position + 1) else {
+            continue;
+        };
+        if next_directive.kind != MacroDirectiveKind::Usage {
+            continue;
+        }
+
+        let Some(include_range) = include.range else {
+            continue;
+        };
+        let Some(usage) = index.usages.get(next_directive.index) else {
+            continue;
+        };
+        let Some(usage_range) = usage.range else {
+            continue;
+        };
+        if usage_range.start() < include_range.end() {
+            continue;
+        }
+
+        let range = TextRange::new(include_range.start(), usage_range.end());
+        let raw = usage.name.clone().unwrap_or_default();
+        index.includes[directive.index].range = Some(range);
+        index.includes[directive.index].target = MacroIncludeTarget::Token { raw };
+        index.directives[directive_position].range = Some(range);
+    }
+}
+
+fn range_contains_range(container: TextRange, child: TextRange) -> bool {
+    container.start() <= child.start() && child.end() <= container.end()
+}
+
+fn source_text_matches(source: &str, range: TextRange, text: &str) -> bool {
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    source.get(start..end).is_some_and(|source_text| source_text == text)
 }
 
 fn strip_include_delimiters(raw: &str) -> Option<&str> {
@@ -479,6 +555,29 @@ endmodule
                 path: SmolStr::new("a.svh"),
                 raw: SmolStr::new("\"a.svh\"")
             }
+        );
+    }
+
+    #[test]
+    fn token_include_target_is_not_treated_as_literal_include() {
+        let text = "`include `HEADER\n";
+        let index = index(text);
+
+        assert_eq!(
+            index.includes[0].target,
+            MacroIncludeTarget::Token { raw: SmolStr::new("HEADER") }
+        );
+        let include_range = index.includes[0].range.unwrap();
+        assert!(include_range.contains(TextSize::from(text.find("HEADER").unwrap() as u32)));
+    }
+
+    #[test]
+    fn macro_expanded_include_literal_is_not_treated_as_source_literal() {
+        let index = index("`define HEADER \"defs.svh\"\n`include `HEADER\n");
+
+        assert_eq!(
+            index.includes[0].target,
+            MacroIncludeTarget::Token { raw: SmolStr::new("\"defs.svh\"") }
         );
     }
 

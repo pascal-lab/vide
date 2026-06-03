@@ -3,9 +3,15 @@ use smol_str::SmolStr;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::directive_index::{
-    MacroDefine, MacroDirective, MacroDirectiveKind, MacroIncludeTarget, MacroUsage,
-    PreprocFileIndex,
+use crate::{
+    directive_index::{
+        MacroDefine, MacroDirective, MacroDirectiveKind, MacroIncludeTarget, MacroUsage,
+        PreprocFileIndex,
+    },
+    trace::{
+        ExpandedTokenId, ExpandedTokenOrigin, MacroExpansionEvent, PREPROC_TRACE_CAPABILITY,
+        PreprocTraceResult, TraceCapability,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -384,6 +390,24 @@ impl MacroDb {
         self.macro_references(definition)
     }
 
+    pub fn trace_capability(&self) -> TraceCapability {
+        TraceCapability::missing_preproc_trace()
+    }
+
+    pub fn expansion_for_use(
+        &self,
+        _use_id: MacroUseId,
+    ) -> PreprocTraceResult<&MacroExpansionEvent> {
+        PreprocTraceResult::missing_preproc_trace()
+    }
+
+    pub fn origin_for_expanded_token(
+        &self,
+        _token_id: ExpandedTokenId,
+    ) -> PreprocTraceResult<ExpandedTokenOrigin> {
+        PreprocTraceResult::missing_preproc_trace()
+    }
+
     pub fn include_target_at(&self, file_id: FileId, offset: TextSize) -> IncludeTargetAtResult {
         let Some((include_index, target)) = self.include_at_source(file_id, offset) else {
             return IncludeTargetAtResult::NoInclude;
@@ -404,11 +428,7 @@ impl MacroDb {
                     })
                 }),
             MacroIncludeTarget::Token { .. } => {
-                IncludeTargetAtResult::Failed(MacroQueryFailure::Unsupported {
-                    reason: SmolStr::new(
-                        "macro-expanded include targets require preprocessor trace",
-                    ),
-                })
+                IncludeTargetAtResult::Failed(missing_preproc_trace_failure())
             }
         }
     }
@@ -591,15 +611,7 @@ impl ReplayState<'_> {
                 }
             }
             MacroIncludeTarget::Token { .. } => {
-                self.record_barrier(
-                    file_id,
-                    offset,
-                    MacroQueryFailure::Unsupported {
-                        reason: SmolStr::new(
-                            "macro-expanded include targets require preprocessor trace",
-                        ),
-                    },
-                );
+                self.record_barrier(file_id, offset, missing_preproc_trace_failure());
             }
         }
     }
@@ -655,6 +667,13 @@ fn directive_offset(directive: &MacroDirective) -> TextSize {
     directive.range.map(|range| range.end()).unwrap_or_else(|| TextSize::from(0))
 }
 
+fn missing_preproc_trace_failure() -> MacroQueryFailure {
+    MacroQueryFailure::CapabilityUnavailable {
+        capability: SmolStr::new(PREPROC_TRACE_CAPABILITY),
+        reason: SmolStr::new("MissingPreprocTrace"),
+    }
+}
+
 fn range_contains(range: Option<TextRange>, offset: TextSize) -> bool {
     range.is_some_and(|range| range.contains(offset))
 }
@@ -664,7 +683,10 @@ mod tests {
     use syntax::SyntaxTreeOptions;
 
     use super::*;
-    use crate::directive_index::preproc_file_index_from_text;
+    use crate::{
+        directive_index::preproc_file_index_from_text,
+        trace::{CapabilityUnavailable, TraceUnavailableReason},
+    };
 
     fn input(profile: MacroProfileId) -> MacroDbInput {
         MacroDbInput {
@@ -1040,6 +1062,85 @@ mod tests {
                 capability,
                 ..
             }) if capability == "literal_include_replay"
+        ));
+    }
+
+    #[test]
+    fn trace_capability_reports_missing_preproc_trace() {
+        let db = db_from_text("`define WIDTH 8\n`WIDTH\n");
+
+        assert_eq!(
+            db.trace_capability(),
+            TraceCapability::CapabilityUnavailable(CapabilityUnavailable {
+                capability: SmolStr::new(PREPROC_TRACE_CAPABILITY),
+                reason: TraceUnavailableReason::MissingPreprocTrace,
+            })
+        );
+    }
+
+    #[test]
+    fn expansion_for_use_requires_preproc_trace() {
+        let db = db_from_text("`define WIDTH 8\n`WIDTH\n");
+
+        assert_eq!(
+            db.expansion_for_use(MacroUseId(0)),
+            PreprocTraceResult::CapabilityUnavailable(CapabilityUnavailable {
+                capability: SmolStr::new(PREPROC_TRACE_CAPABILITY),
+                reason: TraceUnavailableReason::MissingPreprocTrace,
+            })
+        );
+    }
+
+    #[test]
+    fn origin_for_expanded_token_requires_preproc_trace() {
+        let db = db_from_text("`define WIDTH 8\n`WIDTH\n");
+
+        assert_eq!(
+            db.origin_for_expanded_token(ExpandedTokenId(99)),
+            PreprocTraceResult::CapabilityUnavailable(CapabilityUnavailable {
+                capability: SmolStr::new(PREPROC_TRACE_CAPABILITY),
+                reason: TraceUnavailableReason::MissingPreprocTrace,
+            })
+        );
+    }
+
+    #[test]
+    fn token_include_target_requires_preproc_trace() {
+        let root = "`include `HEADER\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root)],
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+        });
+
+        assert!(matches!(
+            db.include_target_at(FileId(0), offset(root, "HEADER")),
+            IncludeTargetAtResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability,
+                reason,
+            }) if capability == PREPROC_TRACE_CAPABILITY && reason == "MissingPreprocTrace"
+        ));
+    }
+
+    #[test]
+    fn macro_expanded_include_replay_requires_preproc_trace() {
+        let root = "`define HEADER \"defs.svh\"\n`include `HEADER\n`WIDTH\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root)],
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+        });
+
+        assert!(matches!(
+            db.macro_definition_at(FileId(0), offset(root, "WIDTH")),
+            MacroDefinitionAtResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability,
+                reason,
+            }) if capability == PREPROC_TRACE_CAPABILITY && reason == "MissingPreprocTrace"
         ));
     }
 }
