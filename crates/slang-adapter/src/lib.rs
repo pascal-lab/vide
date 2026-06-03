@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use preproc::{CapabilityUnavailable, PreprocTrace, PreprocTraceResult};
 use rowan::GreenNodeBuilder;
 use syntax::raw::{RawSyntaxTree, SyntaxKind as RawSyntaxKind};
 use thiserror::Error;
@@ -18,6 +19,29 @@ pub enum RawSyntaxError {
     NonRootSourceRange { buffer_id: u32, root_buffer_id: u32, start: usize, end: usize },
     #[error("source range {start}..{end} spans multiple buffers")]
     MultiBufferSourceRange { start: usize, end: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PreprocTraceInput {
+    pub text: String,
+    pub name: String,
+    pub path: String,
+    pub predefines: Vec<String>,
+    pub include_paths: Vec<String>,
+    pub include_buffers: Vec<PreprocTraceBuffer>,
+    pub expand_includes: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocTraceBuffer {
+    pub path: String,
+    pub text: String,
+}
+
+pub fn extract_preproc_trace(_input: &PreprocTraceInput) -> PreprocTraceResult<PreprocTrace> {
+    PreprocTraceResult::CapabilityUnavailable(CapabilityUnavailable::binding_unavailable(
+        "slang binding does not expose expansion trace",
+    ))
 }
 
 pub fn parse_raw_syntax(text: &str) -> Result<RawSyntaxTree, RawSyntaxError> {
@@ -216,6 +240,7 @@ fn map_token_kind(kind: slang::TokenKind) -> RawSyntaxKind {
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
+    use preproc::{PREPROC_TRACE_CAPABILITY, TraceUnavailableReason};
     use syntax::raw::{AstNode, SourceFile, SyntaxElement, SyntaxNode};
 
     use super::*;
@@ -354,6 +379,29 @@ mod tests {
         let tree = parse_raw_syntax(SAMPLE).unwrap();
 
         assert_ranges_match_source(&tree.root(), SAMPLE);
+    }
+
+    #[test]
+    fn preproc_trace_api_reports_binding_unavailable() {
+        let input = PreprocTraceInput {
+            text: "`define WIDTH 8\n`WIDTH\n".to_owned(),
+            name: "source".to_owned(),
+            path: String::new(),
+            predefines: Vec::new(),
+            include_paths: Vec::new(),
+            include_buffers: Vec::new(),
+            expand_includes: true,
+        };
+
+        assert_eq!(
+            extract_preproc_trace(&input),
+            PreprocTraceResult::CapabilityUnavailable(CapabilityUnavailable {
+                capability: PREPROC_TRACE_CAPABILITY.into(),
+                reason: TraceUnavailableReason::BindingUnavailable {
+                    reason: "slang binding does not expose expansion trace".into(),
+                },
+            })
+        );
     }
 
     fn token_text(node: &SyntaxNode) -> String {
