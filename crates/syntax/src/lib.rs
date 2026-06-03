@@ -1,6 +1,7 @@
 pub mod has_name;
 pub mod has_text_range;
 pub mod ptr;
+pub mod raw;
 pub mod slang_ext;
 
 pub use slang::*;
