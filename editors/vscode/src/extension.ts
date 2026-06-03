@@ -470,16 +470,22 @@ async function provideExpandedRenameEdits(
     return await next(document, position, newName, token);
   };
 
-  const info = await languageClient.sendRequest<RenameExpansionInfo>(
-    'workspace/executeCommand',
-    {
-      command: renameExpansionInfoRequest,
-      arguments: [{ textDocumentPosition }],
-    },
-    token,
-  );
+  let info: RenameExpansionInfo | undefined;
+  try {
+    info = await languageClient.sendRequest<RenameExpansionInfo>(
+      'workspace/executeCommand',
+      {
+        command: renameExpansionInfoRequest,
+        arguments: [{ textDocumentPosition }],
+      },
+      token,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`[WARN] Falling back to standard rename: ${message}`);
+  }
 
-  if (info.additionalSymbols === 0) {
+  if (!info || info.additionalSymbols === 0) {
     return await standardRename();
   }
 
@@ -494,8 +500,12 @@ async function provideExpandedRenameEdits(
     localAction,
   );
 
-  if (selected !== recursiveAction) {
+  if (selected === localAction) {
     return await standardRename();
+  }
+
+  if (selected !== recursiveAction) {
+    return emptyRenameEdit();
   }
 
   if (!(await confirmRenameCollision(textDocumentPosition, newName, true, token))) {
