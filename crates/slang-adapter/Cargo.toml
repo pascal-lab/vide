@@ -1,0 +1,12 @@
+[package]
+name = "slang-adapter"
+version = "0.0.0"
+description = "Adapter from slang parser output to Vizsla-owned syntax data"
+
+edition.workspace = true
+
+[dependencies]
+rowan.workspace = true
+slang.workspace = true
+syntax.workspace = true
+thiserror.workspace = true

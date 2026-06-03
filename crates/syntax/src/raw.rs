@@ -202,8 +202,10 @@ impl_ast_node!(SourceFile, SyntaxKind::Root | SyntaxKind::CompilationUnit);
 impl_ast_node!(ModuleDeclaration, SyntaxKind::ModuleDeclaration);
 
 impl SourceFile {
-    pub fn modules(&self) -> impl Iterator<Item = ModuleDeclaration> + '_ {
-        self.syntax.children().filter_map(ModuleDeclaration::cast)
+    pub fn modules(&self) -> impl Iterator<Item = ModuleDeclaration> {
+        let mut modules = Vec::new();
+        collect_ast_nodes(self.syntax(), &mut modules);
+        modules.into_iter()
     }
 }
 
@@ -227,6 +229,15 @@ fn first_token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
     }
 
     None
+}
+
+fn collect_ast_nodes<N: AstNode>(node: &SyntaxNode, output: &mut Vec<N>) {
+    for child in node.children() {
+        if let Some(ast) = N::cast(child.clone()) {
+            output.push(ast);
+        }
+        collect_ast_nodes(&child, output);
+    }
 }
 
 fn dump_node(node: &SyntaxNode, indent: usize, out: &mut String) {
