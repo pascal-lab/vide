@@ -4,7 +4,8 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::directive_index::{
-    MacroDefine, MacroDirective, MacroDirectiveKind, MacroUsage, PreprocFileIndex,
+    MacroDefine, MacroDirective, MacroDirectiveKind, MacroIncludeTarget, MacroUsage,
+    PreprocFileIndex,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,10 +59,19 @@ pub struct FileMacroInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiteralIncludeInput {
+    pub from_file: FileId,
+    pub include_index: usize,
+    pub to_file: FileId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDbInput {
     pub profile: MacroProfileId,
+    pub roots: Vec<FileId>,
     pub files: Vec<FileMacroInput>,
     pub predefines: Vec<MacroPredefine>,
+    pub literal_includes: Vec<LiteralIncludeInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,13 +127,23 @@ pub enum MacroReferencesResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IncludeTargetAtResult {
+    Target(FileId),
+    NoInclude,
+    Failed(MacroQueryFailure),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDb {
     profile: MacroProfileId,
+    roots: Vec<FileId>,
     files: Vec<FileMacroInput>,
     predefines: Vec<MacroPredefine>,
+    literal_includes: Vec<LiteralIncludeInput>,
     definitions: Vec<MacroSource>,
     uses: Vec<MacroUse>,
     env_snapshots: Vec<EnvSnapshot>,
+    replay_barriers: Vec<ReplayBarrier>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,12 +153,22 @@ struct EnvSnapshot {
     visible: Vec<MacroDefId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReplayBarrier {
+    file_id: FileId,
+    offset: TextSize,
+    failure: MacroQueryFailure,
+}
+
 impl MacroDb {
     pub fn new(input: MacroDbInput) -> Self {
-        let MacroDbInput { profile, files, predefines } = input;
+        let MacroDbInput { profile, roots, files, predefines, literal_includes } = input;
+        let roots =
+            if roots.is_empty() { files.iter().map(|file| file.file_id).collect() } else { roots };
         let mut definitions = Vec::new();
         let mut uses = Vec::new();
         let mut env_snapshots = Vec::new();
+        let mut replay_barriers = Vec::new();
         let mut predefine_env = FxHashMap::default();
 
         for predefine in &predefines {
@@ -156,15 +186,59 @@ impl MacroDb {
             definitions.push(source);
         }
 
-        for file in &files {
-            replay_file(file, &predefine_env, &mut definitions, &mut uses, &mut env_snapshots);
+        let mut replay = ReplayState {
+            files: &files,
+            file_indices: files
+                .iter()
+                .enumerate()
+                .map(|(index, file)| (file.file_id, index))
+                .collect(),
+            include_edges: literal_includes
+                .iter()
+                .map(|include| ((include.from_file, include.include_index), include.to_file))
+                .collect(),
+            definitions: &mut definitions,
+            uses: &mut uses,
+            env_snapshots: &mut env_snapshots,
+            replay_barriers: &mut replay_barriers,
+        };
+
+        for root in &roots {
+            let mut env = predefine_env.clone();
+            let mut include_stack = Vec::new();
+            if let Some(file_index) = replay.file_indices.get(root).copied() {
+                replay.replay_file(file_index, &mut env, &mut include_stack);
+            } else {
+                replay.replay_barriers.push(ReplayBarrier {
+                    file_id: *root,
+                    offset: TextSize::from(0),
+                    failure: MacroQueryFailure::CapabilityUnavailable {
+                        capability: SmolStr::new("macrodb_root_replay"),
+                        reason: SmolStr::new("root file is not part of MacroDb input"),
+                    },
+                });
+            }
         }
 
-        Self { profile, files, predefines, definitions, uses, env_snapshots }
+        Self {
+            profile,
+            roots,
+            files,
+            predefines,
+            literal_includes,
+            definitions,
+            uses,
+            env_snapshots,
+            replay_barriers,
+        }
     }
 
     pub fn profile(&self) -> MacroProfileId {
         self.profile
+    }
+
+    pub fn roots(&self) -> &[FileId] {
+        &self.roots
     }
 
     pub fn files(&self) -> &[FileMacroInput] {
@@ -173,6 +247,10 @@ impl MacroDb {
 
     pub fn predefines(&self) -> &[MacroPredefine] {
         &self.predefines
+    }
+
+    pub fn literal_includes(&self) -> &[LiteralIncludeInput] {
+        &self.literal_includes
     }
 
     pub fn definitions(&self) -> &[MacroSource] {
@@ -202,6 +280,10 @@ impl MacroDb {
         file_id: FileId,
         offset: TextSize,
     ) -> Result<Vec<MacroSource>, MacroQueryFailure> {
+        if let Some(failure) = self.replay_failure_before(file_id, offset) {
+            return Err(failure);
+        }
+
         let snapshot = self
             .env_snapshots
             .iter()
@@ -224,6 +306,9 @@ impl MacroDb {
                 file_id,
                 range,
             });
+        }
+        if let Some(failure) = self.replay_failure_before(file_id, offset) {
+            return MacroDefinitionAtResult::Failed(failure);
         }
 
         let Some(macro_use) = self.macro_use_at(file_id, offset) else {
@@ -250,6 +335,9 @@ impl MacroDb {
     }
 
     pub fn macro_references(&self, definition: MacroDefId) -> MacroReferencesResult {
+        if let Some(failure) = self.first_replay_failure() {
+            return MacroReferencesResult::Failed(failure);
+        }
         if self.definition(definition).is_none() {
             return MacroReferencesResult::Failed(MacroQueryFailure::UnknownDefinition {
                 id: definition,
@@ -282,6 +370,9 @@ impl MacroDb {
                 range,
             });
         }
+        if let Some(failure) = self.replay_failure_before(file_id, offset) {
+            return MacroReferencesResult::Failed(failure);
+        }
 
         let Some(definition) = self.definition_at_source(file_id, offset) else {
             return MacroReferencesResult::Failed(MacroQueryFailure::CapabilityUnavailable {
@@ -291,6 +382,35 @@ impl MacroDb {
         };
 
         self.macro_references(definition)
+    }
+
+    pub fn include_target_at(&self, file_id: FileId, offset: TextSize) -> IncludeTargetAtResult {
+        let Some((include_index, target)) = self.include_at_source(file_id, offset) else {
+            return IncludeTargetAtResult::NoInclude;
+        };
+
+        match target {
+            MacroIncludeTarget::Literal { .. } => self
+                .literal_includes
+                .iter()
+                .find(|include| {
+                    include.from_file == file_id && include.include_index == include_index
+                })
+                .map(|include| IncludeTargetAtResult::Target(include.to_file))
+                .unwrap_or_else(|| {
+                    IncludeTargetAtResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                        capability: SmolStr::new("literal_include_replay"),
+                        reason: SmolStr::new("literal include edge was not supplied"),
+                    })
+                }),
+            MacroIncludeTarget::Token { .. } => {
+                IncludeTargetAtResult::Failed(MacroQueryFailure::Unsupported {
+                    reason: SmolStr::new(
+                        "macro-expanded include targets require preprocessor trace",
+                    ),
+                })
+            }
+        }
     }
 
     fn definition_at_source(&self, file_id: FileId, offset: TextSize) -> Option<MacroDefId> {
@@ -314,49 +434,174 @@ impl MacroDb {
             .copied()
             .find(|range| range_contains(Some(*range), offset))
     }
+
+    fn include_at_source(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Option<(usize, MacroIncludeTarget)> {
+        let file = self.files.iter().find(|file| file.file_id == file_id)?;
+        file.index.directives.iter().find_map(|directive| {
+            if directive.kind != MacroDirectiveKind::Include
+                || !range_contains(directive.range, offset)
+            {
+                return None;
+            }
+            let include = file.index.includes.get(directive.index)?;
+            Some((directive.index, include.target.clone()))
+        })
+    }
+
+    fn replay_failure_before(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Option<MacroQueryFailure> {
+        self.replay_barriers
+            .iter()
+            .find(|barrier| barrier.file_id == file_id && barrier.offset <= offset)
+            .map(|barrier| barrier.failure.clone())
+    }
+
+    fn first_replay_failure(&self) -> Option<MacroQueryFailure> {
+        self.replay_barriers.first().map(|barrier| barrier.failure.clone())
+    }
 }
 
-fn replay_file(
-    file: &FileMacroInput,
-    predefine_env: &FxHashMap<MacroName, MacroDefId>,
-    definitions: &mut Vec<MacroSource>,
-    uses: &mut Vec<MacroUse>,
-    env_snapshots: &mut Vec<EnvSnapshot>,
-) {
-    let mut env = predefine_env.clone();
-    push_env_snapshot(file.file_id, TextSize::from(0), &env, env_snapshots);
+struct ReplayState<'a> {
+    files: &'a [FileMacroInput],
+    file_indices: FxHashMap<FileId, usize>,
+    include_edges: FxHashMap<(FileId, usize), FileId>,
+    definitions: &'a mut Vec<MacroSource>,
+    uses: &'a mut Vec<MacroUse>,
+    env_snapshots: &'a mut Vec<EnvSnapshot>,
+    replay_barriers: &'a mut Vec<ReplayBarrier>,
+}
 
-    for directive in &file.index.directives {
-        match directive.kind {
-            MacroDirectiveKind::Define => {
-                if let Some(source) = file.index.defines.get(directive.index).and_then(|define| {
-                    macro_source_from_define(file.file_id, define, definitions.len())
-                }) {
-                    env.insert(source.name.clone(), source.id);
-                    definitions.push(source);
+impl ReplayState<'_> {
+    fn replay_file(
+        &mut self,
+        file_index: usize,
+        env: &mut FxHashMap<MacroName, MacroDefId>,
+        include_stack: &mut Vec<FileId>,
+    ) {
+        let file_id = self.files[file_index].file_id;
+        include_stack.push(file_id);
+        push_env_snapshot(file_id, TextSize::from(0), env, self.env_snapshots);
+
+        let directives = self.files[file_index].index.directives.clone();
+        for directive in directives {
+            match directive.kind {
+                MacroDirectiveKind::Define => {
+                    let define = self.files[file_index].index.defines.get(directive.index).cloned();
+                    if let Some(source) = define.as_ref().and_then(|define| {
+                        macro_source_from_define(file_id, define, self.definitions.len())
+                    }) {
+                        env.insert(source.name.clone(), source.id);
+                        self.definitions.push(source);
+                    }
                 }
-            }
-            MacroDirectiveKind::Undef => {
-                if let Some(undef) = file.index.undefs.get(directive.index)
-                    && let Some(name) = &undef.name
-                {
-                    env.remove(&MacroName::new(name.clone()));
+                MacroDirectiveKind::Undef => {
+                    if let Some(undef) = self.files[file_index].index.undefs.get(directive.index)
+                        && let Some(name) = &undef.name
+                    {
+                        env.remove(&MacroName::new(name.clone()));
+                    }
                 }
-            }
-            MacroDirectiveKind::Usage => {
-                if let Some(macro_use) =
-                    file.index.usages.get(directive.index).and_then(|usage| {
-                        macro_use_from_usage(file.file_id, usage, &env, uses.len())
-                    })
-                {
-                    uses.push(macro_use);
+                MacroDirectiveKind::Usage => {
+                    let usage = self.files[file_index].index.usages.get(directive.index).cloned();
+                    if let Some(macro_use) = usage.as_ref().and_then(|usage| {
+                        macro_use_from_usage(file_id, usage, env, self.uses.len())
+                    }) {
+                        self.uses.push(macro_use);
+                    }
                 }
+                MacroDirectiveKind::Include => {
+                    self.replay_include(file_index, &directive, env, include_stack);
+                }
+                MacroDirectiveKind::Conditional | MacroDirectiveKind::Branch => {}
             }
-            MacroDirectiveKind::Include
-            | MacroDirectiveKind::Conditional
-            | MacroDirectiveKind::Branch => {}
+            push_env_snapshot(file_id, directive_offset(&directive), env, self.env_snapshots);
         }
-        push_env_snapshot(file.file_id, directive_offset(directive), &env, env_snapshots);
+
+        include_stack.pop();
+    }
+
+    fn replay_include(
+        &mut self,
+        file_index: usize,
+        directive: &MacroDirective,
+        env: &mut FxHashMap<MacroName, MacroDefId>,
+        include_stack: &mut Vec<FileId>,
+    ) {
+        let file_id = self.files[file_index].file_id;
+        let offset = directive_offset(directive);
+        let Some(include) = self.files[file_index].index.includes.get(directive.index) else {
+            self.record_barrier(
+                file_id,
+                offset,
+                MacroQueryFailure::CapabilityUnavailable {
+                    capability: SmolStr::new("literal_include_replay"),
+                    reason: SmolStr::new("include directive event is missing"),
+                },
+            );
+            return;
+        };
+
+        match &include.target {
+            MacroIncludeTarget::Literal { .. } => {
+                let Some(included_file_id) =
+                    self.include_edges.get(&(file_id, directive.index)).copied()
+                else {
+                    self.record_barrier(
+                        file_id,
+                        offset,
+                        MacroQueryFailure::CapabilityUnavailable {
+                            capability: SmolStr::new("literal_include_replay"),
+                            reason: SmolStr::new("literal include edge was not supplied"),
+                        },
+                    );
+                    return;
+                };
+                if include_stack.contains(&included_file_id) {
+                    self.record_barrier(
+                        file_id,
+                        offset,
+                        MacroQueryFailure::Unsupported {
+                            reason: SmolStr::new("literal include cycle"),
+                        },
+                    );
+                    return;
+                }
+                let Some(included_index) = self.file_indices.get(&included_file_id).copied() else {
+                    self.record_barrier(
+                        file_id,
+                        offset,
+                        MacroQueryFailure::CapabilityUnavailable {
+                            capability: SmolStr::new("literal_include_replay"),
+                            reason: SmolStr::new("included file is not part of MacroDb input"),
+                        },
+                    );
+                    return;
+                };
+                self.replay_file(included_index, env, include_stack);
+            }
+            MacroIncludeTarget::Token { .. } => {
+                self.record_barrier(
+                    file_id,
+                    offset,
+                    MacroQueryFailure::Unsupported {
+                        reason: SmolStr::new(
+                            "macro-expanded include targets require preprocessor trace",
+                        ),
+                    },
+                );
+            }
+        }
+    }
+
+    fn record_barrier(&mut self, file_id: FileId, offset: TextSize, failure: MacroQueryFailure) {
+        self.replay_barriers.push(ReplayBarrier { file_id, offset, failure });
     }
 }
 
@@ -418,7 +663,23 @@ mod tests {
     use crate::directive_index::preproc_file_index_from_text;
 
     fn input(profile: MacroProfileId) -> MacroDbInput {
-        MacroDbInput { profile, files: Vec::new(), predefines: Vec::new() }
+        MacroDbInput {
+            profile,
+            roots: Vec::new(),
+            files: Vec::new(),
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+        }
+    }
+
+    fn file_input(file_id: FileId, text: &str) -> FileMacroInput {
+        FileMacroInput {
+            file_id,
+            index: preproc_file_index_from_text(
+                text,
+                &SyntaxTreeOptions::without_include_expansion(),
+            ),
+        }
     }
 
     fn db_from_text(text: &str) -> MacroDb {
@@ -426,12 +687,12 @@ mod tests {
     }
 
     fn db_from_text_with_predefines(text: &str, predefines: Vec<MacroPredefine>) -> MacroDb {
-        let index =
-            preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion());
         MacroDb::new(MacroDbInput {
             profile: MacroProfileId(1),
-            files: vec![FileMacroInput { file_id: FileId(0), index }],
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), text)],
             predefines,
+            literal_includes: Vec::new(),
         })
     }
 
@@ -607,5 +868,99 @@ mod tests {
                 range: db.macro_use(MacroUseId(0)).unwrap().range,
             }])
         );
+    }
+
+    #[test]
+    fn literal_include_replay_makes_definition_visible() {
+        let root = "`include \"defs.svh\"\nlogic [`WIDTH-1:0] data;\n";
+        let header = "`define WIDTH 8\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root), file_input(FileId(1), header)],
+            predefines: Vec::new(),
+            literal_includes: vec![LiteralIncludeInput {
+                from_file: FileId(0),
+                include_index: 0,
+                to_file: FileId(1),
+            }],
+        });
+
+        let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
+
+        assert_eq!(
+            result,
+            MacroDefinitionAtResult::Definition(MacroSource {
+                id: MacroDefId(0),
+                name: MacroName::new("WIDTH"),
+                origin: SourceOrigin::File {
+                    file_id: FileId(1),
+                    range: TextRange::new(TextSize::from(8), TextSize::from(13)),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn literal_include_without_edge_fails_closed() {
+        let root = "`include \"defs.svh\"\nlogic [`WIDTH-1:0] data;\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root)],
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+        });
+
+        let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
+
+        assert!(matches!(
+            result,
+            MacroDefinitionAtResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability,
+                ..
+            }) if capability == "literal_include_replay"
+        ));
+    }
+
+    #[test]
+    fn include_target_at_uses_supplied_literal_edge() {
+        let root = "`include \"defs.svh\"\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root), file_input(FileId(1), "`define WIDTH 8\n")],
+            predefines: Vec::new(),
+            literal_includes: vec![LiteralIncludeInput {
+                from_file: FileId(0),
+                include_index: 0,
+                to_file: FileId(1),
+            }],
+        });
+
+        assert_eq!(
+            db.include_target_at(FileId(0), offset(root, "defs")),
+            IncludeTargetAtResult::Target(FileId(1))
+        );
+    }
+
+    #[test]
+    fn include_target_at_fails_closed_without_literal_edge() {
+        let root = "`include \"defs.svh\"\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root)],
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+        });
+
+        assert!(matches!(
+            db.include_target_at(FileId(0), offset(root, "defs")),
+            IncludeTargetAtResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability,
+                ..
+            }) if capability == "literal_include_replay"
+        ));
     }
 }
