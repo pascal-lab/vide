@@ -15,8 +15,8 @@ use utils::{line_index::WideEncoding, lines::PositionEncoding};
 use crate::{
     config::Config,
     lsp_ext::ext::{
-        self, PORT_CONNECTION_RENAME_COMMAND, PORT_CONNECTION_RENAME_INFO_COMMAND,
-        RELOAD_WORKSPACE_COMMAND, RENAME_COLLISION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
+        self, EXPANDED_RENAME_COMMAND, RELOAD_WORKSPACE_COMMAND, RENAME_CONFLICT_INFO_COMMAND,
+        RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
     },
 };
 
@@ -321,9 +321,9 @@ impl Config {
                 commands: vec![
                     RUN_QIHE_ANALYSIS_COMMAND.to_string(),
                     RELOAD_WORKSPACE_COMMAND.to_string(),
-                    PORT_CONNECTION_RENAME_INFO_COMMAND.to_string(),
-                    PORT_CONNECTION_RENAME_COMMAND.to_string(),
-                    RENAME_COLLISION_INFO_COMMAND.to_string(),
+                    RENAME_EXPANSION_INFO_COMMAND.to_string(),
+                    EXPANDED_RENAME_COMMAND.to_string(),
+                    RENAME_CONFLICT_INFO_COMMAND.to_string(),
                 ],
                 work_done_progress_options: Default::default(),
             }),

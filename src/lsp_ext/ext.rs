@@ -142,9 +142,9 @@ pub enum CodeActionResolveError {
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";
 pub const RELOAD_WORKSPACE_COMMAND: &str = "vide.server.reloadWorkspace";
-pub const PORT_CONNECTION_RENAME_INFO_COMMAND: &str = "vide.server.portConnectionRenameInfo";
-pub const PORT_CONNECTION_RENAME_COMMAND: &str = "vide.server.portConnectionRename";
-pub const RENAME_COLLISION_INFO_COMMAND: &str = "vide.server.renameCollisionInfo";
+pub const RENAME_EXPANSION_INFO_COMMAND: &str = "vide.server.renameExpansionInfo";
+pub const EXPANDED_RENAME_COMMAND: &str = "vide.server.expandedRename";
+pub const RENAME_CONFLICT_INFO_COMMAND: &str = "vide.server.renameConflictInfo";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,26 +156,26 @@ pub struct RunQiheAnalysisParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PortConnectionRenameInfoParams {
+pub struct RenameExpansionInfoParams {
     pub text_document_position: lsp_types::TextDocumentPositionParams,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PortConnectionRenameInfoResult {
+pub struct RenameExpansionInfoResult {
     pub additional_symbols: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PortConnectionRenameParams {
+pub struct ExpandedRenameParams {
     pub text_document_position: lsp_types::TextDocumentPositionParams,
     pub new_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RenameCollisionInfoParams {
+pub struct RenameConflictInfoParams {
     pub text_document_position: lsp_types::TextDocumentPositionParams,
     pub new_name: String,
     #[serde(default)]
@@ -184,7 +184,7 @@ pub struct RenameCollisionInfoParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RenameCollisionInfoResult {
+pub struct RenameConflictInfoResult {
     pub conflicts: usize,
 }
 

@@ -44,9 +44,9 @@ const showServerVersionCommand = 'vide.showServerVersion';
 const showQiheOutputCommand = 'vide.showQiheOutput';
 const runQiheAnalysisCommand = 'vide.runQiheAnalysis';
 const runQiheAnalysisRequest = 'vide.server.runQiheAnalysis';
-const portConnectionRenameInfoRequest = 'vide.server.portConnectionRenameInfo';
-const portConnectionRenameRequest = 'vide.server.portConnectionRename';
-const renameCollisionInfoRequest = 'vide.server.renameCollisionInfo';
+const renameExpansionInfoRequest = 'vide.server.renameExpansionInfo';
+const expandedRenameRequest = 'vide.server.expandedRename';
+const renameConflictInfoRequest = 'vide.server.renameConflictInfo';
 const qiheStatusNotification = 'vide/qiheStatus';
 const qiheLogNotification = 'vide/qiheLog';
 const qiheAnalysisIcon = '$(beaker)';
@@ -392,11 +392,11 @@ function includeDeclarationInReferences(document: vscode.TextDocument): boolean 
   );
 }
 
-type PortConnectionRenameInfo = {
+type RenameExpansionInfo = {
   additionalSymbols: number;
 };
 
-type RenameCollisionInfo = {
+type RenameConflictInfo = {
   conflicts: number;
 };
 
@@ -415,10 +415,10 @@ async function confirmRenameCollision(
     return true;
   }
 
-  const info = await languageClient.sendRequest<RenameCollisionInfo>(
+  const info = await languageClient.sendRequest<RenameConflictInfo>(
     'workspace/executeCommand',
     {
-      command: renameCollisionInfoRequest,
+      command: renameConflictInfoRequest,
       arguments: [{ textDocumentPosition, newName, recursive }],
     },
     token,
@@ -442,7 +442,7 @@ async function confirmRenameCollision(
   return selected === continueAction;
 }
 
-async function providePortConnectionRenameEdits(
+async function provideExpandedRenameEdits(
   document: vscode.TextDocument,
   position: vscode.Position,
   newName: string,
@@ -470,10 +470,10 @@ async function providePortConnectionRenameEdits(
     return await next(document, position, newName, token);
   };
 
-  const info = await languageClient.sendRequest<PortConnectionRenameInfo>(
+  const info = await languageClient.sendRequest<RenameExpansionInfo>(
     'workspace/executeCommand',
     {
-      command: portConnectionRenameInfoRequest,
+      command: renameExpansionInfoRequest,
       arguments: [{ textDocumentPosition }],
     },
     token,
@@ -505,7 +505,7 @@ async function providePortConnectionRenameEdits(
   const edit = await languageClient.sendRequest(
     'workspace/executeCommand',
     {
-      command: portConnectionRenameRequest,
+      command: expandedRenameRequest,
       arguments: [{ textDocumentPosition, newName }],
     },
     token,
@@ -786,7 +786,7 @@ async function createClient(context: vscode.ExtensionContext): Promise<LanguageC
         options.includeDeclaration = includeDeclarationInReferences(document);
         return await next(document, position, options, token);
       },
-      provideRenameEdits: providePortConnectionRenameEdits,
+      provideRenameEdits: provideExpandedRenameEdits,
     },
     ...(config.trace !== 'off' && { trace: config.trace }),
   };

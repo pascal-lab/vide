@@ -430,7 +430,7 @@ fn best_effort_single_file_rename_rejects_cross_file_symbol() {
 }
 
 #[test]
-fn recursive_rename_follows_same_name_shorthand_port_connection_chain() {
+fn expanded_rename_follows_same_name_shorthand_connection_chain() {
     let text = r#"
 module top(input a);
   mid u_mid(.a);
@@ -451,13 +451,13 @@ endmodule
     let config = RenameConfig::workspace(ScopeVisibility::Private);
 
     let info = analysis
-        .recursive_rename_info(position, config.clone())
+        .rename_expansion_info(position, config.clone())
         .unwrap()
         .expect("recursive rename info expected");
     assert_eq!(info.additional_symbols, 2);
 
     let recursive = analysis
-        .recursive_rename(position, config.clone(), "renamed")
+        .expanded_rename(position, config.clone(), "renamed")
         .unwrap()
         .expect("recursive rename expected");
     let edit = recursive.text_edits.get(&file_id).expect("recursive rename should edit file");
@@ -480,7 +480,7 @@ endmodule
 }
 
 #[test]
-fn recursive_rename_collapses_explicit_same_name_port_connection() {
+fn expanded_rename_collapses_explicit_same_name_connection() {
     let text = r#"
 module top(input a);
   child u_child(.a(a));
@@ -497,7 +497,7 @@ endmodule
     let config = RenameConfig::workspace(ScopeVisibility::Private);
 
     let recursive = analysis
-        .recursive_rename(position, config, "renamed")
+        .expanded_rename(position, config, "renamed")
         .unwrap()
         .expect("recursive rename expected");
     let edit = recursive.text_edits.get(&file_id).expect("recursive rename should edit file");
@@ -509,7 +509,7 @@ endmodule
 }
 
 #[test]
-fn recursive_rename_skips_non_same_name_or_complex_port_connections() {
+fn expanded_rename_skips_non_same_name_or_complex_connections() {
     let cases = [
         (
             "different actual",
@@ -548,7 +548,7 @@ fn recursive_rename_skips_non_same_name_or_complex_port_connections() {
                 - 1,
         );
         let info = analysis
-            .recursive_rename_info(
+            .rename_expansion_info(
                 FilePosition { file_id, offset },
                 RenameConfig::workspace(ScopeVisibility::Private),
             )
@@ -559,7 +559,7 @@ fn recursive_rename_skips_non_same_name_or_complex_port_connections() {
 }
 
 #[test]
-fn rename_collision_info_reports_same_scope_conflicts() {
+fn rename_conflict_info_reports_same_scope_conflicts() {
     let text = r#"
 module top;
   logic a;
@@ -575,20 +575,20 @@ endmodule
     let config = RenameConfig::workspace(ScopeVisibility::Private);
 
     let collision = analysis
-        .rename_collision_info(position, config.clone(), "a", false)
+        .rename_conflict_info(position, config.clone(), "a", false)
         .unwrap()
         .expect("collision info expected");
     assert_eq!(collision.conflicts, 1);
 
     let no_collision = analysis
-        .rename_collision_info(position, config, "b", false)
+        .rename_conflict_info(position, config, "b", false)
         .unwrap()
         .expect("collision info expected");
     assert_eq!(no_collision.conflicts, 0);
 }
 
 #[test]
-fn recursive_rename_collision_info_checks_all_chain_targets() {
+fn expanded_rename_conflict_info_checks_all_chain_targets() {
     let text = r#"
 module top(input a);
   logic renamed;
@@ -606,13 +606,13 @@ endmodule
     let config = RenameConfig::workspace(ScopeVisibility::Private);
 
     let collision = analysis
-        .rename_collision_info(position, config.clone(), "renamed", true)
+        .rename_conflict_info(position, config.clone(), "renamed", true)
         .unwrap()
         .expect("recursive collision info expected");
     assert_eq!(collision.conflicts, 1);
 
     let no_collision = analysis
-        .rename_collision_info(position, config, "a", true)
+        .rename_conflict_info(position, config, "a", true)
         .unwrap()
         .expect("recursive collision info expected");
     assert_eq!(no_collision.conflicts, 0);

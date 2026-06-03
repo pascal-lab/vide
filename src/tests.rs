@@ -41,10 +41,9 @@ use crate::{
     i18n::{I18n, Locale},
     lsp_ext::{
         ext::{
-            PORT_CONNECTION_RENAME_COMMAND, PORT_CONNECTION_RENAME_INFO_COMMAND,
-            PortConnectionRenameInfoParams, PortConnectionRenameInfoResult,
-            PortConnectionRenameParams, ProjectStatusNotification, RENAME_COLLISION_INFO_COMMAND,
-            RenameCollisionInfoParams, RenameCollisionInfoResult,
+            EXPANDED_RENAME_COMMAND, ExpandedRenameParams, ProjectStatusNotification,
+            RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RenameConflictInfoParams,
+            RenameConflictInfoResult, RenameExpansionInfoParams, RenameExpansionInfoResult,
         },
         to_proto,
     },
@@ -1735,7 +1734,7 @@ fn configured_workspace_rename_updates_cross_file_symbol() {
 }
 
 #[test]
-fn configured_workspace_port_connection_recursive_rename_command_updates_chain() {
+fn configured_workspace_expanded_rename_command_updates_chain() {
     let child_text = "module child(input a);\nendmodule\n";
     let top_text = "module top(input a);\n  child u(.a(a));\nendmodule\n";
     let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
@@ -1753,9 +1752,9 @@ fn configured_workspace_port_connection_recursive_rename_command_updates_chain()
     };
     let info_response = request_execute_command_response(
         &client,
-        PORT_CONNECTION_RENAME_INFO_COMMAND,
+        RENAME_EXPANSION_INFO_COMMAND,
         vec![
-            serde_json::to_value(PortConnectionRenameInfoParams {
+            serde_json::to_value(RenameExpansionInfoParams {
                 text_document_position: text_document_position.clone(),
             })
             .unwrap(),
@@ -1763,15 +1762,15 @@ fn configured_workspace_port_connection_recursive_rename_command_updates_chain()
         2,
     );
     assert!(info_response.error.is_none(), "rename info returned error: {:?}", info_response.error);
-    let info: PortConnectionRenameInfoResult =
+    let info: RenameExpansionInfoResult =
         serde_json::from_value(info_response.result.unwrap()).unwrap();
     assert_eq!(info.additional_symbols, 1);
 
     let rename_response = request_execute_command_response(
         &client,
-        PORT_CONNECTION_RENAME_COMMAND,
+        EXPANDED_RENAME_COMMAND,
         vec![
-            serde_json::to_value(PortConnectionRenameParams {
+            serde_json::to_value(ExpandedRenameParams {
                 text_document_position,
                 new_name: "renamed".to_owned(),
             })
@@ -1808,7 +1807,7 @@ fn configured_workspace_port_connection_recursive_rename_command_updates_chain()
 }
 
 #[test]
-fn configured_workspace_rename_collision_info_command_reports_conflicts() {
+fn configured_workspace_rename_conflict_info_command_reports_conflicts() {
     let text = "module top;\n  logic a;\n  logic b;\n  assign a = b;\nendmodule\n";
     let (_temp_dir, client, server_thread, uris) = setup_configured_multi_file_diagnostics_test(
         ClientCapabilities::default(),
@@ -1820,9 +1819,9 @@ fn configured_workspace_rename_collision_info_command_reports_conflicts() {
 
     let response = request_execute_command_response(
         &client,
-        RENAME_COLLISION_INFO_COMMAND,
+        RENAME_CONFLICT_INFO_COMMAND,
         vec![
-            serde_json::to_value(RenameCollisionInfoParams {
+            serde_json::to_value(RenameConflictInfoParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier { uri },
                     position: position_of(text, "b;"),
@@ -1835,14 +1834,14 @@ fn configured_workspace_rename_collision_info_command_reports_conflicts() {
         2,
     );
     assert!(response.error.is_none(), "rename collision info returned error: {:?}", response.error);
-    let info: RenameCollisionInfoResult = serde_json::from_value(response.result.unwrap()).unwrap();
+    let info: RenameConflictInfoResult = serde_json::from_value(response.result.unwrap()).unwrap();
     assert_eq!(info.conflicts, 1);
 
     shutdown_test_server(&client, server_thread);
 }
 
 #[test]
-fn unconfigured_workspace_port_connection_recursive_rename_command_rejects_cross_file_chain() {
+fn unconfigured_workspace_expanded_rename_command_rejects_cross_file_chain() {
     let child_text = "module child(input a);\nendmodule\n";
     let top_text = "module top(input a);\n  child u(.a(a));\nendmodule\n";
     let (_temp_dir, client, server_thread, uris) = setup_multi_file_diagnostics_test_inner(
@@ -1856,9 +1855,9 @@ fn unconfigured_workspace_port_connection_recursive_rename_command_rejects_cross
 
     let response = request_execute_command_response(
         &client,
-        PORT_CONNECTION_RENAME_COMMAND,
+        EXPANDED_RENAME_COMMAND,
         vec![
-            serde_json::to_value(PortConnectionRenameParams {
+            serde_json::to_value(ExpandedRenameParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier { uri: top_uri },
                     position: position_of(top_text, "a);\n  child"),

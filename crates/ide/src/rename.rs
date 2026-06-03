@@ -1,15 +1,12 @@
 use hir::{
-    base_db::source_db::SourceDb,
-    container::{ContainerId, InBlock, InFile, InGenerateBlock, InModule, InSubroutine},
-    db::HirDb,
-    hir_def::lower_ident,
-    semantics::{Semantics, pathres::PathResolution},
+    base_db::source_db::SourceDb, container::InFile, hir_def::lower_ident, semantics::Semantics,
 };
-use itertools::Itertools;
+use nohash_hasher::IntMap;
+use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxAncestors, SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, WalkEvent,
-    ast::{self, AstNode},
+    SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
+    ast::{self, AstNode, Expression, Name},
     has_text_range::{HasTextRange, HasTextRangeIn},
     match_ast,
     token::TokenKindExt,
@@ -18,13 +15,14 @@ use thiserror::Error;
 use utils::{
     line_index::{TextRange, TextSize},
     text_edit::TextEdit,
+    uniq_vec::UniqVec,
 };
 use vfs::FileId;
 
 use crate::{
     FilePosition, ScopeVisibility,
     db::root_db::RootDb,
-    definitions::{Definition, DefinitionClass},
+    definitions::{Definition, DefinitionClass, DefinitionOrigin},
     references::{
         ReferencesConfig,
         search::{ReferenceToken, ReferencesCtx, SearchScope},
@@ -113,86 +111,75 @@ pub(crate) fn prepare_rename(
     let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
     let text_range = token.text_range().ok_or(RenameError::NoRefFound)?;
-    let def = resolve_rename_definition(&sema, hir_file_id, token)?;
+    let def =
+        match DefinitionClass::resolve(&sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
+            DefinitionClass::Definition(def) => def,
+            DefinitionClass::PortConnShorthand { local, .. } => local,
+            DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
+        };
     let _ = config.references_config(db, &def, file_id)?;
     Ok(text_range)
 }
 
 pub(crate) fn rename(
     db: &RootDb,
-    position: FilePosition,
+    position @ FilePosition { file_id, .. }: FilePosition,
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let def = rename_definition_at_position(&sema, position)?;
-    rename_definition(db, &sema, position.file_id, config, &def, new_name, &[])
+    let ResolvedRenameTarget { selected_def, .. } = resolve_rename_target(&sema, position)?;
+    rename_definition(db, &sema, file_id, &config, &selected_def, new_name, None)
 }
 
-pub(crate) fn recursive_rename_info(
+pub(crate) fn rename_expansion_info(
     db: &RootDb,
     position: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<RecursiveRenameInfo> {
     let sema = Semantics::new(db);
-    let selected_def = rename_definition_at_position(&sema, position)?;
-    let targets = recursive_rename_targets(db, &sema, position, config)?;
-    let additional_symbols = targets.iter().filter(|target| **target != selected_def).count();
+    let resolved = resolve_rename_target(&sema, position)?;
+    let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
+    let additional_symbols = targets.len().saturating_sub(1);
     Ok(RecursiveRenameInfo { additional_symbols })
 }
 
-pub(crate) fn recursive_rename(
+pub(crate) fn expanded_rename(
     db: &RootDb,
     position: FilePosition,
     config: RenameConfig,
     new_name: &str,
 ) -> RenameResult<SourceChange> {
     let sema = Semantics::new(db);
-    let targets = recursive_rename_targets(db, &sema, position, config.clone())?;
-    let collapsed_connections = collapsed_connections_for_targets(
-        db,
-        &sema,
-        position.file_id,
-        config.clone(),
-        &targets,
-        new_name,
-    )?;
+    let resolved = resolve_rename_target(&sema, position)?;
+    let targets = recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?;
+    let mut rename_targets = UniqVec::<(), DefinitionOrigin>::default();
+    for target in &targets {
+        rename_targets.push(target.def.origins(), ());
+    }
     let mut source_changes = SourceChange::default();
 
-    for def in targets {
-        merge_source_change(
-            &mut source_changes,
-            rename_definition(
-                db,
-                &sema,
-                position.file_id,
-                config.clone(),
-                &def,
-                new_name,
-                &collapsed_connections,
-            )?,
+    for target in &targets {
+        let changes = rename_definition_with_refs(
+            db,
+            &sema,
+            &target.def,
+            new_name,
+            Some(&rename_targets),
+            &target.refs,
+            &target.same_name_refs,
         )?;
-    }
-
-    for collapsed in collapsed_connections {
-        let edit = TextEdit::replace(collapsed.range, collapsed.new_text);
-        source_changes
-            .insert_text_edit(collapsed.file_id, edit)
-            .map_err(|_| RenameError::OverlappingEdits)?;
+        for (file_id, edit) in changes.text_edits {
+            source_changes
+                .insert_text_edit(file_id, edit)
+                .map_err(|_| RenameError::OverlappingEdits)?;
+        }
     }
 
     Ok(source_changes)
 }
 
-fn merge_source_change(target: &mut SourceChange, source: SourceChange) -> RenameResult<()> {
-    for (file_id, edit) in source.text_edits {
-        target.insert_text_edit(file_id, edit).map_err(|_| RenameError::OverlappingEdits)?;
-    }
-
-    Ok(())
-}
-
-pub(crate) fn rename_collision_info(
+pub(crate) fn rename_conflict_info(
     db: &RootDb,
     position: FilePosition,
     config: RenameConfig,
@@ -200,72 +187,137 @@ pub(crate) fn rename_collision_info(
     recursive: bool,
 ) -> RenameResult<RenameCollisionInfo> {
     let sema = Semantics::new(db);
-    let targets = if recursive {
-        recursive_rename_targets(db, &sema, position, config)?
+    let resolved = resolve_rename_target(&sema, position)?;
+    let targets: Vec<Definition> = if recursive {
+        recursive_rename_targets(db, &sema, position.file_id, &config, resolved.targets)?
+            .into_iter()
+            .map(|target| target.def)
+            .collect()
     } else {
-        vec![rename_definition_at_position(&sema, position)?]
+        vec![resolved.selected_def]
     };
 
     let new_name = SmolStr::new(new_name);
-    let mut conflicts = Vec::new();
-    for collision in targets
-        .iter()
-        .flat_map(|target| target.origins())
-        .filter_map(|origin| exact_name_to_def(db, origin.container_id(db), &new_name))
-        .filter(|collision| !contains_def(&targets, collision))
-    {
-        add_unique_def(&mut conflicts, collision);
+    let mut target_index = UniqVec::<(), DefinitionOrigin>::default();
+    for target in &targets {
+        target_index.push(target.origins(), ());
+    }
+    let mut conflicts = UniqVec::<Definition, DefinitionOrigin>::default();
+    for collision in targets.iter().flat_map(|target| target.origins()).filter_map(|origin| {
+        sema.resolve_name(origin.container_id(db), &new_name).map(Definition::from)
+    }) {
+        if collision.origins().iter().any(|origin| target_index.contains(origin)) {
+            continue;
+        }
+        conflicts.push(collision.origins(), collision);
     }
 
     Ok(RenameCollisionInfo { conflicts: conflicts.len() })
 }
 
-fn rename_definition_at_position(
+struct ResolvedRenameTarget {
+    selected_def: Definition,
+    targets: Vec<Definition>,
+}
+
+type ReferenceSearchResult = IntMap<FileId, Vec<ReferenceToken>>;
+
+struct RecursiveRenameTarget {
+    def: Definition,
+    refs: ReferenceSearchResult,
+    same_name_refs: Vec<SameNameConnectionRef>,
+}
+
+fn resolve_rename_target(
     sema: &Semantics<'_, RootDb>,
     FilePosition { file_id, offset }: FilePosition,
-) -> RenameResult<Definition> {
+) -> RenameResult<ResolvedRenameTarget> {
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
-    resolve_rename_definition(sema, file_id.into(), token)
+    let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
+    let selected_def = match DefinitionClass::resolve(sema, file_id.into(), token)
+        .ok_or(RenameError::NoDefFound)?
+    {
+        DefinitionClass::Definition(def) => {
+            targets.push(def.origins(), def.clone());
+            def
+        }
+        DefinitionClass::PortConnShorthand { port, local } => {
+            targets.push(local.origins(), local.clone());
+            targets.push(port.origins(), port);
+            local
+        }
+        DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
+    };
+    Ok(ResolvedRenameTarget { selected_def, targets: targets.into_vec() })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SameNamePortConnection {
+struct SameNameConnection {
     port: Definition,
     local: Definition,
-    file_id: FileId,
-    collapse_range: Option<TextRange>,
+    collapse_range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CollapsedPortConnection {
+struct SameNameConnectionRef {
     file_id: FileId,
     range: TextRange,
-    new_text: String,
+    conn: SameNameConnection,
 }
 
 fn rename_definition(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
     request_file_id: FileId,
-    config: RenameConfig,
+    config: &RenameConfig,
     def: &Definition,
     new_name: &str,
-    collapsed_connections: &[CollapsedPortConnection],
+    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
 ) -> RenameResult<SourceChange> {
+    let refs = references_for_definition(db, sema, request_file_id, config, def)?;
+    rename_definition_with_refs(db, sema, def, new_name, rename_targets, &refs, &[])
+}
+
+fn references_for_definition(
+    db: &RootDb,
+    sema: &Semantics<'_, RootDb>,
+    request_file_id: FileId,
+    config: &RenameConfig,
+    def: &Definition,
+) -> RenameResult<ReferenceSearchResult> {
     let refs_config = config.references_config(db, def, request_file_id)?;
+    Ok(ReferencesCtx::new(sema, def, refs_config).search())
+}
+
+fn rename_definition_with_refs(
+    db: &RootDb,
+    sema: &Semantics<'_, RootDb>,
+    def: &Definition,
+    new_name: &str,
+    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
+    refs: &ReferenceSearchResult,
+    same_name_refs: &[SameNameConnectionRef],
+) -> RenameResult<SourceChange> {
     let old_name = def
         .origins()
         .into_iter()
         .find_map(|origin| origin.name(db))
         .ok_or(RenameError::NoRefFound)?;
     let mut source_changes = SourceChange::default();
-    ReferencesCtx::new(sema, def, refs_config)
-        .search()
-        .into_iter()
-        .map(|file_toks| {
-            edits_from_refs(sema, file_toks, def, &old_name, new_name, collapsed_connections)
+    refs.iter()
+        .map(|(&file_id, toks)| {
+            edits_from_refs(
+                sema,
+                file_id,
+                toks,
+                def,
+                &old_name,
+                new_name,
+                rename_targets,
+                same_name_refs,
+            )
         })
         .try_for_each(|(file_id, edit)| {
             source_changes
@@ -292,276 +344,116 @@ fn rename_definition(
 fn recursive_rename_targets(
     db: &RootDb,
     sema: &Semantics<'_, RootDb>,
-    position: FilePosition,
-    config: RenameConfig,
-) -> RenameResult<Vec<Definition>> {
-    let mut targets = initial_recursive_targets(sema, position)?;
-
+    file_id: FileId,
+    config: &RenameConfig,
+    initial_targets: Vec<Definition>,
+) -> RenameResult<Vec<RecursiveRenameTarget>> {
+    let mut targets = UniqVec::<Definition, DefinitionOrigin>::default();
+    for target in initial_targets {
+        targets.push(target.origins(), target);
+    }
+    let mut resolved_targets = Vec::new();
     let mut idx = 0;
     while idx < targets.len() {
-        let current = targets[idx].clone();
+        let current = targets.get(idx).clone();
         idx += 1;
 
-        for conn in same_name_connections_from_references(
-            db,
-            sema,
-            position.file_id,
-            config.clone(),
-            &current,
-        )? {
-            add_unique_def(&mut targets, conn.port);
-            add_unique_def(&mut targets, conn.local);
+        let refs = references_for_definition(db, sema, file_id, config, &current)?;
+        let same_name_refs = same_name_refs_collect(sema, &refs);
+        for conn_ref in &same_name_refs {
+            targets.push(conn_ref.conn.port.origins(), conn_ref.conn.port.clone());
+            targets.push(conn_ref.conn.local.origins(), conn_ref.conn.local.clone());
         }
+        resolved_targets.push(RecursiveRenameTarget { def: current, refs, same_name_refs });
     }
 
-    Ok(targets)
+    Ok(resolved_targets)
 }
 
-fn initial_recursive_targets(
+fn same_name_refs_collect(
     sema: &Semantics<'_, RootDb>,
-    FilePosition { file_id, offset }: FilePosition,
-) -> RenameResult<Vec<Definition>> {
-    let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
-    let token = pick_token(root, offset)?;
+    refs_by_file: &ReferenceSearchResult,
+) -> Vec<SameNameConnectionRef> {
+    let mut conn_refs = Vec::new();
 
-    let mut targets = Vec::new();
-    match DefinitionClass::resolve(sema, file_id.into(), token).ok_or(RenameError::NoDefFound)? {
-        DefinitionClass::Definition(def) => add_unique_def(&mut targets, def),
-        DefinitionClass::PortConnShorthand { port, local } => {
-            add_unique_def(&mut targets, local);
-            add_unique_def(&mut targets, port);
-        }
-        DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
-    }
-
-    Ok(targets)
-}
-
-fn collapsed_connections_for_targets(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
-    request_file_id: FileId,
-    config: RenameConfig,
-    targets: &[Definition],
-    new_name: &str,
-) -> RenameResult<Vec<CollapsedPortConnection>> {
-    let mut collapsed = Vec::new();
-
-    for target in targets {
-        for conn in same_name_connections_from_references(
-            db,
-            sema,
-            request_file_id,
-            config.clone(),
-            target,
-        )? {
-            if !contains_def(targets, &conn.port) || !contains_def(targets, &conn.local) {
-                continue;
-            }
-            let Some(range) = conn.collapse_range else {
-                continue;
-            };
-            collapsed.push(CollapsedPortConnection {
-                file_id: conn.file_id,
-                range,
-                new_text: new_name.to_owned(),
-            });
-        }
-    }
-
-    Ok(collapsed.into_iter().unique_by(|conn| (conn.file_id, conn.range)).collect())
-}
-
-fn same_name_connections_from_references(
-    db: &RootDb,
-    sema: &Semantics<'_, RootDb>,
-    request_file_id: FileId,
-    config: RenameConfig,
-    def: &Definition,
-) -> RenameResult<Vec<SameNamePortConnection>> {
-    let refs_config = config.references_config(db, def, request_file_id)?;
-    let mut conns = Vec::new();
-
-    for (ref_file_id, refs) in ReferencesCtx::new(sema, def, refs_config).search() {
-        let parsed_file = sema.parse_file(ref_file_id);
+    for (&file_id, refs) in refs_by_file {
+        let parsed_file = sema.parse_file(file_id);
         for token_ref in refs {
+            let range = token_ref.range();
             let Some(token) = token_ref.to_token(parsed_file.syntax_tree()) else {
                 continue;
             };
-            let Some(conn) = same_name_port_connection_at_token(sema, ref_file_id.into(), token)
-            else {
-                continue;
+            if let Some(conn) = check_same_name_conn(sema, file_id.into(), token) {
+                conn_refs.push(SameNameConnectionRef { file_id, range, conn });
             };
-            conns.push(conn);
         }
     }
 
-    Ok(conns)
+    conn_refs
 }
 
-fn same_name_port_connection_at_token(
+fn check_same_name_conn(
     sema: &Semantics<'_, RootDb>,
     file_id: hir::file::HirFileId,
     token: SyntaxTokenWithParent<'_>,
-) -> Option<SameNamePortConnection> {
+) -> Option<SameNameConnection> {
     let conn =
         SyntaxAncestors::start_from(token.parent).find_map(ast::NamedPortConnection::cast)?;
     let name_token = conn.name()?;
-    let port_name = lower_ident(Some(name_token))?;
+    let name_range = name_token.text_range_in(conn.syntax())?;
     let token_range = token.text_range()?;
+    let port_token = SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token };
+    let port_resolution = DefinitionClass::resolve(sema, file_id, port_token)?;
 
-    if conn.open_paren().is_none() && conn.close_paren().is_none() {
-        return shorthand_same_name_port_connection(sema, file_id, conn, name_token, token_range);
-    }
+    let close_paren = match (conn.open_paren(), conn.close_paren()) {
+        (None, None) => {
+            if token_range != name_range {
+                return None;
+            }
 
-    explicit_same_name_port_connection(sema, file_id, conn, name_token, &port_name, token_range)
-}
+            return match port_resolution {
+                DefinitionClass::PortConnShorthand { port, local } => {
+                    Some(SameNameConnection { port, local, collapse_range: token_range })
+                }
+                _ => None,
+            };
+        }
+        (_, Some(close_paren)) => close_paren,
+        _ => return None,
+    };
 
-fn shorthand_same_name_port_connection(
-    sema: &Semantics<'_, RootDb>,
-    file_id: hir::file::HirFileId,
-    conn: ast::NamedPortConnection<'_>,
-    name_token: syntax::SyntaxToken<'_>,
-    token_range: TextRange,
-) -> Option<SameNamePortConnection> {
-    if name_token.text_range_in(conn.syntax())? != token_range {
+    let port = match port_resolution {
+        DefinitionClass::Definition(def) => def,
+        DefinitionClass::PortConnShorthand { port, .. } => port,
+        DefinitionClass::Ambiguous(_) => return None,
+    };
+    let port_name = lower_ident(Some(name_token))?;
+    let expr = conn.expr()?.as_simple_property_expr()?.expr().as_simple_sequence_expr()?.expr();
+    let actual_token = match expr {
+        Expression::Name(Name::IdentifierName(ident)) => ident.identifier()?,
+        Expression::Name(Name::IdentifierSelectName(ident))
+            if ident.selectors().children().next().is_none() =>
+        {
+            ident.identifier()?
+        }
+        _ => return None,
+    };
+    if lower_ident(Some(actual_token))?.as_str() != port_name.as_str() {
         return None;
     }
+    let actual_token = SyntaxTokenWithParent { parent: expr.syntax(), tok: actual_token };
 
-    match DefinitionClass::resolve(
-        sema,
-        file_id,
-        SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token },
-    )? {
-        DefinitionClass::PortConnShorthand { port, local } => Some(SameNamePortConnection {
-            port,
-            local,
-            file_id: file_id.file_id(),
-            collapse_range: Some(token_range),
-        }),
-        _ => None,
-    }
-}
-
-fn explicit_same_name_port_connection(
-    sema: &Semantics<'_, RootDb>,
-    file_id: hir::file::HirFileId,
-    conn: ast::NamedPortConnection<'_>,
-    name_token: syntax::SyntaxToken<'_>,
-    port_name: &str,
-    token_range: TextRange,
-) -> Option<SameNamePortConnection> {
-    let actual_token = simple_same_name_actual_token(sema, file_id, conn, port_name)?;
-    let name_range = name_token.text_range_in(conn.syntax())?;
     let actual_range = actual_token.text_range()?;
     if token_range != name_range && token_range != actual_range {
         return None;
     }
 
-    let port = resolve_named_connection_port(sema, file_id, conn, name_token)?;
-    let local = Definition::from(sema.nameres_ident(file_id, actual_token)?);
-    let close_paren = conn.close_paren()?;
     let collapse_end = close_paren.text_range_in(conn.syntax())?.end();
-
-    Some(SameNamePortConnection {
+    Some(SameNameConnection {
         port,
-        local,
-        file_id: file_id.file_id(),
-        collapse_range: Some(TextRange::new(name_range.start(), collapse_end)),
+        local: Definition::from(sema.nameres_ident(file_id, actual_token)?),
+        collapse_range: TextRange::new(name_range.start(), collapse_end),
     })
-}
-
-fn resolve_named_connection_port(
-    sema: &Semantics<'_, RootDb>,
-    file_id: hir::file::HirFileId,
-    conn: ast::NamedPortConnection<'_>,
-    name_token: syntax::SyntaxToken<'_>,
-) -> Option<Definition> {
-    match DefinitionClass::resolve(
-        sema,
-        file_id,
-        SyntaxTokenWithParent { parent: conn.syntax(), tok: name_token },
-    )? {
-        DefinitionClass::Definition(def) => Some(def),
-        DefinitionClass::PortConnShorthand { port, .. } => Some(port),
-        DefinitionClass::Ambiguous(_) => None,
-    }
-}
-
-fn simple_same_name_actual_token<'a>(
-    sema: &Semantics<'_, RootDb>,
-    file_id: hir::file::HirFileId,
-    conn: ast::NamedPortConnection<'a>,
-    port_name: &str,
-) -> Option<SyntaxTokenWithParent<'a>> {
-    let expr = conn.expr()?;
-    let range = expr.syntax().text_range()?;
-    let text = sema.db.file_text(file_id.file_id());
-    let compact = text[range].chars().filter(|ch| !ch.is_whitespace()).collect::<String>();
-    if compact != port_name {
-        return None;
-    }
-
-    let mut name_tokens = expr.syntax().elem_preorder().filter_map(|event| match event {
-        WalkEvent::Enter(SyntaxElement::Token(token)) if token.kind().name_like() => Some(token),
-        _ => None,
-    });
-    let token = name_tokens.next()?;
-    if name_tokens.next().is_some() {
-        return None;
-    }
-    if lower_ident(Some(token.tok)).as_deref() != Some(port_name) {
-        return None;
-    }
-
-    Some(token)
-}
-
-fn add_unique_def(targets: &mut Vec<Definition>, def: Definition) {
-    if !contains_def(targets, &def) {
-        targets.push(def);
-    }
-}
-
-fn contains_def(targets: &[Definition], def: &Definition) -> bool {
-    targets.iter().any(|target| target == def)
-}
-
-fn exact_name_to_def(db: &RootDb, cont_id: ContainerId, ident: &SmolStr) -> Option<Definition> {
-    let res = match cont_id {
-        ContainerId::HirFileId(_) => db.unit_scope().get(ident).map(PathResolution::from),
-        ContainerId::ModuleId(module_id) => db
-            .module_scope(module_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InModule::new(module_id, entry))),
-        ContainerId::GenerateBlockId(generate_block_id) => db
-            .generate_block_scope(generate_block_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InGenerateBlock::new(generate_block_id, entry))),
-        ContainerId::BlockId(block_id) => db
-            .block_scope(block_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InBlock::new(block_id, entry))),
-        ContainerId::SubroutineId(subroutine_id) => db
-            .subroutine_scope(subroutine_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InSubroutine::new(subroutine_id, entry))),
-    }?;
-
-    Some(Definition::from(res))
-}
-
-fn resolve_rename_definition(
-    sema: &Semantics<'_, RootDb>,
-    hir_file_id: hir::file::HirFileId,
-    token: SyntaxTokenWithParent<'_>,
-) -> RenameResult<Definition> {
-    match DefinitionClass::resolve(sema, hir_file_id, token).ok_or(RenameError::NoDefFound)? {
-        DefinitionClass::Definition(def) => Ok(def),
-        DefinitionClass::PortConnShorthand { local, .. } => Ok(local),
-        DefinitionClass::Ambiguous(_) => Err(RenameError::NoDefFound),
-    }
 }
 
 fn origins_are_editable(db: &RootDb, def: &Definition, file_id: FileId) -> bool {
@@ -575,31 +467,45 @@ fn origins_are_editable(db: &RootDb, def: &Definition, file_id: FileId) -> bool 
 
 fn edits_from_refs(
     sema: &Semantics<'_, RootDb>,
-    (file_id, toks): (FileId, Vec<ReferenceToken>),
+    file_id: FileId,
+    toks: &[ReferenceToken],
     def: &Definition,
     old_name: &str,
     new_name: &str,
-    collapsed_connections: &[CollapsedPortConnection],
+    rename_targets: Option<&UniqVec<(), DefinitionOrigin>>,
+    same_name_refs: &[SameNameConnectionRef],
 ) -> (FileId, TextEdit) {
     let mut text_edit = TextEdit::builder();
     let text = sema.db.file_text(file_id);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
+    let def_origins = def.origins();
+    let same_name_refs: FxHashMap<_, _> = same_name_refs
+        .iter()
+        .filter(|it| it.file_id == file_id)
+        .map(|SameNameConnectionRef { range, conn, .. }| {
+            let SameNameConnection { port, local, collapse_range } = conn;
+            (*range, (port.origins(), local.origins(), *collapse_range))
+        })
+        .collect();
 
-    for token_ref in toks.into_iter() {
+    for token_ref in toks {
         let range = token_ref.range();
-        if collapsed_connections.iter().any(|conn| {
-            conn.file_id == file_id
-                && conn.range.start() <= range.start()
-                && range.end() <= conn.range.end()
-        }) {
-            continue;
-        }
-
         let Some(token) = token_ref.to_token(parsed_file.syntax_tree()) else {
             continue;
         };
         let SyntaxTokenWithParent { parent, tok } = token;
+
+        if let Some(rename_targets) = rename_targets
+            && let Some((ports, locals, collapse_range)) = same_name_refs.get(&range)
+            && ports.iter().any(|origin| rename_targets.contains(origin))
+            && locals.iter().any(|origin| rename_targets.contains(origin))
+        {
+            if def_origins.iter().any(|origin| ports.contains(origin)) {
+                text_edit.replace(*collapse_range, new_name.to_owned());
+            }
+            continue;
+        }
 
         let conn_data_range = |it: ast::NamedPortConnection| it.expr()?.syntax().text_range();
 
