@@ -10,3 +10,6 @@ rowan.workspace = true
 slang.workspace = true
 syntax.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+expect-test.workspace = true

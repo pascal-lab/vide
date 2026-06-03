@@ -12,7 +12,9 @@ pub enum RawSyntaxError {
     InvalidSourceRange { start: usize, end: usize },
     #[error("source range {start}..{end} appears before already emitted offset {cursor}")]
     OverlappingRange { start: usize, end: usize, cursor: usize },
-    #[error("source range {start}..{end} is from buffer {buffer_id}, expected root buffer {root_buffer_id}")]
+    #[error(
+        "source range {start}..{end} is from buffer {buffer_id}, expected root buffer {root_buffer_id}"
+    )]
     NonRootSourceRange { buffer_id: u32, root_buffer_id: u32, start: usize, end: usize },
     #[error("source range {start}..{end} spans multiple buffers")]
     MultiBufferSourceRange { start: usize, end: usize },
@@ -51,11 +53,6 @@ struct LowerCtx<'a> {
 
 impl LowerCtx<'_> {
     fn lower_node(&mut self, node: slang::SyntaxNode<'_>) -> Result<(), RawSyntaxError> {
-        let range = self.node_range(node)?;
-        if let Some(range) = &range {
-            self.push_gap(range.start)?;
-        }
-
         self.builder.start_node(map_node_kind(node.kind()).into());
 
         for child in node.children() {
@@ -65,15 +62,14 @@ impl LowerCtx<'_> {
             }
         }
 
-        if let Some(range) = &range {
-            self.push_gap(range.end)?;
-        }
-
         self.builder.finish_node();
         Ok(())
     }
 
-    fn lower_token(&mut self, token: slang::SyntaxTokenWithParent<'_>) -> Result<(), RawSyntaxError> {
+    fn lower_token(
+        &mut self,
+        token: slang::SyntaxTokenWithParent<'_>,
+    ) -> Result<(), RawSyntaxError> {
         let Some(range) = token.range() else {
             return Ok(());
         };
@@ -81,13 +77,6 @@ impl LowerCtx<'_> {
         self.push_gap(range.start)?;
         self.push_source(range, map_token_kind(token.kind()))?;
         Ok(())
-    }
-
-    fn node_range(
-        &self,
-        node: slang::SyntaxNode<'_>,
-    ) -> Result<Option<Range<usize>>, RawSyntaxError> {
-        node.range().map(|range| self.source_range(&range)).transpose()
     }
 
     fn source_range(&self, range: &slang::SourceRange) -> Result<Range<usize>, RawSyntaxError> {
@@ -112,7 +101,7 @@ impl LowerCtx<'_> {
     }
 
     fn push_gap(&mut self, end: usize) -> Result<(), RawSyntaxError> {
-        if self.cursor == end {
+        if self.cursor >= end {
             return Ok(());
         }
 
@@ -149,10 +138,9 @@ impl LowerCtx<'_> {
     }
 
     fn source_slice(&self, range: Range<usize>) -> Result<&str, RawSyntaxError> {
-        self.source.get(range.clone()).ok_or(RawSyntaxError::InvalidSourceRange {
-            start: range.start,
-            end: range.end,
-        })
+        self.source
+            .get(range.clone())
+            .ok_or(RawSyntaxError::InvalidSourceRange { start: range.start, end: range.end })
     }
 }
 
@@ -227,9 +215,12 @@ fn map_token_kind(kind: slang::TokenKind) -> RawSyntaxKind {
 
 #[cfg(test)]
 mod tests {
-    use syntax::raw::{AstNode, SourceFile};
+    use expect_test::expect;
+    use syntax::raw::{AstNode, SourceFile, SyntaxElement, SyntaxNode};
 
     use super::*;
+
+    const SAMPLE: &str = "module top #(parameter WIDTH = 4) (input logic clk, output wire [WIDTH-1:0] data);\n  assign data = 4'd0;\nendmodule\n";
 
     #[test]
     fn converts_slang_parse_to_raw_tree() {
@@ -239,5 +230,165 @@ mod tests {
 
         assert_eq!(tree.text(), "module top; endmodule");
         assert_eq!(module.name().unwrap().text(), "top");
+    }
+
+    #[test]
+    fn raw_tree_dump_matches_snapshot() {
+        let tree = parse_raw_syntax(SAMPLE).unwrap();
+
+        expect![[r##"
+            CompilationUnit 0..115
+              SyntaxList 0..114
+                ModuleDeclaration 0..114
+                  SyntaxList 0..0
+                  ModuleHeader 0..82
+                    ModuleKeyword 0..6 "module"
+                    Whitespace 6..7 " "
+                    Identifier 7..10 "top"
+                    SyntaxList 10..10
+                    UnknownNode 10..33
+                      Whitespace 10..11 " "
+                      Hash 11..12 "#"
+                      OpenParenthesis 12..13 "("
+                      SeparatedList 13..32
+                        UnknownNode 13..32
+                          UnknownToken 13..22 "parameter"
+                          ImplicitType 22..23
+                            SyntaxList 22..22
+                            Whitespace 22..23 " "
+                          SeparatedList 23..32
+                            Declarator 23..32
+                              Identifier 23..28 "WIDTH"
+                              SyntaxList 28..28
+                              UnknownNode 28..32
+                                Whitespace 28..29 " "
+                                Equals 29..30 "="
+                                UnknownNode 30..32
+                                  Whitespace 30..31 " "
+                                  IntegerLiteral 31..32 "4"
+                      CloseParenthesis 32..33 ")"
+                    AnsiPortList 33..81
+                      Whitespace 33..34 " "
+                      OpenParenthesis 34..35 "("
+                      SeparatedList 35..80
+                        ImplicitAnsiPort 35..50
+                          SyntaxList 35..35
+                          VariablePortHeader 35..46
+                            InputKeyword 35..40 "input"
+                            UnknownNode 40..46
+                              Whitespace 40..41 " "
+                              LogicKeyword 41..46 "logic"
+                              SyntaxList 46..46
+                          Declarator 46..50
+                            Whitespace 46..47 " "
+                            Identifier 47..50 "clk"
+                            SyntaxList 50..50
+                        Comma 50..51 ","
+                        ImplicitAnsiPort 51..80
+                          SyntaxList 51..51
+                          UnknownNode 51..76
+                            Whitespace 51..52 " "
+                            OutputKeyword 52..58 "output"
+                            Whitespace 58..59 " "
+                            WireKeyword 59..63 "wire"
+                            ImplicitType 63..76
+                              SyntaxList 63..75
+                                UnknownNode 63..75
+                                  Whitespace 63..64 " "
+                                  OpenBracket 64..65 "["
+                                  UnknownNode 65..74
+                                    UnknownNode 65..74
+                                      UnknownNode 65..72
+                                        NamedValueExpression 65..70
+                                          Identifier 65..70 "WIDTH"
+                                        Minus 70..71 "-"
+                                        SyntaxList 71..71
+                                        UnknownNode 71..72
+                                          IntegerLiteral 71..72 "1"
+                                      Colon 72..73 ":"
+                                      UnknownNode 73..74
+                                        IntegerLiteral 73..74 "0"
+                                  CloseBracket 74..75 "]"
+                              Whitespace 75..76 " "
+                          Declarator 76..80
+                            Identifier 76..80 "data"
+                            SyntaxList 80..80
+                      CloseParenthesis 80..81 ")"
+                    Semicolon 81..82 ";"
+                  SyntaxList 82..104
+                    ContinuousAssign 82..104
+                      SyntaxList 82..82
+                      EndOfLine 82..85 "\n  "
+                      AssignKeyword 85..91 "assign"
+                      SeparatedList 91..103
+                        AssignmentExpression 91..103
+                          NamedValueExpression 91..96
+                            Whitespace 91..92 " "
+                            Identifier 92..96 "data"
+                          Whitespace 96..97 " "
+                          Equals 97..98 "="
+                          SyntaxList 98..98
+                          UnknownNode 98..103
+                            Whitespace 98..99 " "
+                            IntegerLiteral 99..100 "4"
+                            UnknownToken 100..102 "'d"
+                            IntegerLiteral 102..103 "0"
+                      Semicolon 103..104 ";"
+                  EndOfLine 104..105 "\n"
+                  EndModuleKeyword 105..114 "endmodule"
+              EndOfLine 114..115 "\n"
+        "##]]
+        .assert_eq(&tree.debug_dump());
+    }
+
+    #[test]
+    fn token_texts_are_lossless_to_source() {
+        let tree = parse_raw_syntax(SAMPLE).unwrap();
+        let token_text = token_text(&tree.root());
+
+        assert_eq!(token_text, SAMPLE);
+    }
+
+    #[test]
+    fn node_and_token_ranges_match_source_text() {
+        let tree = parse_raw_syntax(SAMPLE).unwrap();
+
+        assert_ranges_match_source(&tree.root(), SAMPLE);
+    }
+
+    fn token_text(node: &SyntaxNode) -> String {
+        let mut text = String::new();
+        collect_token_text(node, &mut text);
+        text
+    }
+
+    fn collect_token_text(node: &SyntaxNode, out: &mut String) {
+        for child in node.children_with_tokens() {
+            match child {
+                rowan::NodeOrToken::Node(node) => collect_token_text(&node, out),
+                rowan::NodeOrToken::Token(token) => out.push_str(token.text()),
+            }
+        }
+    }
+
+    fn assert_ranges_match_source(node: &SyntaxNode, source: &str) {
+        let range = node.text_range();
+        assert_eq!(
+            &source[usize::from(range.start())..usize::from(range.end())],
+            node.text().to_string()
+        );
+
+        for child in node.children_with_tokens() {
+            match child {
+                SyntaxElement::Node(node) => assert_ranges_match_source(&node, source),
+                SyntaxElement::Token(token) => {
+                    let range = token.text_range();
+                    assert_eq!(
+                        &source[usize::from(range.start())..usize::from(range.end())],
+                        token.text()
+                    );
+                }
+            }
+        }
     }
 }
