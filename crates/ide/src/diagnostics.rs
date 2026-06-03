@@ -608,6 +608,43 @@ mod tests {
     }
 
     #[test]
+    fn phase0_baseline_maps_parse_diagnostic_to_file_range() {
+        let db = db_with_files(&[("/top.sv", "module top(;\nendmodule\n")], false);
+
+        let diagnostics = super::parse_diagnostics(&db, FileId(0));
+
+        assert!(!diagnostics.is_empty(), "expected parse diagnostics");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.file_id, FileId(0));
+        assert_eq!(diagnostic.source, DiagnosticSource::SlangParse);
+        assert_eq!(diagnostic.severity, syntax::DiagnosticSeverity::Error);
+        assert!(!diagnostic.message.is_empty());
+        assert!(diagnostic.range.start() <= diagnostic.range.end());
+    }
+
+    #[test]
+    fn phase0_baseline_reports_inactive_branch_range() {
+        let text = "`ifdef USE_IMPL\nlogic active;\n`else\nlogic inactive;\n`endif\n";
+        let db = db_with_files(&[("/top.sv", text)], false);
+
+        let diagnostics = diagnostics(&db, FileId(0));
+        let inactive = diagnostics
+            .iter()
+            .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
+            .expect("expected inactive preprocessor branch diagnostic");
+
+        assert_eq!(inactive.source, DiagnosticSource::Vide);
+        assert_eq!(inactive.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(inactive.tags, vec![DiagnosticTag::Unnecessary]);
+        assert_eq!(inactive.message, "code is inactive due to preprocessor conditionals");
+        assert_eq!(inactive.message_key, Some(DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH));
+        assert_eq!(
+            &text[usize::from(inactive.range.start())..usize::from(inactive.range.end())],
+            "logic active;"
+        );
+    }
+
+    #[test]
     fn inactive_preprocessor_branch_respects_global_diagnostics_switch() {
         let mut db = db_with_files(
             &[("/top.sv", "`ifdef USE_IMPL\nlogic active;\n`else\nlogic inactive;\n`endif\n")],
