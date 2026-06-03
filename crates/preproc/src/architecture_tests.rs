@@ -23,6 +23,10 @@ fn rust_files(root: &Path) -> Vec<PathBuf> {
     files
 }
 
+fn production_source(source: &str) -> &str {
+    source.split("#[cfg(test)]").next().unwrap_or(source)
+}
+
 fn collect_rust_files(root: &Path, files: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(root).unwrap_or_else(|err| {
         panic!("failed to read directory {}: {err}", root.display());
@@ -127,7 +131,7 @@ fn phase2_boundary_sources_do_not_use_raw_slang_or_fallback_paths() {
 fn macrodb_boundary_does_not_use_slang_syntax_or_old_source_maps() {
     let root = repo_root();
     let macro_db = read(root.join("crates/preproc/src/macro_db.rs"));
-    let production_macro_db = macro_db.split("#[cfg(test)]").next().unwrap_or(&macro_db);
+    let production_macro_db = production_source(&macro_db);
     let forbidden = [
         "slang::",
         "syntax::",
@@ -146,5 +150,86 @@ fn macrodb_boundary_does_not_use_slang_syntax_or_old_source_maps() {
             !production_macro_db.contains(pattern),
             "MacroDb must not depend on raw slang/syntax or old source-map fallback pattern `{pattern}`"
         );
+    }
+}
+
+#[test]
+fn preproc_trace_model_does_not_use_raw_slang_syntax_types() {
+    let root = repo_root();
+    let trace = read(root.join("crates/preproc/src/trace.rs"));
+    let production_trace = production_source(&trace);
+    let forbidden = [
+        "slang::",
+        "use slang",
+        "syntax::slang_ext",
+        "slang_ext::",
+        "SyntaxNode",
+        "SyntaxToken",
+        "SyntaxTree",
+        "SourceRange",
+        "RawSyntax",
+    ];
+
+    for pattern in forbidden {
+        assert!(
+            !production_trace.contains(pattern),
+            "PreprocTrace production model must not expose raw slang syntax pattern `{pattern}`"
+        );
+    }
+}
+
+#[test]
+fn hir_and_ide_do_not_import_low_level_preproc_trace_constructors() {
+    let root = repo_root();
+    let forbidden = [
+        "preproc::PreprocTrace",
+        "preproc::SourceProvenance",
+        "PreprocTrace",
+        "SourceProvenance",
+        "MacroExpansionEvent",
+        "ExpandedToken",
+        "IncludeEvent",
+        "ConditionalEvent",
+        "MacroArgument",
+        "MacroBody",
+        "MacroCall",
+    ];
+
+    for dir in ["crates/hir/src", "crates/ide/src"] {
+        for path in rust_files(&root.join(dir)) {
+            let source = read(&path);
+            for pattern in forbidden {
+                assert!(
+                    !source.contains(pattern),
+                    "{} must not directly import low-level preproc trace constructor `{pattern}`",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn slang_adapter_is_the_preproc_trace_extraction_boundary() {
+    let root = repo_root();
+    let adapter = read(root.join("crates/slang-adapter/src/lib.rs"));
+    assert!(adapter.contains("extract_preproc_trace"));
+    assert!(adapter.contains("slang binding does not expose expansion trace"));
+
+    let forbidden = ["extract_preproc_trace", "PreprocTraceInput", "PreprocTraceBuffer"];
+    for dir in ["crates/hir/src", "crates/ide/src", "crates/preproc/src"] {
+        for path in rust_files(&root.join(dir)) {
+            if path.file_name().is_some_and(|name| name == "architecture_tests.rs") {
+                continue;
+            }
+            let source = read(&path);
+            for pattern in forbidden {
+                assert!(
+                    !source.contains(pattern),
+                    "{} must not bypass slang-adapter trace extraction boundary `{pattern}`",
+                    path.display()
+                );
+            }
+        }
     }
 }
