@@ -584,7 +584,11 @@ impl ReplayState<'_> {
                     );
                     return;
                 };
+                let barrier_start = self.replay_barriers.len();
                 self.replay_file(included_index, env, include_stack);
+                if let Some(barrier) = self.replay_barriers.get(barrier_start) {
+                    self.record_barrier(file_id, offset, barrier.failure.clone());
+                }
             }
             MacroIncludeTarget::Token { .. } => {
                 self.record_barrier(
@@ -910,6 +914,33 @@ mod tests {
             files: vec![file_input(FileId(0), root)],
             predefines: Vec::new(),
             literal_includes: Vec::new(),
+        });
+
+        let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
+
+        assert!(matches!(
+            result,
+            MacroDefinitionAtResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability,
+                ..
+            }) if capability == "literal_include_replay"
+        ));
+    }
+
+    #[test]
+    fn nested_literal_include_failure_propagates_to_includer() {
+        let root = "`include \"a.svh\"\nlogic [`WIDTH-1:0] data;\n";
+        let header = "`include \"missing.svh\"\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root), file_input(FileId(1), header)],
+            predefines: Vec::new(),
+            literal_includes: vec![LiteralIncludeInput {
+                from_file: FileId(0),
+                include_index: 0,
+                to_file: FileId(1),
+            }],
         });
 
         let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
