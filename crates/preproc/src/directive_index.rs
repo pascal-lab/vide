@@ -101,7 +101,7 @@ pub fn preproc_file_index_from_text(text: &str, options: &SyntaxTreeOptions) -> 
     for directive in SyntaxTree::preprocessor_directives(text, "source", "", options) {
         collect_preprocessor_directive(&mut index, directive, text);
     }
-    normalize_token_include_targets(&mut index);
+    normalize_token_include_targets(&mut index, text);
     index
 }
 
@@ -299,7 +299,7 @@ fn include_target_from_token(
     }
 }
 
-fn normalize_token_include_targets(index: &mut PreprocFileIndex) {
+fn normalize_token_include_targets(index: &mut PreprocFileIndex, source: &str) {
     for directive_position in 0..index.directives.len() {
         let directive = index.directives[directive_position].clone();
         if directive.kind != MacroDirectiveKind::Include {
@@ -332,6 +332,13 @@ fn normalize_token_include_targets(index: &mut PreprocFileIndex) {
         if usage_range.start() < include_range.end() {
             continue;
         }
+        if !source_between_is_horizontal_whitespace(
+            source,
+            include_range.end(),
+            usage_range.start(),
+        ) {
+            continue;
+        }
 
         let range = TextRange::new(include_range.start(), usage_range.end());
         let raw = usage.name.clone().unwrap_or_default();
@@ -349,6 +356,12 @@ fn source_text_matches(source: &str, range: TextRange, text: &str) -> bool {
     let start = usize::from(range.start());
     let end = usize::from(range.end());
     source.get(start..end).is_some_and(|source_text| source_text == text)
+}
+
+fn source_between_is_horizontal_whitespace(source: &str, start: TextSize, end: TextSize) -> bool {
+    let start = usize::from(start);
+    let end = usize::from(end);
+    source.get(start..end).is_some_and(|text| text.chars().all(|c| matches!(c, ' ' | '\t')))
 }
 
 fn strip_include_delimiters(raw: &str) -> Option<&str> {
@@ -569,6 +582,18 @@ endmodule
         );
         let include_range = index.includes[0].range.unwrap();
         assert!(include_range.contains(TextSize::from(text.find("HEADER").unwrap() as u32)));
+    }
+
+    #[test]
+    fn token_include_target_is_not_merged_across_lines() {
+        let text = "`include\n`HEADER\n";
+        let index = index(text);
+
+        assert_eq!(index.includes[0].target, MacroIncludeTarget::Token { raw: SmolStr::new("") });
+        assert_eq!(
+            index.includes[0].range,
+            Some(TextRange::new(TextSize::from(8), TextSize::from(8)))
+        );
     }
 
     #[test]

@@ -142,14 +142,14 @@ pub enum SourceProvenance {
 
 impl SourceProvenance {
     pub fn is_file_backed(&self) -> bool {
-        matches!(
-            self,
+        match self {
             SourceProvenance::File { .. }
-                | SourceProvenance::MacroCall(_)
-                | SourceProvenance::MacroArgument(_)
-                | SourceProvenance::MacroBody(_)
-                | SourceProvenance::IncludeDirective(_)
-        )
+            | SourceProvenance::MacroCall(_)
+            | SourceProvenance::MacroArgument(_)
+            | SourceProvenance::IncludeDirective(_) => true,
+            SourceProvenance::MacroBody(body) => body.file_id.is_some() && body.range.is_some(),
+            SourceProvenance::Virtual(_) | SourceProvenance::Unsupported { .. } => false,
+        }
     }
 }
 
@@ -338,6 +338,18 @@ mod tests {
             trace.origin_for_expanded_token(ExpandedTokenId(1)),
             ExpandedTokenOrigin::Origin(SourceProvenance::MacroArgument(argument))
         );
+    }
+
+    #[test]
+    fn macro_body_without_file_range_is_not_file_backed() {
+        let body = MacroBody {
+            definition: MacroDefId(7),
+            file_id: None,
+            range: None,
+            token_index: Some(1),
+        };
+
+        assert!(!SourceProvenance::MacroBody(body).is_file_backed());
     }
 
     #[test]
