@@ -10,7 +10,7 @@ use crate::{
     },
     trace::{
         ExpandedTokenId, ExpandedTokenOrigin, MacroExpansionEvent, PREPROC_TRACE_CAPABILITY,
-        PreprocTraceResult, TraceCapability,
+        PreprocTrace, PreprocTraceResult, TraceCapability,
     },
 };
 
@@ -78,6 +78,7 @@ pub struct MacroDbInput {
     pub files: Vec<FileMacroInput>,
     pub predefines: Vec<MacroPredefine>,
     pub literal_includes: Vec<LiteralIncludeInput>,
+    pub trace: Option<PreprocTrace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +147,7 @@ pub struct MacroDb {
     files: Vec<FileMacroInput>,
     predefines: Vec<MacroPredefine>,
     literal_includes: Vec<LiteralIncludeInput>,
+    trace: Option<PreprocTrace>,
     definitions: Vec<MacroSource>,
     uses: Vec<MacroUse>,
     env_snapshots: Vec<EnvSnapshot>,
@@ -168,7 +170,7 @@ struct ReplayBarrier {
 
 impl MacroDb {
     pub fn new(input: MacroDbInput) -> Self {
-        let MacroDbInput { profile, roots, files, predefines, literal_includes } = input;
+        let MacroDbInput { profile, roots, files, predefines, literal_includes, trace } = input;
         let roots =
             if roots.is_empty() { files.iter().map(|file| file.file_id).collect() } else { roots };
         let mut definitions = Vec::new();
@@ -232,6 +234,7 @@ impl MacroDb {
             files,
             predefines,
             literal_includes,
+            trace,
             definitions,
             uses,
             env_snapshots,
@@ -257,6 +260,10 @@ impl MacroDb {
 
     pub fn literal_includes(&self) -> &[LiteralIncludeInput] {
         &self.literal_includes
+    }
+
+    pub fn trace(&self) -> Option<&PreprocTrace> {
+        self.trace.as_ref()
     }
 
     pub fn definitions(&self) -> &[MacroSource] {
@@ -391,21 +398,31 @@ impl MacroDb {
     }
 
     pub fn trace_capability(&self) -> TraceCapability {
-        TraceCapability::missing_preproc_trace()
+        if self.trace.is_some() {
+            TraceCapability::Available
+        } else {
+            TraceCapability::missing_preproc_trace()
+        }
     }
 
     pub fn expansion_for_use(
         &self,
-        _use_id: MacroUseId,
-    ) -> PreprocTraceResult<&MacroExpansionEvent> {
-        PreprocTraceResult::missing_preproc_trace()
+        use_id: MacroUseId,
+    ) -> PreprocTraceResult<Option<&MacroExpansionEvent>> {
+        match &self.trace {
+            Some(trace) => PreprocTraceResult::Available(trace.expansion_for_use(use_id)),
+            None => PreprocTraceResult::missing_preproc_trace(),
+        }
     }
 
     pub fn origin_for_expanded_token(
         &self,
-        _token_id: ExpandedTokenId,
+        token_id: ExpandedTokenId,
     ) -> PreprocTraceResult<ExpandedTokenOrigin> {
-        PreprocTraceResult::missing_preproc_trace()
+        match &self.trace {
+            Some(trace) => PreprocTraceResult::Available(trace.origin_for_expanded_token(token_id)),
+            None => PreprocTraceResult::missing_preproc_trace(),
+        }
     }
 
     pub fn include_target_at(&self, file_id: FileId, offset: TextSize) -> IncludeTargetAtResult {
@@ -685,7 +702,10 @@ mod tests {
     use super::*;
     use crate::{
         directive_index::preproc_file_index_from_text,
-        trace::{CapabilityUnavailable, TraceUnavailableReason},
+        trace::{
+            CapabilityUnavailable, ExpandedToken, ExpansionId, MacroBody, MacroCall,
+            SourceProvenance, TraceUnavailableReason,
+        },
     };
 
     fn input(profile: MacroProfileId) -> MacroDbInput {
@@ -695,6 +715,7 @@ mod tests {
             files: Vec::new(),
             predefines: Vec::new(),
             literal_includes: Vec::new(),
+            trace: None,
         }
     }
 
@@ -719,6 +740,7 @@ mod tests {
             files: vec![file_input(FileId(0), text)],
             predefines,
             literal_includes: Vec::new(),
+            trace: None,
         })
     }
 
@@ -732,6 +754,10 @@ mod tests {
 
     fn last_offset(text: &str, needle: &str) -> TextSize {
         TextSize::from(text.rfind(needle).unwrap() as u32)
+    }
+
+    fn text_range(start: u32, end: u32) -> TextRange {
+        TextRange::new(TextSize::from(start), TextSize::from(end))
     }
 
     #[test]
@@ -939,6 +965,7 @@ mod tests {
                 include_index: 0,
                 to_file: FileId(1),
             }],
+            trace: None,
         });
 
         let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
@@ -965,6 +992,7 @@ mod tests {
             files: vec![file_input(FileId(0), root)],
             predefines: Vec::new(),
             literal_includes: Vec::new(),
+            trace: None,
         });
 
         let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
@@ -992,6 +1020,7 @@ mod tests {
                 include_index: 0,
                 to_file: FileId(1),
             }],
+            trace: None,
         });
 
         let result = db.macro_definition_at(FileId(0), offset(root, "WIDTH"));
@@ -1018,6 +1047,7 @@ mod tests {
                 include_index: 0,
                 to_file: FileId(1),
             }],
+            trace: None,
         });
 
         assert_eq!(
@@ -1039,6 +1069,7 @@ mod tests {
                 include_index: 0,
                 to_file: FileId(1),
             }],
+            trace: None,
         });
         let include_end = db.files()[0].index.directives[0].range.unwrap().end();
 
@@ -1054,6 +1085,7 @@ mod tests {
             files: vec![file_input(FileId(0), root)],
             predefines: Vec::new(),
             literal_includes: Vec::new(),
+            trace: None,
         });
 
         assert!(matches!(
@@ -1105,6 +1137,62 @@ mod tests {
     }
 
     #[test]
+    fn trace_queries_use_supplied_preproc_trace() {
+        let call =
+            MacroCall { use_id: MacroUseId(0), file_id: FileId(0), range: text_range(9, 15) };
+        let trace = PreprocTrace {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            source_instances: Vec::new(),
+            frames: Vec::new(),
+            files: Vec::new(),
+            include_events: Vec::new(),
+            conditional_events: Vec::new(),
+            expansion_events: vec![MacroExpansionEvent {
+                id: ExpansionId(0),
+                call: call.clone(),
+                definition: MacroDefId(0),
+                body: MacroBody {
+                    definition: MacroDefId(0),
+                    file_id: Some(FileId(0)),
+                    range: Some(text_range(0, 8)),
+                    token_index: Some(0),
+                },
+                arguments: Vec::new(),
+                output_tokens: vec![ExpandedTokenId(0)],
+                include_stack: Vec::new(),
+            }],
+            expanded_tokens: vec![ExpandedToken {
+                id: ExpandedTokenId(0),
+                text: SmolStr::new("WIDTH"),
+                kind_hint: None,
+                expansion: ExpansionId(0),
+                provenance: SourceProvenance::MacroCall(call.clone()),
+            }],
+        };
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: Vec::new(),
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+            trace: Some(trace),
+        });
+
+        assert_eq!(db.trace_capability(), TraceCapability::Available);
+        assert!(matches!(
+            db.expansion_for_use(MacroUseId(0)),
+            PreprocTraceResult::Available(Some(event)) if event.id == ExpansionId(0)
+        ));
+        assert_eq!(
+            db.origin_for_expanded_token(ExpandedTokenId(0)),
+            PreprocTraceResult::Available(ExpandedTokenOrigin::Origin(
+                SourceProvenance::MacroCall(call)
+            ))
+        );
+    }
+
+    #[test]
     fn token_include_target_requires_preproc_trace() {
         let root = "`include `HEADER\n";
         let db = MacroDb::new(MacroDbInput {
@@ -1113,6 +1201,7 @@ mod tests {
             files: vec![file_input(FileId(0), root)],
             predefines: Vec::new(),
             literal_includes: Vec::new(),
+            trace: None,
         });
 
         assert!(matches!(
@@ -1133,6 +1222,7 @@ mod tests {
             files: vec![file_input(FileId(0), root)],
             predefines: Vec::new(),
             literal_includes: Vec::new(),
+            trace: None,
         });
 
         assert!(matches!(
