@@ -176,16 +176,22 @@ export class VideBrowserClient {
             return await next(document, position, newName, token);
           };
 
-          const info = await languageClient.sendRequest<RenameExpansionInfo>(
-            "workspace/executeCommand",
-            {
-              command: RENAME_EXPANSION_INFO_REQUEST,
-              arguments: [{ textDocumentPosition }],
-            },
-            token,
-          );
+          let info: RenameExpansionInfo | undefined;
+          try {
+            info = await languageClient.sendRequest<RenameExpansionInfo>(
+              "workspace/executeCommand",
+              {
+                command: RENAME_EXPANSION_INFO_REQUEST,
+                arguments: [{ textDocumentPosition }],
+              },
+              token,
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.onLog(`Falling back to standard rename: ${message}`, "warn");
+          }
 
-          if (info.additionalSymbols === 0) {
+          if (!info || info.additionalSymbols === 0) {
             return await standardRename();
           }
 
@@ -202,8 +208,12 @@ export class VideBrowserClient {
             localAction,
           );
 
-          if (selected !== recursiveAction) {
+          if (selected === localAction) {
             return await standardRename();
+          }
+
+          if (selected !== recursiveAction) {
+            return emptyRenameEdit();
           }
 
           if (
