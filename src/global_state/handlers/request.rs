@@ -11,11 +11,10 @@ use crate::{
     i18n::keys,
     lsp_ext::{
         ext::{
-            PORT_CONNECTION_RENAME_COMMAND, PORT_CONNECTION_RENAME_INFO_COMMAND,
-            PortConnectionRenameInfoParams, PortConnectionRenameInfoResult,
-            PortConnectionRenameParams, RELOAD_WORKSPACE_COMMAND, RENAME_COLLISION_INFO_COMMAND,
-            RUN_QIHE_ANALYSIS_COMMAND, RenameCollisionInfoParams, RenameCollisionInfoResult,
-            RunQiheAnalysisParams,
+            EXPANDED_RENAME_COMMAND, ExpandedRenameParams, RELOAD_WORKSPACE_COMMAND,
+            RENAME_CONFLICT_INFO_COMMAND, RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
+            RenameConflictInfoParams, RenameConflictInfoResult, RenameExpansionInfoParams,
+            RenameExpansionInfoResult, RunQiheAnalysisParams,
         },
         from_proto, to_proto,
     },
@@ -239,7 +238,7 @@ fn handle_qihe_analysis_command(
     state: &mut crate::global_state::GlobalState,
     params: lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<Option<serde_json::Value>> {
-    let params = first_execute_arg::<RunQiheAnalysisParams>(state, &params)?;
+    let params = extract_execute_arg::<RunQiheAnalysisParams>(state, &params)?;
     state.spawn_qihe_analysis(params);
     Ok(None)
 }
@@ -253,55 +252,55 @@ fn handle_reload_workspace_command(
     Ok(None)
 }
 
-fn handle_port_connection_rename_info_command(
+fn handle_rename_expansion_info_command(
     state: &mut crate::global_state::GlobalState,
     params: lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<Option<serde_json::Value>> {
-    let params = first_execute_arg::<PortConnectionRenameInfoParams>(state, &params)?;
+    let params = extract_execute_arg::<RenameExpansionInfoParams>(state, &params)?;
     let snap = state.make_snapshot();
     let position = from_proto::file_position(&snap, params.text_document_position)?;
     let config = snap.rename_config(position.file_id);
     let info = snap
         .analysis
-        .recursive_rename_info(position, config)?
+        .rename_expansion_info(position, config)?
         .map_err(|err| to_proto::rename_error(snap.config.i18n, err))?;
-    let result = PortConnectionRenameInfoResult { additional_symbols: info.additional_symbols };
+    let result = RenameExpansionInfoResult { additional_symbols: info.additional_symbols };
     Ok(Some(serde_json::to_value(result)?))
 }
 
-fn handle_port_connection_rename_command(
+fn handle_expanded_rename_command(
     state: &mut crate::global_state::GlobalState,
     params: lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<Option<serde_json::Value>> {
-    let params = first_execute_arg::<PortConnectionRenameParams>(state, &params)?;
+    let params = extract_execute_arg::<ExpandedRenameParams>(state, &params)?;
     let snap = state.make_snapshot();
     let position = from_proto::file_position(&snap, params.text_document_position)?;
     let config = snap.rename_config(position.file_id);
     let change = snap
         .analysis
-        .recursive_rename(position, config, &params.new_name)?
+        .expanded_rename(position, config, &params.new_name)?
         .map_err(|err| to_proto::rename_error(snap.config.i18n, err))?;
     let workspace_edit = to_proto::workspace_edit(&snap, change)?;
     Ok(Some(serde_json::to_value(workspace_edit)?))
 }
 
-fn handle_rename_collision_info_command(
+fn handle_rename_conflict_info_command(
     state: &mut crate::global_state::GlobalState,
     params: lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<Option<serde_json::Value>> {
-    let params = first_execute_arg::<RenameCollisionInfoParams>(state, &params)?;
+    let params = extract_execute_arg::<RenameConflictInfoParams>(state, &params)?;
     let snap = state.make_snapshot();
     let position = from_proto::file_position(&snap, params.text_document_position)?;
     let config = snap.rename_config(position.file_id);
     let info = snap
         .analysis
-        .rename_collision_info(position, config, &params.new_name, params.recursive)?
+        .rename_conflict_info(position, config, &params.new_name, params.recursive)?
         .map_err(|err| to_proto::rename_error(snap.config.i18n, err))?;
-    let result = RenameCollisionInfoResult { conflicts: info.conflicts };
+    let result = RenameConflictInfoResult { conflicts: info.conflicts };
     Ok(Some(serde_json::to_value(result)?))
 }
 
-fn first_execute_arg<T: DeserializeOwned>(
+fn extract_execute_arg<T: DeserializeOwned>(
     state: &crate::global_state::GlobalState,
     params: &lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<T> {
@@ -318,11 +317,9 @@ pub(crate) fn handle_execute_command(
     match params.command.as_str() {
         RUN_QIHE_ANALYSIS_COMMAND => handle_qihe_analysis_command(state, params),
         RELOAD_WORKSPACE_COMMAND => handle_reload_workspace_command(state),
-        PORT_CONNECTION_RENAME_INFO_COMMAND => {
-            handle_port_connection_rename_info_command(state, params)
-        }
-        PORT_CONNECTION_RENAME_COMMAND => handle_port_connection_rename_command(state, params),
-        RENAME_COLLISION_INFO_COMMAND => handle_rename_collision_info_command(state, params),
+        RENAME_EXPANSION_INFO_COMMAND => handle_rename_expansion_info_command(state, params),
+        EXPANDED_RENAME_COMMAND => handle_expanded_rename_command(state, params),
+        RENAME_CONFLICT_INFO_COMMAND => handle_rename_conflict_info_command(state, params),
         _ => anyhow::bail!(
             "{}",
             state

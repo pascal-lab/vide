@@ -22,10 +22,10 @@ import {
 } from "./workspaceSnapshot";
 
 const CLIENT_DISPOSED_MESSAGE = "Vide browser client has been disposed.";
-const PORT_CONNECTION_RENAME_INFO_REQUEST =
-  "vide.server.portConnectionRenameInfo";
-const PORT_CONNECTION_RENAME_REQUEST = "vide.server.portConnectionRename";
-const RENAME_COLLISION_INFO_REQUEST = "vide.server.renameCollisionInfo";
+const RENAME_EXPANSION_INFO_REQUEST =
+  "vide.server.renameExpansionInfo";
+const EXPANDED_RENAME_REQUEST = "vide.server.expandedRename";
+const RENAME_CONFLICT_INFO_REQUEST = "vide.server.renameConflictInfo";
 
 export class VideBrowserClient {
   private readonly worker: Worker;
@@ -176,10 +176,10 @@ export class VideBrowserClient {
             return await next(document, position, newName, token);
           };
 
-          const info = await languageClient.sendRequest<PortConnectionRenameInfo>(
+          const info = await languageClient.sendRequest<RenameExpansionInfo>(
             "workspace/executeCommand",
             {
-              command: PORT_CONNECTION_RENAME_INFO_REQUEST,
+              command: RENAME_EXPANSION_INFO_REQUEST,
               arguments: [{ textDocumentPosition }],
             },
             token,
@@ -219,11 +219,11 @@ export class VideBrowserClient {
           }
 
           const edit = await languageClient.sendRequest(
-            "workspace/executeCommand",
-            {
-              command: PORT_CONNECTION_RENAME_REQUEST,
-              arguments: [{ textDocumentPosition, newName }],
-            },
+              "workspace/executeCommand",
+              {
+              command: EXPANDED_RENAME_REQUEST,
+                arguments: [{ textDocumentPosition, newName }],
+              },
             token,
           );
           return await languageClient.protocol2CodeConverter.asWorkspaceEdit(
@@ -288,11 +288,11 @@ export class VideBrowserClient {
   }
 }
 
-type PortConnectionRenameInfo = {
+type RenameExpansionInfo = {
   additionalSymbols: number;
 };
 
-type RenameCollisionInfo = {
+type RenameConflictInfo = {
   conflicts: number;
 };
 
@@ -307,10 +307,10 @@ async function confirmRenameCollision(
   recursive: boolean,
   token: vscode.CancellationToken,
 ): Promise<boolean> {
-  const info = await languageClient.sendRequest<RenameCollisionInfo>(
+  const info = await languageClient.sendRequest<RenameConflictInfo>(
     "workspace/executeCommand",
     {
-      command: RENAME_COLLISION_INFO_REQUEST,
+      command: RENAME_CONFLICT_INFO_REQUEST,
       arguments: [{ textDocumentPosition, newName, recursive }],
     },
     token,

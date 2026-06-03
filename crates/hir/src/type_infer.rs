@@ -2,9 +2,7 @@ use rustc_hash::FxHashSet;
 use utils::get::GetRef;
 
 use crate::{
-    container::{
-        ContainerId, ContainerParent, InContainer, InGenerateBlock, InModule, InSubroutine,
-    },
+    container::{ContainerId, InContainer, InGenerateBlock, InModule, InSubroutine},
     db::HirDb,
     hir_def::{
         Ident,
@@ -21,7 +19,7 @@ use crate::{
         subroutine::SubroutinePortId,
         typedef::TypedefId,
     },
-    semantics::pathres::PathResolution,
+    semantics::pathres::{PathResolution, resolve_name},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -422,28 +420,6 @@ fn type_of_subroutine_port(db: &dyn HirDb, port: InSubroutine<SubroutinePortId>)
     port.ty
         .map(|ty| normalize_data_ty(db, ContainerId::SubroutineId(port_id.subroutine), ty))
         .unwrap_or_else(|| TyResult::new(Ty::Unknown))
-}
-
-fn resolve_name(db: &dyn HirDb, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
-    ContainerParent::start_from(db, cont_id).find_map(|id| match id {
-        ContainerId::HirFileId(_) => db.unit_scope().get(ident).map(PathResolution::from),
-        ContainerId::ModuleId(module_id) => db
-            .module_scope(module_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InModule::new(module_id, entry))),
-        ContainerId::GenerateBlockId(generate_block_id) => db
-            .generate_block_scope(generate_block_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InGenerateBlock::new(generate_block_id, entry))),
-        ContainerId::BlockId(block_id) => db
-            .block_scope(block_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(crate::container::InBlock::new(block_id, entry))),
-        ContainerId::SubroutineId(subroutine_id) => db
-            .subroutine_scope(subroutine_id)
-            .get(ident)
-            .map(|entry| PathResolution::from(InSubroutine::new(subroutine_id, entry))),
-    })
 }
 
 fn instance_target_module_id(

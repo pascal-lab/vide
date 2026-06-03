@@ -3,10 +3,13 @@ use syntax::{SyntaxNode, SyntaxTokenWithParent};
 use super::SemanticsImpl;
 use crate::{
     container::{
-        ContainerId, InBlock, InContainer, InFile, InGenerateBlock, InModule, InSubroutine,
+        ContainerId, ContainerParent, InBlock, InContainer, InFile, InGenerateBlock, InModule,
+        InSubroutine,
     },
+    db::HirDb,
     file::HirFileId,
     hir_def::{
+        Ident,
         block::BlockId,
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
@@ -37,6 +40,32 @@ impl SemanticsImpl<'_> {
     pub(in crate::semantics) fn find_container(&self, node: InFile<SyntaxNode>) -> ContainerId {
         self.with_ctx(|ctx| ctx.find_container(node))
     }
+
+    pub fn resolve_name(&self, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
+        resolve_name(self.db, cont_id, ident)
+    }
+}
+
+pub fn resolve_name(db: &dyn HirDb, cont_id: ContainerId, ident: &Ident) -> Option<PathResolution> {
+    ContainerParent::start_from(db, cont_id).find_map(|id| match id {
+        ContainerId::HirFileId(_) => db.unit_scope().get(ident).map(PathResolution::from),
+        ContainerId::ModuleId(module_id) => db
+            .module_scope(module_id)
+            .get(ident)
+            .map(|entry| PathResolution::from(InModule::new(module_id, entry))),
+        ContainerId::GenerateBlockId(generate_block_id) => db
+            .generate_block_scope(generate_block_id)
+            .get(ident)
+            .map(|entry| PathResolution::from(InGenerateBlock::new(generate_block_id, entry))),
+        ContainerId::BlockId(block_id) => db
+            .block_scope(block_id)
+            .get(ident)
+            .map(|entry| PathResolution::from(InBlock::new(block_id, entry))),
+        ContainerId::SubroutineId(subroutine_id) => db
+            .subroutine_scope(subroutine_id)
+            .get(ident)
+            .map(|entry| PathResolution::from(InSubroutine::new(subroutine_id, entry))),
+    })
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
