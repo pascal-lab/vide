@@ -141,16 +141,78 @@ pub enum SourceProvenance {
 }
 
 impl SourceProvenance {
-    pub fn is_file_backed(&self) -> bool {
+    pub fn primary_file_range(&self) -> Result<FileRange, ProvenanceUnavailable> {
         match self {
-            SourceProvenance::File { .. }
-            | SourceProvenance::MacroCall(_)
-            | SourceProvenance::MacroArgument(_)
-            | SourceProvenance::IncludeDirective(_) => true,
-            SourceProvenance::MacroBody(body) => body.file_id.is_some() && body.range.is_some(),
-            SourceProvenance::Virtual(_) | SourceProvenance::Unsupported { .. } => false,
+            SourceProvenance::File { file_id, range } => {
+                Ok(FileRange { file_id: *file_id, range: *range })
+            }
+            SourceProvenance::MacroCall(call) => {
+                Ok(FileRange { file_id: call.file_id, range: call.range })
+            }
+            SourceProvenance::MacroArgument(argument) => {
+                Ok(FileRange { file_id: argument.file_id, range: argument.range })
+            }
+            SourceProvenance::MacroBody(body) => {
+                macro_body_file_range(body).ok_or(ProvenanceUnavailable::MissingFileRange {
+                    provenance: SmolStr::new("macro_body"),
+                })
+            }
+            SourceProvenance::IncludeDirective(directive) => {
+                Ok(FileRange { file_id: directive.file_id, range: directive.range })
+            }
+            SourceProvenance::Virtual(source) => {
+                Err(ProvenanceUnavailable::Virtual { source: source.clone() })
+            }
+            SourceProvenance::Unsupported { reason } => {
+                Err(ProvenanceUnavailable::Unsupported { reason: reason.clone() })
+            }
         }
     }
+
+    pub fn editable_file_range(&self) -> Result<FileRange, ProvenanceUnavailable> {
+        match self {
+            SourceProvenance::MacroBody(_) => Err(ProvenanceUnavailable::NotEditable {
+                reason: SmolStr::new("macro body provenance is not editable-safe"),
+            }),
+            _ => self.primary_file_range(),
+        }
+    }
+
+    pub fn related_locations(&self) -> Vec<SourceProvenance> {
+        match self {
+            SourceProvenance::MacroArgument(argument) => {
+                vec![SourceProvenance::MacroCall(argument.call.clone())]
+            }
+            SourceProvenance::MacroBody(body) => macro_body_file_range(body)
+                .map(|range| {
+                    vec![SourceProvenance::File { file_id: range.file_id, range: range.range }]
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn is_file_backed(&self) -> bool {
+        self.primary_file_range().is_ok()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileRange {
+    pub file_id: FileId,
+    pub range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProvenanceUnavailable {
+    MissingFileRange { provenance: SmolStr },
+    NotEditable { reason: SmolStr },
+    Virtual { source: VirtualSource },
+    Unsupported { reason: SmolStr },
+}
+
+fn macro_body_file_range(body: &MacroBody) -> Option<FileRange> {
+    Some(FileRange { file_id: body.file_id?, range: body.range? })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -349,7 +411,69 @@ mod tests {
             token_index: Some(1),
         };
 
-        assert!(!SourceProvenance::MacroBody(body).is_file_backed());
+        let provenance = SourceProvenance::MacroBody(body);
+
+        assert!(!provenance.is_file_backed());
+        assert_eq!(
+            provenance.primary_file_range(),
+            Err(ProvenanceUnavailable::MissingFileRange { provenance: SmolStr::new("macro_body") })
+        );
+    }
+
+    #[test]
+    fn macro_body_primary_range_is_not_editable_safe() {
+        let body = MacroBody {
+            definition: MacroDefId(7),
+            file_id: Some(FileId(1)),
+            range: Some(range(18, 28)),
+            token_index: Some(1),
+        };
+        let provenance = SourceProvenance::MacroBody(body);
+
+        assert_eq!(
+            provenance.primary_file_range(),
+            Ok(FileRange { file_id: FileId(1), range: range(18, 28) })
+        );
+        assert_eq!(
+            provenance.editable_file_range(),
+            Err(ProvenanceUnavailable::NotEditable {
+                reason: SmolStr::new("macro body provenance is not editable-safe"),
+            })
+        );
+    }
+
+    #[test]
+    fn macro_argument_is_editable_and_relates_to_callsite() {
+        let call = MacroCall { use_id: MacroUseId(0), file_id: FileId(1), range: range(30, 44) };
+        let argument = MacroArgument {
+            call: call.clone(),
+            index: 0,
+            name: Some(MacroName::new("name")),
+            file_id: FileId(1),
+            range: range(40, 43),
+        };
+        let provenance = SourceProvenance::MacroArgument(argument);
+
+        assert_eq!(
+            provenance.editable_file_range(),
+            Ok(FileRange { file_id: FileId(1), range: range(40, 43) })
+        );
+        assert_eq!(provenance.related_locations(), vec![SourceProvenance::MacroCall(call)]);
+    }
+
+    #[test]
+    fn virtual_provenance_has_no_primary_or_editable_range() {
+        let virtual_source = VirtualSource::Generated { reason: SmolStr::new("predefined") };
+        let provenance = SourceProvenance::Virtual(virtual_source.clone());
+
+        assert_eq!(
+            provenance.primary_file_range(),
+            Err(ProvenanceUnavailable::Virtual { source: virtual_source.clone() })
+        );
+        assert_eq!(
+            provenance.editable_file_range(),
+            Err(ProvenanceUnavailable::Virtual { source: virtual_source })
+        );
     }
 
     #[test]
