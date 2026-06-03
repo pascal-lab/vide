@@ -656,7 +656,7 @@ fn directive_offset(directive: &MacroDirective) -> TextSize {
 }
 
 fn range_contains(range: Option<TextRange>, offset: TextSize) -> bool {
-    range.is_some_and(|range| range.start() <= offset && offset <= range.end())
+    range.is_some_and(|range| range.contains(offset))
 }
 
 #[cfg(test)]
@@ -801,6 +801,18 @@ mod tests {
     }
 
     #[test]
+    fn macro_definition_at_does_not_match_use_end_offset() {
+        let text = "`define WIDTH 8\nlogic [`WIDTH-1:0] data;\n";
+        let db = db_from_text(text);
+        let use_range = db.macro_use(MacroUseId(0)).unwrap().range.unwrap();
+
+        assert_eq!(
+            db.macro_definition_at(FileId(0), use_range.end()),
+            MacroDefinitionAtResult::NoMacroUse
+        );
+    }
+
+    #[test]
     fn macro_definition_at_returns_unresolved_reason() {
         let text = "logic [`WIDTH-1:0] data;\n";
         let db = db_from_text(text);
@@ -872,6 +884,23 @@ mod tests {
                 range: db.macro_use(MacroUseId(0)).unwrap().range,
             }])
         );
+    }
+
+    #[test]
+    fn macro_references_at_definition_does_not_match_definition_end_offset() {
+        let text = "`define WIDTH 8\n`WIDTH\n";
+        let db = db_from_text(text);
+        let SourceOrigin::File { range, .. } = db.definition(MacroDefId(0)).unwrap().origin else {
+            panic!("test definition should come from source file");
+        };
+
+        assert!(matches!(
+            db.macro_references_at_definition(FileId(0), range.end()),
+            MacroReferencesResult::Failed(MacroQueryFailure::CapabilityUnavailable {
+                capability,
+                ..
+            }) if capability == "macro_references_at_definition"
+        ));
     }
 
     #[test]
@@ -973,6 +1002,25 @@ mod tests {
             db.include_target_at(FileId(0), offset(root, "defs")),
             IncludeTargetAtResult::Target(FileId(1))
         );
+    }
+
+    #[test]
+    fn include_target_at_does_not_match_directive_end_offset() {
+        let root = "`include \"defs.svh\"\n";
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: vec![file_input(FileId(0), root), file_input(FileId(1), "`define WIDTH 8\n")],
+            predefines: Vec::new(),
+            literal_includes: vec![LiteralIncludeInput {
+                from_file: FileId(0),
+                include_index: 0,
+                to_file: FileId(1),
+            }],
+        });
+        let include_end = db.files()[0].index.directives[0].range.unwrap().end();
+
+        assert_eq!(db.include_target_at(FileId(0), include_end), IncludeTargetAtResult::NoInclude);
     }
 
     #[test]
