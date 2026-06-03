@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod architecture_tests;
 pub mod directive_index;
 mod macro_db;
 
