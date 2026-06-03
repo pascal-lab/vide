@@ -1,0 +1,12 @@
+[package]
+name = "preproc"
+version = "0.0.0"
+description = "SystemVerilog preprocessor analysis"
+
+edition.workspace = true
+
+[dependencies]
+smol_str.workspace = true
+syntax.workspace = true
+utils.workspace = true
+vfs.workspace = true
