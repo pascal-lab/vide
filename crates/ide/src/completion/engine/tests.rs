@@ -620,6 +620,37 @@ fn prefix_module_completion_at_file_start_does_not_panic() {
 }
 
 #[test]
+fn phase0_baseline_reports_basic_completion_contexts() {
+    let top_level = completions_in_text("mo/*caret*/\n", None);
+    let top_level_labels = labels(&top_level);
+    assert!(top_level_labels.contains(&"module"), "top-level keyword expected: {top_level:?}");
+
+    let module_member = completions_in_text("module m;\n  /*caret*/\nendmodule\n", None);
+    let module_member_labels = labels(&module_member);
+    assert!(
+        module_member_labels.contains(&"wire"),
+        "module declaration keyword expected: {module_member:?}"
+    );
+    assert!(
+        module_member_labels.contains(&"always"),
+        "module procedural block expected: {module_member:?}"
+    );
+    assert!(
+        !module_member_labels.contains(&"return"),
+        "procedural jump leaked into module member context: {module_member:?}"
+    );
+
+    let block = completions_in_text("module m; initial begin\n  /*caret*/\nend endmodule\n", None);
+    let block_labels = labels(&block);
+    assert!(block_labels.contains(&"integer"), "block declaration expected: {block:?}");
+    assert!(block_labels.contains(&"if"), "statement keyword expected: {block:?}");
+    assert!(
+        !block_labels.contains(&"wire"),
+        "module declaration leaked into procedural block: {block:?}"
+    );
+}
+
+#[test]
 fn library_map_completion_uses_library_map_keywords() {
     let items = completions_in_library_map("lib/*caret*/\n", None);
     let item_labels = labels(&items);
