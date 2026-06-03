@@ -332,12 +332,20 @@ impl CapabilityUnavailable {
             reason: TraceUnavailableReason::BindingUnavailable { reason: reason.into() },
         }
     }
+
+    pub fn profile_mismatch(expected: MacroProfileId, actual: MacroProfileId) -> Self {
+        Self {
+            capability: SmolStr::new(PREPROC_TRACE_CAPABILITY),
+            reason: TraceUnavailableReason::ProfileMismatch { expected, actual },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TraceUnavailableReason {
     MissingPreprocTrace,
     BindingUnavailable { reason: SmolStr },
+    ProfileMismatch { expected: MacroProfileId, actual: MacroProfileId },
 }
 
 #[cfg(test)]

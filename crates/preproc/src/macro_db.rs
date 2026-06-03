@@ -9,8 +9,8 @@ use crate::{
         PreprocFileIndex,
     },
     trace::{
-        ExpandedTokenId, ExpandedTokenOrigin, MacroExpansionEvent, PREPROC_TRACE_CAPABILITY,
-        PreprocTrace, PreprocTraceResult, TraceCapability,
+        CapabilityUnavailable, ExpandedTokenId, ExpandedTokenOrigin, MacroExpansionEvent,
+        PREPROC_TRACE_CAPABILITY, PreprocTrace, PreprocTraceResult, TraceCapability,
     },
 };
 
@@ -148,6 +148,7 @@ pub struct MacroDb {
     predefines: Vec<MacroPredefine>,
     literal_includes: Vec<LiteralIncludeInput>,
     trace: Option<PreprocTrace>,
+    trace_capability: TraceCapability,
     definitions: Vec<MacroSource>,
     uses: Vec<MacroUse>,
     env_snapshots: Vec<EnvSnapshot>,
@@ -171,6 +172,17 @@ struct ReplayBarrier {
 impl MacroDb {
     pub fn new(input: MacroDbInput) -> Self {
         let MacroDbInput { profile, roots, files, predefines, literal_includes, trace } = input;
+        let (trace, trace_capability) = match trace {
+            Some(trace) if trace.profile == profile => (Some(trace), TraceCapability::Available),
+            Some(trace) => (
+                None,
+                TraceCapability::CapabilityUnavailable(CapabilityUnavailable::profile_mismatch(
+                    profile,
+                    trace.profile,
+                )),
+            ),
+            None => (None, TraceCapability::missing_preproc_trace()),
+        };
         let roots =
             if roots.is_empty() { files.iter().map(|file| file.file_id).collect() } else { roots };
         let mut definitions = Vec::new();
@@ -235,6 +247,7 @@ impl MacroDb {
             predefines,
             literal_includes,
             trace,
+            trace_capability,
             definitions,
             uses,
             env_snapshots,
@@ -398,11 +411,7 @@ impl MacroDb {
     }
 
     pub fn trace_capability(&self) -> TraceCapability {
-        if self.trace.is_some() {
-            TraceCapability::Available
-        } else {
-            TraceCapability::missing_preproc_trace()
-        }
+        self.trace_capability.clone()
     }
 
     pub fn expansion_for_use(
@@ -411,7 +420,7 @@ impl MacroDb {
     ) -> PreprocTraceResult<Option<&MacroExpansionEvent>> {
         match &self.trace {
             Some(trace) => PreprocTraceResult::Available(trace.expansion_for_use(use_id)),
-            None => PreprocTraceResult::missing_preproc_trace(),
+            None => self.trace_unavailable_result(),
         }
     }
 
@@ -421,7 +430,16 @@ impl MacroDb {
     ) -> PreprocTraceResult<ExpandedTokenOrigin> {
         match &self.trace {
             Some(trace) => PreprocTraceResult::Available(trace.origin_for_expanded_token(token_id)),
-            None => PreprocTraceResult::missing_preproc_trace(),
+            None => self.trace_unavailable_result(),
+        }
+    }
+
+    fn trace_unavailable_result<T>(&self) -> PreprocTraceResult<T> {
+        match &self.trace_capability {
+            TraceCapability::CapabilityUnavailable(unavailable) => {
+                PreprocTraceResult::CapabilityUnavailable(unavailable.clone())
+            }
+            TraceCapability::Available => PreprocTraceResult::missing_preproc_trace(),
         }
     }
 
@@ -758,6 +776,42 @@ mod tests {
 
     fn text_range(start: u32, end: u32) -> TextRange {
         TextRange::new(TextSize::from(start), TextSize::from(end))
+    }
+
+    fn trace_fixture(profile: MacroProfileId) -> (PreprocTrace, MacroCall) {
+        let call =
+            MacroCall { use_id: MacroUseId(0), file_id: FileId(0), range: text_range(9, 15) };
+        let trace = PreprocTrace {
+            profile,
+            roots: vec![FileId(0)],
+            source_instances: Vec::new(),
+            frames: Vec::new(),
+            files: Vec::new(),
+            include_events: Vec::new(),
+            conditional_events: Vec::new(),
+            expansion_events: vec![MacroExpansionEvent {
+                id: ExpansionId(0),
+                call: call.clone(),
+                definition: MacroDefId(0),
+                body: MacroBody {
+                    definition: MacroDefId(0),
+                    file_id: Some(FileId(0)),
+                    range: Some(text_range(0, 8)),
+                    token_index: Some(0),
+                },
+                arguments: Vec::new(),
+                output_tokens: vec![ExpandedTokenId(0)],
+                include_stack: Vec::new(),
+            }],
+            expanded_tokens: vec![ExpandedToken {
+                id: ExpandedTokenId(0),
+                text: SmolStr::new("WIDTH"),
+                kind_hint: None,
+                expansion: ExpansionId(0),
+                provenance: SourceProvenance::MacroCall(call.clone()),
+            }],
+        };
+        (trace, call)
     }
 
     #[test]
@@ -1138,38 +1192,7 @@ mod tests {
 
     #[test]
     fn trace_queries_use_supplied_preproc_trace() {
-        let call =
-            MacroCall { use_id: MacroUseId(0), file_id: FileId(0), range: text_range(9, 15) };
-        let trace = PreprocTrace {
-            profile: MacroProfileId(1),
-            roots: vec![FileId(0)],
-            source_instances: Vec::new(),
-            frames: Vec::new(),
-            files: Vec::new(),
-            include_events: Vec::new(),
-            conditional_events: Vec::new(),
-            expansion_events: vec![MacroExpansionEvent {
-                id: ExpansionId(0),
-                call: call.clone(),
-                definition: MacroDefId(0),
-                body: MacroBody {
-                    definition: MacroDefId(0),
-                    file_id: Some(FileId(0)),
-                    range: Some(text_range(0, 8)),
-                    token_index: Some(0),
-                },
-                arguments: Vec::new(),
-                output_tokens: vec![ExpandedTokenId(0)],
-                include_stack: Vec::new(),
-            }],
-            expanded_tokens: vec![ExpandedToken {
-                id: ExpandedTokenId(0),
-                text: SmolStr::new("WIDTH"),
-                kind_hint: None,
-                expansion: ExpansionId(0),
-                provenance: SourceProvenance::MacroCall(call.clone()),
-            }],
-        };
+        let (trace, call) = trace_fixture(MacroProfileId(1));
         let db = MacroDb::new(MacroDbInput {
             profile: MacroProfileId(1),
             roots: vec![FileId(0)],
@@ -1189,6 +1212,35 @@ mod tests {
             PreprocTraceResult::Available(ExpandedTokenOrigin::Origin(
                 SourceProvenance::MacroCall(call)
             ))
+        );
+    }
+
+    #[test]
+    fn trace_profile_mismatch_is_not_available() {
+        let (trace, _) = trace_fixture(MacroProfileId(2));
+        let db = MacroDb::new(MacroDbInput {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0)],
+            files: Vec::new(),
+            predefines: Vec::new(),
+            literal_includes: Vec::new(),
+            trace: Some(trace),
+        });
+        let unavailable =
+            CapabilityUnavailable::profile_mismatch(MacroProfileId(1), MacroProfileId(2));
+
+        assert_eq!(db.trace(), None);
+        assert_eq!(
+            db.trace_capability(),
+            TraceCapability::CapabilityUnavailable(unavailable.clone())
+        );
+        assert_eq!(
+            db.expansion_for_use(MacroUseId(0)),
+            PreprocTraceResult::CapabilityUnavailable(unavailable.clone())
+        );
+        assert_eq!(
+            db.origin_for_expanded_token(ExpandedTokenId(0)),
+            PreprocTraceResult::CapabilityUnavailable(unavailable)
         );
     }
 
