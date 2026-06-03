@@ -10,6 +10,12 @@ pub const PREPROC_TRACE_CAPABILITY: &str = "preproc_trace";
 pub struct IncludeEventId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PreprocFrameId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SourceInstanceId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConditionalEventId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,6 +28,8 @@ pub struct ExpandedTokenId(pub u32);
 pub struct PreprocTrace {
     pub profile: MacroProfileId,
     pub roots: Vec<FileId>,
+    pub source_instances: Vec<SourceInstance>,
+    pub frames: Vec<PreprocFrame>,
     pub files: Vec<FilePreprocTrace>,
     pub include_events: Vec<IncludeEvent>,
     pub conditional_events: Vec<ConditionalEvent>,
@@ -45,6 +53,8 @@ impl PreprocTrace {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilePreprocTrace {
+    pub source_instance: SourceInstanceId,
+    pub frame: PreprocFrameId,
     pub file_id: FileId,
     pub include_stack: Vec<IncludeEventId>,
     pub include_events: Vec<IncludeEventId>,
@@ -59,8 +69,27 @@ pub struct IncludeEvent {
     pub directive: IncludeDirective,
     pub target: IncludeTarget,
     pub included_file: Option<FileId>,
+    pub including_frame: PreprocFrameId,
+    pub included_frame: Option<PreprocFrameId>,
     pub parent: Option<IncludeEventId>,
     pub stack: Vec<IncludeEventId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceInstance {
+    pub id: SourceInstanceId,
+    pub file_id: FileId,
+    pub frame: PreprocFrameId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocFrame {
+    pub id: PreprocFrameId,
+    pub source_instance: SourceInstanceId,
+    pub file_id: FileId,
+    pub entered_by: Option<IncludeEventId>,
+    pub parent: Option<PreprocFrameId>,
+    pub include_stack: Vec<IncludeEventId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,6 +390,8 @@ mod tests {
         let trace = PreprocTrace {
             profile: MacroProfileId(1),
             roots: vec![FileId(1)],
+            source_instances: Vec::new(),
+            frames: Vec::new(),
             files: Vec::new(),
             include_events: Vec::new(),
             conditional_events: Vec::new(),
@@ -490,6 +521,8 @@ mod tests {
                 raw: SmolStr::new("\"defs.svh\""),
             },
             included_file: Some(FileId(1)),
+            including_frame: PreprocFrameId(0),
+            included_frame: Some(PreprocFrameId(1)),
             parent: None,
             stack: Vec::new(),
         };
@@ -505,13 +538,60 @@ mod tests {
                 raw: SmolStr::new("\"more.svh\""),
             },
             included_file: Some(FileId(2)),
+            including_frame: PreprocFrameId(1),
+            included_frame: Some(PreprocFrameId(2)),
             parent: Some(IncludeEventId(0)),
             stack: vec![IncludeEventId(0)],
         };
         let trace = PreprocTrace {
             profile: MacroProfileId(1),
             roots: vec![FileId(0)],
+            source_instances: vec![
+                SourceInstance {
+                    id: SourceInstanceId(0),
+                    file_id: FileId(0),
+                    frame: PreprocFrameId(0),
+                },
+                SourceInstance {
+                    id: SourceInstanceId(1),
+                    file_id: FileId(1),
+                    frame: PreprocFrameId(1),
+                },
+                SourceInstance {
+                    id: SourceInstanceId(2),
+                    file_id: FileId(2),
+                    frame: PreprocFrameId(2),
+                },
+            ],
+            frames: vec![
+                PreprocFrame {
+                    id: PreprocFrameId(0),
+                    source_instance: SourceInstanceId(0),
+                    file_id: FileId(0),
+                    entered_by: None,
+                    parent: None,
+                    include_stack: Vec::new(),
+                },
+                PreprocFrame {
+                    id: PreprocFrameId(1),
+                    source_instance: SourceInstanceId(1),
+                    file_id: FileId(1),
+                    entered_by: Some(IncludeEventId(0)),
+                    parent: Some(PreprocFrameId(0)),
+                    include_stack: vec![IncludeEventId(0)],
+                },
+                PreprocFrame {
+                    id: PreprocFrameId(2),
+                    source_instance: SourceInstanceId(2),
+                    file_id: FileId(2),
+                    entered_by: Some(IncludeEventId(1)),
+                    parent: Some(PreprocFrameId(1)),
+                    include_stack: vec![IncludeEventId(0), IncludeEventId(1)],
+                },
+            ],
             files: vec![FilePreprocTrace {
+                source_instance: SourceInstanceId(2),
+                frame: PreprocFrameId(2),
                 file_id: FileId(2),
                 include_stack: vec![IncludeEventId(0), IncludeEventId(1)],
                 include_events: Vec::new(),
@@ -526,7 +606,107 @@ mod tests {
         };
 
         assert_eq!(trace.files[0].include_stack, vec![IncludeEventId(0), IncludeEventId(1)]);
+        assert_eq!(trace.files[0].source_instance, SourceInstanceId(2));
+        assert_eq!(trace.include_events[1].including_frame, PreprocFrameId(1));
+        assert_eq!(trace.include_events[1].included_frame, Some(PreprocFrameId(2)));
         assert_eq!(trace.include_events[1].parent, Some(IncludeEventId(0)));
+    }
+
+    #[test]
+    fn same_file_can_have_multiple_source_instances() {
+        let trace = PreprocTrace {
+            profile: MacroProfileId(1),
+            roots: vec![FileId(0), FileId(2)],
+            source_instances: vec![
+                SourceInstance {
+                    id: SourceInstanceId(0),
+                    file_id: FileId(0),
+                    frame: PreprocFrameId(0),
+                },
+                SourceInstance {
+                    id: SourceInstanceId(1),
+                    file_id: FileId(1),
+                    frame: PreprocFrameId(1),
+                },
+                SourceInstance {
+                    id: SourceInstanceId(2),
+                    file_id: FileId(2),
+                    frame: PreprocFrameId(2),
+                },
+                SourceInstance {
+                    id: SourceInstanceId(3),
+                    file_id: FileId(1),
+                    frame: PreprocFrameId(3),
+                },
+            ],
+            frames: vec![
+                PreprocFrame {
+                    id: PreprocFrameId(0),
+                    source_instance: SourceInstanceId(0),
+                    file_id: FileId(0),
+                    entered_by: None,
+                    parent: None,
+                    include_stack: Vec::new(),
+                },
+                PreprocFrame {
+                    id: PreprocFrameId(1),
+                    source_instance: SourceInstanceId(1),
+                    file_id: FileId(1),
+                    entered_by: Some(IncludeEventId(0)),
+                    parent: Some(PreprocFrameId(0)),
+                    include_stack: vec![IncludeEventId(0)],
+                },
+                PreprocFrame {
+                    id: PreprocFrameId(2),
+                    source_instance: SourceInstanceId(2),
+                    file_id: FileId(2),
+                    entered_by: None,
+                    parent: None,
+                    include_stack: Vec::new(),
+                },
+                PreprocFrame {
+                    id: PreprocFrameId(3),
+                    source_instance: SourceInstanceId(3),
+                    file_id: FileId(1),
+                    entered_by: Some(IncludeEventId(1)),
+                    parent: Some(PreprocFrameId(2)),
+                    include_stack: vec![IncludeEventId(1)],
+                },
+            ],
+            files: vec![
+                FilePreprocTrace {
+                    source_instance: SourceInstanceId(1),
+                    frame: PreprocFrameId(1),
+                    file_id: FileId(1),
+                    include_stack: vec![IncludeEventId(0)],
+                    include_events: Vec::new(),
+                    conditional_events: Vec::new(),
+                    expansion_events: Vec::new(),
+                    expanded_tokens: Vec::new(),
+                },
+                FilePreprocTrace {
+                    source_instance: SourceInstanceId(3),
+                    frame: PreprocFrameId(3),
+                    file_id: FileId(1),
+                    include_stack: vec![IncludeEventId(1)],
+                    include_events: Vec::new(),
+                    conditional_events: Vec::new(),
+                    expansion_events: Vec::new(),
+                    expanded_tokens: Vec::new(),
+                },
+            ],
+            include_events: Vec::new(),
+            conditional_events: Vec::new(),
+            expansion_events: Vec::new(),
+            expanded_tokens: Vec::new(),
+        };
+
+        let instances_for_header =
+            trace.source_instances.iter().filter(|instance| instance.file_id == FileId(1)).count();
+
+        assert_eq!(instances_for_header, 2);
+        assert_ne!(trace.files[0].source_instance, trace.files[1].source_instance);
+        assert_ne!(trace.files[0].include_stack, trace.files[1].include_stack);
     }
 
     #[test]
@@ -534,6 +714,8 @@ mod tests {
         let trace = PreprocTrace {
             profile: MacroProfileId(1),
             roots: vec![FileId(0)],
+            source_instances: Vec::new(),
+            frames: Vec::new(),
             files: Vec::new(),
             include_events: Vec::new(),
             conditional_events: Vec::new(),

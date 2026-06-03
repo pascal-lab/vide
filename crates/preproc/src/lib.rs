@@ -15,6 +15,7 @@ pub use trace::{
     ConditionalKind, ConditionalToken, ExpandedToken, ExpandedTokenId, ExpandedTokenOrigin,
     ExpansionId, FilePreprocTrace, FileRange, IncludeDirective, IncludeEvent, IncludeEventId,
     IncludeTarget, MacroArgument, MacroBody, MacroCall, MacroExpansionEvent,
-    PREPROC_TRACE_CAPABILITY, PreprocTrace, PreprocTraceResult, ProvenanceUnavailable,
-    SourceProvenance, TraceCapability, TraceUnavailableReason, VirtualSource,
+    PREPROC_TRACE_CAPABILITY, PreprocFrame, PreprocFrameId, PreprocTrace, PreprocTraceResult,
+    ProvenanceUnavailable, SourceInstance, SourceInstanceId, SourceProvenance, TraceCapability,
+    TraceUnavailableReason, VirtualSource,
 };
