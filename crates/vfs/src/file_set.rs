@@ -333,8 +333,6 @@ impl fst::Automaton for PrefixOf<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use utils::lines::LineEnding;
 
     use super::*;
@@ -345,11 +343,7 @@ mod tests {
         let dir = TestDir::new("alias-partition");
         let workspace = dir.join("workspace");
         let source = dir.write("workspace/top.sv", "module top; endmodule\n");
-        let alias = dir.join("alias/top.sv");
-        if let Some(parent) = alias.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::hard_link(&source, &alias).unwrap();
+        let alias = dir.join("workspace/../workspace/top.sv");
 
         let alias_vfs_path = VfsPath::from(alias);
         let source_vfs_path = VfsPath::from(source);
@@ -378,12 +372,8 @@ mod tests {
         let dir = TestDir::new("alias-root-priority");
         let local_root = dir.join("local");
         let library_root = dir.join("library");
-        let local = dir.join("local/top.sv");
-        let library = dir.write("library/top.sv", "module top; endmodule\n");
-        if let Some(parent) = local.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::hard_link(&library, &local).unwrap();
+        let local = dir.write("local/top.sv", "module top; endmodule\n");
+        let library = dir.join("library/../local/top.sv");
 
         let local_vfs_path = VfsPath::from(local);
         let library_vfs_path = VfsPath::from(library);

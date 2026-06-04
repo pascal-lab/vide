@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
-    path_identity::{FileIdentityKey, PathKey, path_alias_paths},
+    path_identity::{PathKey, path_alias_paths},
 };
 
 use crate::{loader::LoadResult, vfs_path::VfsPath};
@@ -65,17 +65,14 @@ pub enum ChangeKind {
 /// A single [`FileId`] can be reached through several path spellings. The
 /// primary path preserves the first spelling for legacy callers, while aliases
 /// record every proven spelling for identity-aware consumers such as file-set
-/// partitioning. Every ingress path is registered, including paths that resolve
-/// to an existing [`FileId`], so later loader passes can add canonical or
-/// filesystem identity evidence for files that were opened before they existed
-/// on disk.
+/// partitioning. File identity is path-based: distinct live paths such as
+/// hard links remain distinct source files.
 #[derive(Default)]
 struct VfsIdentityIndex {
     primary_paths: Vec<VfsPath>,
     aliases: Vec<Vec<VfsPath>>,
     exact_paths: FxHashMap<VfsPath, FileId>,
     real_path_keys: FxHashMap<PathKey, FileId>,
-    real_paths: FxHashMap<FileIdentityKey, FileId>,
     redirects: Vec<FileId>,
 }
 
@@ -105,8 +102,7 @@ impl VfsIdentityIndex {
             }
         }
 
-        let identity = FileIdentityKey::from_path(path)?;
-        self.real_paths.get(&identity).copied().map(|file_id| self.canonical_file_id(file_id))
+        None
     }
 
     fn file_path(&self, file_id: FileId) -> Option<&VfsPath> {
@@ -171,17 +167,8 @@ impl VfsIdentityIndex {
                     owner = self.merge_file_ids(owner, existing, &mut merged);
                 }
             }
-            if let Some(identity) = FileIdentityKey::from_path(path)
-                && let Some(existing) = self.real_paths.get(&identity).copied()
-            {
-                owner = self.merge_file_ids(owner, existing, &mut merged);
-            }
-
             for alias in aliases {
                 self.register_exact_path(alias, owner);
-            }
-            if let Some(identity) = FileIdentityKey::from_path(path) {
-                self.real_paths.insert(identity, owner);
             }
         } else {
             if let Some(existing) = self.exact_paths.get(path).copied() {
@@ -222,11 +209,6 @@ impl VfsIdentityIndex {
         let duplicate_aliases = std::mem::take(&mut self.aliases[duplicate.0 as usize]);
         for alias in duplicate_aliases {
             self.register_exact_path(alias, owner);
-        }
-        for file_id in self.real_paths.values_mut() {
-            if *file_id == duplicate {
-                *file_id = owner;
-            }
         }
         for file_id in self.real_path_keys.values_mut() {
             if *file_id == duplicate {
@@ -419,9 +401,67 @@ mod tests {
         assert!(matches!(changes[0].change_kind, ChangeKind::Delete));
     }
 
+    #[test]
+    fn renamed_file_uses_new_path_identity_after_delete_then_create() {
+        let dir = TestDir::new("rename-delete-create");
+        let old_path = dir.write("old_child.sv", "module child; endmodule\n");
+        let new_path = dir.join("child.sv");
+        let old_vfs_path = VfsPath::from(old_path.clone());
+        let new_vfs_path = VfsPath::from(new_path.clone());
+        let mut vfs = Vfs::default();
+
+        vfs.set_file_contents(
+            &old_vfs_path,
+            LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+        let old_file_id = vfs.file_id(&old_vfs_path).unwrap();
+        vfs.take_changes();
+
+        fs::rename(&old_path, &new_path).unwrap();
+        vfs.set_file_contents(&old_vfs_path, LoadResult::LoadError);
+        vfs.set_file_contents(
+            &new_vfs_path,
+            LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+
+        let new_file_id = vfs.file_id(&new_vfs_path).unwrap();
+        assert_ne!(old_file_id, new_file_id);
+        assert_eq!(vfs.file_id(&old_vfs_path), None);
+        assert_eq!(vfs.file_path(new_file_id), Some(&new_vfs_path));
+    }
+
+    #[test]
+    fn renamed_file_uses_new_path_identity_after_create_then_delete() {
+        let dir = TestDir::new("rename-create-delete");
+        let old_path = dir.write("old_child.sv", "module child; endmodule\n");
+        let new_path = dir.join("child.sv");
+        let old_vfs_path = VfsPath::from(old_path.clone());
+        let new_vfs_path = VfsPath::from(new_path.clone());
+        let mut vfs = Vfs::default();
+
+        vfs.set_file_contents(
+            &old_vfs_path,
+            LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+        let old_file_id = vfs.file_id(&old_vfs_path).unwrap();
+        vfs.take_changes();
+
+        fs::rename(&old_path, &new_path).unwrap();
+        vfs.set_file_contents(
+            &new_vfs_path,
+            LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+        vfs.set_file_contents(&old_vfs_path, LoadResult::LoadError);
+
+        let new_file_id = vfs.file_id(&new_vfs_path).unwrap();
+        assert_ne!(old_file_id, new_file_id);
+        assert_eq!(vfs.file_id(&old_vfs_path), None);
+        assert_eq!(vfs.file_path(new_file_id), Some(&new_vfs_path));
+    }
+
     #[cfg(windows)]
     #[test]
-    fn real_paths_with_different_drive_letter_case_share_file_id() {
+    fn path_spellings_with_different_drive_letter_case_share_file_id() {
         let path = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap()).join("top.sv");
         let mut lower_drive_path = path.to_string();
         assert_eq!(lower_drive_path.as_bytes().get(1), Some(&b':'));
@@ -450,7 +490,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn real_paths_with_verbatim_and_normal_spelling_share_file_id() {
+    fn path_spellings_with_verbatim_and_normal_spelling_share_file_id() {
         let path = AbsPathBuf::assert_utf8(std::env::current_dir().unwrap()).join("top.sv");
         let verbatim_path = AbsPathBuf::try_from(format!(r"\\?\{path}").as_str()).unwrap();
 
@@ -475,8 +515,8 @@ mod tests {
     }
 
     #[test]
-    fn real_identity_is_registered_when_missing_file_is_created() {
-        let dir = TestDir::new("created-identity");
+    fn hard_links_remain_distinct_source_files() {
+        let dir = TestDir::new("hard-link-source-identity");
         let source = dir.join("workspace/top.sv");
         let alias = dir.join("alias/top.sv");
         let source_vfs_path = VfsPath::from(source.clone());
@@ -487,7 +527,7 @@ mod tests {
             &source_vfs_path,
             LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
         );
-        let file_id = vfs.file_id(&source_vfs_path).unwrap();
+        let source_file_id = vfs.file_id(&source_vfs_path).unwrap();
 
         if let Some(parent) = source.parent() {
             fs::create_dir_all(parent).unwrap();
@@ -499,16 +539,18 @@ mod tests {
         fs::hard_link(&source, &alias).unwrap();
 
         vfs.set_file_contents(
-            &source_vfs_path,
+            &alias_vfs_path,
             LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
         );
+        let alias_file_id = vfs.file_id(&alias_vfs_path).unwrap();
 
-        assert_eq!(vfs.file_id(&alias_vfs_path), Some(file_id));
+        assert_ne!(source_file_id, alias_file_id);
+        assert_eq!(vfs.iter().count(), 2);
     }
 
     #[test]
-    fn real_identity_conflict_merges_previously_split_file_ids() {
-        let dir = TestDir::new("identity-conflict");
+    fn hard_links_stay_distinct_after_existing_identity_evidence() {
+        let dir = TestDir::new("hard-link-existing-identity");
         let source = dir.join("workspace/top.sv");
         let alias = dir.join("alias/top.sv");
         let source_vfs_path = VfsPath::from(source.clone());
@@ -546,13 +588,8 @@ mod tests {
             LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
         );
 
-        let merged_file_id = vfs.file_id(&alias_vfs_path).unwrap();
-        assert_eq!(merged_file_id, source_file_id);
         assert_eq!(vfs.file_id(&source_vfs_path), Some(source_file_id));
-        assert_eq!(vfs.iter().count(), 1);
-        assert!(!vfs.exists(alias_file_id));
-        let changes = vfs.take_changes();
-        assert!(changes.iter().any(|change| change.file_id == alias_file_id
-            && matches!(change.change_kind, ChangeKind::Delete)));
+        assert_eq!(vfs.file_id(&alias_vfs_path), Some(alias_file_id));
+        assert_eq!(vfs.iter().count(), 2);
     }
 }
