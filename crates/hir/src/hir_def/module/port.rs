@@ -66,16 +66,18 @@ pub enum PortDirection {
     Inout,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortHeader {
     Var { dir: PortDirection, var_kw: bool, ty: DataTy },
     Net { dir: PortDirection, net_ty: NetType },
+    Interface { interface: Option<Ident>, modport: Option<Ident> },
 }
 
 impl PortHeader {
     pub fn dir(&self) -> PortDirection {
         match self {
             PortHeader::Var { dir, .. } | PortHeader::Net { dir, .. } => *dir,
+            PortHeader::Interface { .. } => PortDirection::Inout,
         }
     }
 
@@ -83,6 +85,7 @@ impl PortHeader {
         match self {
             PortHeader::Var { ty, .. } => *ty,
             PortHeader::Net { net_ty: NetType { ty, .. }, .. } => *ty,
+            PortHeader::Interface { .. } => panic!("interface ports do not have a data type"),
         }
     }
 }
@@ -295,7 +298,7 @@ impl LowerModuleCtx<'_> {
                     let end = self.module.decls.nxt_idx();
 
                     let current_header = header.unwrap_or_else(|| self.default_port_header());
-                    header = Some(current_header);
+                    header = Some(current_header.clone());
                     alloc_idx_and_src! {
                         PortDecl {
                             header: current_header,
@@ -312,7 +315,7 @@ impl LowerModuleCtx<'_> {
                     }
 
                     let current_header = header.unwrap_or_else(|| self.default_port_header());
-                    header = Some(current_header);
+                    header = Some(current_header.clone());
                     let idx = ports.alloc(PortDecl {
                         header: current_header,
                         decls: IdxRange::new(
@@ -475,7 +478,14 @@ impl LowerModuleCtx<'_> {
                 lower_net_kind(header.net_type()).map(Either::Right),
                 header.data_type(),
             ),
-            InterfacePortHeader(_header) => return prev_header,
+            InterfacePortHeader(header) => {
+                let interface = match header.name_or_keyword() {
+                    Some(tok) if tok.kind() == TokenKind::INTERFACE_KEYWORD => None,
+                    other => lower_ident_opt(other),
+                };
+                let modport = header.modport().and_then(|it| lower_ident_opt(it.member()));
+                return PortHeader::Interface { interface, modport };
+            }
         };
 
         let ty_omitted = DataTy::is_ast_missing(ast_ty);
@@ -485,7 +495,10 @@ impl LowerModuleCtx<'_> {
         let ty = if !ty_omitted {
             self.expr_ctx().lower_data_ty(ast_ty)
         } else if all_omitted {
-            prev_header.ty()
+            match prev_header {
+                PortHeader::Interface { .. } => default_data_ty,
+                _ => prev_header.ty(),
+            }
         } else {
             default_data_ty
         };
@@ -520,6 +533,9 @@ impl LowerModuleCtx<'_> {
         match prev_header {
             PortHeader::Var { var_kw, ty, .. } => PortHeader::Var { dir, var_kw, ty },
             PortHeader::Net { net_ty, .. } => PortHeader::Net { dir, net_ty },
+            PortHeader::Interface { interface, modport } => {
+                PortHeader::Interface { interface, modport }
+            }
         }
     }
 

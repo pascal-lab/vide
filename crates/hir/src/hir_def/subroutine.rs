@@ -26,6 +26,7 @@ use super::{
     },
     lower_ident, lower_ident_opt,
     module::{ModuleId, generate::GenerateBlockId},
+    package_import::{PackageImport, lower_package_imports},
     stmt::{LowerStmt, Stmt, StmtId, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -54,6 +55,7 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
+        package_imports: [PackageImport],
         exprs: [Expr],
         event_exprs: [EventExpr],
         decls: [Declarator],
@@ -75,6 +77,7 @@ impl Default for Subroutine {
             declarations: Arena::new(),
             typedefs: Arena::new(),
             structs: Arena::new(),
+            package_imports: Arena::new(),
             exprs: Arena::new(),
             event_exprs: Arena::new(),
             decls: Arena::new(),
@@ -366,6 +369,9 @@ impl LowerSubroutineBodyCtx<'_> {
                 ast::TypedefDeclaration[it] => {
                     let typedef_id = self.lower_typedef(it);
                     self.subroutine_source_map.items.push(BlockItem::TypedefId(typedef_id));
+                },
+                ast::PackageImportDeclaration[it] => {
+                    lower_package_imports(it, &mut self.subroutine.package_imports);
                 },
                 _ => {},
             }

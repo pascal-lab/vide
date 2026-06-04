@@ -23,15 +23,16 @@ use hir::{
     },
     region_tree::RegionParent,
     semantics::Semantics,
+    source_map::IsSrc,
 };
 use itertools::Itertools;
 use syntax::{
-    SVInt, SyntaxCursorExt, SyntaxNodeExt,
+    SVInt, SyntaxCursorExt, SyntaxKind, SyntaxNodeExt,
     has_text_range::HasTextRange,
     token::SyntaxTokenWithParentExt,
     trivia::{TriviaExt, TriviaKindExt},
 };
-use utils::get::GetRef;
+use utils::get::{Get, GetRef};
 
 use crate::{
     db::{line_index_db::LineIndexDb, root_db::RootDb},
@@ -227,7 +228,9 @@ fn render_signature(sema: &Semantics<RootDb>, origin: &DefinitionOrigin) -> Opti
 fn render_module_signature(db: &RootDb, module_id: ModuleId) -> Option<String> {
     let module = db.module(module_id);
     let name = module.name.as_ref()?;
-    let mut signature = format!("module {name}");
+    let src = module_id.file_id.to_container_src_map(db).get(module_id.value)?;
+    let kind = if src.kind() == SyntaxKind::INTERFACE_DECLARATION { "interface" } else { "module" };
+    let mut signature = format!("{kind} {name}");
 
     let params = render_module_param_ports(db, module_id);
     if !params.is_empty() {
@@ -345,7 +348,8 @@ fn render_module_port_list(db: &RootDb, module_id: ModuleId) -> Vec<String> {
         Ports::Ansi(port_decls) => {
             let mut ports = Vec::new();
             for port_decl in port_decls.values() {
-                let header = InModule::new(module_id, port_decl.header).display_source(db).ok();
+                let header =
+                    InModule::new(module_id, port_decl.header.clone()).display_source(db).ok();
                 for decl_id in port_decl.decls.clone() {
                     let name =
                         InContainer::new(module_id.into(), decl_id).display_signature(db).ok();
@@ -412,7 +416,7 @@ fn render_decl_signature(db: &RootDb, decl_id: InContainer<DeclId>) -> Option<St
                 return None;
             };
             let module = db.module(module_id);
-            let header = InModule::new(module_id, module.get(port_decl_id).header)
+            let header = InModule::new(module_id, module.get(port_decl_id).header.clone())
                 .display_source(db)
                 .ok()?;
             let decl =
@@ -511,6 +515,7 @@ fn render_label_signature(db: &RootDb, origin: &DefinitionOrigin) -> Option<Stri
         DefinitionOrigin::BlockId(_) => "block",
         DefinitionOrigin::GenerateBlockId(_) => "generate",
         DefinitionOrigin::Instance(_) => "instance",
+        DefinitionOrigin::Modport(_) => "modport",
         DefinitionOrigin::Stmt(_) => "statement",
         DefinitionOrigin::Typedef(_) => "typedef",
         DefinitionOrigin::ModuleId(_)

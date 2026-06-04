@@ -28,6 +28,7 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
+    package_import::{PackageImport, lower_package_imports},
     stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
 };
@@ -50,6 +51,7 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
+        package_imports: [PackageImport],
         exprs: [Expr],
         event_exprs: [EventExpr],
         decls: [Declarator],
@@ -286,6 +288,10 @@ impl LowerBlockCtx<'_> {
                     self.declaration_ctx().lower_param_decl_base(it.parameter()).into()
                 },
                 ast::TypedefDeclaration[it] => self.lower_typedef(it).into(),
+                ast::PackageImportDeclaration[it] => {
+                    lower_package_imports(it, &mut self.block.package_imports);
+                    continue;
+                },
                 _ => continue,
             };
             self.block_source_map.items.push(idx);

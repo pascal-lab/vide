@@ -27,6 +27,7 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     module::{LocalModuleId, ModuleInfo, ModuleSrc},
+    package_import::{PackageImport, lower_package_imports},
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -60,6 +61,7 @@ define_container! {
         udp_decls: [UdpDecl],
         library_decls: [LibraryDecl],
         library_includes: [LibraryInclude],
+        package_imports: [PackageImport],
         subroutines: [Subroutine],
 
         declarations: [Declaration],
@@ -306,6 +308,11 @@ impl LowerFileCtx<'_> {
                     Some(id) => id.into(),
                     None => continue,
                 },
+                PackageImportDeclaration(import) => {
+                    lower_package_imports(import, &mut self.file.package_imports);
+                    self.region_tree.handle_node(member.syntax());
+                    continue;
+                }
                 UdpDeclaration(udp_decl) => self.lower_udp_decl(udp_decl).into(),
                 ConfigDeclaration(config_decl) => self.lower_config_decl(config_decl).into(),
                 _ => continue,

@@ -7,6 +7,7 @@ use hir::{
     hir_def::{
         lower_ident_opt,
         module::ModuleId,
+        package_import::{PackageImport, PackageImportName},
         subroutine::{SubroutineId, SubroutineKind},
     },
     scope::{
@@ -14,7 +15,10 @@ use hir::{
         SubroutineEntry, UnitEntry,
     },
     semantics::{Semantics, pathres::PathResolution},
-    type_infer::{Ty, normalize_data_ty, type_class, type_of_decl, type_of_path_resolution},
+    type_infer::{
+        Ty, TyMember, members_of_ty, normalize_data_ty, type_class, type_of_decl,
+        type_of_path_resolution,
+    },
 };
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxNodeExt,
@@ -169,6 +173,7 @@ fn collect_container_names(
             }
         }
     }
+    collect_imported_names(db, container_id, names);
 }
 
 fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<String, NameKind>) {
@@ -189,31 +194,122 @@ fn collect_file_names(db: &RootDb, file_id: HirFileId, names: &mut BTreeMap<Stri
 fn collect_module_names(db: &RootDb, module_id: ModuleId, names: &mut BTreeMap<String, NameKind>) {
     let scope = db.module_scope(module_id);
     for (ident, entry) in scope.iter() {
-        match entry {
-            ModuleEntry::DeclId(decl_id) => {
-                names.entry(ident.to_string()).or_insert(NameKind::Value {
-                    ty: type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty,
-                });
-            }
-            ModuleEntry::AnsiPortEntry(AnsiPortEntry(decl_id)) => {
-                names.entry(ident.to_string()).or_insert(NameKind::Value {
-                    ty: type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty,
-                });
-            }
-            ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry { port_decl, data_decl, .. }) => {
-                let ty = data_decl
-                    .or(port_decl)
-                    .map(|decl_id| type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty)
-                    .unwrap_or(Ty::Unknown);
-                names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
-            }
-            ModuleEntry::SubroutineId(subroutine_id) => {
-                names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
-                    return_ty: subroutine_return_ty(db, subroutine_id),
-                });
-            }
-            _ => {}
+        collect_module_entry_name(db, module_id, ident, entry, names);
+    }
+    for member in members_of_ty(db, &Ty::Module(module_id)) {
+        collect_ty_member_name(db, member, names);
+    }
+}
+
+fn collect_module_entry_name(
+    db: &RootDb,
+    module_id: ModuleId,
+    ident: &hir::hir_def::Ident,
+    entry: ModuleEntry,
+    names: &mut BTreeMap<String, NameKind>,
+) {
+    match entry {
+        ModuleEntry::DeclId(decl_id) => {
+            names.entry(ident.to_string()).or_insert(NameKind::Value {
+                ty: type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty,
+            });
         }
+        ModuleEntry::AnsiPortEntry(AnsiPortEntry(decl_id)) => {
+            names.entry(ident.to_string()).or_insert(NameKind::Value {
+                ty: type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty,
+            });
+        }
+        ModuleEntry::NonAnsiPortEntry(NonAnsiPortEntry { port_decl, data_decl, .. }) => {
+            let ty = data_decl
+                .or(port_decl)
+                .map(|decl_id| type_of_decl(db, InContainer::new(module_id.into(), decl_id)).ty)
+                .unwrap_or(Ty::Unknown);
+            names.entry(ident.to_string()).or_insert(NameKind::Value { ty });
+        }
+        ModuleEntry::SubroutineId(subroutine_id) => {
+            names.entry(ident.to_string()).or_insert(NameKind::SubroutineCall {
+                return_ty: subroutine_return_ty(db, subroutine_id),
+            });
+        }
+        _ => {}
+    }
+}
+
+fn collect_imported_names(
+    db: &RootDb,
+    container_id: ContainerId,
+    names: &mut BTreeMap<String, NameKind>,
+) {
+    match container_id {
+        ContainerId::HirFileId(file_id) => {
+            let file = db.hir_file(file_id);
+            collect_imports(db, file.package_imports.iter().map(|(_, import)| import), names);
+        }
+        ContainerId::ModuleId(module_id) => {
+            let module = db.module(module_id);
+            collect_imports(db, module.package_imports.iter().map(|(_, import)| import), names);
+        }
+        ContainerId::GenerateBlockId(generate_block_id) => {
+            let generate_block = db.generate_block(generate_block_id);
+            collect_imports(
+                db,
+                generate_block.package_imports.iter().map(|(_, import)| import),
+                names,
+            );
+        }
+        ContainerId::BlockId(block_id) => {
+            let block = db.block(block_id);
+            collect_imports(db, block.package_imports.iter().map(|(_, import)| import), names);
+        }
+        ContainerId::SubroutineId(subroutine_id) => {
+            let subroutine = db.subroutine(subroutine_id);
+            collect_imports(db, subroutine.package_imports.iter().map(|(_, import)| import), names);
+        }
+    }
+}
+
+fn collect_imports<'a>(
+    db: &RootDb,
+    imports: impl Iterator<Item = &'a PackageImport>,
+    names: &mut BTreeMap<String, NameKind>,
+) {
+    for import in imports {
+        let Some(package) = import
+            .package
+            .as_ref()
+            .and_then(|package| db.unit_scope().resolve_module(package).unique())
+        else {
+            continue;
+        };
+
+        match &import.item {
+            PackageImportName::Wildcard => collect_module_names(db, package, names),
+            PackageImportName::Name(name) => {
+                let Some(member) =
+                    members_of_ty(db, &Ty::Module(package)).into_iter().find(|it| &it.name == name)
+                else {
+                    continue;
+                };
+                collect_ty_member_name(db, member, names);
+            }
+        }
+    }
+}
+
+fn collect_ty_member_name(db: &RootDb, member: TyMember, names: &mut BTreeMap<String, NameKind>) {
+    match member.origin {
+        Some(PathResolution::Decl(_))
+        | Some(PathResolution::ParamDecl(_))
+        | Some(PathResolution::AnsiPort(_))
+        | Some(PathResolution::NonAnsiPort { .. }) => {
+            names.entry(member.name.to_string()).or_insert(NameKind::Value { ty: member.ty });
+        }
+        Some(PathResolution::Subroutine(subroutine_id)) => {
+            names.entry(member.name.to_string()).or_insert(NameKind::SubroutineCall {
+                return_ty: subroutine_return_ty(db, subroutine_id),
+            });
+        }
+        _ => {}
     }
 }
 

@@ -20,6 +20,7 @@ use crate::{
             Module, ModuleId,
             generate::GenerateBlockId,
             instantiation::InstanceId,
+            modport::ModportId,
             port::{NonAnsiPortId, PortDeclId, Ports},
         },
         stmt::{StmtId, StmtKind},
@@ -55,6 +56,7 @@ pub enum ModuleEntry {
         NonAnsiPortEntry,
         AnsiPortEntry,
         InstanceId,
+        ModportId,
         StmtId,
         BlockId,
         SubroutineId,
@@ -329,6 +331,10 @@ impl ModuleScope {
 
         for (instance_id, instance) in module.instances.iter() {
             scope.insert_opt(&instance.name, instance_id.into());
+        }
+
+        for (modport_id, modport) in module.modports.iter() {
+            scope.insert_opt(&modport.name, modport_id.into());
         }
 
         for item in &module_src_map.items {

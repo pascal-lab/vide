@@ -40,6 +40,7 @@ use crate::{
             timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
         },
         lower_ident_opt,
+        package_import::{PackageImport, lower_package_imports},
         proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
         stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
         subroutine::{
@@ -299,6 +300,7 @@ define_container! {
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
+        package_imports: [PackageImport],
         subroutines: [Subroutine],
 
         instantiations: [Instantiation],
@@ -618,6 +620,10 @@ impl LowerGenerateBlockCtx<'_> {
                 self.instantiation_ctx().lower_primitive_instantiation(instantiation).into()
             }
             FunctionDeclaration(fn_decl) => self.lower_subroutine_decl(fn_decl)?.into(),
+            PackageImportDeclaration(import) => {
+                lower_package_imports(import, &mut self.generate_block.package_imports);
+                return None;
+            }
             ProceduralBlock(proc) => self.proc_ctx().lower_proc(proc).into(),
             GenerateBlock(block) => {
                 self.intern_generate_block(GenerateBlockSrc::from_generate_block(block)).into()
@@ -820,6 +826,9 @@ impl LowerModuleCtx<'_> {
                 if let Some(sub_id) = self.lower_subroutine_decl(fn_decl) {
                     items.push(sub_id.into());
                 }
+            }
+            PackageImportDeclaration(import) => {
+                lower_package_imports(import, &mut self.module.package_imports);
             }
             ProceduralBlock(proc) => {
                 items.push(self.proc_ctx().lower_proc(proc).into());

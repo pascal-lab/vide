@@ -556,6 +556,152 @@ endconfig
 }
 
 #[test]
+fn package_imports_resolve_unqualified_names() {
+    let text = r#"
+package pkg;
+  typedef enum logic [1:0] {
+    IDLE
+  } /*marker:type_def*/state_e;
+  localparam int /*marker:param_def*/pkg_value = 1;
+endpackage
+
+module top;
+  import pkg::*;
+  /*marker:type_ref*/state_e state;
+  initial state = /*marker:param_ref*/pkg_value;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let type_nav = analysis
+        .goto_definition(position(file_id, &markers, "type_ref"))
+        .unwrap()
+        .expect("imported typedef definition expected");
+    assert!(
+        type_nav.info.iter().any(|nav| nav.name.as_deref() == Some("state_e")),
+        "imported typedef should resolve: {type_nav:?}"
+    );
+
+    let param_nav = analysis
+        .goto_definition(position(file_id, &markers, "param_ref"))
+        .unwrap()
+        .expect("imported parameter definition expected");
+    assert!(
+        param_nav.info.iter().any(|nav| nav.name.as_deref() == Some("pkg_value")),
+        "imported parameter should resolve: {param_nav:?}"
+    );
+}
+
+#[test]
+fn package_exports_resolve_reexported_names() {
+    let text = r#"
+package leaf_pkg;
+  typedef enum logic [1:0] {
+    IDLE
+  } /*marker:type_def*/state_e;
+  localparam int /*marker:param_def*/exported_value = 1;
+endpackage
+
+package mid_pkg;
+  export leaf_pkg::state_e;
+  export leaf_pkg::exported_value;
+endpackage
+
+package all_pkg;
+  import leaf_pkg::exported_value;
+  export *::*;
+endpackage
+
+module top;
+  import mid_pkg::*;
+  /*marker:type_ref*/state_e state;
+  initial state = /*marker:param_ref*/exported_value;
+  initial state = mid_pkg::/*marker:scoped_ref*/exported_value;
+  import all_pkg::exported_value;
+  initial state = /*marker:export_all_ref*/exported_value;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    for marker in ["type_ref"] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some("state_e")),
+            "{marker} should resolve to exported typedef: {nav:?}"
+        );
+    }
+
+    for marker in ["param_ref", "scoped_ref", "export_all_ref"] {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some("exported_value")),
+            "{marker} should resolve to exported parameter: {nav:?}"
+        );
+    }
+}
+
+#[test]
+fn interface_ports_resolve_members_and_modports() {
+    let text = r#"
+interface /*marker:if_def*/bus_if;
+  logic /*marker:req_def*/req;
+  logic /*marker:gnt_def*/gnt;
+  modport /*marker:master_def*/master(input gnt, output req);
+endinterface
+
+module top(/*marker:if_ref*/bus_if./*marker:modport_ref*/master bus);
+  assign bus./*marker:req_ref*/req = bus./*marker:gnt_ref*/gnt;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    for (marker, expected) in
+        [("if_ref", "bus_if"), ("modport_ref", "master"), ("req_ref", "req"), ("gnt_ref", "gnt")]
+    {
+        let nav = analysis
+            .goto_definition(position(file_id, &markers, marker))
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} definition expected"));
+        assert!(
+            nav.info.iter().any(|nav| nav.name.as_deref() == Some(expected)),
+            "{marker} should resolve to {expected:?}: {nav:?}"
+        );
+    }
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut names = Vec::new();
+    flatten_symbols(&symbols, &mut names);
+    for expected in ["bus_if", "req", "gnt", "master", "top"] {
+        assert!(
+            names.iter().any(|name| name == expected),
+            "missing document symbol {expected:?}; got {names:?}"
+        );
+    }
+
+    let hover = analysis
+        .hover(
+            position(file_id, &markers, "if_ref"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("interface hover expected");
+    assert!(
+        hover.info.as_str().contains("interface bus_if"),
+        "interface hover should use interface signature: {}",
+        hover.info.as_str()
+    );
+}
+
+#[test]
 fn verilog_2005_completion_keywords_cover_core_contexts() {
     let text = r#"
 con/*marker:top_level*/

@@ -7,23 +7,26 @@ use hir::{
         block::{BlockId, BlockLoc},
         expr::declarator::DeclId,
         file::{config::ConfigDeclId, library::LibraryDeclId, udp::UdpDeclId},
+        lower_ident_opt,
         module::{
             ModuleId,
             generate::{GenerateBlockId, GenerateBlockLoc},
             instantiation::InstanceId,
+            modport::ModportId,
             port::NonAnsiPortId,
         },
         stmt::StmtId,
         subroutine::{SubroutineId, SubroutinePortId},
         typedef::TypedefId,
     },
+    scope::ModuleEntry,
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use smallvec::{SmallVec, smallvec};
 use smol_str::SmolStr;
 use syntax::{
-    SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxToken, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
     has_name::HasName,
     has_text_range::{HasTextRange, HasTextRangeIn},
@@ -59,6 +62,7 @@ pub enum DefinitionOrigin {
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
+    Modport(InModule<ModportId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -75,6 +79,7 @@ impl_from! { DefinitionOrigin =>
     Decl(InContainer<DeclId>),
     Typedef(InContainer<TypedefId>),
     Instance(InModule<InstanceId>),
+    Modport(InModule<ModportId>),
     Stmt(InContainer<StmtId>),
 }
 
@@ -100,6 +105,7 @@ impl DefinitionOrigin {
             DefinitionOrigin::Decl(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Typedef(InContainer { cont_id, .. }) => cont_id,
             DefinitionOrigin::Instance(InModule { module_id, .. }) => module_id.into(),
+            DefinitionOrigin::Modport(InModule { module_id, .. }) => module_id.into(),
             DefinitionOrigin::Stmt(InContainer { cont_id, .. }) => cont_id,
         }
     }
@@ -142,6 +148,9 @@ impl DefinitionOrigin {
                 cont_id.to_container(db).get(value).name.clone()
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
+                module_id.to_container(db).get(value).name.clone()
+            }
+            DefinitionOrigin::Modport(InModule { value, module_id }) => {
                 module_id.to_container(db).get(value).name.clone()
             }
             DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
@@ -216,6 +225,10 @@ impl DefinitionOrigin {
                 let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
+            DefinitionOrigin::Modport(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
+                Some(InFile::new(module_id.file_id, range))
+            }
             DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
                 let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
@@ -283,6 +296,10 @@ impl DefinitionOrigin {
                 InFile::new(cont_id.file_id(db).into(), range)
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
+                let range = module_id.to_container_src_map(db).get(value)?.range();
+                InFile::new(module_id.file_id, range)
+            }
+            DefinitionOrigin::Modport(InModule { value, module_id }) => {
                 let range = module_id.to_container_src_map(db).get(value)?.range();
                 InFile::new(module_id.file_id, range)
             }
@@ -395,6 +412,7 @@ impl Definition {
             PathResolution::Decl(decl_id) => Some(decl_id.into()),
             PathResolution::Typedef(typedef_id) => Some(typedef_id.into()),
             PathResolution::Instance(instance_id) => Some(instance_id.into()),
+            PathResolution::Modport(modport_id) => Some(modport_id.into()),
             PathResolution::Stmt(stmt_id) => Some(stmt_id.into()),
             PathResolution::Block(blk_id) => Some(blk_id.into()),
             PathResolution::GenerateBlock(generate_block_id) => Some(generate_block_id.into()),
@@ -439,6 +457,10 @@ impl DefinitionClass {
         }
 
         if let Some(def) = resolve_member_or_scoped_name(sema, file_id, tp) {
+            return Some(def);
+        }
+
+        if let Some(def) = resolve_interface_port_modport(sema, file_id, tp) {
             return Some(def);
         }
 
@@ -528,6 +550,30 @@ fn resolve_member_or_scoped_name(
     let expr = ast::Expression::cast(scoped.syntax())?;
     let res = sema.expr_to_def(sema.resolve_expr(file_id, expr)?)?;
     Some(Definition::from(res).into())
+}
+
+fn resolve_interface_port_modport(
+    sema: &Semantics<'_, RootDb>,
+    _file_id: HirFileId,
+    SyntaxTokenWithParent { parent, tok }: SyntaxTokenWithParent,
+) -> Option<DefinitionClass> {
+    let header = SyntaxAncestors::start_from(parent).find_map(ast::InterfacePortHeader::cast)?;
+    if header.modport()?.member()? != tok {
+        return None;
+    }
+
+    let interface = match header.name_or_keyword()? {
+        name if name.kind() == TokenKind::INTERFACE_KEYWORD => return None,
+        name => lower_ident_opt(Some(name))?,
+    };
+    let modport = lower_ident_opt(Some(tok))?;
+    let module_id = sema.db.unit_scope().resolve_module(&interface).unique()?;
+    let entry = sema.db.module_scope(module_id).get(&modport)?;
+    if !matches!(entry, ModuleEntry::ModportId(_)) {
+        return None;
+    }
+
+    Some(Definition::from(PathResolution::from(InModule::new(module_id, entry))).into())
 }
 
 fn resolve_instantiation_type_name(

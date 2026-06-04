@@ -5,6 +5,7 @@ pub mod expr;
 pub mod file;
 pub mod literal;
 pub mod module;
+pub mod package_import;
 pub mod proc;
 pub mod stmt;
 pub mod subroutine;

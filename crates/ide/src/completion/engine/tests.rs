@@ -887,6 +887,123 @@ endmodule
 }
 
 #[test]
+fn expression_completion_uses_package_wildcard_imports() {
+    let items = completions_in_text(
+        r#"
+package pkg;
+  localparam int pkg_value = 1;
+  function int pkg_func;
+  endfunction
+endpackage
+
+module top;
+  import pkg::*;
+  localparam int value = pkg_/*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"pkg_value"), "imported package value expected: {items:?}");
+    assert!(labels.contains(&"pkg_func"), "imported package function expected: {items:?}");
+}
+
+#[test]
+fn expression_completion_uses_package_explicit_imports() {
+    let items = completions_in_text(
+        r#"
+package pkg;
+  localparam int exported_value = 1;
+  localparam int hidden_value = 2;
+endpackage
+
+module top;
+  import pkg::exported_value;
+  localparam int value = /*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"exported_value"), "explicit package import expected: {items:?}");
+    assert!(!labels.contains(&"hidden_value"), "non-imported package value leaked: {items:?}");
+}
+
+#[test]
+fn scoped_name_completion_uses_package_exports() {
+    let items = completions_in_text(
+        r#"
+package leaf_pkg;
+  localparam int visible_value = 1;
+endpackage
+
+package mid_pkg;
+  export leaf_pkg::visible_value;
+endpackage
+
+module top;
+  localparam int value = mid_pkg::visible/*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"visible_value"), "exported package member expected: {items:?}");
+}
+
+#[test]
+fn expression_completion_uses_package_exports() {
+    let items = completions_in_text(
+        r#"
+package leaf_pkg;
+  localparam int exported_value = 1;
+endpackage
+
+package mid_pkg;
+  export leaf_pkg::*;
+endpackage
+
+module top;
+  import mid_pkg::*;
+  localparam int value = export/*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"exported_value"), "exported package import expected: {items:?}");
+}
+
+#[test]
+fn expression_completion_uses_package_export_all_imports() {
+    let items = completions_in_text(
+        r#"
+package leaf_pkg;
+  localparam int exported_value = 1;
+endpackage
+
+package mid_pkg;
+  import leaf_pkg::exported_value;
+  export *::*;
+endpackage
+
+module top;
+  import mid_pkg::*;
+  localparam int value = export/*caret*/;
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"exported_value"), "export *::* member expected: {items:?}");
+}
+
+#[test]
 fn member_access_completion_uses_struct_fields() {
     let items = completions_in_text(
         r#"
@@ -905,6 +1022,29 @@ endmodule
 
     assert!(labels.contains(&"first_field"), "struct field expected: {items:?}");
     assert!(labels.contains(&"second_field"), "struct field expected: {items:?}");
+}
+
+#[test]
+fn member_access_completion_uses_interface_port_type() {
+    let items = completions_in_text(
+        r#"
+interface bus_if;
+  logic req;
+  logic gnt;
+  modport master(input gnt, output req);
+endinterface
+
+module top(bus_if.master bus);
+  initial bus./*caret*/
+endmodule
+"#,
+        None,
+    );
+    let labels = labels(&items);
+
+    assert!(labels.contains(&"req"), "interface member expected: {items:?}");
+    assert!(labels.contains(&"gnt"), "interface member expected: {items:?}");
+    assert!(labels.contains(&"master"), "modport member expected: {items:?}");
 }
 
 #[test]

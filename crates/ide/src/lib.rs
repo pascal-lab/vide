@@ -73,6 +73,7 @@ impl SymbolKind {
     pub fn from_syntax_kind(kind: SyntaxKind) -> Self {
         match_ast_kind! { kind,
             ast::ModuleDeclaration where kind == SyntaxKind::MODULE_DECLARATION => SymbolKind::Module,
+            ast::ModuleDeclaration where kind == SyntaxKind::INTERFACE_DECLARATION => SymbolKind::Interface,
             ast::ConfigDeclaration => SymbolKind::Config,
             ast::UdpDeclaration => SymbolKind::Primitive,
             ast::NonAnsiPort => SymbolKind::NonAnsiPortLabel,

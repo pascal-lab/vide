@@ -8,6 +8,7 @@ use instantiation::{
     ParamAssign, ParamAssignSrc, PortConn, PortConnSrc, impl_lower_instantiation,
 };
 use la_arena::{Arena, Idx, IdxRange, RawIdx};
+use modport::{Modport, ModportId, ModportSrc, lower_modport_item};
 use port::{
     NonAnsiPort, NonAnsiPortId, NonAnsiPortSrc, PortDecl, PortDeclId, PortDeclSrc, PortRef,
     PortRefId, PortRefSrc, PortSrcs, Ports,
@@ -41,6 +42,10 @@ use super::{
         timing_control::{EventExpr, EventExprSrc, impl_lower_event_expr},
     },
     lower_ident_opt,
+    package_import::{
+        PackageExport, PackageImport, lower_package_export_all, lower_package_exports,
+        lower_package_imports,
+    },
     proc::{LowerProc, LowerProcCtx, Proc, ProcId, ProcSrc},
     stmt::{Stmt, StmtId, StmtSrc, impl_lower_stmt},
     subroutine::{
@@ -63,6 +68,7 @@ pub mod continuous_assgin;
 pub mod defparam;
 pub mod generate;
 pub mod instantiation;
+pub mod modport;
 pub mod port;
 pub mod specify;
 
@@ -83,9 +89,12 @@ define_container! {
         generate_regions: [GenerateRegion],
         specify_blocks: [SpecifyBlock],
         specify_items: [SpecifyItem],
+        modports: [Modport],
         declarations: [Declaration],
         typedefs: [Typedef],
         structs: [StructDef],
+        package_imports: [PackageImport],
+        package_exports: [PackageExport],
         subroutines: [Subroutine],
 
         instantiations: [Instantiation],
@@ -122,6 +131,7 @@ define_container! {
         generate_region_srcs: [GenerateRegion | GenerateRegionSrc],
         specify_block_srcs: [SpecifyBlock | SpecifyBlockSrc],
         specify_item_srcs: [SpecifyItem | SpecifyItemSrc],
+        modport_srcs: [Modport | ModportSrc],
         declaration_srcs: [Declaration | DeclarationSrc],
         typedef_srcs: [Typedef | TypedefSrc],
         struct_srcs: [StructDef | StructSrc],
@@ -174,6 +184,7 @@ impl ModuleSourceMap {
             ModuleItem::GenerateRegionId(idx) => self.get(*idx)?.into(),
             ModuleItem::SpecifyBlockId(idx) => self.get(*idx)?.0,
             ModuleItem::SpecifyItemId(idx) => self.get(*idx)?.into(),
+            ModuleItem::ModportId(idx) => self.get(*idx)?.node,
             ModuleItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
             ModuleItem::StructId(idx) => self.get(*idx)?.node,
             ModuleItem::InstantiationId(idx) => self.get(*idx)?.into(),
@@ -193,6 +204,7 @@ define_enum_deriving_from! {
         GenerateRegionId(GenerateRegionId),
         SpecifyBlockId(SpecifyBlockId),
         SpecifyItemId(SpecifyItemId),
+        ModportId(ModportId),
         DeclarationId(DeclarationId),
         StructId(StructId),
         InstantiationId(InstantiationId),
@@ -257,6 +269,18 @@ impl LowerProc for LowerModuleCtx<'_> {
 }
 
 impl LowerModuleCtx<'_> {
+    fn lower_modport_decl(&mut self, decl: ast::ModportDeclaration) -> Vec<ModportId> {
+        decl.items()
+            .children()
+            .map(|item| {
+                alloc_idx_and_src! {
+                    lower_modport_item(item) => self.module.modports,
+                    item => self.module_source_map.modport_srcs,
+                }
+            })
+            .collect()
+    }
+
     fn lower_struct_type(&mut self, struct_ty: ast::StructUnionType) -> StructId {
         let container_id = ContainerId::ModuleId(self.module_id);
         let struct_def =
@@ -403,7 +427,11 @@ impl LowerModuleCtx<'_> {
                 ExplicitAnsiPort(_) | ImplicitAnsiPort(_) => continue,
 
                 // Imports
-                PackageImportDeclaration(_) => continue,
+                PackageImportDeclaration(import) => {
+                    lower_package_imports(import, &mut self.module.package_imports);
+                    self.region_tree.handle_node(member.syntax());
+                    continue;
+                }
 
                 // Aggregates
                 ClassDeclaration(_) => continue,
@@ -469,10 +497,18 @@ impl LowerModuleCtx<'_> {
                 NetAlias(_) => continue,
 
                 // Modport
-                ModportDeclaration(_)
-                | ModportClockingPort(_)
+                ModportDeclaration(decl) => {
+                    for modport_id in self.lower_modport_decl(decl) {
+                        self.module_source_map.items.push(modport_id.into());
+                    }
+                    self.region_tree.handle_node(member.syntax());
+                    continue;
+                }
+                ModportClockingPort(_)
                 | ModportSimplePortList(_)
-                | ModportSubroutinePortList(_) => continue,
+                | ModportSubroutinePortList(_) => {
+                    continue;
+                }
 
                 // Class members (shouldn't appear in module but handle anyway)
                 ClassPropertyDeclaration(_)
@@ -492,7 +528,16 @@ impl LowerModuleCtx<'_> {
                 BindDirective(_) => continue,
 
                 // Package exports
-                PackageExportDeclaration(_) | PackageExportAllDeclaration(_) => continue,
+                PackageExportDeclaration(export) => {
+                    lower_package_exports(export, &mut self.module.package_exports);
+                    self.region_tree.handle_node(member.syntax());
+                    continue;
+                }
+                PackageExportAllDeclaration(export) => {
+                    lower_package_export_all(export, &mut self.module.package_exports);
+                    self.region_tree.handle_node(member.syntax());
+                    continue;
+                }
 
                 // Library
                 LibraryDeclaration(_) | LibraryIncludeStatement(_) => continue,

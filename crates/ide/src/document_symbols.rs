@@ -322,6 +322,13 @@ fn collect_module_items(
                 build_specify_block(collector, specify_block_id, module, src_map)
             }
             ModuleItem::SpecifyItemId(_) => {}
+            ModuleItem::ModportId(modport_id) => {
+                let hir = module.get(modport_id);
+                if let Some(src) = src_map.get(modport_id) {
+                    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Interface);
+                    collector.pop();
+                }
+            }
             ModuleItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, module, src_map)
             }

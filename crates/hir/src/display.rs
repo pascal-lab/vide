@@ -212,6 +212,18 @@ impl HirDisplay for InModule<PortHeader> {
                 }
                 InContainer::new((*module_id).into(), *ty).hir_fmt(f)
             }
+            PortHeader::Interface { interface, modport } => {
+                if let Some(interface) = interface {
+                    f.write_str(interface.as_str())?;
+                } else {
+                    f.write_str("interface")?;
+                }
+                if let Some(modport) = modport {
+                    f.write_str(".")?;
+                    f.write_str(modport.as_str())?;
+                }
+                Ok(())
+            }
         }
     }
 }

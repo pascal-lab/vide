@@ -11,6 +11,7 @@ use hir::{
             ModuleId,
             generate::{GenerateBlockId, GenerateBlockLoc},
             instantiation::InstanceId,
+            modport::ModportId,
             port::NonAnsiPortId,
         },
         stmt::StmtId,
@@ -71,6 +72,7 @@ impl ToNav for DefinitionOrigin {
             DefinitionOrigin::Decl(decl_id) => decl_id.to_nav(db),
             DefinitionOrigin::Typedef(typedef_id) => typedef_id.to_nav(db),
             DefinitionOrigin::Instance(instance_id) => instance_id.to_nav(db),
+            DefinitionOrigin::Modport(modport_id) => modport_id.to_nav(db),
             DefinitionOrigin::Stmt(stmt_id) => stmt_id.to_nav(db),
         }
     }
@@ -83,7 +85,8 @@ impl ToNav for ModuleId {
         let name = self.to_container(db).name.clone();
 
         let file_id = file_id.file_id();
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Module, None))
+        let kind = SymbolKind::from_syntax_kind(src.kind());
+        Some(build(file_id, src.name_range(), src.range(), name, kind, None))
     }
 }
 
@@ -300,6 +303,21 @@ impl ToNav for InModule<InstanceId> {
         let cont_name = module.name.clone();
 
         Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Instance, cont_name))
+    }
+}
+
+impl ToNav for InModule<ModportId> {
+    fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
+        let InModule { value: modport_id, module_id } = *self;
+
+        let file_id = module_id.file_id();
+        let src = module_id.to_container_src_map(db).get(modport_id)?;
+
+        let module = module_id.to_container(db);
+        let name = module.get(modport_id).name.clone();
+        let cont_name = module.name.clone();
+
+        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Interface, cont_name))
     }
 }
 
