@@ -1101,6 +1101,7 @@ impl GlobalState {
             )
             .on_latency_sensitive::<SemanticTokensRangeRequest>(handle_semantic_tokens_range)
             .on::<DocumentSymbolRequest>(handle_document_symbol)
+            .on::<WorkspaceSymbolRequest>(handle_workspace_symbol)
             .on::<FoldingRangeRequest>(handle_folding_ranges)
             .on::<DocumentDiagnosticRequest>(handle_document_diagnostic)
             .on::<WorkspaceDiagnosticRequest>(handle_workspace_diagnostic)

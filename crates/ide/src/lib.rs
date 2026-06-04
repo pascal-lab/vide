@@ -44,6 +44,7 @@ pub mod signature_help;
 mod test_utils;
 #[cfg(test)]
 mod verilog_2005;
+pub mod workspace_symbols;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SymbolKind {
     Module,

@@ -42,6 +42,7 @@ use crate::{
     semantic_tokens::{self, SemaToken, SemaTokenConfig},
     signature_help::{self, SignatureHelp, SignatureHelpConfig},
     source_change::SourceChange,
+    workspace_symbols::{self, WorkspaceSymbol},
 };
 
 #[derive(Debug)]
@@ -153,6 +154,14 @@ impl Analysis {
 
     pub fn document_symbol(&self, file_id: FileId) -> Cancellable<Vec<DocumentSymbol>> {
         self.with_db(|db| document_symbols::document_symbols(db, file_id))
+    }
+
+    pub fn workspace_symbol(
+        &self,
+        query: &str,
+        file_ids: Vec<FileId>,
+    ) -> Cancellable<Vec<WorkspaceSymbol>> {
+        self.with_db(|db| workspace_symbols::workspace_symbols(db, query, file_ids))
     }
 
     pub fn document_highlight(
