@@ -1,4 +1,7 @@
-use preproc::index::{PreprocFileIndex, preproc_file_index_from_text};
+use preproc::{
+    index::{PreprocFileIndex, preproc_file_index_from_text},
+    model::PreprocModel,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
     Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
@@ -42,6 +45,7 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
         file_id: FileId,
         predefines: Vec<String>,
     ) -> Arc<PreprocFileIndex>;
+    fn preproc_model(&self, file_id: FileId) -> Arc<PreprocModel>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -138,6 +142,10 @@ fn preproc_file_index_with_predefines(
             Arc::new(PreprocFileIndex::default())
         }
     }
+}
+
+fn preproc_model(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocModel> {
+    Arc::new(PreprocModel::new((*db.preproc_file_index(file_id)).clone()))
 }
 
 struct SourceFileIdentity {
