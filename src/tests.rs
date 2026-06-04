@@ -1003,6 +1003,110 @@ endmodule
 }
 
 #[test]
+fn workspace_file_rename_updates_symbol_and_definition_locations() {
+    let temp_dir = TempDir::new("workspace-file-rename");
+    fs::write(temp_dir.path().join("vide.toml"), DEFAULT_TEST_CONFIG).unwrap();
+    let top_text = "\
+module top;
+  child u_child();
+endmodule
+";
+    let child_text = "\
+module child;
+endmodule
+";
+    let top_path = temp_dir.path().join("top.sv");
+    let old_child_path = temp_dir.path().join("old_child.sv");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&old_child_path, child_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let old_child_uri = to_proto::url_from_abs_path(old_child_path.as_path()).unwrap();
+    let new_child_path = temp_dir.path().join("child.sv");
+    let new_child_uri = to_proto::url_from_abs_path(new_child_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+
+    fs::rename(&old_child_path, &new_child_path).unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification::new(
+            DidChangeWatchedFiles::METHOD.to_string(),
+            lsp_types::DidChangeWatchedFilesParams {
+                changes: vec![
+                    FileEvent::new(old_child_uri.clone(), FileChangeType::DELETED),
+                    FileEvent::new(new_child_uri.clone(), FileChangeType::CREATED),
+                ],
+            },
+        )))
+        .unwrap();
+
+    let deadline = Instant::now() + LSP_TEST_TIMEOUT;
+    let mut saw_new_symbol_location = false;
+    let mut last_symbol_locations = Vec::new();
+    let mut attempt = 0;
+    while Instant::now() < deadline {
+        attempt += 1;
+        let symbols_id = lsp_server::RequestId::from(900 + attempt);
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                symbols_id.clone(),
+                WorkspaceSymbolRequest::METHOD.to_string(),
+                WorkspaceSymbolParams {
+                    query: "child".to_string(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: Default::default(),
+                },
+            )))
+            .unwrap();
+
+        let symbols: Option<WorkspaceSymbolResponse> =
+            recv_response(&client, symbols_id, "workspaceSymbol after file rename");
+        let WorkspaceSymbolResponse::Flat(symbols) =
+            symbols.expect("workspaceSymbol should return a result")
+        else {
+            panic!("workspaceSymbol should return flat SymbolInformation results");
+        };
+        last_symbol_locations =
+            symbols.iter().map(|symbol| symbol.location.uri.clone()).collect::<Vec<_>>();
+
+        if symbols
+            .iter()
+            .any(|symbol| symbol.name == "child" && symbol.location.uri == new_child_uri)
+            && !symbols
+                .iter()
+                .any(|symbol| symbol.name == "child" && symbol.location.uri == old_child_uri)
+        {
+            saw_new_symbol_location = true;
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        saw_new_symbol_location,
+        "workspace symbol should move from old_child.sv to child.sv after file rename: {last_symbol_locations:?}"
+    );
+
+    let definition_uris = request_goto_definition_uris(&client, top_uri, top_text, "child u", 1901);
+    assert!(
+        definition_uris.contains(&new_child_uri),
+        "definition should target renamed child.sv: {definition_uris:?}"
+    );
+    assert!(
+        !definition_uris.contains(&old_child_uri),
+        "definition should not target stale old_child.sv after rename: {definition_uris:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn code_action_request_returns_ordered_connection_refactor_without_diagnostics() {
     let text = "\
 module ca_leaf(input clk, input rst_n, output done);
