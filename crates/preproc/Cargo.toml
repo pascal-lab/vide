@@ -1,0 +1,9 @@
+[package]
+name = "preproc"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+smol_str.workspace = true
+syntax.workspace = true
+utils.workspace = true

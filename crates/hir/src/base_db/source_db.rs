@@ -1,3 +1,4 @@
+use preproc::PreprocFileIndex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
     Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
@@ -10,7 +11,6 @@ use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 use crate::base_db::{
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
-    preproc_index::{self, PreprocFileIndex},
     project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
@@ -132,7 +132,7 @@ fn preproc_file_index_with_predefines(
                 predefines,
                 ..syntax::SyntaxTreeOptions::without_include_expansion()
             };
-            Arc::new(preproc_index::preproc_file_index_from_text(&db.file_text(file_id), &options))
+            Arc::new(preproc::preproc_file_index_from_text(&db.file_text(file_id), &options))
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
             Arc::new(PreprocFileIndex::default())
