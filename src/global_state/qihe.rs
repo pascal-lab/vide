@@ -466,13 +466,7 @@ fn run_qihe_request(
     let run_paths = qihe_run_paths(active_path.as_path(), &cwd)
         .context(i18n.text(keys::QIHE_PREPARE_WORKSPACE_FAILED))?;
     let command_context = QiheCommandContext { i18n, log_sink, cancellation };
-    run_qihe_commands(
-        &qihe_config,
-        &cwd,
-        &compile_input,
-        &run_paths,
-        &command_context,
-    )?;
+    run_qihe_commands(&qihe_config, &cwd, &compile_input, &run_paths, &command_context)?;
     cancellation.check()?;
 
     let diagnostics = load_latest_diagnostics(&run_paths.storage_root, i18n)?;
@@ -639,8 +633,7 @@ fn qihe_run_paths(active_path: &AbsPath, cwd: &Path) -> Result<QiheRunPaths> {
         .join(QIHE)
         .join(format!("{}-{millis}", active_path.file_stem().unwrap_or("input")));
     let options = read_qihe_options(cwd)?;
-    let storage_root =
-        options.storage_root.clone().unwrap_or_else(|| workspace.join("storage"));
+    let storage_root = options.storage_root.clone().unwrap_or_else(|| workspace.join("storage"));
     fs::create_dir_all(&storage_root)?;
     Ok(QiheRunPaths {
         ir_path: workspace.join("input.qh"),
@@ -1694,11 +1687,8 @@ mod tests {
         let root = TestDir::new("qihe-run-paths-options-storage");
         let active_path = root.path().join("top.sv");
         fs::write(&active_path, "module top; endmodule\n").unwrap();
-        fs::write(
-            root.path().join("qihe-options.toml"),
-            "[storage]\nroot = \"artifacts/qihe\"\n",
-        )
-        .unwrap();
+        fs::write(root.path().join("qihe-options.toml"), "[storage]\nroot = \"artifacts/qihe\"\n")
+            .unwrap();
         let active_path = AbsPathBuf::try_from(active_path).unwrap();
 
         let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
