@@ -3,7 +3,7 @@ use hir::{
     container::InContainer,
     file::HirFileId,
     hir_def::expr::Expr,
-    preproc::{IncludeTarget, include_directive_at},
+    preproc::{IncludeTarget, include_directive_at, macro_usage_resolution_at},
     semantics::Semantics,
 };
 use syntax::{
@@ -36,6 +36,10 @@ pub(crate) fn hover(
     FilePosition { file_id, offset }: FilePosition,
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
+    if let Some(macro_hover) = handle_preproc_macro(db, file_id, offset) {
+        return Some(macro_hover);
+    }
+
     if let Some(include) = handle_preproc_include(db, file_id, offset) {
         return Some(include);
     }
@@ -76,6 +80,23 @@ fn handle_literal(
     };
 
     render::render_literal(literal)
+}
+
+fn handle_preproc_macro(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<RangeInfo<Markup>> {
+    let resolution = macro_usage_resolution_at(db, file_id, offset)?;
+    let mut markup = Markup::new();
+    markup.print("Macro");
+    markup.newline();
+    markup.push_with_backticks(resolution.usage.name.as_str());
+    markup.newline();
+    markup.print("Definition");
+    markup.newline();
+    markup.push_with_backticks(resolution.definition.name.as_str());
+    Some(RangeInfo::new(resolution.usage.range, markup))
 }
 
 fn handle_preproc_include(

@@ -914,6 +914,36 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_usage_supports_navigation_and_hover() {
+    let text = r#"
+`define WIDTH 8
+module top;
+  logic [`/*marker:usage*/WIDTH-1:0] data;
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let position = position(file_id, &markers, "usage");
+    let analysis = host.make_analysis();
+
+    let nav =
+        analysis.goto_definition(position).unwrap().expect("macro definition navigation expected");
+    let target = nav
+        .info
+        .iter()
+        .find(|target| target.name.as_deref() == Some("WIDTH"))
+        .expect("WIDTH definition target expected");
+    let range = target.focus_or_full_range();
+    assert_eq!(clean_text[usize::from(range.start())..usize::from(range.end())].trim(), "WIDTH");
+
+    let hover = analysis
+        .hover(position, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro hover expected");
+    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
+    assert!(hover.info.as_str().contains("WIDTH"), "hover should mention macro name");
+}
+
+#[test]
 fn verilog_2005_genvar_declaration_lowers_without_fallback() {
     let text = r#"
 module genvar_ctx;
