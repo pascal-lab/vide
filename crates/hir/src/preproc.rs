@@ -39,6 +39,12 @@ pub struct IncludeDirective {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InactiveBranch {
+    pub file_id: FileId,
+    pub range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IncludeTarget {
     Literal { path: SmolStr, resolved_file: Option<FileId> },
     Token { raw: SmolStr },
@@ -105,6 +111,15 @@ pub fn include_directive_at(
         }
     };
     Some(IncludeDirective { file_id, include_index, range, target })
+}
+
+pub fn inactive_branches(db: &dyn SourceDb, file_id: FileId) -> Vec<InactiveBranch> {
+    db.preproc_model(file_id)
+        .inactive_ranges()
+        .iter()
+        .copied()
+        .map(|range| InactiveBranch { file_id, range })
+        .collect()
 }
 
 fn resolve_literal_include(db: &dyn SourceRootDb, file_id: FileId, path: &str) -> Option<FileId> {

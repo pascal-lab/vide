@@ -18,6 +18,7 @@ use preproc::index::MacroIncludeTarget;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
+    test_support::TestDir,
     text_edit::{TextRange, TextSize},
 };
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
@@ -177,24 +178,7 @@ fn setup_marked_with_path(
     text: &str,
     path: &str,
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
-    let mut text = normalize_fixture_text(text);
-    let mut markers = HashMap::new();
-    let mut cursor = 0;
-    let prefix = "/*marker:";
-
-    while let Some(rel_start) = text[cursor..].find(prefix) {
-        let start = cursor + rel_start;
-        let name_start = start + prefix.len();
-        let Some(rel_end) = text[name_start..].find("*/") else {
-            panic!("unterminated marker in fixture");
-        };
-        let name_end = name_start + rel_end;
-        let name = text[name_start..name_end].to_string();
-        let end = name_end + 2;
-        text.replace_range(start..end, "");
-        markers.insert(name, TextSize::from(start as u32));
-        cursor = start;
-    }
+    let (text, markers) = strip_markers(normalize_fixture_text(text));
 
     let (host, file_id) = setup_with_path(&text, path);
     (host, file_id, text, markers)
@@ -204,24 +188,7 @@ fn setup_marked_with_predefines(
     text: &str,
     predefines: Vec<String>,
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
-    let mut text = normalize_fixture_text(text);
-    let mut markers = HashMap::new();
-    let mut cursor = 0;
-    let prefix = "/*marker:";
-
-    while let Some(rel_start) = text[cursor..].find(prefix) {
-        let start = cursor + rel_start;
-        let name_start = start + prefix.len();
-        let Some(rel_end) = text[name_start..].find("*/") else {
-            panic!("unterminated marker in fixture");
-        };
-        let name_end = name_start + rel_end;
-        let name = text[name_start..name_end].to_string();
-        let end = name_end + 2;
-        text.replace_range(start..end, "");
-        markers.insert(name, TextSize::from(start as u32));
-        cursor = start;
-    }
+    let (text, markers) = strip_markers(normalize_fixture_text(text));
 
     let file_id = FileId(0);
     let mut file_set = FileSet::default();
@@ -245,6 +212,28 @@ fn setup_marked_with_predefines(
     let mut host = AnalysisHost::default();
     host.apply_change(change);
     (host, file_id, text, markers)
+}
+
+fn strip_markers(mut text: String) -> (String, HashMap<String, TextSize>) {
+    let mut markers = HashMap::new();
+    let mut cursor = 0;
+    let prefix = "/*marker:";
+
+    while let Some(rel_start) = text[cursor..].find(prefix) {
+        let start = cursor + rel_start;
+        let name_start = start + prefix.len();
+        let Some(rel_end) = text[name_start..].find("*/") else {
+            panic!("unterminated marker in fixture");
+        };
+        let name_end = name_start + rel_end;
+        let name = text[name_start..name_end].to_string();
+        let end = name_end + 2;
+        text.replace_range(start..end, "");
+        markers.insert(name, TextSize::from(start as u32));
+        cursor = start;
+    }
+
+    (text, markers)
 }
 
 fn position(file_id: FileId, markers: &HashMap<String, TextSize>, name: &str) -> FilePosition {
@@ -868,6 +857,60 @@ endmodule
         .collect::<Vec<_>>();
 
     assert_eq!(literal_include_paths, vec!["active.svh"]);
+}
+
+#[test]
+fn preproc_include_literal_supports_navigation_and_hover() {
+    let dir = TestDir::new("preproc-include-nav-hover");
+    let top_path = dir.path().join("top.sv");
+    let defs_path = dir.path().join("defs.svh");
+    let marked_top_text = normalize_fixture_text(
+        r#"
+`include "/*marker:include*/defs.svh"
+module top;
+endmodule
+"#,
+    );
+    let (top_text, markers) = strip_markers(marked_top_text);
+    let defs_text = "module defs; endmodule\n";
+    std::fs::write(&top_path, &top_text).unwrap();
+    std::fs::write(&defs_path, defs_text).unwrap();
+
+    let top_file_id = FileId(0);
+    let defs_file_id = FileId(1);
+
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(defs_file_id, VfsPath::from(defs_path));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: defs_file_id,
+        change_kind: ChangeKind::Create(Arc::from(defs_text), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let position = position(top_file_id, &markers, "include");
+    let analysis = host.make_analysis();
+
+    let nav =
+        analysis.goto_definition(position).unwrap().expect("include target navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.file_id == defs_file_id),
+        "include should navigate to defs.svh: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(position, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("include hover expected");
+    assert!(hover.info.as_str().contains("defs.svh"), "hover should mention include target");
 }
 
 #[test]
