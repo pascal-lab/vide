@@ -112,6 +112,22 @@ pub(crate) fn document_symbol_information(
     }
 }
 
+#[allow(deprecated)]
+pub(crate) fn workspace_symbol_information(
+    symbol: ide::workspace_symbols::WorkspaceSymbol,
+    url: &lsp_types::Url,
+    line_info: &LineInfo,
+) -> lsp_types::SymbolInformation {
+    lsp_types::SymbolInformation {
+        name: symbol.name,
+        kind: symbol_kind(symbol.kind),
+        tags: None,
+        deprecated: None,
+        location: lsp_types::Location::new(url.clone(), self::range(line_info, symbol.focus_range)),
+        container_name: symbol.container_name,
+    }
+}
+
 pub(crate) fn document_highlight(
     line_info: &LineInfo,
     DocumentHighlight { range, category }: DocumentHighlight,
