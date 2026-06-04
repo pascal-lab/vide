@@ -11,6 +11,7 @@ Vide 1.1.0 focuses on editing features people use directly: workspace symbol sea
 
 - Editors can now ask Vide for symbols across the workspace, making it easier to search for modules, instances, signals, and other code objects. Supported editors show these results through their workspace symbol search or equivalent entry point. ([#210](https://github.com/pascal-lab/vide/pull/210))
 - Search supports case-insensitive fuzzy matching and path or container filters, so you can narrow the query to a module or hierarchy before searching for a specific signal. ([#210](https://github.com/pascal-lab/vide/pull/210))
+- After a file is renamed in the workspace, workspace symbol search and go-to-definition now update to the new file path instead of continuing to show or jump to the old path. ([#222](https://github.com/pascal-lab/vide/pull/222))
 
   ![Workspace symbol search example](../../../assets/changelog/1.1.0/workspace-symbols.gif)
 
