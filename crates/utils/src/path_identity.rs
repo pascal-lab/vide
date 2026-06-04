@@ -35,7 +35,8 @@ impl PathKey {
 /// invent another spelling.
 ///
 /// These strings are safe to hand to external parsers as alternate names for
-/// the same VFS text. File identity comparisons use [`FileIdentityKey`].
+/// the same path spelling identity. Callers that need filesystem-object
+/// identity can use [`FileIdentityKey`] separately.
 pub fn path_alias_paths(path: &AbsPath) -> Vec<AbsPathBuf> {
     let mut paths = vec![path.to_path_buf()];
 
