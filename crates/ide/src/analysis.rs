@@ -66,6 +66,10 @@ impl Analysis {
         self.with_db(|db| db.file_text(file_id))
     }
 
+    pub fn file_ids(&self) -> Cancellable<Vec<FileId>> {
+        self.with_db(|db| db.files().iter().copied().collect())
+    }
+
     pub fn diagnostics(&self, file_id: FileId) -> Cancellable<Vec<diagnostics::Diagnostic>> {
         self.with_db(|db| diagnostics::diagnostics(db, file_id))
     }
