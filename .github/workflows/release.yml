@@ -66,9 +66,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Keep the Linux x64 VSIX compatible with Ubuntu 22.04 glibc/libstdc++.
-          - os: ubuntu-22.04
-            target: linux-x64
           - os: ubuntu-24.04-arm
             target: linux-arm64
           - os: windows-latest
@@ -154,6 +151,126 @@ jobs:
         with:
           name: vide-lsp-${{ matrix.target }}
           path: vide-${{ matrix.target }}*
+          if-no-files-found: error
+
+  build-linux-x64-server:
+    name: Build linux-x64 server
+    needs: changelog
+    runs-on: ubuntu-22.04
+    container: quay.io/pypa/manylinux2014_x86_64
+    steps:
+      - name: Install build dependencies
+        run: |
+          yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trust checkout directories
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: rust-linux-x64-manylinux2014
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
+
+      - name: Build language server
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: target/linux-x64-manylinux2014
+        run: |
+          set -euo pipefail
+          export PATH="/opt/python/cp312-cp312/bin:/opt/rh/devtoolset-11/root/usr/bin:${PATH}"
+          rustc --version
+          cargo --version
+          g++ --version | head -n 1
+          cargo build --release
+
+      - name: Verify glibc 2.17 compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          server="target/linux-x64-manylinux2014/release/vide"
+          ldd --version | head -n 1
+          ldd "$server"
+          "$server" --version
+          if readelf -V "$server" | grep -E 'Name: GLIBC_2\.([2-9][0-9]|1[89])\b|Name: GLIBCXX_3\.4\.([2-9][0-9]|1[0-9][0-9])\b|Name: CXXABI_1\.3\.([89]|[1-9][0-9])\b'; then
+            echo "linux-x64 server requires symbols newer than the CentOS 7 baseline." >&2
+            exit 1
+          fi
+
+      - name: Stage language server artifact
+        run: |
+          cp target/linux-x64-manylinux2014/release/vide vide-linux-x64
+
+      - name: Upload language server binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-lsp-linux-x64
+          path: vide-linux-x64
+          if-no-files-found: error
+
+  build-linux-x64-package:
+    name: Package linux-x64
+    needs: build-linux-x64-server
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Download language server artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vide-lsp-linux-x64
+          path: prebuilt-linux-x64
+
+      - name: Stage language server
+        run: |
+          install -Dm755 prebuilt-linux-x64/vide-linux-x64 editors/vscode/server/linux-x64/vide
+
+      - name: Set build metadata
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "VIDE_EXTENSION_BUILD_KIND=beta" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_COMMIT_HASH=$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_ENV"
+            echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
+          else
+            echo "VIDE_EXTENSION_BUILD_KIND=stable" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build VSIX
+        working-directory: editors/vscode
+        run: |
+          npm run compile
+          ./node_modules/.bin/tsx scripts/package.ts linux-x64 --server=prebuilt
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vide-vscode-${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }}-linux-x64
+          path: editors/vscode/vide-vscode-linux-x64.vsix
           if-no-files-found: error
 
   build-alpine-package:
@@ -359,7 +476,7 @@ jobs:
 
   publish:
     name: Publish ${{ github.event_name == 'workflow_dispatch' && 'beta' || 'stable' }} release
-    needs: [build-and-package, build-alpine-package, build-web-package]
+    needs: [build-and-package, build-linux-x64-package, build-alpine-package, build-web-package]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'beta' || github.ref_name }}
@@ -401,7 +518,7 @@ jobs:
   publish-marketplace:
     name: Publish VS Code Marketplace
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [build-and-package, build-web-package, publish]
+    needs: [build-and-package, build-linux-x64-package, build-web-package, publish]
     runs-on: ubuntu-latest
     defaults:
       run:
