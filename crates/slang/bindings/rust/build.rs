@@ -39,6 +39,7 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
         .define("SLANG_INCLUDE_PYLIB", "OFF")
         .define("SLANG_INCLUDE_RUSTLIB", "ON")
         .define("SLANG_RUST_CXXBRIDGE_DIR", cxxbridge_dir.to_string_lossy().as_ref())
+        .define("CMAKE_INSTALL_LIBDIR", "lib")
         .profile(cmake_profile)
         .define("CMAKE_VERBOSE_MAKEFILE", "ON");
 
