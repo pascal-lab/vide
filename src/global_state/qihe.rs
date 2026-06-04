@@ -56,6 +56,8 @@ pub(crate) struct QiheUpdate {
 }
 
 const QIHE: &str = "qihe";
+const QIHE_OPTIONS_FILE_NAME: &str = "qihe-options.toml";
+const QIHE_OPTIONS_RUN_PATH: &str = "./qihe-options.toml";
 const QIHE_LOG_BATCH_BYTES: usize = 8 * 1024;
 
 static ANSI_ESCAPE_RE: LazyLock<Regex> =
@@ -461,20 +463,19 @@ fn run_qihe_request(
     let compile_input =
         qihe_compile_input(snapshot, active_file_id, active_path.as_path(), &cwd, cancellation)?;
     let i18n = snapshot.config.i18n;
-    let (ir_path, storage_root) = qihe_run_paths(active_path.as_path())
+    let run_paths = qihe_run_paths(active_path.as_path(), &cwd)
         .context(i18n.text(keys::QIHE_PREPARE_WORKSPACE_FAILED))?;
     let command_context = QiheCommandContext { i18n, log_sink, cancellation };
     run_qihe_commands(
         &qihe_config,
         &cwd,
         &compile_input,
-        &ir_path,
-        &storage_root,
+        &run_paths,
         &command_context,
     )?;
     cancellation.check()?;
 
-    let diagnostics = load_latest_diagnostics(&storage_root, i18n)?;
+    let diagnostics = load_latest_diagnostics(&run_paths.storage_root, i18n)?;
     let resolution_base = if compile_input.uses_manifest() {
         cwd.as_path()
     } else {
@@ -618,38 +619,71 @@ fn qihe_compile_input_from_plan(
     }
 }
 
-fn qihe_run_paths(active_path: &AbsPath) -> Result<(PathBuf, PathBuf)> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QiheRunPaths {
+    ir_path: PathBuf,
+    storage_root: PathBuf,
+    use_options_file: bool,
+    override_storage_root: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct QiheOptionsConfig {
+    use_options_file: bool,
+    storage_root: Option<PathBuf>,
+}
+
+fn qihe_run_paths(active_path: &AbsPath, cwd: &Path) -> Result<QiheRunPaths> {
     let millis = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
     let workspace = std::env::temp_dir()
         .join(QIHE)
         .join(format!("{}-{millis}", active_path.file_stem().unwrap_or("input")));
-    let storage_root = workspace.join("storage");
+    let options = read_qihe_options(cwd)?;
+    let storage_root =
+        options.storage_root.clone().unwrap_or_else(|| workspace.join("storage"));
     fs::create_dir_all(&storage_root)?;
-    Ok((workspace.join("input.qh"), storage_root))
+    Ok(QiheRunPaths {
+        ir_path: workspace.join("input.qh"),
+        storage_root,
+        use_options_file: options.use_options_file,
+        override_storage_root: options.storage_root.is_none(),
+    })
+}
+
+fn read_qihe_options(cwd: &Path) -> Result<QiheOptionsConfig> {
+    let options_path = cwd.join(QIHE_OPTIONS_FILE_NAME);
+    if !options_path.is_file() {
+        return Ok(QiheOptionsConfig { use_options_file: false, storage_root: None });
+    }
+
+    let text = fs::read_to_string(&options_path)
+        .with_context(|| format!("failed to read {}", options_path.display()))?;
+    let options: toml::Value = toml::from_str(&text)
+        .with_context(|| format!("failed to parse {}", options_path.display()))?;
+    let storage_root = options
+        .get("storage")
+        .and_then(toml::Value::as_table)
+        .and_then(|storage| storage.get("root"))
+        .and_then(toml::Value::as_str)
+        .map(PathBuf::from)
+        .map(|path| if path.is_absolute() { path } else { cwd.join(path) });
+    Ok(QiheOptionsConfig { use_options_file: true, storage_root })
 }
 
 fn run_qihe_commands(
     qihe_config: &QiheConfig,
     cwd: &Path,
     compile_input: &QiheCompileInput,
-    ir_path: &Path,
-    storage_root: &Path,
+    run_paths: &QiheRunPaths,
     command_context: &QiheCommandContext<'_>,
 ) -> Result<()> {
     let mut command = qihe_command(qihe_config, cwd, "compile");
-    prepare_qihe_compile_command(&mut command, qihe_config, compile_input, ir_path);
+    prepare_qihe_compile_command(&mut command, qihe_config, compile_input, &run_paths.ir_path);
     command_context.run(&mut command, "qihe compile")?;
 
     let mut command = qihe_command(qihe_config, cwd, "run");
-    command_context.run(
-        command
-            .args(&qihe_config.run_args)
-            .arg("-i")
-            .arg(ir_path)
-            .arg("-c")
-            .arg(format!("storage.root={}", storage_root.display())),
-        "qihe run",
-    )
+    prepare_qihe_run_command(&mut command, qihe_config, run_paths);
+    command_context.run(&mut command, "qihe run")
 }
 
 fn prepare_qihe_compile_command(
@@ -675,6 +709,21 @@ fn prepare_qihe_compile_command(
     let has_slang_args = !user_slang_args.is_empty() || !manifest_slang_args.is_empty();
     if has_slang_args {
         command.arg("--").args(&user_slang_args).args(manifest_slang_args);
+    }
+}
+
+fn prepare_qihe_run_command(
+    command: &mut Command,
+    qihe_config: &QiheConfig,
+    run_paths: &QiheRunPaths,
+) {
+    command.args(&qihe_config.run_args);
+    if run_paths.use_options_file {
+        command.args(["--options", QIHE_OPTIONS_RUN_PATH]);
+    }
+    command.arg("-i").arg(&run_paths.ir_path);
+    if run_paths.override_storage_root {
+        command.arg("-c").arg(format!("storage.root={}", run_paths.storage_root.display()));
     }
 }
 
@@ -1068,7 +1117,7 @@ struct QiheJsonSupportInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsStr, io::Cursor, path::PathBuf, process::Command};
+    use std::{ffi::OsStr, fs, io::Cursor, path::PathBuf, process::Command};
 
     use crossbeam_channel::unbounded;
     use hir::base_db::compilation_plan::CompilationPlan;
@@ -1082,9 +1131,10 @@ mod tests {
     use vfs::FileId;
 
     use super::{
-        QiheCompileInput, QiheCompileInputSource, QiheLogSink, QiheRunId, QiheUpdate, command_line,
-        has_compile_mode, join_command_output, parse_source_loc, prepare_qihe_compile_command,
-        qihe_compile_input_from_plan, qihe_progress_token, qihe_working_directory,
+        QIHE_OPTIONS_RUN_PATH, QiheCompileInput, QiheCompileInputSource, QiheLogSink, QiheRunId,
+        QiheRunPaths, QiheUpdate, command_line, has_compile_mode, join_command_output,
+        parse_source_loc, prepare_qihe_compile_command, prepare_qihe_run_command,
+        qihe_compile_input_from_plan, qihe_progress_token, qihe_run_paths, qihe_working_directory,
         split_compile_args, stream_command_output, strip_ansi,
     };
     use crate::{
@@ -1622,6 +1672,103 @@ mod tests {
         );
 
         assert_eq!(command_args(&command), ["/repo/top.sv", "-o", "/tmp/in.qh"]);
+    }
+
+    #[test]
+    fn run_paths_fall_back_to_temp_storage_without_options_file() {
+        let root = TestDir::new("qihe-run-paths-no-options");
+        let active_path = root.path().join("top.sv");
+        fs::write(&active_path, "module top; endmodule\n").unwrap();
+        let active_path = AbsPathBuf::try_from(active_path).unwrap();
+
+        let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
+
+        assert!(run_paths.ir_path.starts_with(std::env::temp_dir()));
+        assert!(run_paths.storage_root.starts_with(std::env::temp_dir()));
+        assert!(!run_paths.use_options_file);
+        assert!(run_paths.override_storage_root);
+    }
+
+    #[test]
+    fn run_paths_use_storage_root_from_qihe_options() {
+        let root = TestDir::new("qihe-run-paths-options-storage");
+        let active_path = root.path().join("top.sv");
+        fs::write(&active_path, "module top; endmodule\n").unwrap();
+        fs::write(
+            root.path().join("qihe-options.toml"),
+            "[storage]\nroot = \"artifacts/qihe\"\n",
+        )
+        .unwrap();
+        let active_path = AbsPathBuf::try_from(active_path).unwrap();
+
+        let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
+
+        assert_eq!(run_paths.storage_root, PathBuf::from(root.path().join("artifacts/qihe")));
+        assert!(run_paths.use_options_file);
+        assert!(!run_paths.override_storage_root);
+    }
+
+    #[test]
+    fn run_paths_fall_back_when_qihe_options_has_no_storage_root() {
+        let root = TestDir::new("qihe-run-paths-options-no-storage");
+        let active_path = root.path().join("top.sv");
+        fs::write(&active_path, "module top; endmodule\n").unwrap();
+        fs::write(root.path().join("qihe-options.toml"), "[storage]\n").unwrap();
+        let active_path = AbsPathBuf::try_from(active_path).unwrap();
+
+        let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
+
+        assert!(run_paths.storage_root.starts_with(std::env::temp_dir()));
+        assert!(run_paths.use_options_file);
+        assert!(run_paths.override_storage_root);
+    }
+
+    #[test]
+    fn run_command_uses_options_file_without_overriding_storage_root() {
+        let config = QiheConfig {
+            command: "qihe".to_owned(),
+            auto_configure_args_from_manifest: true,
+            compile_args: Vec::new(),
+            run_args: vec!["-g".to_owned(), "std".to_owned()],
+        };
+        let run_paths = QiheRunPaths {
+            ir_path: PathBuf::from("/tmp/in.qh"),
+            storage_root: PathBuf::from("/repo/artifacts/qihe"),
+            use_options_file: true,
+            override_storage_root: false,
+        };
+        let mut command = Command::new("qihe");
+
+        prepare_qihe_run_command(&mut command, &config, &run_paths);
+
+        assert_eq!(
+            command_args(&command),
+            ["-g", "std", "--options", QIHE_OPTIONS_RUN_PATH, "-i", "/tmp/in.qh"]
+        );
+    }
+
+    #[test]
+    fn run_command_falls_back_to_temp_storage_override() {
+        let config = QiheConfig {
+            command: "qihe".to_owned(),
+            auto_configure_args_from_manifest: true,
+            compile_args: Vec::new(),
+            run_args: vec!["-g".to_owned(), "std".to_owned()],
+        };
+        let run_paths = QiheRunPaths {
+            ir_path: PathBuf::from("/tmp/in.qh"),
+            storage_root: PathBuf::from("/tmp/storage"),
+            use_options_file: false,
+            override_storage_root: true,
+        };
+        let mut command = Command::new("qihe");
+
+        prepare_qihe_run_command(&mut command, &config, &run_paths);
+
+        assert_eq!(
+            command_args(&command),
+            ["-g", "std", "-i", "/tmp/in.qh", "-c", "storage.root=/tmp/storage"]
+        );
     }
 
     #[test]
