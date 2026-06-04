@@ -283,24 +283,34 @@ fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagn
     }
 
     let _span = tracing::info_span!("slang.parse_diagnostics", ?file_id).entered();
-    let tree = {
-        let _span = tracing::info_span!("slang.parse_diagnostics.parse_tree", ?file_id).entered();
-        db.parse_src_for_compilation(file_id)
-    };
-    let root_buffer_id = tree.buffer_id();
-    let raw_diagnostics = {
-        let _span = tracing::info_span!("slang.parse.raw_diagnostics", ?file_id).entered();
+    let parsed = {
+        let _span = tracing::info_span!("slang.parse_diagnostics.parse", ?file_id).entered();
         let text = db.file_text(file_id);
         let identity = source_file_identity(db, file_id);
-        let options = syntax_tree_options_for_file(db, file_id);
-        sv_frontend::parse_diagnostics_with_options(
-            &text,
-            &identity.name,
-            &identity.path,
-            &options,
-            &config.slang.warnings,
-        )
+        match db.file_kind(file_id) {
+            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+                let options = syntax_tree_options_for_file(db, file_id);
+                sv_frontend::parse_syntax_with_diagnostics(
+                    &text,
+                    &identity.name,
+                    &identity.path,
+                    &options,
+                    &config.slang.warnings,
+                )
+            }
+            SourceFileKind::LibraryMap => sv_frontend::parse_library_map_syntax_with_diagnostics(
+                &text,
+                &identity.name,
+                &identity.path,
+                &config.slang.warnings,
+            ),
+            SourceFileKind::ProjectManifest => {
+                unreachable!("project manifest is not parsed by slang")
+            }
+        }
     };
+    let root_buffer_id = parsed.tree.buffer_id();
+    let raw_diagnostics = parsed.diagnostics;
     let raw_diagnostic_count = raw_diagnostics.len();
     let mut non_root_buffer_count = 0usize;
     let mut ignored_diagnostic_count = 0usize;

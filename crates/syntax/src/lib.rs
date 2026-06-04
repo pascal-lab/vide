@@ -19,13 +19,13 @@ pub use facts::{SemanticFacts, SyntaxFacts};
 pub use kinds::{SyntaxKind, TokenKind, TriviaKind};
 pub use syntax_ext::{AstNodeExt, SyntaxCursorExt, SyntaxNodeExt, TokenAtOffset, support};
 pub use tree::{
-    DiagnosticSeverity, LexedTokenAtOffset, OwnedTrivia, ParserExpectedSyntax,
-    PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SourceBufferId,
-    SourceRange, SyntaxAncestors, SyntaxChildren, SyntaxCursor, SyntaxDiagnostic,
-    SyntaxElemPreorder, SyntaxElement, SyntaxElementKind, SyntaxIdxChildren, SyntaxKeywordContext,
-    SyntaxNode, SyntaxNodePreorder, SyntaxToken, SyntaxTokenWithParent, SyntaxTree,
-    SyntaxTreeBuffer, SyntaxTreeBufferIds, SyntaxTreeBuilder, SyntaxTreeOptions, SyntaxTrivia,
-    SyntaxTriviaLoc, WalkEvent,
+    DiagnosticSeverity, LexedTokenAtOffset, OwnedDirectiveTrivia, OwnedTrivia,
+    ParserExpectedSyntax, PreprocessorDirective, PreprocessorDirectiveToken,
+    PreprocessorMacroParam, SourceBufferId, SourceRange, SyntaxAncestors, SyntaxChildren,
+    SyntaxCursor, SyntaxDiagnostic, SyntaxElemPreorder, SyntaxElement, SyntaxElementKind,
+    SyntaxIdxChildren, SyntaxKeywordContext, SyntaxNode, SyntaxNodePreorder, SyntaxToken,
+    SyntaxTokenWithParent, SyntaxTree, SyntaxTreeBuffer, SyntaxTreeBufferIds, SyntaxTreeBuilder,
+    SyntaxTreeOptions, SyntaxTrivia, SyntaxTriviaLoc, WalkEvent,
 };
 pub use values::{Bit, LiteralBase, SVInt, SVLogic, TimeUnit};
 

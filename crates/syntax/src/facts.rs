@@ -108,7 +108,7 @@ fn keyword_context_candidates(context: SyntaxKeywordContext) -> &'static [&'stat
             "while",
         ],
         SyntaxKeywordContext::ParameterPortListItem => &["localparam", "parameter", "type"],
-        SyntaxKeywordContext::AnsiPortItem => &["input", "inout", "output", "ref"],
+        SyntaxKeywordContext::AnsiPortItem => &["input", "inout", "logic", "output", "ref", "wire"],
         SyntaxKeywordContext::FunctionPortItem => &["input", "inout", "output", "ref"],
         SyntaxKeywordContext::GateType => &[
             "and", "buf", "bufif0", "bufif1", "cmos", "nand", "nor", "not", "notif0", "notif1",

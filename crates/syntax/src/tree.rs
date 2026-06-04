@@ -194,6 +194,14 @@ pub struct OwnedTrivia {
     pub kind: TriviaKind,
     pub raw_text: SmolStr,
     pub range: Option<TextRange>,
+    pub directive: Option<OwnedDirectiveTrivia>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedDirectiveTrivia {
+    pub kind: SyntaxKind,
+    pub range: Option<TextRange>,
+    pub first_token_trivia: Vec<OwnedTrivia>,
 }
 
 #[derive(Debug, Clone)]
@@ -210,7 +218,6 @@ struct TokenData {
     raw_text: SmolStr,
     value_text: SmolStr,
     range: Option<TextRange>,
-    parent: usize,
     trivia: Vec<OwnedTrivia>,
 }
 
@@ -338,7 +345,6 @@ impl SyntaxTreeBuilder {
             raw_text: raw_text.into(),
             value_text: value_text.into(),
             range,
-            parent,
             trivia,
         });
         self.set_child(parent, slot, ElementId::Token(id));
@@ -831,7 +837,23 @@ impl<'a> SyntaxTrivia<'a> {
     }
 
     pub fn syntax(&self) -> Option<SyntaxNode<'a>> {
-        Some(SyntaxNode { tree: self.tree, id: self.tree.tokens[self.token].parent })
+        None
+    }
+
+    pub fn directive_kind(&self) -> Option<SyntaxKind> {
+        self.data().directive.as_ref().map(|directive| directive.kind)
+    }
+
+    pub fn directive_range(&self) -> Option<TextRange> {
+        self.data().directive.as_ref().and_then(|directive| directive.range)
+    }
+
+    pub fn directive_first_token_trivia(&self) -> &[OwnedTrivia] {
+        self.data()
+            .directive
+            .as_ref()
+            .map(|directive| directive.first_token_trivia.as_slice())
+            .unwrap_or_default()
     }
 
     fn data(&self) -> &OwnedTrivia {

@@ -18,9 +18,39 @@ pub fn parse_syntax_with_options(
         .expect("slang parse should produce a root")
 }
 
+pub struct ParsedSyntax {
+    pub tree: SyntaxTree,
+    pub diagnostics: Vec<SyntaxDiagnostic>,
+}
+
+pub fn parse_syntax_with_diagnostics(
+    text: &str,
+    name: &str,
+    path: &str,
+    options: &SyntaxTreeOptions,
+    warning_options: &[String],
+) -> ParsedSyntax {
+    let parsed =
+        slang_adapter::parse_syntax_with_diagnostics(text, name, path, options, warning_options)
+            .expect("slang parse should produce a root");
+    ParsedSyntax { tree: parsed.tree, diagnostics: parsed.diagnostics }
+}
+
 pub fn parse_library_map_syntax(text: &str, name: &str, path: &str) -> SyntaxTree {
     slang_adapter::parse_library_map_syntax(text, name, path)
         .expect("slang parse should produce a root")
+}
+
+pub fn parse_library_map_syntax_with_diagnostics(
+    text: &str,
+    name: &str,
+    path: &str,
+    warning_options: &[String],
+) -> ParsedSyntax {
+    let parsed =
+        slang_adapter::parse_library_map_syntax_with_diagnostics(text, name, path, warning_options)
+            .expect("slang parse should produce a root");
+    ParsedSyntax { tree: parsed.tree, diagnostics: parsed.diagnostics }
 }
 
 pub fn parse_diagnostics_with_options(

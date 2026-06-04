@@ -134,6 +134,40 @@ fn raw_slang_usage_is_confined_to_vendor_and_adapter_dirs() {
     }
 }
 
+#[test]
+fn slang_adapter_kind_mapping_is_name_level_not_numeric_id_passthrough() {
+    let root = repo_root();
+    let adapter_src = read(root.join("crates/slang-adapter/src/lib.rs"));
+    let adapter_map = read(root.join("crates/slang-adapter/src/kind_map.rs"));
+
+    for pattern in [
+        "SyntaxKind::from_id(kind.as_u16())",
+        "TokenKind::from_id(kind.as_u16())",
+        "from_id(kind.as_u16())",
+    ] {
+        assert!(
+            !adapter_src.contains(pattern),
+            "slang-adapter must not map raw slang kinds by numeric id passthrough `{pattern}`"
+        );
+    }
+
+    assert!(
+        adapter_map.contains(
+            "slang::SyntaxKind::MODULE_DECLARATION => syntax::SyntaxKind::MODULE_DECLARATION"
+        ),
+        "slang-adapter must map syntax kinds by explicit names"
+    );
+    assert!(
+        adapter_map.contains("slang::TokenKind::WIRE_KEYWORD => syntax::TokenKind::WIRE_KEYWORD"),
+        "slang-adapter must map token kinds by explicit names"
+    );
+    assert!(
+        adapter_map.contains("_ => syntax::SyntaxKind::UNKNOWN")
+            && adapter_map.contains("_ => syntax::TokenKind::UNKNOWN"),
+        "slang-adapter kind mapping must keep explicit unknown cases"
+    );
+}
+
 fn collect_rust_files(root: &Path, files: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(root).unwrap_or_else(|err| {
         panic!("failed to read directory {}: {err}", root.display());

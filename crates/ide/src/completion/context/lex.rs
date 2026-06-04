@@ -92,10 +92,9 @@ fn is_inside_preproc_directive_trivia(caret: &CaretSnapshot<'_>) -> bool {
                 return false;
             }
 
-            let Some(node) = trivia.syntax() else {
-                return false;
-            };
-            node.text_range().is_some_and(|range| range.contains(offset) || range.end() == offset)
+            trivia
+                .directive_range()
+                .is_some_and(|range| range.contains(offset) || range.end() == offset)
         })
     }
 

@@ -251,6 +251,7 @@ mod tests {
         let ansi_keywords = keywords_at(SyntaxKeywordContext::AnsiPortItem);
         assert!(ansi_keywords.iter().any(|keyword| keyword == "input"));
         assert!(ansi_keywords.iter().any(|keyword| keyword == "output"));
+        assert!(ansi_keywords.iter().any(|keyword| keyword == "wire"));
         assert!(!ansi_keywords.iter().any(|keyword| keyword == "always"));
 
         let function_keywords = keywords_at(SyntaxKeywordContext::FunctionPortItem);

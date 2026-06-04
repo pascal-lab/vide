@@ -7,7 +7,7 @@ use crate::{
     ChildrenIter, SyntaxAncestors, SyntaxCursor, SyntaxElement, SyntaxNode, SyntaxTokenWithParent,
     SyntaxTrivia, TokenKind, Trivia, TriviaKind,
     ast::AstNode,
-    has_text_range::{HasTextRange, SourceRangeExt},
+    has_text_range::HasTextRange,
     ptr::SyntaxNodePtr,
     token::{SyntaxTokenExt, SyntaxTokenWithParentExt},
 };
@@ -221,30 +221,22 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
             tok: SyntaxTokenWithParent<'_>,
             offset: TextSize,
         ) -> Option<TriviaKind> {
-            let root = tok.parent.find_root();
             for (range, trivia) in tok.trivias_with_range() {
                 if range.contains(offset) {
                     return Some(trivia.kind());
                 }
 
-                if trivia.kind() == Trivia!["`"]
-                    && let Some(node) = trivia.syntax()
-                {
-                    if node
-                        .range_with_context(tok.parent)
-                        .and_then(|range| range.to_text_range_in_root(tok.parent.find_root()))
+                if trivia.kind() == Trivia!["`"] {
+                    if trivia
+                        .directive_range()
                         .is_some_and(|range| range.contains(offset) || range.end() == offset)
                     {
                         return Some(trivia.kind());
                     }
 
-                    let Some(first_tok) = node.first_token() else {
-                        continue;
-                    };
-                    for (nested_range, nested_trivia) in first_tok.trivias_with_range_in_root(root)
-                    {
-                        if nested_range.contains(offset) {
-                            return Some(nested_trivia.kind());
+                    for nested in trivia.directive_first_token_trivia() {
+                        if nested.range.is_some_and(|range| range.contains(offset)) {
+                            return Some(nested.kind);
                         }
                     }
                 }
