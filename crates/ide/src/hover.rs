@@ -1,11 +1,19 @@
-use hir::{container::InContainer, file::HirFileId, hir_def::expr::Expr, semantics::Semantics};
+use hir::{
+    base_db::source_db::SourceDb,
+    container::InContainer,
+    file::HirFileId,
+    hir_def::expr::Expr,
+    preproc::{IncludeTarget, include_directive_at},
+    semantics::Semantics,
+};
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
     has_text_range::HasTextRange,
     token::TokenKindExt,
 };
-use utils::get::GetRef;
+use utils::{get::GetRef, line_index::TextSize};
+use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
@@ -28,6 +36,10 @@ pub(crate) fn hover(
     FilePosition { file_id, offset }: FilePosition,
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
+    if let Some(include) = handle_preproc_include(db, file_id, offset) {
+        return Some(include);
+    }
+
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
@@ -64,6 +76,34 @@ fn handle_literal(
     };
 
     render::render_literal(literal)
+}
+
+fn handle_preproc_include(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<RangeInfo<Markup>> {
+    let include = include_directive_at(db, file_id, offset)?;
+    let mut markup = Markup::new();
+    match include.target {
+        IncludeTarget::Literal { path, resolved_file } => {
+            markup.print("Include");
+            markup.newline();
+            markup.push_with_backticks(path.as_str());
+            if let Some(target_file_id) = resolved_file
+                && let Some(path) = db.file_path(target_file_id)
+            {
+                markup.newline();
+                markup.print(&path.to_string());
+            }
+        }
+        IncludeTarget::Token { raw } => {
+            markup.print("Include");
+            markup.newline();
+            markup.push_with_backticks(raw.as_str());
+        }
+    }
+    Some(RangeInfo::new(include.range, markup))
 }
 
 fn handle_definition(
