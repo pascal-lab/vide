@@ -142,6 +142,9 @@ pub enum CodeActionResolveError {
 
 pub const RUN_QIHE_ANALYSIS_COMMAND: &str = "vide.server.runQiheAnalysis";
 pub const RELOAD_WORKSPACE_COMMAND: &str = "vide.server.reloadWorkspace";
+pub const RENAME_EXPANSION_INFO_COMMAND: &str = "vide.server.renameExpansionInfo";
+pub const EXPANDED_RENAME_COMMAND: &str = "vide.server.expandedRename";
+pub const RENAME_CONFLICT_INFO_COMMAND: &str = "vide.server.renameConflictInfo";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,6 +152,40 @@ pub struct RunQiheAnalysisParams {
     pub uri: lsp_types::Url,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameExpansionInfoParams {
+    pub text_document_position: lsp_types::TextDocumentPositionParams,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameExpansionInfoResult {
+    pub additional_symbols: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpandedRenameParams {
+    pub text_document_position: lsp_types::TextDocumentPositionParams,
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameConflictInfoParams {
+    pub text_document_position: lsp_types::TextDocumentPositionParams,
+    pub new_name: String,
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameConflictInfoResult {
+    pub conflicts: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

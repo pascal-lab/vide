@@ -14,7 +14,10 @@ use utils::{line_index::WideEncoding, lines::PositionEncoding};
 
 use crate::{
     config::Config,
-    lsp_ext::ext::{self, RELOAD_WORKSPACE_COMMAND, RUN_QIHE_ANALYSIS_COMMAND},
+    lsp_ext::ext::{
+        self, EXPANDED_RENAME_COMMAND, RELOAD_WORKSPACE_COMMAND, RENAME_CONFLICT_INFO_COMMAND,
+        RENAME_EXPANSION_INFO_COMMAND, RUN_QIHE_ANALYSIS_COMMAND,
+    },
 };
 
 macro_rules! check_support {
@@ -318,6 +321,9 @@ impl Config {
                 commands: vec![
                     RUN_QIHE_ANALYSIS_COMMAND.to_string(),
                     RELOAD_WORKSPACE_COMMAND.to_string(),
+                    RENAME_EXPANSION_INFO_COMMAND.to_string(),
+                    EXPANDED_RENAME_COMMAND.to_string(),
+                    RENAME_CONFLICT_INFO_COMMAND.to_string(),
                 ],
                 work_done_progress_options: Default::default(),
             }),
