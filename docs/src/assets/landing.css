@@ -61,7 +61,7 @@ starlight-lang-select label::after {
   grid-area: 1 / 1;
   padding-block: 0.625rem;
   padding-inline: calc(var(--sl-label-icon-size) + var(--sl-inline-padding) + 0.25rem)
-    calc(var(--sl-caret-size) + var(--sl-inline-padding) + 0.25rem);
+    calc(var(--sl-caret-size) + var(--sl-inline-padding) + var(--sl-inline-padding) + 0.25rem);
   color: inherit;
   line-height: 1;
   pointer-events: none;
@@ -72,6 +72,10 @@ starlight-lang-select select {
   grid-area: 1 / 1;
   width: 100%;
   color: transparent;
+}
+
+starlight-lang-select .caret {
+  inset-inline-end: var(--sl-inline-padding);
 }
 
 starlight-lang-select option {
