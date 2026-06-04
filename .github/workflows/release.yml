@@ -175,11 +175,11 @@ jobs:
 
           rustc --version
           cargo --version
-          g++ --version | head -n 1
+          g++ -dumpfullversion -dumpversion
           cargo build --release
 
           server="${CARGO_TARGET_DIR}/release/vide"
-          ldd --version | head -n 1
+          ldd --version
           ldd "$server"
           "$server" --version
           if readelf -V "$server" | grep -E 'Name: GLIBC_2\.([2-9][0-9]|1[89])\b|Name: GLIBCXX_3\.4\.([2-9][0-9]|1[0-9][0-9])\b|Name: CXXABI_1\.3\.([89]|[1-9][0-9])\b'; then
