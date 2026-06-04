@@ -50,9 +50,38 @@ fn syntax_crate_exposes_only_owned_syntax_boundary() {
     let syntax_root = root.join("crates/syntax");
     let manifest = read(syntax_root.join("Cargo.toml"));
     assert!(!manifest.contains("slang.workspace"), "syntax crate must not depend on raw slang");
+    assert!(!manifest.contains("preproc.workspace"), "syntax crate must not depend on preproc");
+    assert!(
+        !manifest.contains("frontend-api.workspace"),
+        "syntax crate must not depend on frontend-api contracts"
+    );
 
-    let forbidden = ["pub use slang", "use slang", "slang::", "slang_ext"];
-    assert_no_patterns_in_production(&syntax_root.join("src"), &forbidden, "raw slang boundary");
+    let forbidden = [
+        "pub use slang",
+        "use slang",
+        "slang::",
+        "slang_ext",
+        "SyntaxTreeOptions",
+        "ParseOptions",
+        "SyntaxDiagnostic",
+        "FrontendDiagnostic",
+        "DiagnosticSeverity",
+        "ParserExpectedSyntax",
+        "LexedTokenAtOffset",
+        "PreprocessorDirective",
+        "PreprocessorDirectiveToken",
+        "PreprocessorMacroParam",
+        "DirectiveEvent",
+        "DirectiveKind",
+        "SyntaxKeywordContext",
+        "SyntaxFacts",
+        "SemanticFacts",
+    ];
+    assert_no_patterns_in_production(
+        &syntax_root.join("src"),
+        &forbidden,
+        "non-rowan syntax contract",
+    );
 }
 
 #[test]
@@ -72,13 +101,39 @@ fn hir_and_ide_do_not_depend_on_raw_slang_or_adapter_paths() {
 }
 
 #[test]
+fn ide_does_not_depend_on_frontend_provider_crates() {
+    let root = repo_root();
+    let manifest = read(root.join("crates/ide/Cargo.toml"));
+    assert!(
+        !manifest.contains("sv-frontend"),
+        "IDE must consume frontend facts through RootDb/HIR facade, not sv-frontend"
+    );
+    assert!(!manifest.contains("slang-adapter"), "IDE must not depend on slang-adapter");
+
+    let forbidden = ["use sv_frontend", "sv_frontend::", "use slang_adapter", "slang_adapter::"];
+    assert_no_patterns_in_production(&root.join("crates/ide/src"), &forbidden, "frontend provider");
+}
+
+#[test]
 fn preproc_production_does_not_parse_through_raw_slang_or_adapter() {
     let root = repo_root();
+    let manifest = read(root.join("crates/preproc/Cargo.toml"));
+    assert!(
+        !manifest.contains("syntax.workspace"),
+        "preproc must consume DirectiveEvent/PreprocTrace contracts without depending on syntax"
+    );
+    assert!(
+        !manifest.contains("sv-frontend") && !manifest.contains("slang-adapter"),
+        "preproc must not depend on frontend provider crates"
+    );
+
     let forbidden = [
         "use slang",
         "slang::",
         "use slang_adapter",
         "slang_adapter::",
+        "use syntax",
+        "syntax::",
         "syntax::slang_ext",
         "slang_ext::",
         "textual fallback",
