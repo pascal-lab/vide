@@ -1,4 +1,4 @@
-use preproc::MacroIncludeTarget;
+use preproc::index::MacroIncludeTarget;
 use rustc_hash::FxHashSet;
 use syntax::SyntaxTreeBuffer;
 use utils::{

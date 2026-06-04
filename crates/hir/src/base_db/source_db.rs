@@ -1,4 +1,4 @@
-use preproc::PreprocFileIndex;
+use preproc::index::{PreprocFileIndex, preproc_file_index_from_text};
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
     Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
@@ -132,7 +132,7 @@ fn preproc_file_index_with_predefines(
                 predefines,
                 ..syntax::SyntaxTreeOptions::without_include_expansion()
             };
-            Arc::new(preproc::preproc_file_index_from_text(&db.file_text(file_id), &options))
+            Arc::new(preproc_file_index_from_text(&db.file_text(file_id), &options))
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
             Arc::new(PreprocFileIndex::default())
