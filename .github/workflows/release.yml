@@ -146,50 +146,39 @@ jobs:
     name: Build linux-x64 server
     needs: changelog
     runs-on: ubuntu-22.04
-    container: quay.io/pypa/manylinux2014_x86_64
     steps:
-      - name: Install build dependencies
-        run: |
-          yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trust checkout directories
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          components: rustfmt
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: rust-linux-x64-manylinux2014
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
-          cache-workspace-crates: true
-          cache-on-failure: true
-
-      - name: Build language server
+      - name: Build and verify language server in manylinux2014
         shell: bash
         env:
           CARGO_TARGET_DIR: target/linux-x64-manylinux2014
         run: |
           set -euo pipefail
+          build_script="${RUNNER_TEMP}/build-linux-x64-manylinux2014.sh"
+          cat > "${build_script}" <<'BASH'
+          set -euo pipefail
+
+          yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++ curl ca-certificates git
+          git config --global --add safe.directory /workspace
           export PATH="/opt/python/cp312-cp312/bin:/opt/rh/devtoolset-11/root/usr/bin:${PATH}"
+
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          if [ -z "${toolchain}" ]; then
+            echo "rust-toolchain.toml does not define a toolchain channel." >&2
+            exit 1
+          fi
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "${toolchain}"
+          # shellcheck disable=SC1091
+          source "${HOME}/.cargo/env"
+
           rustc --version
           cargo --version
           g++ --version | head -n 1
           cargo build --release
 
-      - name: Verify glibc 2.17 compatibility
-        shell: bash
-        run: |
-          set -euo pipefail
-          server="target/linux-x64-manylinux2014/release/vide"
+          server="${CARGO_TARGET_DIR}/release/vide"
           ldd --version | head -n 1
           ldd "$server"
           "$server" --version
@@ -198,9 +187,16 @@ jobs:
             exit 1
           fi
 
-      - name: Stage language server artifact
-        run: |
-          cp target/linux-x64-manylinux2014/release/vide vide-linux-x64
+          cp "$server" vide-linux-x64
+          BASH
+
+          docker run --rm \
+            -e CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -v "${build_script}:/tmp/build-linux-x64-manylinux2014.sh:ro" \
+            -w /workspace \
+            quay.io/pypa/manylinux2014_x86_64 \
+            /bin/bash /tmp/build-linux-x64-manylinux2014.sh
 
       - name: Upload language server binary artifact
         uses: actions/upload-artifact@v4
