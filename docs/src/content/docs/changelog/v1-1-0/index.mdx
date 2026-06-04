@@ -11,6 +11,7 @@ Vide 1.1.0 主要改善写代码时会直接用到的功能：工作区符号搜
 
 - 编辑器现在可以向 Vide 查询整个工作区的符号，用于快速搜索模块、实例、信号等代码对象。支持的编辑器会在“工作区符号”或类似入口里显示这些结果。 ([#210](https://github.com/pascal-lab/vide/pull/210))
 - 搜索支持大小写不敏感的模糊匹配，也可以用路径或容器名缩小范围，例如先限定模块或层级，再查具体信号。 ([#210](https://github.com/pascal-lab/vide/pull/210))
+- 文件在工作区里改名后，工作区符号搜索和跳转定义会更新到新文件路径，不再继续显示或跳转到旧路径。 ([#222](https://github.com/pascal-lab/vide/pull/222))
 
   ![工作区符号搜索示例](../../assets/changelog/1.1.0/workspace-symbols.gif)
 
