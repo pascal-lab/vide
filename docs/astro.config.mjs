@@ -134,7 +134,7 @@ export default defineConfig({
         {
           label: 'Changelog',
           translations: { en: 'Changelog' },
-          items: ['changelog'],
+          items: ['changelog', 'changelog/v1-1-0'],
         },
         {
           label: 'Playground',
@@ -154,11 +154,11 @@ export default defineConfig({
               translations: { en: 'Advanced' },
               link: '/advanced-guide/',
             },
-            // {
-            //   label: '更新日志',
-            //   translations: { en: 'Changelog' },
-            //   link: '/changelog/',
-            // },
+            {
+              label: '更新日志',
+              translations: { en: 'Changelog' },
+              link: '/changelog/',
+            },
             {
               label: 'Playground',
               translations: { en: 'Playground' },
