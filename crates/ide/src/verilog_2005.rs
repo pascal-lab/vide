@@ -7,7 +7,6 @@ use std::{
 use hir::{
     base_db::{
         change::Change,
-        preproc_index::MacroIncludeTarget,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId},
@@ -15,6 +14,7 @@ use hir::{
     semantics::Semantics,
 };
 use insta::assert_snapshot;
+use preproc::MacroIncludeTarget;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
