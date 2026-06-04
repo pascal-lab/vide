@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
-use syntax::{SemanticFacts, SyntaxFacts, SyntaxKeywordContext, SyntaxToken, TokenKind};
+use frontend_api::{SemanticFacts, SyntaxFacts, SyntaxKeywordContext};
+use syntax::{SyntaxToken, TokenKind};
 
 use crate::completion::request::PortListKind;
 

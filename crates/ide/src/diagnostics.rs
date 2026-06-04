@@ -1,3 +1,4 @@
+use frontend_api::{DiagnosticSeverity, FrontendDiagnostic};
 use hir::{
     base_db::{
         diagnostics_config::DiagnosticSource as SlangDiagnosticSource,
@@ -9,7 +10,6 @@ use hir::{
     hir_def::module::ModuleId,
     source_map::IsSrc,
 };
-use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::{
     get::Get,
     text_edit::{TextRange, TextSize},
@@ -199,7 +199,7 @@ fn syntax_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
 fn slang_diagnostic(
     file_id: FileId,
     source: SlangDiagnosticSource,
-    diag: &SyntaxDiagnostic,
+    diag: &FrontendDiagnostic,
 ) -> Diagnostic {
     Diagnostic {
         file_id,
@@ -419,7 +419,7 @@ fn ambiguous_module_instantiation_diagnostic(
     }
 }
 
-fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
+fn to_text_range(diag: &FrontendDiagnostic) -> TextRange {
     fn to_text_size(value: usize) -> TextSize {
         let raw = u32::try_from(value).unwrap_or(u32::MAX);
         TextSize::new(raw)
@@ -437,6 +437,7 @@ fn to_text_range(diag: &SyntaxDiagnostic) -> TextRange {
 
 #[cfg(test)]
 mod tests {
+    use frontend_api::DiagnosticSeverity;
     use hir::base_db::{
         change::Change,
         compilation_plan::compilation_source_buffers_for_plan,
@@ -519,7 +520,7 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::DiagnosticSeverity::Note
+                    && diag.severity == DiagnosticSeverity::Note
                     && diag.message.contains("matches 2 module definitions")
             }),
             "expected vide ambiguous module information: {diagnostics:?}"
@@ -563,7 +564,7 @@ mod tests {
             diagnostics.iter().any(|diag| {
                 diag.source == DiagnosticSource::Vide
                     && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
-                    && diag.severity == syntax::DiagnosticSeverity::Warning
+                    && diag.severity == DiagnosticSeverity::Warning
                     && diag.message.contains("matches 2 module definitions")
             }),
             "expected strict ambiguity warning: {diagnostics:?}"
@@ -602,7 +603,7 @@ mod tests {
             .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
             .expect("expected inactive preprocessor branch diagnostic");
 
-        assert_eq!(inactive.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(inactive.severity, DiagnosticSeverity::Note);
         assert_eq!(inactive.tags, vec![DiagnosticTag::Unnecessary]);
         assert_eq!(inactive.message_key, Some(DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH));
     }
@@ -617,7 +618,7 @@ mod tests {
         let diagnostic = &diagnostics[0];
         assert_eq!(diagnostic.file_id, FileId(0));
         assert_eq!(diagnostic.source, DiagnosticSource::SlangParse);
-        assert_eq!(diagnostic.severity, syntax::DiagnosticSeverity::Error);
+        assert_eq!(diagnostic.severity, DiagnosticSeverity::Error);
         assert!(!diagnostic.message.is_empty());
         assert!(diagnostic.range.start() <= diagnostic.range.end());
     }
@@ -634,7 +635,7 @@ mod tests {
             .expect("expected inactive preprocessor branch diagnostic");
 
         assert_eq!(inactive.source, DiagnosticSource::Vide);
-        assert_eq!(inactive.severity, syntax::DiagnosticSeverity::Note);
+        assert_eq!(inactive.severity, DiagnosticSeverity::Note);
         assert_eq!(inactive.tags, vec![DiagnosticTag::Unnecessary]);
         assert_eq!(inactive.message, "code is inactive due to preprocessor conditionals");
         assert_eq!(inactive.message_key, Some(DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH));

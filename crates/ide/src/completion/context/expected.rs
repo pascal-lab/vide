@@ -1,5 +1,6 @@
+use frontend_api::SyntaxKeywordContext;
 use syntax::{
-    SyntaxAncestors, SyntaxKeywordContext, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
+    SyntaxAncestors, SyntaxNodeExt, SyntaxToken, SyntaxTokenWithParent,
     ast::{self, AstNode},
     ast_ext::NamedConnectionDotZoneExt,
     has_text_range::{HasTextRange, HasTextRangeIn},

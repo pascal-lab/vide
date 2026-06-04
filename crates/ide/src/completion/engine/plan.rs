@@ -34,7 +34,7 @@ fn complete_provider(
         CompletionProvider::Keywords(provider) => {
             keywords::complete_keywords(db, position, &ctx.prefix, ctx, provider)
         }
-        CompletionProvider::SystemTasks => system::complete_system_tasks(&ctx.prefix, ctx),
+        CompletionProvider::SystemTasks => system::complete_system_tasks(db, &ctx.prefix, ctx),
         CompletionProvider::Expression => expr::complete_expression(db, position, &ctx.prefix, ctx),
         CompletionProvider::PortConnectionName => {
             named::complete_named_port_names(db, position, &ctx.prefix, ctx)

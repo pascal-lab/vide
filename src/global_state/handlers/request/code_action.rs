@@ -263,12 +263,12 @@ fn parse_action_id(action_id: &str) -> anyhow::Result<(usize, String), String> {
 
 #[cfg(test)]
 mod tests {
+    use frontend_api::DiagnosticSeverity;
     use ide::{
         code_action::RepairKind,
         diagnostics::{Diagnostic as IdeDiagnostic, DiagnosticSource as IdeDiagnosticSource},
     };
     use lsp_types::{Diagnostic as LspDiagnostic, NumberOrString, Position, Range};
-    use syntax::DiagnosticSeverity;
     use triomphe::Arc;
     use utils::{
         line_index::{LineIndex, TextRange, TextSize},

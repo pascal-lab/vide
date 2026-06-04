@@ -6,6 +6,7 @@ description = "SystemVerilog frontend facade over Vizsla-owned syntax contracts"
 edition.workspace = true
 
 [dependencies]
+frontend-api.workspace = true
 preproc.workspace = true
 slang-adapter.workspace = true
 syntax.workspace = true

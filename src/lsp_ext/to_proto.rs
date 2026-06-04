@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Context, Error};
+use frontend_api::DiagnosticSeverity as SlangDiagnosticSeverity;
 use hir::container::InFile;
 use ide::{
     FilePosition, FileRange, SymbolKind,
@@ -20,7 +21,6 @@ use ide::{
     source_change::SourceChange,
 };
 use itertools::Itertools;
-use syntax::DiagnosticSeverity as SlangDiagnosticSeverity;
 use utils::{
     cancellation::CancellationError,
     line_index::{LineCol, LineIndex, TextRange, TextSize},
@@ -970,10 +970,10 @@ fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use frontend_api::DiagnosticSeverity;
     use ide::diagnostics::{
         Diagnostic as IdeDiagnostic, DiagnosticSource as IdeDiagnosticSource, DiagnosticTag,
     };
-    use syntax::DiagnosticSeverity;
     use triomphe::Arc;
     use utils::{
         line_index::{LineIndex, TextRange, TextSize},

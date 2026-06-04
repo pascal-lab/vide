@@ -70,7 +70,7 @@ impl SnippetDef {
 
 #[cfg(test)]
 mod tests {
-    use syntax::SyntaxKeywordContext;
+    use frontend_api::SyntaxKeywordContext;
 
     use super::*;
     use crate::completion::syntax_keywords;

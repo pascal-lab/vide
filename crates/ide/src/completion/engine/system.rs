@@ -1,20 +1,24 @@
-use std::sync::OnceLock;
+use hir::base_db::source_db::SourceRootDb;
 
 use super::candidate::CompletionCandidate;
-use crate::completion::context::CompletionContext;
+use crate::{completion::context::CompletionContext, db::root_db::RootDb};
 
 pub(super) fn complete_system_tasks(
+    db: &RootDb,
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    collect_system_subroutines(prefix, ctx, system_task_names())
+    let names = db.system_task_names();
+    collect_system_subroutines(prefix, ctx, &names)
 }
 
 pub(super) fn complete_system_functions(
+    db: &RootDb,
     prefix: &str,
     ctx: &CompletionContext,
 ) -> Vec<CompletionCandidate> {
-    collect_system_subroutines(prefix, ctx, system_function_names())
+    let names = db.system_function_names();
+    collect_system_subroutines(prefix, ctx, &names)
 }
 
 fn collect_system_subroutines(
@@ -39,14 +43,4 @@ fn collect_system_subroutines(
             )
         })
         .collect()
-}
-
-fn system_function_names() -> &'static [String] {
-    static SYSTEM_FUNCTION_NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    SYSTEM_FUNCTION_NAMES.get_or_init(sv_frontend::system_function_names)
-}
-
-fn system_task_names() -> &'static [String] {
-    static SYSTEM_TASK_NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    SYSTEM_TASK_NAMES.get_or_init(sv_frontend::system_task_names)
 }

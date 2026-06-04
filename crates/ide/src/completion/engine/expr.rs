@@ -92,7 +92,7 @@ fn complete_expression_impl(
             ),
         })
         .collect();
-    candidates.extend(system::complete_system_functions(prefix, ctx));
+    candidates.extend(system::complete_system_functions(db, prefix, ctx));
     candidates
 }
 

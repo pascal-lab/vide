@@ -1,7 +1,7 @@
 [package]
 name = "syntax"
 version = "0.0.0"
-description = "AST- and parser-related components"
+description = "Owned rowan syntax tree model"
 
 edition.workspace = true
 

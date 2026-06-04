@@ -1,5 +1,5 @@
+use frontend_api::SyntaxKeywordContext;
 use smallvec::SmallVec;
-use syntax::SyntaxKeywordContext;
 
 use super::{
     CompletionExpectation, ExpectationSource, ExpectedSyntax, TriggerChar,
@@ -164,7 +164,8 @@ fn push_unique(
 
 #[cfg(test)]
 mod tests {
-    use syntax::{ParserExpectedSyntax, TokenKind};
+    use frontend_api::ParserExpectedSyntax;
+    use syntax::TokenKind;
 
     use super::*;
     use crate::completion::context::parser;

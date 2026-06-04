@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use syntax::DiagnosticSeverity;
+use frontend_api::{DiagnosticSeverity, FrontendDiagnostic};
 
 static NEXT_CONFIG_REVISION: AtomicU64 = AtomicU64::new(1);
 
@@ -82,8 +82,8 @@ impl DiagnosticsConfig {
     pub fn apply_rules(
         &self,
         source: DiagnosticSource,
-        mut diag: syntax::SyntaxDiagnostic,
-    ) -> Option<syntax::SyntaxDiagnostic> {
+        mut diag: FrontendDiagnostic,
+    ) -> Option<FrontendDiagnostic> {
         if !self.enabled {
             return None;
         }
@@ -107,7 +107,7 @@ impl DiagnosticsConfig {
 }
 
 impl DiagnosticRule {
-    fn matches(&self, source: DiagnosticSource, diag: &syntax::SyntaxDiagnostic) -> bool {
+    fn matches(&self, source: DiagnosticSource, diag: &FrontendDiagnostic) -> bool {
         match &self.selector {
             DiagnosticSelector::Code { subsystem, code } => {
                 diag.subsystem == *subsystem && diag.code == *code
@@ -121,8 +121,6 @@ impl DiagnosticRule {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
-
     use super::*;
 
     #[test]
@@ -139,7 +137,7 @@ mod tests {
             ..DiagnosticsConfig::default()
         };
 
-        let diag = SyntaxDiagnostic {
+        let diag = FrontendDiagnostic {
             code: 1,
             subsystem: 2,
             severity: DiagnosticSeverity::Error,

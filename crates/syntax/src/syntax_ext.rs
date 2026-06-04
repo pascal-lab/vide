@@ -233,12 +233,6 @@ impl<'a> SyntaxNodeExt<'a> for SyntaxNode<'a> {
                     {
                         return Some(trivia.kind());
                     }
-
-                    for nested in trivia.directive_first_token_trivia() {
-                        if nested.range.is_some_and(|range| range.contains(offset)) {
-                            return Some(nested.kind);
-                        }
-                    }
                 }
             }
 

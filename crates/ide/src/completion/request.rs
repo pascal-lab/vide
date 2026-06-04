@@ -1,5 +1,5 @@
+use frontend_api::SyntaxKeywordContext;
 use smallvec::{SmallVec, smallvec};
-use syntax::SyntaxKeywordContext;
 
 use super::context::{CompletionContext, ExpectedSyntax, LexContext, TriggerChar};
 

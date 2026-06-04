@@ -1,143 +1,10 @@
-use std::{fmt, hash, iter, ops::Range, ptr};
+use std::{fmt, hash, iter, ptr};
 
 use either::Either;
 use smol_str::SmolStr;
 use utils::line_index::{TextRange, TextSize};
 
 use crate::{Bit, LiteralBase, SVInt, SVLogic, SyntaxKind, TimeUnit, TokenKind, TriviaKind};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxTreeOptions {
-    pub predefines: Vec<String>,
-    pub include_paths: Vec<String>,
-    pub include_buffers: Vec<SyntaxTreeBuffer>,
-    pub expand_includes: bool,
-}
-
-impl Default for SyntaxTreeOptions {
-    fn default() -> Self {
-        Self {
-            predefines: Vec::new(),
-            include_paths: Vec::new(),
-            include_buffers: Vec::new(),
-            expand_includes: true,
-        }
-    }
-}
-
-impl SyntaxTreeOptions {
-    pub fn without_include_expansion() -> Self {
-        Self { expand_includes: false, ..Self::default() }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxTreeBuffer {
-    pub path: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxTreeBufferIds {
-    pub root_buffer_id: u32,
-    pub source_buffers: Vec<SourceBufferId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceBufferId {
-    pub path: String,
-    pub buffer_id: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyntaxDiagnostic {
-    pub code: u16,
-    pub subsystem: u16,
-    pub severity: DiagnosticSeverity,
-    pub message: String,
-    pub args: Vec<String>,
-    pub name: String,
-    pub option_name: Option<String>,
-    pub groups: Vec<String>,
-    pub primary_range: Option<Range<usize>>,
-    pub location: Option<usize>,
-    pub buffer_id: Option<u32>,
-    pub file_name: Option<String>,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiagnosticSeverity {
-    Ignored,
-    Note,
-    Warning,
-    Error,
-    Fatal,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParserExpectedSyntax {
-    pub code: u16,
-    pub subsystem: u16,
-    pub name: String,
-    pub token_kind: TokenKind,
-    pub keyword_context: Option<SyntaxKeywordContext>,
-    pub location: Option<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LexedTokenAtOffset {
-    pub replacement: Range<usize>,
-    pub prefix: String,
-    pub token_kind: TokenKind,
-    pub directive_kind: Option<SyntaxKind>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorDirective {
-    pub kind: SyntaxKind,
-    pub range: Option<Range<usize>>,
-    pub directive: Option<PreprocessorDirectiveToken>,
-    pub name: Option<PreprocessorDirectiveToken>,
-    pub include_file_name: Option<PreprocessorDirectiveToken>,
-    pub params: Vec<PreprocessorMacroParam>,
-    pub body_tokens: Vec<PreprocessorDirectiveToken>,
-    pub expr_tokens: Vec<PreprocessorDirectiveToken>,
-    pub disabled_ranges: Vec<Range<usize>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorDirectiveToken {
-    pub raw_text: String,
-    pub value_text: String,
-    pub range: Option<Range<usize>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorMacroParam {
-    pub name: Option<PreprocessorDirectiveToken>,
-    pub default_tokens: Option<Vec<PreprocessorDirectiveToken>>,
-    pub range: Option<Range<usize>>,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SyntaxKeywordContext {
-    CompilationUnitMember,
-    LibraryMapMember,
-    ModuleHeaderItem,
-    ModuleMember,
-    GenerateMember,
-    SpecifyItem,
-    ConfigHeaderItem,
-    ConfigRule,
-    BlockItem,
-    Statement,
-    ParameterPortListItem,
-    AnsiPortItem,
-    FunctionPortItem,
-    GateType,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceRange {
@@ -194,14 +61,7 @@ pub struct OwnedTrivia {
     pub kind: TriviaKind,
     pub raw_text: SmolStr,
     pub range: Option<TextRange>,
-    pub directive: Option<OwnedDirectiveTrivia>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OwnedDirectiveTrivia {
-    pub kind: SyntaxKind,
-    pub range: Option<TextRange>,
-    pub first_token_trivia: Vec<OwnedTrivia>,
+    pub directive_range: Option<TextRange>,
 }
 
 #[derive(Debug, Clone)]
@@ -836,24 +696,8 @@ impl<'a> SyntaxTrivia<'a> {
         self.data().range
     }
 
-    pub fn syntax(&self) -> Option<SyntaxNode<'a>> {
-        None
-    }
-
-    pub fn directive_kind(&self) -> Option<SyntaxKind> {
-        self.data().directive.as_ref().map(|directive| directive.kind)
-    }
-
     pub fn directive_range(&self) -> Option<TextRange> {
-        self.data().directive.as_ref().and_then(|directive| directive.range)
-    }
-
-    pub fn directive_first_token_trivia(&self) -> &[OwnedTrivia] {
-        self.data()
-            .directive
-            .as_ref()
-            .map(|directive| directive.first_token_trivia.as_slice())
-            .unwrap_or_default()
+        self.data().directive_range
     }
 
     fn data(&self) -> &OwnedTrivia {

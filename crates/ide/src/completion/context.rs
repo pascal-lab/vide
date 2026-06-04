@@ -8,15 +8,13 @@ mod parser;
 mod resolve;
 mod util;
 
+use frontend_api::{LexedTokenAtOffset, ParserExpectedSyntax, SyntaxKeywordContext};
 use hir::{
     base_db::source_db::{SourceDb, SourceRootDb},
     semantics::Semantics,
 };
 use smallvec::{SmallVec, smallvec};
-use syntax::{
-    ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, SyntaxNodeExt,
-    has_text_range::HasTextRange,
-};
+use syntax::{SyntaxNode, SyntaxNodeExt, has_text_range::HasTextRange};
 use utils::line_index::{TextRange, TextSize};
 
 use self::caret::CaretSnapshot;
@@ -118,8 +116,9 @@ pub(crate) fn completion_context(
     };
     let text = db.file_text(file_id);
     let parser_expected_syntax = db.parser_expected_syntax(file_id, offset);
-    let directive_word = directive_word_at_offset(&text, offset);
-    let token_word = library_map_word_at_offset(root, &text, offset);
+    let directive_word =
+        db.directive_at_offset(file_id, offset).and_then(completion_word_from_lexed);
+    let token_word = db.token_word_at_offset(file_id, offset).and_then(completion_word_from_lexed);
     let system_word = standalone_system_identifier_word_at_offset(&text, offset);
     detect_completion_context_impl(
         root,
@@ -138,27 +137,6 @@ pub fn detect_completion_context(
     trigger: Option<TriggerChar>,
 ) -> CompletionContext {
     detect_completion_context_impl(root, offset, trigger, None, None, None, None)
-}
-
-pub fn detect_completion_context_with_source_text(
-    root: SyntaxNode<'_>,
-    offset: TextSize,
-    trigger: Option<TriggerChar>,
-    source_text: &str,
-) -> CompletionContext {
-    let parser_expected_syntax = parser_expected_syntax_for_text(root, source_text, offset);
-    let directive_word = directive_word_at_offset(source_text, offset);
-    let token_word = library_map_word_at_offset(root, source_text, offset);
-    let system_word = standalone_system_identifier_word_at_offset(source_text, offset);
-    detect_completion_context_impl(
-        root,
-        offset,
-        trigger,
-        directive_word,
-        token_word,
-        system_word,
-        Some(&parser_expected_syntax),
-    )
 }
 
 fn detect_completion_context_impl(
@@ -254,40 +232,11 @@ fn detect_completion_context_impl(
     CompletionContext { replacement, prefix, trigger, lex, expectations, in_decl_name }
 }
 
-fn parser_expected_syntax_for_text(
-    root: SyntaxNode<'_>,
-    source_text: &str,
-    offset: TextSize,
-) -> Vec<ParserExpectedSyntax> {
-    parser::parser_expected_syntax_for_text(root, source_text, offset)
-}
-
-fn directive_word_at_offset(source_text: &str, offset: TextSize) -> Option<CompletionWord> {
-    let directive =
-        sv_frontend::directive_at_offset(source_text, "source", "", usize::from(offset))?;
+fn completion_word_from_lexed(word: LexedTokenAtOffset) -> Option<CompletionWord> {
     Some(CompletionWord {
         replacement: TextRange::new(
-            TextSize::from(directive.replacement.start as u32),
-            TextSize::from(directive.replacement.end as u32),
-        ),
-        prefix: directive.prefix,
-    })
-}
-
-fn library_map_word_at_offset(
-    root: SyntaxNode<'_>,
-    source_text: &str,
-    offset: TextSize,
-) -> Option<CompletionWord> {
-    if root.kind() != syntax::SyntaxKind::LIBRARY_MAP {
-        return None;
-    }
-
-    let word = sv_frontend::token_word_at_offset(source_text, "source", "", usize::from(offset))?;
-    Some(CompletionWord {
-        replacement: TextRange::new(
-            TextSize::from(word.replacement.start as u32),
-            TextSize::from(word.replacement.end as u32),
+            TextSize::from(u32::try_from(word.replacement.start).ok()?),
+            TextSize::from(u32::try_from(word.replacement.end).ok()?),
         ),
         prefix: word.prefix,
     })
@@ -363,7 +312,13 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
+    use hir::base_db::{change::Change, source_root::SourceRoot};
+    use triomphe::Arc;
+    use utils::lines::LineEnding;
+    use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
+
     use super::*;
+    use crate::{analysis_host::AnalysisHost, test_utils::normalize_fixture_text};
 
     static PARSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static NEXT_FILE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -373,31 +328,41 @@ mod tests {
     }
 
     fn library_map_ctx(text: &str) -> CompletionContext {
-        let marker = "/*caret*/";
-        let off = text.find(marker).expect("missing /*caret*/");
-        let owned = text.replace(marker, "");
-        let tree = sv_frontend::parse_library_map_syntax(&owned, "test", "test.map");
-        let root = tree.root().unwrap();
-        detect_completion_context_with_source_text(root, TextSize::from(off as u32), None, &owned)
+        fixture_context(text, None, "/test.map")
     }
 
     fn ctx_with_trigger(text: &str, trigger: Option<TriggerChar>) -> CompletionContext {
         let _guard = PARSE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
-        let marker = "/*caret*/";
-        let off = text.find(marker).expect("missing /*caret*/");
-        let mut owned = text.to_string();
-        owned = owned.replace(marker, "");
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
-        let path = format!("test_{id}.v");
-        let tree = sv_frontend::parse_syntax(&owned, "test", &path);
+        let path = format!("/test_{id}.v");
+        fixture_context(text, trigger, &path)
+    }
 
-        let root = tree.root().unwrap();
-        detect_completion_context_with_source_text(
-            root,
-            TextSize::from(off as u32),
+    fn fixture_context(text: &str, trigger: Option<TriggerChar>, path: &str) -> CompletionContext {
+        let marker = "/*caret*/";
+        let text = normalize_fixture_text(text);
+        let off = text.find(marker).expect("missing /*caret*/");
+        let owned = text.replace(marker, "");
+        let file_id = FileId(NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed) as u32);
+        let path = VfsPath::new_virtual_path(path.to_owned());
+
+        let mut file_set = FileSet::default();
+        file_set.insert(file_id, path);
+        let root = SourceRoot::new_local(file_set);
+
+        let mut change = Change::new();
+        change.set_roots(vec![root]);
+        change.add_changed_file(ChangedFile {
+            file_id,
+            change_kind: ChangeKind::Create(Arc::from(owned.as_str()), LineEnding::Unix),
+        });
+
+        let mut host = AnalysisHost::default();
+        host.apply_change(change);
+        completion_context(
+            host.raw_db(),
+            FilePosition { file_id, offset: TextSize::from(off as u32) },
             trigger,
-            &owned,
         )
     }
 

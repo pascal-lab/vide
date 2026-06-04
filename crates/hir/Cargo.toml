@@ -4,6 +4,7 @@ version = "0.0.0"
 edition.workspace = true
 
 [dependencies]
+frontend-api.workspace = true
 hashbrown = { version = "0.12.3", features = ["inline-more"], default-features = false }
 itertools.workspace = true
 la-arena.workspace = true

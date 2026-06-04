@@ -1,5 +1,5 @@
+use frontend_api::SourceBuffer;
 use rustc_hash::FxHashSet;
-use syntax::SyntaxTreeBuffer;
 use utils::{
     path_identity::{PathIdentityIndex, PathIdentitySet},
     paths::{AbsPathBuf, Utf8Path},
@@ -69,14 +69,14 @@ impl CompilationPlan {
 pub fn include_buffers_for_plan(
     db: &dyn SourceRootDb,
     plan: &CompilationPlan,
-) -> Vec<SyntaxTreeBuffer> {
+) -> Vec<SourceBuffer> {
     include_buffers_for_plan_with_roots(db, plan, false)
 }
 
 pub fn compilation_source_buffers_for_plan(
     db: &dyn SourceRootDb,
     plan: &CompilationPlan,
-) -> Vec<SyntaxTreeBuffer> {
+) -> Vec<SourceBuffer> {
     include_buffers_for_plan_with_roots(db, plan, true)
 }
 
@@ -84,7 +84,7 @@ fn include_buffers_for_plan_with_roots(
     db: &dyn SourceRootDb,
     plan: &CompilationPlan,
     include_roots: bool,
-) -> Vec<SyntaxTreeBuffer> {
+) -> Vec<SourceBuffer> {
     let root_files = if include_roots {
         plan.roots.iter().copied().collect::<FxHashSet<_>>()
     } else {
@@ -123,7 +123,7 @@ fn include_buffers_for_plan_with_roots(
 
         let path = path.to_string();
         if seen_buffer_paths.insert(path.clone()) {
-            buffers.push(SyntaxTreeBuffer { path, text: db.file_text(file_id).to_string() });
+            buffers.push(SourceBuffer { path, text: db.file_text(file_id).to_string() });
         }
     }
 

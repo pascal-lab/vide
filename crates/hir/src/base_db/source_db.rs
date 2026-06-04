@@ -1,8 +1,10 @@
-use rustc_hash::{FxHashMap, FxHashSet};
-use sv_frontend::Compilation;
-use syntax::{
-    ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer, SyntaxTreeBufferIds,
+use frontend_api::{
+    FrontendDiagnostic, LexedTokenAtOffset, ParseBufferIds, ParseOptions, ParserExpectedSyntax,
+    SourceBuffer,
 };
+use rustc_hash::{FxHashMap, FxHashSet};
+use sv_frontend::semantic::Compilation;
+use syntax::SyntaxTree;
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
 use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
@@ -97,10 +99,10 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
             // include expansion belongs to parse_src_for_compilation.
             let preprocess = db.file_preprocess_config(file_id);
             let include_paths = preprocess.include_dir_strings();
-            let options = syntax::SyntaxTreeOptions {
+            let options = ParseOptions {
                 predefines: preprocess.predefines.clone(),
                 include_paths,
-                ..syntax::SyntaxTreeOptions::without_include_expansion()
+                ..ParseOptions::without_include_expansion()
             };
             let _span = tracing::info_span!(
                 "slang.syntax_tree.from_text",
@@ -109,10 +111,10 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
                 include_buffer_count = 0usize
             )
             .entered();
-            sv_frontend::parse_syntax_with_options(&text, "", "", &options)
+            sv_frontend::parse::parse_syntax_with_options(&text, "", "", &options)
         }
-        SourceFileKind::LibraryMap => sv_frontend::parse_library_map_syntax(&text, "", ""),
-        SourceFileKind::ProjectManifest => sv_frontend::parse_syntax("", "", ""),
+        SourceFileKind::LibraryMap => sv_frontend::parse::parse_library_map_syntax(&text, "", ""),
+        SourceFileKind::ProjectManifest => sv_frontend::parse::parse_syntax("", "", ""),
     }
 }
 
@@ -128,11 +130,11 @@ fn preproc_file_index_with_predefines(
 ) -> Arc<PreprocFileIndex> {
     match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            let options = syntax::SyntaxTreeOptions {
-                predefines,
-                ..syntax::SyntaxTreeOptions::without_include_expansion()
-            };
-            Arc::new(sv_frontend::preproc_file_index_from_text(&db.file_text(file_id), &options))
+            let options = ParseOptions { predefines, ..ParseOptions::without_include_expansion() };
+            Arc::new(sv_frontend::preproc::preproc_file_index_from_text(
+                &db.file_text(file_id),
+                &options,
+            ))
         }
         SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
             Arc::new(PreprocFileIndex::default())
@@ -151,7 +153,7 @@ pub struct CompilationDiagnostic {
     pub file_id: FileId,
     /// The compilation phase that produced the diagnostic.
     pub source: DiagnosticSource,
-    pub diagnostic: SyntaxDiagnostic,
+    pub diagnostic: FrontendDiagnostic,
 }
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
@@ -176,7 +178,7 @@ fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
 fn insert_buffer_file_ids(
     buffer_file_ids: &mut FxHashMap<u32, FileId>,
     path_file_ids: &PathIdentityIndex<FileId>,
-    buffers: SyntaxTreeBufferIds,
+    buffers: ParseBufferIds,
     root_file_id: FileId,
 ) {
     buffer_file_ids.insert(buffers.root_buffer_id, root_file_id);
@@ -187,10 +189,7 @@ fn insert_buffer_file_ids(
     }
 }
 
-fn syntax_tree_options_for_file(
-    db: &dyn SourceRootDb,
-    file_id: FileId,
-) -> syntax::SyntaxTreeOptions {
+fn syntax_tree_options_for_file(db: &dyn SourceRootDb, file_id: FileId) -> ParseOptions {
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
     let project_config = db.project_config();
     let profile_id = db.file_compilation_profile(file_id);
@@ -201,15 +200,15 @@ fn syntax_tree_options_for_file(
 fn syntax_tree_options_for_profile(
     project_config: &ProjectConfig,
     profile_id: Option<CompilationProfileId>,
-    include_buffers: Vec<SyntaxTreeBuffer>,
-) -> syntax::SyntaxTreeOptions {
+    include_buffers: Vec<SourceBuffer>,
+) -> ParseOptions {
     let preprocess = project_config.preprocess_for_profile(profile_id);
     let include_paths = preprocess.include_dir_strings();
-    syntax::SyntaxTreeOptions {
+    ParseOptions {
         predefines: preprocess.predefines,
         include_paths,
         include_buffers,
-        ..syntax::SyntaxTreeOptions::default()
+        ..ParseOptions::default()
     }
 }
 
@@ -233,12 +232,17 @@ fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTr
                 include_buffer_count
             )
             .entered();
-            sv_frontend::parse_syntax_with_options(&text, &identity.name, &identity.path, &options)
+            sv_frontend::parse::parse_syntax_with_options(
+                &text,
+                &identity.name,
+                &identity.path,
+                &options,
+            )
         }
         SourceFileKind::LibraryMap => {
-            sv_frontend::parse_library_map_syntax(&text, &identity.name, &identity.path)
+            sv_frontend::parse::parse_library_map_syntax(&text, &identity.name, &identity.path)
         }
-        SourceFileKind::ProjectManifest => sv_frontend::parse_syntax("", "", ""),
+        SourceFileKind::ProjectManifest => sv_frontend::parse::parse_syntax("", "", ""),
     }
 }
 
@@ -257,7 +261,7 @@ fn parser_expected_syntax(
     let expected = match db.file_kind(file_id) {
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
             let options = syntax_tree_options_for_file(db, file_id);
-            sv_frontend::expected_syntax_at_offset_with_options(
+            sv_frontend::assist::expected_syntax_at_offset_with_options(
                 &text,
                 &identity.name,
                 &identity.path,
@@ -265,7 +269,7 @@ fn parser_expected_syntax(
                 &options,
             )
         }
-        SourceFileKind::LibraryMap => sv_frontend::library_map_expected_syntax_at_offset(
+        SourceFileKind::LibraryMap => sv_frontend::assist::library_map_expected_syntax_at_offset(
             &text,
             &identity.name,
             &identity.path,
@@ -276,10 +280,59 @@ fn parser_expected_syntax(
     Arc::from(expected)
 }
 
-fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+fn directive_at_offset(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<LexedTokenAtOffset> {
+    if !matches!(
+        db.file_kind(file_id),
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+    ) {
+        return None;
+    }
+
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    sv_frontend::assist::directive_at_offset(
+        &text,
+        &identity.name,
+        &identity.path,
+        usize::from(offset),
+    )
+}
+
+fn token_word_at_offset(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<LexedTokenAtOffset> {
+    if !matches!(db.file_kind(file_id), SourceFileKind::LibraryMap) {
+        return None;
+    }
+
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    sv_frontend::assist::token_word_at_offset(
+        &text,
+        &identity.name,
+        &identity.path,
+        usize::from(offset),
+    )
+}
+
+fn system_function_names(_db: &dyn SourceRootDb) -> Arc<[String]> {
+    Arc::from(sv_frontend::semantic::system_function_names())
+}
+
+fn system_task_names(_db: &dyn SourceRootDb) -> Arc<[String]> {
+    Arc::from(sv_frontend::semantic::system_task_names())
+}
+
+fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[FrontendDiagnostic]> {
     let config = db.diagnostics_config();
     if !config.enabled || !config.parse.enabled || !db.file_kind(file_id).is_slang_parse_unit() {
-        return Arc::from(Vec::<SyntaxDiagnostic>::new());
+        return Arc::from(Vec::<FrontendDiagnostic>::new());
     }
 
     let _span = tracing::info_span!("slang.parse_diagnostics", ?file_id).entered();
@@ -290,7 +343,7 @@ fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagn
         match db.file_kind(file_id) {
             SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
                 let options = syntax_tree_options_for_file(db, file_id);
-                sv_frontend::parse_syntax_with_diagnostics(
+                sv_frontend::diagnostics::parse_syntax_with_diagnostics(
                     &text,
                     &identity.name,
                     &identity.path,
@@ -298,12 +351,14 @@ fn parse_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagn
                     &config.slang.warnings,
                 )
             }
-            SourceFileKind::LibraryMap => sv_frontend::parse_library_map_syntax_with_diagnostics(
-                &text,
-                &identity.name,
-                &identity.path,
-                &config.slang.warnings,
-            ),
+            SourceFileKind::LibraryMap => {
+                sv_frontend::diagnostics::parse_library_map_syntax_with_diagnostics(
+                    &text,
+                    &identity.name,
+                    &identity.path,
+                    &config.slang.warnings,
+                )
+            }
             SourceFileKind::ProjectManifest => {
                 unreachable!("project manifest is not parsed by slang")
             }
@@ -365,21 +420,26 @@ pub trait SourceRootDb: SourceDb {
     fn include_buffers_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
-    ) -> Arc<Vec<SyntaxTreeBuffer>>;
+    ) -> Arc<Vec<SourceBuffer>>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
         file_id: FileId,
         offset: TextSize,
     ) -> Arc<[ParserExpectedSyntax]>;
-    fn parse_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
+    fn directive_at_offset(&self, file_id: FileId, offset: TextSize) -> Option<LexedTokenAtOffset>;
+    fn token_word_at_offset(&self, file_id: FileId, offset: TextSize)
+    -> Option<LexedTokenAtOffset>;
+    fn system_function_names(&self) -> Arc<[String]>;
+    fn system_task_names(&self) -> Arc<[String]>;
+    fn parse_diagnostics(&self, file_id: FileId) -> Arc<[FrontendDiagnostic]>;
     /// Diagnostics for the compilation profile that owns `file_id`.
     fn file_compilation_diagnostics(&self, file_id: FileId) -> Arc<[CompilationDiagnostic]>;
-    fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[SyntaxDiagnostic]>;
+    fn semantic_diagnostics(&self, file_id: FileId) -> Arc<[FrontendDiagnostic]>;
     fn source_root_semantic_diagnostics(
         &self,
         file_id: FileId,
-    ) -> Arc<[(FileId, SyntaxDiagnostic)]>;
+    ) -> Arc<[(FileId, FrontendDiagnostic)]>;
 }
 
 fn file_compilation_profile(
@@ -423,12 +483,12 @@ fn compilation_plan_for_profile(
 fn include_buffers_for_profile(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
-) -> Arc<Vec<SyntaxTreeBuffer>> {
+) -> Arc<Vec<SourceBuffer>> {
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
-fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
+fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[FrontendDiagnostic]> {
     Arc::from(
         db.source_root_semantic_diagnostics(file_id)
             .iter()
@@ -625,7 +685,7 @@ fn compilation_profile_diagnostics(
 fn source_root_semantic_diagnostics(
     db: &dyn SourceRootDb,
     file_id: FileId,
-) -> Arc<[(FileId, SyntaxDiagnostic)]> {
+) -> Arc<[(FileId, FrontendDiagnostic)]> {
     Arc::from(
         db.file_compilation_diagnostics(file_id)
             .iter()

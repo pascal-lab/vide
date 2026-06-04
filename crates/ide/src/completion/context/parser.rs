@@ -1,6 +1,6 @@
+use frontend_api::{ParserExpectedSyntax, SyntaxKeywordContext};
 use smallvec::{SmallVec, smallvec};
-use syntax::{ParserExpectedSyntax, SyntaxKeywordContext, SyntaxNode, TokenKind};
-use utils::line_index::TextSize;
+use syntax::TokenKind;
 
 use super::{CompletionExpectation, ExpectationSource, ExpectedSyntax};
 
@@ -26,19 +26,6 @@ impl ParserExpectations {
 
     pub(super) fn into_items(self) -> SmallVec<[CompletionExpectation; 4]> {
         self.items
-    }
-}
-
-pub(super) fn parser_expected_syntax_for_text(
-    root: SyntaxNode<'_>,
-    source_text: &str,
-    offset: TextSize,
-) -> Vec<ParserExpectedSyntax> {
-    let offset = usize::from(offset);
-    if root.kind() == syntax::SyntaxKind::LIBRARY_MAP {
-        sv_frontend::library_map_expected_syntax_at_offset(source_text, "source", "", offset)
-    } else {
-        sv_frontend::expected_syntax_at_offset(source_text, "source", "", offset)
     }
 }
 
