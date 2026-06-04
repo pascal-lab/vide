@@ -7,6 +7,7 @@ edition.workspace = true
 hashbrown = { version = "0.12.3", features = ["inline-more"], default-features = false }
 itertools.workspace = true
 la-arena.workspace = true
+preproc.workspace = true
 proc-macro-utils.workspace = true
 rustc-hash.workspace = true
 salsa.workspace = true

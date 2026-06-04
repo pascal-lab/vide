@@ -1,3 +1,4 @@
+use preproc::MacroIncludeTarget;
 use rustc_hash::FxHashSet;
 use syntax::SyntaxTreeBuffer;
 use utils::{
@@ -7,7 +8,6 @@ use utils::{
 use vfs::FileId;
 
 use crate::base_db::{
-    preproc_index::MacroIncludeTarget,
     project::{CompilationProfileId, ProjectConfig},
     source_db::{SourceFileKind, SourceRootDb},
     source_root::SourceRootId,
