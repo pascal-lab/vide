@@ -389,8 +389,7 @@ impl GlobalStateSnapshot {
     }
 
     pub(crate) fn file_ids(&self) -> Vec<FileId> {
-        let vfs = self.vfs.read();
-        vfs.0.iter().map(|(file_id, _)| file_id).collect()
+        self.analysis.file_ids().unwrap_or_default()
     }
 
     /// Returns the VFS primary URI for a file.
@@ -452,5 +451,61 @@ impl GlobalStateSnapshot {
     pub(crate) fn url_file_version(&self, url: &Url) -> Option<i32> {
         let path = from_proto::vfs_path(url).ok()?;
         self.mem_docs.version_for_path(&path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use lsp_server::Connection;
+    use lsp_types::{ClientCapabilities, TraceValue};
+    use utils::{lines::LineEnding, test_support::TestDir};
+    use vfs::{FileId, VfsPath, loader::LoadResult};
+
+    use crate::{
+        Opt,
+        config::{self, user_config::UserConfig},
+        global_state::GlobalState,
+        i18n::I18n,
+    };
+
+    #[test]
+    fn snapshot_file_ids_stay_in_analysis_snapshot() {
+        let root = TestDir::new("snapshot-file-ids-analysis-boundary");
+        let root_path = root.path().to_path_buf();
+        let config = config::Config::new(
+            Opt {
+                process_name: "vide-test".to_string(),
+                log: "error".to_string(),
+                log_filename: None,
+                profile_trace: None,
+            },
+            root_path.clone(),
+            ClientCapabilities::default(),
+            vec![root_path],
+            I18n::default(),
+            UserConfig::default(),
+            Vec::new(),
+        );
+        let (server, _client) = Connection::memory();
+        let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
+
+        state.vfs.write().0.set_file_contents(
+            &VfsPath::from(root.join("top.sv")),
+            LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+        assert!(state.process_changes());
+        let snapshot = state.make_snapshot();
+
+        state.vfs.write().0.set_file_contents(
+            &VfsPath::from(root.join("child.sv")),
+            LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
+        );
+
+        let mut live_file_ids =
+            state.vfs.read().0.iter().map(|(file_id, _)| file_id).collect::<Vec<_>>();
+        live_file_ids.sort_unstable_by_key(|file_id| file_id.0);
+        assert_eq!(live_file_ids, vec![FileId(0), FileId(1)]);
+
+        assert_eq!(snapshot.file_ids(), vec![FileId(0)]);
     }
 }
