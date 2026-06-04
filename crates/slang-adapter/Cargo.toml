@@ -6,6 +6,7 @@ description = "Adapter from slang parser output to Vizsla-owned syntax data"
 edition.workspace = true
 
 [dependencies]
+frontend-api.workspace = true
 preproc.workspace = true
 rowan.workspace = true
 slang.workspace = true

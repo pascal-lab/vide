@@ -8,6 +8,5 @@ edition.workspace = true
 [dependencies]
 rustc-hash.workspace = true
 smol_str.workspace = true
-syntax.workspace = true
 utils.workspace = true
 vfs.workspace = true

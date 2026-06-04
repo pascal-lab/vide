@@ -1,8 +1,46 @@
 use smol_str::{SmolStr, ToSmolStr};
-use syntax::{
-    PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SyntaxKind,
-};
 use utils::line_index::{TextRange, TextSize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectiveKind {
+    Define,
+    Undef,
+    Include,
+    IfDef,
+    IfNDef,
+    ElsIf,
+    Else,
+    EndIf,
+    MacroUsage,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectiveEvent {
+    pub kind: DirectiveKind,
+    pub range: Option<std::ops::Range<usize>>,
+    pub directive: Option<DirectiveToken>,
+    pub name: Option<DirectiveToken>,
+    pub include_file_name: Option<DirectiveToken>,
+    pub params: Vec<DirectiveParam>,
+    pub body_tokens: Vec<DirectiveToken>,
+    pub expr_tokens: Vec<DirectiveToken>,
+    pub disabled_ranges: Vec<std::ops::Range<usize>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectiveToken {
+    pub raw_text: String,
+    pub value_text: String,
+    pub range: Option<std::ops::Range<usize>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectiveParam {
+    pub name: Option<DirectiveToken>,
+    pub default_tokens: Option<Vec<DirectiveToken>>,
+    pub range: Option<std::ops::Range<usize>>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PreprocFileIndex {
@@ -96,12 +134,12 @@ pub struct MacroToken {
 }
 
 pub fn preproc_file_index_from_directives(
-    directives: impl IntoIterator<Item = PreprocessorDirective>,
+    directives: impl IntoIterator<Item = DirectiveEvent>,
     source: &str,
 ) -> PreprocFileIndex {
     let mut index = PreprocFileIndex::default();
     for directive in directives {
-        collect_preprocessor_directive(&mut index, directive, source);
+        collect_directive_event(&mut index, directive, source);
     }
     normalize_token_include_targets(&mut index, source);
     index
@@ -123,11 +161,7 @@ fn range_to_text_range(range: std::ops::Range<usize>) -> Option<TextRange> {
     ))
 }
 
-fn collect_preprocessor_directive(
-    index: &mut PreprocFileIndex,
-    directive: PreprocessorDirective,
-    source: &str,
-) {
+fn collect_directive_event(index: &mut PreprocFileIndex, directive: DirectiveEvent, source: &str) {
     index.inactive_ranges.extend(directive.disabled_ranges.iter().filter_map(|range| {
         let range = range_to_text_range(range.clone())?;
         (!range.is_empty()).then_some(range)
@@ -135,23 +169,23 @@ fn collect_preprocessor_directive(
 
     let kind = directive.kind;
     match kind {
-        SyntaxKind::DEFINE_DIRECTIVE => {
+        DirectiveKind::Define => {
             let directive_index = index.defines.len();
-            let define = collect_preprocessor_define(directive);
+            let define = collect_directive_define(directive);
             let range = define.range;
             index.defines.push(define);
-            push_preprocessor_directive(index, MacroDirectiveKind::Define, directive_index, range);
+            push_directive(index, MacroDirectiveKind::Define, directive_index, range);
         }
-        SyntaxKind::UNDEF_DIRECTIVE => {
+        DirectiveKind::Undef => {
             let directive_index = index.undefs.len();
             let range = directive.range.and_then(range_to_text_range);
             index.undefs.push(MacroUndef {
-                name: directive.name.as_ref().map(preprocessor_token_value),
+                name: directive.name.as_ref().map(directive_token_value),
                 range,
             });
-            push_preprocessor_directive(index, MacroDirectiveKind::Undef, directive_index, range);
+            push_directive(index, MacroDirectiveKind::Undef, directive_index, range);
         }
-        SyntaxKind::INCLUDE_DIRECTIVE => {
+        DirectiveKind::Include => {
             let directive_index = index.includes.len();
             let range = directive.range.and_then(range_to_text_range);
             let target = directive
@@ -159,40 +193,29 @@ fn collect_preprocessor_directive(
                 .map(|token| include_target_from_token(token, range, source))
                 .unwrap_or_else(|| MacroIncludeTarget::Token { raw: SmolStr::new("") });
             index.includes.push(MacroInclude { target, range });
-            push_preprocessor_directive(index, MacroDirectiveKind::Include, directive_index, range);
+            push_directive(index, MacroDirectiveKind::Include, directive_index, range);
         }
-        SyntaxKind::IF_DEF_DIRECTIVE
-        | SyntaxKind::IF_N_DEF_DIRECTIVE
-        | SyntaxKind::ELS_IF_DIRECTIVE => {
+        DirectiveKind::IfDef | DirectiveKind::IfNDef | DirectiveKind::ElsIf => {
             let directive_index = index.conditionals.len();
             let range = directive.range.and_then(range_to_text_range);
             index.conditionals.push(MacroConditional {
-                kind: preprocessor_conditional_kind(kind),
-                expr: directive
-                    .expr_tokens
-                    .into_iter()
-                    .map(macro_token_from_preprocessor)
-                    .collect(),
+                kind: directive_conditional_kind(kind),
+                expr: directive.expr_tokens.into_iter().map(macro_token_from_directive).collect(),
                 range,
             });
-            push_preprocessor_directive(
-                index,
-                MacroDirectiveKind::Conditional,
-                directive_index,
-                range,
-            );
+            push_directive(index, MacroDirectiveKind::Conditional, directive_index, range);
         }
-        SyntaxKind::ELSE_DIRECTIVE | SyntaxKind::END_IF_DIRECTIVE => {
+        DirectiveKind::Else | DirectiveKind::EndIf => {
             let directive_index = index.conditionals.len();
             let range = directive.range.and_then(range_to_text_range);
             index.conditionals.push(MacroConditional {
-                kind: preprocessor_conditional_kind(kind),
+                kind: directive_conditional_kind(kind),
                 expr: Vec::new(),
                 range,
             });
-            push_preprocessor_directive(index, MacroDirectiveKind::Branch, directive_index, range);
+            push_directive(index, MacroDirectiveKind::Branch, directive_index, range);
         }
-        SyntaxKind::MACRO_USAGE => {
+        DirectiveKind::MacroUsage => {
             let range = directive.range.and_then(range_to_text_range).or_else(|| {
                 directive
                     .name
@@ -206,44 +229,39 @@ fn collect_preprocessor_directive(
                     name: directive.name.as_ref().map(|token| macro_name(token.value_text.clone())),
                     range: Some(range),
                 });
-                push_preprocessor_directive(
-                    index,
-                    MacroDirectiveKind::Usage,
-                    directive_index,
-                    Some(range),
-                );
+                push_directive(index, MacroDirectiveKind::Usage, directive_index, Some(range));
             }
         }
-        _ => {}
+        DirectiveKind::Other => {}
     }
 }
 
-fn collect_preprocessor_define(directive: PreprocessorDirective) -> MacroDefine {
+fn collect_directive_define(directive: DirectiveEvent) -> MacroDefine {
     MacroDefine {
-        name: directive.name.as_ref().map(preprocessor_token_value),
+        name: directive.name.as_ref().map(directive_token_value),
         name_range: directive
             .name
             .as_ref()
             .and_then(|token| token.range.clone())
             .and_then(range_to_text_range),
         params: (!directive.params.is_empty())
-            .then(|| directive.params.into_iter().map(macro_param_from_preprocessor).collect()),
-        body: directive.body_tokens.into_iter().map(macro_token_from_preprocessor).collect(),
+            .then(|| directive.params.into_iter().map(macro_param_from_directive).collect()),
+        body: directive.body_tokens.into_iter().map(macro_token_from_directive).collect(),
         range: directive.range.and_then(range_to_text_range),
     }
 }
 
-fn macro_param_from_preprocessor(param: PreprocessorMacroParam) -> MacroParam {
+fn macro_param_from_directive(param: DirectiveParam) -> MacroParam {
     MacroParam {
-        name: param.name.as_ref().map(preprocessor_token_value),
+        name: param.name.as_ref().map(directive_token_value),
         default: param
             .default_tokens
-            .map(|tokens| tokens.into_iter().map(macro_token_from_preprocessor).collect()),
+            .map(|tokens| tokens.into_iter().map(macro_token_from_directive).collect()),
         range: param.range.and_then(range_to_text_range),
     }
 }
 
-fn macro_token_from_preprocessor(token: PreprocessorDirectiveToken) -> MacroToken {
+fn macro_token_from_directive(token: DirectiveToken) -> MacroToken {
     MacroToken {
         raw: token.raw_text.to_smolstr(),
         value: token.value_text.to_smolstr(),
@@ -251,22 +269,22 @@ fn macro_token_from_preprocessor(token: PreprocessorDirectiveToken) -> MacroToke
     }
 }
 
-fn preprocessor_token_value(token: &PreprocessorDirectiveToken) -> SmolStr {
+fn directive_token_value(token: &DirectiveToken) -> SmolStr {
     token.value_text.to_smolstr()
 }
 
-fn preprocessor_conditional_kind(kind: SyntaxKind) -> MacroConditionalKind {
+fn directive_conditional_kind(kind: DirectiveKind) -> MacroConditionalKind {
     match kind {
-        SyntaxKind::IF_DEF_DIRECTIVE => MacroConditionalKind::IfDef,
-        SyntaxKind::IF_N_DEF_DIRECTIVE => MacroConditionalKind::IfNDef,
-        SyntaxKind::ELS_IF_DIRECTIVE => MacroConditionalKind::ElsIf,
-        SyntaxKind::ELSE_DIRECTIVE => MacroConditionalKind::Else,
-        SyntaxKind::END_IF_DIRECTIVE => MacroConditionalKind::EndIf,
+        DirectiveKind::IfDef => MacroConditionalKind::IfDef,
+        DirectiveKind::IfNDef => MacroConditionalKind::IfNDef,
+        DirectiveKind::ElsIf => MacroConditionalKind::ElsIf,
+        DirectiveKind::Else => MacroConditionalKind::Else,
+        DirectiveKind::EndIf => MacroConditionalKind::EndIf,
         _ => unreachable!(),
     }
 }
 
-fn push_preprocessor_directive(
+fn push_directive(
     index: &mut PreprocFileIndex,
     kind: MacroDirectiveKind,
     directive_index: usize,
@@ -284,7 +302,7 @@ fn include_target_from_raw(raw: SmolStr) -> MacroIncludeTarget {
 }
 
 fn include_target_from_token(
-    token: PreprocessorDirectiveToken,
+    token: DirectiveToken,
     directive_range: Option<TextRange>,
     source: &str,
 ) -> MacroIncludeTarget {
@@ -382,11 +400,9 @@ fn macro_name(name: String) -> SmolStr {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam};
-
     use super::*;
 
-    fn index(source: &str, directives: Vec<PreprocessorDirective>) -> PreprocFileIndex {
+    fn index(source: &str, directives: Vec<DirectiveEvent>) -> PreprocFileIndex {
         preproc_file_index_from_directives(directives, source)
     }
 
@@ -399,19 +415,15 @@ mod tests {
         start..start + needle.len()
     }
 
-    fn token(
-        raw: &str,
-        value: &str,
-        range: Option<std::ops::Range<usize>>,
-    ) -> PreprocessorDirectiveToken {
-        PreprocessorDirectiveToken { raw_text: raw.to_owned(), value_text: value.to_owned(), range }
+    fn token(raw: &str, value: &str, range: Option<std::ops::Range<usize>>) -> DirectiveToken {
+        DirectiveToken { raw_text: raw.to_owned(), value_text: value.to_owned(), range }
     }
 
     fn base_directive(
-        kind: SyntaxKind,
+        kind: DirectiveKind,
         range: Option<std::ops::Range<usize>>,
-    ) -> PreprocessorDirective {
-        PreprocessorDirective {
+    ) -> DirectiveEvent {
+        DirectiveEvent {
             kind,
             range,
             directive: None,
@@ -427,23 +439,18 @@ mod tests {
     fn define_directive(
         source: &str,
         name: &str,
-        params: Vec<PreprocessorMacroParam>,
-        body_tokens: Vec<PreprocessorDirectiveToken>,
-    ) -> PreprocessorDirective {
-        let mut directive =
-            base_directive(SyntaxKind::DEFINE_DIRECTIVE, Some(range(source, "`define")));
+        params: Vec<DirectiveParam>,
+        body_tokens: Vec<DirectiveToken>,
+    ) -> DirectiveEvent {
+        let mut directive = base_directive(DirectiveKind::Define, Some(range(source, "`define")));
         directive.name = Some(token(name, name, Some(range(source, name))));
         directive.params = params;
         directive.body_tokens = body_tokens;
         directive
     }
 
-    fn param(
-        source: &str,
-        name: &str,
-        default: Option<Vec<PreprocessorDirectiveToken>>,
-    ) -> PreprocessorMacroParam {
-        PreprocessorMacroParam {
+    fn param(source: &str, name: &str, default: Option<Vec<DirectiveToken>>) -> DirectiveParam {
+        DirectiveParam {
             name: Some(token(name, name, Some(range(source, name)))),
             default_tokens: default,
             range: Some(range(source, name)),
@@ -454,7 +461,7 @@ mod tests {
         source: &str,
         raw: Option<&str>,
         range_override: Option<std::ops::Range<usize>>,
-    ) -> PreprocessorDirective {
+    ) -> DirectiveEvent {
         let token_range = raw.map(|raw| range(source, raw));
         let directive_range = range_override.unwrap_or_else(|| {
             token_range
@@ -466,7 +473,7 @@ mod tests {
                 })
                 .unwrap_or_else(|| range(source, "`include"))
         });
-        let mut directive = base_directive(SyntaxKind::INCLUDE_DIRECTIVE, Some(directive_range));
+        let mut directive = base_directive(DirectiveKind::Include, Some(directive_range));
         if let Some(raw) = raw {
             directive.include_file_name = Some(token(raw, raw, token_range));
         }
@@ -477,15 +484,14 @@ mod tests {
         raw: &str,
         token_range: Option<std::ops::Range<usize>>,
         directive_range: std::ops::Range<usize>,
-    ) -> PreprocessorDirective {
-        let mut directive = base_directive(SyntaxKind::INCLUDE_DIRECTIVE, Some(directive_range));
+    ) -> DirectiveEvent {
+        let mut directive = base_directive(DirectiveKind::Include, Some(directive_range));
         directive.include_file_name = Some(token(raw, raw, token_range));
         directive
     }
 
-    fn undef_directive(source: &str, name: &str) -> PreprocessorDirective {
-        let mut directive =
-            base_directive(SyntaxKind::UNDEF_DIRECTIVE, Some(range(source, "`undef")));
+    fn undef_directive(source: &str, name: &str) -> DirectiveEvent {
+        let mut directive = base_directive(DirectiveKind::Undef, Some(range(source, "`undef")));
         directive.name = Some(token(name, name, Some(range(source, name))));
         directive
     }
@@ -494,9 +500,9 @@ mod tests {
         source: &str,
         raw_name: &str,
         range_override: Option<std::ops::Range<usize>>,
-    ) -> PreprocessorDirective {
+    ) -> DirectiveEvent {
         let mut directive = base_directive(
-            SyntaxKind::MACRO_USAGE,
+            DirectiveKind::MacroUsage,
             Some(range_override.clone().unwrap_or_else(|| range(source, raw_name))),
         );
         directive.name = Some(token(
@@ -508,11 +514,11 @@ mod tests {
     }
 
     fn conditional_directive(
-        kind: SyntaxKind,
+        kind: DirectiveKind,
         source: &str,
         raw: &str,
-        expr: Vec<PreprocessorDirectiveToken>,
-    ) -> PreprocessorDirective {
+        expr: Vec<DirectiveToken>,
+    ) -> DirectiveEvent {
         let mut directive = base_directive(kind, Some(range(source, raw)));
         directive.expr_tokens = expr;
         directive
@@ -633,13 +639,13 @@ endmodule
             source,
             vec![
                 conditional_directive(
-                    SyntaxKind::IF_DEF_DIRECTIVE,
+                    DirectiveKind::IfDef,
                     source,
                     "`ifdef",
                     vec![token("USE_A", "USE_A", Some(range(source, "USE_A")))],
                 ),
-                conditional_directive(SyntaxKind::ELSE_DIRECTIVE, source, "`else", Vec::new()),
-                conditional_directive(SyntaxKind::END_IF_DIRECTIVE, source, "`endif", Vec::new()),
+                conditional_directive(DirectiveKind::Else, source, "`else", Vec::new()),
+                conditional_directive(DirectiveKind::EndIf, source, "`endif", Vec::new()),
             ],
         );
 
@@ -815,12 +821,12 @@ logic inactive;
 "#;
 
         let mut without_define_directive =
-            base_directive(SyntaxKind::IF_DEF_DIRECTIVE, Some(range(text, "`ifdef")));
+            base_directive(DirectiveKind::IfDef, Some(range(text, "`ifdef")));
         without_define_directive.disabled_ranges.push(range(text, "logic active;"));
         let without_define = index(text, vec![without_define_directive]);
 
         let mut with_define_directive =
-            base_directive(SyntaxKind::IF_DEF_DIRECTIVE, Some(range(text, "`ifdef")));
+            base_directive(DirectiveKind::IfDef, Some(range(text, "`ifdef")));
         with_define_directive.disabled_ranges.push(range(text, "logic inactive;"));
         let with_define = index(text, vec![with_define_directive]);
 

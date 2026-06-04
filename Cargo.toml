@@ -17,6 +17,7 @@ members = [".", "crates/*", "xtask"]
 edition = "2024"
 
 [dependencies]
+frontend-api.workspace = true
 hir.workspace = true
 ide.workspace = true
 project-model.workspace = true
@@ -52,6 +53,7 @@ triomphe.workspace = true
 
 [workspace.dependencies]
 hir = { path = "./crates/hir/", version = "0.0.0" }
+frontend-api = { path = "./crates/frontend-api/", version = "0.0.0" }
 ide = { path = "./crates/ide/", version = "0.0.0" }
 proc-macro-utils = { path = "./crates/proc-macro-utils/", version = "0.0.0" }
 project-model = { path = "./crates/project-model/", version = "0.0.0" }

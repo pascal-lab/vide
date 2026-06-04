@@ -1,0 +1,10 @@
+[package]
+name = "frontend-api"
+version = "0.0.0"
+description = "Vizsla-owned frontend contracts outside the rowan syntax model"
+
+edition.workspace = true
+
+[dependencies]
+preproc.workspace = true
+syntax.workspace = true

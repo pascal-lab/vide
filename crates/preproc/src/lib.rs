@@ -4,6 +4,12 @@ pub mod directive_index;
 mod macro_db;
 pub mod trace;
 
+pub use directive_index::{
+    DirectiveEvent, DirectiveKind, DirectiveParam, DirectiveToken, MacroConditional,
+    MacroConditionalKind, MacroDefine, MacroDirective, MacroDirectiveKind, MacroInclude,
+    MacroIncludeTarget, MacroParam, MacroToken, MacroUndef, MacroUsage, PreprocFileIndex,
+    literal_include_directives_from_index, preproc_file_index_from_directives,
+};
 pub use macro_db::{
     FileMacroInput, IncludeTargetAtResult, LiteralIncludeInput, MacroDb, MacroDbInput, MacroDefId,
     MacroDefinitionAtResult, MacroName, MacroPredefine, MacroProfileId, MacroQueryFailure,

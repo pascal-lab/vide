@@ -715,13 +715,12 @@ fn range_contains(range: Option<TextRange>, offset: TextSize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{
-        PreprocessorDirective, PreprocessorDirectiveToken, PreprocessorMacroParam, SyntaxKind,
-    };
-
     use super::*;
     use crate::{
-        directive_index::preproc_file_index_from_directives,
+        directive_index::{
+            DirectiveEvent, DirectiveKind, DirectiveParam, DirectiveToken,
+            preproc_file_index_from_directives,
+        },
         trace::{
             CapabilityUnavailable, ExpandedToken, ExpansionId, MacroBody, MacroCall,
             SourceProvenance, TraceUnavailableReason,
@@ -747,7 +746,7 @@ mod tests {
         preproc_file_index_from_directives(test_directives(text), text)
     }
 
-    fn test_directives(text: &str) -> Vec<PreprocessorDirective> {
+    fn test_directives(text: &str) -> Vec<DirectiveEvent> {
         let mut directives = Vec::new();
         let mut line_start = 0usize;
         for line in text.split_inclusive('\n') {
@@ -761,7 +760,7 @@ mod tests {
             } else if let Some(rest) = line_trimmed.strip_prefix("`undef ") {
                 let name = rest.trim();
                 let mut directive = base_directive(
-                    SyntaxKind::UNDEF_DIRECTIVE,
+                    DirectiveKind::Undef,
                     Some(line_start..line_start + line_trimmed.len()),
                 );
                 directive.name = Some(token_at(text, name, name, line_start));
@@ -769,14 +768,14 @@ mod tests {
             } else if let Some(rest) = line_trimmed.strip_prefix("`include ") {
                 let target = rest.trim();
                 let mut directive = base_directive(
-                    SyntaxKind::INCLUDE_DIRECTIVE,
+                    DirectiveKind::Include,
                     Some(line_start..line_start + line_trimmed.len()),
                 );
                 directive.include_file_name = Some(token_at(text, target, target, line_start));
                 directives.push(directive);
             } else if let Some(rest) = line_trimmed.strip_prefix("`ifdef ") {
                 let mut directive = base_directive(
-                    SyntaxKind::IF_DEF_DIRECTIVE,
+                    DirectiveKind::IfDef,
                     Some(line_start..line_start + line_trimmed.len()),
                 );
                 let name = rest.trim();
@@ -787,12 +786,12 @@ mod tests {
                 directives.push(directive);
             } else if line_trimmed.starts_with("`else") {
                 directives.push(base_directive(
-                    SyntaxKind::ELSE_DIRECTIVE,
+                    DirectiveKind::Else,
                     Some(line_start..line_start + line_trimmed.len()),
                 ));
             } else if line_trimmed.starts_with("`endif") {
                 directives.push(base_directive(
-                    SyntaxKind::END_IF_DIRECTIVE,
+                    DirectiveKind::EndIf,
                     Some(line_start..line_start + line_trimmed.len()),
                 ));
             } else {
@@ -803,23 +802,14 @@ mod tests {
         directives
     }
 
-    fn define_directive(
-        text: &str,
-        line_start: usize,
-        line: &str,
-        name: &str,
-    ) -> PreprocessorDirective {
+    fn define_directive(text: &str, line_start: usize, line: &str, name: &str) -> DirectiveEvent {
         let mut directive =
-            base_directive(SyntaxKind::DEFINE_DIRECTIVE, Some(line_start..line_start + line.len()));
+            base_directive(DirectiveKind::Define, Some(line_start..line_start + line.len()));
         directive.name = Some(token_at(text, name, name, line_start));
         directive
     }
 
-    fn macro_usages_in_line(
-        text: &str,
-        line_start: usize,
-        line: &str,
-    ) -> Vec<PreprocessorDirective> {
+    fn macro_usages_in_line(text: &str, line_start: usize, line: &str) -> Vec<DirectiveEvent> {
         let mut directives = Vec::new();
         let bytes = line.as_bytes();
         let mut idx = 0usize;
@@ -838,10 +828,10 @@ mod tests {
             if name_end > name_start {
                 let raw = &line[idx..name_end];
                 let mut directive = base_directive(
-                    SyntaxKind::MACRO_USAGE,
+                    DirectiveKind::MacroUsage,
                     Some(line_start + idx..line_start + name_end),
                 );
-                directive.name = Some(PreprocessorDirectiveToken {
+                directive.name = Some(DirectiveToken {
                     raw_text: raw.to_owned(),
                     value_text: raw.to_owned(),
                     range: Some(line_start + idx..line_start + name_end),
@@ -865,9 +855,9 @@ mod tests {
         (branch_start < end).then_some(branch_start..end)
     }
 
-    fn token_at(text: &str, raw: &str, value: &str, after: usize) -> PreprocessorDirectiveToken {
+    fn token_at(text: &str, raw: &str, value: &str, after: usize) -> DirectiveToken {
         let start = text[after..].find(raw).map(|offset| after + offset).unwrap_or(after);
-        PreprocessorDirectiveToken {
+        DirectiveToken {
             raw_text: raw.to_owned(),
             value_text: value.to_owned(),
             range: Some(start..start + raw.len()),
@@ -875,16 +865,16 @@ mod tests {
     }
 
     fn base_directive(
-        kind: SyntaxKind,
+        kind: DirectiveKind,
         range: Option<std::ops::Range<usize>>,
-    ) -> PreprocessorDirective {
-        PreprocessorDirective {
+    ) -> DirectiveEvent {
+        DirectiveEvent {
             kind,
             range,
             directive: None,
             name: None,
             include_file_name: None,
-            params: Vec::<PreprocessorMacroParam>::new(),
+            params: Vec::<DirectiveParam>::new(),
             body_tokens: Vec::new(),
             expr_tokens: Vec::new(),
             disabled_ranges: Vec::new(),

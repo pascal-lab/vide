@@ -2,16 +2,18 @@ use std::{collections::VecDeque, ops::Range};
 
 mod kind_map;
 
+use frontend_api::{
+    DiagnosticSeverity, FrontendDiagnostic, LexedTokenAtOffset, ParseBufferIds, ParseOptions,
+    ParserExpectedSyntax, SourceBufferId, SyntaxKeywordContext,
+};
 use preproc::{
-    CapabilityUnavailable, PreprocTrace, PreprocTraceResult,
+    CapabilityUnavailable, DirectiveEvent, DirectiveKind, DirectiveParam, DirectiveToken,
+    PreprocTrace, PreprocTraceResult,
     directive_index::{MacroInclude, PreprocFileIndex},
 };
 use rowan::GreenNodeBuilder;
 use syntax::{
-    DiagnosticSeverity, LexedTokenAtOffset, OwnedDirectiveTrivia, OwnedTrivia,
-    ParserExpectedSyntax, PreprocessorDirective, PreprocessorDirectiveToken,
-    PreprocessorMacroParam, SourceBufferId, SyntaxDiagnostic, SyntaxKeywordContext, SyntaxTree,
-    SyntaxTreeBufferIds, SyntaxTreeBuilder, SyntaxTreeOptions, TriviaKind,
+    OwnedTrivia, SyntaxTree, SyntaxTreeBuilder, TriviaKind,
     raw::{RawSyntaxTree, SyntaxKind as RawSyntaxKind},
 };
 use thiserror::Error;
@@ -65,47 +67,47 @@ pub fn parse_raw_syntax(text: &str) -> Result<RawSyntaxTree, RawSyntaxError> {
 }
 
 pub fn parse_syntax(text: &str, name: &str, path: &str) -> Result<SyntaxTree, RawSyntaxError> {
-    parse_syntax_with_options(text, name, path, &SyntaxTreeOptions::default())
+    parse_syntax_with_options(text, name, path, &ParseOptions::default())
 }
 
 pub fn parse_syntax_with_options(
     text: &str,
     name: &str,
     path: &str,
-    options: &SyntaxTreeOptions,
+    options: &ParseOptions,
 ) -> Result<SyntaxTree, RawSyntaxError> {
     let slang_options = to_slang_syntax_tree_options(options);
     let tree = slang::SyntaxTree::from_text_with_options(text, name, path, &slang_options);
-    let directive_trivia =
+    let directive_ranges =
         slang::SyntaxTree::preprocessor_directives(text, name, path, &slang_options)
             .into_iter()
-            .filter_map(owned_directive_trivia_from_preprocessor)
+            .filter_map(|directive| directive.range.and_then(text_range))
             .collect();
-    from_slang_syntax_tree_with_directives(text, &tree, directive_trivia)
+    from_slang_syntax_tree_with_directive_ranges(text, &tree, directive_ranges)
 }
 
 pub struct ParsedSyntax {
     pub tree: SyntaxTree,
-    pub diagnostics: Vec<SyntaxDiagnostic>,
+    pub diagnostics: Vec<FrontendDiagnostic>,
 }
 
 pub fn parse_syntax_with_diagnostics(
     text: &str,
     name: &str,
     path: &str,
-    options: &SyntaxTreeOptions,
+    options: &ParseOptions,
     warning_options: &[String],
 ) -> Result<ParsedSyntax, RawSyntaxError> {
     let slang_options = to_slang_syntax_tree_options(options);
     let tree = slang::SyntaxTree::from_text_with_options(text, name, path, &slang_options);
     let diagnostics =
         tree.diagnostics_with_options(warning_options).into_iter().map(owned_diagnostic).collect();
-    let directive_trivia =
+    let directive_ranges =
         slang::SyntaxTree::preprocessor_directives(text, name, path, &slang_options)
             .into_iter()
-            .filter_map(owned_directive_trivia_from_preprocessor)
+            .filter_map(|directive| directive.range.and_then(text_range))
             .collect();
-    let tree = from_slang_syntax_tree_with_directives(text, &tree, directive_trivia)?;
+    let tree = from_slang_syntax_tree_with_directive_ranges(text, &tree, directive_ranges)?;
     Ok(ParsedSyntax { tree, diagnostics })
 }
 
@@ -135,19 +137,19 @@ pub fn from_slang_syntax_tree(
     source: &str,
     tree: &slang::SyntaxTree,
 ) -> Result<SyntaxTree, RawSyntaxError> {
-    from_slang_syntax_tree_with_directives(source, tree, VecDeque::new())
+    from_slang_syntax_tree_with_directive_ranges(source, tree, VecDeque::new())
 }
 
-fn from_slang_syntax_tree_with_directives(
+fn from_slang_syntax_tree_with_directive_ranges(
     source: &str,
     tree: &slang::SyntaxTree,
-    directive_trivia: VecDeque<OwnedDirectiveTrivia>,
+    directive_ranges: VecDeque<TextRange>,
 ) -> Result<SyntaxTree, RawSyntaxError> {
     let root = tree.root().ok_or(RawSyntaxError::MissingRoot)?;
     let mut ctx = OwnedLowerCtx {
         root_buffer_id: tree.buffer_id(),
         builder: SyntaxTreeBuilder::new(source.to_owned(), tree.buffer_id()),
-        directive_trivia,
+        directive_ranges,
     };
     ctx.lower_root(root);
     Ok(SyntaxTree::from_builder(ctx.builder))
@@ -181,7 +183,7 @@ struct LowerCtx<'a> {
 struct OwnedLowerCtx {
     root_buffer_id: u32,
     builder: SyntaxTreeBuilder,
-    directive_trivia: VecDeque<OwnedDirectiveTrivia>,
+    directive_ranges: VecDeque<TextRange>,
 }
 
 impl OwnedLowerCtx {
@@ -218,20 +220,20 @@ impl OwnedLowerCtx {
 
     fn lower_token(&mut self, slot: usize, token: slang::SyntaxToken<'_>) {
         let range = token.range().and_then(|range| self.text_range(&range));
-        let trivia = token
-            .trivias_with_loc()
-            .filter_map(|(loc, trivia)| {
-                let range = (loc.buffer_id == self.root_buffer_id)
-                    .then(|| text_range(loc.start..loc.end))
-                    .flatten();
-                Some(OwnedTrivia {
-                    kind: owned_trivia_kind(trivia.kind()),
-                    raw_text: trivia.get_raw_text().to_string().into(),
-                    range,
-                    directive: self.lower_directive_trivia_payload(trivia),
-                })
-            })
-            .collect();
+        let mut trivia = Vec::new();
+        for (loc, raw_trivia) in token.trivias_with_loc() {
+            let range = (loc.buffer_id == self.root_buffer_id)
+                .then(|| text_range(loc.start..loc.end))
+                .flatten();
+            let directive_range = self.lower_directive_trivia_range(raw_trivia);
+            trivia.push(OwnedTrivia {
+                kind: owned_trivia_kind(raw_trivia.kind()),
+                raw_text: raw_trivia.get_raw_text().to_string().into(),
+                range,
+                directive_range,
+            });
+            trivia.extend(self.lower_embedded_directive_trivia(raw_trivia));
+        }
         self.builder.token(
             slot,
             owned_token_kind(token.kind()),
@@ -253,62 +255,48 @@ impl OwnedLowerCtx {
         text_range(range.start()..range.end())
     }
 
-    fn lower_directive_trivia(
-        &self,
+    fn lower_directive_trivia_range(
+        &mut self,
         trivia: slang::SyntaxTrivia<'_>,
-    ) -> Option<OwnedDirectiveTrivia> {
+    ) -> Option<TextRange> {
         if trivia.kind() != slang::TriviaKind::DIRECTIVE {
             return None;
         }
 
-        let node = trivia.syntax()?;
-        let first_token_trivia = node
-            .first_token()
+        let local = trivia.syntax().and_then(|node| self.node_range(node));
+        let queued = self.directive_ranges.pop_front();
+        queued.or(local)
+    }
+
+    fn lower_embedded_directive_trivia(&self, trivia: slang::SyntaxTrivia<'_>) -> Vec<OwnedTrivia> {
+        if trivia.kind() != slang::TriviaKind::DIRECTIVE {
+            return Vec::new();
+        }
+
+        let Some(node) = trivia.syntax() else {
+            return Vec::new();
+        };
+
+        node.first_token()
             .into_iter()
             .flat_map(|token| {
                 token.tok.trivias_with_loc().filter_map(|(loc, trivia)| {
+                    let kind = owned_trivia_kind(trivia.kind());
+                    if kind == TriviaKind::DIRECTIVE {
+                        return None;
+                    }
                     let range = (loc.buffer_id == self.root_buffer_id)
                         .then(|| text_range(loc.start..loc.end))
                         .flatten();
                     Some(OwnedTrivia {
-                        kind: owned_trivia_kind(trivia.kind()),
+                        kind,
                         raw_text: trivia.get_raw_text().to_string().into(),
                         range,
-                        directive: None,
+                        directive_range: None,
                     })
                 })
             })
-            .collect();
-
-        Some(OwnedDirectiveTrivia {
-            kind: owned_node_kind(node.kind()),
-            range: self.node_range(node),
-            first_token_trivia,
-        })
-    }
-
-    fn lower_directive_trivia_payload(
-        &mut self,
-        trivia: slang::SyntaxTrivia<'_>,
-    ) -> Option<OwnedDirectiveTrivia> {
-        if trivia.kind() != slang::TriviaKind::DIRECTIVE {
-            return None;
-        }
-
-        let local = self.lower_directive_trivia(trivia);
-        let queued = self.directive_trivia.pop_front();
-        match (local, queued) {
-            (Some(mut local), Some(queued)) => {
-                local.range = local.range.or(queued.range);
-                if local.first_token_trivia.is_empty() {
-                    local.first_token_trivia = queued.first_token_trivia;
-                }
-                Some(local)
-            }
-            (Some(local), None) => Some(local),
-            (None, Some(queued)) => Some(queued),
-            (None, None) => None,
-        }
+            .collect()
     }
 }
 
@@ -478,9 +466,9 @@ pub fn parse_diagnostics_with_options(
     text: &str,
     name: &str,
     path: &str,
-    options: &SyntaxTreeOptions,
+    options: &ParseOptions,
     warning_options: &[String],
-) -> Vec<SyntaxDiagnostic> {
+) -> Vec<FrontendDiagnostic> {
     let tree = slang::SyntaxTree::from_text_with_options(
         text,
         name,
@@ -496,7 +484,7 @@ pub fn expected_syntax_at_offset(
     path: &str,
     offset: usize,
 ) -> Vec<ParserExpectedSyntax> {
-    expected_syntax_at_offset_with_options(text, name, path, offset, &SyntaxTreeOptions::default())
+    expected_syntax_at_offset_with_options(text, name, path, offset, &ParseOptions::default())
 }
 
 pub fn expected_syntax_at_offset_with_options(
@@ -504,7 +492,7 @@ pub fn expected_syntax_at_offset_with_options(
     name: &str,
     path: &str,
     offset: usize,
-    options: &SyntaxTreeOptions,
+    options: &ParseOptions,
 ) -> Vec<ParserExpectedSyntax> {
     slang::SyntaxTree::expected_syntax_at_offset_with_options(
         text,
@@ -552,8 +540,8 @@ pub fn preprocessor_directives(
     text: &str,
     name: &str,
     path: &str,
-    options: &SyntaxTreeOptions,
-) -> Vec<PreprocessorDirective> {
+    options: &ParseOptions,
+) -> Vec<DirectiveEvent> {
     slang::SyntaxTree::preprocessor_directives(
         text,
         name,
@@ -561,17 +549,17 @@ pub fn preprocessor_directives(
         &to_slang_syntax_tree_options(options),
     )
     .into_iter()
-    .map(owned_preprocessor_directive)
+    .map(owned_directive_event)
     .collect()
 }
 
-pub fn preproc_file_index_from_text(text: &str, options: &SyntaxTreeOptions) -> PreprocFileIndex {
+pub fn preproc_file_index_from_text(text: &str, options: &ParseOptions) -> PreprocFileIndex {
     let directives = preprocessor_directives(text, "source", "", options);
     preproc::directive_index::preproc_file_index_from_directives(directives, text)
 }
 
 pub fn literal_include_directives(text: &str) -> Vec<MacroInclude> {
-    let index = preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion());
+    let index = preproc_file_index_from_text(text, &ParseOptions::without_include_expansion());
     preproc::directive_index::literal_include_directives_from_index(&index)
 }
 
@@ -607,8 +595,8 @@ impl Compilation {
         text: &str,
         name: &str,
         path: &str,
-        options: &SyntaxTreeOptions,
-    ) -> SyntaxTreeBufferIds {
+        options: &ParseOptions,
+    ) -> ParseBufferIds {
         owned_buffer_ids(self.inner.add_syntax_tree_from_text(
             text,
             name,
@@ -622,14 +610,14 @@ impl Compilation {
         text: &str,
         name: &str,
         path: &str,
-    ) -> SyntaxTreeBufferIds {
+    ) -> ParseBufferIds {
         owned_buffer_ids(self.inner.add_library_map_syntax_tree_from_text(text, name, path))
     }
 
     pub fn parse_diagnostics_with_options(
         &self,
         warning_options: &[String],
-    ) -> Vec<SyntaxDiagnostic> {
+    ) -> Vec<FrontendDiagnostic> {
         self.inner
             .parse_diagnostics_with_options(warning_options)
             .into_iter()
@@ -640,7 +628,7 @@ impl Compilation {
     pub fn semantic_diagnostics_with_options(
         &self,
         warning_options: &[String],
-    ) -> Vec<SyntaxDiagnostic> {
+    ) -> Vec<FrontendDiagnostic> {
         self.inner
             .semantic_diagnostics_with_options(warning_options)
             .into_iter()
@@ -649,7 +637,7 @@ impl Compilation {
     }
 }
 
-fn to_slang_syntax_tree_options(options: &SyntaxTreeOptions) -> slang::SyntaxTreeOptions {
+fn to_slang_syntax_tree_options(options: &ParseOptions) -> slang::SyntaxTreeOptions {
     slang::SyntaxTreeOptions {
         predefines: options.predefines.clone(),
         include_paths: options.include_paths.clone(),
@@ -709,8 +697,8 @@ fn owned_keyword_context(context: slang::SyntaxKeywordContext) -> SyntaxKeywordC
     }
 }
 
-fn owned_diagnostic(diag: slang::SyntaxDiagnostic) -> SyntaxDiagnostic {
-    SyntaxDiagnostic {
+fn owned_diagnostic(diag: slang::SyntaxDiagnostic) -> FrontendDiagnostic {
+    FrontendDiagnostic {
         code: diag.code,
         subsystem: diag.subsystem,
         severity: match diag.severity {
@@ -748,56 +736,55 @@ fn owned_lexed_token(token: slang::LexedTokenAtOffset) -> LexedTokenAtOffset {
         replacement: token.replacement,
         prefix: token.prefix,
         token_kind: owned_token_kind(token.token_kind),
-        directive_kind: token.directive_kind.map(owned_node_kind),
+        directive_kind: token.directive_kind.map(owned_directive_kind),
     }
 }
 
-fn owned_preprocessor_directive(directive: slang::PreprocessorDirective) -> PreprocessorDirective {
-    PreprocessorDirective {
-        kind: owned_node_kind(directive.kind),
+fn owned_directive_event(directive: slang::PreprocessorDirective) -> DirectiveEvent {
+    DirectiveEvent {
+        kind: owned_directive_kind(directive.kind),
         range: directive.range,
-        directive: directive.directive.map(owned_preprocessor_token),
-        name: directive.name.map(owned_preprocessor_token),
-        include_file_name: directive.include_file_name.map(owned_preprocessor_token),
-        params: directive.params.into_iter().map(owned_preprocessor_macro_param).collect(),
-        body_tokens: directive.body_tokens.into_iter().map(owned_preprocessor_token).collect(),
-        expr_tokens: directive.expr_tokens.into_iter().map(owned_preprocessor_token).collect(),
+        directive: directive.directive.map(owned_directive_token),
+        name: directive.name.map(owned_directive_token),
+        include_file_name: directive.include_file_name.map(owned_directive_token),
+        params: directive.params.into_iter().map(owned_directive_param).collect(),
+        body_tokens: directive.body_tokens.into_iter().map(owned_directive_token).collect(),
+        expr_tokens: directive.expr_tokens.into_iter().map(owned_directive_token).collect(),
         disabled_ranges: directive.disabled_ranges,
     }
 }
 
-fn owned_directive_trivia_from_preprocessor(
-    directive: slang::PreprocessorDirective,
-) -> Option<OwnedDirectiveTrivia> {
-    Some(OwnedDirectiveTrivia {
-        kind: owned_node_kind(directive.kind),
-        range: directive.range.and_then(text_range),
-        first_token_trivia: Vec::new(),
-    })
-}
-
-fn owned_preprocessor_token(
-    token: slang::PreprocessorDirectiveToken,
-) -> PreprocessorDirectiveToken {
-    PreprocessorDirectiveToken {
-        raw_text: token.raw_text,
-        value_text: token.value_text,
-        range: token.range,
+fn owned_directive_kind(kind: slang::SyntaxKind) -> DirectiveKind {
+    match kind {
+        slang::SyntaxKind::DEFINE_DIRECTIVE => DirectiveKind::Define,
+        slang::SyntaxKind::UNDEF_DIRECTIVE => DirectiveKind::Undef,
+        slang::SyntaxKind::INCLUDE_DIRECTIVE => DirectiveKind::Include,
+        slang::SyntaxKind::IF_DEF_DIRECTIVE => DirectiveKind::IfDef,
+        slang::SyntaxKind::IF_N_DEF_DIRECTIVE => DirectiveKind::IfNDef,
+        slang::SyntaxKind::ELS_IF_DIRECTIVE => DirectiveKind::ElsIf,
+        slang::SyntaxKind::ELSE_DIRECTIVE => DirectiveKind::Else,
+        slang::SyntaxKind::END_IF_DIRECTIVE => DirectiveKind::EndIf,
+        slang::SyntaxKind::MACRO_USAGE => DirectiveKind::MacroUsage,
+        _ => DirectiveKind::Other,
     }
 }
 
-fn owned_preprocessor_macro_param(param: slang::PreprocessorMacroParam) -> PreprocessorMacroParam {
-    PreprocessorMacroParam {
-        name: param.name.map(owned_preprocessor_token),
+fn owned_directive_token(token: slang::PreprocessorDirectiveToken) -> DirectiveToken {
+    DirectiveToken { raw_text: token.raw_text, value_text: token.value_text, range: token.range }
+}
+
+fn owned_directive_param(param: slang::PreprocessorMacroParam) -> DirectiveParam {
+    DirectiveParam {
+        name: param.name.map(owned_directive_token),
         default_tokens: param
             .default_tokens
-            .map(|tokens| tokens.into_iter().map(owned_preprocessor_token).collect()),
+            .map(|tokens| tokens.into_iter().map(owned_directive_token).collect()),
         range: param.range,
     }
 }
 
-fn owned_buffer_ids(ids: slang::SyntaxTreeBufferIds) -> SyntaxTreeBufferIds {
-    SyntaxTreeBufferIds {
+fn owned_buffer_ids(ids: slang::SyntaxTreeBufferIds) -> ParseBufferIds {
+    ParseBufferIds {
         root_buffer_id: ids.root_buffer_id,
         source_buffers: ids
             .source_buffers
@@ -810,9 +797,9 @@ fn owned_buffer_ids(ids: slang::SyntaxTreeBufferIds) -> SyntaxTreeBufferIds {
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
+    use frontend_api::ParseOptions;
     use preproc::{PREPROC_TRACE_CAPABILITY, TraceUnavailableReason};
     use syntax::{
-        SyntaxTreeOptions,
         ast::{self, AstNode as _},
         raw::{AstNode, SourceFile, SyntaxElement, SyntaxNode},
     };
@@ -961,7 +948,7 @@ mod tests {
             "module top(input logic clk); logic data; assign data = 1'b0; endmodule\n",
             "source",
             "",
-            &SyntaxTreeOptions::without_include_expansion(),
+            &ParseOptions::without_include_expansion(),
         )
         .unwrap();
         let root = tree.root().unwrap();
@@ -981,8 +968,7 @@ mod tests {
     #[test]
     fn owned_preproc_index_extraction_boundary_reports_macro_and_include() {
         let text = "`define WIDTH 8\n`include \"defs.svh\"\n`WIDTH\n";
-        let index =
-            preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion());
+        let index = preproc_file_index_from_text(text, &ParseOptions::without_include_expansion());
 
         assert_eq!(index.defines[0].name.as_deref(), Some("WIDTH"));
         assert_eq!(
@@ -1000,7 +986,7 @@ mod tests {
         let text = "`ifdef USE_A\n`include \"a.svh\"\n`else\n`include \"b.svh\"\n`endif\n";
 
         let without_define =
-            preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion());
+            preproc_file_index_from_text(text, &ParseOptions::without_include_expansion());
         assert_eq!(
             without_define
                 .conditionals
@@ -1021,7 +1007,7 @@ mod tests {
             }
         );
 
-        let mut options = SyntaxTreeOptions::without_include_expansion();
+        let mut options = ParseOptions::without_include_expansion();
         options.predefines.push("USE_A".to_owned());
         let with_define = preproc_file_index_from_text(text, &options);
         assert_eq!(
@@ -1036,8 +1022,7 @@ mod tests {
     #[test]
     fn owned_preproc_index_keeps_token_includes_structural() {
         let text = "`define HEADER \"defs.svh\"\n`include `HEADER\n`include\n`NEXT\n";
-        let index =
-            preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion());
+        let index = preproc_file_index_from_text(text, &ParseOptions::without_include_expansion());
 
         assert_eq!(
             index.includes[0].target,
@@ -1052,8 +1037,7 @@ mod tests {
     #[test]
     fn owned_preproc_index_reports_inactive_ranges() {
         let text = "`ifdef USE_A\nlogic active;\n`else\nlogic inactive;\n`endif\n";
-        let index =
-            preproc_file_index_from_text(text, &SyntaxTreeOptions::without_include_expansion());
+        let index = preproc_file_index_from_text(text, &ParseOptions::without_include_expansion());
         let inactive_start = TextSize::from(text.find("logic active;").unwrap() as u32);
 
         assert!(
@@ -1066,8 +1050,7 @@ mod tests {
     #[test]
     fn owned_directive_trivia_covers_directive_body() {
         let text = "`define FOO 1\nmodule m; endmodule\n";
-        let tree =
-            parse_syntax_with_options(text, "source", "", &SyntaxTreeOptions::default()).unwrap();
+        let tree = parse_syntax_with_options(text, "source", "", &ParseOptions::default()).unwrap();
         let root = tree.root().unwrap();
         let mut directive = None;
         for event in root.elem_preorder() {
