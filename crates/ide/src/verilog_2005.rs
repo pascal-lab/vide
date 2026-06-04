@@ -11,10 +11,10 @@ use hir::{
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId},
     },
+    preproc::{IncludeTarget, include_directive_at},
     semantics::Semantics,
 };
 use insta::assert_snapshot;
-use preproc::index::MacroIncludeTarget;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
@@ -833,30 +833,27 @@ endmodule
 }
 
 #[test]
-fn manifest_predefines_feed_default_preproc_file_index() {
+fn manifest_predefines_feed_preproc_include_query() {
     let text = r#"
 `ifdef USE_IMPL
-`include "active.svh"
+`include "/*marker:active*/active.svh"
 `else
-`include "inactive.svh"
+`include "/*marker:inactive*/inactive.svh"
 `endif
 module manifest_preproc_index_ctx;
 endmodule
 "#;
-    let (host, file_id, _clean_text, _markers) =
+    let (host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
 
-    let index = host.raw_db().preproc_file_index(file_id);
-    let literal_include_paths = index
-        .includes
-        .iter()
-        .filter_map(|include| match &include.target {
-            MacroIncludeTarget::Literal { path, .. } => Some(path.as_str()),
-            MacroIncludeTarget::Token { .. } => None,
-        })
-        .collect::<Vec<_>>();
+    let include = include_directive_at(host.raw_db(), file_id, markers["active"])
+        .expect("active include should be queryable");
+    let IncludeTarget::Literal { path, .. } = include.target else {
+        panic!("active include should be literal: {include:?}");
+    };
+    assert_eq!(path.as_str(), "active.svh");
 
-    assert_eq!(literal_include_paths, vec!["active.svh"]);
+    assert!(include_directive_at(host.raw_db(), file_id, markers["inactive"]).is_none());
 }
 
 #[test]
