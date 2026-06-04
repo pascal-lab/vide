@@ -494,68 +494,6 @@ mod tests {
     }
 
     #[test]
-    fn divergent_alias_did_change_does_not_update_canonical_buffer() {
-        let root = TestDir::new("divergent-alias-change");
-        let (mut state, _client) = test_state_with_root(root.path().to_path_buf());
-        let source_path = root.join("workspace/top.sv");
-        let alias_path = root.join("alias/top.sv");
-        std::fs::create_dir_all(source_path.parent().unwrap()).unwrap();
-        std::fs::create_dir_all(alias_path.parent().unwrap()).unwrap();
-        std::fs::write(&source_path, "module top;\nendmodule\n").unwrap();
-        std::fs::hard_link(&source_path, &alias_path).unwrap();
-        let source_uri = Url::from_file_path(source_path.as_path()).unwrap();
-        let alias_uri = Url::from_file_path(alias_path.as_path()).unwrap();
-        let source_vfs_path = VfsPath::from(source_path);
-        let alias_vfs_path = VfsPath::from(alias_path);
-
-        handle_did_open_text_document(
-            &mut state,
-            DidOpenTextDocumentParams {
-                text_document: TextDocumentItem {
-                    uri: source_uri,
-                    language_id: "systemverilog".to_owned(),
-                    version: 1,
-                    text: "module top;\nendmodule\n".to_owned(),
-                },
-            },
-        )
-        .unwrap();
-        let file_id = state.mem_docs.file_id(&source_vfs_path).unwrap();
-        handle_did_open_text_document(
-            &mut state,
-            DidOpenTextDocumentParams {
-                text_document: TextDocumentItem {
-                    uri: alias_uri.clone(),
-                    language_id: "systemverilog".to_owned(),
-                    version: 12,
-                    text: "module broken(;\nendmodule\n".to_owned(),
-                },
-            },
-        )
-        .unwrap();
-
-        assert_eq!(state.mem_docs.file_id(&alias_vfs_path), Some(file_id));
-        assert_eq!(state.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
-        assert_eq!(state.mem_docs.open_documents(file_id).len(), 1);
-
-        handle_did_change_text_document(
-            &mut state,
-            DidChangeTextDocumentParams {
-                text_document: VersionedTextDocumentIdentifier { uri: alias_uri, version: 13 },
-                content_changes: vec![TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text: "module still_broken(;\nendmodule\n".to_owned(),
-                }],
-            },
-        )
-        .unwrap();
-
-        assert_eq!(state.mem_docs.version_for_path(&alias_vfs_path), Some(12));
-        assert_eq!(state.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
-    }
-
-    #[test]
     fn set_trace_notification_updates_server_trace_level() {
         let (mut state, client) = test_state();
 

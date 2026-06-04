@@ -664,21 +664,6 @@ impl PublishDiagnosticsBatch {
     ) -> Self {
         Self { freshness, touched_file_ids, tasks }
     }
-
-    #[cfg(test)]
-    pub(crate) fn touched_file_ids(&self) -> &FxHashSet<FileId> {
-        &self.touched_file_ids
-    }
-
-    #[cfg(test)]
-    pub(crate) fn tasks(&self) -> &[PublishDiagnosticsTask] {
-        &self.tasks
-    }
-
-    #[cfg(test)]
-    pub(crate) fn into_tasks(self) -> Vec<PublishDiagnosticsTask> {
-        self.tasks
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -717,21 +702,6 @@ impl PublishDiagnosticsTask {
     /// and version always come from the same document target.
     pub(crate) fn clear_stale_uri(file_id: FileId, uri: lsp_types::Url) -> Self {
         Self { file_id, uri, version: None, diagnostics: Vec::new() }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn file_id(&self) -> FileId {
-        self.file_id
-    }
-
-    #[cfg(test)]
-    pub(crate) fn uri(&self) -> &lsp_types::Url {
-        &self.uri
-    }
-
-    #[cfg(test)]
-    pub(crate) fn version(&self) -> Option<i32> {
-        self.version
     }
 
     fn cache_key(&self) -> DiagnosticPublishKey {
