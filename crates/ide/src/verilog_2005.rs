@@ -14,7 +14,7 @@ use hir::{
     semantics::Semantics,
 };
 use insta::assert_snapshot;
-use preproc::MacroIncludeTarget;
+use preproc::index::MacroIncludeTarget;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
