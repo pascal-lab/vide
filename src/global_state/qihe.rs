@@ -663,6 +663,20 @@ fn read_qihe_options(cwd: &Path) -> Result<QiheOptionsConfig> {
     Ok(QiheOptionsConfig { use_options_file: true, storage_root })
 }
 
+fn has_run_arg(run_args: &[String], predicate: impl Fn(usize, &str) -> bool) -> bool {
+    run_args.iter().enumerate().any(|(idx, arg)| predicate(idx, arg))
+}
+
+fn has_explicit_qihe_options_arg(run_args: &[String]) -> bool {
+    has_run_arg(run_args, |_, arg| arg == "--options")
+}
+
+fn has_explicit_storage_root_arg(run_args: &[String]) -> bool {
+    has_run_arg(run_args, |idx, arg| {
+        arg == "-c" && run_args.get(idx + 1).is_some_and(|value| value.starts_with("storage.root"))
+    })
+}
+
 fn run_qihe_commands(
     qihe_config: &QiheConfig,
     cwd: &Path,
@@ -711,11 +725,11 @@ fn prepare_qihe_run_command(
     run_paths: &QiheRunPaths,
 ) {
     command.args(&qihe_config.run_args);
-    if run_paths.use_options_file {
+    if run_paths.use_options_file && !has_explicit_qihe_options_arg(&qihe_config.run_args) {
         command.args(["--options", QIHE_OPTIONS_RUN_PATH]);
     }
     command.arg("-i").arg(&run_paths.ir_path);
-    if run_paths.override_storage_root {
+    if run_paths.override_storage_root && !has_explicit_storage_root_arg(&qihe_config.run_args) {
         command.arg("-c").arg(format!("storage.root={}", run_paths.storage_root.display()));
     }
 }
@@ -1672,8 +1686,6 @@ mod tests {
         let root = TestDir::new("qihe-run-paths-no-options");
         let active_path = root.path().join("top.sv");
         fs::write(&active_path, "module top; endmodule\n").unwrap();
-        let active_path = AbsPathBuf::try_from(active_path).unwrap();
-
         let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
 
         assert!(run_paths.ir_path.starts_with(std::env::temp_dir()));
@@ -1689,8 +1701,6 @@ mod tests {
         fs::write(&active_path, "module top; endmodule\n").unwrap();
         fs::write(root.path().join("qihe-options.toml"), "[storage]\nroot = \"artifacts/qihe\"\n")
             .unwrap();
-        let active_path = AbsPathBuf::try_from(active_path).unwrap();
-
         let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
 
         assert_eq!(run_paths.storage_root, PathBuf::from(root.path().join("artifacts/qihe")));
@@ -1704,8 +1714,6 @@ mod tests {
         let active_path = root.path().join("top.sv");
         fs::write(&active_path, "module top; endmodule\n").unwrap();
         fs::write(root.path().join("qihe-options.toml"), "[storage]\n").unwrap();
-        let active_path = AbsPathBuf::try_from(active_path).unwrap();
-
         let run_paths = qihe_run_paths(active_path.as_path(), root.path().as_ref()).unwrap();
 
         assert!(run_paths.storage_root.starts_with(std::env::temp_dir()));
