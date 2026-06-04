@@ -1,0 +1,51 @@
+---
+title: 1.1.0
+description: Vide 1.1.0 release notes.
+---
+
+Vide 1.1.0 focuses on editing features people use directly: workspace symbol search, automatic refactoring, rename, hover, and diagnostics. VS Code users will see these updates in symbol search, the lightbulb menu, rename, hover, and the Problems panel. Editors such as Neovim and Emacs expose them through their own symbol search, code action, rename, hover, and diagnostics UI.
+
+## Highlights
+
+### Workspace Symbol Search
+
+- Editors can now ask Vide for symbols across the workspace, making it easier to search for modules, instances, signals, and other code objects. Supported editors show these results through their workspace symbol search or equivalent entry point. ([#210](https://github.com/pascal-lab/vide/pull/210))
+- Search supports case-insensitive fuzzy matching and path or container filters, so you can narrow the query to a module or hierarchy before searching for a specific signal. ([#210](https://github.com/pascal-lab/vide/pull/210))
+
+### Automatic Refactoring and Quick Fixes
+
+In VS Code, these features usually appear in the lightbulb menu. In other editors, use the editor's code action entry point.
+
+- Declaration and instantiation cleanup: `Split declaration`, `Sort named parameter assignments`, and `Sort named port connections`. ([#211](https://github.com/pascal-lab/vide/pull/211))
+- Control-flow cleanup: `Add default case item`, `Invert if/else`, and `Wrap statement in begin/end`. ([#211](https://github.com/pascal-lab/vide/pull/211))
+- Boolean expression and compound-assignment cleanup: `Apply De Morgan's law`, `Factor De Morgan's law`, `Expand compound assignment`, and `Collapse compound assignment`. ([#211](https://github.com/pascal-lab/vide/pull/211))
+- Increment, decrement, and assignment conversions: `Expand postfix expression`, `Expand prefix expression`, `Convert postfix to prefix expression`, `Convert postfix to compound assignment`, `Convert prefix to postfix expression`, `Convert prefix to compound assignment`, `Convert compound assignment to postfix expression`, `Convert compound assignment to prefix expression`, `Convert assignment to postfix expression`, and `Convert assignment to prefix expression`. ([#211](https://github.com/pascal-lab/vide/pull/211))
+- Parser quick fixes: when brackets, semicolons, or other syntax tokens are missing, Vide can offer `Insert missing '{token}'`. ([#212](https://github.com/pascal-lab/vide/pull/212))
+
+### Rename
+
+These updates apply to the editor's rename feature.
+
+- When Vide can confirm that a rename only affects the current file, it can now run without an existing `vide.toml`. ([#202](https://github.com/pascal-lab/vide/pull/202))
+- Rename can expand recursively through more related references and warn when duplicated names are found. ([#215](https://github.com/pascal-lab/vide/pull/215))
+
+### Hover
+
+- Hovering over a module instance now shows a more complete module signature. ([#209](https://github.com/pascal-lab/vide/pull/209))
+
+### Diagnostics
+
+- Width-related warnings are now enabled by default. After upgrading, the Problems panel or the editor's diagnostics list may show more width expansion or truncation warnings. If you do not want these warnings, adjust `diagnostics.slang.warnings`. ([#214](https://github.com/pascal-lab/vide/pull/214))
+
+## VS Code Extension
+
+- On Windows, the VS Code extension uses `qihe.bat` by default to launch Qihe. Explicit user configuration still takes precedence. ([#207](https://github.com/pascal-lab/vide/pull/207))
+
+## Configuration and Packages
+
+- The user configuration schema is now published with the documentation, keeping editor settings and documentation tables in sync. ([#206](https://github.com/pascal-lab/vide/pull/206))
+- The Linux x64 package now uses a manylinux2014 build for better compatibility with older glibc environments. ([#219](https://github.com/pascal-lab/vide/pull/219))
+
+## Documentation Site
+
+- The language selector now uses the label "Language/Languages" and sizes itself from the label text, reducing layout squeeze when switching between Chinese and English. ([#216](https://github.com/pascal-lab/vide/pull/216), [#217](https://github.com/pascal-lab/vide/pull/217))
