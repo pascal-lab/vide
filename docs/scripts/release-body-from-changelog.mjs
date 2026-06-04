@@ -33,12 +33,12 @@ if (!values.tag || !values.output) {
 const tag = values.tag;
 const output = values.output;
 const page = tag.replaceAll('.', '-');
-const sourceDir = `changelog/${page}`;
+const sourceDir = `en/changelog/${page}`;
 const source = path.posix.join(docsRoot, sourceDir, 'index.mdx');
 
 if (!fs.existsSync(source)) {
   console.error(`Missing ${source}`);
-  console.error(`Add a changelog page for ${tag} before publishing the release.`);
+  console.error(`Add an English changelog page for ${tag} before publishing the release.`);
   process.exit(1);
 }
 
