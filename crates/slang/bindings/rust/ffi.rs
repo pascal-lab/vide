@@ -42,6 +42,7 @@ mod slang_ffi {
     struct RawSourceBufferId {
         path: String,
         buffer_id: u32,
+        origin: u8,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]

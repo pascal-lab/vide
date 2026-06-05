@@ -104,6 +104,23 @@ pub struct SyntaxTreeBufferIds {
 pub struct SourceBufferId {
     pub path: String,
     pub buffer_id: u32,
+    pub origin: SourceBufferOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceBufferOrigin {
+    Source,
+    Predefine,
+}
+
+impl SourceBufferOrigin {
+    fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => SourceBufferOrigin::Source,
+            1 => SourceBufferOrigin::Predefine,
+            origin => panic!("unexpected source buffer origin {origin}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,7 +263,11 @@ impl SyntaxTreeBufferIds {
             source_buffers: raw
                 .source_buffers
                 .into_iter()
-                .map(|buffer| SourceBufferId { path: buffer.path, buffer_id: buffer.buffer_id })
+                .map(|buffer| SourceBufferId {
+                    path: buffer.path,
+                    buffer_id: buffer.buffer_id,
+                    origin: SourceBufferOrigin::from_raw(buffer.origin),
+                })
                 .collect(),
         }
     }
@@ -268,7 +289,11 @@ impl PreprocessorTrace {
             source_buffers: raw
                 .source_buffers
                 .into_iter()
-                .map(|buffer| SourceBufferId { path: buffer.path, buffer_id: buffer.buffer_id })
+                .map(|buffer| SourceBufferId {
+                    path: buffer.path,
+                    buffer_id: buffer.buffer_id,
+                    origin: SourceBufferOrigin::from_raw(buffer.origin),
+                })
                 .collect(),
             directives: raw
                 .directives
