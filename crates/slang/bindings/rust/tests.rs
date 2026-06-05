@@ -947,7 +947,7 @@ wire disabled_by_header;
     );
 
     let root_define = trace
-        .directives
+        .events
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::DEFINE_DIRECTIVE
@@ -967,7 +967,7 @@ wire disabled_by_header;
     );
 
     let include = trace
-        .directives
+        .events
         .iter()
         .find(|directive| directive.kind == SyntaxKind::INCLUDE_DIRECTIVE)
         .expect("root include should be traced");
@@ -978,7 +978,7 @@ wire disabled_by_header;
     );
 
     let header_define = trace
-        .directives
+        .events
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::DEFINE_DIRECTIVE
@@ -1005,9 +1005,15 @@ wire disabled_by_header;
     assert!(header_define.body_tokens.iter().all(|token| {
         token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)
     }));
+    let include_edge = trace
+        .include_edges
+        .iter()
+        .find(|edge| edge.include_event_id == include.event_id)
+        .expect("root include should have an include edge");
+    assert_eq!(include_edge.included_buffer_id, header_buffer_id);
 
     let predefine_branch = trace
-        .directives
+        .events
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::IF_N_DEF_DIRECTIVE
@@ -1017,7 +1023,7 @@ wire disabled_by_header;
     assert!(predefine_branch.disabled_ranges.iter().any(|range| range.buffer_id == root_buffer_id));
 
     let header_branch = trace
-        .directives
+        .events
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::IF_DEF_DIRECTIVE
@@ -1031,7 +1037,7 @@ wire disabled_by_header;
     assert!(header_branch.disabled_ranges.iter().any(|range| range.buffer_id == header_buffer_id));
 
     let root_header_branch = trace
-        .directives
+        .events
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::IF_N_DEF_DIRECTIVE
@@ -1047,6 +1053,93 @@ wire disabled_by_header;
     assert!(single_file_directives.iter().all(|directive| {
         directive.name.as_ref().map(|name| name.value_text.as_str()) != Some("HEADER_FLAG")
     }));
+}
+
+#[test]
+fn preprocessor_trace_records_nested_include_edges() {
+    let dir = TestDir::new("slang-preprocessor-trace-nested");
+    let rtl_dir = dir.create_dir_all("rtl");
+    let include_dir = dir.create_dir_all("include");
+    let mid_path = dir.write("include/mid.vh", "");
+    let leaf_path = dir.write("include/leaf.vh", "");
+    let source_path = rtl_dir.join("top.v").to_string();
+    let source = "`include \"mid.vh\"\nlogic [`LEAF_FLAG-1:0] data;\n";
+    let options = SyntaxTreeOptions {
+        include_paths: vec![include_dir.to_string()],
+        include_buffers: vec![
+            SyntaxTreeBuffer {
+                path: mid_path.to_string(),
+                text: "`include \"leaf.vh\"\n".to_owned(),
+            },
+            SyntaxTreeBuffer {
+                path: leaf_path.to_string(),
+                text: "`define LEAF_FLAG 1\n".to_owned(),
+            },
+        ],
+        expand_includes: true,
+        ..SyntaxTreeOptions::default()
+    };
+
+    let trace = SyntaxTree::preprocessor_trace(source, "source", &source_path, &options)
+        .expect("root source buffer should be available");
+    assert!(
+        trace
+            .events
+            .iter()
+            .enumerate()
+            .all(|(index, event)| event.event_id.0 == u32::try_from(index).unwrap())
+    );
+
+    let root_include = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::INCLUDE_DIRECTIVE
+                && event
+                    .include_file_name
+                    .as_ref()
+                    .is_some_and(|token| token.raw_text.contains("mid.vh"))
+        })
+        .expect("root include should be traced");
+    let root_edge = trace
+        .include_edges
+        .iter()
+        .find(|edge| edge.include_event_id == root_include.event_id)
+        .expect("root include should point at mid header");
+
+    let nested_include = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::INCLUDE_DIRECTIVE
+                && event
+                    .include_file_name
+                    .as_ref()
+                    .is_some_and(|token| token.raw_text.contains("leaf.vh"))
+        })
+        .expect("nested include should be traced");
+    assert_eq!(
+        nested_include.range.as_ref().map(|range| range.buffer_id),
+        Some(root_edge.included_buffer_id)
+    );
+    let nested_edge = trace
+        .include_edges
+        .iter()
+        .find(|edge| edge.include_event_id == nested_include.event_id)
+        .expect("nested include should point at leaf header");
+
+    let leaf_define = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::DEFINE_DIRECTIVE
+                && event.name.as_ref().is_some_and(|name| name.value_text == "LEAF_FLAG")
+        })
+        .expect("leaf define should be traced");
+    assert_eq!(
+        leaf_define.range.as_ref().map(|range| range.buffer_id),
+        Some(nested_edge.included_buffer_id)
+    );
 }
 
 #[cfg(windows)]

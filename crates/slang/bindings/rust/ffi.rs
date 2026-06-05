@@ -142,6 +142,7 @@ mod slang_ffi {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTraceDirective {
+        event_id: u32,
         kind: u16,
         range: RawSourceBufferRange,
         directive: RawPreprocessorTraceToken,
@@ -154,11 +155,18 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceIncludeEdge {
+        include_event_id: u32,
+        included_buffer_id: u32,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTrace {
         root_buffer_id: u32,
         has_root_buffer_id: bool,
         source_buffers: Vec<RawSourceBufferId>,
-        directives: Vec<RawPreprocessorTraceDirective>,
+        events: Vec<RawPreprocessorTraceDirective>,
+        include_edges: Vec<RawPreprocessorTraceIncludeEdge>,
     }
 
     #[namespace = "slang"]
