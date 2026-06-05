@@ -5,8 +5,8 @@ use preproc::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
-    Compilation, ParserExpectedSyntax, PreprocessorTrace, SyntaxDiagnostic, SyntaxTree,
-    SyntaxTreeBuffer, SyntaxTreeBufferIds,
+    Compilation, ParserExpectedSyntax, PreprocessorTrace, SourceBufferOrigin, SyntaxDiagnostic,
+    SyntaxTree, SyntaxTreeBuffer, SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -226,13 +226,18 @@ fn source_preproc_file_ids(
             continue;
         }
 
-        let Some(mapped_file_id) = path_file_ids.get(&source.path) else {
-            return Err(SourcePreprocQueryError::UnmappedSource {
-                buffer_id: source.buffer_id,
-                path: source.path.clone(),
-            });
-        };
-        source_file_ids.insert(source_id, mapped_file_id);
+        match source.origin {
+            SourceBufferOrigin::Source => {
+                let Some(mapped_file_id) = path_file_ids.get(&source.path) else {
+                    return Err(SourcePreprocQueryError::UnmappedSource {
+                        buffer_id: source.buffer_id,
+                        path: source.path.clone(),
+                    });
+                };
+                source_file_ids.insert(source_id, mapped_file_id);
+            }
+            SourceBufferOrigin::Predefine => {}
+        }
     }
 
     Ok(source_file_ids)

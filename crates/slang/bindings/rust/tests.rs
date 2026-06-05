@@ -932,6 +932,19 @@ wire disabled_by_header;
     let root_buffer_id = trace.root_buffer_id;
 
     assert!(normalized_path_for_buffer_id(root_buffer_id).ends_with("rtl/top.v"));
+    assert_eq!(
+        trace
+            .source_buffers
+            .iter()
+            .find(|buffer| buffer.buffer_id == root_buffer_id)
+            .map(|buffer| buffer.origin),
+        Some(SourceBufferOrigin::Source)
+    );
+    assert!(
+        trace.source_buffers.iter().any(|buffer| buffer.origin == SourceBufferOrigin::Predefine),
+        "manifest predefines should be represented as explicit predefine buffers: {:?}",
+        trace.source_buffers
+    );
 
     let root_define = trace
         .directives
@@ -975,6 +988,14 @@ wire disabled_by_header;
     let header_buffer_id = header_define.range.as_ref().unwrap().buffer_id;
     assert_ne!(root_buffer_id, header_buffer_id);
     assert!(normalized_path_for_buffer_id(header_buffer_id).ends_with("include/defs.vh"));
+    assert_eq!(
+        trace
+            .source_buffers
+            .iter()
+            .find(|buffer| buffer.buffer_id == header_buffer_id)
+            .map(|buffer| buffer.origin),
+        Some(SourceBufferOrigin::Source)
+    );
 
     assert_eq!(header_define.range.as_ref().unwrap().buffer_id, header_buffer_id);
     assert_eq!(

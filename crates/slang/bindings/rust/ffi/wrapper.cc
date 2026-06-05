@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <mutex>
+#include <unordered_set>
 
 namespace wrapper {
 namespace {
@@ -486,7 +487,8 @@ std::optional<slang::SourceRange> mapSourceRangeToContext(
 }
 
 rust::Vec<::RawSourceBufferId> collectSourceBufferIds(
-    const slang::SourceManager& sourceManager) {
+    const slang::SourceManager& sourceManager,
+    const std::unordered_set<uint32_t>& predefineBufferIds = {}) {
   rust::Vec<::RawSourceBufferId> sourceBuffers;
   for (auto buffer : sourceManager.getAllBuffers()) {
     const auto& fullPath = sourceManager.getFullPath(buffer);
@@ -496,6 +498,7 @@ rust::Vec<::RawSourceBufferId> collectSourceBufferIds(
     ::RawSourceBufferId sourceBuffer;
     sourceBuffer.path = rust::String(fullPath.string());
     sourceBuffer.buffer_id = buffer.getId();
+    sourceBuffer.origin = predefineBufferIds.contains(buffer.getId()) ? 1 : 0;
     sourceBuffers.emplace_back(std::move(sourceBuffer));
   }
 
@@ -940,6 +943,7 @@ rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
 
   slang::SourceManager sourceManager;
   std::unordered_map<std::string, slang::SourceBuffer> assignedBuffers;
+  std::unordered_set<uint32_t> sourceBufferIds;
   auto assignSourceBuffer = [&](std::string_view bufferPath,
                                 std::string_view bufferText) -> slang::SourceBuffer {
     if (bufferPath.empty())
@@ -953,6 +957,7 @@ rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
     std::string ownedText(bufferText);
     auto buffer = sourceManager.assignText(key, ownedText);
     assignedBuffers.emplace(std::move(key), buffer);
+    sourceBufferIds.insert(buffer.id.getId());
     return buffer;
   };
 
@@ -981,6 +986,12 @@ rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
   slang::BumpAllocator alloc;
   slang::Diagnostics diagnostics;
   slang::parsing::Preprocessor preprocessor(sourceManager, alloc, diagnostics, options);
+  std::unordered_set<uint32_t> predefineBufferIds;
+  for (auto buffer : sourceManager.getAllBuffers()) {
+    auto bufferId = buffer.getId();
+    if (!sourceBufferIds.contains(bufferId))
+      predefineBufferIds.insert(bufferId);
+  }
   preprocessor.pushSource(rootBuffer);
 
   while (true) {
@@ -997,7 +1008,7 @@ rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
       break;
   }
 
-  result.source_buffers = collectSourceBufferIds(sourceManager);
+  result.source_buffers = collectSourceBufferIds(sourceManager, predefineBufferIds);
   return result;
 }
 

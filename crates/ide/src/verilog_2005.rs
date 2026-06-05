@@ -18,6 +18,7 @@ use insta::assert_snapshot;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
+    paths::AbsPathBuf,
     test_support::TestDir,
     text_edit::{TextRange, TextSize},
 };
@@ -26,7 +27,7 @@ use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 use crate::{
     FilePosition, ScopeVisibility,
     analysis_host::AnalysisHost,
-    completion::CompletionItem,
+    completion::{CompletionItem, CompletionItemKind, context::TriggerChar},
     db::root_db::RootDb,
     document_highlight::DocumentHighlightConfig,
     document_symbols::DocumentSymbol,
@@ -214,6 +215,78 @@ fn setup_marked_with_predefines(
     (host, file_id, text, markers)
 }
 
+struct IncludeMacroFixture {
+    _dir: TestDir,
+    host: AnalysisHost,
+    top_file_id: FileId,
+    header_file_id: FileId,
+    header_text: String,
+    top_markers: HashMap<String, TextSize>,
+    header_markers: HashMap<String, TextSize>,
+}
+
+fn setup_include_macro_project(
+    marked_top_text: &str,
+    marked_header_text: &str,
+) -> IncludeMacroFixture {
+    let dir = TestDir::new("preproc-include-macro");
+    let rtl_dir = dir.path().join("rtl");
+    let include_dir = dir.path().join("include");
+    std::fs::create_dir_all(&rtl_dir).unwrap();
+    std::fs::create_dir_all(&include_dir).unwrap();
+
+    let top_path = rtl_dir.join("top.v");
+    let header_path = include_dir.join("defs.vh");
+    let marked_top_text = normalize_fixture_text(marked_top_text);
+    let marked_header_text = normalize_fixture_text(marked_header_text);
+    let (top_text, top_markers) = strip_markers(marked_top_text);
+    let (header_text, header_markers) = strip_markers(marked_header_text);
+    std::fs::write(&top_path, &top_text).unwrap();
+    std::fs::write(&header_path, &header_text).unwrap();
+
+    let top_file_id = FileId(0);
+    let header_file_id = FileId(1);
+    let include_dir = AbsPathBuf::try_from(include_dir).unwrap();
+
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(header_file_id, VfsPath::from(header_path));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top_file_id])]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig {
+                predefines: Vec::new(),
+                include_dirs: vec![include_dir],
+            },
+        }],
+    )));
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: header_file_id,
+        change_kind: ChangeKind::Create(Arc::from(header_text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    IncludeMacroFixture {
+        _dir: dir,
+        host,
+        top_file_id,
+        header_file_id,
+        header_text,
+        top_markers,
+        header_markers,
+    }
+}
+
 fn strip_markers(mut text: String) -> (String, HashMap<String, TextSize>) {
     let mut markers = HashMap::new();
     let mut cursor = 0;
@@ -241,6 +314,19 @@ fn position(file_id: FileId, markers: &HashMap<String, TextSize>, name: &str) ->
         file_id,
         offset: *markers.get(name).unwrap_or_else(|| panic!("missing marker {name:?}")),
     }
+}
+
+fn marked_range(
+    markers: &HashMap<String, TextSize>,
+    name: &str,
+    len: impl Into<TextSize>,
+) -> TextRange {
+    let start = *markers.get(name).unwrap_or_else(|| panic!("missing marker {name:?}"));
+    TextRange::new(start, start + len.into())
+}
+
+fn text_at_range(text: &str, range: TextRange) -> &str {
+    &text[usize::from(range.start())..usize::from(range.end())]
 }
 
 fn fixtures_dir() -> PathBuf {
@@ -847,13 +933,14 @@ endmodule
         setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
 
     let include = include_directive_at(host.raw_db(), file_id, markers["active"])
+        .unwrap()
         .expect("active include should be queryable");
     let IncludeTarget::Literal { path, .. } = include.target else {
         panic!("active include should be literal: {include:?}");
     };
     assert_eq!(path.as_str(), "active.svh");
 
-    assert!(include_directive_at(host.raw_db(), file_id, markers["inactive"]).is_none());
+    assert!(include_directive_at(host.raw_db(), file_id, markers["inactive"]).unwrap().is_none());
 }
 
 #[test]
@@ -1049,6 +1136,158 @@ endmodule
 
     let use_ranges = reference_ranges("second_use");
     assert_eq!(use_ranges, second_ranges);
+}
+
+#[test]
+fn preproc_include_macro_definition_feeds_ide_features() {
+    let fixture = setup_include_macro_project(
+        r#"
+`include "defs.vh"
+`ifndef HEADER_FLAG
+/*marker:inactive*/wire disabled_by_header;
+`endif
+module top;
+  logic [/*marker:usage_range*/`/*marker:usage*/HEADER_WIDTH-1:0] data;
+  localparam int W = `/*marker:completion*/;
+endmodule
+"#,
+        r#"
+`define /*marker:definition*/HEADER_WIDTH 8
+`define HEADER_FLAG
+"#,
+    );
+    let analysis = fixture.host.make_analysis();
+    let usage = position(fixture.top_file_id, &fixture.top_markers, "usage");
+    let definition_range =
+        marked_range(&fixture.header_markers, "definition", TextSize::of("HEADER_WIDTH "));
+    let usage_range =
+        marked_range(&fixture.top_markers, "usage_range", TextSize::of("`HEADER_WIDTH"));
+
+    let nav = analysis
+        .goto_definition(usage)
+        .unwrap()
+        .expect("included macro definition navigation expected");
+    let target = nav
+        .info
+        .iter()
+        .find(|target| target.name.as_deref() == Some("HEADER_WIDTH"))
+        .expect("HEADER_WIDTH definition target expected");
+    assert_eq!(target.file_id, fixture.header_file_id);
+    assert_eq!(target.focus_range, Some(definition_range));
+    assert_eq!(
+        text_at_range(&fixture.header_text, target.focus_or_full_range()).trim(),
+        "HEADER_WIDTH"
+    );
+
+    let hover = analysis
+        .hover(usage, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("included macro hover expected");
+    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
+    assert!(hover.info.as_str().contains("HEADER_WIDTH"), "hover should mention macro name");
+
+    let completion_items = analysis
+        .completions_with_trigger(
+            position(fixture.top_file_id, &fixture.top_markers, "completion"),
+            Some(TriggerChar::Backtick),
+        )
+        .unwrap();
+    assert!(
+        completion_items
+            .iter()
+            .any(|item| item.label == "HEADER_WIDTH" && item.kind == CompletionItemKind::Text),
+        "completion should include macro from included header: {completion_items:?}"
+    );
+
+    let refs = analysis
+        .references(usage, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("included macro references expected");
+    assert!(
+        refs.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| {
+                    target.file_id == fixture.header_file_id
+                        && target.focus_range == Some(definition_range)
+                })
+            })
+        }),
+        "references should report the header definition target: {refs:?}"
+    );
+    assert!(
+        refs.iter().any(|refs| {
+            refs.refs
+                .get(&fixture.top_file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == usage_range))
+        }),
+        "references should include macro use in top file: {refs:?}"
+    );
+
+    let inactive_range =
+        marked_range(&fixture.top_markers, "inactive", TextSize::of("wire disabled_by_header;"));
+    let diagnostics = analysis.diagnostics(fixture.top_file_id).unwrap();
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.file_id == fixture.top_file_id
+                && diagnostic.name == "inactive-preprocessor-branch"
+                && diagnostic.range.intersect(inactive_range).is_some()
+        }),
+        "header macro should drive inactive branch diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn preproc_include_macro_queries_use_unsaved_header_buffer() {
+    let mut fixture = setup_include_macro_project(
+        r#"
+`include "defs.vh"
+module top;
+  logic [/*marker:usage_range*/`/*marker:usage*/HEADER_WIDTH-1:0] data;
+  localparam int W = `/*marker:completion*/;
+endmodule
+"#,
+        "`define OTHER_WIDTH 8\n",
+    );
+
+    let usage = position(fixture.top_file_id, &fixture.top_markers, "usage");
+    let initial_analysis = fixture.host.make_analysis();
+    assert!(
+        initial_analysis.goto_definition(usage).unwrap().is_none(),
+        "HEADER_WIDTH should not resolve before unsaved header edit"
+    );
+    drop(initial_analysis);
+
+    let updated_header = "`define HEADER_WIDTH 16\n";
+    let mut change = Change::new();
+    change.add_changed_file(ChangedFile {
+        file_id: fixture.header_file_id,
+        change_kind: ChangeKind::Modify(Arc::from(updated_header), LineEnding::Unix),
+    });
+    fixture.host.apply_change(change);
+
+    let analysis = fixture.host.make_analysis();
+    let nav = analysis
+        .goto_definition(usage)
+        .unwrap()
+        .expect("unsaved header macro definition navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.file_id == fixture.header_file_id
+            && target.name.as_deref() == Some("HEADER_WIDTH")),
+        "updated header macro should resolve through hir::preproc: {nav:?}"
+    );
+
+    let completion_items = analysis
+        .completions_with_trigger(
+            position(fixture.top_file_id, &fixture.top_markers, "completion"),
+            Some(TriggerChar::Backtick),
+        )
+        .unwrap();
+    assert!(
+        completion_items
+            .iter()
+            .any(|item| item.label == "HEADER_WIDTH" && item.kind == CompletionItemKind::Text),
+        "completion should use unsaved included header text: {completion_items:?}"
+    );
 }
 
 #[test]
