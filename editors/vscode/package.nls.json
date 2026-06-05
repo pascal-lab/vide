@@ -46,5 +46,6 @@
   "command.reloadWorkspace.title": "Vide: Reload Project Configuration",
   "command.showStatus.title": "Vide: Show Status",
   "command.runQiheAnalysis.title": "Vide: Run Qihe Analysis",
+  "command.generateQiheOptions.title": "Vide: Generate Qihe Options File",
   "command.profileDiagnostics.title": "Vide: Profile Diagnostics"
 }

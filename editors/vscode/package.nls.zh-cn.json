@@ -46,5 +46,6 @@
   "command.reloadWorkspace.title": "Vide：重新加载项目配置",
   "command.showStatus.title": "Vide：显示状态",
   "command.runQiheAnalysis.title": "Vide：运行 Qihe 分析",
+  "command.generateQiheOptions.title": "Vide：生成 Qihe 选项配置文件",
   "command.profileDiagnostics.title": "Vide：分析诊断性能"
 }

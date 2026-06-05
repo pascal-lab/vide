@@ -22,6 +22,7 @@ import {
   PROJECT_SOURCE_FILE_GLOB,
   getProjectConfigPath,
 } from './projectConfig';
+import { registerQiheOptionsCommand } from './qiheOptions';
 import {
   projectStatusNotification,
   reloadWorkspaceCommand,
@@ -1036,6 +1037,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(runQiheRegistration);
+
+  context.subscriptions.push(
+    registerQiheOptionsCommand({
+      logQihe,
+      showQiheErrorMessage,
+    }),
+  );
+
   context.subscriptions.push(
     registerProfilingCommand(context, {
       resolveLaunch: () => resolveServerLaunch(context, readConfiguration()),

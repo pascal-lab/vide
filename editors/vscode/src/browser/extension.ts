@@ -25,6 +25,7 @@ import {
 const restartServerCommand = "vide.restartServer";
 const showServerVersionCommand = "vide.showServerVersion";
 const runQiheAnalysisCommand = "vide.runQiheAnalysis";
+const generateQiheOptionsCommand = "vide.generateQiheOptions";
 const profileDiagnosticsCommand = "vide.profileDiagnostics";
 const languageServerOutputChannelName = "Vide Language Server";
 
@@ -316,6 +317,9 @@ export async function activate(
     }),
     vscode.commands.registerCommand(runQiheAnalysisCommand, async () => {
       await showUnavailableInBrowser("Qihe analysis");
+    }),
+    vscode.commands.registerCommand(generateQiheOptionsCommand, async () => {
+      await showUnavailableInBrowser("Qihe options generation");
     }),
     vscode.commands.registerCommand(profileDiagnosticsCommand, async () => {
       await showUnavailableInBrowser("Diagnostics profiling");
