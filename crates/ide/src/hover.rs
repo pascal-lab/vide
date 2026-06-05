@@ -3,7 +3,10 @@ use hir::{
     container::InContainer,
     file::HirFileId,
     hir_def::expr::Expr,
-    preproc::{IncludeTarget, include_directive_at, macro_usage_resolution_at},
+    preproc::{
+        IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
+        macro_usage_resolution_at,
+    },
     semantics::Semantics,
 };
 use syntax::{
@@ -87,16 +90,20 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
+    if let Some(definition) = macro_definition_at(db, file_id, offset) {
+        return Some(RangeInfo::new(definition.range, macro_definition_markup(&definition)));
+    }
+
     let resolution = macro_usage_resolution_at(db, file_id, offset)?;
+    Some(RangeInfo::new(resolution.usage.range, macro_definition_markup(&resolution.definition)))
+}
+
+fn macro_definition_markup(definition: &MacroDefinition) -> Markup {
     let mut markup = Markup::new();
     markup.print("Macro");
     markup.newline();
-    markup.push_with_backticks(resolution.usage.name.as_str());
-    markup.newline();
-    markup.print("Definition");
-    markup.newline();
-    markup.push_with_backticks(resolution.definition.name.as_str());
-    Some(RangeInfo::new(resolution.usage.range, markup))
+    markup.push_with_backticks(definition.name.as_str());
+    markup
 }
 
 fn handle_preproc_include(

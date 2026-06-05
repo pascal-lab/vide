@@ -941,6 +941,39 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_definition_supports_navigation_and_hover() {
+    let text = r#"
+`define /*marker:definition*/LOCAL_WIDTH 8
+module top;
+  logic [`/*marker:usage*/LOCAL_WIDTH-1:0] data;
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let definition = position(file_id, &markers, "definition");
+    let analysis = host.make_analysis();
+
+    let nav =
+        analysis.goto_definition(definition).unwrap().expect("macro definition link expected");
+    let target = nav
+        .info
+        .iter()
+        .find(|target| target.name.as_deref() == Some("LOCAL_WIDTH"))
+        .expect("LOCAL_WIDTH definition target expected");
+    let range = target.focus_or_full_range();
+    assert_eq!(
+        clean_text[usize::from(range.start())..usize::from(range.end())].trim(),
+        "LOCAL_WIDTH"
+    );
+
+    let hover = analysis
+        .hover(definition, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro definition hover expected");
+    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
+    assert!(hover.info.as_str().contains("LOCAL_WIDTH"), "hover should mention macro name");
+}
+
+#[test]
 fn preproc_macro_definition_supports_references() {
     let text = r#"
 `define /*marker:first_def*/WIDTH 8
