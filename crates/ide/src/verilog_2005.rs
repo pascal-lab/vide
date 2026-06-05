@@ -18,7 +18,6 @@ use insta::assert_snapshot;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
-    paths::AbsPathBuf,
     test_support::TestDir,
     text_edit::{TextRange, TextSize},
 };
@@ -246,7 +245,6 @@ fn setup_include_macro_project(
 
     let top_file_id = FileId(0);
     let header_file_id = FileId(1);
-    let include_dir = AbsPathBuf::try_from(include_dir).unwrap();
 
     let mut file_set = FileSet::default();
     file_set.insert(top_file_id, VfsPath::from(top_path));
