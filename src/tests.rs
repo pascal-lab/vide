@@ -7,26 +7,26 @@ use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
     ClientCapabilities, CodeActionCapabilityResolveSupport, CodeActionClientCapabilities,
     CodeActionContext, CodeActionKind, CodeActionKindLiteralSupport, CodeActionLiteralSupport,
-    CodeActionOrCommand, CodeActionParams, DiagnosticClientCapabilities,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentDiagnosticReportResult, DocumentSymbolParams, DocumentSymbolResponse, FileChangeType,
-    FileEvent, FoldingRange, FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
-    Hover, HoverParams, Position, ProgressParams, PublishDiagnosticsParams, Range,
-    SemanticTokensParams, SemanticTokensResult, TextDocumentClientCapabilities,
-    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
-    WorkspaceClientCapabilities, WorkspaceDiagnosticParams, WorkspaceDiagnosticReportResult,
-    WorkspaceSymbolParams, WorkspaceSymbolResponse,
+    CodeActionOrCommand, CodeActionParams, CompletionParams, CompletionResponse,
+    DiagnosticClientCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentSymbolParams,
+    DocumentSymbolResponse, FileChangeType, FileEvent, FoldingRange, FoldingRangeParams,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, Position, ProgressParams,
+    PublishDiagnosticsParams, Range, SemanticTokensParams, SemanticTokensResult,
+    TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+    TextDocumentItem, TextDocumentPositionParams, Url, VersionedTextDocumentIdentifier,
+    WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceDiagnosticParams,
+    WorkspaceDiagnosticReportResult, WorkspaceSymbolParams, WorkspaceSymbolResponse,
     notification::{
         DidChangeConfiguration, DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument,
         DidSaveTextDocument, Exit, Notification as _,
     },
     request::{
-        CodeActionRequest, CodeLensRequest, CodeLensResolve, DocumentDiagnosticRequest,
-        DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest, GotoDefinition, HoverRequest,
-        References, Request as _, SemanticTokensFullRequest, Shutdown, WorkspaceConfiguration,
-        WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
+        CodeActionRequest, CodeLensRequest, CodeLensResolve, Completion as CompletionRequest,
+        DocumentDiagnosticRequest, DocumentSymbolRequest, ExecuteCommand, FoldingRangeRequest,
+        GotoDefinition, HoverRequest, References, Request as _, SemanticTokensFullRequest,
+        Shutdown, WorkspaceConfiguration, WorkspaceDiagnosticRequest, WorkspaceSymbolRequest,
     },
 };
 use serde::de::DeserializeOwned;
@@ -461,6 +461,69 @@ fn request_reference_uris_with_include_declaration(
     let references: Option<Vec<lsp_types::Location>> =
         recv_response(client, request_id, "references");
     references.unwrap_or_default().into_iter().map(|location| location.uri).collect()
+}
+
+fn request_hover(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+) -> Option<Hover> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            HoverRequest::METHOD.to_string(),
+            HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, needle),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )))
+        .unwrap();
+
+    recv_response(client, request_id, "hover")
+}
+
+fn request_completion_labels(
+    client: &Connection,
+    uri: Url,
+    text: &str,
+    needle: &str,
+    request_id: i32,
+) -> Vec<String> {
+    let request_id = lsp_server::RequestId::from(request_id);
+    client
+        .sender
+        .send(Message::Request(Request::new(
+            request_id.clone(),
+            CompletionRequest::METHOD.to_string(),
+            CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: position_of(text, needle),
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            },
+        )))
+        .unwrap();
+
+    let completion: Option<CompletionResponse> = recv_response(client, request_id, "completion");
+    match completion {
+        Some(CompletionResponse::Array(items)) => {
+            items.into_iter().map(|item| item.label).collect()
+        }
+        Some(CompletionResponse::List(list)) => {
+            list.items.into_iter().map(|item| item.label).collect()
+        }
+        None => Vec::new(),
+    }
 }
 
 fn request_rename_response(
@@ -4011,6 +4074,83 @@ fn include_expanded_parameter_decls_keep_module_navigation_available() {
     let resolved = resolve_code_lens(&client, lens, 5);
     let title = resolved.command.expect("resolved code lens should have a command").title;
     assert_eq!(title, "1 instance");
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn include_defined_macro_powers_lsp_ide_features() {
+    let temp_dir = TempDir::new("include-macro-lsp-features");
+    let rtl_dir = temp_dir.path().join("rtl");
+    let include_dir = temp_dir.path().join("include");
+    fs::create_dir_all(&rtl_dir).unwrap();
+    fs::create_dir_all(&include_dir).unwrap();
+
+    let top_text = r#"`include "defs.vh"
+`ifndef HEADER_FLAG
+wire disabled_by_header;
+`endif
+module top;
+  logic [`HEADER_WIDTH-1:0] data;
+  localparam int W = `HEA;
+endmodule
+"#;
+    let header_text = "`define HEADER_WIDTH 8\n`define HEADER_FLAG\n";
+
+    fs::write(
+        temp_dir.path().join("vide.toml"),
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.v\"]\ninclude_dirs = [\"include\"]\n",
+    )
+    .unwrap();
+    let top_path = rtl_dir.join("top.v");
+    let header_path = include_dir.join("defs.vh");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&header_path, header_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let header_uri = to_proto::url_from_abs_path(header_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+    open_test_document(&client, header_uri.clone(), header_text);
+
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, top_uri.clone(), 1);
+    assert!(
+        diagnostics.iter().any(|diag| diag.message.contains("inactive")),
+        "header define should drive inactive branch diagnostics: {diagnostics:?}"
+    );
+
+    let definition_uris =
+        request_goto_definition_uris(&client, top_uri.clone(), top_text, "HEADER_WIDTH-1", 2);
+    assert!(
+        definition_uris.contains(&header_uri),
+        "macro goto should reach included header definition: {definition_uris:?}"
+    );
+
+    let hover = request_hover(&client, top_uri.clone(), top_text, "HEADER_WIDTH-1", 3)
+        .expect("macro hover expected");
+    let hover_text = format!("{:?}", hover.contents);
+    assert!(
+        hover_text.contains("HEADER_WIDTH"),
+        "macro hover should mention header macro name: {hover_text}"
+    );
+
+    let reference_uris =
+        request_reference_uris(&client, top_uri.clone(), top_text, "HEADER_WIDTH-1", 4);
+    assert!(
+        reference_uris.contains(&top_uri) && reference_uris.contains(&header_uri),
+        "macro references should include top use and header definition: {reference_uris:?}"
+    );
+
+    let completion_labels =
+        request_completion_labels(&client, top_uri, top_text, ";\nendmodule", 5);
+    assert!(
+        completion_labels.iter().any(|label| label == "HEADER_WIDTH"),
+        "completion should include macro from included header: {completion_labels:?}"
+    );
 
     shutdown_test_server(&client, server_thread);
 }

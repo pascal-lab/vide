@@ -110,7 +110,8 @@ impl<'db> SemanticsImpl<'db> {
     }
 
     pub fn parse_file(&self, file_id: FileId) -> ParsedFile {
-        ParsedFile { file_id: file_id.into(), tree: self.db.parse_src(file_id) }
+        let file_id = file_id.into();
+        ParsedFile { file_id, tree: self.db.parse(file_id) }
     }
 
     pub fn container_for_node(&self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {

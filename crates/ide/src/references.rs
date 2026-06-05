@@ -1,7 +1,7 @@
 use hir::{
     file::HirFileId,
     preproc::{
-        MacroDefinition, macro_definition_at, macro_reference_resolution_at, macro_references,
+        MacroDefinition, macro_definition_at, macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
 };
@@ -93,21 +93,47 @@ fn handle_preproc_macro(
     offset: TextSize,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let definition = macro_definition_at(db, file_id, offset).or_else(|| {
-        macro_reference_resolution_at(db, file_id, offset).map(|resolution| resolution.definition)
-    })?;
-    let search_range = match &config.search_scope {
-        Some(scope) => scope.range_for_file(file_id)?,
-        None => None,
+    let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
+        vec![definition]
+    } else {
+        macro_reference_definitions_at(db, file_id, offset).ok()??.definitions
     };
-    let refs = macro_references(db, file_id, &definition)
+
+    definitions
         .into_iter()
-        .filter(|usage| search_range.is_none_or(|range| range.intersect(usage.range).is_some()))
-        .map(|usage| (usage.range, ReferenceCategory::empty()))
-        .collect_vec();
-    let refs =
-        if refs.is_empty() { IntMap::default() } else { IntMap::from_iter([(file_id, refs)]) };
-    Some(vec![References { def: Some(vec![macro_nav_target(definition)]), refs }])
+        .map(|definition| macro_references_for_definition(db, file_id, definition, config))
+        .collect()
+}
+
+fn macro_references_for_definition(
+    db: &RootDb,
+    file_id: FileId,
+    definition: MacroDefinition,
+    config: &ReferencesConfig,
+) -> Option<References> {
+    let refs = macro_references(db, file_id, &definition)
+        .ok()?
+        .into_iter()
+        .filter(|usage| {
+            config.search_scope.as_ref().is_none_or(|scope| {
+                scope.range_for_file(usage.file_id).is_some_and(|range| {
+                    range.is_none_or(|range| range.intersect(usage.range).is_some())
+                })
+            })
+        })
+        .into_group_map_by(|usage| usage.file_id)
+        .into_iter()
+        .map(|(file_id, usages)| {
+            (
+                file_id,
+                usages
+                    .into_iter()
+                    .map(|usage| (usage.range, ReferenceCategory::empty()))
+                    .collect_vec(),
+            )
+        })
+        .collect();
+    Some(References { def: Some(vec![macro_nav_target(definition)]), refs })
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {

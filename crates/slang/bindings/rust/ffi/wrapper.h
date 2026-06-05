@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -36,8 +37,7 @@ struct RawSourceBufferId;
 struct RawSyntaxTreeBufferIds;
 struct RawExpectedSyntax;
 struct RawLexedTokenAtOffset;
-struct RawPreprocessorDirective;
-struct RawTextRange;
+struct RawPreprocessorTrace;
 
 namespace wrapper {
   using Diagnostic = ::slang::Diagnostic;
@@ -559,11 +559,14 @@ namespace wrapper {
         std::string_view name,
         std::string_view path,
         size_t offset);
-    rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
+    ::RawPreprocessorTrace SyntaxTree_preprocessorTrace(
         std::string_view text,
         std::string_view name,
         std::string_view path,
-        rust::Vec<rust::String> predefines);
+        rust::Vec<rust::String> predefines,
+        rust::Vec<rust::String> includePaths,
+        rust::Vec<::RawSourceBuffer> includeBuffers,
+        bool expandIncludes);
   }
 
   namespace ast {

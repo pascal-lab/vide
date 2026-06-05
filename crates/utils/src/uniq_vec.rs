@@ -45,3 +45,9 @@ impl<T, K: Eq + Hash> UniqVec<T, K> {
         self.items
     }
 }
+
+impl<T: Clone + Eq + Hash> UniqVec<T, T> {
+    pub fn push_unique(&mut self, value: T) -> bool {
+        self.push([value.clone()], value)
+    }
+}
