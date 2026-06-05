@@ -941,6 +941,63 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_definition_supports_references() {
+    let text = r#"
+`define /*marker:first_def*/WIDTH 8
+module top;
+  logic [/*marker:first_use*/`WIDTH-1:0] narrow_data;
+`define /*marker:second_def*/WIDTH 16
+  logic [/*marker:second_use*/`WIDTH-1:0] wide_data;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let width_use_len = TextSize::of("`WIDTH");
+    let first_use = TextRange::new(markers["first_use"], markers["first_use"] + width_use_len);
+    let second_use = TextRange::new(markers["second_use"], markers["second_use"] + width_use_len);
+
+    let reference_ranges = |marker: &str| {
+        analysis
+            .references(
+                position(file_id, &markers, marker),
+                ReferencesConfig::new(
+                    ScopeVisibility::Public,
+                    Some(SearchScope::single_file(file_id)),
+                ),
+            )
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} references expected"))
+            .into_iter()
+            .flat_map(|mut refs| refs.refs.remove(&file_id).unwrap_or_default())
+            .map(|(range, _)| range)
+            .collect::<Vec<_>>()
+    };
+
+    let first_ranges = reference_ranges("first_def");
+    assert!(
+        first_ranges.contains(&first_use),
+        "first define should reference first use: {first_ranges:?}"
+    );
+    assert!(
+        !first_ranges.contains(&second_use),
+        "first define should not reference use after override: {first_ranges:?}"
+    );
+
+    let second_ranges = reference_ranges("second_def");
+    assert!(
+        second_ranges.contains(&second_use),
+        "second define should reference second use: {second_ranges:?}"
+    );
+    assert!(
+        !second_ranges.contains(&first_use),
+        "second define should not reference use before override: {second_ranges:?}"
+    );
+
+    let use_ranges = reference_ranges("second_use");
+    assert_eq!(use_ranges, second_ranges);
+}
+
+#[test]
 fn verilog_2005_genvar_declaration_lowers_without_fallback() {
     let text = r#"
 module genvar_ctx;
