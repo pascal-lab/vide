@@ -255,10 +255,8 @@ impl SyntaxTreeBufferIds {
 impl SourceBufferRange {
     #[inline]
     fn from_raw(raw: ffi::RawSourceBufferRange) -> Option<Self> {
-        raw.has_range.then(|| Self {
-            buffer_id: raw.buffer_id,
-            range: raw.range_start..raw.range_end,
-        })
+        raw.has_range
+            .then(|| Self { buffer_id: raw.buffer_id, range: raw.range_start..raw.range_end })
     }
 }
 
@@ -290,11 +288,7 @@ impl PreprocessorTraceDirective {
             directive: PreprocessorTraceToken::from_raw(raw.directive),
             name: PreprocessorTraceToken::from_raw(raw.name),
             include_file_name: PreprocessorTraceToken::from_raw(raw.include_file_name),
-            params: raw
-                .params
-                .into_iter()
-                .map(PreprocessorTraceMacroParam::from_raw)
-                .collect(),
+            params: raw.params.into_iter().map(PreprocessorTraceMacroParam::from_raw).collect(),
             body_tokens: raw
                 .body_tokens
                 .into_iter()
