@@ -710,9 +710,60 @@ fn source_root_semantic_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use vfs::VfsPath;
+    use std::fmt;
+
+    use rustc_hash::FxHashSet;
+    use syntax::{SourceBufferId, SourceBufferOrigin};
+    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use vfs::{FileSet, VfsPath};
 
     use super::*;
+    use crate::base_db::salsa::{self, Durability};
+
+    const TOP: FileId = FileId(0);
+    const ROOT: SourceRootId = SourceRootId(0);
+
+    #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl salsa::Database for TestDb {}
+
+    impl fmt::Debug for TestDb {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestDb").finish()
+        }
+    }
+
+    impl FileLoader for TestDb {
+        fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+            SourceRootDb::source_root(self, source_root_id).resolve_path(path)
+        }
+    }
+
+    fn db_with_root_file() -> TestDb {
+        let top_path = abs_path("rtl/top.v");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
+        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
+        db
+    }
+
+    fn abs_path(path: &str) -> AbsPathBuf {
+        let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
+        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
 
     #[test]
     fn include_headers_are_not_standalone_parse_diagnostic_units() {
@@ -737,5 +788,35 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::ProjectManifest);
         assert!(!kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn source_preproc_mapping_reports_unmapped_included_source() {
+        let db = db_with_root_file();
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: abs_path("include/missing.vh").to_string(),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Source,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+        };
+
+        assert_eq!(
+            source_preproc_file_ids(&db, TOP, &trace),
+            Err(SourcePreprocQueryError::UnmappedSource {
+                buffer_id: 2,
+                path: abs_path("include/missing.vh").to_string(),
+            })
+        );
     }
 }
