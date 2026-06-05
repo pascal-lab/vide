@@ -91,6 +91,14 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawSourceBufferRange {
+        buffer_id: u32,
+        range_start: usize,
+        range_end: usize,
+        has_range: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorMacroParam {
         name: RawPreprocessorToken,
         default_tokens: Vec<RawPreprocessorToken>,
@@ -113,6 +121,43 @@ mod slang_ffi {
         body_tokens: Vec<RawPreprocessorToken>,
         expr_tokens: Vec<RawPreprocessorToken>,
         disabled_ranges: Vec<RawTextRange>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceToken {
+        raw_text: String,
+        value_text: String,
+        range: RawSourceBufferRange,
+        has_token: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceMacroParam {
+        name: RawPreprocessorTraceToken,
+        default_tokens: Vec<RawPreprocessorTraceToken>,
+        has_default: bool,
+        range: RawSourceBufferRange,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceDirective {
+        kind: u16,
+        range: RawSourceBufferRange,
+        directive: RawPreprocessorTraceToken,
+        name: RawPreprocessorTraceToken,
+        include_file_name: RawPreprocessorTraceToken,
+        params: Vec<RawPreprocessorTraceMacroParam>,
+        body_tokens: Vec<RawPreprocessorTraceToken>,
+        expr_tokens: Vec<RawPreprocessorTraceToken>,
+        disabled_ranges: Vec<RawSourceBufferRange>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTrace {
+        root_buffer_id: u32,
+        has_root_buffer_id: bool,
+        source_buffers: Vec<RawSourceBufferId>,
+        directives: Vec<RawPreprocessorTraceDirective>,
     }
 
     #[namespace = "slang"]
@@ -471,6 +516,17 @@ mod slang_ffi {
         ) -> Vec<RawPreprocessorDirective>;
 
         #[namespace = "wrapper::syntax"]
+        fn SyntaxTree_preprocessorTrace(
+            text: CxxSV,
+            name: CxxSV,
+            path: CxxSV,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            include_buffers: Vec<RawSourceBuffer>,
+            expand_includes: bool,
+        ) -> RawPreprocessorTrace;
+
+        #[namespace = "wrapper::syntax"]
         fn SyntaxTree_buffer_id(tree: &SyntaxTree) -> u32;
     }
 
@@ -600,6 +656,7 @@ impl_functions! {
         fn directiveAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_directiveAtOffset;
         fn tokenWordAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_tokenWordAtOffset;
         fn preprocessorDirectives(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>) -> Vec<RawPreprocessorDirective> |> SyntaxTree_preprocessorDirectives;
+        fn preprocessorTrace(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> RawPreprocessorTrace |> SyntaxTree_preprocessorTrace;
         fn buffer_id(&self) -> u32 |> SyntaxTree_buffer_id;
     }
 }
