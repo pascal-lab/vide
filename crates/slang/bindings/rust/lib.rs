@@ -133,11 +133,22 @@ pub struct SourceBufferRange {
 pub struct PreprocessorTrace {
     pub root_buffer_id: u32,
     pub source_buffers: Vec<SourceBufferId>,
-    pub directives: Vec<PreprocessorTraceDirective>,
+    pub events: Vec<PreprocessorTraceEvent>,
+    pub include_edges: Vec<PreprocessorTraceIncludeEdge>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PreprocessorTraceEventId(pub u32);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceIncludeEdge {
+    pub include_event_id: PreprocessorTraceEventId,
+    pub included_buffer_id: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorTraceDirective {
+pub struct PreprocessorTraceEvent {
+    pub event_id: PreprocessorTraceEventId,
     pub kind: SyntaxKind,
     pub range: Option<SourceBufferRange>,
     pub directive: Option<PreprocessorTraceToken>,
@@ -148,6 +159,8 @@ pub struct PreprocessorTraceDirective {
     pub expr_tokens: Vec<PreprocessorTraceToken>,
     pub disabled_ranges: Vec<SourceBufferRange>,
 }
+
+pub type PreprocessorTraceDirective = PreprocessorTraceEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocessorTraceToken {
@@ -295,19 +308,24 @@ impl PreprocessorTrace {
                     origin: SourceBufferOrigin::from_raw(buffer.origin),
                 })
                 .collect(),
-            directives: raw
-                .directives
+            events: raw.events.into_iter().map(PreprocessorTraceEvent::from_raw).collect(),
+            include_edges: raw
+                .include_edges
                 .into_iter()
-                .map(PreprocessorTraceDirective::from_raw)
+                .map(|edge| PreprocessorTraceIncludeEdge {
+                    include_event_id: PreprocessorTraceEventId(edge.include_event_id),
+                    included_buffer_id: edge.included_buffer_id,
+                })
                 .collect(),
         })
     }
 }
 
-impl PreprocessorTraceDirective {
+impl PreprocessorTraceEvent {
     #[inline]
     fn from_raw(raw: ffi::RawPreprocessorTraceDirective) -> Self {
         Self {
+            event_id: PreprocessorTraceEventId(raw.event_id),
             kind: SyntaxKind::from_id(raw.kind),
             range: SourceBufferRange::from_raw(raw.range),
             directive: PreprocessorTraceToken::from_raw(raw.directive),
