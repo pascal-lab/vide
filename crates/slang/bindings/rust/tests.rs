@@ -1048,10 +1048,16 @@ wire disabled_by_header;
         root_header_branch.disabled_ranges.iter().any(|range| range.buffer_id == root_buffer_id)
     );
 
-    let single_file_directives =
-        SyntaxTree::preprocessor_directives(source, "source", &source_path, &options);
-    assert!(single_file_directives.iter().all(|directive| {
-        directive.name.as_ref().map(|name| name.value_text.as_str()) != Some("HEADER_FLAG")
+    let unexpanded_trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        &source_path,
+        &SyntaxTreeOptions { expand_includes: false, ..options.clone() },
+    )
+    .expect("root source buffer should be available");
+    assert!(unexpanded_trace.events.iter().all(|event| {
+        event.kind != SyntaxKind::DEFINE_DIRECTIVE
+            || event.name.as_ref().map(|name| name.value_text.as_str()) != Some("HEADER_FLAG")
     }));
 }
 

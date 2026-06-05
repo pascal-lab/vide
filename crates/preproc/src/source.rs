@@ -2,16 +2,39 @@ use std::collections::BTreeMap;
 
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    PreprocessorTrace, PreprocessorTraceDirective, PreprocessorTraceEventId,
+    PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
     PreprocessorTraceMacroParam, PreprocessorTraceToken, SourceBufferOrigin, SourceBufferRange,
     SyntaxKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
-use crate::index::{MacroConditionalKind, MacroDirectiveKind, MacroIncludeTarget};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PreprocSourceId(u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroEventKind {
+    Define,
+    Undef,
+    Include,
+    Conditional,
+    Branch,
+    Usage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroIncludeTarget {
+    Literal { path: SmolStr, raw: SmolStr },
+    Token { raw: SmolStr },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroConditionalKind {
+    IfDef,
+    IfNDef,
+    ElsIf,
+    Else,
+    EndIf,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourcePosition {
@@ -61,7 +84,7 @@ pub struct SourcePreprocIndex {
     pub root_source: Option<PreprocSourceId>,
     pub sources: Vec<PreprocSource>,
     pub include_edges: Vec<SourceIncludeEdge>,
-    pub directives: Vec<SourceMacroDirective>,
+    pub event_records: Vec<SourcePreprocEventRecord>,
     pub defines: Vec<SourceMacroDefine>,
     pub undefs: Vec<SourceMacroUndef>,
     pub includes: Vec<SourceMacroInclude>,
@@ -71,9 +94,9 @@ pub struct SourcePreprocIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroDirective {
+pub struct SourcePreprocEventRecord {
     pub event_id: SourcePreprocEventId,
-    pub kind: MacroDirectiveKind,
+    pub kind: MacroEventKind,
     pub range: SourceRange,
     pub index: usize,
 }
@@ -223,7 +246,7 @@ pub enum SourcePreprocEvent<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePreprocError {
     MissingRootSource,
-    MissingDirectiveRange { source_order: usize, kind: MacroDirectiveKind },
+    MissingEventRange { source_order: usize, kind: MacroEventKind },
     MissingEvent { event_id: u32 },
     MissingIncludedSource { include_event_id: u32, source: u32 },
     MissingIncludeEvent { include_event_id: u32 },
@@ -300,7 +323,7 @@ impl SourcePreprocIndex {
         }
 
         for (source_order, directive) in trace.events.into_iter().enumerate() {
-            collect_trace_directive(&mut index, source_order, directive)?;
+            collect_trace_event(&mut index, source_order, directive)?;
         }
 
         validate_include_edges(&index)?;
@@ -339,15 +362,17 @@ fn validate_include_edges(index: &SourcePreprocIndex) -> Result<(), SourcePrepro
             });
         }
 
-        let Some(directive) =
-            index.directives.iter().find(|directive| directive.event_id == edge.include_event_id)
+        let Some(directive) = index
+            .event_records
+            .iter()
+            .find(|directive| directive.event_id == edge.include_event_id)
         else {
             return Err(SourcePreprocError::MissingIncludeEvent {
                 include_event_id: edge.include_event_id.raw(),
             });
         };
 
-        if directive.kind != MacroDirectiveKind::Include {
+        if directive.kind != MacroEventKind::Include {
             return Err(SourcePreprocError::IncludeEdgeNotInclude {
                 include_event_id: edge.include_event_id.raw(),
             });
@@ -407,15 +432,17 @@ impl SourcePreprocModel {
     }
 
     pub fn events(&self) -> impl Iterator<Item = SourcePreprocEvent<'_>> + '_ {
-        self.index.directives.iter().enumerate().filter_map(|(source_order, directive)| {
-            self.event_from_directive(source_order, directive)
-        })
+        self.index
+            .event_records
+            .iter()
+            .enumerate()
+            .filter_map(|(source_order, directive)| self.event_from_record(source_order, directive))
     }
 
     pub fn macro_environment_at(&self, position: SourcePosition) -> SourceMacroEnvironment {
         let mut environment = SourceMacroEnvironment::default();
         let end_order = self.source_order_at_position(position);
-        for directive in self.index.directives.iter().take(end_order) {
+        for directive in self.index.event_records.iter().take(end_order) {
             self.apply_macro_state(directive, &mut environment);
         }
         environment
@@ -543,12 +570,12 @@ impl SourcePreprocModel {
                     return Err(SourcePreprocError::MissingIncludeEdge { source: current.raw() });
                 }
                 PreprocSourceOrigin::Included { include_event_id } => {
-                    let directive = self.directive_by_event_id(include_event_id).ok_or(
+                    let directive = self.event_record_by_event_id(include_event_id).ok_or(
                         SourcePreprocError::MissingIncludeEvent {
                             include_event_id: include_event_id.raw(),
                         },
                     )?;
-                    if directive.kind != MacroDirectiveKind::Include {
+                    if directive.kind != MacroEventKind::Include {
                         return Err(SourcePreprocError::IncludeEdgeNotInclude {
                             include_event_id: include_event_id.raw(),
                         });
@@ -567,16 +594,16 @@ impl SourcePreprocModel {
         Ok(chain)
     }
 
-    fn directive_by_event_id(
+    fn event_record_by_event_id(
         &self,
         event_id: SourcePreprocEventId,
-    ) -> Option<&SourceMacroDirective> {
-        self.index.directives.iter().find(|directive| directive.event_id == event_id)
+    ) -> Option<&SourcePreprocEventRecord> {
+        self.index.event_records.iter().find(|directive| directive.event_id == event_id)
     }
 
     fn source_order_at_position(&self, position: SourcePosition) -> usize {
         self.index
-            .directives
+            .event_records
             .iter()
             .enumerate()
             .find(|(_, directive)| {
@@ -584,7 +611,7 @@ impl SourcePreprocModel {
                     && directive.range.range.end() > position.offset
             })
             .map(|(source_order, _)| source_order)
-            .unwrap_or(self.index.directives.len())
+            .unwrap_or(self.index.event_records.len())
     }
 
     fn macro_environment_before(
@@ -592,8 +619,8 @@ impl SourcePreprocModel {
         entity: SourcePreprocEntity,
     ) -> Option<SourceMacroEnvironment> {
         let mut environment = SourceMacroEnvironment::default();
-        for directive in &self.index.directives {
-            if source_directive_matches_entity(directive, entity) {
+        for directive in &self.index.event_records {
+            if source_event_matches_entity(directive, entity) {
                 return Some(environment);
             }
             self.apply_macro_state(directive, &mut environment);
@@ -622,38 +649,38 @@ impl SourcePreprocModel {
 
     fn apply_macro_state(
         &self,
-        directive: &SourceMacroDirective,
+        directive: &SourcePreprocEventRecord,
         environment: &mut SourceMacroEnvironment,
     ) {
         match directive.kind {
-            MacroDirectiveKind::Define => {
+            MacroEventKind::Define => {
                 if let Some(define) = self.index.defines.get(directive.index)
                     && let Some(name) = define.name.as_ref()
                 {
                     environment.definitions.insert(name.clone(), directive.index);
                 }
             }
-            MacroDirectiveKind::Undef => {
+            MacroEventKind::Undef => {
                 if let Some(undef) = self.index.undefs.get(directive.index)
                     && let Some(name) = undef.name.as_ref()
                 {
                     environment.definitions.remove(name.as_str());
                 }
             }
-            MacroDirectiveKind::Include
-            | MacroDirectiveKind::Conditional
-            | MacroDirectiveKind::Branch
-            | MacroDirectiveKind::Usage => {}
+            MacroEventKind::Include
+            | MacroEventKind::Conditional
+            | MacroEventKind::Branch
+            | MacroEventKind::Usage => {}
         }
     }
 
-    fn event_from_directive(
+    fn event_from_record(
         &self,
         source_order: usize,
-        directive: &SourceMacroDirective,
+        directive: &SourcePreprocEventRecord,
     ) -> Option<SourcePreprocEvent<'_>> {
         match directive.kind {
-            MacroDirectiveKind::Define => {
+            MacroEventKind::Define => {
                 let define = self.index.defines.get(directive.index)?;
                 Some(SourcePreprocEvent::Define {
                     source_order,
@@ -662,7 +689,7 @@ impl SourcePreprocModel {
                     define,
                 })
             }
-            MacroDirectiveKind::Undef => {
+            MacroEventKind::Undef => {
                 let undef = self.index.undefs.get(directive.index)?;
                 Some(SourcePreprocEvent::Undef {
                     source_order,
@@ -671,7 +698,7 @@ impl SourcePreprocModel {
                     undef,
                 })
             }
-            MacroDirectiveKind::Include => {
+            MacroEventKind::Include => {
                 let include = self.index.includes.get(directive.index)?;
                 Some(SourcePreprocEvent::Include {
                     source_order,
@@ -680,7 +707,7 @@ impl SourcePreprocModel {
                     include,
                 })
             }
-            MacroDirectiveKind::Conditional => {
+            MacroEventKind::Conditional => {
                 let conditional = self.index.conditionals.get(directive.index)?;
                 Some(SourcePreprocEvent::Conditional {
                     source_order,
@@ -689,7 +716,7 @@ impl SourcePreprocModel {
                     conditional,
                 })
             }
-            MacroDirectiveKind::Branch => {
+            MacroEventKind::Branch => {
                 let conditional = self.index.conditionals.get(directive.index)?;
                 Some(SourcePreprocEvent::Branch {
                     source_order,
@@ -698,7 +725,7 @@ impl SourcePreprocModel {
                     conditional,
                 })
             }
-            MacroDirectiveKind::Usage => {
+            MacroEventKind::Usage => {
                 let usage = self.index.usages.get(directive.index)?;
                 Some(SourcePreprocEvent::Usage {
                     source_order,
@@ -711,10 +738,10 @@ impl SourcePreprocModel {
     }
 }
 
-fn collect_trace_directive(
+fn collect_trace_event(
     index: &mut SourcePreprocIndex,
     source_order: usize,
-    directive: PreprocessorTraceDirective,
+    directive: PreprocessorTraceEvent,
 ) -> Result<(), SourcePreprocError> {
     index.inactive_ranges.extend(
         directive
@@ -724,31 +751,31 @@ fn collect_trace_directive(
             .filter(|range| !range.range.is_empty()),
     );
 
-    let Some(kind) = directive_kind(directive.kind) else {
+    let Some(kind) = event_kind(directive.kind) else {
         return Ok(());
     };
     let event_id = SourcePreprocEventId::from(directive.event_id);
-    let range = required_directive_range(source_order, kind, &directive)?;
+    let range = required_event_range(source_order, kind, &directive)?;
 
     match kind {
-        MacroDirectiveKind::Define => {
-            let directive_index = index.defines.len();
+        MacroEventKind::Define => {
+            let event_index = index.defines.len();
             let define = collect_trace_define(directive, event_id, range);
             index.defines.push(define);
-            push_source_directive(index, event_id, kind, directive_index, range);
+            push_source_event_record(index, event_id, kind, event_index, range);
         }
-        MacroDirectiveKind::Undef => {
-            let directive_index = index.undefs.len();
+        MacroEventKind::Undef => {
+            let event_index = index.undefs.len();
             index.undefs.push(SourceMacroUndef {
                 event_id,
                 name: directive.name.as_ref().map(trace_token_value),
                 name_range: directive.name.as_ref().and_then(trace_token_range),
                 range,
             });
-            push_source_directive(index, event_id, kind, directive_index, range);
+            push_source_event_record(index, event_id, kind, event_index, range);
         }
-        MacroDirectiveKind::Include => {
-            let directive_index = index.includes.len();
+        MacroEventKind::Include => {
+            let event_index = index.includes.len();
             let target = directive
                 .include_file_name
                 .as_ref()
@@ -760,27 +787,27 @@ fn collect_trace_directive(
                 target_range: directive.include_file_name.as_ref().and_then(trace_token_range),
                 range,
             });
-            push_source_directive(index, event_id, kind, directive_index, range);
+            push_source_event_record(index, event_id, kind, event_index, range);
         }
-        MacroDirectiveKind::Conditional | MacroDirectiveKind::Branch => {
-            let directive_index = index.conditionals.len();
+        MacroEventKind::Conditional | MacroEventKind::Branch => {
+            let event_index = index.conditionals.len();
             index.conditionals.push(SourceMacroConditional {
                 event_id,
                 kind: trace_conditional_kind(directive.kind),
                 expr: directive.expr_tokens.into_iter().map(macro_token_from_trace).collect(),
                 range,
             });
-            push_source_directive(index, event_id, kind, directive_index, range);
+            push_source_event_record(index, event_id, kind, event_index, range);
         }
-        MacroDirectiveKind::Usage => {
-            let directive_index = index.usages.len();
+        MacroEventKind::Usage => {
+            let event_index = index.usages.len();
             index.usages.push(SourceMacroUsage {
                 event_id,
                 name: directive.name.as_ref().map(|token| macro_name(token.value_text.as_str())),
                 name_range: directive.name.as_ref().and_then(trace_token_range),
                 range,
             });
-            push_source_directive(index, event_id, kind, directive_index, range);
+            push_source_event_record(index, event_id, kind, event_index, range);
         }
     }
 
@@ -788,7 +815,7 @@ fn collect_trace_directive(
 }
 
 fn collect_trace_define(
-    directive: PreprocessorTraceDirective,
+    directive: PreprocessorTraceEvent,
     event_id: SourcePreprocEventId,
     range: SourceRange,
 ) -> SourceMacroDefine {
@@ -830,16 +857,16 @@ fn trace_token_range(token: &PreprocessorTraceToken) -> Option<SourceRange> {
     token.range.as_ref().and_then(source_range_from_trace)
 }
 
-fn required_directive_range(
+fn required_event_range(
     source_order: usize,
-    kind: MacroDirectiveKind,
-    directive: &PreprocessorTraceDirective,
+    kind: MacroEventKind,
+    directive: &PreprocessorTraceEvent,
 ) -> Result<SourceRange, SourcePreprocError> {
     directive
         .range
         .as_ref()
         .and_then(source_range_from_trace)
-        .ok_or(SourcePreprocError::MissingDirectiveRange { source_order, kind })
+        .ok_or(SourcePreprocError::MissingEventRange { source_order, kind })
 }
 
 fn source_range_from_trace(range: &SourceBufferRange) -> Option<SourceRange> {
@@ -852,18 +879,16 @@ fn source_range_from_trace(range: &SourceBufferRange) -> Option<SourceRange> {
     })
 }
 
-fn directive_kind(kind: SyntaxKind) -> Option<MacroDirectiveKind> {
+fn event_kind(kind: SyntaxKind) -> Option<MacroEventKind> {
     match kind {
-        SyntaxKind::DEFINE_DIRECTIVE => Some(MacroDirectiveKind::Define),
-        SyntaxKind::UNDEF_DIRECTIVE => Some(MacroDirectiveKind::Undef),
-        SyntaxKind::INCLUDE_DIRECTIVE => Some(MacroDirectiveKind::Include),
+        SyntaxKind::DEFINE_DIRECTIVE => Some(MacroEventKind::Define),
+        SyntaxKind::UNDEF_DIRECTIVE => Some(MacroEventKind::Undef),
+        SyntaxKind::INCLUDE_DIRECTIVE => Some(MacroEventKind::Include),
         SyntaxKind::IF_DEF_DIRECTIVE
         | SyntaxKind::IF_N_DEF_DIRECTIVE
-        | SyntaxKind::ELS_IF_DIRECTIVE => Some(MacroDirectiveKind::Conditional),
-        SyntaxKind::ELSE_DIRECTIVE | SyntaxKind::END_IF_DIRECTIVE => {
-            Some(MacroDirectiveKind::Branch)
-        }
-        SyntaxKind::MACRO_USAGE => Some(MacroDirectiveKind::Usage),
+        | SyntaxKind::ELS_IF_DIRECTIVE => Some(MacroEventKind::Conditional),
+        SyntaxKind::ELSE_DIRECTIVE | SyntaxKind::END_IF_DIRECTIVE => Some(MacroEventKind::Branch),
+        SyntaxKind::MACRO_USAGE => Some(MacroEventKind::Usage),
         _ => None,
     }
 }
@@ -879,14 +904,19 @@ fn trace_conditional_kind(kind: SyntaxKind) -> MacroConditionalKind {
     }
 }
 
-fn push_source_directive(
+fn push_source_event_record(
     index: &mut SourcePreprocIndex,
     event_id: SourcePreprocEventId,
-    kind: MacroDirectiveKind,
-    directive_index: usize,
+    kind: MacroEventKind,
+    event_index: usize,
     range: SourceRange,
 ) {
-    index.directives.push(SourceMacroDirective { event_id, kind, range, index: directive_index });
+    index.event_records.push(SourcePreprocEventRecord {
+        event_id,
+        kind,
+        range,
+        index: event_index,
+    });
 }
 
 fn include_target_from_raw(raw: SmolStr) -> MacroIncludeTarget {
@@ -959,14 +989,14 @@ impl SourcePreprocEvent<'_> {
         }
     }
 
-    pub fn kind(&self) -> MacroDirectiveKind {
+    pub fn kind(&self) -> MacroEventKind {
         match self {
-            SourcePreprocEvent::Define { .. } => MacroDirectiveKind::Define,
-            SourcePreprocEvent::Undef { .. } => MacroDirectiveKind::Undef,
-            SourcePreprocEvent::Include { .. } => MacroDirectiveKind::Include,
-            SourcePreprocEvent::Conditional { .. } => MacroDirectiveKind::Conditional,
-            SourcePreprocEvent::Branch { .. } => MacroDirectiveKind::Branch,
-            SourcePreprocEvent::Usage { .. } => MacroDirectiveKind::Usage,
+            SourcePreprocEvent::Define { .. } => MacroEventKind::Define,
+            SourcePreprocEvent::Undef { .. } => MacroEventKind::Undef,
+            SourcePreprocEvent::Include { .. } => MacroEventKind::Include,
+            SourcePreprocEvent::Conditional { .. } => MacroEventKind::Conditional,
+            SourcePreprocEvent::Branch { .. } => MacroEventKind::Branch,
+            SourcePreprocEvent::Usage { .. } => MacroEventKind::Usage,
         }
     }
 
@@ -993,19 +1023,19 @@ impl SourcePreprocEvent<'_> {
     }
 }
 
-fn source_directive_matches_entity(
-    directive: &SourceMacroDirective,
+fn source_event_matches_entity(
+    directive: &SourcePreprocEventRecord,
     entity: SourcePreprocEntity,
 ) -> bool {
     match (directive.kind, entity) {
-        (MacroDirectiveKind::Define, SourcePreprocEntity::Define(index))
-        | (MacroDirectiveKind::Undef, SourcePreprocEntity::Undef(index))
-        | (MacroDirectiveKind::Usage, SourcePreprocEntity::Usage(index))
-        | (MacroDirectiveKind::Include, SourcePreprocEntity::Include(index)) => {
+        (MacroEventKind::Define, SourcePreprocEntity::Define(index))
+        | (MacroEventKind::Undef, SourcePreprocEntity::Undef(index))
+        | (MacroEventKind::Usage, SourcePreprocEntity::Usage(index))
+        | (MacroEventKind::Include, SourcePreprocEntity::Include(index)) => {
             directive.index == index
         }
         (
-            MacroDirectiveKind::Conditional | MacroDirectiveKind::Branch,
+            MacroEventKind::Conditional | MacroEventKind::Branch,
             SourcePreprocEntity::Conditional(index),
         ) => directive.index == index,
         _ => false,
@@ -1291,10 +1321,7 @@ logic [`LEAF_WIDTH-1:0] data;
 
         assert_eq!(
             SourcePreprocModel::from_trace(trace).unwrap_err(),
-            SourcePreprocError::MissingDirectiveRange {
-                source_order: 0,
-                kind: MacroDirectiveKind::Define
-            }
+            SourcePreprocError::MissingEventRange { source_order: 0, kind: MacroEventKind::Define }
         );
     }
 }

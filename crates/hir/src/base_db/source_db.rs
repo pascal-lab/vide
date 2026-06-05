@@ -1,8 +1,4 @@
-use preproc::{
-    index::{PreprocFileIndex, preproc_file_index_from_text},
-    model::PreprocModel,
-    source::{PreprocSourceId, SourcePreprocError, SourcePreprocModel},
-};
+use preproc::source::{PreprocSourceId, SourcePreprocError, SourcePreprocModel};
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
     Compilation, ParserExpectedSyntax, PreprocessorTrace, SourceBufferOrigin, SyntaxDiagnostic,
@@ -40,13 +36,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_preprocess_config(&self, file_id: FileId) -> Arc<PreprocessConfig>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
-    fn preproc_file_index(&self, file_id: FileId) -> Arc<PreprocFileIndex>;
-    fn preproc_file_index_with_predefines(
-        &self,
-        file_id: FileId,
-        predefines: Vec<String>,
-    ) -> Arc<PreprocFileIndex>;
-    fn preproc_model(&self, file_id: FileId) -> Arc<PreprocModel>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -119,34 +108,6 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
         SourceFileKind::LibraryMap => SyntaxTree::from_library_map_text(&text, "", ""),
         SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
     }
-}
-
-fn preproc_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocFileIndex> {
-    let predefines = db.file_preprocess_config(file_id).predefines.clone();
-    preproc_file_index_with_predefines(db, file_id, predefines)
-}
-
-fn preproc_file_index_with_predefines(
-    db: &dyn SourceDb,
-    file_id: FileId,
-    predefines: Vec<String>,
-) -> Arc<PreprocFileIndex> {
-    match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            let options = syntax::SyntaxTreeOptions {
-                predefines,
-                ..syntax::SyntaxTreeOptions::without_include_expansion()
-            };
-            Arc::new(preproc_file_index_from_text(&db.file_text(file_id), &options))
-        }
-        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
-            Arc::new(PreprocFileIndex::default())
-        }
-    }
-}
-
-fn preproc_model(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocModel> {
-    Arc::new(PreprocModel::new((*db.preproc_file_index(file_id)).clone()))
 }
 
 struct SourceFileIdentity {

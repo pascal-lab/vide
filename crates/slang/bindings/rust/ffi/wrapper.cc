@@ -135,24 +135,6 @@ LexedTokenAtOffset lexTokenAtOffset(std::string_view text,
   }
 }
 
-void set_rust_range(size_t& start, size_t& end, bool& hasRange, slang::SourceRange range) {
-  start = 0;
-  end = 0;
-  hasRange = false;
-  if (!range.start().valid() || !range.end().valid())
-    return;
-
-  start = range.start().offset();
-  end = range.end().offset();
-  hasRange = true;
-}
-
-::RawTextRange to_rust_text_range(slang::SourceRange range) {
-  ::RawTextRange result;
-  set_rust_range(result.range_start, result.range_end, result.has_range, range);
-  return result;
-}
-
 ::RawSourceBufferRange empty_source_buffer_range() {
   ::RawSourceBufferRange result;
   result.buffer_id = 0;
@@ -203,150 +185,6 @@ std::optional<TraceSourceLocationKey> trace_source_location_key(slang::SourceLoc
       location.buffer().getId(),
       location.offset(),
   };
-}
-
-::RawPreprocessorToken empty_preprocessor_token() {
-  ::RawPreprocessorToken token;
-  token.raw_text = rust::String();
-  token.value_text = rust::String();
-  token.range_start = 0;
-  token.range_end = 0;
-  token.has_range = false;
-  token.has_token = false;
-  return token;
-}
-
-::RawPreprocessorToken to_rust_preprocessor_token(slang::parsing::Token token) {
-  auto result = empty_preprocessor_token();
-  if (!token)
-    return result;
-
-  result.raw_text = rust::String(std::string(token.rawText()));
-  result.value_text = rust::String(std::string(token.valueText()));
-  set_rust_range(result.range_start, result.range_end, result.has_range, token.range());
-  result.has_token = true;
-  return result;
-}
-
-template<typename TTokens>
-rust::Vec<::RawTextRange> to_rust_disabled_ranges(const TTokens& tokens) {
-  rust::Vec<::RawTextRange> result;
-  std::optional<::RawTextRange> merged;
-
-  for (auto token : tokens) {
-    auto range = to_rust_text_range(token.range());
-    if (!range.has_range)
-      continue;
-
-    if (!merged) {
-      merged = range;
-      continue;
-    }
-
-    merged->range_start = std::min(merged->range_start, range.range_start);
-    merged->range_end = std::max(merged->range_end, range.range_end);
-  }
-
-  if (merged && merged->range_start < merged->range_end)
-    result.emplace_back(*merged);
-  return result;
-}
-
-template<typename TTokens>
-rust::Vec<::RawPreprocessorToken> to_rust_preprocessor_tokens(const TTokens& tokens) {
-  rust::Vec<::RawPreprocessorToken> result;
-  for (auto token : tokens)
-    result.emplace_back(to_rust_preprocessor_token(token));
-  return result;
-}
-
-void collect_leaf_tokens(const slang::syntax::SyntaxNode& node,
-                         rust::Vec<::RawPreprocessorToken>& tokens) {
-  for (size_t i = 0; i < node.getChildCount(); i++) {
-    if (auto token = node.childToken(i))
-      tokens.emplace_back(to_rust_preprocessor_token(token));
-    if (auto* child = node.childNode(i))
-      collect_leaf_tokens(*child, tokens);
-  }
-}
-
-::RawPreprocessorMacroParam to_rust_macro_param(
-    const slang::syntax::MacroFormalArgumentSyntax& param) {
-  ::RawPreprocessorMacroParam result;
-  result.name = to_rust_preprocessor_token(param.name);
-  result.default_tokens = rust::Vec<::RawPreprocessorToken>();
-  result.has_default = param.defaultValue != nullptr;
-  result.range_start = 0;
-  result.range_end = 0;
-  result.has_range = false;
-  set_rust_range(result.range_start, result.range_end, result.has_range, param.sourceRange());
-  if (param.defaultValue)
-    result.default_tokens = to_rust_preprocessor_tokens(param.defaultValue->tokens);
-  return result;
-}
-
-::RawPreprocessorDirective to_rust_preprocessor_directive(
-    const slang::syntax::SyntaxNode& syntax) {
-  ::RawPreprocessorDirective directive;
-  directive.kind = static_cast<uint16_t>(syntax.kind);
-  directive.directive = empty_preprocessor_token();
-  directive.name = empty_preprocessor_token();
-  directive.include_file_name = empty_preprocessor_token();
-  directive.params = rust::Vec<::RawPreprocessorMacroParam>();
-  directive.body_tokens = rust::Vec<::RawPreprocessorToken>();
-  directive.expr_tokens = rust::Vec<::RawPreprocessorToken>();
-  directive.disabled_ranges = rust::Vec<::RawTextRange>();
-  set_rust_range(directive.range_start, directive.range_end, directive.has_range,
-                 syntax.sourceRange());
-
-  if (auto* directiveSyntax = syntax.as_if<slang::syntax::DirectiveSyntax>())
-    directive.directive = to_rust_preprocessor_token(directiveSyntax->directive);
-
-  switch (syntax.kind) {
-    case slang::syntax::SyntaxKind::DefineDirective: {
-      const auto& define = syntax.as<slang::syntax::DefineDirectiveSyntax>();
-      directive.name = to_rust_preprocessor_token(define.name);
-      if (define.formalArguments) {
-        for (auto* param : define.formalArguments->args)
-          directive.params.emplace_back(to_rust_macro_param(*param));
-      }
-      directive.body_tokens = to_rust_preprocessor_tokens(define.body);
-      break;
-    }
-    case slang::syntax::SyntaxKind::UndefDirective: {
-      const auto& undef = syntax.as<slang::syntax::UndefDirectiveSyntax>();
-      directive.name = to_rust_preprocessor_token(undef.name);
-      break;
-    }
-    case slang::syntax::SyntaxKind::IncludeDirective: {
-      const auto& include = syntax.as<slang::syntax::IncludeDirectiveSyntax>();
-      directive.include_file_name = to_rust_preprocessor_token(include.fileName);
-      break;
-    }
-    case slang::syntax::SyntaxKind::IfDefDirective:
-    case slang::syntax::SyntaxKind::IfNDefDirective:
-    case slang::syntax::SyntaxKind::ElsIfDirective: {
-      const auto& branch = syntax.as<slang::syntax::ConditionalBranchDirectiveSyntax>();
-      collect_leaf_tokens(*branch.expr, directive.expr_tokens);
-      directive.disabled_ranges = to_rust_disabled_ranges(branch.disabledTokens);
-      break;
-    }
-    case slang::syntax::SyntaxKind::ElseDirective:
-    case slang::syntax::SyntaxKind::EndIfDirective: {
-      const auto& branch = syntax.as<slang::syntax::UnconditionalBranchDirectiveSyntax>();
-      directive.disabled_ranges = to_rust_disabled_ranges(branch.disabledTokens);
-      break;
-    }
-    case slang::syntax::SyntaxKind::MacroUsage: {
-      const auto& usage = syntax.as<slang::syntax::MacroUsageSyntax>();
-      directive.name = to_rust_preprocessor_token(usage.directive);
-      break;
-    }
-    default:
-      break;
-  }
-
-  return directive;
 }
 
 ::RawPreprocessorTraceToken empty_preprocessor_trace_token() {
@@ -510,10 +348,10 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
   return result;
 }
 
-::RawPreprocessorTraceDirective to_rust_preprocessor_trace_directive(
+::RawPreprocessorTraceEvent to_rust_preprocessor_trace_event(
     const slang::syntax::SyntaxNode& syntax,
     uint32_t eventId) {
-  ::RawPreprocessorTraceDirective directive;
+  ::RawPreprocessorTraceEvent directive;
   directive.event_id = eventId;
   directive.kind = static_cast<uint16_t>(syntax.kind);
   directive.range = to_rust_source_buffer_range(trace_event_source_range(syntax));
@@ -990,47 +828,6 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
   return result;
 }
 
-rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
-    std::string_view text,
-    std::string_view name,
-    std::string_view path,
-    rust::Vec<rust::String> predefines) {
-  rust::Vec<::RawPreprocessorDirective> result;
-
-  slang::SourceManager sourceManager;
-  auto bufferPath = path.empty() ? (name.empty() ? std::string_view("source") : name) : path;
-  auto buffer = sourceManager.assignText(bufferPath, text);
-  if (!buffer)
-    return result;
-
-  slang::Bag options;
-  auto& ppOptions = options.insertOrGet<slang::parsing::PreprocessorOptions>();
-  ppOptions.expandIncludes = false;
-  for (const auto& predefine : predefines)
-    ppOptions.predefines.emplace_back(std::string(predefine));
-
-  slang::BumpAllocator alloc;
-  slang::Diagnostics diagnostics;
-  slang::parsing::Preprocessor preprocessor(sourceManager, alloc, diagnostics, options);
-  preprocessor.pushSource(buffer);
-
-  while (true) {
-    auto token = preprocessor.next();
-    for (auto trivia : token.trivia()) {
-      if (trivia.kind != slang::parsing::TriviaKind::Directive)
-        continue;
-
-      if (auto* syntax = trivia.syntax())
-        result.emplace_back(to_rust_preprocessor_directive(*syntax));
-    }
-
-    if (token.kind == slang::parsing::TokenKind::EndOfFile)
-      break;
-  }
-
-  return result;
-}
-
 ::RawPreprocessorTrace SyntaxTree_preprocessorTrace(
     std::string_view text,
     std::string_view name,
@@ -1043,7 +840,7 @@ rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
   result.root_buffer_id = 0;
   result.has_root_buffer_id = false;
   result.source_buffers = rust::Vec<::RawSourceBufferId>();
-  result.events = rust::Vec<::RawPreprocessorTraceDirective>();
+  result.events = rust::Vec<::RawPreprocessorTraceEvent>();
   result.include_edges = rust::Vec<::RawPreprocessorTraceIncludeEdge>();
 
   slang::SourceManager sourceManager;
@@ -1114,7 +911,7 @@ rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
           if (auto key = trace_source_location_key(include.directive.location()))
             includeEventIdsByLocation.emplace(*key, eventId);
         }
-        result.events.emplace_back(to_rust_preprocessor_trace_directive(*syntax, eventId));
+        result.events.emplace_back(to_rust_preprocessor_trace_event(*syntax, eventId));
       }
     }
 

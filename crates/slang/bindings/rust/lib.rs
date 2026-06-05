@@ -160,8 +160,6 @@ pub struct PreprocessorTraceEvent {
     pub disabled_ranges: Vec<SourceBufferRange>,
 }
 
-pub type PreprocessorTraceDirective = PreprocessorTraceEvent;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocessorTraceToken {
     pub raw_text: String,
@@ -323,7 +321,7 @@ impl PreprocessorTrace {
 
 impl PreprocessorTraceEvent {
     #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorTraceDirective) -> Self {
+    fn from_raw(raw: ffi::RawPreprocessorTraceEvent) -> Self {
         Self {
             event_id: PreprocessorTraceEventId(raw.event_id),
             kind: SyntaxKind::from_id(raw.kind),
@@ -412,33 +410,6 @@ pub struct LexedTokenAtOffset {
     pub directive_kind: Option<SyntaxKind>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorDirective {
-    pub kind: SyntaxKind,
-    pub range: Option<Range<usize>>,
-    pub directive: Option<PreprocessorDirectiveToken>,
-    pub name: Option<PreprocessorDirectiveToken>,
-    pub include_file_name: Option<PreprocessorDirectiveToken>,
-    pub params: Vec<PreprocessorMacroParam>,
-    pub body_tokens: Vec<PreprocessorDirectiveToken>,
-    pub expr_tokens: Vec<PreprocessorDirectiveToken>,
-    pub disabled_ranges: Vec<Range<usize>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorDirectiveToken {
-    pub raw_text: String,
-    pub value_text: String,
-    pub range: Option<Range<usize>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorMacroParam {
-    pub name: Option<PreprocessorDirectiveToken>,
-    pub default_tokens: Option<Vec<PreprocessorDirectiveToken>>,
-    pub range: Option<Range<usize>>,
-}
-
 impl ParserExpectedSyntax {
     #[inline]
     fn from_raw(raw: ffi::RawExpectedSyntax) -> Self {
@@ -465,62 +436,6 @@ impl LexedTokenAtOffset {
             token_kind: TokenKind::from_id(raw.token_kind),
             directive_kind: raw.has_directive_kind.then(|| SyntaxKind::from_id(raw.directive_kind)),
         })
-    }
-}
-
-impl PreprocessorDirective {
-    #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorDirective) -> Self {
-        Self {
-            kind: SyntaxKind::from_id(raw.kind),
-            range: raw.has_range.then_some(raw.range_start..raw.range_end),
-            directive: PreprocessorDirectiveToken::from_raw(raw.directive),
-            name: PreprocessorDirectiveToken::from_raw(raw.name),
-            include_file_name: PreprocessorDirectiveToken::from_raw(raw.include_file_name),
-            params: raw.params.into_iter().map(PreprocessorMacroParam::from_raw).collect(),
-            body_tokens: raw
-                .body_tokens
-                .into_iter()
-                .filter_map(PreprocessorDirectiveToken::from_raw)
-                .collect(),
-            expr_tokens: raw
-                .expr_tokens
-                .into_iter()
-                .filter_map(PreprocessorDirectiveToken::from_raw)
-                .collect(),
-            disabled_ranges: raw
-                .disabled_ranges
-                .into_iter()
-                .filter_map(|range| range.has_range.then_some(range.range_start..range.range_end))
-                .collect(),
-        }
-    }
-}
-
-impl PreprocessorDirectiveToken {
-    #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorToken) -> Option<Self> {
-        raw.has_token.then(|| Self {
-            raw_text: raw.raw_text,
-            value_text: raw.value_text,
-            range: raw.has_range.then_some(raw.range_start..raw.range_end),
-        })
-    }
-}
-
-impl PreprocessorMacroParam {
-    #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorMacroParam) -> Self {
-        Self {
-            name: PreprocessorDirectiveToken::from_raw(raw.name),
-            default_tokens: raw.has_default.then(|| {
-                raw.default_tokens
-                    .into_iter()
-                    .filter_map(PreprocessorDirectiveToken::from_raw)
-                    .collect()
-            }),
-            range: raw.has_range.then_some(raw.range_start..raw.range_end),
-        }
     }
 }
 
@@ -1449,23 +1364,6 @@ impl SyntaxTree {
             CxxSV::new(path),
             offset,
         ))
-    }
-
-    pub fn preprocessor_directives(
-        text: &str,
-        name: &str,
-        path: &str,
-        options: &SyntaxTreeOptions,
-    ) -> Vec<PreprocessorDirective> {
-        ffi::SyntaxTree::preprocessorDirectives(
-            CxxSV::new(text),
-            CxxSV::new(name),
-            CxxSV::new(path),
-            options.predefines.clone(),
-        )
-        .into_iter()
-        .map(PreprocessorDirective::from_raw)
-        .collect()
     }
 
     pub fn preprocessor_trace(

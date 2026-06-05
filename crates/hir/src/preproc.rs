@@ -1,6 +1,6 @@
 use preproc::source::{
-    SourceIncludeChainEntry, SourceMacroBinding, SourcePosition, SourcePreprocError,
-    SourcePreprocProvenance, SourceRange,
+    MacroIncludeTarget, SourceIncludeChainEntry, SourceMacroBinding, SourcePosition,
+    SourcePreprocError, SourcePreprocProvenance, SourceRange,
 };
 use smol_str::SmolStr;
 use utils::{
@@ -305,13 +305,11 @@ pub fn include_directive_at(
             continue;
         }
         let target = match &include.target {
-            ::preproc::index::MacroIncludeTarget::Literal { path, .. } => IncludeTarget::Literal {
+            MacroIncludeTarget::Literal { path, .. } => IncludeTarget::Literal {
                 path: path.clone(),
                 resolved_file: resolve_literal_include(db, include_file_id, path),
             },
-            ::preproc::index::MacroIncludeTarget::Token { raw } => {
-                IncludeTarget::Token { raw: raw.clone() }
-            }
+            MacroIncludeTarget::Token { raw } => IncludeTarget::Token { raw: raw.clone() },
         };
         return Ok(Some(IncludeDirective {
             file_id: include_file_id,

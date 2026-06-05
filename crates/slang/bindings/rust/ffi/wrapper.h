@@ -37,9 +37,7 @@ struct RawSourceBufferId;
 struct RawSyntaxTreeBufferIds;
 struct RawExpectedSyntax;
 struct RawLexedTokenAtOffset;
-struct RawPreprocessorDirective;
 struct RawPreprocessorTrace;
-struct RawTextRange;
 
 namespace wrapper {
   using Diagnostic = ::slang::Diagnostic;
@@ -561,12 +559,6 @@ namespace wrapper {
         std::string_view name,
         std::string_view path,
         size_t offset);
-    rust::Vec<::RawPreprocessorDirective> SyntaxTree_preprocessorDirectives(
-        std::string_view text,
-        std::string_view name,
-        std::string_view path,
-        rust::Vec<rust::String> predefines);
-
     ::RawPreprocessorTrace SyntaxTree_preprocessorTrace(
         std::string_view text,
         std::string_view name,
