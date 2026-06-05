@@ -1,4 +1,7 @@
-use preproc::source::{SourceMacroBinding, SourcePosition, SourceRange};
+use preproc::source::{
+    SourceIncludeChainEntry, SourceMacroBinding, SourcePosition, SourcePreprocError,
+    SourcePreprocProvenance, SourceRange,
+};
 use smol_str::SmolStr;
 use utils::{
     line_index::{TextRange, TextSize},
@@ -23,6 +26,8 @@ pub struct MacroDefinition {
     pub file_id: FileId,
     pub name: SmolStr,
     pub define_index: usize,
+    pub event_id: u32,
+    pub event_range: TextRange,
     pub range: TextRange,
 }
 
@@ -38,6 +43,24 @@ pub struct MacroUsage {
 pub struct MacroUsageResolution {
     pub usage: MacroUsage,
     pub definition: MacroDefinition,
+    pub definition_provenance: MacroDefinitionProvenance,
+    pub include_chain: Vec<IncludeChainEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroDefinitionProvenance {
+    pub event_id: u32,
+    pub file_id: FileId,
+    pub range: TextRange,
+    pub name_range: Option<TextRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeChainEntry {
+    pub include_event_id: u32,
+    pub include_file_id: FileId,
+    pub include_range: TextRange,
+    pub included_file_id: FileId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +102,12 @@ impl From<SourcePreprocQueryError> for PreprocError {
     }
 }
 
+impl From<SourcePreprocError> for PreprocError {
+    fn from(value: SourcePreprocError) -> Self {
+        Self::SourceQuery(SourcePreprocQueryError::Model(value))
+    }
+}
+
 pub fn visible_macros_at(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -105,7 +134,8 @@ pub fn macro_definition_at(
     let mapped = mapped_result(mapped.as_ref())?;
 
     for (define_index, define) in mapped.model.defines().iter().enumerate() {
-        let (define_file_id, range) = map_source_range(mapped, define.range)?;
+        let (define_file_id, event_range) = map_source_range(mapped, define.range)?;
+        let (_, range) = map_source_range(mapped, define.name_range.unwrap_or(define.range))?;
         if define_file_id == file_id && range_contains_offset(range, offset) {
             return Ok(Some(MacroDefinition {
                 file_id: define_file_id,
@@ -114,6 +144,8 @@ pub fn macro_definition_at(
                     None => return Ok(None),
                 },
                 define_index,
+                event_id: define.event_id.raw(),
+                event_range,
                 range,
             }));
         }
@@ -139,16 +171,21 @@ pub fn macro_usage_resolution_at(
         let Some(name) = usage.name.clone() else {
             return Ok(None);
         };
-        let Some(binding) = mapped.model.definition_for_usage(usage_index) else {
+        let Some(source_resolution) = mapped.model.definition_for_usage(usage_index)? else {
             return Ok(None);
         };
-        let Some(definition) = map_binding_definition(mapped, binding)? else {
+        let Some(definition) = map_binding_definition(mapped, source_resolution.definition)? else {
             return Ok(None);
         };
+        let definition_provenance =
+            map_definition_provenance(mapped, &source_resolution.definition_provenance)?;
+        let include_chain = map_include_chain(mapped, &source_resolution.definition_include_chain)?;
 
         return Ok(Some(MacroUsageResolution {
             usage: MacroUsage { file_id: usage_file_id, name, usage_index, range },
             definition,
+            definition_provenance,
+            include_chain,
         }));
     }
 
@@ -212,10 +249,10 @@ pub fn macro_references(
     let mut refs = Vec::new();
 
     for (usage_index, usage) in mapped.model.usages().iter().enumerate() {
-        let Some(binding) = mapped.model.definition_for_usage(usage_index) else {
+        let Some(source_resolution) = mapped.model.definition_for_usage(usage_index)? else {
             continue;
         };
-        if !binding_matches_definition(mapped, &binding, definition)? {
+        if !binding_matches_definition(mapped, &source_resolution.definition, definition)? {
             continue;
         }
         let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
@@ -323,23 +360,75 @@ fn map_source_range(
     mapped: &MappedSourcePreprocModel,
     source_range: SourceRange,
 ) -> PreprocResult<(FileId, TextRange)> {
-    let file_id = mapped
-        .source_file_ids
-        .get(&source_range.source)
-        .copied()
-        .ok_or_else(|| PreprocError::UnmappedSource { buffer_id: source_range.source.raw() })?;
+    let file_id = map_source_id(mapped, source_range.source)?;
     Ok((file_id, source_range.range))
+}
+
+fn map_source_id(
+    mapped: &MappedSourcePreprocModel,
+    source: preproc::source::PreprocSourceId,
+) -> PreprocResult<FileId> {
+    mapped
+        .source_file_ids
+        .get(&source)
+        .copied()
+        .ok_or_else(|| PreprocError::UnmappedSource { buffer_id: source.raw() })
+}
+
+fn map_definition_provenance(
+    mapped: &MappedSourcePreprocModel,
+    provenance: &SourcePreprocProvenance,
+) -> PreprocResult<MacroDefinitionProvenance> {
+    let (file_id, range) = map_source_range(mapped, provenance.range)?;
+    let name_range = provenance
+        .name_range
+        .map(|source_range| map_source_range(mapped, source_range).map(|(_, range)| range))
+        .transpose()?;
+    Ok(MacroDefinitionProvenance {
+        event_id: provenance.event_id.raw(),
+        file_id,
+        range,
+        name_range,
+    })
+}
+
+fn map_include_chain(
+    mapped: &MappedSourcePreprocModel,
+    chain: &[SourceIncludeChainEntry],
+) -> PreprocResult<Vec<IncludeChainEntry>> {
+    chain
+        .iter()
+        .map(|entry| {
+            let (include_file_id, include_range) = map_source_range(mapped, entry.include_range)?;
+            let included_file_id = map_source_id(mapped, entry.included_source)?;
+            Ok(IncludeChainEntry {
+                include_event_id: entry.include_event_id.raw(),
+                include_file_id,
+                include_range,
+                included_file_id,
+            })
+        })
+        .collect()
 }
 
 fn map_binding_definition(
     mapped: &MappedSourcePreprocModel,
     binding: SourceMacroBinding<'_>,
 ) -> PreprocResult<Option<MacroDefinition>> {
-    let (file_id, range) = map_source_range(mapped, binding.define.range)?;
+    let (file_id, event_range) = map_source_range(mapped, binding.define.range)?;
+    let (_, range) =
+        map_source_range(mapped, binding.define.name_range.unwrap_or(binding.define.range))?;
     let Some(name) = binding.define.name.clone() else {
         return Ok(None);
     };
-    Ok(Some(MacroDefinition { file_id, name, define_index: binding.define_index, range }))
+    Ok(Some(MacroDefinition {
+        file_id,
+        name,
+        define_index: binding.define_index,
+        event_id: binding.event_id.raw(),
+        event_range,
+        range,
+    }))
 }
 
 fn binding_matches_definition(
@@ -352,7 +441,8 @@ fn binding_matches_definition(
     };
     Ok(mapped_definition.file_id == definition.file_id
         && mapped_definition.range == definition.range
-        && mapped_definition.name == definition.name)
+        && mapped_definition.name == definition.name
+        && mapped_definition.event_id == definition.event_id)
 }
 
 fn resolve_literal_include(db: &dyn SourceRootDb, file_id: FileId, path: &str) -> Option<FileId> {
@@ -448,6 +538,7 @@ mod tests {
 
     const TOP: FileId = FileId(0);
     const HEADER: FileId = FileId(1);
+    const LEAF: FileId = FileId(2);
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
@@ -473,13 +564,24 @@ mod tests {
     }
 
     fn db_with_files(root_text: &str, header_text: &str) -> TestDb {
-        let top_path = abs_path("rtl/top.v");
-        let header_path = abs_path("include/defs.vh");
+        db_with_entries(&[(TOP, "rtl/top.v", root_text), (HEADER, "include/defs.vh", header_text)])
+    }
+
+    fn db_with_nested_files(root_text: &str, header_text: &str, leaf_text: &str) -> TestDb {
+        db_with_entries(&[
+            (TOP, "rtl/top.v", root_text),
+            (HEADER, "include/defs.vh", header_text),
+            (LEAF, "include/leaf.vh", leaf_text),
+        ])
+    }
+
+    fn db_with_entries(entries: &[(FileId, &str, &str)]) -> TestDb {
         let include_dir = abs_path("include");
 
         let mut file_set = FileSet::default();
-        file_set.insert(TOP, VfsPath::from(top_path.clone()));
-        file_set.insert(HEADER, VfsPath::from(header_path.clone()));
+        for (file_id, path, _) in entries {
+            file_set.insert(*file_id, VfsPath::from(abs_path(path)));
+        }
         let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
 
         let preprocess =
@@ -494,8 +596,9 @@ mod tests {
         );
 
         let mut files = FxHashSet::default();
-        files.insert(TOP);
-        files.insert(HEADER);
+        for (file_id, _, _) in entries {
+            files.insert(*file_id);
+        }
 
         let mut db = TestDb::default();
         db.set_files_with_durability(Box::new(files), Durability::HIGH);
@@ -506,20 +609,19 @@ mod tests {
         );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
 
-        for (file_id, path, text) in
-            [(TOP, top_path, root_text), (HEADER, header_path, header_text)]
-        {
+        for (file_id, path, text) in entries {
+            let path = abs_path(path);
             let vfs_path = VfsPath::from(path.clone());
-            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
-            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_source_root_id_with_durability(*file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(*file_id, Some(path), Durability::LOW);
             db.set_file_kind_with_durability(
-                file_id,
+                *file_id,
                 SourceFileKind::from_path(&vfs_path),
                 Durability::LOW,
             );
-            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+            db.set_file_text_with_durability(*file_id, Arc::from(*text), Durability::LOW);
             db.set_file_preprocess_config_with_durability(
-                file_id,
+                *file_id,
                 Arc::new(preprocess.clone()),
                 Durability::LOW,
             );
@@ -565,6 +667,36 @@ endmodule
             panic!("literal include expected");
         };
         assert_eq!(resolved_file, Some(HEADER));
+    }
+
+    #[test]
+    fn preproc_nested_include_chain_maps_to_file_ids() {
+        let root_text = r#"`include "defs.vh"
+module top;
+localparam int W = `LEAF_WIDTH;
+endmodule
+"#;
+        let header_text = "`include \"leaf.vh\"\n";
+        let leaf_text = "`define LEAF_WIDTH 4\n";
+        let db = db_with_nested_files(root_text, header_text, leaf_text);
+
+        let resolution =
+            macro_usage_resolution_at(&db, TOP, offset(root_text, "LEAF_WIDTH")).unwrap().unwrap();
+
+        assert_eq!(resolution.definition.file_id, LEAF);
+        assert_eq!(resolution.definition_provenance.file_id, LEAF);
+        assert_eq!(resolution.include_chain.len(), 2);
+        assert_eq!(resolution.include_chain[0].include_file_id, TOP);
+        assert_eq!(resolution.include_chain[0].included_file_id, HEADER);
+        assert!(
+            text_at_range(root_text, resolution.include_chain[0].include_range).contains("defs.vh")
+        );
+        assert_eq!(resolution.include_chain[1].include_file_id, HEADER);
+        assert_eq!(resolution.include_chain[1].included_file_id, LEAF);
+        assert!(
+            text_at_range(header_text, resolution.include_chain[1].include_range)
+                .contains("leaf.vh")
+        );
     }
 
     #[test]
