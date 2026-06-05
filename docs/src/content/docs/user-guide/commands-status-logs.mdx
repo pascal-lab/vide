@@ -37,6 +37,7 @@ import StatusBarPreview from '../../../components/StatusBarPreview.astro';
 | `vide.reloadWorkspace` | `Vide：重新加载项目配置` | 不重启语言服务器，重新读取项目配置并刷新工程信息。 |
 | `vide.showStatus` | `Vide：显示状态` | 打开 Vide 状态菜单。 |
 | `vide.runQiheAnalysis` | `Vide：运行 Qihe 分析` | 对当前本地 Verilog/SystemVerilog 文件运行 Qihe 分析。 |
+| `vide.generateQiheOptions` | `Vide：生成 Qihe 选项配置文件` | 在当前工作区根目录运行 `qihe gen-options -a -o ./qihe-options.toml`，创建 Qihe 选项配置文件。 |
 | `vide.profileDiagnostics` | `Vide：分析诊断性能` | 启动临时语言服务器，并对工作区或当前文件执行一次诊断性能分析。 |
 
 ## 日志
@@ -46,7 +47,7 @@ Vide 会把运行信息打印到 VS Code 的输出通道。可以通过状态菜
 | 输出通道 | 记录内容 |
 | --- | --- |
 | `Vide Language Server` | 扩展激活、平台、VS Code 版本、服务器命令、参数、工作目录、扩展自带服务器查找结果、启动、停止、重启和版本查询结果。 |
-| `Vide Qihe` | `vide.runQiheAnalysis` 的目标文件、命令进度、Qihe 输出和失败信息。 |
+| `Vide Qihe` | `vide.runQiheAnalysis` 的目标文件、命令进度、Qihe 输出和失败信息，以及 `vide.generateQiheOptions` 的生成命令和输出。 |
 | `Vide Profiling` | `vide.profileDiagnostics` 的目标、产物目录、诊断请求耗时和生成文件路径。 |
 
 ## 高级：诊断性能分析产物

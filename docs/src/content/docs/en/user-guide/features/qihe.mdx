@@ -94,14 +94,35 @@ If the workspace has no `vide.toml`, `Vide: Run Qihe Analysis` sends the current
 
 If `vide.toml` is still the default empty template and no project source files are resolved, the run is also a single-file analysis. This is mainly for quick trials and demos; real projects should configure `vide.toml` so include directories, macro definitions, and top modules are passed to Qihe.
 
+### Generate qihe-options.toml
+
+If you want to use a Qihe options file, run `Vide: Generate Qihe Options File` from the Command Palette. Vide runs this command in the current workspace root:
+
+```bash
+qihe gen-options -a -o ./qihe-options.toml
+```
+
+If `qihe-options.toml` already exists, Vide offers to open the existing file and does not overwrite it silently. Later runs of `Vide: Run Qihe Analysis` automatically use the file from the workspace root.
+
+A common use is to configure a stable Qihe storage directory:
+
+```toml
+[storage]
+root = "artifacts/qihe"
+```
+
+Vide reads Qihe diagnostics from this `storage.root`. If the options file does not define `storage.root`, Vide still creates a temporary storage directory for that run.
+
 ## How Commands Are Built
 
 For project analysis, Vide reads `vide.toml` and builds the Qihe compile input. With the default settings, the command shape is:
 
 ```bash
 qihe compile <qihe-compile-args> --mode sv <project-files> -o <tmp.qh> -- <forwarded-slang-args> --top <top-module> -I <include-dir> -D<macro>
-qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
+qihe run <qihe-run-args> [--options ./qihe-options.toml] -i <tmp.qh> [-c storage.root=<tmp-storage>]
 ```
+
+Parameters in brackets are only added when needed.
 
 The arguments come from:
 
@@ -112,7 +133,9 @@ The arguments come from:
 - `<qihe-compile-args>` comes from the part of `vide.qihe.compileArgs` before `--`.
 - `<forwarded-slang-args>` comes from the part of `vide.qihe.compileArgs` after `--`.
 - `<qihe-run-args>` comes from `vide.qihe.runArgs`.
-- `<tmp.qh>` and `<tmp-storage>` are temporary paths created by Vide for the run.
+- `--options ./qihe-options.toml` is added when `qihe-options.toml` exists in the current workspace root.
+- `<tmp.qh>` is a temporary IR path created by Vide for the run.
+- `-c storage.root=<tmp-storage>` is added when no usable `storage.root` is available; `<tmp-storage>` is a temporary diagnostics storage path created by Vide for the run.
 
 If `vide.qihe.compileArgs` already contains `--mode`, `--mode=...`, or `-m ...`, Vide does not add `--mode sv` again.
 
@@ -135,7 +158,7 @@ If you do not want Vide to generate `--mode sv`, `--top`, `-I`, and `-D` from `v
 
 ```bash
 qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-args>]
-qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
+qihe run <qihe-run-args> [--options ./qihe-options.toml] -i <tmp.qh> [-c storage.root=<tmp-storage>]
 ```
 
 `<input-files>` means the Verilog/SystemVerilog input files passed to `qihe compile`. `vide.qihe.autoConfigureArgsFromManifest` only controls whether arguments such as `--top`, `-I`, and `-D` are added automatically. It does not change which files Vide analyzes: when `vide.toml` is configured, Vide analyzes the project's source files; when no usable project configuration is available, Vide analyzes only the currently open file.

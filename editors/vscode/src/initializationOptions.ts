@@ -1,56 +1,8 @@
 import { USER_CONFIG_SETTINGS } from './generated/configuration';
-
-type ConfigurationReader = {
-  get<T>(section: string): T | undefined;
-  inspect?<T>(section: string): ConfigurationInspection<T> | undefined;
-};
-
-type ConfigurationInspection<T> = {
-  defaultValue?: T;
-  globalValue?: T;
-  workspaceValue?: T;
-  workspaceFolderValue?: T;
-  defaultLanguageValue?: T;
-  globalLanguageValue?: T;
-  workspaceLanguageValue?: T;
-  workspaceFolderLanguageValue?: T;
-};
+import { resolvedQiheCommand, type ConfigurationReader } from './qiheCommand';
 
 function setting<T>(config: ConfigurationReader, section: string, fallback: T): T {
   return config.get<T>(section) ?? fallback;
-}
-
-function defaultQiheCommand(platform: NodeJS.Platform): string {
-  return platform === 'win32' ? 'qihe.bat' : 'qihe';
-}
-
-function hasConfiguredValue<T>(inspection: ConfigurationInspection<T> | undefined): boolean {
-  return (
-    inspection?.globalValue !== undefined ||
-    inspection?.workspaceValue !== undefined ||
-    inspection?.workspaceFolderValue !== undefined ||
-    inspection?.globalLanguageValue !== undefined ||
-    inspection?.workspaceLanguageValue !== undefined ||
-    inspection?.workspaceFolderLanguageValue !== undefined
-  );
-}
-
-function qiheCommandSetting(
-  config: ConfigurationReader,
-  section: string,
-  fallback: unknown,
-  platform: NodeJS.Platform,
-): string {
-  const command = setting(config, section, fallback);
-  if (typeof command !== 'string') {
-    return defaultQiheCommand(platform);
-  }
-
-  if (hasConfiguredValue(config.inspect?.<string>(section))) {
-    return command;
-  }
-
-  return command === fallback ? defaultQiheCommand(platform) : command;
 }
 
 export function serverInitializationOptions(
@@ -62,12 +14,7 @@ export function serverInitializationOptions(
   for (const configSetting of USER_CONFIG_SETTINGS) {
     const value =
       configSetting.vscodeSection === 'qihe.command'
-        ? qiheCommandSetting(
-            config,
-            configSetting.vscodeSection,
-            configSetting.defaultValue,
-            platform,
-          )
+        ? resolvedQiheCommand(config, platform)
         : setting(config, configSetting.vscodeSection, configSetting.defaultValue);
 
     assignNestedValue(options, configSetting.path, value);

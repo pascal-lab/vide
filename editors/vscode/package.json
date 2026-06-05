@@ -387,6 +387,11 @@
         "icon": "$(beaker)"
       },
       {
+        "command": "vide.generateQiheOptions",
+        "title": "%command.generateQiheOptions.title%",
+        "icon": "$(new-file)"
+      },
+      {
         "command": "vide.profileDiagnostics",
         "title": "%command.profileDiagnostics.title%",
         "icon": "$(pulse)"

@@ -640,7 +640,7 @@ fn resolve_qihe_run_plan(
     let explicit_storage_root = explicit_storage_root_arg(run_args, cwd);
     let options_storage_root =
         options_path.as_deref().map(read_qihe_options_storage_root).transpose()?.flatten();
-    let append_storage_root_arg = explicit_storage_root.is_none();
+    let append_storage_root_arg = explicit_storage_root.is_none() && options_storage_root.is_none();
     let storage_root = explicit_storage_root
         .clone()
         .or(options_storage_root)
@@ -1742,7 +1742,7 @@ mod tests {
             Some(PathBuf::from(root.path().join("qihe-options.toml")))
         );
         assert!(run_plan.append_options_arg);
-        assert!(run_plan.append_storage_root_arg);
+        assert!(!run_plan.append_storage_root_arg);
     }
 
     #[test]

@@ -92,14 +92,35 @@ _分析结果：诊断位置和 Qihe 输出信息会一起帮助定位问题。_
 
 如果 `vide.toml` 仍是默认空模板，并且没有解析出项目源文件，运行结果也等同于单文件分析。这个功能主要用于快速试跑和演示；正式项目建议写好 `vide.toml`，让 include 目录、宏定义和顶层模块一起传给骑河。
 
+### 生成 qihe-options.toml
+
+如果需要使用 `qihe-options.toml`（Qihe 选项配置文件），可以从命令面板执行 `Vide：生成 Qihe 选项配置文件`。Vide 会在当前工作区根目录运行：
+
+```bash
+qihe gen-options -a -o ./qihe-options.toml
+```
+
+如果 `qihe-options.toml` 已存在，Vide 会提示打开现有文件，不会静默覆盖。后续执行 `Vide：运行 Qihe 分析` 时，Vide 会自动使用工作区根目录下的这份配置文件。
+
+常见用途是在该配置文件中配置稳定的 Qihe 存储目录：
+
+```toml
+[storage]
+root = "artifacts/qihe"
+```
+
+Vide 会从这个 `storage.root` 读取 Qihe 诊断结果；如果该配置文件没有配置 `storage.root`，Vide 会继续为本次运行创建临时存储目录。
+
 ## 运行原理与自定义运行命令
 
 分析项目时，Vide 会读取 `vide.toml` 并生成骑河编译输入。默认配置下，命令形态如下：
 
 ```bash
 qihe compile <qihe-compile-args> --mode sv <project-files> -o <tmp.qh> -- <forwarded-slang-args> --top <top-module> -I <include-dir> -D<macro>
-qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
+qihe run <qihe-run-args> [--options ./qihe-options.toml] -i <tmp.qh> [-c storage.root=<tmp-storage>]
 ```
+
+方括号里的参数只会在需要时添加。
 
 这些参数来自下面几处：
 
@@ -110,7 +131,9 @@ qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 - `<qihe-compile-args>` 来自 VS Code 设置 `vide.qihe.compileArgs` 中 `--` 之前的部分。
 - `<forwarded-slang-args>` 来自 `vide.qihe.compileArgs` 中 `--` 之后的部分。
 - `<qihe-run-args>` 来自 VS Code 设置 `vide.qihe.runArgs`。
-- `<tmp.qh>` 和 `<tmp-storage>` 是 Vide 为本次运行创建的临时路径。
+- `--options ./qihe-options.toml` 会在当前工作区根目录存在 `qihe-options.toml` 时加入。
+- `<tmp.qh>` 是 Vide 为本次运行创建的临时 IR 路径。
+- `-c storage.root=<tmp-storage>` 会在没有可用 `storage.root` 时加入；`<tmp-storage>` 是 Vide 为本次运行创建的临时诊断存储路径。
 
 如果 `vide.qihe.compileArgs` 已经包含 `--mode`、`--mode=...` 或 `-m ...`，Vide 不会再自动追加 `--mode sv`。
 
@@ -133,7 +156,7 @@ qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
 
 ```bash
 qihe compile <qihe-compile-args> <input-files> -o <tmp.qh> [-- <forwarded-slang-args>]
-qihe run <qihe-run-args> -i <tmp.qh> -c storage.root=<tmp-storage>
+qihe run <qihe-run-args> [--options ./qihe-options.toml] -i <tmp.qh> [-c storage.root=<tmp-storage>]
 ```
 
 这里的 `<input-files>` 是传给 `qihe compile` 的 Verilog/SystemVerilog 输入文件。`vide.qihe.autoConfigureArgsFromManifest` 只控制是否自动追加 `--top`、`-I` 和 `-D` 这类参数，不影响 Vide 选择要分析哪些文件：项目已经写好 `vide.toml` 时，Vide 会分析项目里的源码；没有可用项目配置时，Vide 只分析当前打开的文件。
