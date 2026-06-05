@@ -209,10 +209,15 @@ fn syntax_tree_options_for_file(
     file_id: FileId,
 ) -> syntax::SyntaxTreeOptions {
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
-    let project_config = db.project_config();
+    let preprocess = db.file_preprocess_config(file_id);
     let profile_id = db.file_compilation_profile(file_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
-    syntax_tree_options_for_profile(&project_config, profile_id, include_buffers)
+    syntax::SyntaxTreeOptions {
+        predefines: preprocess.predefines.clone(),
+        include_paths: preprocess.include_dir_strings(),
+        include_buffers,
+        ..syntax::SyntaxTreeOptions::default()
+    }
 }
 
 fn syntax_tree_options_for_profile(

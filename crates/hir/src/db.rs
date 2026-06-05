@@ -2,7 +2,7 @@ use syntax::SyntaxTree;
 use triomphe::Arc;
 
 use crate::{
-    base_db::{salsa, source_db::SourceDb},
+    base_db::{salsa, source_db::SourceRootDb},
     file::HirFileId,
     hir_def::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
@@ -26,7 +26,7 @@ pub(crate) macro impl_intern($id:ident, $loc:ident, $intern:ident, $lookup:ident
 }
 
 #[salsa::query_group(InternDbStorage)]
-pub trait InternDb: SourceDb {
+pub trait InternDb: SourceRootDb {
     #[salsa::interned]
     fn intern_ty(&self, ty: BuiltinDataTy) -> BuiltinDataTyId;
 
@@ -106,7 +106,7 @@ pub trait HirDb: InternDb {
 }
 
 fn parse(db: &dyn HirDb, file_id: HirFileId) -> SyntaxTree {
-    db.parse_src(file_id.file_id())
+    db.parse_src_for_compilation(file_id.file_id())
 }
 
 fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {
