@@ -1235,6 +1235,90 @@ endmodule
 }
 
 #[test]
+fn preproc_included_macro_definitions_find_root_references_and_guard_links() {
+    let fixture = setup_include_macro_project(
+        r#"
+`include "defs.vh"
+`ifdef /*marker:something_cond*/SOMETHING
+module top;
+  localparam int FLAG = /*marker:something_usage_range*/`/*marker:something_usage*/SOMETHING;
+endmodule
+`endif
+"#,
+        r#"
+`ifndef /*marker:guard_ifndef*/__DEFINE_VH__
+`define /*marker:guard_define*/__DEFINE_VH__
+`define /*marker:something_define*/SOMETHING 1
+`endif
+"#,
+    );
+    let analysis = fixture.host.make_analysis();
+
+    let guard_define_range =
+        marked_range(&fixture.header_markers, "guard_define", TextSize::of("__DEFINE_VH__"));
+    let guard_nav = analysis
+        .goto_definition(position(fixture.header_file_id, &fixture.header_markers, "guard_ifndef"))
+        .unwrap()
+        .expect("include guard ifndef should navigate to the guard define");
+    assert!(
+        guard_nav.info.iter().any(|target| {
+            target.file_id == fixture.header_file_id
+                && target.focus_range == Some(guard_define_range)
+        }),
+        "include guard ifndef should link to guard define: {guard_nav:?}"
+    );
+
+    let something_define =
+        position(fixture.header_file_id, &fixture.header_markers, "something_define");
+    let something_cond =
+        marked_range(&fixture.top_markers, "something_cond", TextSize::of("SOMETHING"));
+    let something_usage =
+        marked_range(&fixture.top_markers, "something_usage_range", TextSize::of("`SOMETHING"));
+    let references = analysis
+        .references(something_define, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("included macro definition references expected");
+    let top_ranges = references
+        .iter()
+        .flat_map(|refs| refs.refs.get(&fixture.top_file_id).into_iter().flatten())
+        .map(|(range, _)| *range)
+        .collect::<Vec<_>>();
+    assert!(
+        top_ranges.contains(&something_cond),
+        "header define references should include root ifdef token: {top_ranges:?}"
+    );
+    assert!(
+        top_ranges.contains(&something_usage),
+        "header define references should include root macro usage: {top_ranges:?}"
+    );
+
+    let guard_references = analysis
+        .references(
+            position(fixture.header_file_id, &fixture.header_markers, "guard_define"),
+            ReferencesConfig::new(ScopeVisibility::Public, None),
+        )
+        .unwrap()
+        .expect("guard define references expected");
+    let guard_ranges = guard_references
+        .iter()
+        .flat_map(|refs| refs.refs.get(&fixture.header_file_id).into_iter().flatten())
+        .map(|(range, _)| *range)
+        .collect::<Vec<_>>();
+    assert!(
+        !guard_ranges.contains(&guard_define_range),
+        "references should not report the macro definition as its own reference: {guard_ranges:?}"
+    );
+    assert!(
+        guard_ranges.contains(&marked_range(
+            &fixture.header_markers,
+            "guard_ifndef",
+            TextSize::of("__DEFINE_VH__")
+        )),
+        "guard define references should include the ifndef guard token: {guard_ranges:?}"
+    );
+}
+
+#[test]
 fn preproc_include_macro_queries_use_unsaved_header_buffer() {
     let mut fixture = setup_include_macro_project(
         r#"

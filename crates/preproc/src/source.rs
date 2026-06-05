@@ -493,6 +493,23 @@ impl SourcePreprocModel {
         }))
     }
 
+    pub fn definition_for_conditional_token(
+        &self,
+        conditional_index: usize,
+        token_index: usize,
+    ) -> Option<SourceMacroBinding<'_>> {
+        let conditional = self.index.conditionals.get(conditional_index)?;
+        let token = conditional.expr.get(token_index)?;
+        token.range?;
+        let environment =
+            self.macro_environment_before(SourcePreprocEntity::Conditional(conditional_index))?;
+        if let Some(define_index) = environment.define_index(token.value.as_str()) {
+            return self.binding_for_define_index(token.value.clone(), define_index);
+        }
+
+        self.forward_include_guard_binding(conditional_index, token.value.as_str())
+    }
+
     pub fn provenance(&self, entity: SourcePreprocEntity) -> Option<SourcePreprocProvenance> {
         let (event_id, name, range, name_range) = match entity {
             SourcePreprocEntity::Define(index) => {
@@ -601,6 +618,17 @@ impl SourcePreprocModel {
         self.index.event_records.iter().find(|directive| directive.event_id == event_id)
     }
 
+    fn event_record_for_entity(
+        &self,
+        entity: SourcePreprocEntity,
+    ) -> Option<(usize, &SourcePreprocEventRecord)> {
+        self.index
+            .event_records
+            .iter()
+            .enumerate()
+            .find(|(_, directive)| source_event_matches_entity(directive, entity))
+    }
+
     fn source_order_at_position(&self, position: SourcePosition) -> usize {
         self.index
             .event_records
@@ -636,15 +664,53 @@ impl SourcePreprocModel {
             .definitions
             .iter()
             .filter_map(|(name, define_index)| {
-                let define = self.index.defines.get(*define_index)?;
-                Some(SourceMacroBinding {
-                    name: name.clone(),
-                    event_id: define.event_id,
-                    define_index: *define_index,
-                    define,
-                })
+                self.binding_for_define_index(name.clone(), *define_index)
             })
             .collect()
+    }
+
+    fn binding_for_define_index(
+        &self,
+        name: SmolStr,
+        define_index: usize,
+    ) -> Option<SourceMacroBinding<'_>> {
+        let define = self.index.defines.get(define_index)?;
+        Some(SourceMacroBinding { name, event_id: define.event_id, define_index, define })
+    }
+
+    fn forward_include_guard_binding(
+        &self,
+        conditional_index: usize,
+        name: &str,
+    ) -> Option<SourceMacroBinding<'_>> {
+        let conditional = self.index.conditionals.get(conditional_index)?;
+        if conditional.kind != MacroConditionalKind::IfNDef {
+            return None;
+        }
+
+        let source = conditional.range.source;
+        let (conditional_order, _) =
+            self.event_record_for_entity(SourcePreprocEntity::Conditional(conditional_index))?;
+        for directive in self.index.event_records.iter().skip(conditional_order + 1) {
+            if directive.range.source != source {
+                continue;
+            }
+            match directive.kind {
+                MacroEventKind::Define => {
+                    let define = self.index.defines.get(directive.index)?;
+                    if define.name.as_deref() == Some(name) {
+                        return self.binding_for_define_index(SmolStr::new(name), directive.index);
+                    }
+                }
+                MacroEventKind::Branch => break,
+                MacroEventKind::Undef
+                | MacroEventKind::Include
+                | MacroEventKind::Conditional
+                | MacroEventKind::Usage => {}
+            }
+        }
+
+        None
     }
 
     fn apply_macro_state(
@@ -1248,6 +1314,54 @@ logic [`HEADER_WIDTH-1:0] data;
         assert_eq!(resolution.definition_include_chain.len(), 1);
         assert_eq!(resolution.definition_include_chain[0].include_range.source, root_source);
         assert_eq!(resolution.definition_include_chain[0].included_source, header_source);
+    }
+
+    #[test]
+    fn source_model_resolves_conditional_tokens_to_visible_defines() {
+        let root_text = r#"`include "defs.vh"
+`ifdef HEADER_FLAG
+wire active;
+`endif
+"#;
+        let header_text = "`define HEADER_FLAG\n";
+        let (model, _root_source, header_source) = source_model(root_text, header_text);
+
+        let conditional_index = model
+            .conditionals()
+            .iter()
+            .position(|conditional| conditional.kind == MacroConditionalKind::IfDef)
+            .expect("ifdef should be traced");
+        let binding = model.definition_for_conditional_token(conditional_index, 0).unwrap();
+
+        assert_eq!(binding.name.as_str(), "HEADER_FLAG");
+        assert_eq!(binding.define.name_range.unwrap().source, header_source);
+    }
+
+    #[test]
+    fn source_model_resolves_ifndef_include_guard_to_following_define() {
+        let root_text = r#"`include "defs.vh"
+`ifdef HEADER_FLAG
+wire active;
+`endif
+"#;
+        let header_text = r#"`ifndef HEADER_FLAG
+`define HEADER_FLAG
+`endif
+"#;
+        let (model, _root_source, header_source) = source_model(root_text, header_text);
+
+        let conditional_index = model
+            .conditionals()
+            .iter()
+            .position(|conditional| {
+                conditional.kind == MacroConditionalKind::IfNDef
+                    && conditional.range.source == header_source
+            })
+            .expect("ifndef guard should be traced");
+        let binding = model.definition_for_conditional_token(conditional_index, 0).unwrap();
+
+        assert_eq!(binding.name.as_str(), "HEADER_FLAG");
+        assert_eq!(binding.define.name_range.unwrap().source, header_source);
     }
 
     #[test]
