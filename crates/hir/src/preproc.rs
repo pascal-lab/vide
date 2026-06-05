@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+
 use preproc::source::{
     MacroIncludeTarget, SourceIncludeChainEntry, SourceMacroBinding, SourcePosition,
     SourcePreprocError, SourcePreprocProvenance, SourceRange,
 };
+use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use utils::{
     line_index::{TextRange, TextSize},
@@ -10,7 +13,10 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::base_db::source_db::{MappedSourcePreprocModel, SourcePreprocQueryError, SourceRootDb};
+use crate::base_db::{
+    project::CompilationProfileId,
+    source_db::{MappedSourcePreprocModel, SourceFileKind, SourcePreprocQueryError, SourceRootDb},
+};
 
 pub type PreprocResult<T> = Result<T, PreprocError>;
 
@@ -74,6 +80,84 @@ pub struct MacroReference {
 pub struct MacroReferenceResolution {
     pub reference: MacroReference,
     pub definition: MacroDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReferenceDefinitions {
+    pub reference: MacroReference,
+    pub definitions: Vec<MacroDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct MacroDefinitionKey {
+    file_id: FileId,
+    range_start: TextSize,
+    range_end: TextSize,
+    name: SmolStr,
+}
+
+impl MacroDefinitionKey {
+    fn from_definition(definition: &MacroDefinition) -> Self {
+        Self {
+            file_id: definition.file_id,
+            range_start: definition.range.start(),
+            range_end: definition.range.end(),
+            name: definition.name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct MacroReferenceKey {
+    file_id: FileId,
+    range_start: TextSize,
+    range_end: TextSize,
+    name: SmolStr,
+}
+
+impl MacroReferenceKey {
+    fn from_reference(reference: &MacroReference) -> Self {
+        Self {
+            file_id: reference.file_id,
+            range_start: reference.range.start(),
+            range_end: reference.range.end(),
+            name: reference.name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MacroReferenceIndex {
+    references_by_definition: BTreeMap<MacroDefinitionKey, Vec<MacroReference>>,
+    definitions_by_reference: BTreeMap<MacroReferenceKey, Vec<MacroDefinition>>,
+}
+
+impl MacroReferenceIndex {
+    pub fn references_for(&self, definition: &MacroDefinition) -> Vec<MacroReference> {
+        self.references_by_definition
+            .get(&MacroDefinitionKey::from_definition(definition))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn definitions_for_reference(
+        &self,
+        reference: &MacroReference,
+    ) -> Option<&[MacroDefinition]> {
+        self.definitions_by_reference
+            .get(&MacroReferenceKey::from_reference(reference))
+            .map(Vec::as_slice)
+    }
+
+    fn push(&mut self, definition: MacroDefinition, reference: MacroReference) {
+        let definition_key = MacroDefinitionKey::from_definition(&definition);
+        let references = self.references_by_definition.entry(definition_key).or_default();
+        push_unique_macro_reference(references, reference.clone());
+
+        let reference_key = MacroReferenceKey::from_reference(&reference);
+        let definitions = self.definitions_by_reference.entry(reference_key).or_default();
+        push_unique_macro_definition(definitions, definition);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,26 +276,27 @@ pub fn macro_usage_resolution_at(
     Ok(None)
 }
 
-pub fn macro_reference_resolution_at(
+pub fn macro_reference_at(
     db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> PreprocResult<Option<MacroReferenceResolution>> {
-    if let Some(resolution) = macro_usage_resolution_at(db, file_id, offset)? {
-        return Ok(Some(MacroReferenceResolution {
-            reference: MacroReference {
-                file_id: resolution.usage.file_id,
-                name: resolution.usage.name,
-                range: resolution.usage.range,
-            },
-            definition: resolution.definition,
-        }));
-    }
-
+) -> PreprocResult<Option<MacroReference>> {
     let mapped = db.source_preproc_model(file_id);
     let mapped = mapped_result(mapped.as_ref())?;
-    for (conditional_index, conditional) in mapped.model.conditionals().iter().enumerate() {
-        for (token_index, token) in conditional.expr.iter().enumerate() {
+
+    for usage in mapped.model.usages() {
+        let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
+        if usage_file_id != file_id || !range_contains_offset(range, offset) {
+            continue;
+        }
+        let Some(name) = usage.name.clone() else {
+            return Ok(None);
+        };
+        return Ok(Some(MacroReference { file_id: usage_file_id, name, range }));
+    }
+
+    for conditional in mapped.model.conditionals() {
+        for token in &conditional.expr {
             let Some(source_range) = token.range else {
                 continue;
             };
@@ -219,21 +304,10 @@ pub fn macro_reference_resolution_at(
             if reference_file_id != file_id || !range_contains_offset(range, offset) {
                 continue;
             }
-            let Some(source_definition) =
-                mapped.model.definition_for_conditional_token(conditional_index, token_index)
-            else {
-                return Ok(None);
-            };
-            let Some(definition) = map_binding_definition(mapped, source_definition)? else {
-                return Ok(None);
-            };
-            return Ok(Some(MacroReferenceResolution {
-                reference: MacroReference {
-                    file_id: reference_file_id,
-                    name: token.value.clone(),
-                    range,
-                },
-                definition,
+            return Ok(Some(MacroReference {
+                file_id: reference_file_id,
+                name: token.value.clone(),
+                range,
             }));
         }
     }
@@ -241,62 +315,85 @@ pub fn macro_reference_resolution_at(
     Ok(None)
 }
 
+pub fn macro_reference_resolution_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<MacroReferenceResolution>> {
+    let Some(resolution) = macro_reference_definitions_at(db, file_id, offset)? else {
+        return Ok(None);
+    };
+    let Some(definition) = resolution.definitions.into_iter().next() else {
+        return Ok(None);
+    };
+    Ok(Some(MacroReferenceResolution { reference: resolution.reference, definition }))
+}
+
+pub fn macro_reference_definitions_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<MacroReferenceDefinitions>> {
+    let Some(reference) = macro_reference_at(db, file_id, offset)? else {
+        return Ok(None);
+    };
+    let profile_id = db.file_compilation_profile(file_id);
+    let index = db.macro_reference_index_for_profile(profile_id);
+    let definitions = index.definitions_for_reference(&reference).unwrap_or(&[]).to_vec();
+    if definitions.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(MacroReferenceDefinitions { reference, definitions }))
+}
+
 pub fn macro_references(
     db: &dyn SourceRootDb,
     file_id: FileId,
     definition: &MacroDefinition,
 ) -> PreprocResult<Vec<MacroReference>> {
-    let mut refs = Vec::new();
+    let profile_id = db
+        .file_compilation_profile(file_id)
+        .or_else(|| db.file_compilation_profile(definition.file_id));
+    let index = db.macro_reference_index_for_profile(profile_id);
+    Ok(index.references_for(definition))
+}
 
-    for model_file_id in preproc_model_file_ids(db, file_id) {
+pub(crate) fn build_macro_reference_index(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> MacroReferenceIndex {
+    let mut index = MacroReferenceIndex::default();
+
+    for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
         let mapped = db.source_preproc_model(model_file_id);
         let Ok(mapped) = mapped.as_ref() else {
             continue;
         };
-        collect_macro_references_in_model(mapped, definition, &mut refs)?;
+        if let Err(err) = collect_macro_references_in_model(mapped, &mut index) {
+            tracing::debug!(
+                ?model_file_id,
+                ?err,
+                "failed to add preprocessor macro references to index",
+            );
+        }
     }
 
-    Ok(refs)
+    index
 }
 
 fn collect_macro_references_in_model(
     mapped: &MappedSourcePreprocModel,
-    definition: &MacroDefinition,
-    refs: &mut Vec<MacroReference>,
+    index: &mut MacroReferenceIndex,
 ) -> PreprocResult<()> {
-    for (usage_index, usage) in mapped.model.usages().iter().enumerate() {
-        let Some(source_resolution) = mapped.model.definition_for_usage(usage_index)? else {
+    for resolved in mapped.model.resolved_macro_references()? {
+        let Some(definition) = map_binding_definition(mapped, resolved.definition)? else {
             continue;
         };
-        if !binding_matches_definition(mapped, &source_resolution.definition, definition)? {
-            continue;
-        }
-        let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
-        let Some(name) = usage.name.clone() else {
-            continue;
-        };
-        push_unique_macro_reference(refs, MacroReference { file_id: usage_file_id, name, range });
-    }
-
-    for (conditional_index, conditional) in mapped.model.conditionals().iter().enumerate() {
-        for (token_index, token) in conditional.expr.iter().enumerate() {
-            let Some(source_range) = token.range else {
-                continue;
-            };
-            let Some(resolved) =
-                mapped.model.definition_for_conditional_token(conditional_index, token_index)
-            else {
-                continue;
-            };
-            if !binding_matches_definition(mapped, &resolved, definition)? {
-                continue;
-            }
-            let (reference_file_id, range) = map_source_range(mapped, source_range)?;
-            push_unique_macro_reference(
-                refs,
-                MacroReference { file_id: reference_file_id, name: token.value.clone(), range },
-            );
-        }
+        let (reference_file_id, range) = map_source_range(mapped, resolved.range)?;
+        index.push(
+            definition,
+            MacroReference { file_id: reference_file_id, name: resolved.name, range },
+        );
     }
 
     Ok(())
@@ -439,19 +536,6 @@ fn map_binding_definition(
     }))
 }
 
-fn binding_matches_definition(
-    mapped: &MappedSourcePreprocModel,
-    binding: &SourceMacroBinding<'_>,
-    definition: &MacroDefinition,
-) -> PreprocResult<bool> {
-    let Some(mapped_definition) = map_binding_definition(mapped, (*binding).clone())? else {
-        return Ok(false);
-    };
-    Ok(mapped_definition.file_id == definition.file_id
-        && mapped_definition.range == definition.range
-        && mapped_definition.name == definition.name)
-}
-
 fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroReference) {
     if refs.iter().any(|existing| {
         existing.file_id == reference.file_id
@@ -463,16 +547,65 @@ fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroR
     refs.push(reference);
 }
 
-fn preproc_model_file_ids(db: &dyn SourceRootDb, file_id: FileId) -> Vec<FileId> {
-    let mut file_ids = vec![file_id];
-    file_ids.extend(
-        db.files()
-            .iter()
-            .copied()
-            .filter(|candidate| *candidate != file_id && !db.file_is_project_ignored(*candidate)),
-    );
+fn push_unique_macro_definition(
+    definitions: &mut Vec<MacroDefinition>,
+    definition: MacroDefinition,
+) {
+    if definitions.iter().any(|existing| {
+        existing.file_id == definition.file_id
+            && existing.range == definition.range
+            && existing.name == definition.name
+    }) {
+        return;
+    }
+    definitions.push(definition);
+}
+
+fn preproc_reference_model_file_ids(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Vec<FileId> {
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let mut file_ids = FxHashSet::default();
+
+    for root in plan.roots.iter().copied() {
+        if matches!(
+            db.file_kind(root),
+            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+        ) {
+            file_ids.insert(root);
+        }
+    }
+    file_ids.extend(plan.include_only.iter().copied());
+
+    for source_root_id in &plan.source_roots {
+        for candidate in db.source_root(*source_root_id).iter() {
+            if db.file_is_project_ignored(candidate) {
+                continue;
+            }
+            if matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
+                file_ids.insert(candidate);
+            }
+        }
+    }
+
+    for candidate in db.files().iter().copied() {
+        if db.file_is_project_ignored(candidate) {
+            continue;
+        }
+        if !matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
+            continue;
+        }
+        let Some(path) = db.file_path(candidate) else {
+            continue;
+        };
+        if plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir)) {
+            file_ids.insert(candidate);
+        }
+    }
+
+    let mut file_ids = file_ids.into_iter().collect::<Vec<_>>();
     file_ids.sort();
-    file_ids.dedup();
     file_ids
 }
 
@@ -786,6 +919,17 @@ localparam int ENABLED = `HEADER_FLAG;
         assert!(refs.iter().any(|reference| {
             reference.file_id == TOP && text_at_range(root_text, reference.range) == "`HEADER_FLAG"
         }));
+
+        let definitions =
+            macro_reference_definitions_at(&db, TOP, offset_after(root_text, "ENABLED = "))
+                .unwrap()
+                .unwrap();
+        assert_eq!(text_at_range(root_text, definitions.reference.range), "`HEADER_FLAG");
+        assert!(definitions.definitions.iter().any(|indexed| {
+            indexed.file_id == HEADER
+                && indexed.range == definition.range
+                && indexed.name == definition.name
+        }));
     }
 
     #[test]
@@ -797,19 +941,40 @@ localparam int ENABLED = `HEADER_FLAG;
 "#;
         let db = db_with_files(root_text, header_text);
         let resolution =
-            macro_reference_resolution_at(&db, HEADER, offset(header_text, "HEADER_FLAG"))
+            macro_reference_definitions_at(&db, HEADER, offset(header_text, "HEADER_FLAG"))
                 .unwrap()
                 .unwrap();
 
         assert_eq!(resolution.reference.file_id, HEADER);
-        assert_eq!(resolution.definition.file_id, HEADER);
-        assert_eq!(text_at_range(header_text, resolution.definition.range), "HEADER_FLAG");
+        let definition =
+            resolution.definitions.iter().find(|definition| definition.file_id == HEADER).unwrap();
+        assert_eq!(text_at_range(header_text, definition.range), "HEADER_FLAG");
 
-        let refs = macro_references(&db, HEADER, &resolution.definition).unwrap();
+        let refs = macro_references(&db, HEADER, definition).unwrap();
         assert!(refs.iter().any(|reference| {
             reference.file_id == HEADER
                 && reference.range.start() == offset(header_text, "HEADER_FLAG")
                 && text_at_range(header_text, reference.range) == "HEADER_FLAG"
+        }));
+    }
+
+    #[test]
+    fn preproc_project_header_guard_reference_is_indexed_without_include() {
+        let root_text = "module top; endmodule\n";
+        let header_text = r#"`ifndef HEADER_FLAG
+`define HEADER_FLAG
+`endif
+"#;
+        let db = db_with_files(root_text, header_text);
+        let resolution =
+            macro_reference_definitions_at(&db, HEADER, offset(header_text, "HEADER_FLAG"))
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(resolution.reference.file_id, HEADER);
+        assert!(resolution.definitions.iter().any(|definition| {
+            definition.file_id == HEADER
+                && text_at_range(header_text, definition.range) == "HEADER_FLAG"
         }));
     }
 }
