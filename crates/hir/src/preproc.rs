@@ -1,3 +1,4 @@
+use preproc::source::{SourceMacroBinding, SourcePosition, SourceRange};
 use smol_str::SmolStr;
 use utils::{
     line_index::{TextRange, TextSize},
@@ -6,7 +7,16 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::base_db::source_db::{SourceDb, SourceRootDb};
+use crate::base_db::source_db::{MappedSourcePreprocModel, SourcePreprocQueryError, SourceRootDb};
+
+pub type PreprocResult<T> = Result<T, PreprocError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreprocError {
+    SourceQuery(SourcePreprocQueryError),
+    MissingRootSource,
+    UnmappedSource { buffer_id: u32 },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinition {
@@ -63,167 +73,286 @@ pub enum IncludeTarget {
     Token { raw: SmolStr },
 }
 
+impl From<SourcePreprocQueryError> for PreprocError {
+    fn from(value: SourcePreprocQueryError) -> Self {
+        Self::SourceQuery(value)
+    }
+}
+
 pub fn visible_macros_at(
-    db: &dyn SourceDb,
+    db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Vec<MacroDefinition> {
-    db.preproc_model(file_id)
-        .visible_macros_at(offset)
+) -> PreprocResult<Vec<MacroDefinition>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let position = root_position(mapped, offset)?;
+
+    mapped
+        .model
+        .visible_macros_at(position)
         .into_iter()
-        .filter_map(|binding| {
-            let range = binding.define.range?;
-            Some(MacroDefinition {
-                file_id,
-                name: binding.name,
-                define_index: binding.define_index,
-                range,
-            })
-        })
+        .filter_map(|binding| map_binding_definition(mapped, binding).transpose())
         .collect()
 }
 
 pub fn macro_definition_at(
-    db: &dyn SourceDb,
+    db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<MacroDefinition> {
-    let model = db.preproc_model(file_id);
-    let (define_index, define) = model.defines().iter().enumerate().find(|(_, define)| {
-        define.range.is_some_and(|range| range_contains_offset(range, offset))
-    })?;
-    Some(MacroDefinition {
-        file_id,
-        name: define.name.clone()?,
-        define_index,
-        range: define.range?,
-    })
+) -> PreprocResult<Option<MacroDefinition>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+
+    for (define_index, define) in mapped.model.defines().iter().enumerate() {
+        let (define_file_id, range) = map_source_range(mapped, define.range)?;
+        if define_file_id == file_id && range_contains_offset(range, offset) {
+            return Ok(Some(MacroDefinition {
+                file_id: define_file_id,
+                name: match define.name.clone() {
+                    Some(name) => name,
+                    None => return Ok(None),
+                },
+                define_index,
+                range,
+            }));
+        }
+    }
+
+    Ok(None)
 }
 
 pub fn macro_usage_resolution_at(
-    db: &dyn SourceDb,
+    db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<MacroUsageResolution> {
-    let model = db.preproc_model(file_id);
-    let (usage_index, usage) =
-        model.usages().iter().enumerate().find(|(_, usage)| {
-            usage.range.is_some_and(|range| range_contains_offset(range, offset))
-        })?;
-    let usage = MacroUsage { file_id, name: usage.name.clone()?, usage_index, range: usage.range? };
-    let binding = model.definition_for_usage(usage_index)?;
-    let definition = MacroDefinition {
-        file_id,
-        name: binding.name,
-        define_index: binding.define_index,
-        range: binding.define.range?,
-    };
-    Some(MacroUsageResolution { usage, definition })
+) -> PreprocResult<Option<MacroUsageResolution>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+
+    for (usage_index, usage) in mapped.model.usages().iter().enumerate() {
+        let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
+        if usage_file_id != file_id || !range_contains_offset(range, offset) {
+            continue;
+        }
+
+        let Some(name) = usage.name.clone() else {
+            return Ok(None);
+        };
+        let Some(binding) = mapped.model.definition_for_usage(usage_index) else {
+            return Ok(None);
+        };
+        let Some(definition) = map_binding_definition(mapped, binding)? else {
+            return Ok(None);
+        };
+
+        return Ok(Some(MacroUsageResolution {
+            usage: MacroUsage { file_id: usage_file_id, name, usage_index, range },
+            definition,
+        }));
+    }
+
+    Ok(None)
 }
 
 pub fn macro_reference_resolution_at(
-    db: &dyn SourceDb,
+    db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<MacroReferenceResolution> {
-    if let Some(resolution) = macro_usage_resolution_at(db, file_id, offset) {
-        return Some(MacroReferenceResolution {
+) -> PreprocResult<Option<MacroReferenceResolution>> {
+    if let Some(resolution) = macro_usage_resolution_at(db, file_id, offset)? {
+        return Ok(Some(MacroReferenceResolution {
             reference: MacroReference {
-                file_id,
+                file_id: resolution.usage.file_id,
                 name: resolution.usage.name,
                 range: resolution.usage.range,
             },
             definition: resolution.definition,
-        });
+        }));
     }
 
-    let model = db.preproc_model(file_id);
-    for conditional in model.conditionals() {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    for conditional in mapped.model.conditionals() {
         for token in &conditional.expr {
-            let range = token.range?;
-            if !range_contains_offset(range, offset) {
+            let Some(source_range) = token.range else {
+                continue;
+            };
+            let (reference_file_id, range) = map_source_range(mapped, source_range)?;
+            if reference_file_id != file_id || !range_contains_offset(range, offset) {
                 continue;
             }
-            let definition =
-                macro_definition_for_name_at(db, file_id, token.value.as_str(), range.start())?;
-            return Some(MacroReferenceResolution {
-                reference: MacroReference { file_id, name: token.value.clone(), range },
+            let position = SourcePosition { source: source_range.source, offset: range.start() };
+            let Some(definition) =
+                macro_definition_for_name_at(mapped, token.value.as_str(), position)?
+            else {
+                return Ok(None);
+            };
+            return Ok(Some(MacroReferenceResolution {
+                reference: MacroReference {
+                    file_id: reference_file_id,
+                    name: token.value.clone(),
+                    range,
+                },
                 definition,
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn macro_references(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    definition: &MacroDefinition,
+) -> PreprocResult<Vec<MacroReference>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let mut refs = Vec::new();
+
+    for (usage_index, usage) in mapped.model.usages().iter().enumerate() {
+        let Some(binding) = mapped.model.definition_for_usage(usage_index) else {
+            continue;
+        };
+        if !binding_matches_definition(mapped, &binding, definition)? {
+            continue;
+        }
+        let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
+        let Some(name) = usage.name.clone() else {
+            continue;
+        };
+        refs.push(MacroReference { file_id: usage_file_id, name, range });
+    }
+
+    for conditional in mapped.model.conditionals() {
+        for token in &conditional.expr {
+            let Some(source_range) = token.range else {
+                continue;
+            };
+            let position =
+                SourcePosition { source: source_range.source, offset: source_range.range.start() };
+            let Some(resolved) =
+                macro_definition_for_name_at(mapped, token.value.as_str(), position)?
+            else {
+                continue;
+            };
+            if resolved.file_id != definition.file_id
+                || resolved.range != definition.range
+                || resolved.name != definition.name
+            {
+                continue;
+            }
+            let (reference_file_id, range) = map_source_range(mapped, source_range)?;
+            refs.push(MacroReference {
+                file_id: reference_file_id,
+                name: token.value.clone(),
+                range,
             });
         }
     }
 
-    None
-}
-
-pub fn macro_references(
-    db: &dyn SourceDb,
-    file_id: FileId,
-    definition: &MacroDefinition,
-) -> Vec<MacroReference> {
-    if definition.file_id != file_id {
-        return Vec::new();
-    }
-
-    let model = db.preproc_model(file_id);
-    let mut refs = model
-        .usages()
-        .iter()
-        .enumerate()
-        .filter_map(|(usage_index, usage)| {
-            let binding = model.definition_for_usage(usage_index)?;
-            if binding.define_index != definition.define_index {
-                return None;
-            }
-            Some(MacroReference { file_id, name: usage.name.clone()?, range: usage.range? })
-        })
-        .collect::<Vec<_>>();
-
-    refs.extend(model.conditionals().iter().flat_map(|conditional| {
-        conditional.expr.iter().filter_map(|token| {
-            let range = token.range?;
-            let resolved =
-                macro_definition_for_name_at(db, file_id, token.value.as_str(), range.start())?;
-            (resolved.define_index == definition.define_index).then(|| MacroReference {
-                file_id,
-                name: token.value.clone(),
-                range,
-            })
-        })
-    }));
-
-    refs
+    Ok(refs)
 }
 
 pub fn include_directive_at(
     db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<IncludeDirective> {
-    let model = db.preproc_model(file_id);
-    let (include_index, include) = model.includes().iter().enumerate().find(|(_, include)| {
-        include.range.is_some_and(|range| range_contains_offset(range, offset))
-    })?;
-    let range = include.range?;
-    let target = match &include.target {
-        ::preproc::index::MacroIncludeTarget::Literal { path, .. } => IncludeTarget::Literal {
-            path: path.clone(),
-            resolved_file: resolve_literal_include(db, file_id, path),
-        },
-        ::preproc::index::MacroIncludeTarget::Token { raw } => {
-            IncludeTarget::Token { raw: raw.clone() }
+) -> PreprocResult<Option<IncludeDirective>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    for (include_index, include) in mapped.model.includes().iter().enumerate() {
+        let (include_file_id, range) = map_source_range(mapped, include.range)?;
+        if include_file_id != file_id || !range_contains_offset(range, offset) {
+            continue;
         }
-    };
-    Some(IncludeDirective { file_id, include_index, range, target })
+        let target = match &include.target {
+            ::preproc::index::MacroIncludeTarget::Literal { path, .. } => IncludeTarget::Literal {
+                path: path.clone(),
+                resolved_file: resolve_literal_include(db, include_file_id, path),
+            },
+            ::preproc::index::MacroIncludeTarget::Token { raw } => {
+                IncludeTarget::Token { raw: raw.clone() }
+            }
+        };
+        return Ok(Some(IncludeDirective {
+            file_id: include_file_id,
+            include_index,
+            range,
+            target,
+        }));
+    }
+
+    Ok(None)
 }
 
-pub fn inactive_branches(db: &dyn SourceDb, file_id: FileId) -> Vec<InactiveBranch> {
-    db.preproc_model(file_id)
-        .inactive_ranges()
-        .iter()
+pub fn inactive_branches(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+) -> PreprocResult<Vec<InactiveBranch>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let mut branches = Vec::new();
+
+    for source_range in mapped.model.inactive_ranges() {
+        let (branch_file_id, range) = map_source_range(mapped, *source_range)?;
+        if branch_file_id == file_id {
+            branches.push(InactiveBranch { file_id: branch_file_id, range });
+        }
+    }
+
+    Ok(branches)
+}
+
+fn mapped_result(
+    result: &Result<MappedSourcePreprocModel, SourcePreprocQueryError>,
+) -> PreprocResult<&MappedSourcePreprocModel> {
+    result.as_ref().map_err(|err| err.clone().into())
+}
+
+fn root_position(
+    mapped: &MappedSourcePreprocModel,
+    offset: TextSize,
+) -> PreprocResult<SourcePosition> {
+    let source = mapped.model.root_source().ok_or(PreprocError::MissingRootSource)?;
+    Ok(SourcePosition { source, offset })
+}
+
+fn map_source_range(
+    mapped: &MappedSourcePreprocModel,
+    source_range: SourceRange,
+) -> PreprocResult<(FileId, TextRange)> {
+    let file_id = mapped
+        .source_file_ids
+        .get(&source_range.source)
         .copied()
-        .map(|range| InactiveBranch { file_id, range })
-        .collect()
+        .ok_or_else(|| PreprocError::UnmappedSource { buffer_id: source_range.source.raw() })?;
+    Ok((file_id, source_range.range))
+}
+
+fn map_binding_definition(
+    mapped: &MappedSourcePreprocModel,
+    binding: SourceMacroBinding<'_>,
+) -> PreprocResult<Option<MacroDefinition>> {
+    let (file_id, range) = map_source_range(mapped, binding.define.range)?;
+    let Some(name) = binding.define.name.clone() else {
+        return Ok(None);
+    };
+    Ok(Some(MacroDefinition { file_id, name, define_index: binding.define_index, range }))
+}
+
+fn binding_matches_definition(
+    mapped: &MappedSourcePreprocModel,
+    binding: &SourceMacroBinding<'_>,
+    definition: &MacroDefinition,
+) -> PreprocResult<bool> {
+    let Some(mapped_definition) = map_binding_definition(mapped, (*binding).clone())? else {
+        return Ok(false);
+    };
+    Ok(mapped_definition.file_id == definition.file_id
+        && mapped_definition.range == definition.range
+        && mapped_definition.name == definition.name)
 }
 
 fn resolve_literal_include(db: &dyn SourceRootDb, file_id: FileId, path: &str) -> Option<FileId> {
@@ -234,23 +363,17 @@ fn resolve_literal_include(db: &dyn SourceRootDb, file_id: FileId, path: &str) -
 }
 
 fn macro_definition_for_name_at(
-    db: &dyn SourceDb,
-    file_id: FileId,
+    mapped: &MappedSourcePreprocModel,
     name: &str,
-    offset: TextSize,
-) -> Option<MacroDefinition> {
-    db.preproc_model(file_id)
-        .visible_macros_at(offset)
-        .into_iter()
-        .find(|binding| binding.name.as_str() == name)
-        .and_then(|binding| {
-            Some(MacroDefinition {
-                file_id,
-                name: binding.name,
-                define_index: binding.define_index,
-                range: binding.define.range?,
-            })
-        })
+    position: SourcePosition,
+) -> PreprocResult<Option<MacroDefinition>> {
+    for binding in mapped.model.visible_macros_at(position) {
+        if binding.name.as_str() != name {
+            continue;
+        }
+        return map_binding_definition(mapped, binding);
+    }
+    Ok(None)
 }
 
 fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {

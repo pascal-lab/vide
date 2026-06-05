@@ -1,11 +1,12 @@
 use preproc::{
     index::{PreprocFileIndex, preproc_file_index_from_text},
     model::PreprocModel,
+    source::{PreprocSourceId, SourcePreprocError, SourcePreprocModel},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
-    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
-    SyntaxTreeBufferIds,
+    Compilation, ParserExpectedSyntax, PreprocessorTrace, SyntaxDiagnostic, SyntaxTree,
+    SyntaxTreeBuffer, SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -162,6 +163,20 @@ pub struct CompilationDiagnostic {
     pub diagnostic: SyntaxDiagnostic,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappedSourcePreprocModel {
+    pub model: SourcePreprocModel,
+    pub source_file_ids: FxHashMap<PreprocSourceId, FileId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourcePreprocQueryError {
+    UnsupportedFileKind(SourceFileKind),
+    TraceUnavailable,
+    Model(SourcePreprocError),
+    UnmappedSource { buffer_id: u32, path: String },
+}
+
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
     let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
     let name = if path.is_empty() { "source".to_owned() } else { path.clone() };
@@ -193,6 +208,34 @@ fn insert_buffer_file_ids(
             buffer_file_ids.insert(buffer.buffer_id, file_id);
         }
     }
+}
+
+fn source_preproc_file_ids(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    trace: &PreprocessorTrace,
+) -> Result<FxHashMap<PreprocSourceId, FileId>, SourcePreprocQueryError> {
+    let mut source_file_ids = FxHashMap::default();
+    let path_file_ids = path_file_ids(db);
+    source_file_ids.insert(PreprocSourceId::from(trace.root_buffer_id), file_id);
+
+    for source in &trace.source_buffers {
+        let source_id = PreprocSourceId::from(source.buffer_id);
+        if source_id == PreprocSourceId::from(trace.root_buffer_id) {
+            source_file_ids.insert(source_id, file_id);
+            continue;
+        }
+
+        let Some(mapped_file_id) = path_file_ids.get(&source.path) else {
+            return Err(SourcePreprocQueryError::UnmappedSource {
+                buffer_id: source.buffer_id,
+                path: source.path.clone(),
+            });
+        };
+        source_file_ids.insert(source_id, mapped_file_id);
+    }
+
+    Ok(source_file_ids)
 }
 
 fn syntax_tree_options_for_file(
@@ -355,6 +398,10 @@ pub trait SourceRootDb: SourceDb {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<Vec<SyntaxTreeBuffer>>;
+    fn source_preproc_model(
+        &self,
+        file_id: FileId,
+    ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
@@ -415,6 +462,36 @@ fn include_buffers_for_profile(
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
+}
+
+fn source_preproc_model(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
+    let file_kind = db.file_kind(file_id);
+    if !matches!(file_kind, SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader) {
+        return Arc::new(Err(SourcePreprocQueryError::UnsupportedFileKind(file_kind)));
+    }
+
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    let options = syntax_tree_options_for_file(db, file_id);
+    let Some(trace) =
+        SyntaxTree::preprocessor_trace(&text, &identity.name, &identity.path, &options)
+    else {
+        return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
+    };
+
+    let source_file_ids = match source_preproc_file_ids(db, file_id, &trace) {
+        Ok(source_file_ids) => source_file_ids,
+        Err(err) => return Arc::new(Err(err)),
+    };
+    let model = match SourcePreprocModel::from_trace(trace) {
+        Ok(model) => model,
+        Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
+    };
+
+    Arc::new(Ok(MappedSourcePreprocModel { model, source_file_ids }))
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
