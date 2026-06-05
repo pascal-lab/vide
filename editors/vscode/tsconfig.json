@@ -13,8 +13,7 @@
     "../../packages/vide-extension-shared/src/**/*.ts",
     "scripts/**/*.ts",
     "src/**/*.ts",
-    "test/**/*.ts",
-    "test-web/runTests.ts"
+    "test/**/*.ts"
   ],
   "exclude": [
     "src/browser/**/*.ts",
