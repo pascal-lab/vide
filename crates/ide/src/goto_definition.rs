@@ -2,7 +2,10 @@ use hir::{
     base_db::source_db::SourceDb,
     container::InFile,
     file::HirFileId,
-    preproc::{IncludeTarget, include_directive_at, macro_usage_resolution_at},
+    preproc::{
+        IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
+        macro_usage_resolution_at,
+    },
     semantics::Semantics,
 };
 use itertools::Itertools;
@@ -57,21 +60,25 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
+    if let Some(definition) = macro_definition_at(db, file_id, offset) {
+        return Some(RangeInfo::new(definition.range, vec![macro_nav_target(definition)]));
+    }
+
     let resolution = macro_usage_resolution_at(db, file_id, offset)?;
     let usage_range = resolution.usage.range;
-    let definition = resolution.definition;
-    Some(RangeInfo::new(
-        usage_range,
-        vec![NavTarget {
-            file_id: definition.file_id,
-            full_range: definition.range,
-            focus_range: Some(definition.range),
-            name: Some(definition.name),
-            kind: None,
-            container_name: None,
-            description: Some("macro definition".to_owned()),
-        }],
-    ))
+    Some(RangeInfo::new(usage_range, vec![macro_nav_target(resolution.definition)]))
+}
+
+fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
+    NavTarget {
+        file_id: definition.file_id,
+        full_range: definition.range,
+        focus_range: Some(definition.range),
+        name: Some(definition.name),
+        kind: None,
+        container_name: None,
+        description: Some("macro definition".to_owned()),
+    }
 }
 
 fn handle_preproc_include(
