@@ -1,7 +1,7 @@
 use hir::{
     file::HirFileId,
     preproc::{
-        MacroDefinition, macro_definition_at, macro_reference_resolution_at, macro_references,
+        MacroDefinition, macro_definition_at, macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
 };
@@ -93,12 +93,24 @@ fn handle_preproc_macro(
     offset: TextSize,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let definition = macro_definition_at(db, file_id, offset).ok()?.or_else(|| {
-        macro_reference_resolution_at(db, file_id, offset)
-            .ok()
-            .flatten()
-            .map(|resolution| resolution.definition)
-    })?;
+    let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
+        vec![definition]
+    } else {
+        macro_reference_definitions_at(db, file_id, offset).ok()??.definitions
+    };
+
+    definitions
+        .into_iter()
+        .map(|definition| macro_references_for_definition(db, file_id, definition, config))
+        .collect()
+}
+
+fn macro_references_for_definition(
+    db: &RootDb,
+    file_id: FileId,
+    definition: MacroDefinition,
+    config: &ReferencesConfig,
+) -> Option<References> {
     let refs = macro_references(db, file_id, &definition)
         .ok()?
         .into_iter()
@@ -121,7 +133,7 @@ fn handle_preproc_macro(
             )
         })
         .collect();
-    Some(vec![References { def: Some(vec![macro_nav_target(definition)]), refs }])
+    Some(References { def: Some(vec![macro_nav_target(definition)]), refs })
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {

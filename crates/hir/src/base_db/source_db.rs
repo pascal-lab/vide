@@ -368,6 +368,10 @@ pub trait SourceRootDb: SourceDb {
         &self,
         file_id: FileId,
     ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
+    fn macro_reference_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<crate::preproc::MacroReferenceIndex>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
@@ -458,6 +462,13 @@ fn source_preproc_model(
     };
 
     Arc::new(Ok(MappedSourcePreprocModel { model, source_file_ids }))
+}
+
+fn macro_reference_index_for_profile(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<crate::preproc::MacroReferenceIndex> {
+    Arc::new(crate::preproc::build_macro_reference_index(db, profile_id))
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
