@@ -942,6 +942,34 @@ endmodule
 }
 
 #[test]
+fn manifest_predefines_feed_preproc_completion() {
+    let text = r#"
+`define A005_LOCAL 1
+module macro_completion;
+  localparam int W = `A005_/*marker:completion*/;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) =
+        setup_marked_with_predefines(text, vec!["A005_MAGIC=42".to_owned()]);
+    let analysis = host.make_analysis();
+
+    let completion_items =
+        analysis.completions_with_trigger(position(file_id, &markers, "completion"), None).unwrap();
+    assert!(
+        completion_items
+            .iter()
+            .any(|item| item.label == "A005_LOCAL" && item.kind == CompletionItemKind::Text),
+        "completion should include local macro define: {completion_items:?}"
+    );
+    assert!(
+        completion_items
+            .iter()
+            .any(|item| item.label == "A005_MAGIC" && item.kind == CompletionItemKind::Text),
+        "completion should include manifest predefine macro: {completion_items:?}"
+    );
+}
+
+#[test]
 fn preproc_include_literal_supports_navigation_and_hover() {
     let dir = TestDir::new("preproc-include-nav-hover");
     let top_path = dir.path().join("top.sv");

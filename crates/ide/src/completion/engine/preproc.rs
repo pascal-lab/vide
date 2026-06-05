@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hir::preproc::visible_macros_at;
+use hir::preproc::visible_macro_names_at;
 
 use super::candidate::CompletionCandidate;
 use crate::{
@@ -33,9 +33,9 @@ pub(super) fn complete_directives(
         items.push(CompletionCandidate::keyword(kw.clone(), ctx.replacement));
     }
 
-    for definition in visible_macros_at(db, position.file_id, position.offset).unwrap_or_default() {
-        if definition.name.starts_with(&ctx.prefix) {
-            items.push(CompletionCandidate::text(definition.name.to_string(), ctx.replacement));
+    for name in visible_macro_names_at(db, position.file_id, position.offset).unwrap_or_default() {
+        if name.starts_with(&ctx.prefix) {
+            items.push(CompletionCandidate::text(name.to_string(), ctx.replacement));
         }
     }
 

@@ -10,6 +10,7 @@ use utils::{
     line_index::{TextRange, TextSize},
     path_identity::PathIdentityIndex,
     paths::{AbsPathBuf, Utf8Path},
+    uniq_vec::UniqVec,
 };
 use vfs::FileId;
 
@@ -207,6 +208,51 @@ pub fn visible_macros_at(
         .into_iter()
         .filter_map(|binding| map_binding_definition(mapped, binding).transpose())
         .collect()
+}
+
+pub fn visible_macro_names_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<SmolStr>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let position = root_position(mapped, offset)?;
+
+    let mut names = UniqVec::<SmolStr, SmolStr>::default();
+    for binding in mapped.model.visible_macros_at(position) {
+        names.push_unique(binding.name);
+    }
+    for name in configured_predefine_names(db, file_id) {
+        names.push_unique(name);
+    }
+
+    Ok(names.into_vec())
+}
+
+fn configured_predefine_names(db: &dyn SourceRootDb, file_id: FileId) -> Vec<SmolStr> {
+    let mut names = UniqVec::<SmolStr, SmolStr>::default();
+
+    let profile_id = db.file_compilation_profile(file_id);
+    for predefine in &db.project_config().preprocess_for_profile(profile_id).predefines {
+        if let Some(name) = predefine_macro_name(predefine) {
+            names.push_unique(name);
+        }
+    }
+
+    for predefine in &db.file_preprocess_config(file_id).predefines {
+        if let Some(name) = predefine_macro_name(predefine) {
+            names.push_unique(name);
+        }
+    }
+
+    names.into_vec()
+}
+
+fn predefine_macro_name(predefine: &str) -> Option<SmolStr> {
+    let name = predefine.split_once('=').map_or(predefine, |(name, _)| name);
+    let name = name.trim().strip_prefix('`').unwrap_or(name.trim());
+    if name.is_empty() { None } else { Some(SmolStr::new(name)) }
 }
 
 pub fn macro_definition_at(
@@ -726,6 +772,13 @@ mod tests {
     }
 
     fn db_with_entries(entries: &[(FileId, &str, &str)]) -> TestDb {
+        db_with_entries_and_predefines(entries, Vec::new())
+    }
+
+    fn db_with_entries_and_predefines(
+        entries: &[(FileId, &str, &str)],
+        predefines: Vec<String>,
+    ) -> TestDb {
         let include_dir = abs_path("include");
 
         let mut file_set = FileSet::default();
@@ -734,8 +787,7 @@ mod tests {
         }
         let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
 
-        let preprocess =
-            PreprocessConfig { predefines: Vec::new(), include_dirs: vec![include_dir.clone()] };
+        let preprocess = PreprocessConfig { predefines, include_dirs: vec![include_dir.clone()] };
         let project_config = ProjectConfig::new(
             vec![Some(PROFILE)],
             vec![CompilationProfile {
@@ -879,6 +931,24 @@ endmodule
             .unwrap();
         assert_eq!(resolution.definition.file_id, HEADER);
         assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
+    }
+
+    #[test]
+    fn preproc_visible_macro_names_include_predefines_without_file_mapping() {
+        let root_text = r#"`define A005_LOCAL 1
+module top;
+localparam int W = `A005_;
+endmodule
+"#;
+        let db = db_with_entries_and_predefines(
+            &[(TOP, "rtl/top.v", root_text)],
+            vec!["A005_MAGIC=42".to_owned()],
+        );
+
+        let names = visible_macro_names_at(&db, TOP, offset_after(root_text, "`A005_")).unwrap();
+
+        assert!(names.iter().any(|name| name == "A005_LOCAL"), "{names:?}");
+        assert!(names.iter().any(|name| name == "A005_MAGIC"), "{names:?}");
     }
 
     #[test]
