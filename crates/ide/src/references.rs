@@ -1,6 +1,8 @@
 use hir::{
     file::HirFileId,
-    preproc::{MacroDefinition, macro_definition_at, macro_references, macro_usage_resolution_at},
+    preproc::{
+        MacroDefinition, macro_definition_at, macro_reference_resolution_at, macro_references,
+    },
     semantics::Semantics,
 };
 use itertools::Itertools;
@@ -92,7 +94,7 @@ fn handle_preproc_macro(
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
     let definition = macro_definition_at(db, file_id, offset).or_else(|| {
-        macro_usage_resolution_at(db, file_id, offset).map(|resolution| resolution.definition)
+        macro_reference_resolution_at(db, file_id, offset).map(|resolution| resolution.definition)
     })?;
     let search_range = match &config.search_scope {
         Some(scope) => scope.range_for_file(file_id)?,

@@ -4,7 +4,7 @@ use hir::{
     file::HirFileId,
     preproc::{
         IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
-        macro_usage_resolution_at,
+        macro_reference_resolution_at,
     },
     semantics::Semantics,
 };
@@ -64,9 +64,9 @@ fn handle_preproc_macro(
         return Some(RangeInfo::new(definition.range, vec![macro_nav_target(definition)]));
     }
 
-    let resolution = macro_usage_resolution_at(db, file_id, offset)?;
-    let usage_range = resolution.usage.range;
-    Some(RangeInfo::new(usage_range, vec![macro_nav_target(resolution.definition)]))
+    let resolution = macro_reference_resolution_at(db, file_id, offset)?;
+    let reference_range = resolution.reference.range;
+    Some(RangeInfo::new(reference_range, vec![macro_nav_target(resolution.definition)]))
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
