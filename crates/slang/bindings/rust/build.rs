@@ -66,6 +66,13 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
             .define("CMAKE_CXX_COMPILER_LAUNCHER", launcher.as_ref());
     }
 
+    if let Some(linker_flags) = target_linker_flags() {
+        config
+            .define("CMAKE_EXE_LINKER_FLAGS", linker_flags.as_str())
+            .define("CMAKE_SHARED_LINKER_FLAGS", linker_flags.as_str())
+            .define("CMAKE_MODULE_LINKER_FLAGS", linker_flags.as_str());
+    }
+
     if !emscripten && !debug && cfg!(target_env = "msvc") {
         // cmake-rs still sets config-specific MSVC flags for Visual Studio
         // generators to preserve /MD or /MT. That replaces CMake's built-in
@@ -79,6 +86,10 @@ fn build_cpp_lib(cxxbridge_dir: &Path, debug: bool) -> PathBuf {
     }
 
     config.build()
+}
+
+fn target_linker_flags() -> Option<String> {
+    env::var("TARGET_LDFLAGS").ok().filter(|flags| !flags.trim().is_empty())
 }
 
 fn cmake_sccache_launcher() -> Option<PathBuf> {
