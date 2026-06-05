@@ -37,6 +37,7 @@ Press `F1`, or use `Ctrl+Shift+P` / `Cmd+Shift+P`, to open the Command Palette i
 | `vide.reloadWorkspace` | `Vide: Reload Project Configuration` | Rereads project configuration files and refreshes project information without restarting the server. |
 | `vide.showStatus` | `Vide: Show Status` | Opens the Vide status menu. |
 | `vide.runQiheAnalysis` | `Vide: Run Qihe Analysis` | Runs Qihe analysis for the current local Verilog/SystemVerilog file. |
+| `vide.generateQiheOptions` | `Vide: Generate Qihe Options File` | Runs `qihe gen-options -a -o ./qihe-options.toml` in the current workspace root to create a Qihe options file. |
 | `vide.profileDiagnostics` | `Vide: Profile Diagnostics` | Starts a temporary language server and runs one diagnostics profiling pass for the workspace or current file. |
 
 ## Logs
@@ -46,7 +47,7 @@ Vide writes runtime information to VS Code output channels. You can open them fr
 | Output channel | Records |
 | --- | --- |
 | `Vide Language Server` | Extension activation, platform, VS Code version, server command, args, cwd, bundled server lookup result, start/stop/restart, and version queries. |
-| `Vide Qihe` | Target file, command progress, Qihe output, and failure details for `vide.runQiheAnalysis`. |
+| `Vide Qihe` | Target file, command progress, Qihe output, and failure details for `vide.runQiheAnalysis`, plus the generation command and output for `vide.generateQiheOptions`. |
 | `Vide Profiling` | Target, artifact directory, diagnostics request time, and generated file paths for `vide.profileDiagnostics`. |
 
 ## Advanced: Diagnostics Profiling Artifacts
