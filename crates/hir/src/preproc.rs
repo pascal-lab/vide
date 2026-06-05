@@ -70,6 +70,23 @@ pub fn visible_macros_at(
         .collect()
 }
 
+pub fn macro_definition_at(
+    db: &dyn SourceDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<MacroDefinition> {
+    let model = db.preproc_model(file_id);
+    let (define_index, define) = model.defines().iter().enumerate().find(|(_, define)| {
+        define.range.is_some_and(|range| range_contains_offset(range, offset))
+    })?;
+    Some(MacroDefinition {
+        file_id,
+        name: define.name.clone()?,
+        define_index,
+        range: define.range?,
+    })
+}
+
 pub fn macro_usage_resolution_at(
     db: &dyn SourceDb,
     file_id: FileId,
@@ -89,6 +106,35 @@ pub fn macro_usage_resolution_at(
         range: binding.define.range?,
     };
     Some(MacroUsageResolution { usage, definition })
+}
+
+pub fn macro_references(
+    db: &dyn SourceDb,
+    file_id: FileId,
+    definition: &MacroDefinition,
+) -> Vec<MacroUsage> {
+    if definition.file_id != file_id {
+        return Vec::new();
+    }
+
+    let model = db.preproc_model(file_id);
+    model
+        .usages()
+        .iter()
+        .enumerate()
+        .filter_map(|(usage_index, usage)| {
+            let binding = model.definition_for_usage(usage_index)?;
+            if binding.define_index != definition.define_index {
+                return None;
+            }
+            Some(MacroUsage {
+                file_id,
+                name: usage.name.clone()?,
+                usage_index,
+                range: usage.range?,
+            })
+        })
+        .collect()
 }
 
 pub fn include_directive_at(
