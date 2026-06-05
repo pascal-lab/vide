@@ -1,11 +1,8 @@
-use preproc::{
-    index::{PreprocFileIndex, preproc_file_index_from_text},
-    model::PreprocModel,
-};
+use preproc::source::{PreprocSourceId, SourcePreprocError, SourcePreprocModel};
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
-    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
-    SyntaxTreeBufferIds,
+    Compilation, ParserExpectedSyntax, PreprocessorTrace, SourceBufferOrigin, SyntaxDiagnostic,
+    SyntaxTree, SyntaxTreeBuffer, SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -39,13 +36,6 @@ pub trait SourceDb: FileLoader + std::fmt::Debug {
     fn file_preprocess_config(&self, file_id: FileId) -> Arc<PreprocessConfig>;
 
     fn parse_src(&self, file_id: FileId) -> SyntaxTree;
-    fn preproc_file_index(&self, file_id: FileId) -> Arc<PreprocFileIndex>;
-    fn preproc_file_index_with_predefines(
-        &self,
-        file_id: FileId,
-        predefines: Vec<String>,
-    ) -> Arc<PreprocFileIndex>;
-    fn preproc_model(&self, file_id: FileId) -> Arc<PreprocModel>;
 
     #[salsa::input]
     fn files(&self) -> Box<FxHashSet<FileId>>;
@@ -120,34 +110,6 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
     }
 }
 
-fn preproc_file_index(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocFileIndex> {
-    let predefines = db.file_preprocess_config(file_id).predefines.clone();
-    preproc_file_index_with_predefines(db, file_id, predefines)
-}
-
-fn preproc_file_index_with_predefines(
-    db: &dyn SourceDb,
-    file_id: FileId,
-    predefines: Vec<String>,
-) -> Arc<PreprocFileIndex> {
-    match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
-            let options = syntax::SyntaxTreeOptions {
-                predefines,
-                ..syntax::SyntaxTreeOptions::without_include_expansion()
-            };
-            Arc::new(preproc_file_index_from_text(&db.file_text(file_id), &options))
-        }
-        SourceFileKind::LibraryMap | SourceFileKind::ProjectManifest => {
-            Arc::new(PreprocFileIndex::default())
-        }
-    }
-}
-
-fn preproc_model(db: &dyn SourceDb, file_id: FileId) -> Arc<PreprocModel> {
-    Arc::new(PreprocModel::new((*db.preproc_file_index(file_id)).clone()))
-}
-
 struct SourceFileIdentity {
     name: String,
     path: String,
@@ -160,6 +122,20 @@ pub struct CompilationDiagnostic {
     /// The compilation phase that produced the diagnostic.
     pub source: DiagnosticSource,
     pub diagnostic: SyntaxDiagnostic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappedSourcePreprocModel {
+    pub model: SourcePreprocModel,
+    pub source_file_ids: FxHashMap<PreprocSourceId, FileId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourcePreprocQueryError {
+    UnsupportedFileKind(SourceFileKind),
+    TraceUnavailable,
+    Model(SourcePreprocError),
+    UnmappedSource { buffer_id: u32, path: String },
 }
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
@@ -195,15 +171,53 @@ fn insert_buffer_file_ids(
     }
 }
 
+fn source_preproc_file_ids(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    trace: &PreprocessorTrace,
+) -> Result<FxHashMap<PreprocSourceId, FileId>, SourcePreprocQueryError> {
+    let mut source_file_ids = FxHashMap::default();
+    let path_file_ids = path_file_ids(db);
+    source_file_ids.insert(PreprocSourceId::from(trace.root_buffer_id), file_id);
+
+    for source in &trace.source_buffers {
+        let source_id = PreprocSourceId::from(source.buffer_id);
+        if source_id == PreprocSourceId::from(trace.root_buffer_id) {
+            source_file_ids.insert(source_id, file_id);
+            continue;
+        }
+
+        match source.origin {
+            SourceBufferOrigin::Source => {
+                let Some(mapped_file_id) = path_file_ids.get(&source.path) else {
+                    return Err(SourcePreprocQueryError::UnmappedSource {
+                        buffer_id: source.buffer_id,
+                        path: source.path.clone(),
+                    });
+                };
+                source_file_ids.insert(source_id, mapped_file_id);
+            }
+            SourceBufferOrigin::Predefine => {}
+        }
+    }
+
+    Ok(source_file_ids)
+}
+
 fn syntax_tree_options_for_file(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> syntax::SyntaxTreeOptions {
     let _span = tracing::info_span!("slang.syntax_tree_options.file", ?file_id).entered();
-    let project_config = db.project_config();
+    let preprocess = db.file_preprocess_config(file_id);
     let profile_id = db.file_compilation_profile(file_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
-    syntax_tree_options_for_profile(&project_config, profile_id, include_buffers)
+    syntax::SyntaxTreeOptions {
+        predefines: preprocess.predefines.clone(),
+        include_paths: preprocess.include_dir_strings(),
+        include_buffers,
+        ..syntax::SyntaxTreeOptions::default()
+    }
 }
 
 fn syntax_tree_options_for_profile(
@@ -355,6 +369,14 @@ pub trait SourceRootDb: SourceDb {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<Vec<SyntaxTreeBuffer>>;
+    fn source_preproc_model(
+        &self,
+        file_id: FileId,
+    ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
+    fn macro_reference_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<crate::preproc::MacroReferenceIndex>;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
@@ -415,6 +437,43 @@ fn include_buffers_for_profile(
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
+}
+
+fn source_preproc_model(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
+    let file_kind = db.file_kind(file_id);
+    if !matches!(file_kind, SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader) {
+        return Arc::new(Err(SourcePreprocQueryError::UnsupportedFileKind(file_kind)));
+    }
+
+    let text = db.file_text(file_id);
+    let identity = source_file_identity(db, file_id);
+    let options = syntax_tree_options_for_file(db, file_id);
+    let Some(trace) =
+        SyntaxTree::preprocessor_trace(&text, &identity.name, &identity.path, &options)
+    else {
+        return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
+    };
+
+    let source_file_ids = match source_preproc_file_ids(db, file_id, &trace) {
+        Ok(source_file_ids) => source_file_ids,
+        Err(err) => return Arc::new(Err(err)),
+    };
+    let model = match SourcePreprocModel::from_trace(trace) {
+        Ok(model) => model,
+        Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
+    };
+
+    Arc::new(Ok(MappedSourcePreprocModel { model, source_file_ids }))
+}
+
+fn macro_reference_index_for_profile(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<crate::preproc::MacroReferenceIndex> {
+    Arc::new(crate::preproc::build_macro_reference_index(db, profile_id))
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
@@ -628,9 +687,60 @@ fn source_root_semantic_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use vfs::VfsPath;
+    use std::fmt;
+
+    use rustc_hash::FxHashSet;
+    use syntax::{SourceBufferId, SourceBufferOrigin};
+    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use vfs::{FileSet, VfsPath};
 
     use super::*;
+    use crate::base_db::salsa::{self, Durability};
+
+    const TOP: FileId = FileId(0);
+    const ROOT: SourceRootId = SourceRootId(0);
+
+    #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl salsa::Database for TestDb {}
+
+    impl fmt::Debug for TestDb {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestDb").finish()
+        }
+    }
+
+    impl FileLoader for TestDb {
+        fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+            SourceRootDb::source_root(self, source_root_id).resolve_path(path)
+        }
+    }
+
+    fn db_with_root_file() -> TestDb {
+        let top_path = abs_path("rtl/top.v");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
+        db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
+        db
+    }
+
+    fn abs_path(path: &str) -> AbsPathBuf {
+        let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
+        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
 
     #[test]
     fn include_headers_are_not_standalone_parse_diagnostic_units() {
@@ -655,5 +765,35 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::ProjectManifest);
         assert!(!kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn source_preproc_mapping_reports_unmapped_included_source() {
+        let db = db_with_root_file();
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: abs_path("include/missing.vh").to_string(),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Source,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+        };
+
+        assert_eq!(
+            source_preproc_file_ids(&db, TOP, &trace),
+            Err(SourcePreprocQueryError::UnmappedSource {
+                buffer_id: 2,
+                path: abs_path("include/missing.vh").to_string(),
+            })
+        );
     }
 }

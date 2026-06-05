@@ -4,7 +4,7 @@ use hir::{
     file::HirFileId,
     preproc::{
         IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
-        macro_reference_resolution_at,
+        macro_reference_definitions_at,
     },
     semantics::Semantics,
 };
@@ -60,13 +60,14 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    if let Some(definition) = macro_definition_at(db, file_id, offset) {
+    if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
         return Some(RangeInfo::new(definition.range, vec![macro_nav_target(definition)]));
     }
 
-    let resolution = macro_reference_resolution_at(db, file_id, offset)?;
+    let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
     let reference_range = resolution.reference.range;
-    Some(RangeInfo::new(reference_range, vec![macro_nav_target(resolution.definition)]))
+    let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
+    Some(RangeInfo::new(reference_range, targets))
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
@@ -86,7 +87,7 @@ fn handle_preproc_include(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let include = include_directive_at(db, file_id, offset)?;
+    let include = include_directive_at(db, file_id, offset).ok()??;
     let IncludeTarget::Literal { path, resolved_file: Some(target_file_id) } = include.target
     else {
         return None;

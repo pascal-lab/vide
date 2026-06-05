@@ -104,6 +104,74 @@ pub struct SyntaxTreeBufferIds {
 pub struct SourceBufferId {
     pub path: String,
     pub buffer_id: u32,
+    pub origin: SourceBufferOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceBufferOrigin {
+    Source,
+    Predefine,
+}
+
+impl SourceBufferOrigin {
+    fn from_raw(raw: u8) -> Self {
+        match raw {
+            0 => SourceBufferOrigin::Source,
+            1 => SourceBufferOrigin::Predefine,
+            origin => panic!("unexpected source buffer origin {origin}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBufferRange {
+    pub buffer_id: u32,
+    pub range: Range<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTrace {
+    pub root_buffer_id: u32,
+    pub source_buffers: Vec<SourceBufferId>,
+    pub events: Vec<PreprocessorTraceEvent>,
+    pub include_edges: Vec<PreprocessorTraceIncludeEdge>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PreprocessorTraceEventId(pub u32);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceIncludeEdge {
+    pub include_event_id: PreprocessorTraceEventId,
+    pub included_buffer_id: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceEvent {
+    pub event_id: PreprocessorTraceEventId,
+    pub kind: SyntaxKind,
+    pub range: Option<SourceBufferRange>,
+    pub directive: Option<PreprocessorTraceToken>,
+    pub name: Option<PreprocessorTraceToken>,
+    pub include_file_name: Option<PreprocessorTraceToken>,
+    pub params: Vec<PreprocessorTraceMacroParam>,
+    pub body_tokens: Vec<PreprocessorTraceToken>,
+    pub expr_tokens: Vec<PreprocessorTraceToken>,
+    pub disabled_ranges: Vec<SourceBufferRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceToken {
+    pub raw_text: String,
+    pub value_text: String,
+    pub range: Option<SourceBufferRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceMacroParam {
+    pub name: Option<PreprocessorTraceToken>,
+    pub default_tokens: Option<Vec<PreprocessorTraceToken>>,
+    pub range: Option<SourceBufferRange>,
 }
 
 #[derive(Clone, Copy)]
@@ -206,8 +274,104 @@ impl SyntaxTreeBufferIds {
             source_buffers: raw
                 .source_buffers
                 .into_iter()
-                .map(|buffer| SourceBufferId { path: buffer.path, buffer_id: buffer.buffer_id })
+                .map(|buffer| SourceBufferId {
+                    path: buffer.path,
+                    buffer_id: buffer.buffer_id,
+                    origin: SourceBufferOrigin::from_raw(buffer.origin),
+                })
                 .collect(),
+        }
+    }
+}
+
+impl SourceBufferRange {
+    #[inline]
+    fn from_raw(raw: ffi::RawSourceBufferRange) -> Option<Self> {
+        raw.has_range
+            .then_some(Self { buffer_id: raw.buffer_id, range: raw.range_start..raw.range_end })
+    }
+}
+
+impl PreprocessorTrace {
+    #[inline]
+    fn from_raw(raw: ffi::RawPreprocessorTrace) -> Option<Self> {
+        raw.has_root_buffer_id.then(|| Self {
+            root_buffer_id: raw.root_buffer_id,
+            source_buffers: raw
+                .source_buffers
+                .into_iter()
+                .map(|buffer| SourceBufferId {
+                    path: buffer.path,
+                    buffer_id: buffer.buffer_id,
+                    origin: SourceBufferOrigin::from_raw(buffer.origin),
+                })
+                .collect(),
+            events: raw.events.into_iter().map(PreprocessorTraceEvent::from_raw).collect(),
+            include_edges: raw
+                .include_edges
+                .into_iter()
+                .map(|edge| PreprocessorTraceIncludeEdge {
+                    include_event_id: PreprocessorTraceEventId(edge.include_event_id),
+                    included_buffer_id: edge.included_buffer_id,
+                })
+                .collect(),
+        })
+    }
+}
+
+impl PreprocessorTraceEvent {
+    #[inline]
+    fn from_raw(raw: ffi::RawPreprocessorTraceEvent) -> Self {
+        Self {
+            event_id: PreprocessorTraceEventId(raw.event_id),
+            kind: SyntaxKind::from_id(raw.kind),
+            range: SourceBufferRange::from_raw(raw.range),
+            directive: PreprocessorTraceToken::from_raw(raw.directive),
+            name: PreprocessorTraceToken::from_raw(raw.name),
+            include_file_name: PreprocessorTraceToken::from_raw(raw.include_file_name),
+            params: raw.params.into_iter().map(PreprocessorTraceMacroParam::from_raw).collect(),
+            body_tokens: raw
+                .body_tokens
+                .into_iter()
+                .filter_map(PreprocessorTraceToken::from_raw)
+                .collect(),
+            expr_tokens: raw
+                .expr_tokens
+                .into_iter()
+                .filter_map(PreprocessorTraceToken::from_raw)
+                .collect(),
+            disabled_ranges: raw
+                .disabled_ranges
+                .into_iter()
+                .filter_map(SourceBufferRange::from_raw)
+                .collect(),
+        }
+    }
+}
+
+impl PreprocessorTraceToken {
+    #[inline]
+    fn from_raw(raw: ffi::RawPreprocessorTraceToken) -> Option<Self> {
+        raw.has_token.then(|| Self {
+            raw_text: raw.raw_text,
+            value_text: raw.value_text,
+            range: SourceBufferRange::from_raw(raw.range),
+        })
+    }
+}
+
+impl PreprocessorTraceMacroParam {
+    #[inline]
+    fn from_raw(raw: ffi::RawPreprocessorTraceMacroParam) -> Self {
+        Self {
+            name: PreprocessorTraceToken::from_raw(raw.name),
+            default_tokens: raw.has_default.then(|| {
+                raw.default_tokens
+                    .into_iter()
+                    .filter_map(PreprocessorTraceToken::from_raw)
+                    .collect()
+            }),
+            range: SourceBufferRange::from_raw(raw.range),
         }
     }
 }
@@ -246,33 +410,6 @@ pub struct LexedTokenAtOffset {
     pub directive_kind: Option<SyntaxKind>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorDirective {
-    pub kind: SyntaxKind,
-    pub range: Option<Range<usize>>,
-    pub directive: Option<PreprocessorDirectiveToken>,
-    pub name: Option<PreprocessorDirectiveToken>,
-    pub include_file_name: Option<PreprocessorDirectiveToken>,
-    pub params: Vec<PreprocessorMacroParam>,
-    pub body_tokens: Vec<PreprocessorDirectiveToken>,
-    pub expr_tokens: Vec<PreprocessorDirectiveToken>,
-    pub disabled_ranges: Vec<Range<usize>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorDirectiveToken {
-    pub raw_text: String,
-    pub value_text: String,
-    pub range: Option<Range<usize>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreprocessorMacroParam {
-    pub name: Option<PreprocessorDirectiveToken>,
-    pub default_tokens: Option<Vec<PreprocessorDirectiveToken>>,
-    pub range: Option<Range<usize>>,
-}
-
 impl ParserExpectedSyntax {
     #[inline]
     fn from_raw(raw: ffi::RawExpectedSyntax) -> Self {
@@ -299,62 +436,6 @@ impl LexedTokenAtOffset {
             token_kind: TokenKind::from_id(raw.token_kind),
             directive_kind: raw.has_directive_kind.then(|| SyntaxKind::from_id(raw.directive_kind)),
         })
-    }
-}
-
-impl PreprocessorDirective {
-    #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorDirective) -> Self {
-        Self {
-            kind: SyntaxKind::from_id(raw.kind),
-            range: raw.has_range.then_some(raw.range_start..raw.range_end),
-            directive: PreprocessorDirectiveToken::from_raw(raw.directive),
-            name: PreprocessorDirectiveToken::from_raw(raw.name),
-            include_file_name: PreprocessorDirectiveToken::from_raw(raw.include_file_name),
-            params: raw.params.into_iter().map(PreprocessorMacroParam::from_raw).collect(),
-            body_tokens: raw
-                .body_tokens
-                .into_iter()
-                .filter_map(PreprocessorDirectiveToken::from_raw)
-                .collect(),
-            expr_tokens: raw
-                .expr_tokens
-                .into_iter()
-                .filter_map(PreprocessorDirectiveToken::from_raw)
-                .collect(),
-            disabled_ranges: raw
-                .disabled_ranges
-                .into_iter()
-                .filter_map(|range| range.has_range.then_some(range.range_start..range.range_end))
-                .collect(),
-        }
-    }
-}
-
-impl PreprocessorDirectiveToken {
-    #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorToken) -> Option<Self> {
-        raw.has_token.then(|| Self {
-            raw_text: raw.raw_text,
-            value_text: raw.value_text,
-            range: raw.has_range.then_some(raw.range_start..raw.range_end),
-        })
-    }
-}
-
-impl PreprocessorMacroParam {
-    #[inline]
-    fn from_raw(raw: ffi::RawPreprocessorMacroParam) -> Self {
-        Self {
-            name: PreprocessorDirectiveToken::from_raw(raw.name),
-            default_tokens: raw.has_default.then(|| {
-                raw.default_tokens
-                    .into_iter()
-                    .filter_map(PreprocessorDirectiveToken::from_raw)
-                    .collect()
-            }),
-            range: raw.has_range.then_some(raw.range_start..raw.range_end),
-        }
     }
 }
 
@@ -1285,21 +1366,28 @@ impl SyntaxTree {
         ))
     }
 
-    pub fn preprocessor_directives(
+    pub fn preprocessor_trace(
         text: &str,
         name: &str,
         path: &str,
         options: &SyntaxTreeOptions,
-    ) -> Vec<PreprocessorDirective> {
-        ffi::SyntaxTree::preprocessorDirectives(
+    ) -> Option<PreprocessorTrace> {
+        PreprocessorTrace::from_raw(ffi::SyntaxTree::preprocessorTrace(
             CxxSV::new(text),
             CxxSV::new(name),
             CxxSV::new(path),
             options.predefines.clone(),
-        )
-        .into_iter()
-        .map(PreprocessorDirective::from_raw)
-        .collect()
+            options.include_paths.clone(),
+            options
+                .include_buffers
+                .iter()
+                .map(|buffer| ffi::RawSourceBuffer {
+                    path: buffer.path.clone(),
+                    text: buffer.text.clone(),
+                })
+                .collect(),
+            options.expand_includes,
+        ))
     }
 
     pub fn buffer_id(&self) -> u32 {

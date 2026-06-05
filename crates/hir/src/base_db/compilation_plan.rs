@@ -1,6 +1,6 @@
-use preproc::index::MacroIncludeTarget;
+use preproc::source::{MacroIncludeTarget, SourcePreprocModel};
 use rustc_hash::FxHashSet;
-use syntax::SyntaxTreeBuffer;
+use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
     path_identity::{PathIdentityIndex, PathIdentitySet},
     paths::{AbsPathBuf, Utf8Path},
@@ -243,8 +243,7 @@ fn include_targets_for_source_roots(
             continue;
         };
 
-        let preproc_index = db.preproc_file_index_with_predefines(file_id, predefines.to_vec());
-        for include in &preproc_index.includes {
+        for include in literal_include_targets(db, file_id, predefines) {
             let MacroIncludeTarget::Literal { path, .. } = &include.target else {
                 continue;
             };
@@ -258,6 +257,35 @@ fn include_targets_for_source_roots(
     }
 
     included
+}
+
+fn literal_include_targets(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    predefines: &[String],
+) -> Vec<preproc::source::SourceMacroInclude> {
+    if !matches!(
+        db.file_kind(file_id),
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+    ) {
+        return Vec::new();
+    }
+
+    let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
+    let name = if path.is_empty() { "source".to_owned() } else { path.clone() };
+    let options = SyntaxTreeOptions {
+        predefines: predefines.to_vec(),
+        ..SyntaxTreeOptions::without_include_expansion()
+    };
+    let Some(trace) =
+        SyntaxTree::preprocessor_trace(&db.file_text(file_id), &name, &path, &options)
+    else {
+        return Vec::new();
+    };
+    let Ok(model) = SourcePreprocModel::from_trace(trace) else {
+        return Vec::new();
+    };
+    model.includes().to_vec()
 }
 
 fn resolve_include_target(
