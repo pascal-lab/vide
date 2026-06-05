@@ -11,13 +11,14 @@ use hir::{
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId},
     },
+    preproc::{IncludeTarget, include_directive_at},
     semantics::Semantics,
 };
 use insta::assert_snapshot;
-use preproc::MacroIncludeTarget;
 use triomphe::Arc;
 use utils::{
     lines::LineEnding,
+    test_support::TestDir,
     text_edit::{TextRange, TextSize},
 };
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
@@ -177,24 +178,7 @@ fn setup_marked_with_path(
     text: &str,
     path: &str,
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
-    let mut text = normalize_fixture_text(text);
-    let mut markers = HashMap::new();
-    let mut cursor = 0;
-    let prefix = "/*marker:";
-
-    while let Some(rel_start) = text[cursor..].find(prefix) {
-        let start = cursor + rel_start;
-        let name_start = start + prefix.len();
-        let Some(rel_end) = text[name_start..].find("*/") else {
-            panic!("unterminated marker in fixture");
-        };
-        let name_end = name_start + rel_end;
-        let name = text[name_start..name_end].to_string();
-        let end = name_end + 2;
-        text.replace_range(start..end, "");
-        markers.insert(name, TextSize::from(start as u32));
-        cursor = start;
-    }
+    let (text, markers) = strip_markers(normalize_fixture_text(text));
 
     let (host, file_id) = setup_with_path(&text, path);
     (host, file_id, text, markers)
@@ -204,24 +188,7 @@ fn setup_marked_with_predefines(
     text: &str,
     predefines: Vec<String>,
 ) -> (AnalysisHost, FileId, String, HashMap<String, TextSize>) {
-    let mut text = normalize_fixture_text(text);
-    let mut markers = HashMap::new();
-    let mut cursor = 0;
-    let prefix = "/*marker:";
-
-    while let Some(rel_start) = text[cursor..].find(prefix) {
-        let start = cursor + rel_start;
-        let name_start = start + prefix.len();
-        let Some(rel_end) = text[name_start..].find("*/") else {
-            panic!("unterminated marker in fixture");
-        };
-        let name_end = name_start + rel_end;
-        let name = text[name_start..name_end].to_string();
-        let end = name_end + 2;
-        text.replace_range(start..end, "");
-        markers.insert(name, TextSize::from(start as u32));
-        cursor = start;
-    }
+    let (text, markers) = strip_markers(normalize_fixture_text(text));
 
     let file_id = FileId(0);
     let mut file_set = FileSet::default();
@@ -245,6 +212,28 @@ fn setup_marked_with_predefines(
     let mut host = AnalysisHost::default();
     host.apply_change(change);
     (host, file_id, text, markers)
+}
+
+fn strip_markers(mut text: String) -> (String, HashMap<String, TextSize>) {
+    let mut markers = HashMap::new();
+    let mut cursor = 0;
+    let prefix = "/*marker:";
+
+    while let Some(rel_start) = text[cursor..].find(prefix) {
+        let start = cursor + rel_start;
+        let name_start = start + prefix.len();
+        let Some(rel_end) = text[name_start..].find("*/") else {
+            panic!("unterminated marker in fixture");
+        };
+        let name_end = name_start + rel_end;
+        let name = text[name_start..name_end].to_string();
+        let end = name_end + 2;
+        text.replace_range(start..end, "");
+        markers.insert(name, TextSize::from(start as u32));
+        cursor = start;
+    }
+
+    (text, markers)
 }
 
 fn position(file_id: FileId, markers: &HashMap<String, TextSize>, name: &str) -> FilePosition {
@@ -844,30 +833,222 @@ endmodule
 }
 
 #[test]
-fn manifest_predefines_feed_default_preproc_file_index() {
+fn manifest_predefines_feed_preproc_include_query() {
     let text = r#"
 `ifdef USE_IMPL
-`include "active.svh"
+`include "/*marker:active*/active.svh"
 `else
-`include "inactive.svh"
+`include "/*marker:inactive*/inactive.svh"
 `endif
 module manifest_preproc_index_ctx;
 endmodule
 "#;
-    let (host, file_id, _clean_text, _markers) =
+    let (host, file_id, _clean_text, markers) =
         setup_marked_with_predefines(text, vec!["USE_IMPL=1".to_owned()]);
 
-    let index = host.raw_db().preproc_file_index(file_id);
-    let literal_include_paths = index
-        .includes
-        .iter()
-        .filter_map(|include| match &include.target {
-            MacroIncludeTarget::Literal { path, .. } => Some(path.as_str()),
-            MacroIncludeTarget::Token { .. } => None,
-        })
-        .collect::<Vec<_>>();
+    let include = include_directive_at(host.raw_db(), file_id, markers["active"])
+        .expect("active include should be queryable");
+    let IncludeTarget::Literal { path, .. } = include.target else {
+        panic!("active include should be literal: {include:?}");
+    };
+    assert_eq!(path.as_str(), "active.svh");
 
-    assert_eq!(literal_include_paths, vec!["active.svh"]);
+    assert!(include_directive_at(host.raw_db(), file_id, markers["inactive"]).is_none());
+}
+
+#[test]
+fn preproc_include_literal_supports_navigation_and_hover() {
+    let dir = TestDir::new("preproc-include-nav-hover");
+    let top_path = dir.path().join("top.sv");
+    let defs_path = dir.path().join("defs.svh");
+    let marked_top_text = normalize_fixture_text(
+        r#"
+`include "/*marker:include*/defs.svh"
+module top;
+endmodule
+"#,
+    );
+    let (top_text, markers) = strip_markers(marked_top_text);
+    let defs_text = "module defs; endmodule\n";
+    std::fs::write(&top_path, &top_text).unwrap();
+    std::fs::write(&defs_path, defs_text).unwrap();
+
+    let top_file_id = FileId(0);
+    let defs_file_id = FileId(1);
+
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(defs_file_id, VfsPath::from(defs_path));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: defs_file_id,
+        change_kind: ChangeKind::Create(Arc::from(defs_text), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let position = position(top_file_id, &markers, "include");
+    let analysis = host.make_analysis();
+
+    let nav =
+        analysis.goto_definition(position).unwrap().expect("include target navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.file_id == defs_file_id),
+        "include should navigate to defs.svh: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(position, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("include hover expected");
+    assert!(hover.info.as_str().contains("defs.svh"), "hover should mention include target");
+}
+
+#[test]
+fn preproc_macro_usage_supports_navigation_and_hover() {
+    let text = r#"
+`define WIDTH 8
+module top;
+  logic [`/*marker:usage*/WIDTH-1:0] data;
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let position = position(file_id, &markers, "usage");
+    let analysis = host.make_analysis();
+
+    let nav =
+        analysis.goto_definition(position).unwrap().expect("macro definition navigation expected");
+    let target = nav
+        .info
+        .iter()
+        .find(|target| target.name.as_deref() == Some("WIDTH"))
+        .expect("WIDTH definition target expected");
+    let range = target.focus_or_full_range();
+    assert_eq!(clean_text[usize::from(range.start())..usize::from(range.end())].trim(), "WIDTH");
+
+    let hover = analysis
+        .hover(position, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro hover expected");
+    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
+    assert!(hover.info.as_str().contains("WIDTH"), "hover should mention macro name");
+}
+
+#[test]
+fn preproc_macro_definition_supports_navigation_and_hover() {
+    let text = r#"
+`define /*marker:definition*/LOCAL_WIDTH 8
+module top;
+  logic [`/*marker:usage*/LOCAL_WIDTH-1:0] data;
+`ifdef /*marker:conditional*/LOCAL_WIDTH
+  assign data = '0;
+`endif
+endmodule
+"#;
+    let (host, file_id, clean_text, markers) = setup_marked(text);
+    let definition = position(file_id, &markers, "definition");
+    let analysis = host.make_analysis();
+
+    let nav =
+        analysis.goto_definition(definition).unwrap().expect("macro definition link expected");
+    let target = nav
+        .info
+        .iter()
+        .find(|target| target.name.as_deref() == Some("LOCAL_WIDTH"))
+        .expect("LOCAL_WIDTH definition target expected");
+    let range = target.focus_or_full_range();
+    assert_eq!(
+        clean_text[usize::from(range.start())..usize::from(range.end())].trim(),
+        "LOCAL_WIDTH"
+    );
+
+    let hover = analysis
+        .hover(definition, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro definition hover expected");
+    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
+    assert!(hover.info.as_str().contains("LOCAL_WIDTH"), "hover should mention macro name");
+
+    let conditional_nav = analysis
+        .goto_definition(position(file_id, &markers, "conditional"))
+        .unwrap()
+        .expect("conditional macro definition navigation expected");
+    assert!(
+        conditional_nav.info.iter().any(|target| target.name.as_deref() == Some("LOCAL_WIDTH")),
+        "conditional macro should navigate to LOCAL_WIDTH definition: {conditional_nav:?}"
+    );
+}
+
+#[test]
+fn preproc_macro_definition_supports_references() {
+    let text = r#"
+`define /*marker:first_def*/WIDTH 8
+module top;
+  logic [/*marker:first_use*/`WIDTH-1:0] narrow_data;
+`ifdef /*marker:first_cond*/WIDTH
+  assign narrow_data = '0;
+`endif
+`define /*marker:second_def*/WIDTH 16
+  logic [/*marker:second_use*/`WIDTH-1:0] wide_data;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let width_use_len = TextSize::of("`WIDTH");
+    let width_name_len = TextSize::of("WIDTH");
+    let first_use = TextRange::new(markers["first_use"], markers["first_use"] + width_use_len);
+    let first_cond = TextRange::new(markers["first_cond"], markers["first_cond"] + width_name_len);
+    let second_use = TextRange::new(markers["second_use"], markers["second_use"] + width_use_len);
+
+    let reference_ranges = |marker: &str| {
+        analysis
+            .references(
+                position(file_id, &markers, marker),
+                ReferencesConfig::new(
+                    ScopeVisibility::Public,
+                    Some(SearchScope::single_file(file_id)),
+                ),
+            )
+            .unwrap()
+            .unwrap_or_else(|| panic!("{marker} references expected"))
+            .into_iter()
+            .flat_map(|mut refs| refs.refs.remove(&file_id).unwrap_or_default())
+            .map(|(range, _)| range)
+            .collect::<Vec<_>>()
+    };
+
+    let first_ranges = reference_ranges("first_def");
+    assert!(
+        first_ranges.contains(&first_use),
+        "first define should reference first use: {first_ranges:?}"
+    );
+    assert!(
+        first_ranges.contains(&first_cond),
+        "first define should reference conditional use: {first_ranges:?}"
+    );
+    assert!(
+        !first_ranges.contains(&second_use),
+        "first define should not reference use after override: {first_ranges:?}"
+    );
+
+    let second_ranges = reference_ranges("second_def");
+    assert!(
+        second_ranges.contains(&second_use),
+        "second define should reference second use: {second_ranges:?}"
+    );
+    assert!(
+        !second_ranges.contains(&first_use),
+        "second define should not reference use before override: {second_ranges:?}"
+    );
+
+    let use_ranges = reference_ranges("second_use");
+    assert_eq!(use_ranges, second_ranges);
 }
 
 #[test]

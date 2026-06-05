@@ -371,14 +371,12 @@ fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec
         return Vec::new();
     }
 
-    db.preproc_file_index(file_id)
-        .inactive_ranges
+    hir::preproc::inactive_branches(db, file_id)
         .iter()
-        .copied()
-        .map(|range| {
+        .map(|branch| {
             INACTIVE_PREPROCESSOR_BRANCH.diagnostic_with_tags(
                 file_id,
-                range,
+                branch.range,
                 DiagnosticSeverity::Note,
                 "code is inactive due to preprocessor conditionals".to_owned(),
                 DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH,

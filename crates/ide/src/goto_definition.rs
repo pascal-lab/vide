@@ -1,10 +1,21 @@
-use hir::{container::InFile, file::HirFileId, semantics::Semantics};
+use hir::{
+    base_db::source_db::SourceDb,
+    container::InFile,
+    file::HirFileId,
+    preproc::{
+        IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
+        macro_reference_resolution_at,
+    },
+    semantics::Semantics,
+};
 use itertools::Itertools;
 use syntax::{
     SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
+use utils::line_index::{TextRange, TextSize};
+use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
@@ -17,6 +28,14 @@ pub(crate) fn goto_definition(
     db: &RootDb,
     FilePosition { file_id, offset }: FilePosition,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
+    if let Some(macro_definition) = handle_preproc_macro(db, file_id, offset) {
+        return Some(macro_definition);
+    }
+
+    if let Some(include) = handle_preproc_include(db, file_id, offset) {
+        return Some(include);
+    }
+
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
@@ -34,6 +53,57 @@ pub(crate) fn goto_definition(
     })?;
 
     Some(RangeInfo::new(token.text_range()?, navs))
+}
+
+fn handle_preproc_macro(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    if let Some(definition) = macro_definition_at(db, file_id, offset) {
+        return Some(RangeInfo::new(definition.range, vec![macro_nav_target(definition)]));
+    }
+
+    let resolution = macro_reference_resolution_at(db, file_id, offset)?;
+    let reference_range = resolution.reference.range;
+    Some(RangeInfo::new(reference_range, vec![macro_nav_target(resolution.definition)]))
+}
+
+fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
+    NavTarget {
+        file_id: definition.file_id,
+        full_range: definition.range,
+        focus_range: Some(definition.range),
+        name: Some(definition.name),
+        kind: None,
+        container_name: None,
+        description: Some("macro definition".to_owned()),
+    }
+}
+
+fn handle_preproc_include(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    let include = include_directive_at(db, file_id, offset)?;
+    let IncludeTarget::Literal { path, resolved_file: Some(target_file_id) } = include.target
+    else {
+        return None;
+    };
+    let target_range = TextRange::empty(TextSize::new(0));
+    Some(RangeInfo::new(
+        include.range,
+        vec![NavTarget {
+            file_id: target_file_id,
+            full_range: target_range,
+            focus_range: Some(target_range),
+            name: Some(path),
+            kind: None,
+            container_name: None,
+            description: db.file_path(target_file_id).map(|path| path.to_string()),
+        }],
+    ))
 }
 
 fn handle_ctrl_flow_kw(

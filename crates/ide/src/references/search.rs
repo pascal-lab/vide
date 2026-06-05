@@ -131,6 +131,10 @@ impl SearchScope {
     pub(crate) fn is_within_file(&self, file_id: FileId) -> bool {
         self.0.keys().all(|candidate| *candidate == file_id)
     }
+
+    pub(crate) fn range_for_file(&self, file_id: FileId) -> Option<Option<TextRange>> {
+        self.0.get(&file_id).copied()
+    }
 }
 
 pub(crate) struct ReferencesCtx<'a, 'b> {

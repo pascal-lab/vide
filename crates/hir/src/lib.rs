@@ -7,6 +7,7 @@ pub mod display;
 pub mod file;
 pub mod has_source;
 pub mod hir_def;
+pub mod preproc;
 pub mod region_tree;
 pub mod scope;
 pub mod semantics;
