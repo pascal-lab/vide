@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    PreprocessorTrace, PreprocessorTraceDirective, PreprocessorTraceMacroParam,
-    PreprocessorTraceToken, SourceBufferRange, SyntaxKind,
+    PreprocessorTrace, PreprocessorTraceDirective, PreprocessorTraceEventId,
+    PreprocessorTraceMacroParam, PreprocessorTraceToken, SourceBufferOrigin, SourceBufferRange,
+    SyntaxKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -24,16 +25,42 @@ pub struct SourceRange {
     pub range: TextRange,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SourcePreprocEventId(u32);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocSource {
     pub id: PreprocSourceId,
     pub path: SmolStr,
+    pub origin: PreprocSourceOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreprocSourceOrigin {
+    Root,
+    Included { include_event_id: SourcePreprocEventId },
+    Predefine,
+    Detached,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceIncludeEdge {
+    pub include_event_id: SourcePreprocEventId,
+    pub included_source: PreprocSourceId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceIncludeChainEntry {
+    pub include_event_id: SourcePreprocEventId,
+    pub include_range: SourceRange,
+    pub included_source: PreprocSourceId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourcePreprocIndex {
     pub root_source: Option<PreprocSourceId>,
     pub sources: Vec<PreprocSource>,
+    pub include_edges: Vec<SourceIncludeEdge>,
     pub directives: Vec<SourceMacroDirective>,
     pub defines: Vec<SourceMacroDefine>,
     pub undefs: Vec<SourceMacroUndef>,
@@ -45,6 +72,7 @@ pub struct SourcePreprocIndex {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroDirective {
+    pub event_id: SourcePreprocEventId,
     pub kind: MacroDirectiveKind,
     pub range: SourceRange,
     pub index: usize,
@@ -52,6 +80,7 @@ pub struct SourceMacroDirective {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroDefine {
+    pub event_id: SourcePreprocEventId,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub params: Option<Vec<SourceMacroParam>>,
@@ -69,6 +98,7 @@ pub struct SourceMacroParam {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroUndef {
+    pub event_id: SourcePreprocEventId,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub range: SourceRange,
@@ -76,6 +106,7 @@ pub struct SourceMacroUndef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroInclude {
+    pub event_id: SourcePreprocEventId,
     pub target: MacroIncludeTarget,
     pub target_range: Option<SourceRange>,
     pub range: SourceRange,
@@ -83,6 +114,7 @@ pub struct SourceMacroInclude {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroConditional {
+    pub event_id: SourcePreprocEventId,
     pub kind: MacroConditionalKind,
     pub expr: Vec<SourceMacroToken>,
     pub range: SourceRange,
@@ -90,6 +122,7 @@ pub struct SourceMacroConditional {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroUsage {
+    pub event_id: SourcePreprocEventId,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub range: SourceRange,
@@ -115,8 +148,18 @@ pub struct SourceMacroEnvironment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroBinding<'a> {
     pub name: SmolStr,
+    pub event_id: SourcePreprocEventId,
     pub define_index: usize,
     pub define: &'a SourceMacroDefine,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroResolution<'a> {
+    pub usage_index: usize,
+    pub usage: &'a SourceMacroUsage,
+    pub definition: SourceMacroBinding<'a>,
+    pub definition_provenance: SourcePreprocProvenance,
+    pub definition_include_chain: Vec<SourceIncludeChainEntry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +173,7 @@ pub enum SourcePreprocEntity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocProvenance {
+    pub event_id: SourcePreprocEventId,
     pub entity: SourcePreprocEntity,
     pub name: Option<SmolStr>,
     pub range: SourceRange,
@@ -138,18 +182,54 @@ pub struct SourcePreprocProvenance {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourcePreprocEvent<'a> {
-    Define { source_order: usize, index: usize, define: &'a SourceMacroDefine },
-    Undef { source_order: usize, index: usize, undef: &'a SourceMacroUndef },
-    Include { source_order: usize, index: usize, include: &'a SourceMacroInclude },
-    Conditional { source_order: usize, index: usize, conditional: &'a SourceMacroConditional },
-    Branch { source_order: usize, index: usize, conditional: &'a SourceMacroConditional },
-    Usage { source_order: usize, index: usize, usage: &'a SourceMacroUsage },
+    Define {
+        source_order: usize,
+        event_id: SourcePreprocEventId,
+        index: usize,
+        define: &'a SourceMacroDefine,
+    },
+    Undef {
+        source_order: usize,
+        event_id: SourcePreprocEventId,
+        index: usize,
+        undef: &'a SourceMacroUndef,
+    },
+    Include {
+        source_order: usize,
+        event_id: SourcePreprocEventId,
+        index: usize,
+        include: &'a SourceMacroInclude,
+    },
+    Conditional {
+        source_order: usize,
+        event_id: SourcePreprocEventId,
+        index: usize,
+        conditional: &'a SourceMacroConditional,
+    },
+    Branch {
+        source_order: usize,
+        event_id: SourcePreprocEventId,
+        index: usize,
+        conditional: &'a SourceMacroConditional,
+    },
+    Usage {
+        source_order: usize,
+        event_id: SourcePreprocEventId,
+        index: usize,
+        usage: &'a SourceMacroUsage,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePreprocError {
     MissingRootSource,
     MissingDirectiveRange { source_order: usize, kind: MacroDirectiveKind },
+    MissingEvent { event_id: u32 },
+    MissingIncludedSource { include_event_id: u32, source: u32 },
+    MissingIncludeEvent { include_event_id: u32 },
+    IncludeEdgeNotInclude { include_event_id: u32 },
+    MissingIncludeEdge { source: u32 },
+    IncludeCycle { source: u32 },
 }
 
 impl PreprocSourceId {
@@ -162,25 +242,56 @@ impl PreprocSourceId {
     }
 }
 
+impl SourcePreprocEventId {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
 impl From<u32> for PreprocSourceId {
     fn from(value: u32) -> Self {
         Self::new(value)
     }
 }
 
+impl From<PreprocessorTraceEventId> for SourcePreprocEventId {
+    fn from(value: PreprocessorTraceEventId) -> Self {
+        Self(value.0)
+    }
+}
+
 impl SourcePreprocIndex {
     pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
         let root_source = PreprocSourceId::from(trace.root_buffer_id);
+        let include_edges = trace
+            .include_edges
+            .iter()
+            .map(|edge| SourceIncludeEdge {
+                include_event_id: SourcePreprocEventId::from(edge.include_event_id),
+                included_source: PreprocSourceId::from(edge.included_buffer_id),
+            })
+            .collect::<Vec<_>>();
+        let included_by = include_edges
+            .iter()
+            .map(|edge| (edge.included_source, edge.include_event_id))
+            .collect::<BTreeMap<_, _>>();
         let mut index = Self {
             root_source: Some(root_source),
             sources: trace
                 .source_buffers
                 .into_iter()
                 .map(|source| PreprocSource {
-                    id: PreprocSourceId::from(source.buffer_id),
+                    id: { PreprocSourceId::from(source.buffer_id) },
                     path: source.path.to_smolstr(),
+                    origin: source_origin(
+                        PreprocSourceId::from(source.buffer_id),
+                        root_source,
+                        source.origin,
+                        &included_by,
+                    ),
                 })
                 .collect(),
+            include_edges,
             ..Self::default()
         };
 
@@ -188,12 +299,62 @@ impl SourcePreprocIndex {
             return Err(SourcePreprocError::MissingRootSource);
         }
 
-        for (source_order, directive) in trace.directives.into_iter().enumerate() {
+        for (source_order, directive) in trace.events.into_iter().enumerate() {
             collect_trace_directive(&mut index, source_order, directive)?;
         }
 
+        validate_include_edges(&index)?;
+
         Ok(index)
     }
+}
+
+fn source_origin(
+    source: PreprocSourceId,
+    root_source: PreprocSourceId,
+    origin: SourceBufferOrigin,
+    included_by: &BTreeMap<PreprocSourceId, SourcePreprocEventId>,
+) -> PreprocSourceOrigin {
+    if source == root_source {
+        return PreprocSourceOrigin::Root;
+    }
+
+    if origin == SourceBufferOrigin::Predefine {
+        return PreprocSourceOrigin::Predefine;
+    }
+
+    included_by
+        .get(&source)
+        .copied()
+        .map(|include_event_id| PreprocSourceOrigin::Included { include_event_id })
+        .unwrap_or(PreprocSourceOrigin::Detached)
+}
+
+fn validate_include_edges(index: &SourcePreprocIndex) -> Result<(), SourcePreprocError> {
+    for edge in &index.include_edges {
+        if !index.sources.iter().any(|source| source.id == edge.included_source) {
+            return Err(SourcePreprocError::MissingIncludedSource {
+                include_event_id: edge.include_event_id.raw(),
+                source: edge.included_source.raw(),
+            });
+        }
+
+        let Some(directive) =
+            index.directives.iter().find(|directive| directive.event_id == edge.include_event_id)
+        else {
+            return Err(SourcePreprocError::MissingIncludeEvent {
+                include_event_id: edge.include_event_id.raw(),
+            });
+        };
+
+        if directive.kind != MacroDirectiveKind::Include {
+            return Err(SourcePreprocError::IncludeEdgeNotInclude {
+                include_event_id: edge.include_event_id.raw(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 impl SourcePreprocModel {
@@ -265,39 +426,70 @@ impl SourcePreprocModel {
         self.bindings_for_environment(&environment)
     }
 
-    pub fn definition_for_usage(&self, usage_index: usize) -> Option<SourceMacroBinding<'_>> {
-        let usage = self.index.usages.get(usage_index)?;
-        let name = usage.name.as_ref()?;
-        let environment = self.macro_environment_before(SourcePreprocEntity::Usage(usage_index))?;
-        let define_index = environment.define_index(name.as_str())?;
-        let define = self.index.defines.get(define_index)?;
-        Some(SourceMacroBinding { name: name.clone(), define_index, define })
+    pub fn definition_for_usage(
+        &self,
+        usage_index: usize,
+    ) -> Result<Option<SourceMacroResolution<'_>>, SourcePreprocError> {
+        let Some(usage) = self.index.usages.get(usage_index) else {
+            return Ok(None);
+        };
+        let Some(name) = usage.name.as_ref() else {
+            return Ok(None);
+        };
+        let Some(environment) =
+            self.macro_environment_before(SourcePreprocEntity::Usage(usage_index))
+        else {
+            return Ok(None);
+        };
+        let Some(define_index) = environment.define_index(name.as_str()) else {
+            return Ok(None);
+        };
+        let Some(define) = self.index.defines.get(define_index) else {
+            return Ok(None);
+        };
+        let definition = SourceMacroBinding {
+            name: name.clone(),
+            event_id: define.event_id,
+            define_index,
+            define,
+        };
+        let definition_provenance = self
+            .provenance(SourcePreprocEntity::Define(define_index))
+            .ok_or(SourcePreprocError::MissingEvent { event_id: define.event_id.raw() })?;
+        let definition_include_chain = self.include_chain_for_source(define.range.source)?;
+        Ok(Some(SourceMacroResolution {
+            usage_index,
+            usage,
+            definition,
+            definition_provenance,
+            definition_include_chain,
+        }))
     }
 
     pub fn provenance(&self, entity: SourcePreprocEntity) -> Option<SourcePreprocProvenance> {
-        let (name, range, name_range) = match entity {
+        let (event_id, name, range, name_range) = match entity {
             SourcePreprocEntity::Define(index) => {
                 let define = self.index.defines.get(index)?;
-                (define.name.clone(), define.range, define.name_range)
+                (define.event_id, define.name.clone(), define.range, define.name_range)
             }
             SourcePreprocEntity::Undef(index) => {
                 let undef = self.index.undefs.get(index)?;
-                (undef.name.clone(), undef.range, undef.name_range)
+                (undef.event_id, undef.name.clone(), undef.range, undef.name_range)
             }
             SourcePreprocEntity::Usage(index) => {
                 let usage = self.index.usages.get(index)?;
-                (usage.name.clone(), usage.range, usage.name_range)
+                (usage.event_id, usage.name.clone(), usage.range, usage.name_range)
             }
             SourcePreprocEntity::Include(index) => {
                 let include = self.index.includes.get(index)?;
-                (None, include.range, include.target_range)
+                (include.event_id, None, include.range, include.target_range)
             }
             SourcePreprocEntity::Conditional(index) => {
                 let conditional = self.index.conditionals.get(index)?;
-                (None, conditional.range, None)
+                (conditional.event_id, None, conditional.range, None)
             }
         };
-        Some(SourcePreprocProvenance { entity, name, range, name_range })
+        Some(SourcePreprocProvenance { event_id, entity, name, range, name_range })
     }
 
     pub fn source_range(&self, entity: SourcePreprocEntity) -> Option<SourceRange> {
@@ -322,6 +514,64 @@ impl SourcePreprocModel {
 
     pub fn conditional(&self, index: usize) -> Option<&SourceMacroConditional> {
         self.index.conditionals.get(index)
+    }
+
+    pub fn include_chain_for_source(
+        &self,
+        source: PreprocSourceId,
+    ) -> Result<Vec<SourceIncludeChainEntry>, SourcePreprocError> {
+        let mut chain = Vec::new();
+        let mut current = source;
+        let mut visited = BTreeMap::new();
+
+        loop {
+            if visited.insert(current, ()).is_some() {
+                return Err(SourcePreprocError::IncludeCycle { source: current.raw() });
+            }
+
+            let Some(source) = self.index.sources.iter().find(|candidate| candidate.id == current)
+            else {
+                return Err(SourcePreprocError::MissingIncludedSource {
+                    include_event_id: 0,
+                    source: current.raw(),
+                });
+            };
+
+            match source.origin {
+                PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => break,
+                PreprocSourceOrigin::Detached => {
+                    return Err(SourcePreprocError::MissingIncludeEdge { source: current.raw() });
+                }
+                PreprocSourceOrigin::Included { include_event_id } => {
+                    let directive = self.directive_by_event_id(include_event_id).ok_or(
+                        SourcePreprocError::MissingIncludeEvent {
+                            include_event_id: include_event_id.raw(),
+                        },
+                    )?;
+                    if directive.kind != MacroDirectiveKind::Include {
+                        return Err(SourcePreprocError::IncludeEdgeNotInclude {
+                            include_event_id: include_event_id.raw(),
+                        });
+                    }
+                    chain.push(SourceIncludeChainEntry {
+                        include_event_id,
+                        include_range: directive.range,
+                        included_source: current,
+                    });
+                    current = directive.range.source;
+                }
+            }
+        }
+
+        chain.reverse();
+        Ok(chain)
+    }
+
+    fn directive_by_event_id(
+        &self,
+        event_id: SourcePreprocEventId,
+    ) -> Option<&SourceMacroDirective> {
+        self.index.directives.iter().find(|directive| directive.event_id == event_id)
     }
 
     fn source_order_at_position(&self, position: SourcePosition) -> usize {
@@ -360,7 +610,12 @@ impl SourcePreprocModel {
             .iter()
             .filter_map(|(name, define_index)| {
                 let define = self.index.defines.get(*define_index)?;
-                Some(SourceMacroBinding { name: name.clone(), define_index: *define_index, define })
+                Some(SourceMacroBinding {
+                    name: name.clone(),
+                    event_id: define.event_id,
+                    define_index: *define_index,
+                    define,
+                })
             })
             .collect()
     }
@@ -400,20 +655,36 @@ impl SourcePreprocModel {
         match directive.kind {
             MacroDirectiveKind::Define => {
                 let define = self.index.defines.get(directive.index)?;
-                Some(SourcePreprocEvent::Define { source_order, index: directive.index, define })
+                Some(SourcePreprocEvent::Define {
+                    source_order,
+                    event_id: directive.event_id,
+                    index: directive.index,
+                    define,
+                })
             }
             MacroDirectiveKind::Undef => {
                 let undef = self.index.undefs.get(directive.index)?;
-                Some(SourcePreprocEvent::Undef { source_order, index: directive.index, undef })
+                Some(SourcePreprocEvent::Undef {
+                    source_order,
+                    event_id: directive.event_id,
+                    index: directive.index,
+                    undef,
+                })
             }
             MacroDirectiveKind::Include => {
                 let include = self.index.includes.get(directive.index)?;
-                Some(SourcePreprocEvent::Include { source_order, index: directive.index, include })
+                Some(SourcePreprocEvent::Include {
+                    source_order,
+                    event_id: directive.event_id,
+                    index: directive.index,
+                    include,
+                })
             }
             MacroDirectiveKind::Conditional => {
                 let conditional = self.index.conditionals.get(directive.index)?;
                 Some(SourcePreprocEvent::Conditional {
                     source_order,
+                    event_id: directive.event_id,
                     index: directive.index,
                     conditional,
                 })
@@ -422,13 +693,19 @@ impl SourcePreprocModel {
                 let conditional = self.index.conditionals.get(directive.index)?;
                 Some(SourcePreprocEvent::Branch {
                     source_order,
+                    event_id: directive.event_id,
                     index: directive.index,
                     conditional,
                 })
             }
             MacroDirectiveKind::Usage => {
                 let usage = self.index.usages.get(directive.index)?;
-                Some(SourcePreprocEvent::Usage { source_order, index: directive.index, usage })
+                Some(SourcePreprocEvent::Usage {
+                    source_order,
+                    event_id: directive.event_id,
+                    index: directive.index,
+                    usage,
+                })
             }
         }
     }
@@ -450,23 +727,25 @@ fn collect_trace_directive(
     let Some(kind) = directive_kind(directive.kind) else {
         return Ok(());
     };
+    let event_id = SourcePreprocEventId::from(directive.event_id);
     let range = required_directive_range(source_order, kind, &directive)?;
 
     match kind {
         MacroDirectiveKind::Define => {
             let directive_index = index.defines.len();
-            let define = collect_trace_define(directive, range);
+            let define = collect_trace_define(directive, event_id, range);
             index.defines.push(define);
-            push_source_directive(index, kind, directive_index, range);
+            push_source_directive(index, event_id, kind, directive_index, range);
         }
         MacroDirectiveKind::Undef => {
             let directive_index = index.undefs.len();
             index.undefs.push(SourceMacroUndef {
+                event_id,
                 name: directive.name.as_ref().map(trace_token_value),
                 name_range: directive.name.as_ref().and_then(trace_token_range),
                 range,
             });
-            push_source_directive(index, kind, directive_index, range);
+            push_source_directive(index, event_id, kind, directive_index, range);
         }
         MacroDirectiveKind::Include => {
             let directive_index = index.includes.len();
@@ -476,29 +755,32 @@ fn collect_trace_directive(
                 .map(|token| include_target_from_raw(token.raw_text.to_smolstr()))
                 .unwrap_or_else(|| MacroIncludeTarget::Token { raw: SmolStr::new("") });
             index.includes.push(SourceMacroInclude {
+                event_id,
                 target,
                 target_range: directive.include_file_name.as_ref().and_then(trace_token_range),
                 range,
             });
-            push_source_directive(index, kind, directive_index, range);
+            push_source_directive(index, event_id, kind, directive_index, range);
         }
         MacroDirectiveKind::Conditional | MacroDirectiveKind::Branch => {
             let directive_index = index.conditionals.len();
             index.conditionals.push(SourceMacroConditional {
+                event_id,
                 kind: trace_conditional_kind(directive.kind),
                 expr: directive.expr_tokens.into_iter().map(macro_token_from_trace).collect(),
                 range,
             });
-            push_source_directive(index, kind, directive_index, range);
+            push_source_directive(index, event_id, kind, directive_index, range);
         }
         MacroDirectiveKind::Usage => {
             let directive_index = index.usages.len();
             index.usages.push(SourceMacroUsage {
+                event_id,
                 name: directive.name.as_ref().map(|token| macro_name(token.value_text.as_str())),
                 name_range: directive.name.as_ref().and_then(trace_token_range),
                 range,
             });
-            push_source_directive(index, kind, directive_index, range);
+            push_source_directive(index, event_id, kind, directive_index, range);
         }
     }
 
@@ -507,9 +789,11 @@ fn collect_trace_directive(
 
 fn collect_trace_define(
     directive: PreprocessorTraceDirective,
+    event_id: SourcePreprocEventId,
     range: SourceRange,
 ) -> SourceMacroDefine {
     SourceMacroDefine {
+        event_id,
         name: directive.name.as_ref().map(trace_token_value),
         name_range: directive.name.as_ref().and_then(trace_token_range),
         params: (!directive.params.is_empty())
@@ -555,19 +839,6 @@ fn required_directive_range(
         .range
         .as_ref()
         .and_then(source_range_from_trace)
-        .or_else(|| directive.directive.as_ref().and_then(trace_token_range))
-        .or_else(|| match kind {
-            MacroDirectiveKind::Define | MacroDirectiveKind::Undef | MacroDirectiveKind::Usage => {
-                directive.name.as_ref().and_then(trace_token_range)
-            }
-            MacroDirectiveKind::Include => {
-                directive.include_file_name.as_ref().and_then(trace_token_range)
-            }
-            MacroDirectiveKind::Conditional => {
-                directive.expr_tokens.first().and_then(trace_token_range)
-            }
-            MacroDirectiveKind::Branch => None,
-        })
         .ok_or(SourcePreprocError::MissingDirectiveRange { source_order, kind })
 }
 
@@ -610,11 +881,12 @@ fn trace_conditional_kind(kind: SyntaxKind) -> MacroConditionalKind {
 
 fn push_source_directive(
     index: &mut SourcePreprocIndex,
+    event_id: SourcePreprocEventId,
     kind: MacroDirectiveKind,
     directive_index: usize,
     range: SourceRange,
 ) {
-    index.directives.push(SourceMacroDirective { kind, range, index: directive_index });
+    index.directives.push(SourceMacroDirective { event_id, kind, range, index: directive_index });
 }
 
 fn include_target_from_raw(raw: SmolStr) -> MacroIncludeTarget {
@@ -665,6 +937,17 @@ impl SourceMacroEnvironment {
 }
 
 impl SourcePreprocEvent<'_> {
+    pub fn event_id(&self) -> SourcePreprocEventId {
+        match self {
+            SourcePreprocEvent::Define { event_id, .. }
+            | SourcePreprocEvent::Undef { event_id, .. }
+            | SourcePreprocEvent::Include { event_id, .. }
+            | SourcePreprocEvent::Conditional { event_id, .. }
+            | SourcePreprocEvent::Branch { event_id, .. }
+            | SourcePreprocEvent::Usage { event_id, .. } => *event_id,
+        }
+    }
+
     pub fn source_order(&self) -> usize {
         match self {
             SourcePreprocEvent::Define { source_order, .. }
@@ -731,7 +1014,11 @@ fn source_directive_matches_entity(
 
 #[cfg(test)]
 mod tests {
-    use syntax::{PreprocessorTrace, SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
+    use syntax::{
+        PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
+        PreprocessorTraceToken, SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
+        SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions,
+    };
 
     use super::*;
 
@@ -765,12 +1052,24 @@ mod tests {
         root_source: PreprocSourceId,
     ) -> PreprocSourceId {
         trace
-            .directives
+            .events
             .iter()
             .filter_map(|directive| directive.range.as_ref())
             .map(|range| PreprocSourceId::from(range.buffer_id))
             .find(|source| *source != root_source)
             .expect("included source directive should be traced")
+    }
+
+    fn source_by_path_suffix(model: &SourcePreprocModel, suffix: &str) -> PreprocSourceId {
+        model
+            .sources()
+            .iter()
+            .find(|source| {
+                matches!(source.origin, PreprocSourceOrigin::Included { .. })
+                    && source.path.as_str().replace('\\', "/").ends_with(suffix)
+            })
+            .unwrap_or_else(|| panic!("source ending with {suffix} should be present"))
+            .id
     }
 
     fn offset_before(text: &str, needle: &str) -> TextSize {
@@ -911,9 +1210,91 @@ logic [`HEADER_WIDTH-1:0] data;
         assert_eq!(usage.range.source, root_source);
         assert_eq!(usage.name_range.unwrap().source, root_source);
 
-        let binding = model.definition_for_usage(usage_index).unwrap();
-        assert_eq!(binding.name.as_str(), "HEADER_WIDTH");
-        assert_eq!(binding.define.name_range.unwrap().source, header_source);
-        assert_eq!(binding.define.body[0].value.as_str(), "8");
+        let resolution = model.definition_for_usage(usage_index).unwrap().unwrap();
+        assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
+        assert_eq!(resolution.definition.define.name_range.unwrap().source, header_source);
+        assert_eq!(resolution.definition.define.body[0].value.as_str(), "8");
+        assert_eq!(resolution.definition_provenance.event_id, resolution.definition.event_id);
+        assert_eq!(resolution.definition_include_chain.len(), 1);
+        assert_eq!(resolution.definition_include_chain[0].include_range.source, root_source);
+        assert_eq!(resolution.definition_include_chain[0].included_source, header_source);
+    }
+
+    #[test]
+    fn source_model_nested_include_resolution_carries_definition_chain() {
+        let root_text = r#"`include "defs.vh"
+logic [`LEAF_WIDTH-1:0] data;
+"#;
+        let header_text = "`include \"leaf.vh\"\n";
+        let leaf_path = "sample/include/leaf.vh";
+        let options = SyntaxTreeOptions {
+            include_paths: vec![INCLUDE_DIR.to_owned()],
+            include_buffers: vec![
+                SyntaxTreeBuffer { path: HEADER_PATH.to_owned(), text: header_text.to_owned() },
+                SyntaxTreeBuffer {
+                    path: leaf_path.to_owned(),
+                    text: "`define LEAF_WIDTH 4\n".to_owned(),
+                },
+            ],
+            expand_includes: true,
+            ..SyntaxTreeOptions::default()
+        };
+        let trace = SyntaxTree::preprocessor_trace(root_text, "source", ROOT_PATH, &options)
+            .expect("trace should include root source");
+        let root_source = PreprocSourceId::from(trace.root_buffer_id);
+        let model = SourcePreprocModel::from_trace(trace).unwrap();
+        let header_source = source_by_path_suffix(&model, "include/defs.vh");
+        let leaf_source = source_by_path_suffix(&model, "include/leaf.vh");
+
+        let usage_index = model
+            .usages()
+            .iter()
+            .position(|usage| usage.name.as_deref() == Some("LEAF_WIDTH"))
+            .expect("root macro usage should be traced");
+        let resolution = model.definition_for_usage(usage_index).unwrap().unwrap();
+
+        assert_eq!(resolution.definition.define.name_range.unwrap().source, leaf_source);
+        assert_eq!(resolution.definition_include_chain.len(), 2);
+        assert_eq!(resolution.definition_include_chain[0].include_range.source, root_source);
+        assert_eq!(resolution.definition_include_chain[0].included_source, header_source);
+        assert_eq!(resolution.definition_include_chain[1].include_range.source, header_source);
+        assert_eq!(resolution.definition_include_chain[1].included_source, leaf_source);
+    }
+
+    #[test]
+    fn source_model_fails_closed_when_directive_event_range_is_missing() {
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![SourceBufferId {
+                path: ROOT_PATH.to_owned(),
+                buffer_id: 1,
+                origin: SourceBufferOrigin::Source,
+            }],
+            events: vec![PreprocessorTraceEvent {
+                event_id: PreprocessorTraceEventId(0),
+                kind: SyntaxKind::DEFINE_DIRECTIVE,
+                range: None,
+                directive: None,
+                name: Some(PreprocessorTraceToken {
+                    raw_text: "WIDTH".to_owned(),
+                    value_text: "WIDTH".to_owned(),
+                    range: Some(SourceBufferRange { buffer_id: 1, range: 8..13 }),
+                }),
+                include_file_name: None,
+                params: Vec::new(),
+                body_tokens: Vec::new(),
+                expr_tokens: Vec::new(),
+                disabled_ranges: Vec::new(),
+            }],
+            include_edges: Vec::new(),
+        };
+
+        assert_eq!(
+            SourcePreprocModel::from_trace(trace).unwrap_err(),
+            SourcePreprocError::MissingDirectiveRange {
+                source_order: 0,
+                kind: MacroDirectiveKind::Define
+            }
+        );
     }
 }
