@@ -134,23 +134,57 @@ function cargoLinkerForTarget(target: PlatformFolder, cargoTarget: string): stri
   );
 }
 
+function lateRustLinkFlagsForTarget(target: PlatformFolder): string[] {
+  if (!target.startsWith('alpine-')) {
+    return [];
+  }
+
+  // Static libstdc++ can introduce libc references after rustc's own musl -lc.
+  return ['-C', 'link-arg=-lc'];
+}
+
+function appendRustFlags(env: NodeJS.ProcessEnv, flags: string[]): NodeJS.ProcessEnv {
+  if (flags.length === 0) {
+    return env;
+  }
+
+  const encodedFlags = env.CARGO_ENCODED_RUSTFLAGS;
+  if (encodedFlags) {
+    return {
+      ...env,
+      CARGO_ENCODED_RUSTFLAGS: `${encodedFlags}\x1f${flags.join('\x1f')}`,
+    };
+  }
+
+  const rustFlags = env.RUSTFLAGS?.trim();
+  return {
+    ...env,
+    RUSTFLAGS: rustFlags ? `${rustFlags} ${flags.join(' ')}` : flags.join(' '),
+  };
+}
+
 function cargoBuildEnv(target: PlatformFolder, cargoTarget?: string): NodeJS.ProcessEnv {
   if (!cargoTarget) {
     return process.env;
   }
 
+  let env = process.env;
   const linkerEnvKey = cargoTargetLinkerEnvKey(cargoTarget);
-  if (optionalEnv(linkerEnvKey)) {
-    return process.env;
+  if (!optionalEnv(linkerEnvKey)) {
+    const linker = cargoLinkerForTarget(target, cargoTarget);
+    if (linker) {
+      console.log(`Using Cargo linker for ${cargoTarget}: ${linker}`);
+      env = { ...env, [linkerEnvKey]: linker };
+    }
   }
 
-  const linker = cargoLinkerForTarget(target, cargoTarget);
-  if (!linker) {
-    return process.env;
+  const lateLinkArgs = lateRustLinkFlagsForTarget(target);
+  if (lateLinkArgs.length > 0) {
+    console.log(`Adding Cargo link args for ${cargoTarget}: ${lateLinkArgs.join(' ')}`);
+    env = appendRustFlags(env, lateLinkArgs);
   }
 
-  console.log(`Using Cargo linker for ${cargoTarget}: ${linker}`);
-  return { ...process.env, [linkerEnvKey]: linker };
+  return env;
 }
 
 function cargoOutputDir(profile: BuildProfile, cargoTarget?: string): string {
