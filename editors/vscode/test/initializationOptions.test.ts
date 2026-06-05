@@ -5,6 +5,7 @@ import {
   diagnosticsProfilingInitializationOptions,
   serverInitializationOptions,
 } from '../src/initializationOptions';
+import { resolvedQiheCommand } from '../src/qiheCommand';
 
 class TestConfiguration {
   constructor(private readonly values: Record<string, unknown>) {}
@@ -18,6 +19,15 @@ class TestVscodeConfiguration extends TestConfiguration {
   inspect<T>(section: string): { defaultValue?: T; globalValue?: T } | undefined {
     return {
       defaultValue: this.get<T>(section),
+    };
+  }
+}
+
+class TestConfiguredVscodeConfiguration extends TestConfiguration {
+  inspect<T>(section: string): { defaultValue?: T; globalValue?: T } | undefined {
+    return {
+      defaultValue: (section === 'qihe.command' ? 'qihe' : undefined) as T | undefined,
+      globalValue: this.get<T>(section),
     };
   }
 }
@@ -69,6 +79,20 @@ test('server initialization options treat the VS Code Qihe default as platform-o
     compileArgs: [],
     runArgs: ['-g', 'std'],
   });
+});
+
+test('resolved Qihe command keeps explicit user configuration', () => {
+  assert.equal(
+    resolvedQiheCommand(new TestConfiguredVscodeConfiguration({ 'qihe.command': 'qihe' }), 'win32'),
+    'qihe',
+  );
+  assert.equal(
+    resolvedQiheCommand(
+      new TestConfiguredVscodeConfiguration({ 'qihe.command': 'custom-qihe' }),
+      'win32',
+    ),
+    'custom-qihe',
+  );
 });
 
 test('diagnostics profiling initialization options reuse startup options with server watching', () => {
