@@ -1159,7 +1159,7 @@ endmodule
     let analysis = fixture.host.make_analysis();
     let usage = position(fixture.top_file_id, &fixture.top_markers, "usage");
     let definition_range =
-        marked_range(&fixture.header_markers, "definition", TextSize::of("HEADER_WIDTH "));
+        marked_range(&fixture.header_markers, "definition", TextSize::of("HEADER_WIDTH"));
     let usage_range =
         marked_range(&fixture.top_markers, "usage_range", TextSize::of("`HEADER_WIDTH"));
 
