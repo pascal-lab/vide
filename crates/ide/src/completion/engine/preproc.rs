@@ -33,7 +33,7 @@ pub(super) fn complete_directives(
         items.push(CompletionCandidate::keyword(kw.clone(), ctx.replacement));
     }
 
-    for definition in visible_macros_at(db, position.file_id, position.offset) {
+    for definition in visible_macros_at(db, position.file_id, position.offset).unwrap_or_default() {
         if definition.name.starts_with(&ctx.prefix) {
             items.push(CompletionCandidate::text(definition.name.to_string(), ctx.replacement));
         }

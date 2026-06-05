@@ -90,11 +90,11 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
-    if let Some(definition) = macro_definition_at(db, file_id, offset) {
+    if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
         return Some(RangeInfo::new(definition.range, macro_definition_markup(&definition)));
     }
 
-    let resolution = macro_reference_resolution_at(db, file_id, offset)?;
+    let resolution = macro_reference_resolution_at(db, file_id, offset).ok()??;
     Some(RangeInfo::new(
         resolution.reference.range,
         macro_definition_markup(&resolution.definition),
@@ -114,7 +114,7 @@ fn handle_preproc_include(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
-    let include = include_directive_at(db, file_id, offset)?;
+    let include = include_directive_at(db, file_id, offset).ok()??;
     let mut markup = Markup::new();
     match include.target {
         IncludeTarget::Literal { path, resolved_file } => {

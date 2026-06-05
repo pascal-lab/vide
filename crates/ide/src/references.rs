@@ -93,20 +93,34 @@ fn handle_preproc_macro(
     offset: TextSize,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
-    let definition = macro_definition_at(db, file_id, offset).or_else(|| {
-        macro_reference_resolution_at(db, file_id, offset).map(|resolution| resolution.definition)
+    let definition = macro_definition_at(db, file_id, offset).ok()?.or_else(|| {
+        macro_reference_resolution_at(db, file_id, offset)
+            .ok()
+            .flatten()
+            .map(|resolution| resolution.definition)
     })?;
-    let search_range = match &config.search_scope {
-        Some(scope) => scope.range_for_file(file_id)?,
-        None => None,
-    };
     let refs = macro_references(db, file_id, &definition)
+        .ok()?
         .into_iter()
-        .filter(|usage| search_range.is_none_or(|range| range.intersect(usage.range).is_some()))
-        .map(|usage| (usage.range, ReferenceCategory::empty()))
-        .collect_vec();
-    let refs =
-        if refs.is_empty() { IntMap::default() } else { IntMap::from_iter([(file_id, refs)]) };
+        .filter(|usage| {
+            config.search_scope.as_ref().is_none_or(|scope| {
+                scope.range_for_file(usage.file_id).is_some_and(|range| {
+                    range.is_none_or(|range| range.intersect(usage.range).is_some())
+                })
+            })
+        })
+        .into_group_map_by(|usage| usage.file_id)
+        .into_iter()
+        .map(|(file_id, usages)| {
+            (
+                file_id,
+                usages
+                    .into_iter()
+                    .map(|usage| (usage.range, ReferenceCategory::empty()))
+                    .collect_vec(),
+            )
+        })
+        .collect();
     Some(vec![References { def: Some(vec![macro_nav_target(definition)]), refs }])
 }
 
