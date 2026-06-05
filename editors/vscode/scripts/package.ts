@@ -110,6 +110,49 @@ function cargoBuildArgs(profile: BuildProfile, cargoTarget?: string): string[] {
   return args;
 }
 
+function cargoTargetEnvName(cargoTarget: string): string {
+  return cargoTarget.toUpperCase().replace(/-/g, '_');
+}
+
+function cargoTargetLinkerEnvKey(cargoTarget: string): string {
+  return `CARGO_TARGET_${cargoTargetEnvName(cargoTarget)}_LINKER`;
+}
+
+function cxxCompilerEnvKey(cargoTarget: string): string {
+  return `CXX_${cargoTarget.replace(/-/g, '_')}`;
+}
+
+function cargoLinkerForTarget(target: PlatformFolder, cargoTarget: string): string | undefined {
+  if (!target.startsWith('alpine-')) {
+    return undefined;
+  }
+
+  return (
+    optionalEnv(cxxCompilerEnvKey(cargoTarget)) ??
+    optionalEnv('TARGET_CXX') ??
+    `${cargoTarget}-g++`
+  );
+}
+
+function cargoBuildEnv(target: PlatformFolder, cargoTarget?: string): NodeJS.ProcessEnv {
+  if (!cargoTarget) {
+    return process.env;
+  }
+
+  const linkerEnvKey = cargoTargetLinkerEnvKey(cargoTarget);
+  if (optionalEnv(linkerEnvKey)) {
+    return process.env;
+  }
+
+  const linker = cargoLinkerForTarget(target, cargoTarget);
+  if (!linker) {
+    return process.env;
+  }
+
+  console.log(`Using Cargo linker for ${cargoTarget}: ${linker}`);
+  return { ...process.env, [linkerEnvKey]: linker };
+}
+
 function cargoOutputDir(profile: BuildProfile, cargoTarget?: string): string {
   const pathParts = [repoRoot, 'target'];
   if (cargoTarget) {
@@ -155,7 +198,12 @@ function ensureTargetServerBinary(
     run('rustup', ['target', 'add', cargoTarget], repoRoot);
   }
 
-  run('cargo', cargoBuildArgs(profile, cargoTarget), repoRoot);
+  run(
+    'cargo',
+    cargoBuildArgs(profile, cargoTarget),
+    repoRoot,
+    cargoBuildEnv(target, cargoTarget),
+  );
 
   const sourcePath = path.join(cargoOutputDir(profile, cargoTarget), binFile);
   const destPath = path.join(serverOutDir, binFile);
