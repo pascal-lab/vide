@@ -325,6 +325,31 @@ fn preproc_completion_preserves_typed_backtick() {
 }
 
 #[test]
+fn preproc_completion_includes_visible_macro_names() {
+    let items = completions_in_text(
+        "`define WIDTH 8\nmodule m; initial `/*caret*/; endmodule\n",
+        Some(TriggerChar::Backtick),
+    );
+    let width = items
+        .iter()
+        .find(|item| item.label == "WIDTH" && item.kind == CompletionItemKind::Text)
+        .expect("visible macro completion expected");
+    let mut text = "`define WIDTH 8\nmodule m; initial `; endmodule\n".to_string();
+    width.edit.as_ref().unwrap().apply_on(&mut text);
+
+    assert_eq!(text, "`define WIDTH 8\nmodule m; initial `WIDTH; endmodule\n");
+}
+
+#[test]
+fn preproc_completion_uses_current_macro_environment() {
+    let items = completions_in_text(
+        "`define WIDTH 8\n`undef WIDTH\nmodule m; initial `/*caret*/; endmodule\n",
+        Some(TriggerChar::Backtick),
+    );
+    assert!(!labels(&items).contains(&"WIDTH"), "undefined macro should not be visible: {items:?}");
+}
+
+#[test]
 fn no_directive_keyword_completion_in_directive_body() {
     let items = completions_in_text("`define /*caret*/FOO 1\nmodule m; endmodule\n", None);
     assert!(items.is_empty(), "directive body should not suggest directive keywords: {items:?}");

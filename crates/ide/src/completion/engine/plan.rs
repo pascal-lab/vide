@@ -30,7 +30,7 @@ fn complete_provider(
     provider: CompletionProvider,
 ) -> Vec<candidate::CompletionCandidate> {
     match provider {
-        CompletionProvider::Directives => preproc::complete_directives(ctx),
+        CompletionProvider::Directives => preproc::complete_directives(db, position, ctx),
         CompletionProvider::Keywords(provider) => {
             keywords::complete_keywords(db, position, &ctx.prefix, ctx, provider)
         }

@@ -1,4 +1,10 @@
-use hir::{file::HirFileId, semantics::Semantics};
+use hir::{
+    file::HirFileId,
+    preproc::{
+        MacroDefinition, macro_definition_at, macro_reference_resolution_at, macro_references,
+    },
+    semantics::Semantics,
+};
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
@@ -7,7 +13,7 @@ use syntax::{
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
-use utils::line_index::TextRange;
+use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
@@ -61,6 +67,10 @@ pub(crate) fn references(
     FilePosition { file_id, offset }: FilePosition,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
+    if let Some(macro_refs) = handle_preproc_macro(db, file_id, offset, &config) {
+        return Some(macro_refs);
+    }
+
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
@@ -75,6 +85,41 @@ pub(crate) fn references(
         };
         Some(vec![search_refs(&sema, def, config)])
     })
+}
+
+fn handle_preproc_macro(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    config: &ReferencesConfig,
+) -> Option<Vec<References>> {
+    let definition = macro_definition_at(db, file_id, offset).or_else(|| {
+        macro_reference_resolution_at(db, file_id, offset).map(|resolution| resolution.definition)
+    })?;
+    let search_range = match &config.search_scope {
+        Some(scope) => scope.range_for_file(file_id)?,
+        None => None,
+    };
+    let refs = macro_references(db, file_id, &definition)
+        .into_iter()
+        .filter(|usage| search_range.is_none_or(|range| range.intersect(usage.range).is_some()))
+        .map(|usage| (usage.range, ReferenceCategory::empty()))
+        .collect_vec();
+    let refs =
+        if refs.is_empty() { IntMap::default() } else { IntMap::from_iter([(file_id, refs)]) };
+    Some(vec![References { def: Some(vec![macro_nav_target(definition)]), refs }])
+}
+
+fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
+    NavTarget {
+        file_id: definition.file_id,
+        full_range: definition.range,
+        focus_range: Some(definition.range),
+        name: Some(definition.name),
+        kind: None,
+        container_name: None,
+        description: Some("macro definition".to_owned()),
+    }
 }
 
 pub(crate) fn handle_ctrl_flow_kw(

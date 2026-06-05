@@ -1,9 +1,19 @@
 use std::collections::HashMap;
 
-use super::candidate::CompletionCandidate;
-use crate::completion::{context::CompletionContext, directives, engine::snippets};
+use hir::preproc::visible_macros_at;
 
-pub(super) fn complete_directives(ctx: &CompletionContext) -> Vec<CompletionCandidate> {
+use super::candidate::CompletionCandidate;
+use crate::{
+    FilePosition,
+    completion::{context::CompletionContext, directives, engine::snippets},
+    db::root_db::RootDb,
+};
+
+pub(super) fn complete_directives(
+    db: &RootDb,
+    position: FilePosition,
+    ctx: &CompletionContext,
+) -> Vec<CompletionCandidate> {
     let snippet_entries = snippets::entries(&snippets::snippet_config().directives);
     let mut snippet_map = HashMap::new();
     for entry in snippet_entries {
@@ -21,6 +31,12 @@ pub(super) fn complete_directives(ctx: &CompletionContext) -> Vec<CompletionCand
             ));
         }
         items.push(CompletionCandidate::keyword(kw.clone(), ctx.replacement));
+    }
+
+    for definition in visible_macros_at(db, position.file_id, position.offset) {
+        if definition.name.starts_with(&ctx.prefix) {
+            items.push(CompletionCandidate::text(definition.name.to_string(), ctx.replacement));
+        }
     }
 
     items
