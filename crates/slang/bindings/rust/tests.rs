@@ -938,18 +938,20 @@ wire disabled_by_header;
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::DEFINE_DIRECTIVE
-                && directive
-                    .name
-                    .as_ref()
-                    .is_some_and(|name| name.value_text == "ROOT_FLAG")
+                && directive.name.as_ref().is_some_and(|name| name.value_text == "ROOT_FLAG")
         })
         .expect("root define should be traced");
     assert_eq!(root_define.range.as_ref().unwrap().buffer_id, root_buffer_id);
-    assert_eq!(root_define.name.as_ref().unwrap().range.as_ref().unwrap().buffer_id, root_buffer_id);
-    assert!(root_define
-        .body_tokens
-        .iter()
-        .all(|token| token.range.as_ref().is_some_and(|range| range.buffer_id == root_buffer_id)));
+    assert_eq!(
+        root_define.name.as_ref().unwrap().range.as_ref().unwrap().buffer_id,
+        root_buffer_id
+    );
+    assert!(
+        root_define.body_tokens.iter().all(|token| token
+            .range
+            .as_ref()
+            .is_some_and(|range| range.buffer_id == root_buffer_id))
+    );
 
     let include = trace
         .directives
@@ -967,10 +969,7 @@ wire disabled_by_header;
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::DEFINE_DIRECTIVE
-                && directive
-                    .name
-                    .as_ref()
-                    .is_some_and(|name| name.value_text == "HEADER_FLAG")
+                && directive.name.as_ref().is_some_and(|name| name.value_text == "HEADER_FLAG")
         })
         .expect("included header define should be traced");
     let header_buffer_id = header_define.range.as_ref().unwrap().buffer_id;
@@ -982,26 +981,19 @@ wire disabled_by_header;
         header_define.name.as_ref().unwrap().range.as_ref().unwrap().buffer_id,
         header_buffer_id
     );
-    assert!(header_define
-        .body_tokens
-        .iter()
-        .all(|token| token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)));
+    assert!(header_define.body_tokens.iter().all(|token| {
+        token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)
+    }));
 
     let predefine_branch = trace
         .directives
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::IF_N_DEF_DIRECTIVE
-                && directive
-                    .expr_tokens
-                    .iter()
-                    .any(|token| token.value_text == "FROM_PREDEFINE")
+                && directive.expr_tokens.iter().any(|token| token.value_text == "FROM_PREDEFINE")
         })
         .expect("predefined macro should affect trace conditionals");
-    assert!(predefine_branch
-        .disabled_ranges
-        .iter()
-        .any(|range| range.buffer_id == root_buffer_id));
+    assert!(predefine_branch.disabled_ranges.iter().any(|range| range.buffer_id == root_buffer_id));
 
     let header_branch = trace
         .directives
@@ -1012,30 +1004,22 @@ wire disabled_by_header;
         })
         .expect("header conditional should be traced");
     assert_eq!(header_branch.range.as_ref().unwrap().buffer_id, header_buffer_id);
-    assert!(header_branch
-        .expr_tokens
-        .iter()
-        .all(|token| token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)));
-    assert!(header_branch
-        .disabled_ranges
-        .iter()
-        .any(|range| range.buffer_id == header_buffer_id));
+    assert!(header_branch.expr_tokens.iter().all(|token| {
+        token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)
+    }));
+    assert!(header_branch.disabled_ranges.iter().any(|range| range.buffer_id == header_buffer_id));
 
     let root_header_branch = trace
         .directives
         .iter()
         .find(|directive| {
             directive.kind == SyntaxKind::IF_N_DEF_DIRECTIVE
-                && directive
-                    .expr_tokens
-                    .iter()
-                    .any(|token| token.value_text == "HEADER_FLAG")
+                && directive.expr_tokens.iter().any(|token| token.value_text == "HEADER_FLAG")
         })
         .expect("included header define should affect later root conditionals");
-    assert!(root_header_branch
-        .disabled_ranges
-        .iter()
-        .any(|range| range.buffer_id == root_buffer_id));
+    assert!(
+        root_header_branch.disabled_ranges.iter().any(|range| range.buffer_id == root_buffer_id)
+    );
 
     let single_file_directives =
         SyntaxTree::preprocessor_directives(source, "source", &source_path, &options);
