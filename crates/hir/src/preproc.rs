@@ -421,3 +421,194 @@ fn resolve_include_target(
 fn range_contains_offset(range: TextRange, offset: TextSize) -> bool {
     range.start() <= offset && offset <= range.end()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fmt;
+
+    use rustc_hash::FxHashSet;
+    use triomphe::Arc;
+    use utils::{
+        line_index::TextSize,
+        paths::{AbsPathBuf, Utf8PathBuf},
+    };
+    use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
+
+    use super::*;
+    use crate::base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
+        source_root::{SourceRoot, SourceRootId},
+    };
+
+    const TOP: FileId = FileId(0);
+    const HEADER: FileId = FileId(1);
+    const ROOT: SourceRootId = SourceRootId(0);
+    const PROFILE: CompilationProfileId = CompilationProfileId(0);
+
+    #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
+    #[derive(Default)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl salsa::Database for TestDb {}
+
+    impl fmt::Debug for TestDb {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestDb").finish()
+        }
+    }
+
+    impl FileLoader for TestDb {
+        fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
+            let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+            SourceRootDb::source_root(self, source_root_id).resolve_path(path)
+        }
+    }
+
+    fn db_with_files(root_text: &str, header_text: &str) -> TestDb {
+        let top_path = abs_path("rtl/top.v");
+        let header_path = abs_path("include/defs.vh");
+        let include_dir = abs_path("include");
+
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        file_set.insert(HEADER, VfsPath::from(header_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+
+        let preprocess =
+            PreprocessConfig { predefines: Vec::new(), include_dirs: vec![include_dir.clone()] };
+        let project_config = ProjectConfig::new(
+            vec![Some(PROFILE)],
+            vec![CompilationProfile {
+                source_roots: vec![ROOT],
+                top_modules: Vec::new(),
+                preprocess: preprocess.clone(),
+            }],
+        );
+
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        files.insert(HEADER);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::HIGH,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+
+        for (file_id, path, text) in
+            [(TOP, top_path, root_text), (HEADER, header_path, header_text)]
+        {
+            let vfs_path = VfsPath::from(path.clone());
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_file_kind_with_durability(
+                file_id,
+                SourceFileKind::from_path(&vfs_path),
+                Durability::LOW,
+            );
+            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+            db.set_file_preprocess_config_with_durability(
+                file_id,
+                Arc::new(preprocess.clone()),
+                Durability::LOW,
+            );
+        }
+
+        db
+    }
+
+    fn abs_path(path: &str) -> AbsPathBuf {
+        let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
+        AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
+
+    fn offset(text: &str, needle: &str) -> TextSize {
+        TextSize::from(u32::try_from(text.find(needle).unwrap()).unwrap())
+    }
+
+    fn text_at_range(text: &str, range: TextRange) -> &str {
+        &text[usize::from(range.start())..usize::from(range.end())]
+    }
+
+    #[test]
+    fn preproc_include_usage_resolves_to_header_define() {
+        let root_text = r#"`include "defs.vh"
+module top;
+localparam int W = `HEADER_WIDTH;
+endmodule
+"#;
+        let header_text = "`define HEADER_WIDTH 8\n";
+        let db = db_with_files(root_text, header_text);
+
+        let resolution = macro_usage_resolution_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolution.usage.file_id, TOP);
+        assert_eq!(resolution.definition.file_id, HEADER);
+        assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
+        assert!(text_at_range(header_text, resolution.definition.range).contains("HEADER_WIDTH"));
+
+        let include =
+            include_directive_at(&db, TOP, offset(root_text, "defs.vh")).unwrap().unwrap();
+        let IncludeTarget::Literal { resolved_file, .. } = include.target else {
+            panic!("literal include expected");
+        };
+        assert_eq!(resolved_file, Some(HEADER));
+    }
+
+    #[test]
+    fn preproc_unsaved_include_buffer_updates_query_result() {
+        let root_text = r#"`include "defs.vh"
+module top;
+localparam int W = `HEADER_WIDTH;
+endmodule
+"#;
+        let mut db = db_with_files(root_text, "`define OTHER_WIDTH 8\n");
+
+        assert!(
+            macro_usage_resolution_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+                .unwrap()
+                .is_none()
+        );
+
+        db.set_file_text_with_durability(
+            HEADER,
+            Arc::from("`define HEADER_WIDTH 16\n"),
+            Durability::LOW,
+        );
+
+        let resolution = macro_usage_resolution_at(&db, TOP, offset(root_text, "HEADER_WIDTH"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolution.definition.file_id, HEADER);
+        assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
+    }
+
+    #[test]
+    fn preproc_inactive_branch_uses_header_define() {
+        let root_text = r#"`include "defs.vh"
+`ifndef HEADER_FLAG
+wire disabled_by_header;
+`endif
+wire active;
+"#;
+        let header_text = "`define HEADER_FLAG\n";
+        let db = db_with_files(root_text, header_text);
+
+        let branches = inactive_branches(&db, TOP).unwrap();
+        assert_eq!(branches.len(), 1);
+        assert_eq!(branches[0].file_id, TOP);
+        assert!(text_at_range(root_text, branches[0].range).contains("disabled_by_header"));
+    }
+}
