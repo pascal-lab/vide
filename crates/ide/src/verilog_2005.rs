@@ -8,6 +8,7 @@ use hir::{
     base_db::{
         change::Change,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::Durability,
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId},
     },
@@ -913,6 +914,190 @@ endmodule
     assert!(
         !ranges.contains(&inactive_ref),
         "inactive reference should not be classified as the active definition: {ranges:?}"
+    );
+}
+
+#[test]
+fn file_preprocess_config_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
+    let text = r#"
+module ifdef_nav(
+  input logic clk_i,
+  input logic /*marker:def*/d_i,
+  output logic q
+);
+`ifdef SOMETHING
+/*marker:if_branch*/  always @(posedge clk_i) q <= ~/*marker:if_ref*/d_i;
+`else
+/*marker:else_branch*/  always @(posedge clk_i) q <= /*marker:else_ref*/d_i;
+`endif
+endmodule
+"#;
+    let (mut host, file_id, _clean_text, markers) =
+        setup_marked_with_predefines(text, vec!["SOMETHING=1".to_owned()]);
+    host.raw_db_mut().set_file_preprocess_config_with_durability(
+        file_id,
+        Arc::new(PreprocessConfig::default()),
+        Durability::LOW,
+    );
+
+    let analysis = host.make_analysis();
+    let range_at = |marker: &str, len: TextSize| {
+        let start = markers[marker];
+        TextRange::new(start, start + len)
+    };
+    let d_i_range = range_at("def", TextSize::of("d_i"));
+    let if_branch = range_at("if_branch", TextSize::of("  always @(posedge clk_i) q <= ~d_i;"));
+    let else_branch = range_at("else_branch", TextSize::of("  always @(posedge clk_i) q <= d_i;"));
+
+    let diagnostics = analysis.diagnostics(file_id).unwrap();
+    let inactive = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.name == "inactive-preprocessor-branch")
+        .expect("expected inactive branch diagnostic");
+    assert!(
+        inactive.range.intersect(if_branch).is_some(),
+        "file-level preprocess should mark the if branch inactive: {diagnostics:?}"
+    );
+    assert!(
+        inactive.range.intersect(else_branch).is_none(),
+        "file-level preprocess should keep the else branch semantically active: {diagnostics:?}"
+    );
+
+    assert!(
+        analysis.goto_definition(position(file_id, &markers, "if_ref")).unwrap().is_none(),
+        "inactive if branch should not drive semantic navigation"
+    );
+
+    let nav = analysis
+        .goto_definition(position(file_id, &markers, "else_ref"))
+        .unwrap()
+        .expect("active else branch should navigate");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(d_i_range)),
+        "active else branch should resolve d_i to the port definition: {nav:?}"
+    );
+}
+
+#[test]
+fn included_macro_selects_same_ifdef_branch_for_diagnostics_navigation_and_tokens() {
+    let dir = TestDir::new("issue-233-include-ifdef");
+    let src_dir = dir.path().join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+
+    let top_path = src_dir.join("top.v");
+    let define_path = src_dir.join("define.vh");
+    let marked_top_text = normalize_fixture_text(
+        r#"
+`include "define.vh"
+
+module top (
+    input  wire clk_i,
+    input  wire /*marker:def*/d_i,
+    output wire q_o
+);
+
+reg q = 0;
+
+`ifdef SOMETHING
+/*marker:if_branch*/  always @(posedge clk_i) q <= ~/*marker:if_ref*/d_i;
+`else
+/*marker:else_branch*/  always @(posedge clk_i) q <= /*marker:else_ref*/d_i;
+`endif
+
+assign q_o = q;
+
+endmodule
+"#,
+    );
+    let (top_text, markers) = strip_markers(marked_top_text);
+    let define_text =
+        "`ifndef __DEFINE_VH__\n`define __DEFINE_VH__\n\n`define SOMETHING\n\n`endif\n";
+    std::fs::write(&top_path, &top_text).unwrap();
+    std::fs::write(&define_path, define_text).unwrap();
+
+    let top_file_id = FileId(0);
+    let define_file_id = FileId(1);
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(define_file_id, VfsPath::from(define_path));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local(file_set)]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig {
+                predefines: Vec::new(),
+                include_dirs: vec![src_dir.clone()],
+            },
+        }],
+    )));
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: define_file_id,
+        change_kind: ChangeKind::Create(Arc::from(define_text), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let analysis = host.make_analysis();
+    let range_at = |marker: &str, len: TextSize| {
+        let start = markers[marker];
+        TextRange::new(start, start + len)
+    };
+    let d_i_range = range_at("def", TextSize::of("d_i"));
+    let if_ref = range_at("if_ref", TextSize::of("d_i"));
+    let else_ref = range_at("else_ref", TextSize::of("d_i"));
+    let if_branch = range_at("if_branch", TextSize::of("  always @(posedge clk_i) q <= ~d_i;"));
+    let else_branch = range_at("else_branch", TextSize::of("  always @(posedge clk_i) q <= d_i;"));
+
+    let diagnostics = analysis.diagnostics(top_file_id).unwrap();
+    let inactive = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.name == "inactive-preprocessor-branch")
+        .expect("expected inactive branch diagnostic");
+    assert!(
+        inactive.range.intersect(else_branch).is_some(),
+        "included define should mark the else branch inactive: {diagnostics:?}"
+    );
+    assert!(
+        inactive.range.intersect(if_branch).is_none(),
+        "included define should keep the if branch active: {diagnostics:?}"
+    );
+
+    let nav = analysis
+        .goto_definition(position(top_file_id, &markers, "if_ref"))
+        .unwrap()
+        .expect("active if branch should navigate");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(d_i_range)),
+        "active if branch should resolve d_i to the port definition: {nav:?}"
+    );
+    assert!(
+        analysis.goto_definition(position(top_file_id, &markers, "else_ref")).unwrap().is_none(),
+        "inactive else branch should not drive semantic navigation"
+    );
+
+    let full_range = TextRange::up_to(TextSize::of(top_text.as_str()));
+    let tokens = analysis
+        .semantic_tokens(
+            top_file_id,
+            SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: true, io: true } },
+            Some(full_range),
+        )
+        .unwrap();
+    assert!(
+        tokens.iter().any(|token| token.range == if_ref && !token.is_empty()),
+        "active if branch should produce a semantic token for d_i: {tokens:?}"
+    );
+    assert!(
+        tokens.iter().all(|token| token.range != else_ref || token.is_empty()),
+        "inactive else branch must not produce semantic tokens for d_i: {tokens:?}"
     );
 }
 

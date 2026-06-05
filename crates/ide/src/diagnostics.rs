@@ -446,7 +446,12 @@ mod tests {
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
     use triomphe::Arc;
-    use utils::{lines::LineEnding, paths::AbsPathBuf, test_support::TestDir};
+    use utils::{
+        line_index::{TextRange, TextSize},
+        lines::LineEnding,
+        paths::AbsPathBuf,
+        test_support::TestDir,
+    };
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::{
@@ -457,6 +462,15 @@ mod tests {
 
     fn db_with_files(files: &[(&str, &str)], configured: bool) -> RootDb {
         db_with_files_in_role(files, SourceRootRole::Local, configured)
+    }
+
+    fn db_with_predefines(files: &[(&str, &str)], predefines: Vec<String>) -> RootDb {
+        db_with_files_in_role_and_preprocess(
+            files,
+            SourceRootRole::Local,
+            true,
+            PreprocessConfig { predefines, ..PreprocessConfig::default() },
+        )
     }
 
     fn disable_diagnostics(db: &mut RootDb) {
@@ -470,6 +484,15 @@ mod tests {
         files: &[(&str, &str)],
         role: SourceRootRole,
         configured: bool,
+    ) -> RootDb {
+        db_with_files_in_role_and_preprocess(files, role, configured, PreprocessConfig::default())
+    }
+
+    fn db_with_files_in_role_and_preprocess(
+        files: &[(&str, &str)],
+        role: SourceRootRole,
+        configured: bool,
+        preprocess: PreprocessConfig,
     ) -> RootDb {
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
@@ -492,12 +515,17 @@ mod tests {
                 vec![CompilationProfile {
                     source_roots: vec![SourceRootId(0)],
                     top_modules: Vec::new(),
-                    preprocess: PreprocessConfig::default(),
+                    preprocess,
                 }],
             )));
         }
         db.apply_change(change);
         db
+    }
+
+    fn range_of(text: &str, needle: &str) -> TextRange {
+        let start = TextSize::from(u32::try_from(text.find(needle).unwrap()).unwrap());
+        TextRange::new(start, start + TextSize::of(needle))
     }
 
     #[test]
@@ -590,10 +618,8 @@ mod tests {
 
     #[test]
     fn inactive_preprocessor_branch_reports_unnecessary_hint() {
-        let db = db_with_files(
-            &[("/top.sv", "`ifdef USE_IMPL\nlogic active;\n`else\nlogic inactive;\n`endif\n")],
-            false,
-        );
+        let text = "`ifdef USE_IMPL\nlogic if_body;\n`else\nlogic else_body;\n`endif\n";
+        let db = db_with_files(&[("/top.sv", text)], false);
 
         let diagnostics = diagnostics(&db, FileId(0));
         let inactive = diagnostics
@@ -604,6 +630,21 @@ mod tests {
         assert_eq!(inactive.severity, syntax::DiagnosticSeverity::Note);
         assert_eq!(inactive.tags, vec![DiagnosticTag::Unnecessary]);
         assert_eq!(inactive.message_key, Some(DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH));
+        assert_eq!(inactive.range, range_of(text, "logic if_body;"));
+    }
+
+    #[test]
+    fn inactive_preprocessor_branch_marks_else_body_when_ifdef_is_defined() {
+        let text = "`ifdef USE_IMPL\nlogic if_body;\n`else\nlogic else_body;\n`endif\n";
+        let db = db_with_predefines(&[("/top.sv", text)], vec!["USE_IMPL".to_owned()]);
+
+        let diagnostics = diagnostics(&db, FileId(0));
+        let inactive = diagnostics
+            .iter()
+            .find(|diag| diag.name == INACTIVE_PREPROCESSOR_BRANCH.name)
+            .expect("expected inactive preprocessor branch diagnostic");
+
+        assert_eq!(inactive.range, range_of(text, "logic else_body;"));
     }
 
     #[test]
