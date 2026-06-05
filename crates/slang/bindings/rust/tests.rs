@@ -890,6 +890,160 @@ endmodule
     assert_eq!(diagnostics, Vec::new());
 }
 
+#[test]
+fn preprocessor_trace_expands_include_buffers_with_source_provenance() {
+    let dir = TestDir::new("slang-preprocessor-trace");
+    let rtl_dir = dir.create_dir_all("rtl");
+    let include_dir = dir.create_dir_all("include");
+    let header_path = dir.write("include/defs.vh", "");
+    let source_path = rtl_dir.join("top.v").to_string();
+    let source = r#"
+`ifndef FROM_PREDEFINE
+wire disabled_by_predefine;
+`endif
+`define ROOT_FLAG 1
+`include "defs.vh"
+`ifndef HEADER_FLAG
+wire disabled_by_header;
+`endif
+"#;
+    let options = SyntaxTreeOptions {
+        predefines: vec!["FROM_PREDEFINE".to_owned()],
+        include_paths: vec![include_dir.to_string()],
+        include_buffers: vec![SyntaxTreeBuffer {
+            path: header_path.to_string(),
+            text: "`define HEADER_FLAG 1\n`ifdef NEVER\nwire disabled_from_header;\n`endif\n"
+                .to_owned(),
+        }],
+        expand_includes: true,
+    };
+
+    let trace = SyntaxTree::preprocessor_trace(source, "source", &source_path, &options)
+        .expect("root source buffer should be available");
+    let normalized_path_for_buffer_id = |buffer_id: u32| {
+        trace
+            .source_buffers
+            .iter()
+            .find(|buffer| buffer.buffer_id == buffer_id)
+            .unwrap_or_else(|| panic!("missing source buffer id {buffer_id}"))
+            .path
+            .replace('\\', "/")
+    };
+    let root_buffer_id = trace.root_buffer_id;
+
+    assert!(normalized_path_for_buffer_id(root_buffer_id).ends_with("rtl/top.v"));
+
+    let root_define = trace
+        .directives
+        .iter()
+        .find(|directive| {
+            directive.kind == SyntaxKind::DEFINE_DIRECTIVE
+                && directive
+                    .name
+                    .as_ref()
+                    .is_some_and(|name| name.value_text == "ROOT_FLAG")
+        })
+        .expect("root define should be traced");
+    assert_eq!(root_define.range.as_ref().unwrap().buffer_id, root_buffer_id);
+    assert_eq!(root_define.name.as_ref().unwrap().range.as_ref().unwrap().buffer_id, root_buffer_id);
+    assert!(root_define
+        .body_tokens
+        .iter()
+        .all(|token| token.range.as_ref().is_some_and(|range| range.buffer_id == root_buffer_id)));
+
+    let include = trace
+        .directives
+        .iter()
+        .find(|directive| directive.kind == SyntaxKind::INCLUDE_DIRECTIVE)
+        .expect("root include should be traced");
+    assert_eq!(include.range.as_ref().unwrap().buffer_id, root_buffer_id);
+    assert_eq!(
+        include.include_file_name.as_ref().unwrap().range.as_ref().unwrap().buffer_id,
+        root_buffer_id
+    );
+
+    let header_define = trace
+        .directives
+        .iter()
+        .find(|directive| {
+            directive.kind == SyntaxKind::DEFINE_DIRECTIVE
+                && directive
+                    .name
+                    .as_ref()
+                    .is_some_and(|name| name.value_text == "HEADER_FLAG")
+        })
+        .expect("included header define should be traced");
+    let header_buffer_id = header_define.range.as_ref().unwrap().buffer_id;
+    assert_ne!(root_buffer_id, header_buffer_id);
+    assert!(normalized_path_for_buffer_id(header_buffer_id).ends_with("include/defs.vh"));
+
+    assert_eq!(header_define.range.as_ref().unwrap().buffer_id, header_buffer_id);
+    assert_eq!(
+        header_define.name.as_ref().unwrap().range.as_ref().unwrap().buffer_id,
+        header_buffer_id
+    );
+    assert!(header_define
+        .body_tokens
+        .iter()
+        .all(|token| token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)));
+
+    let predefine_branch = trace
+        .directives
+        .iter()
+        .find(|directive| {
+            directive.kind == SyntaxKind::IF_N_DEF_DIRECTIVE
+                && directive
+                    .expr_tokens
+                    .iter()
+                    .any(|token| token.value_text == "FROM_PREDEFINE")
+        })
+        .expect("predefined macro should affect trace conditionals");
+    assert!(predefine_branch
+        .disabled_ranges
+        .iter()
+        .any(|range| range.buffer_id == root_buffer_id));
+
+    let header_branch = trace
+        .directives
+        .iter()
+        .find(|directive| {
+            directive.kind == SyntaxKind::IF_DEF_DIRECTIVE
+                && directive.expr_tokens.iter().any(|token| token.value_text == "NEVER")
+        })
+        .expect("header conditional should be traced");
+    assert_eq!(header_branch.range.as_ref().unwrap().buffer_id, header_buffer_id);
+    assert!(header_branch
+        .expr_tokens
+        .iter()
+        .all(|token| token.range.as_ref().is_some_and(|range| range.buffer_id == header_buffer_id)));
+    assert!(header_branch
+        .disabled_ranges
+        .iter()
+        .any(|range| range.buffer_id == header_buffer_id));
+
+    let root_header_branch = trace
+        .directives
+        .iter()
+        .find(|directive| {
+            directive.kind == SyntaxKind::IF_N_DEF_DIRECTIVE
+                && directive
+                    .expr_tokens
+                    .iter()
+                    .any(|token| token.value_text == "HEADER_FLAG")
+        })
+        .expect("included header define should affect later root conditionals");
+    assert!(root_header_branch
+        .disabled_ranges
+        .iter()
+        .any(|range| range.buffer_id == root_buffer_id));
+
+    let single_file_directives =
+        SyntaxTree::preprocessor_directives(source, "source", &source_path, &options);
+    assert!(single_file_directives.iter().all(|directive| {
+        directive.name.as_ref().map(|name| name.value_text.as_str()) != Some("HEADER_FLAG")
+    }));
+}
+
 #[cfg(windows)]
 #[test]
 fn syntax_tree_options_deduplicate_equivalent_include_buffer_aliases() {
