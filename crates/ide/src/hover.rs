@@ -5,7 +5,7 @@ use hir::{
     hir_def::expr::Expr,
     preproc::{
         IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
-        macro_usage_resolution_at,
+        macro_reference_resolution_at,
     },
     semantics::Semantics,
 };
@@ -94,8 +94,11 @@ fn handle_preproc_macro(
         return Some(RangeInfo::new(definition.range, macro_definition_markup(&definition)));
     }
 
-    let resolution = macro_usage_resolution_at(db, file_id, offset)?;
-    Some(RangeInfo::new(resolution.usage.range, macro_definition_markup(&resolution.definition)))
+    let resolution = macro_reference_resolution_at(db, file_id, offset)?;
+    Some(RangeInfo::new(
+        resolution.reference.range,
+        macro_definition_markup(&resolution.definition),
+    ))
 }
 
 fn macro_definition_markup(definition: &MacroDefinition) -> Markup {

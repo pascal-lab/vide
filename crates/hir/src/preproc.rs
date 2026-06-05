@@ -31,6 +31,19 @@ pub struct MacroUsageResolution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReference {
+    pub file_id: FileId,
+    pub name: SmolStr,
+    pub range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReferenceResolution {
+    pub reference: MacroReference,
+    pub definition: MacroDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncludeDirective {
     pub file_id: FileId,
     pub include_index: usize,
@@ -108,17 +121,52 @@ pub fn macro_usage_resolution_at(
     Some(MacroUsageResolution { usage, definition })
 }
 
+pub fn macro_reference_resolution_at(
+    db: &dyn SourceDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<MacroReferenceResolution> {
+    if let Some(resolution) = macro_usage_resolution_at(db, file_id, offset) {
+        return Some(MacroReferenceResolution {
+            reference: MacroReference {
+                file_id,
+                name: resolution.usage.name,
+                range: resolution.usage.range,
+            },
+            definition: resolution.definition,
+        });
+    }
+
+    let model = db.preproc_model(file_id);
+    for conditional in model.conditionals() {
+        for token in &conditional.expr {
+            let range = token.range?;
+            if !range_contains_offset(range, offset) {
+                continue;
+            }
+            let definition =
+                macro_definition_for_name_at(db, file_id, token.value.as_str(), range.start())?;
+            return Some(MacroReferenceResolution {
+                reference: MacroReference { file_id, name: token.value.clone(), range },
+                definition,
+            });
+        }
+    }
+
+    None
+}
+
 pub fn macro_references(
     db: &dyn SourceDb,
     file_id: FileId,
     definition: &MacroDefinition,
-) -> Vec<MacroUsage> {
+) -> Vec<MacroReference> {
     if definition.file_id != file_id {
         return Vec::new();
     }
 
     let model = db.preproc_model(file_id);
-    model
+    let mut refs = model
         .usages()
         .iter()
         .enumerate()
@@ -127,14 +175,24 @@ pub fn macro_references(
             if binding.define_index != definition.define_index {
                 return None;
             }
-            Some(MacroUsage {
+            Some(MacroReference { file_id, name: usage.name.clone()?, range: usage.range? })
+        })
+        .collect::<Vec<_>>();
+
+    refs.extend(model.conditionals().iter().flat_map(|conditional| {
+        conditional.expr.iter().filter_map(|token| {
+            let range = token.range?;
+            let resolved =
+                macro_definition_for_name_at(db, file_id, token.value.as_str(), range.start())?;
+            (resolved.define_index == definition.define_index).then(|| MacroReference {
                 file_id,
-                name: usage.name.clone()?,
-                usage_index,
-                range: usage.range?,
+                name: token.value.clone(),
+                range,
             })
         })
-        .collect()
+    }));
+
+    refs
 }
 
 pub fn include_directive_at(
@@ -173,6 +231,26 @@ fn resolve_literal_include(db: &dyn SourceRootDb, file_id: FileId, path: &str) -
     let include_dirs = db.file_preprocess_config(file_id).include_dirs.clone();
     let path_file_ids = path_file_ids(db);
     resolve_include_target(path, &includer_path, &include_dirs, &path_file_ids)
+}
+
+fn macro_definition_for_name_at(
+    db: &dyn SourceDb,
+    file_id: FileId,
+    name: &str,
+    offset: TextSize,
+) -> Option<MacroDefinition> {
+    db.preproc_model(file_id)
+        .visible_macros_at(offset)
+        .into_iter()
+        .find(|binding| binding.name.as_str() == name)
+        .and_then(|binding| {
+            Some(MacroDefinition {
+                file_id,
+                name: binding.name,
+                define_index: binding.define_index,
+                range: binding.define.range?,
+            })
+        })
 }
 
 fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {

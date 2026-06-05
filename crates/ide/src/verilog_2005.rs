@@ -946,6 +946,9 @@ fn preproc_macro_definition_supports_navigation_and_hover() {
 `define /*marker:definition*/LOCAL_WIDTH 8
 module top;
   logic [`/*marker:usage*/LOCAL_WIDTH-1:0] data;
+`ifdef /*marker:conditional*/LOCAL_WIDTH
+  assign data = '0;
+`endif
 endmodule
 "#;
     let (host, file_id, clean_text, markers) = setup_marked(text);
@@ -971,6 +974,15 @@ endmodule
         .expect("macro definition hover expected");
     assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
     assert!(hover.info.as_str().contains("LOCAL_WIDTH"), "hover should mention macro name");
+
+    let conditional_nav = analysis
+        .goto_definition(position(file_id, &markers, "conditional"))
+        .unwrap()
+        .expect("conditional macro definition navigation expected");
+    assert!(
+        conditional_nav.info.iter().any(|target| target.name.as_deref() == Some("LOCAL_WIDTH")),
+        "conditional macro should navigate to LOCAL_WIDTH definition: {conditional_nav:?}"
+    );
 }
 
 #[test]
@@ -979,6 +991,9 @@ fn preproc_macro_definition_supports_references() {
 `define /*marker:first_def*/WIDTH 8
 module top;
   logic [/*marker:first_use*/`WIDTH-1:0] narrow_data;
+`ifdef /*marker:first_cond*/WIDTH
+  assign narrow_data = '0;
+`endif
 `define /*marker:second_def*/WIDTH 16
   logic [/*marker:second_use*/`WIDTH-1:0] wide_data;
 endmodule
@@ -986,7 +1001,9 @@ endmodule
     let (host, file_id, _clean_text, markers) = setup_marked(text);
     let analysis = host.make_analysis();
     let width_use_len = TextSize::of("`WIDTH");
+    let width_name_len = TextSize::of("WIDTH");
     let first_use = TextRange::new(markers["first_use"], markers["first_use"] + width_use_len);
+    let first_cond = TextRange::new(markers["first_cond"], markers["first_cond"] + width_name_len);
     let second_use = TextRange::new(markers["second_use"], markers["second_use"] + width_use_len);
 
     let reference_ranges = |marker: &str| {
@@ -1010,6 +1027,10 @@ endmodule
     assert!(
         first_ranges.contains(&first_use),
         "first define should reference first use: {first_ranges:?}"
+    );
+    assert!(
+        first_ranges.contains(&first_cond),
+        "first define should reference conditional use: {first_ranges:?}"
     );
     assert!(
         !first_ranges.contains(&second_use),
