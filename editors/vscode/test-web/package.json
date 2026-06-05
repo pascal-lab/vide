@@ -1,0 +1,17 @@
+{
+  "name": "vide-vscode-web-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run typecheck && tsx runTests.ts"
+  },
+  "dependencies": {
+    "@vscode/test-web": "^0.0.80"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.1",
+    "tsx": "^4.22.0",
+    "typescript": "^5.9.3"
+  }
+}
