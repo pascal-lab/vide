@@ -163,6 +163,8 @@ void set_rust_range(size_t& start, size_t& end, bool& hasRange, slang::SourceRan
 
 ::RawSourceBufferRange to_rust_source_buffer_range(slang::SourceRange range) {
   auto result = empty_source_buffer_range();
+  if (range == slang::SourceRange::NoLocation)
+    return result;
   if (!range.start().valid() || !range.end().valid())
     return result;
   if (range.start().buffer() != range.end().buffer())
