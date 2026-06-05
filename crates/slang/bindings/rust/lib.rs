@@ -288,7 +288,7 @@ impl SourceBufferRange {
     #[inline]
     fn from_raw(raw: ffi::RawSourceBufferRange) -> Option<Self> {
         raw.has_range
-            .then(|| Self { buffer_id: raw.buffer_id, range: raw.range_start..raw.range_end })
+            .then_some(Self { buffer_id: raw.buffer_id, range: raw.range_start..raw.range_end })
     }
 }
 
