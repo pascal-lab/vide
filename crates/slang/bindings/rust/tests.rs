@@ -1062,6 +1062,139 @@ wire disabled_by_header;
 }
 
 #[test]
+fn preprocessor_trace_reports_emitted_macro_body_and_argument_provenance() {
+    let source = r#"`define OBJ 8
+`define ID(x) x
+module m;
+localparam int A = `OBJ;
+localparam int B = `ID(7);
+endmodule
+"#;
+    let trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    )
+    .expect("trace should include emitted tokens");
+
+    assert!(
+        trace.emitted_tokens.iter().any(|token| {
+            token.raw_text == "module"
+                && matches!(token.provenance, PreprocessorTraceTokenProvenance::Source { .. })
+        }),
+        "source tokens should be retained in emitted stream: {:?}",
+        trace.emitted_tokens
+    );
+
+    let obj = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "8")
+        .expect("object-like macro body token should be emitted");
+    let PreprocessorTraceTokenProvenance::MacroBody { macro_name, call_range, body_token_range } =
+        &obj.provenance
+    else {
+        panic!("expected macro body provenance for `OBJ expansion: {obj:?}");
+    };
+    assert_eq!(macro_name, "OBJ");
+    assert_eq!(&source[call_range.range.clone()], "`OBJ");
+    assert_eq!(&source[body_token_range.range.clone()], "8");
+
+    let arg = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "7")
+        .expect("function-like argument token should be emitted");
+    let PreprocessorTraceTokenProvenance::MacroArgument {
+        macro_name,
+        call_range,
+        body_token_range,
+        argument_token_range,
+    } = &arg.provenance
+    else {
+        panic!("expected macro argument provenance for `ID expansion: {arg:?}");
+    };
+    assert_eq!(macro_name, "ID");
+    assert_eq!(&source[call_range.range.clone()], "`ID(7)");
+    assert_eq!(&source[body_token_range.range.clone()], "x");
+    assert_eq!(&source[argument_token_range.range.clone()], "7");
+}
+
+#[test]
+fn preprocessor_trace_keeps_unsupported_macro_ops_as_unavailable_tokens() {
+    let source = r#"`define JOIN(a,b) a``b
+`define STR(x) `"x`"
+module m;
+wire `JOIN(foo,bar);
+string s = `STR(foo);
+endmodule
+"#;
+    let trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    )
+    .expect("trace should include emitted tokens");
+
+    let pasted = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "foobar")
+        .expect("token paste result should stay in emitted stream");
+    assert!(matches!(pasted.provenance, PreprocessorTraceTokenProvenance::Unavailable));
+
+    let stringified = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "\"foo\"")
+        .expect("stringification result should stay in emitted stream");
+    assert!(matches!(stringified.provenance, PreprocessorTraceTokenProvenance::Unavailable));
+}
+
+#[test]
+fn preprocessor_trace_reports_predefine_and_builtin_emitted_token_facts() {
+    let source = r#"module m;
+localparam int P = `FROM_API;
+localparam int L = `__LINE__;
+endmodule
+"#;
+    let trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions {
+            predefines: vec!["FROM_API=11".to_owned()],
+            ..SyntaxTreeOptions::default()
+        },
+    )
+    .expect("trace should include emitted tokens");
+
+    let from_api = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "11")
+        .expect("predefined macro body token should be emitted");
+    assert!(matches!(from_api.provenance, PreprocessorTraceTokenProvenance::MacroBody { .. }));
+    let PreprocessorTraceTokenProvenance::MacroBody { body_token_range, .. } = &from_api.provenance
+    else {
+        unreachable!();
+    };
+    assert_ne!(body_token_range.buffer_id, trace.root_buffer_id);
+
+    let builtin = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| matches!(token.provenance, PreprocessorTraceTokenProvenance::Builtin { .. }))
+        .expect("builtin macro token should be emitted with builtin provenance");
+    assert!(matches!(
+        &builtin.provenance,
+        PreprocessorTraceTokenProvenance::Builtin { name } if name == "__LINE__"
+    ));
+}
+
+#[test]
 fn preprocessor_trace_records_nested_include_edges() {
     let dir = TestDir::new("slang-preprocessor-trace-nested");
     let rtl_dir = dir.create_dir_all("rtl");

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use smol_str::SmolStr;
+use utils::line_index::TextSize;
 
 use super::types::*;
 
@@ -135,6 +136,20 @@ struct SourceMacroStatePositionBoundary {
     boundary: SourcePosition,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SourceMacroCallSignature {
+    source: PreprocSourceId,
+    start: TextSize,
+    end: TextSize,
+    name: SmolStr,
+}
+
+impl SourceMacroCallSignature {
+    fn new(name: SmolStr, range: SourceRange) -> Self {
+        Self { source: range.source, start: range.range.start(), end: range.range.end(), name }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroCall {
     pub id: SourceMacroCallId,
@@ -188,11 +203,6 @@ pub struct SourceEmittedToken {
     pub kind: SourceTokenKind,
     pub emitted_range: SourceEmittedTokenRange,
     pub provenance: SourceTokenProvenanceId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceTokenKind {
-    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,6 +317,11 @@ pub enum SourcePreprocUnavailable {
     EmittedTokenAuthorityUnavailable,
     TokenProvenanceAuthorityUnavailable,
     ExpansionAuthorityUnavailable,
+    MissingEmittedTokenMacroCall { source: PreprocSourceId },
+    MissingEmittedTokenMacroDefinition { call: SourceMacroCallId },
+    MissingEmittedTokenMacroBody { call: SourceMacroCallId },
+    MissingEmittedTokenMacroArgument { call: SourceMacroCallId },
+    UnsupportedEmittedTokenProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,6 +525,10 @@ impl SourceMacroCallTable {
     pub fn is_empty(&self) -> bool {
         self.calls.is_empty()
     }
+
+    fn push(&mut self, call: SourceMacroCall) {
+        self.calls.push(call);
+    }
 }
 
 impl SourceMacroExpansionTable {
@@ -546,6 +565,10 @@ impl SourceEmittedTokenTable {
     pub fn is_empty(&self) -> bool {
         self.tokens.is_empty()
     }
+
+    fn push(&mut self, token: SourceEmittedToken) {
+        self.tokens.push(token);
+    }
 }
 
 impl SourceTokenProvenanceTable {
@@ -563,6 +586,10 @@ impl SourceTokenProvenanceTable {
 
     pub fn is_empty(&self) -> bool {
         self.provenance.is_empty()
+    }
+
+    fn push(&mut self, provenance: SourceTokenProvenance) {
+        self.provenance.push(provenance);
     }
 }
 
@@ -600,10 +627,12 @@ pub struct SourcePreprocModelBuilder<'a> {
     index: &'a SourcePreprocIndex,
     tables: SourcePreprocTables,
     definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
+    call_ids_by_signature: BTreeMap<SourceMacroCallSignature, SourceMacroCallId>,
     current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
     definition_ranges_partial: bool,
     include_edges_partial: bool,
     references_partial: bool,
+    token_provenance_partial: bool,
 }
 
 impl<'a> SourcePreprocModelBuilder<'a> {
@@ -612,10 +641,12 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             index,
             tables: SourcePreprocTables::default(),
             definition_ids_by_define_index: BTreeMap::new(),
+            call_ids_by_signature: BTreeMap::new(),
             current_state: BTreeMap::new(),
             definition_ranges_partial: false,
             include_edges_partial: false,
             references_partial: false,
+            token_provenance_partial: false,
         }
     }
 
@@ -630,24 +661,19 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         self.record_position_boundaries();
         self.record_state_checkpoint(0, SourcePosition::from_first_event(self.index));
         self.scan_references_and_state();
+        self.build_emitted_token_tables();
         self.tables.capabilities = SourcePreprocCapabilities {
             source_events: CapabilityStatus::Complete,
             definition_name_ranges: partial_status(self.definition_ranges_partial),
             include_edges: partial_status(self.include_edges_partial),
             inactive_ranges: CapabilityStatus::Complete,
             macro_reference_resolution: partial_status(self.references_partial),
-            macro_calls: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::MacroCallAuthorityUnavailable,
-            ),
+            macro_calls: partial_status(self.references_partial),
             macro_expansions: CapabilityStatus::Unavailable(
                 SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
             ),
-            emitted_tokens: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable,
-            ),
-            emitted_token_provenance: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
-            ),
+            emitted_tokens: CapabilityStatus::Complete,
+            emitted_token_provenance: partial_status(self.token_provenance_partial),
         };
     }
 
@@ -842,14 +868,15 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         let event_id = usage.event_id;
         let directive_range = usage.range;
         let resolution = self.resolve_visible_reference(name.as_str());
-        self.push_reference(
+        let reference = self.push_reference(
             event_id,
             SourceMacroReferenceSite::Usage { usage_index: directive.index },
-            name,
+            name.clone(),
             name_range,
             directive_range,
-            resolution,
+            resolution.clone(),
         );
+        self.push_call(reference, name, directive_range, resolution);
     }
 
     fn record_conditional_references(&mut self, directive: &SourcePreprocEventRecord) {
@@ -910,7 +937,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         name_range: SourceRange,
         directive_range: SourceRange,
         resolution: SourceMacroResolution,
-    ) {
+    ) -> SourceMacroReferenceId {
         let id = SourceMacroReferenceId::new(self.tables.macro_references.len());
         self.tables.macro_references.push(SourceMacroReference {
             id,
@@ -921,6 +948,211 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             directive_range,
             resolution,
         });
+        id
+    }
+
+    fn push_call(
+        &mut self,
+        reference: SourceMacroReferenceId,
+        name: SmolStr,
+        call_range: SourceRange,
+        callee: SourceMacroResolution,
+    ) {
+        let id = SourceMacroCallId::new(self.tables.macro_calls.len());
+        self.tables.macro_calls.push(SourceMacroCall {
+            id,
+            reference,
+            call_range,
+            callee,
+            arguments: Vec::new(),
+            expansion: None,
+            status: SourceMacroCallStatus::ExpansionUnavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+        });
+        self.call_ids_by_signature.insert(SourceMacroCallSignature::new(name, call_range), id);
+    }
+
+    fn build_emitted_token_tables(&mut self) {
+        for index in 0..self.index.emitted_tokens.len() {
+            let token = self.index.emitted_tokens[index].clone();
+            let provenance = self.resolve_emitted_token_provenance(&token);
+            let provenance_id = SourceTokenProvenanceId::new(self.tables.token_provenance.len());
+            self.tables.token_provenance.push(provenance);
+
+            let token_id = SourceEmittedTokenId::new(self.tables.emitted_tokens.len());
+            self.tables.emitted_tokens.push(SourceEmittedToken {
+                id: token_id,
+                text: token.raw,
+                kind: token.kind,
+                emitted_range: SourceEmittedTokenRange { start: token_id, len: 1 },
+                provenance: provenance_id,
+            });
+        }
+    }
+
+    fn resolve_emitted_token_provenance(
+        &mut self,
+        token: &SourceEmittedTokenFact,
+    ) -> SourceTokenProvenance {
+        match &token.provenance {
+            SourceTokenProvenanceFact::Source { token_range } => {
+                SourceTokenProvenance::Source { token_range: *token_range }
+            }
+            SourceTokenProvenanceFact::MacroBody { macro_name, call_range, body_token_range } => {
+                self.resolve_macro_body_token_provenance(
+                    token,
+                    macro_name.clone(),
+                    *call_range,
+                    *body_token_range,
+                )
+            }
+            SourceTokenProvenanceFact::MacroArgument {
+                macro_name,
+                call_range,
+                body_token_range,
+                argument_token_range,
+            } => self.resolve_macro_argument_token_provenance(
+                macro_name.clone(),
+                *call_range,
+                *body_token_range,
+                *argument_token_range,
+            ),
+            SourceTokenProvenanceFact::Builtin { name } if !name.is_empty() => {
+                SourceTokenProvenance::Builtin { name: name.clone() }
+            }
+            SourceTokenProvenanceFact::Builtin { .. } | SourceTokenProvenanceFact::Unavailable => {
+                self.unavailable_token_provenance(
+                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
+                )
+            }
+        }
+    }
+
+    fn resolve_macro_body_token_provenance(
+        &mut self,
+        token: &SourceEmittedTokenFact,
+        macro_name: SmolStr,
+        call_range: SourceRange,
+        body_token_range: SourceRange,
+    ) -> SourceTokenProvenance {
+        if self.source_is_predefine(body_token_range.source) {
+            return SourceTokenProvenance::Predefine { source: body_token_range.source };
+        }
+
+        let Ok(call) = self.call_for_emitted_token(macro_name, call_range) else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroCall {
+                    source: call_range.source,
+                },
+            );
+        };
+        let Ok(definition) = self.definition_for_call(call) else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition { call },
+            );
+        };
+
+        if !self.definition_body_contains_raw_token(
+            definition,
+            body_token_range,
+            token.raw.as_str(),
+        ) {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
+            );
+        }
+
+        SourceTokenProvenance::MacroBody { definition, body_token_range, call }
+    }
+
+    fn resolve_macro_argument_token_provenance(
+        &mut self,
+        macro_name: SmolStr,
+        call_range: SourceRange,
+        body_token_range: SourceRange,
+        argument_token_range: SourceRange,
+    ) -> SourceTokenProvenance {
+        let Ok(call) = self.call_for_emitted_token(macro_name, call_range) else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroCall {
+                    source: call_range.source,
+                },
+            );
+        };
+        let Ok(argument_index) = self.argument_index_for_body_token(call, body_token_range) else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroArgument { call },
+            );
+        };
+
+        SourceTokenProvenance::MacroArgument { call, argument_index, argument_token_range }
+    }
+
+    fn call_for_emitted_token(
+        &self,
+        macro_name: SmolStr,
+        call_range: SourceRange,
+    ) -> Result<SourceMacroCallId, ()> {
+        self.call_ids_by_signature
+            .get(&SourceMacroCallSignature::new(macro_name, call_range))
+            .copied()
+            .ok_or(())
+    }
+
+    fn definition_for_call(&self, call: SourceMacroCallId) -> Result<SourceMacroDefinitionId, ()> {
+        let Some(call) = self.tables.macro_calls.get(call) else {
+            return Err(());
+        };
+        match &call.callee {
+            SourceMacroResolution::Resolved { definition, .. } => Ok(*definition),
+            SourceMacroResolution::Undefined | SourceMacroResolution::Unavailable(_) => Err(()),
+        }
+    }
+
+    fn definition_body_contains_raw_token(
+        &self,
+        definition: SourceMacroDefinitionId,
+        body_token_range: SourceRange,
+        raw: &str,
+    ) -> bool {
+        let Some(definition) = self.tables.macro_definitions.get(definition) else {
+            return false;
+        };
+        definition
+            .body_tokens
+            .iter()
+            .any(|token| token.range == Some(body_token_range) && token.raw.as_str() == raw)
+    }
+
+    fn argument_index_for_body_token(
+        &self,
+        call: SourceMacroCallId,
+        body_token_range: SourceRange,
+    ) -> Result<usize, ()> {
+        let definition = self.definition_for_call(call)?;
+        let definition = self.tables.macro_definitions.get(definition).ok_or(())?;
+        let body_token = definition
+            .body_tokens
+            .iter()
+            .find(|token| token.range == Some(body_token_range))
+            .ok_or(())?;
+        let params = definition.params.as_ref().ok_or(())?;
+        params.iter().position(|param| param.name.as_ref() == Some(&body_token.value)).ok_or(())
+    }
+
+    fn source_is_predefine(&self, source: PreprocSourceId) -> bool {
+        self.index.sources.iter().any(|candidate| {
+            candidate.id == source && candidate.origin == PreprocSourceOrigin::Predefine
+        })
+    }
+
+    fn unavailable_token_provenance(
+        &mut self,
+        reason: SourcePreprocUnavailable,
+    ) -> SourceTokenProvenance {
+        self.token_provenance_partial = true;
+        SourceTokenProvenance::Unavailable(reason)
     }
 
     fn resolve_visible_reference(&mut self, name: &str) -> SourceMacroResolution {

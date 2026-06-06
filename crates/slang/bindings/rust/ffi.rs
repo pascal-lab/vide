@@ -86,6 +86,7 @@ mod slang_ffi {
     struct RawPreprocessorTraceToken {
         raw_text: String,
         value_text: String,
+        token_kind: u16,
         range: RawSourceBufferRange,
         has_token: bool,
     }
@@ -113,6 +114,19 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceEmittedToken {
+        raw_text: String,
+        value_text: String,
+        token_kind: u16,
+        provenance_kind: u8,
+        macro_name: String,
+        token_range: RawSourceBufferRange,
+        call_range: RawSourceBufferRange,
+        body_token_range: RawSourceBufferRange,
+        argument_token_range: RawSourceBufferRange,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTraceIncludeEdge {
         include_event_id: u32,
         included_buffer_id: u32,
@@ -125,6 +139,7 @@ mod slang_ffi {
         source_buffers: Vec<RawSourceBufferId>,
         events: Vec<RawPreprocessorTraceEvent>,
         include_edges: Vec<RawPreprocessorTraceIncludeEdge>,
+        emitted_tokens: Vec<RawPreprocessorTraceEmittedToken>,
     }
 
     #[namespace = "slang"]

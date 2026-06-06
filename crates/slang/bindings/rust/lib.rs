@@ -135,6 +135,7 @@ pub struct PreprocessorTrace {
     pub source_buffers: Vec<SourceBufferId>,
     pub events: Vec<PreprocessorTraceEvent>,
     pub include_edges: Vec<PreprocessorTraceIncludeEdge>,
+    pub emitted_tokens: Vec<PreprocessorTraceEmittedToken>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -161,9 +162,40 @@ pub struct PreprocessorTraceEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceEmittedToken {
+    pub raw_text: String,
+    pub value_text: String,
+    pub token_kind: TokenKind,
+    pub provenance: PreprocessorTraceTokenProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreprocessorTraceTokenProvenance {
+    Source {
+        token_range: SourceBufferRange,
+    },
+    MacroBody {
+        macro_name: String,
+        call_range: SourceBufferRange,
+        body_token_range: SourceBufferRange,
+    },
+    MacroArgument {
+        macro_name: String,
+        call_range: SourceBufferRange,
+        body_token_range: SourceBufferRange,
+        argument_token_range: SourceBufferRange,
+    },
+    Builtin {
+        name: String,
+    },
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocessorTraceToken {
     pub raw_text: String,
     pub value_text: String,
+    pub token_kind: TokenKind,
     pub range: Option<SourceBufferRange>,
 }
 
@@ -315,6 +347,11 @@ impl PreprocessorTrace {
                     included_buffer_id: edge.included_buffer_id,
                 })
                 .collect(),
+            emitted_tokens: raw
+                .emitted_tokens
+                .into_iter()
+                .map(PreprocessorTraceEmittedToken::from_raw)
+                .collect(),
         })
     }
 }
@@ -349,12 +386,85 @@ impl PreprocessorTraceEvent {
     }
 }
 
+impl PreprocessorTraceEmittedToken {
+    #[inline]
+    fn from_raw(raw: ffi::RawPreprocessorTraceEmittedToken) -> Self {
+        Self {
+            raw_text: raw.raw_text,
+            value_text: raw.value_text,
+            token_kind: TokenKind::from_id(raw.token_kind),
+            provenance: PreprocessorTraceTokenProvenance::from_raw(
+                raw.provenance_kind,
+                raw.macro_name,
+                raw.token_range,
+                raw.call_range,
+                raw.body_token_range,
+                raw.argument_token_range,
+            ),
+        }
+    }
+}
+
+impl PreprocessorTraceTokenProvenance {
+    const BUILTIN: u8 = 4;
+    const MACRO_ARGUMENT: u8 = 3;
+    const MACRO_BODY: u8 = 2;
+    const SOURCE: u8 = 1;
+    const UNAVAILABLE: u8 = 0;
+
+    #[inline]
+    fn from_raw(
+        kind: u8,
+        macro_name: String,
+        token_range: ffi::RawSourceBufferRange,
+        call_range: ffi::RawSourceBufferRange,
+        body_token_range: ffi::RawSourceBufferRange,
+        argument_token_range: ffi::RawSourceBufferRange,
+    ) -> Self {
+        match kind {
+            Self::SOURCE => SourceBufferRange::from_raw(token_range)
+                .map(|token_range| Self::Source { token_range })
+                .unwrap_or(Self::Unavailable),
+            Self::MACRO_BODY => {
+                let Some(call_range) = SourceBufferRange::from_raw(call_range) else {
+                    return Self::Unavailable;
+                };
+                let Some(body_token_range) = SourceBufferRange::from_raw(body_token_range) else {
+                    return Self::Unavailable;
+                };
+                Self::MacroBody { macro_name, call_range, body_token_range }
+            }
+            Self::MACRO_ARGUMENT => {
+                let Some(call_range) = SourceBufferRange::from_raw(call_range) else {
+                    return Self::Unavailable;
+                };
+                let Some(body_token_range) = SourceBufferRange::from_raw(body_token_range) else {
+                    return Self::Unavailable;
+                };
+                let Some(argument_token_range) = SourceBufferRange::from_raw(argument_token_range)
+                else {
+                    return Self::Unavailable;
+                };
+                Self::MacroArgument {
+                    macro_name,
+                    call_range,
+                    body_token_range,
+                    argument_token_range,
+                }
+            }
+            Self::BUILTIN => Self::Builtin { name: macro_name },
+            Self::UNAVAILABLE | _ => Self::Unavailable,
+        }
+    }
+}
+
 impl PreprocessorTraceToken {
     #[inline]
     fn from_raw(raw: ffi::RawPreprocessorTraceToken) -> Option<Self> {
         raw.has_token.then(|| Self {
             raw_text: raw.raw_text,
             value_text: raw.value_text,
+            token_kind: TokenKind::from_id(raw.token_kind),
             range: SourceBufferRange::from_raw(raw.range),
         })
     }
