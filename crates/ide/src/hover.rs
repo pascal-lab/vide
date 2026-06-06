@@ -117,12 +117,11 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
-    if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
+    if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
         return Some(RangeInfo::new(definition.range, macro_param_definition_markup(&definition)));
     }
 
-    let param_resolution = macro_param_reference_definitions_at(db, file_id, offset).ok()?;
-    if let Some(param_resolution) = param_resolution {
+    if let Ok(Some(param_resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
         if param_resolution.definitions.is_empty() {
             return None;
         }
@@ -132,18 +131,24 @@ fn handle_preproc_macro(
         ));
     }
 
-    if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
+    if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
         return Some(RangeInfo::new(
             definition.name_range,
             macro_definition_markup(db, &definition),
         ));
     }
 
-    let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
-    if resolution.definitions.is_empty() {
-        return None;
+    if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
+        if resolution.definitions.is_empty() {
+            return None;
+        }
+        return Some(RangeInfo::new(
+            resolution.range,
+            macro_definitions_markup(db, &resolution.definitions),
+        ));
     }
-    Some(RangeInfo::new(resolution.range, macro_definitions_markup(db, &resolution.definitions)))
+
+    None
 }
 
 fn macro_param_definition_markup(definition: &MacroParamDefinition) -> Markup {

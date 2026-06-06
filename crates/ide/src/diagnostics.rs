@@ -495,7 +495,7 @@ mod tests {
             files,
             SourceRootRole::Local,
             true,
-            PreprocessConfig { predefines, ..PreprocessConfig::default() },
+            PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
         )
     }
 
@@ -833,7 +833,10 @@ mod tests {
             vec![CompilationProfile {
                 source_roots: vec![SourceRootId(0)],
                 top_modules: Vec::new(),
-                preprocess: PreprocessConfig { predefines: Vec::new(), include_dirs: vec![root] },
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![root],
+                    ..PreprocessConfig::default()
+                },
             }],
         )));
         db.apply_change(change);
@@ -950,8 +953,8 @@ mod tests {
                 source_roots: vec![SourceRootId(0)],
                 top_modules: Vec::new(),
                 preprocess: PreprocessConfig {
-                    predefines: Vec::new(),
                     include_dirs: vec![include_root],
+                    ..PreprocessConfig::default()
                 },
             }],
         )));

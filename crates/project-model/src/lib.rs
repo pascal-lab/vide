@@ -58,6 +58,8 @@ pub struct WorkspaceRoot {
     pub source_directories: PathMatcher,
     /// Literal source files from the manifest.
     pub source_files: Vec<AbsPathBuf>,
+    /// Non-source files that still need a VFS identity for IDE features.
+    pub extra_files: Vec<AbsPathBuf>,
     /// Include/search roots loaded as headers and passed to preprocessing.
     pub include_dirs: Vec<AbsPathBuf>,
     pub exclude_globs: Option<PathGlobMatcher>,
@@ -71,6 +73,8 @@ impl WorkspaceRoot {
     pub fn file_set_paths(&self) -> Vec<AbsPathBuf> {
         let mut paths = self.include_dirs.clone();
         paths.extend(self.source.scan_roots().cloned());
+        paths.extend(self.source_files.iter().cloned());
+        paths.extend(self.extra_files.iter().cloned());
         sort_and_remove_subfolders(&mut paths);
         paths
     }
@@ -89,6 +93,7 @@ impl WorkspaceRoot {
 
     fn has_load_paths(&self) -> bool {
         !self.source_files.is_empty()
+            || !self.extra_files.is_empty()
             || !self.include_dirs.is_empty()
             || !self.source_directories.is_empty()
     }
@@ -166,6 +171,7 @@ impl Workspace {
 
     fn from_toml(toml: TomlWorkspace, is_lib: bool) -> anyhow::Result<Self> {
         let TomlWorkspace {
+            manifest_path,
             top_modules,
             workspace_root,
             macro_defs,
@@ -209,6 +215,7 @@ impl Workspace {
             source,
             source_directories,
             source_files: source_locations.source_files,
+            extra_files: vec![manifest_path.clone()],
             include_dirs: include_dirs.clone(),
             exclude_globs,
         };
@@ -216,7 +223,7 @@ impl Workspace {
         let semantic_profile = roots
             .iter()
             .any(|root| root.role.participates_in_semantic_profile())
-            .then(|| semantic_profile(top_modules, macro_defs, include_dirs));
+            .then(|| semantic_profile(top_modules, macro_defs, include_dirs, Some(manifest_path)));
 
         Ok(Self { workspace_root, library_paths, kind, roots, semantic_profile })
     }
@@ -230,6 +237,7 @@ impl Workspace {
             source: source.clone(),
             source_directories: source,
             source_files: Vec::new(),
+            extra_files: Vec::new(),
             include_dirs: include_dirs.clone(),
             exclude_globs: None,
         };
@@ -237,7 +245,7 @@ impl Workspace {
         let semantic_profile = roots
             .iter()
             .any(|root| root.role.participates_in_semantic_profile())
-            .then(|| semantic_profile(Vec::new(), MacroDef::default(), include_dirs));
+            .then(|| semantic_profile(Vec::new(), MacroDef::default(), include_dirs, None));
 
         Self {
             workspace_root: path.clone(),
@@ -273,11 +281,12 @@ fn semantic_profile(
     top_modules: Vec<String>,
     macro_defs: MacroDef,
     include_dirs: Vec<AbsPathBuf>,
+    manifest_path: Option<AbsPathBuf>,
 ) -> WorkspaceSemanticProfile {
     WorkspaceSemanticProfile {
         top_modules,
         preprocess: PreprocessConfig {
-            predefines: macro_defs.to_predefine_strings(),
+            predefines: macro_defs.to_predefines(manifest_path.as_ref()),
             include_dirs,
         },
     }
@@ -290,6 +299,7 @@ struct WorkspaceRootParts {
     source: PathMatcher,
     source_directories: PathMatcher,
     source_files: Vec<AbsPathBuf>,
+    extra_files: Vec<AbsPathBuf>,
     include_dirs: Vec<AbsPathBuf>,
     exclude_globs: Option<PathGlobMatcher>,
 }
@@ -300,6 +310,7 @@ impl WorkspaceRootParts {
             source: PathMatcher::all_under_roots(Vec::new()),
             source_directories: PathMatcher::all_under_roots(Vec::new()),
             source_files: Vec::new(),
+            extra_files: self.extra_files.clone(),
             include_dirs: self.include_dirs.clone(),
             exclude_globs: self.exclude_globs.clone(),
         }
@@ -310,6 +321,7 @@ impl WorkspaceRootParts {
             source: self.source.clone(),
             source_directories: self.source_directories.clone(),
             source_files: self.source_files.clone(),
+            extra_files: Vec::new(),
             include_dirs: Vec::new(),
             exclude_globs: self.exclude_globs.clone(),
         }
@@ -358,6 +370,7 @@ fn push_workspace_root(
         source: parts.source,
         source_directories: parts.source_directories,
         source_files: parts.source_files,
+        extra_files: parts.extra_files,
         include_dirs: parts.include_dirs,
         exclude_globs: parts.exclude_globs,
     };
@@ -610,8 +623,17 @@ pub fn get_workspace_folder(
             if !root.source.is_empty() {
                 include.push(root.source.clone());
             }
-            let source =
+            if !root.source_files.is_empty() {
+                include.push(PathMatcher::all_under_roots(root.source_files.clone()));
+            }
+            if !root.extra_files.is_empty() {
+                include.push(PathMatcher::all_under_roots(root.extra_files.clone()));
+            }
+            let mut source =
                 if root.source.is_empty() { Vec::new() } else { vec![root.source.clone()] };
+            if !root.source_files.is_empty() {
+                source.push(PathMatcher::all_under_roots(root.source_files.clone()));
+            }
 
             let mut load_entries = Vec::new();
             let source_files = root
@@ -641,6 +663,18 @@ pub fn get_workspace_folder(
                     exclude_globs: root.exclude_globs.clone(),
                 };
                 load_entries.push(vfs::loader::Entry::Directories(dirs));
+            }
+
+            let extra_files = root
+                .extra_files
+                .iter()
+                .filter(|path| {
+                    !is_excluded_load_file(path.as_path(), &exclude_paths, &root.exclude_globs)
+                })
+                .cloned()
+                .collect_vec();
+            if !extra_files.is_empty() {
+                load_entries.push(vfs::loader::Entry::Files(extra_files));
             }
 
             let root_idx = fsc.len();
@@ -901,33 +935,10 @@ libraries = ["../pkg/rtl"]
     }
 
     #[test]
-    fn empty_manifest_has_no_compilation_profile() {
+    fn empty_manifest_loads_manifest_without_systemverilog_source() {
         let root = TestDir::new("project-model-empty-manifest");
-        fs::write(root.join(project_manifest::MANIFEST_FILE_NAME), "").unwrap();
-
-        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
-        let (model, errors) = ProjectModel::load(vec![manifest]);
-        let (_, _, source_root_config, project_config) =
-            get_workspace_folder(&model.workspaces, &[]);
-
-        assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(model.workspaces.len(), 1);
-        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::BestEffortIndex);
-        assert_eq!(
-            source_root_config.fileset_roles,
-            vec![SourceRootRole::BestEffortIndex, SourceRootRole::Ignored]
-        );
-        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
-    }
-
-    #[test]
-    fn syntax_only_default_manifest_has_no_compilation_profile() {
-        let root = TestDir::new("project-model-syntax-only-manifest");
-        fs::write(
-            root.join(project_manifest::MANIFEST_FILE_NAME),
-            "sources = []\ninclude_dirs = []\n",
-        )
-        .unwrap();
+        let manifest_path = root.join(project_manifest::MANIFEST_FILE_NAME);
+        fs::write(&manifest_path, "").unwrap();
 
         let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
         let (model, errors) = ProjectModel::load(vec![manifest]);
@@ -936,10 +947,42 @@ libraries = ["../pkg/rtl"]
 
         assert!(errors.is_empty(), "{errors:#?}");
         assert_eq!(model.workspaces.len(), 1);
-        assert!(model.workspaces[0].roots().is_empty());
-        assert!(load.is_empty());
-        assert_eq!(source_root_config.fileset_roles, vec![SourceRootRole::Ignored]);
-        assert_eq!(project_config.profile_for_root(SourceRootId(0)), None);
+        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::Local);
+        assert_eq!(
+            source_root_config.fileset_roles,
+            vec![SourceRootRole::Local, SourceRootRole::BestEffortIndex, SourceRootRole::Ignored]
+        );
+        assert_eq!(load.len(), 2);
+        assert!(
+            matches!(&load[0], vfs::loader::Entry::Files(files) if files == std::slice::from_ref(&manifest_path))
+        );
+        assert!(matches!(&load[1], vfs::loader::Entry::Directories(_)));
+        assert!(project_config.profile_for_root(SourceRootId(0)).is_some());
+    }
+
+    #[test]
+    fn syntax_only_default_manifest_loads_manifest_without_systemverilog_source() {
+        let root = TestDir::new("project-model-syntax-only-manifest");
+        let manifest_path = root.join(project_manifest::MANIFEST_FILE_NAME);
+        fs::write(&manifest_path, "sources = []\ninclude_dirs = []\n").unwrap();
+
+        let manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![manifest]);
+        let (load, _, source_root_config, project_config) =
+            get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert_eq!(model.workspaces.len(), 1);
+        assert_eq!(model.workspaces[0].roots()[0].role, SourceRootRole::Local);
+        assert_eq!(load.len(), 1);
+        assert!(
+            matches!(&load[0], vfs::loader::Entry::Files(files) if files == std::slice::from_ref(&manifest_path))
+        );
+        assert_eq!(
+            source_root_config.fileset_roles,
+            vec![SourceRootRole::Local, SourceRootRole::Ignored]
+        );
+        assert!(project_config.profile_for_root(SourceRootId(0)).is_some());
     }
 
     #[test]
@@ -961,7 +1004,7 @@ include_dirs = ["include"]
         let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(load.len(), 1);
+        assert_eq!(load.len(), 2);
         assert_eq!(
             source_root_config.fileset_roles,
             vec![SourceRootRole::Local, SourceRootRole::Ignored]
@@ -991,7 +1034,7 @@ include_dirs = ["include"]
             get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(load.len(), 2);
+        assert_eq!(load.len(), 3);
         assert_eq!(
             source_root_config.fileset_roles,
             vec![SourceRootRole::Local, SourceRootRole::BestEffortIndex, SourceRootRole::Ignored]
@@ -1048,6 +1091,39 @@ include_dirs = ["include"]
     }
 
     #[test]
+    fn manifest_file_is_loaded_for_navigation_without_becoming_systemverilog_source() {
+        let root = TestDir::new("project-model-manifest-vfs-root");
+        let rtl = root.create_dir_all("rtl");
+        let top = rtl.join("top.sv");
+        fs::write(&top, "module top; endmodule\n").unwrap();
+        let manifest = root.join(project_manifest::MANIFEST_FILE_NAME);
+        fs::write(&manifest, "sources = [\"rtl/**\"]\ndefines = [\"FROM_MANIFEST=1\"]\n").unwrap();
+
+        let project_manifest = ProjectManifest::from_path(&root.path().to_path_buf()).unwrap();
+        let (model, errors) = ProjectModel::load(vec![project_manifest]);
+        let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
+
+        assert!(errors.is_empty(), "{errors:#?}");
+        assert!(load.iter().any(|entry| {
+            matches!(entry, vfs::loader::Entry::Files(files) if files.contains(&manifest))
+        }));
+
+        let mut vfs = Vfs::default();
+        for file in [&top, &manifest] {
+            vfs.set_file_contents(
+                &VfsPath::from(file.clone()),
+                LoadResult::Loaded(String::new(), LineEnding::Unix),
+            );
+        }
+
+        let roots = source_root_config.partition(&vfs);
+        let manifest_id = roots[0].file_for_path(&VfsPath::from(manifest)).unwrap();
+        let top_id = roots[0].file_for_path(&VfsPath::from(top)).unwrap();
+        assert_eq!(roots[0].file_kind(&manifest_id), SourceFileKind::ProjectManifest);
+        assert_eq!(roots[0].file_kind(&top_id), SourceFileKind::SystemVerilog);
+    }
+
+    #[test]
     fn exclude_globs_filter_loaded_source_files() {
         let base = TestDir::new("project-model-excluded-source-root");
         let root = base.join("root");
@@ -1066,7 +1142,7 @@ exclude = ["rtl/**"]
         let (load, _, _, project_config) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(load.len(), 1);
+        assert_eq!(load.len(), 2);
         let dirs = match &load[0] {
             vfs::loader::Entry::Directories(dirs) => dirs,
             other => panic!("expected directory loader entry, got {other:?}"),
@@ -1099,7 +1175,7 @@ exclude = ["rtl/excluded/**"]
         let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(load.len(), 1);
+        assert_eq!(load.len(), 2);
         let dirs = match &load[0] {
             vfs::loader::Entry::Directories(dirs) => dirs,
             other => panic!("expected directory loader entry, got {other:?}"),
@@ -1224,7 +1300,7 @@ include_dirs = []
         let (load, _, source_root_config, _) = get_workspace_folder(&model.workspaces, &[]);
 
         assert!(errors.is_empty(), "{errors:#?}");
-        assert_eq!(load.len(), 1);
+        assert_eq!(load.len(), 2);
         assert!(
             matches!(&load[0], vfs::loader::Entry::Files(files) if files == std::slice::from_ref(&top))
         );
