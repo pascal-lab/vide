@@ -1,6 +1,3 @@
-use std::collections::BTreeMap;
-
-use smol_str::SmolStr;
 use syntax::PreprocessorTrace;
 
 use super::{provenance::*, types::*};
@@ -104,11 +101,11 @@ impl SourcePreprocModel {
             .filter_map(|(source_order, directive)| self.event_from_record(source_order, directive))
     }
 
-    pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<SourceMacroBinding<'_>> {
+    pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<&SourceMacroDefinition> {
         self.tables
             .state_timeline
             .state_at_position(position)
-            .map(|state| self.bindings_for_state(state))
+            .map(|state| self.definitions_for_state(state))
             .unwrap_or_default()
     }
 
@@ -162,99 +159,12 @@ impl SourcePreprocModel {
         self.index.conditionals.get(index)
     }
 
-    pub fn include_chain_for_source(
-        &self,
-        source: PreprocSourceId,
-    ) -> Result<Vec<SourceIncludeChainEntry>, SourcePreprocError> {
-        let mut chain = Vec::new();
-        let mut current = source;
-        let mut visited = BTreeMap::new();
-
-        loop {
-            if visited.insert(current, ()).is_some() {
-                return Err(SourcePreprocError::IncludeCycle { source: current.raw() });
-            }
-
-            let Some(source) = self.index.sources.iter().find(|candidate| candidate.id == current)
-            else {
-                return Err(SourcePreprocError::MissingIncludedSource {
-                    include_event_id: 0,
-                    source: current.raw(),
-                });
-            };
-
-            match source.origin {
-                PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => break,
-                PreprocSourceOrigin::Detached => {
-                    return Err(SourcePreprocError::MissingIncludeEdge { source: current.raw() });
-                }
-                PreprocSourceOrigin::Included { include_event_id } => {
-                    let directive = self.event_record_by_event_id(include_event_id).ok_or(
-                        SourcePreprocError::MissingIncludeEvent {
-                            include_event_id: include_event_id.raw(),
-                        },
-                    )?;
-                    if directive.kind != MacroEventKind::Include {
-                        return Err(SourcePreprocError::IncludeEdgeNotInclude {
-                            include_event_id: include_event_id.raw(),
-                        });
-                    }
-                    chain.push(SourceIncludeChainEntry {
-                        include_event_id,
-                        include_range: directive.range,
-                        included_source: current,
-                    });
-                    current = directive.range.source;
-                }
-            }
-        }
-
-        chain.reverse();
-        Ok(chain)
-    }
-
-    fn event_record_by_event_id(
-        &self,
-        event_id: SourcePreprocEventId,
-    ) -> Option<&SourcePreprocEventRecord> {
-        self.index.event_records.iter().find(|directive| directive.event_id == event_id)
-    }
-
-    fn bindings_for_state(&self, state: &SourceMacroState) -> Vec<SourceMacroBinding<'_>> {
+    fn definitions_for_state(&self, state: &SourceMacroState) -> Vec<&SourceMacroDefinition> {
         state
             .definitions
-            .iter()
-            .filter_map(|(name, definition_id)| {
-                let define_index = self.define_index_for_definition_id(*definition_id)?;
-                self.binding_for_define_index(name.clone(), define_index)
-            })
+            .values()
+            .filter_map(|definition_id| self.tables.macro_definitions.get(*definition_id))
             .collect()
-    }
-
-    pub(super) fn binding_for_define_index(
-        &self,
-        name: SmolStr,
-        define_index: usize,
-    ) -> Option<SourceMacroBinding<'_>> {
-        let define = self.index.defines.get(define_index)?;
-        Some(SourceMacroBinding { name, event_id: define.event_id, define_index, define })
-    }
-
-    pub(super) fn binding_for_definition_id(
-        &self,
-        definition_id: SourceMacroDefinitionId,
-    ) -> Option<SourceMacroBinding<'_>> {
-        let definition = self.tables.macro_definitions.get(definition_id)?;
-        let define_index = self.define_index_for_definition_id(definition_id)?;
-        self.binding_for_define_index(definition.name.clone(), define_index)
-    }
-
-    fn define_index_for_definition_id(
-        &self,
-        definition_id: SourceMacroDefinitionId,
-    ) -> Option<usize> {
-        let definition = self.tables.macro_definitions.get(definition_id)?;
-        self.index.defines.iter().position(|define| define.event_id == definition.event_id)
     }
 
     fn event_from_record(
@@ -323,6 +233,7 @@ impl SourcePreprocModel {
 
 #[cfg(test)]
 mod tests {
+    use smol_str::SmolStr;
     use syntax::{
         PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
         PreprocessorTraceToken, SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
@@ -402,20 +313,62 @@ mod tests {
         model
             .visible_macros_at(SourcePosition { source, offset })
             .into_iter()
-            .map(|binding| binding.name)
+            .map(|definition| definition.name.clone())
             .collect()
     }
 
-    fn visible_macro_binding<'a>(
+    fn visible_macro_definition<'a>(
         model: &'a SourcePreprocModel,
         source: PreprocSourceId,
         offset: TextSize,
         name: &str,
-    ) -> Option<SourceMacroBinding<'a>> {
+    ) -> Option<&'a SourceMacroDefinition> {
         model
             .visible_macros_at(SourcePosition { source, offset })
             .into_iter()
-            .find(|binding| binding.name == name)
+            .find(|definition| definition.name == name)
+    }
+
+    fn reference_for_usage(
+        model: &SourcePreprocModel,
+        usage_index: usize,
+    ) -> &SourceMacroReference {
+        model
+            .macro_references()
+            .iter()
+            .find(|reference| {
+                matches!(
+                    reference.site,
+                    SourceMacroReferenceSite::Usage {
+                        usage_index: site_usage_index,
+                    } if site_usage_index == usage_index
+                )
+            })
+            .expect("usage reference should be in resolved reference table")
+    }
+
+    fn reference_for_conditional_token(
+        model: &SourcePreprocModel,
+        conditional_index: usize,
+        token_index: usize,
+    ) -> &SourceMacroReference {
+        model
+            .macro_references()
+            .iter()
+            .find(|reference| {
+                matches!(
+                    reference.site,
+                    SourceMacroReferenceSite::ConditionalToken {
+                        conditional_index: site_conditional_index,
+                        token_index: site_token_index,
+                    } | SourceMacroReferenceSite::IncludeGuardIfNDef {
+                        conditional_index: site_conditional_index,
+                        token_index: site_token_index,
+                    } if site_conditional_index == conditional_index
+                        && site_token_index == token_index
+                )
+            })
+            .expect("conditional token reference should be in resolved reference table")
     }
 
     #[test]
@@ -432,24 +385,24 @@ logic [`HEADER_WIDTH-1:0] data;
                 .any(|name| name == "HEADER_WIDTH")
         );
 
-        let after_include = visible_macro_binding(
+        let after_include = visible_macro_definition(
             &model,
             root_source,
             offset_after(root_text, "`include \"defs.vh\"\n"),
             "HEADER_WIDTH",
         )
         .unwrap();
-        assert_eq!(after_include.define_index, 0);
+        assert_eq!(after_include.id.raw(), 0);
 
-        let binding = model
+        let definition = model
             .visible_macros_at(SourcePosition {
                 source: root_source,
                 offset: offset_after(root_text, "`include \"defs.vh\"\n"),
             })
             .into_iter()
-            .find(|binding| binding.name == "HEADER_WIDTH")
+            .find(|definition| definition.name == "HEADER_WIDTH")
             .unwrap();
-        assert_eq!(binding.define.name_range.unwrap().source, header_source);
+        assert_eq!(definition.name_range.source, header_source);
     }
 
     #[test]
@@ -461,18 +414,18 @@ logic [`HEADER_WIDTH-1:0] data;
         let header_text = "`define HEADER_WIDTH 8\n";
         let (model, root_source, header_source) = source_model(root_text, header_text);
 
-        let after_include = visible_macro_binding(
+        let after_include = visible_macro_definition(
             &model,
             root_source,
             offset_after(root_text, "`include \"defs.vh\"\n"),
             "HEADER_WIDTH",
         )
         .unwrap();
-        assert_eq!(after_include.define_index, 0);
+        assert_eq!(after_include.id.raw(), 0);
         assert_eq!(model.defines()[0].name_range.unwrap().source, header_source);
 
         assert!(
-            visible_macro_binding(
+            visible_macro_definition(
                 &model,
                 root_source,
                 offset_after(root_text, "`undef HEADER_WIDTH\n"),
@@ -496,25 +449,25 @@ logic [`HEADER_WIDTH-1:0] data;
         assert_eq!(model.defines()[0].name_range.unwrap().source, header_source);
         assert_eq!(model.defines()[1].name_range.unwrap().source, root_source);
 
-        let after_override = visible_macro_binding(
+        let after_override = visible_macro_definition(
             &model,
             root_source,
             offset_after(root_text, "`define HEADER_WIDTH 16\n"),
             "HEADER_WIDTH",
         )
         .unwrap();
-        assert_eq!(after_override.define_index, 1);
+        assert_eq!(after_override.id.raw(), 1);
 
-        let binding = model
+        let definition = model
             .visible_macros_at(SourcePosition {
                 source: root_source,
                 offset: offset_after(root_text, "`define HEADER_WIDTH 16\n"),
             })
             .into_iter()
-            .find(|binding| binding.name == "HEADER_WIDTH")
+            .find(|definition| definition.name == "HEADER_WIDTH")
             .unwrap();
-        assert_eq!(binding.define.body[0].value.as_str(), "16");
-        assert_eq!(binding.define.name_range.unwrap().source, root_source);
+        assert_eq!(definition.body_tokens[0].value.as_str(), "16");
+        assert_eq!(definition.name_range.source, root_source);
     }
 
     #[test]
@@ -600,14 +553,20 @@ logic [`HEADER_WIDTH-1:0] data;
         assert_eq!(usage.range.source, root_source);
         assert_eq!(usage.name_range.unwrap().source, root_source);
 
-        let resolution = model.definition_for_usage(usage_index).unwrap().unwrap();
-        assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
-        assert_eq!(resolution.definition.define.name_range.unwrap().source, header_source);
-        assert_eq!(resolution.definition.define.body[0].value.as_str(), "8");
-        assert_eq!(resolution.definition_provenance.event_id, resolution.definition.event_id);
-        assert_eq!(resolution.definition_include_chain.len(), 1);
-        assert_eq!(resolution.definition_include_chain[0].include_range.source, root_source);
-        assert_eq!(resolution.definition_include_chain[0].included_source, header_source);
+        let reference = reference_for_usage(&model, usage_index);
+        let SourceMacroResolution::Resolved { definition, include_chain, reason } =
+            &reference.resolution
+        else {
+            panic!("usage reference should resolve to included definition");
+        };
+        assert_eq!(*reason, SourceMacroResolutionReason::VisibleDefinition);
+        let definition = model.macro_definitions().get(*definition).unwrap();
+        assert_eq!(definition.name.as_str(), "HEADER_WIDTH");
+        assert_eq!(definition.name_range.source, header_source);
+        assert_eq!(definition.body_tokens[0].value.as_str(), "8");
+        assert_eq!(include_chain.len(), 1);
+        assert_eq!(include_chain[0].include_range.source, root_source);
+        assert_eq!(include_chain[0].included_source, header_source);
     }
 
     #[test]
@@ -700,23 +659,19 @@ wire active;
             .iter()
             .position(|conditional| conditional.kind == MacroConditionalKind::IfDef)
             .expect("ifdef should be traced");
-        let binding = model.definition_for_conditional_token(conditional_index, 0).unwrap();
+        let reference = reference_for_conditional_token(&model, conditional_index, 0);
 
-        assert_eq!(binding.name.as_str(), "HEADER_FLAG");
-        assert_eq!(binding.define.name_range.unwrap().source, header_source);
-
-        let references = model.resolved_macro_references().unwrap();
-        assert!(references.iter().any(|reference| {
-            matches!(
-                reference.site,
-                SourceMacroReferenceSite::ConditionalToken {
-                    conditional_index: site_conditional_index,
-                    token_index: 0,
-                } if site_conditional_index == conditional_index
-            ) && reference.name.as_str() == "HEADER_FLAG"
-                && reference.range.source == root_source
-                && reference.definition.define.name_range.unwrap().source == header_source
-        }));
+        assert_eq!(reference.name.as_str(), "HEADER_FLAG");
+        assert_eq!(reference.name_range.source, root_source);
+        let SourceMacroResolution::Resolved { definition, reason, .. } = reference.resolution
+        else {
+            panic!("conditional token reference should resolve to visible definition");
+        };
+        assert_eq!(reason, SourceMacroResolutionReason::VisibleDefinition);
+        assert_eq!(
+            model.macro_definitions().get(definition).unwrap().name_range.source,
+            header_source
+        );
     }
 
     #[test]
@@ -740,23 +695,6 @@ wire active;
                     && conditional.range.source == header_source
             })
             .expect("ifndef guard should be traced");
-        let binding = model.definition_for_conditional_token(conditional_index, 0).unwrap();
-
-        assert_eq!(binding.name.as_str(), "HEADER_FLAG");
-        assert_eq!(binding.define.name_range.unwrap().source, header_source);
-
-        let references = model.resolved_macro_references().unwrap();
-        assert!(references.iter().any(|reference| {
-            matches!(
-                reference.site,
-                SourceMacroReferenceSite::IncludeGuardIfNDef {
-                    conditional_index: site_conditional_index,
-                    token_index: 0,
-                } if site_conditional_index == conditional_index
-            ) && reference.name.as_str() == "HEADER_FLAG"
-                && reference.range.source == header_source
-                && reference.definition.define.name_range.unwrap().source == header_source
-        }));
         let reference = model
             .macro_references()
             .iter()
@@ -770,6 +708,8 @@ wire active;
                 )
             })
             .expect("include guard token should be modeled as a resolved reference");
+        assert_eq!(reference.name.as_str(), "HEADER_FLAG");
+        assert_eq!(reference.name_range.source, header_source);
         assert!(matches!(
             reference.resolution,
             SourceMacroResolution::Resolved {
@@ -810,14 +750,22 @@ logic [`LEAF_WIDTH-1:0] data;
             .iter()
             .position(|usage| usage.name.as_deref() == Some("LEAF_WIDTH"))
             .expect("root macro usage should be traced");
-        let resolution = model.definition_for_usage(usage_index).unwrap().unwrap();
+        let reference = reference_for_usage(&model, usage_index);
+        let SourceMacroResolution::Resolved { definition, include_chain, .. } =
+            &reference.resolution
+        else {
+            panic!("usage reference should resolve to nested included definition");
+        };
 
-        assert_eq!(resolution.definition.define.name_range.unwrap().source, leaf_source);
-        assert_eq!(resolution.definition_include_chain.len(), 2);
-        assert_eq!(resolution.definition_include_chain[0].include_range.source, root_source);
-        assert_eq!(resolution.definition_include_chain[0].included_source, header_source);
-        assert_eq!(resolution.definition_include_chain[1].include_range.source, header_source);
-        assert_eq!(resolution.definition_include_chain[1].included_source, leaf_source);
+        assert_eq!(
+            model.macro_definitions().get(*definition).unwrap().name_range.source,
+            leaf_source
+        );
+        assert_eq!(include_chain.len(), 2);
+        assert_eq!(include_chain[0].include_range.source, root_source);
+        assert_eq!(include_chain[0].included_source, header_source);
+        assert_eq!(include_chain[1].include_range.source, header_source);
+        assert_eq!(include_chain[1].included_source, leaf_source);
     }
 
     #[test]

@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use smol_str::SmolStr;
 use utils::line_index::{TextRange, TextSize};
 
@@ -161,28 +159,6 @@ pub struct SourcePreprocModel {
     pub(super) tables: SourcePreprocTables,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SourceMacroEnvironment {
-    pub(super) definitions: BTreeMap<SmolStr, usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroBinding<'a> {
-    pub name: SmolStr,
-    pub event_id: SourcePreprocEventId,
-    pub define_index: usize,
-    pub define: &'a SourceMacroDefine,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroUsageResolution<'a> {
-    pub usage_index: usize,
-    pub usage: &'a SourceMacroUsage,
-    pub definition: SourceMacroBinding<'a>,
-    pub definition_provenance: SourcePreprocProvenance,
-    pub definition_include_chain: Vec<SourceIncludeChainEntry>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourcePreprocEntity {
     Define(usize),
@@ -272,32 +248,6 @@ impl SourcePreprocEventId {
 impl From<u32> for PreprocSourceId {
     fn from(value: u32) -> Self {
         Self::new(value)
-    }
-}
-
-impl SourceMacroEnvironment {
-    pub fn define_index(&self, name: &str) -> Option<usize> {
-        self.definitions.get(name).copied()
-    }
-
-    pub fn contains(&self, name: &str) -> bool {
-        self.definitions.contains_key(name)
-    }
-
-    pub fn len(&self) -> usize {
-        self.definitions.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.definitions.is_empty()
-    }
-
-    pub fn names(&self) -> impl Iterator<Item = &SmolStr> {
-        self.definitions.keys()
-    }
-
-    pub fn definitions(&self) -> &BTreeMap<SmolStr, usize> {
-        &self.definitions
     }
 }
 

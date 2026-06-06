@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use preproc::source::{
     CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceIncludeChainEntry,
-    SourceIncludeDirectiveId, SourceIncludeStatus, SourceMacroBinding,
+    SourceIncludeDirectiveId, SourceIncludeStatus,
     SourceMacroDefinition as SourceMacroDefinitionFact, SourceMacroDefinitionId,
     SourceMacroReference as SourceMacroReferenceFact, SourceMacroReferenceId,
     SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
@@ -374,7 +374,7 @@ pub fn visible_macros_at(
         .model
         .visible_macros_at(position)
         .into_iter()
-        .filter_map(|binding| map_binding_definition(mapped, binding).transpose())
+        .map(|definition| map_macro_definition(mapped, definition))
         .collect()
 }
 
@@ -388,8 +388,8 @@ pub fn visible_macro_names_at(
     let position = root_position(mapped, offset)?;
 
     let mut names = UniqVec::<SmolStr, SmolStr>::default();
-    for binding in mapped.model.visible_macros_at(position) {
-        names.push_unique(binding.name);
+    for definition in mapped.model.visible_macros_at(position) {
+        names.push_unique(definition.name.clone());
     }
     for name in configured_predefine_names(db, file_id) {
         names.push_unique(name);
@@ -964,21 +964,6 @@ fn map_include_chain(
             })
         })
         .collect()
-}
-
-fn map_binding_definition(
-    mapped: &MappedSourcePreprocModel,
-    binding: SourceMacroBinding<'_>,
-) -> PreprocResult<Option<MacroDefinition>> {
-    let Some(definition) = mapped
-        .model
-        .macro_definitions()
-        .iter()
-        .find(|definition| definition.event_id == binding.event_id)
-    else {
-        return Ok(None);
-    };
-    Ok(Some(map_macro_definition(mapped, definition)?))
 }
 
 fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroReference) {
