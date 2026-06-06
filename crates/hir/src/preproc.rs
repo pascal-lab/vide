@@ -1,9 +1,14 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceIncludeChainEntry,
-    SourceIncludeDirectiveId, SourceIncludeStatus,
+    CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenRange,
+    SourceIncludeChainEntry, SourceIncludeDirectiveId, SourceIncludeStatus,
+    SourceMacroCall as SourceMacroCallFact, SourceMacroCallId,
+    SourceMacroCallStatus as SourceMacroCallStatusFact,
     SourceMacroDefinition as SourceMacroDefinitionFact, SourceMacroDefinitionId,
+    SourceMacroExpansion as SourceMacroExpansionFact, SourceMacroExpansionId,
+    SourceMacroExpansionQuery as SourceMacroExpansionQueryFact,
+    SourceMacroExpansionStatus as SourceMacroExpansionStatusFact,
     SourceMacroReference as SourceMacroReferenceFact, SourceMacroReferenceId,
     SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
     SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePosition,
@@ -87,6 +92,8 @@ macro_rules! mapped_preproc_id {
 mapped_preproc_id!(MacroDefinitionId, SourceMacroDefinitionId);
 mapped_preproc_id!(MacroReferenceId, SourceMacroReferenceId);
 mapped_preproc_id!(IncludeDirectiveId, SourceIncludeDirectiveId);
+mapped_preproc_id!(MacroCallId, SourceMacroCallId);
+mapped_preproc_id!(MacroExpansionId, SourceMacroExpansionId);
 
 impl MacroDefinitionId {
     fn core_id(self) -> SourceMacroDefinitionId {
@@ -202,6 +209,48 @@ pub struct MacroReferenceDefinitions {
     pub definitions: Vec<MacroDefinition>,
     pub resolution: MacroResolution,
     pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroCall {
+    pub id: MacroCallId,
+    pub reference_id: MacroReferenceId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub directive_range: TextRange,
+    pub range: TextRange,
+    pub callee: MacroResolution,
+    pub expansion: Option<MacroExpansionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansion {
+    pub id: MacroExpansionId,
+    pub call: MacroCall,
+    pub definition_id: MacroDefinitionId,
+    pub emitted_token_range: SourceEmittedTokenRange,
+    pub child_calls: Vec<MacroCallId>,
+    pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroExpansionQuery {
+    Available(MacroExpansion),
+    Unavailable(MacroExpansionUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansionUnavailable {
+    pub call: MacroCall,
+    pub reason: PreprocUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecursiveMacroExpansion {
+    pub root_call: MacroCall,
+    pub expansions: Vec<MacroExpansion>,
+    pub unavailable: Vec<MacroExpansionUnavailable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -567,6 +616,78 @@ pub fn macro_reference_definitions_at(
     }))
 }
 
+pub fn immediate_macro_expansion_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<MacroExpansionQuery>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+        return Ok(None);
+    };
+    let call = map_macro_call(mapped, call_fact)?;
+
+    Ok(Some(match mapped.model.immediate_macro_expansion(call_fact.id) {
+        SourceMacroExpansionQueryFact::Available(expansion) => {
+            let Some(expansion) = mapped.model.macro_expansions().get(expansion) else {
+                return Ok(Some(MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
+                    call,
+                    reason: PreprocUnavailable::Source(
+                        SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
+                    ),
+                })));
+            };
+            MacroExpansionQuery::Available(map_macro_expansion(mapped, expansion)?)
+        }
+        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+            MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
+                call,
+                reason: PreprocUnavailable::Source(reason),
+            })
+        }
+    }))
+}
+
+pub fn recursive_macro_expansion_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<RecursiveMacroExpansion>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+        return Ok(None);
+    };
+    let root_call = map_macro_call(mapped, call_fact)?;
+    let recursive = mapped.model.recursive_macro_expansion(call_fact.id);
+    let expansions = recursive
+        .expansions
+        .into_iter()
+        .filter_map(|expansion| mapped.model.macro_expansions().get(expansion))
+        .map(|expansion| map_macro_expansion(mapped, expansion))
+        .collect::<PreprocResult<Vec<_>>>()?;
+    let unavailable = recursive
+        .unavailable
+        .into_iter()
+        .map(|unavailable| {
+            let Some(call) = mapped.model.macro_calls().get(unavailable.call) else {
+                return Err(PreprocError::Unavailable {
+                    reason: PreprocUnavailable::Source(
+                        SourcePreprocUnavailable::MissingMacroCall { call: unavailable.call },
+                    ),
+                });
+            };
+            Ok(MacroExpansionUnavailable {
+                call: map_macro_call(mapped, call)?,
+                reason: PreprocUnavailable::Source(unavailable.reason),
+            })
+        })
+        .collect::<PreprocResult<Vec<_>>>()?;
+
+    Ok(Some(RecursiveMacroExpansion { root_call, expansions, unavailable }))
+}
+
 pub fn macro_references(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -836,6 +957,58 @@ fn map_macro_reference(
     })
 }
 
+fn map_macro_call(
+    mapped: &MappedSourcePreprocModel,
+    call: &SourceMacroCallFact,
+) -> PreprocResult<MacroCall> {
+    let (source, range) = map_mapped_source_range(mapped, call.call_range)?;
+    Ok(MacroCall {
+        id: call.id.into(),
+        reference_id: call.reference.into(),
+        file_id: source.file_id(),
+        source,
+        capability: macro_call_availability(&call.status),
+        directive_range: range,
+        range,
+        callee: map_macro_resolution(mapped, &call.callee)?,
+        expansion: call.expansion.map(Into::into),
+    })
+}
+
+fn map_macro_expansion(
+    mapped: &MappedSourcePreprocModel,
+    expansion: &SourceMacroExpansionFact,
+) -> PreprocResult<MacroExpansion> {
+    let Some(call) = mapped.model.macro_calls().get(expansion.call) else {
+        return Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::Source(SourcePreprocUnavailable::MissingMacroCall {
+                call: expansion.call,
+            }),
+        });
+    };
+    Ok(MacroExpansion {
+        id: expansion.id.into(),
+        call: map_macro_call(mapped, call)?,
+        definition_id: expansion.definition.into(),
+        emitted_token_range: expansion.emitted_token_range,
+        child_calls: expansion.child_calls.iter().copied().map(Into::into).collect(),
+        capability: macro_expansion_availability(&expansion.status),
+    })
+}
+
+fn source_macro_call_at(
+    mapped: &MappedSourcePreprocModel,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<&SourceMacroCallFact> {
+    mapped.model.macro_calls().iter().find(|call| {
+        let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
+            return false;
+        };
+        source.file_id() == file_id && range_contains_offset(range, offset)
+    })
+}
+
 fn map_macro_resolution(
     mapped: &MappedSourcePreprocModel,
     resolution: &SourceMacroResolutionFact,
@@ -903,6 +1076,24 @@ fn capability_status(status: &CapabilityStatus) -> PreprocAvailability {
         CapabilityStatus::Complete => PreprocAvailability::Complete,
         CapabilityStatus::Partial => PreprocAvailability::Partial,
         CapabilityStatus::Unavailable(reason) => {
+            PreprocAvailability::Unavailable(PreprocUnavailable::Source(reason.clone()))
+        }
+    }
+}
+
+fn macro_call_availability(status: &SourceMacroCallStatusFact) -> PreprocAvailability {
+    match status {
+        SourceMacroCallStatusFact::ExpansionAvailable => PreprocAvailability::Complete,
+        SourceMacroCallStatusFact::ExpansionUnavailable(reason) => {
+            PreprocAvailability::Unavailable(PreprocUnavailable::Source(reason.clone()))
+        }
+    }
+}
+
+fn macro_expansion_availability(status: &SourceMacroExpansionStatusFact) -> PreprocAvailability {
+    match status {
+        SourceMacroExpansionStatusFact::Complete => PreprocAvailability::Complete,
+        SourceMacroExpansionStatusFact::Unavailable(reason) => {
             PreprocAvailability::Unavailable(PreprocUnavailable::Source(reason.clone()))
         }
     }
@@ -1208,6 +1399,37 @@ endmodule
             panic!("literal include expected");
         };
         assert_eq!(resolved_file, Some(HEADER));
+    }
+
+    #[test]
+    fn preproc_macro_expansion_queries_map_call_ranges() {
+        let root_text = r#"`define OBJ 8
+`define LEAF 3
+`define WRAP `LEAF
+module top;
+localparam int A = `OBJ;
+localparam int B = `WRAP;
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        let immediate =
+            immediate_macro_expansion_at(&db, TOP, offset(root_text, "`OBJ")).unwrap().unwrap();
+        let MacroExpansionQuery::Available(immediate) = immediate else {
+            panic!("object-like macro expansion should be available");
+        };
+        assert_eq!(immediate.call.file_id, TOP);
+        assert_eq!(text_at_range(root_text, immediate.call.range), "`OBJ");
+        assert_eq!(immediate.emitted_token_range.len, 1);
+        assert!(matches!(immediate.capability, PreprocAvailability::Complete));
+
+        let recursive =
+            recursive_macro_expansion_at(&db, TOP, offset(root_text, "`WRAP")).unwrap().unwrap();
+        assert_eq!(recursive.root_call.file_id, TOP);
+        assert_eq!(text_at_range(root_text, recursive.root_call.range), "`WRAP");
+        assert_eq!(recursive.expansions.len(), 2);
+        assert!(recursive.expansions.iter().any(|expansion| !expansion.child_calls.is_empty()));
+        assert!(recursive.unavailable.is_empty());
     }
 
     #[test]
