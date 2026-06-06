@@ -1,12 +1,14 @@
 use hir::{
-    base_db::source_db::SourceDb,
+    base_db::source_db::{SourceDb, SourceRootDb},
     container::InContainer,
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        IncludeTarget, MacroDefinition, MacroParamDefinition, include_directives_at,
-        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
-        macro_reference_definitions_at,
+        EmittedTokenProvenance, IncludeTarget, MacroArgument, MacroDefinition,
+        MacroExpansionProvenance, MacroExpansionUnavailable, MacroParamDefinition,
+        RecursiveMacroExpansionProvenance, include_directives_at, macro_definition_at,
+        macro_param_definition_at, macro_param_reference_definitions_at,
+        macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
 };
@@ -15,7 +17,10 @@ use syntax::{
     ast::{self, AstNode},
     token::TokenKindExt,
 };
-use utils::{get::GetRef, line_index::TextSize};
+use utils::{
+    get::GetRef,
+    line_index::{TextRange, TextSize},
+};
 use vfs::FileId;
 
 use crate::{
@@ -40,7 +45,7 @@ pub(crate) fn hover(
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
     if let Some(macro_hover) = handle_preproc_macro(db, file_id, offset) {
-        return Some(macro_hover);
+        return Some(with_expanded_macro_hover(db, file_id, offset, macro_hover));
     }
 
     if let Some(include) = handle_preproc_include(db, file_id, offset) {
@@ -64,7 +69,7 @@ pub(crate) fn hover(
         .filter_map(|token| hover_for_token(&sema, hir_file_id, token))
         .collect::<Vec<_>>();
     let res = merge_hover_results(markups)?;
-    Some(RangeInfo::new(selection.range, res))
+    Some(with_expanded_macro_hover(db, file_id, offset, RangeInfo::new(selection.range, res)))
 }
 
 pub(crate) fn token_precedence(kind: TokenKind) -> usize {
@@ -110,6 +115,224 @@ fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
         res.merge(markup);
     }
     Some(res)
+}
+
+fn with_expanded_macro_hover(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    mut hover: RangeInfo<Markup>,
+) -> RangeInfo<Markup> {
+    let Some(expanded) = expanded_macro_hover(db, file_id, offset) else {
+        return hover;
+    };
+    if let Some(range) = covering_range(&[hover.range, expanded.range]) {
+        hover.range = range;
+    }
+    hover.info.horizontal_line();
+    hover.info.merge(expanded.info);
+    hover
+}
+
+fn expanded_macro_hover(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<RangeInfo<Markup>> {
+    let expansions =
+        recursive_macro_expansion_provenances_at(db, file_id, offset).ok().unwrap_or_default();
+    if expansions.is_empty() {
+        return None;
+    }
+
+    let ranges = expansions.iter().map(|expansion| expansion.root_call.range).collect::<Vec<_>>();
+    let range = covering_range(&ranges).unwrap_or_else(|| TextRange::empty(offset));
+    let markup = expanded_macro_markup(db, &expansions);
+    Some(RangeInfo::new(range, markup))
+}
+
+fn expanded_macro_markup(db: &RootDb, expansions: &[RecursiveMacroExpansionProvenance]) -> Markup {
+    let mut markup = Markup::new();
+    markup.print("Macro expansion");
+
+    for (index, expansion) in expansions.iter().enumerate() {
+        if expansions.len() > 1 {
+            markup.newline();
+            markup.print("Context ");
+            markup.print(&(index + 1).to_string());
+        }
+        render_recursive_expansion(db, &mut markup, expansion);
+    }
+
+    markup
+}
+
+fn render_recursive_expansion(
+    db: &RootDb,
+    markup: &mut Markup,
+    expansion: &RecursiveMacroExpansionProvenance,
+) {
+    let Some(root) = expansion.expansions.first() else {
+        render_unavailable_expansion(db, markup, &expansion.unavailable);
+        return;
+    };
+
+    markup.newline();
+    markup.print("Signature");
+    markup.newline();
+    render_signature_line(db, markup, &root.expansion.definition);
+
+    if !root.expansion.call.arguments.is_empty() {
+        markup.newline();
+        markup.print("Arguments");
+        render_arguments(db, markup, &root.expansion.definition, &root.expansion.call.arguments);
+    }
+
+    markup.newline();
+    markup.print("Expanded result");
+    markup.newline();
+    markup.push_with_code_fence(&expanded_text_from_tokens(&root.tokens));
+
+    markup.print("Expansion steps");
+    for (index, step) in expansion.expansions.iter().enumerate() {
+        render_expansion_step(db, markup, index + 1, step);
+    }
+    render_unavailable_expansion(db, markup, &expansion.unavailable);
+}
+
+fn render_signature_line(db: &RootDb, markup: &mut Markup, definition: &MacroDefinition) {
+    markup.push_with_backticks(&macro_signature(definition));
+    if let Some(source) = macro_definition_source_label(db, definition) {
+        markup.print(" from ");
+        markup.push_with_backticks(&source);
+    }
+}
+
+fn render_arguments(
+    db: &RootDb,
+    markup: &mut Markup,
+    definition: &MacroDefinition,
+    arguments: &[MacroArgument],
+) {
+    for argument in arguments {
+        markup.print("\n- ");
+        let name = definition
+            .params
+            .as_ref()
+            .and_then(|params| params.get(argument.argument_index))
+            .and_then(|param| param.name.as_ref())
+            .map_or_else(|| format!("${}", argument.argument_index), ToString::to_string);
+        markup.push_with_backticks(&name);
+        markup.print(" = ");
+        markup.push_with_backticks(&argument_text(db, argument));
+    }
+}
+
+fn render_expansion_step(
+    db: &RootDb,
+    markup: &mut Markup,
+    index: usize,
+    provenance: &MacroExpansionProvenance,
+) {
+    markup.newline();
+    if let Some(call_text) =
+        text_at_file_range(db, provenance.expansion.call.file_id, provenance.expansion.call.range)
+    {
+        markup.print(&index.to_string());
+        markup.print(". ");
+        markup.push_with_backticks(call_text.trim());
+        markup.print(" from ");
+        markup.push_with_backticks(&macro_signature(&provenance.expansion.definition));
+        if let Some(source) = macro_definition_source_label(db, &provenance.expansion.definition) {
+            markup.print(" in ");
+            markup.push_with_backticks(&source);
+        }
+    } else {
+        markup.print(&index.to_string());
+        markup.print(". Expansion from ");
+        markup.push_with_backticks(&macro_signature(&provenance.expansion.definition));
+    }
+    markup.newline();
+    markup.push_with_code_fence(&expanded_text_from_tokens(&provenance.tokens));
+}
+
+fn render_unavailable_expansion(
+    db: &RootDb,
+    markup: &mut Markup,
+    unavailable: &[MacroExpansionUnavailable],
+) {
+    for unavailable in unavailable {
+        markup.newline();
+        if let Some(call_text) =
+            text_at_file_range(db, unavailable.call.file_id, unavailable.call.range)
+        {
+            markup.push_with_backticks(call_text.trim());
+            markup.print(" expansion unavailable.");
+        } else {
+            markup.print("Expansion unavailable.");
+        }
+    }
+}
+
+fn macro_signature(definition: &MacroDefinition) -> String {
+    let mut signature = format!("`{}", definition.name);
+    if let Some(params) = &definition.params {
+        signature.push('(');
+        for (index, param) in params.iter().enumerate() {
+            if index > 0 {
+                signature.push_str(", ");
+            }
+            signature.push_str(param.name.as_deref().unwrap_or("<unnamed>"));
+        }
+        signature.push(')');
+    }
+    signature
+}
+
+fn macro_definition_source_label(db: &RootDb, definition: &MacroDefinition) -> Option<String> {
+    match &definition.source {
+        hir::preproc::MappedPreprocSource::RealFile { file_id } => {
+            db.file_path(*file_id).map(|path| path.to_string()).or_else(|| {
+                db.source_root(db.source_root_id(*file_id))
+                    .path_for_file(file_id)
+                    .map(|path| path.to_string())
+            })
+        }
+        hir::preproc::MappedPreprocSource::VirtualFile { .. } => None,
+    }
+}
+
+fn argument_text(db: &RootDb, argument: &MacroArgument) -> String {
+    if let (Some(source), Some(range)) = (&argument.source, argument.range)
+        && let Some(text) = text_at_file_range(db, source.file_id(), range)
+    {
+        return text.trim().to_owned();
+    }
+    argument.tokens.iter().map(|token| token.as_str()).collect::<Vec<_>>().join(" ")
+}
+
+fn expanded_text_from_tokens(tokens: &[EmittedTokenProvenance]) -> String {
+    let mut text = String::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if index > 0 {
+            text.push(' ');
+        }
+        text.push_str(token.text.as_str());
+    }
+    text
+}
+
+fn text_at_file_range(db: &RootDb, file_id: FileId, range: TextRange) -> Option<String> {
+    let text = db.file_text(file_id);
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    text.get(start..end).map(ToOwned::to_owned)
+}
+
+fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
+    let start = ranges.iter().map(|range| range.start()).min()?;
+    let end = ranges.iter().map(|range| range.end()).max()?;
+    Some(TextRange::new(start, end))
 }
 
 fn handle_preproc_macro(

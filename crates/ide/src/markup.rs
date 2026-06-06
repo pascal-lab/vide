@@ -77,12 +77,34 @@ impl Markup {
     }
 
     pub fn push_with_backticks(&mut self, contents: &str) {
-        self.text.push('`');
+        let delimiter_len = max_backtick_run(contents).saturating_add(1);
+        let delimiter = "`".repeat(delimiter_len);
+        self.text.push_str(&delimiter);
+        if contents.contains('`') {
+            self.text.push(' ');
+        }
         self.text.push_str(contents);
-        self.text.push('`');
+        if contents.contains('`') {
+            self.text.push(' ');
+        }
+        self.text.push_str(&delimiter);
     }
 
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
+}
+
+fn max_backtick_run(contents: &str) -> usize {
+    let mut max_run = 0usize;
+    let mut current = 0usize;
+    for ch in contents.chars() {
+        if ch == '`' {
+            current += 1;
+            max_run = max_run.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    max_run
 }

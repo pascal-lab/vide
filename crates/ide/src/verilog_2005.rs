@@ -1432,6 +1432,14 @@ endmodule
         "macro argument hover should render the HIR definition: {}",
         hover.info.as_str()
     );
+    assert!(
+        hover.info.as_str().contains("Macro expansion")
+            && hover.info.as_str().contains("payload_i + 1")
+            && hover.info.as_str().contains("Expanded result")
+            && hover.info.as_str().contains("Expansion steps"),
+        "macro argument hover should show macro expansion: {}",
+        hover.info.as_str()
+    );
 
     let refs = analysis
         .references(arg, ReferencesConfig::new(ScopeVisibility::Public, None))
@@ -1463,6 +1471,104 @@ endmodule
                 .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == arg_range))
         }),
         "references from payload_i definition should include macro argument source token: {refs_from_def:?}"
+    );
+}
+
+#[test]
+fn preproc_macro_call_hover_shows_expanded_text() {
+    let text = r#"
+`define MAKE_DECL(name) logic name;
+module top;
+  `/*marker:call*/MAKE_DECL(/*marker:arg*/generated)
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro call hover expected");
+    let info = hover.info.as_str();
+    assert!(
+        info.contains("Macro")
+            && info.contains("MAKE_DECL")
+            && info.contains("Macro expansion")
+            && info.contains("Signature")
+            && info.contains("`` `MAKE_DECL(name) ``")
+            && info.contains("Arguments")
+            && info.contains("`name` = `generated`")
+            && info.contains("Expanded result")
+            && info.contains("Expansion steps")
+            && info.contains("1. `` `MAKE_DECL(generated) `` from `` `MAKE_DECL(name) ``")
+            && info.contains("logic generated ;")
+            && !info.contains("Virtual expansion source")
+            && !info.contains("Token provenance"),
+        "macro call hover should include the expanded macro text: {info}"
+    );
+
+    let arg_hover = analysis
+        .hover(position(file_id, &markers, "arg"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro argument hover expected");
+    let arg_info = arg_hover.info.as_str();
+    assert!(
+        arg_info.contains("Macro expansion") && arg_info.contains("logic generated ;"),
+        "macro argument hover should include expanded macro text: {arg_info}"
+    );
+}
+
+#[test]
+fn preproc_macro_hover_shows_nested_expansion_steps() {
+    let text = r#"
+`define MATH_ONE 12'd1
+`define DEMO_NEXT(value) ((value) + `MATH_ONE)
+module top(input logic payload_i);
+  assign active_data = `/*marker:call*/DEMO_NEXT(payload_i);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("nested macro call hover expected");
+    let info = hover.info.as_str();
+    assert!(
+        info.contains("`` `DEMO_NEXT(value) ``")
+            && info.contains("`value` = `payload_i`")
+            && info.contains("Expanded result")
+            && info.contains("payload_i")
+            && info.contains("12")
+            && info.contains("'d")
+            && info.contains("Expansion steps")
+            && info.contains("1. `` `DEMO_NEXT(payload_i) `` from `` `DEMO_NEXT(value) ``")
+            && info.contains("2. `` `MATH_ONE `` from `` `MATH_ONE ``"),
+        "nested macro hover should show signature, arguments, result, and steps: {info}"
+    );
+}
+
+#[test]
+fn preproc_macro_hover_reports_unavailable_expansion() {
+    let text = r#"
+`define JOIN(a,b) a``b
+module top;
+  wire `/*marker:call*/JOIN(foo,bar);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro call hover expected");
+    let info = hover.info.as_str();
+    assert!(
+        info.contains("Macro expansion")
+            && info.contains("`` `JOIN(foo,bar) `` expansion unavailable."),
+        "unsupported expansion should be explicit in hover: {info}"
     );
 }
 
