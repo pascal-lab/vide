@@ -42,6 +42,13 @@ class SLANG_EXPORT SourceManager {
 public:
     using BufferOrError = nonstd::expected<SourceBuffer, std::error_code>;
 
+    enum class MacroExpansionKind : uint8_t {
+        Body,
+        Argument,
+        TokenPaste,
+        Stringification,
+    };
+
     /// Default constructor.
     SourceManager();
     SourceManager(const SourceManager&) = delete;
@@ -101,6 +108,9 @@ public:
     /// Determines whether the given location points to a macro argument expansion.
     bool isMacroArgLoc(SourceLocation location) const;
 
+    /// Gets the kind of macro expansion for the given macro location.
+    MacroExpansionKind getMacroExpansionKind(SourceLocation location) const;
+
     /// Determines whether the given location is inside an include file.
     bool isIncludedFileLoc(SourceLocation location) const;
 
@@ -147,6 +157,10 @@ public:
     /// Creates a macro expansion location; used by the preprocessor.
     SourceLocation createExpansionLoc(SourceLocation originalLoc, SourceRange expansionRange,
                                       std::string_view macroName);
+
+    /// Creates a macro expansion location; used by the preprocessor.
+    SourceLocation createExpansionLoc(SourceLocation originalLoc, SourceRange expansionRange,
+                                      MacroExpansionKind kind);
 
     /// Instead of loading source from a file, copy it from text already in memory.
     SourceBuffer assignText(std::string_view text, SourceLocation includedFrom = SourceLocation(),
@@ -282,17 +296,22 @@ private:
     struct ExpansionInfo {
         SourceLocation originalLoc;
         SourceRange expansionRange;
-        bool isMacroArg = false;
+        MacroExpansionKind kind = MacroExpansionKind::Body;
 
         std::string_view macroName;
 
         ExpansionInfo() {}
         ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange, bool isMacroArg) :
-            originalLoc(originalLoc), expansionRange(expansionRange), isMacroArg(isMacroArg) {}
+            originalLoc(originalLoc), expansionRange(expansionRange),
+            kind(isMacroArg ? MacroExpansionKind::Argument : MacroExpansionKind::Body) {}
 
         ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange,
                       std::string_view macroName) :
             originalLoc(originalLoc), expansionRange(expansionRange), macroName(macroName) {}
+
+        ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange,
+                      MacroExpansionKind kind) :
+            originalLoc(originalLoc), expansionRange(expansionRange), kind(kind) {}
     };
 
     // This mutex protects pretty much everything in this class.

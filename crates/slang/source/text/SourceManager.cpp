@@ -169,6 +169,20 @@ bool SourceManager::isMacroArgLoc(SourceLocation location) const {
     return isMacroArgLocImpl(location, lock);
 }
 
+SourceManager::MacroExpansionKind SourceManager::getMacroExpansionKind(
+    SourceLocation location) const {
+    std::shared_lock lock(mutex);
+    auto buffer = location.buffer();
+    if (!buffer || buffer.getId() >= bufferEntries.size())
+        return MacroExpansionKind::Body;
+
+    auto info = std::get_if<ExpansionInfo>(&bufferEntries[buffer.getId()]);
+    if (!info)
+        return MacroExpansionKind::Body;
+
+    return info->kind;
+}
+
 bool SourceManager::isIncludedFileLoc(SourceLocation location) const {
     return getIncludedFrom(location.buffer()).valid();
 }
@@ -285,6 +299,15 @@ SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
 
     bufferEntries.emplace_back(ExpansionInfo(originalLoc, expansionRange, macroName));
     return SourceLocation(BufferID((uint32_t)(bufferEntries.size() - 1), macroName), 0);
+}
+
+SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
+                                                 SourceRange expansionRange,
+                                                 MacroExpansionKind kind) {
+    std::unique_lock lock(mutex);
+
+    bufferEntries.emplace_back(ExpansionInfo(originalLoc, expansionRange, kind));
+    return SourceLocation(BufferID((uint32_t)(bufferEntries.size() - 1), ""sv), 0);
 }
 
 SourceBuffer SourceManager::assignText(std::string_view text, SourceLocation includedFrom,
@@ -654,7 +677,7 @@ bool SourceManager::isMacroArgLocImpl(SourceLocation location, TLock&) const {
 
     SLANG_ASSERT(buffer.getId() < bufferEntries.size());
     auto info = std::get_if<ExpansionInfo>(&bufferEntries[buffer.getId()]);
-    return info && info->isMacroArg;
+    return info && info->kind == MacroExpansionKind::Argument;
 }
 
 template<IsLock TLock>

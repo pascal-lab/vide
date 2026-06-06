@@ -1,4 +1,5 @@
 use smol_str::SmolStr;
+use syntax::TokenKind;
 use utils::line_index::{TextRange, TextSize};
 
 use super::provenance::SourcePreprocTables;
@@ -80,6 +81,7 @@ pub struct SourcePreprocIndex {
     pub sources: Vec<PreprocSource>,
     pub include_edges: Vec<SourceIncludeEdge>,
     pub event_records: Vec<SourcePreprocEventRecord>,
+    pub emitted_tokens: Vec<SourceEmittedTokenFact>,
     pub defines: Vec<SourceMacroDefine>,
     pub undefs: Vec<SourceMacroUndef>,
     pub includes: Vec<SourceMacroInclude>,
@@ -151,6 +153,42 @@ pub struct SourceMacroToken {
     pub raw: SmolStr,
     pub value: SmolStr,
     pub range: Option<SourceRange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceTokenKind {
+    Unknown,
+    Syntax(TokenKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceEmittedTokenFact {
+    pub raw: SmolStr,
+    pub value: SmolStr,
+    pub kind: SourceTokenKind,
+    pub provenance: SourceTokenProvenanceFact,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceTokenProvenanceFact {
+    Source {
+        token_range: SourceRange,
+    },
+    MacroBody {
+        macro_name: SmolStr,
+        call_range: SourceRange,
+        body_token_range: SourceRange,
+    },
+    MacroArgument {
+        macro_name: SmolStr,
+        call_range: SourceRange,
+        body_token_range: SourceRange,
+        argument_token_range: SourceRange,
+    },
+    Builtin {
+        name: SmolStr,
+    },
+    Unavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

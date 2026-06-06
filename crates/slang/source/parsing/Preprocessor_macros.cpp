@@ -142,6 +142,22 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
     bool anyNewMacros = false;
     bool didConcat = false;
 
+    auto markMacroOpToken = [&](Token opToken, SourceManager::MacroExpansionKind kind) {
+        if (!opToken)
+            return opToken;
+
+        auto loc = opToken.location();
+        auto originalLoc = loc;
+        auto expansionRange = opToken.range();
+        if (sourceManager.isMacroLoc(loc)) {
+            originalLoc = sourceManager.getOriginalLoc(loc);
+            expansionRange = sourceManager.getExpansionRange(loc);
+        }
+
+        auto opLoc = sourceManager.createExpansionLoc(originalLoc, expansionRange, kind);
+        return opToken.withLocation(alloc, opLoc);
+    };
+
     for (size_t i = 0; i < tokens.size(); i++) {
         Token newToken;
         bool nextDidConcat = false;
@@ -167,6 +183,8 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
                     // all done stringifying; convert saved tokens to string
                     newToken = Lexer::stringify(*lexerStack.back(), stringify, stringifyBuffer,
                                                 token);
+                    newToken = markMacroOpToken(newToken,
+                                                SourceManager::MacroExpansionKind::Stringification);
                     stringify = Token();
                 }
                 else if (stringify.kind == TokenKind::MacroTripleQuote) {
@@ -183,9 +201,13 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
                     // next to each other isn't ever valid.
                     newToken = Lexer::stringify(*lexerStack.back(), stringify, stringifyBuffer,
                                                 token);
+                    newToken = markMacroOpToken(newToken,
+                                                SourceManager::MacroExpansionKind::Stringification);
                     stringify = Token();
-                    extraToAppend = Token(alloc, TokenKind::StringLiteral, {}, "\"\"",
-                                          token.location() + 2, ""sv);
+                    extraToAppend = markMacroOpToken(
+                        Token(alloc, TokenKind::StringLiteral, {}, "\"\"", token.location() + 2,
+                              ""sv),
+                        SourceManager::MacroExpansionKind::Stringification);
                 }
                 break;
             case TokenKind::MacroPaste:
@@ -212,6 +234,8 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
                         newToken = Lexer::concatenateTokens(alloc, stringifyBuffer.back(),
                                                             tokens[i + 1]);
                         if (newToken) {
+                            newToken = markMacroOpToken(
+                                newToken, SourceManager::MacroExpansionKind::TokenPaste);
                             stringifyBuffer.pop_back();
                             ++i;
                         }
@@ -250,6 +274,8 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
                     else {
                         newToken = Lexer::concatenateTokens(alloc, dest.back(), tokens[i + 1]);
                         if (newToken) {
+                            newToken = markMacroOpToken(
+                                newToken, SourceManager::MacroExpansionKind::TokenPaste);
                             dest.pop_back();
                             ++i;
 
@@ -267,6 +293,8 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
                 if (didConcat && token.trivia().empty() && emptyArgTrivia.empty()) {
                     newToken = Lexer::concatenateTokens(alloc, dest.back(), token);
                     if (newToken) {
+                        newToken = markMacroOpToken(
+                            newToken, SourceManager::MacroExpansionKind::TokenPaste);
                         dest.pop_back();
                         nextDidConcat = true;
                         break;
@@ -328,8 +356,9 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
 
                     // Note: endToken parameter here doesn't matter,
                     // we know there is no trivia to take.
-                    dest.push_back(
-                        Lexer::stringify(*lexerStack.back(), stringify, stringifyBuffer, Token()));
+                    dest.push_back(markMacroOpToken(
+                        Lexer::stringify(*lexerStack.back(), stringify, stringifyBuffer, Token()),
+                        SourceManager::MacroExpansionKind::Stringification));
                     stringify = Token();
 
                     // Now we have the unfortunate task of re-lexing the remaining stuff after the

@@ -237,7 +237,7 @@ mod tests {
     use syntax::{
         PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
         PreprocessorTraceToken, SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
-        SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions,
+        SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
     };
     use utils::line_index::{TextRange, TextSize};
 
@@ -291,6 +291,17 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("source ending with {suffix} should be present"))
             .id
+    }
+
+    fn source_model_from_root(
+        root_text: &str,
+        options: SyntaxTreeOptions,
+    ) -> (SourcePreprocModel, PreprocSourceId) {
+        let trace = SyntaxTree::preprocessor_trace(root_text, "source", ROOT_PATH, &options)
+            .expect("trace should include root source");
+        let root_source = PreprocSourceId::from(trace.root_buffer_id);
+        let model = SourcePreprocModel::from_trace(trace).unwrap();
+        (model, root_source)
     }
 
     fn offset_before(text: &str, needle: &str) -> TextSize {
@@ -618,30 +629,152 @@ logic [`HEADER_WIDTH-1:0] data;
             SourceIncludeStatus::Resolved { source } if *source == header_source
         ));
         assert!(!model.state_timeline().checkpoints().is_empty());
-        assert!(model.macro_calls().is_empty());
-        assert!(model.macro_expansions().is_empty());
-        assert!(model.emitted_tokens().is_empty());
-        assert!(model.token_provenance().is_empty());
+
+        let call = model
+            .macro_calls()
+            .iter()
+            .find(|call| call.reference == reference.id)
+            .expect("macro usage should create a call fact");
+        assert_eq!(call.call_range.source, root_source);
         assert!(matches!(
-            &model.capabilities().macro_calls,
-            CapabilityStatus::Unavailable(SourcePreprocUnavailable::MacroCallAuthorityUnavailable)
+            call.status,
+            SourceMacroCallStatus::ExpansionUnavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable
+            )
         ));
+
+        assert!(model.macro_expansions().is_empty());
+        let emitted = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| token.text.as_str() == "8")
+            .expect("macro body token should be emitted by adapter authority");
+        let provenance = model.token_provenance().get(emitted.provenance).unwrap();
+        assert!(matches!(
+            provenance,
+            SourceTokenProvenance::MacroBody {
+                definition: body_definition,
+                body_token_range,
+                call: body_call,
+            } if *body_definition == *resolved_definition
+                && body_token_range.source == header_source
+                && *body_call == call.id
+        ));
+        assert_eq!(model.capabilities().macro_calls, CapabilityStatus::Complete);
         assert!(matches!(
             &model.capabilities().macro_expansions,
             CapabilityStatus::Unavailable(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
         ));
+        assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
+        assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
+    }
+
+    #[test]
+    fn source_model_maps_function_macro_argument_emitted_token_to_argument() {
+        let root_text = r#"`define ID(x) x
+module m;
+localparam int W = `ID(7);
+endmodule
+"#;
+        let (model, root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+        let emitted = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| token.text.as_str() == "7")
+            .expect("argument replacement token should be emitted");
+        let SourceTokenProvenance::MacroArgument { call, argument_index, argument_token_range } =
+            model.token_provenance().get(emitted.provenance).unwrap()
+        else {
+            panic!("argument replacement should map to MacroArgument provenance");
+        };
+        assert_eq!(*argument_index, 0);
+        assert_eq!(argument_token_range.source, root_source);
+        assert_eq!(text_at_range(root_text, argument_token_range.range), "7");
+
+        let call = model.macro_calls().get(*call).expect("call id should resolve");
+        assert_eq!(call.call_range.source, root_source);
+        assert_eq!(text_at_range(root_text, call.call_range.range), "`ID(7)");
+    }
+
+    #[test]
+    fn source_model_marks_unsupported_macro_ops_unavailable_without_dropping_tokens() {
+        let root_text = r#"`define JOIN(a,b) a``b
+`define STR(x) `"x`"
+module m;
+wire `JOIN(foo,bar);
+string s = `STR(foo);
+endmodule
+"#;
+        let (model, _root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+        let pasted = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| token.text.as_str() == "foobar")
+            .expect("token paste result should not be dropped");
         assert!(matches!(
-            &model.capabilities().emitted_tokens,
-            CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable
+            model.token_provenance().get(pasted.provenance).unwrap(),
+            SourceTokenProvenance::Unavailable(
+                SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
             )
         ));
+
+        let stringified = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| token.text.as_str() == "\"foo\"")
+            .expect("stringification result should not be dropped");
         assert!(matches!(
-            &model.capabilities().emitted_token_provenance,
-            CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable
+            model.token_provenance().get(stringified.provenance).unwrap(),
+            SourceTokenProvenance::Unavailable(
+                SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
             )
         ));
+        assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
+        assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Partial);
+    }
+
+    #[test]
+    fn source_model_maps_predefine_and_builtin_emitted_token_provenance() {
+        let root_text = r#"module m;
+localparam int P = `FROM_API;
+localparam int L = `__LINE__;
+endmodule
+"#;
+        let (model, _root_source) = source_model_from_root(
+            root_text,
+            SyntaxTreeOptions {
+                predefines: vec!["FROM_API=11".to_owned()],
+                ..SyntaxTreeOptions::default()
+            },
+        );
+
+        let predefine = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| token.text.as_str() == "11")
+            .expect("predefine expansion token should be emitted");
+        let SourceTokenProvenance::Predefine { source } =
+            model.token_provenance().get(predefine.provenance).unwrap()
+        else {
+            panic!("configured predefine token should map to Predefine provenance");
+        };
+        assert!(model.sources().iter().any(|candidate| {
+            candidate.id == *source && candidate.origin == PreprocSourceOrigin::Predefine
+        }));
+
+        let builtin = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| {
+                matches!(
+                    model.token_provenance().get(token.provenance),
+                    Some(SourceTokenProvenance::Builtin { name }) if name == "__LINE__"
+                )
+            })
+            .expect("builtin macro token should be emitted");
+        assert!(!builtin.text.is_empty());
     }
 
     #[test]
@@ -785,6 +918,7 @@ logic [`LEAF_WIDTH-1:0] data;
                 name: Some(PreprocessorTraceToken {
                     raw_text: "WIDTH".to_owned(),
                     value_text: "WIDTH".to_owned(),
+                    token_kind: TokenKind::IDENTIFIER,
                     range: Some(SourceBufferRange { buffer_id: 1, range: 8..13 }),
                 }),
                 include_file_name: None,
@@ -794,6 +928,7 @@ logic [`LEAF_WIDTH-1:0] data;
                 disabled_ranges: Vec::new(),
             }],
             include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
         };
 
         assert_eq!(

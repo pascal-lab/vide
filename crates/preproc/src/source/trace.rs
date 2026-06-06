@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
-    PreprocessorTraceMacroParam, PreprocessorTraceToken, SourceBufferOrigin, SourceBufferRange,
-    SyntaxKind,
+    PreprocessorTrace, PreprocessorTraceEmittedToken, PreprocessorTraceEvent,
+    PreprocessorTraceEventId, PreprocessorTraceMacroParam, PreprocessorTraceToken,
+    PreprocessorTraceTokenProvenance, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -31,6 +31,7 @@ impl SourcePreprocIndex {
             .iter()
             .map(|edge| (edge.included_source, edge.include_event_id))
             .collect::<BTreeMap<_, _>>();
+        let emitted_tokens = trace.emitted_tokens;
         let mut index = Self {
             root_source: Some(root_source),
             sources: trace
@@ -58,6 +59,7 @@ impl SourcePreprocIndex {
         for (source_order, directive) in trace.events.into_iter().enumerate() {
             collect_trace_event(&mut index, source_order, directive)?;
         }
+        index.emitted_tokens = emitted_tokens.into_iter().map(emitted_token_from_trace).collect();
 
         validate_include_edges(&index)?;
 
@@ -223,6 +225,70 @@ fn macro_token_from_trace(token: PreprocessorTraceToken) -> SourceMacroToken {
         raw: token.raw_text.to_smolstr(),
         value: token.value_text.to_smolstr(),
         range: token.range.as_ref().and_then(source_range_from_trace),
+    }
+}
+
+fn emitted_token_from_trace(token: PreprocessorTraceEmittedToken) -> SourceEmittedTokenFact {
+    SourceEmittedTokenFact {
+        raw: token.raw_text.to_smolstr(),
+        value: token.value_text.to_smolstr(),
+        kind: SourceTokenKind::Syntax(token.token_kind),
+        provenance: emitted_token_provenance_from_trace(token.provenance),
+    }
+}
+
+fn emitted_token_provenance_from_trace(
+    provenance: PreprocessorTraceTokenProvenance,
+) -> SourceTokenProvenanceFact {
+    match provenance {
+        PreprocessorTraceTokenProvenance::Source { token_range } => {
+            source_range_from_trace(&token_range)
+                .map(|token_range| SourceTokenProvenanceFact::Source { token_range })
+                .unwrap_or(SourceTokenProvenanceFact::Unavailable)
+        }
+        PreprocessorTraceTokenProvenance::MacroBody {
+            macro_name,
+            call_range,
+            body_token_range,
+        } => {
+            let Some(call_range) = source_range_from_trace(&call_range) else {
+                return SourceTokenProvenanceFact::Unavailable;
+            };
+            let Some(body_token_range) = source_range_from_trace(&body_token_range) else {
+                return SourceTokenProvenanceFact::Unavailable;
+            };
+            SourceTokenProvenanceFact::MacroBody {
+                macro_name: macro_name.to_smolstr(),
+                call_range,
+                body_token_range,
+            }
+        }
+        PreprocessorTraceTokenProvenance::MacroArgument {
+            macro_name,
+            call_range,
+            body_token_range,
+            argument_token_range,
+        } => {
+            let Some(call_range) = source_range_from_trace(&call_range) else {
+                return SourceTokenProvenanceFact::Unavailable;
+            };
+            let Some(body_token_range) = source_range_from_trace(&body_token_range) else {
+                return SourceTokenProvenanceFact::Unavailable;
+            };
+            let Some(argument_token_range) = source_range_from_trace(&argument_token_range) else {
+                return SourceTokenProvenanceFact::Unavailable;
+            };
+            SourceTokenProvenanceFact::MacroArgument {
+                macro_name: macro_name.to_smolstr(),
+                call_range,
+                body_token_range,
+                argument_token_range,
+            }
+        }
+        PreprocessorTraceTokenProvenance::Builtin { name } => {
+            SourceTokenProvenanceFact::Builtin { name: name.to_smolstr() }
+        }
+        PreprocessorTraceTokenProvenance::Unavailable => SourceTokenProvenanceFact::Unavailable,
     }
 }
 

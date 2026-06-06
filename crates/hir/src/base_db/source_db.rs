@@ -1165,6 +1165,7 @@ mod tests {
             ],
             events: Vec::new(),
             include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
         };
         let options = SyntaxTreeOptions::default();
         let source_map = source_preproc_file_ids(&db, TOP, None, &trace, &options).unwrap();
@@ -1205,6 +1206,7 @@ mod tests {
             ],
             events: Vec::new(),
             include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
         };
         let options = SyntaxTreeOptions {
             predefines: vec!["FIRST=1".to_owned(), "SECOND".to_owned()],
@@ -1267,6 +1269,7 @@ mod tests {
             ],
             events: Vec::new(),
             include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
         };
         let options = SyntaxTreeOptions {
             include_buffers: vec![SyntaxTreeBuffer {
