@@ -87,7 +87,7 @@ pub enum SourceMacroResolutionReason {
     IncludeGuardIfNDef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceIncludeGraph {
     directives: Vec<SourceIncludeDirective>,
     edges: Vec<SourceIncludeEdge>,
@@ -111,7 +111,7 @@ pub enum SourceIncludeStatus {
     Unavailable(SourcePreprocUnavailable),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceMacroStateTimeline {
     states: Vec<SourceMacroState>,
     checkpoints: Vec<SourceMacroStateCheckpoint>,
@@ -389,12 +389,6 @@ impl Default for SourcePreprocTables {
     }
 }
 
-impl Default for SourceIncludeGraph {
-    fn default() -> Self {
-        Self { directives: Vec::new(), edges: Vec::new() }
-    }
-}
-
 impl SourceIncludeGraph {
     pub fn directives(&self) -> &[SourceIncludeDirective] {
         &self.directives
@@ -412,17 +406,6 @@ impl SourceMacroStateTimeline {
 
     pub fn checkpoints(&self) -> &[SourceMacroStateCheckpoint] {
         &self.checkpoints
-    }
-}
-
-impl Default for SourceMacroStateTimeline {
-    fn default() -> Self {
-        Self {
-            states: Vec::new(),
-            checkpoints: Vec::new(),
-            source_order_boundaries: BTreeMap::new(),
-            final_source_order: 0,
-        }
     }
 }
 
@@ -1437,10 +1420,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         let Some(child) = self.tables.macro_calls.get(child) else {
             return false;
         };
-        if let Ok(parent_definition) = self.definition_for_call(parent) {
-            if self.definition_body_contains_range(parent_definition, child.call_range) {
-                return true;
-            }
+        if let Ok(parent_definition) = self.definition_for_call(parent)
+            && self.definition_body_contains_range(parent_definition, child.call_range)
+        {
+            return true;
         }
         let Some(parent) = self.tables.macro_calls.get(parent) else {
             return false;
