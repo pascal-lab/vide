@@ -20,36 +20,26 @@ impl SourcePreprocModel {
         let Some(usage) = self.index.usages.get(usage_index) else {
             return Ok(None);
         };
-        let Some(name) = usage.name.as_ref() else {
+        let Some(reference) = self.reference_for_usage(usage_index) else {
             return Ok(None);
         };
-        let Some(environment) =
-            self.macro_environment_before(SourcePreprocEntity::Usage(usage_index))
+        let SourceMacroResolution::Resolved { definition, include_chain, .. } =
+            &reference.resolution
         else {
-            return Ok(None);
+            return unavailable_reference_result(&reference.resolution);
         };
-        let Some(define_index) = environment.define_index(name.as_str()) else {
+        let Some(definition) = self.binding_for_definition_id(*definition) else {
             return Ok(None);
-        };
-        let Some(define) = self.index.defines.get(define_index) else {
-            return Ok(None);
-        };
-        let definition = SourceMacroBinding {
-            name: name.clone(),
-            event_id: define.event_id,
-            define_index,
-            define,
         };
         let definition_provenance = self
-            .provenance(SourcePreprocEntity::Define(define_index))
-            .ok_or(SourcePreprocError::MissingEvent { event_id: define.event_id.raw() })?;
-        let definition_include_chain = self.include_chain_for_source(define.range.source)?;
+            .provenance(SourcePreprocEntity::Define(definition.define_index))
+            .ok_or(SourcePreprocError::MissingEvent { event_id: definition.event_id.raw() })?;
         Ok(Some(SourceMacroUsageResolution {
             usage_index,
             usage,
             definition,
             definition_provenance,
-            definition_include_chain,
+            definition_include_chain: include_chain.clone(),
         }))
     }
 
@@ -58,16 +48,11 @@ impl SourcePreprocModel {
         conditional_index: usize,
         token_index: usize,
     ) -> Option<SourceMacroBinding<'_>> {
-        let conditional = self.index.conditionals.get(conditional_index)?;
-        let token = conditional.expr.get(token_index)?;
-        token.range?;
-        let environment =
-            self.macro_environment_before(SourcePreprocEntity::Conditional(conditional_index))?;
-        if let Some(define_index) = environment.define_index(token.value.as_str()) {
-            return self.binding_for_define_index(token.value.clone(), define_index);
-        }
-
-        self.include_guard_definition_after_ifndef(conditional_index, token.value.as_str())
+        let reference = self.reference_for_conditional_token(conditional_index, token_index)?;
+        let SourceMacroResolution::Resolved { definition, .. } = reference.resolution else {
+            return None;
+        };
+        self.binding_for_definition_id(definition)
     }
 
     pub fn resolved_macro_references(
@@ -75,94 +60,110 @@ impl SourcePreprocModel {
     ) -> Result<Vec<SourceMacroReferenceResolution<'_>>, SourcePreprocError> {
         let mut references = Vec::new();
 
-        for (usage_index, usage) in self.index.usages.iter().enumerate() {
-            let Some(resolution) = self.definition_for_usage(usage_index)? else {
+        for reference in self.tables.macro_references.iter() {
+            let SourceMacroResolution::Resolved { definition, include_chain, .. } =
+                &reference.resolution
+            else {
+                if let Some(error) = source_error_for_unavailable_resolution(&reference.resolution)
+                {
+                    return Err(error);
+                }
                 continue;
             };
-            let Some(name) = usage.name.clone() else {
+            let Some(definition) = self.binding_for_definition_id(*definition) else {
                 continue;
             };
+            let definition_provenance = self
+                .provenance(SourcePreprocEntity::Define(definition.define_index))
+                .ok_or(SourcePreprocError::MissingEvent { event_id: definition.event_id.raw() })?;
             references.push(SourceMacroReferenceResolution {
-                site: SourceMacroReferenceSite::Usage { usage_index },
-                name,
-                range: usage.range,
-                definition: resolution.definition,
-                definition_provenance: resolution.definition_provenance,
-                definition_include_chain: resolution.definition_include_chain,
+                site: reference.site,
+                name: reference.name.clone(),
+                range: reference.name_range,
+                definition,
+                definition_provenance,
+                definition_include_chain: include_chain.clone(),
             });
-        }
-
-        for (conditional_index, conditional) in self.index.conditionals.iter().enumerate() {
-            for (token_index, token) in conditional.expr.iter().enumerate() {
-                let Some(range) = token.range else {
-                    continue;
-                };
-                let Some(definition) =
-                    self.definition_for_conditional_token(conditional_index, token_index)
-                else {
-                    continue;
-                };
-                let definition_provenance =
-                    self.provenance(SourcePreprocEntity::Define(definition.define_index)).ok_or(
-                        SourcePreprocError::MissingEvent { event_id: definition.event_id.raw() },
-                    )?;
-                let definition_include_chain =
-                    self.include_chain_for_source(definition.define.range.source)?;
-                references.push(SourceMacroReferenceResolution {
-                    site: SourceMacroReferenceSite::ConditionalToken {
-                        conditional_index,
-                        token_index,
-                    },
-                    name: token.value.clone(),
-                    range,
-                    definition,
-                    definition_provenance,
-                    definition_include_chain,
-                });
-            }
         }
 
         Ok(references)
     }
 
-    fn include_guard_definition_after_ifndef(
+    fn reference_for_usage(&self, usage_index: usize) -> Option<&SourceMacroReference> {
+        self.tables.macro_references.iter().find(|reference| {
+            matches!(reference.site, SourceMacroReferenceSite::Usage {
+                usage_index: site_usage_index,
+            } if site_usage_index == usage_index)
+        })
+    }
+
+    fn reference_for_conditional_token(
         &self,
         conditional_index: usize,
-        name: &str,
-    ) -> Option<SourceMacroBinding<'_>> {
-        let conditional = self.index.conditionals.get(conditional_index)?;
-        if conditional.kind != MacroConditionalKind::IfNDef {
-            return None;
-        }
+        token_index: usize,
+    ) -> Option<&SourceMacroReference> {
+        self.tables.macro_references.iter().find(|reference| {
+            matches!(
+                reference.site,
+                SourceMacroReferenceSite::ConditionalToken {
+                    conditional_index: site_conditional_index,
+                    token_index: site_token_index,
+                } | SourceMacroReferenceSite::IncludeGuardIfNDef {
+                    conditional_index: site_conditional_index,
+                    token_index: site_token_index,
+                } if site_conditional_index == conditional_index && site_token_index == token_index
+            )
+        })
+    }
+}
 
-        // Include guards are intentional forward references: at `ifndef GUARD`,
-        // normal macro visibility says GUARD is not defined yet. For navigation
-        // we model only the canonical same-source guard shape by binding that
-        // token to the following same-name `define` before any branch boundary.
-        // This is collected into the resolved-reference model, not used as a
-        // path, text, or IDE-layer fallback.
-        let source = conditional.range.source;
-        let (conditional_order, _) =
-            self.event_record_for_entity(SourcePreprocEntity::Conditional(conditional_index))?;
-        for directive in self.index.event_records.iter().skip(conditional_order + 1) {
-            if directive.range.source != source {
-                continue;
-            }
-            match directive.kind {
-                MacroEventKind::Define => {
-                    let define = self.index.defines.get(directive.index)?;
-                    if define.name.as_deref() == Some(name) {
-                        return self.binding_for_define_index(SmolStr::new(name), directive.index);
-                    }
-                }
-                MacroEventKind::Branch => break,
-                MacroEventKind::Undef
-                | MacroEventKind::Include
-                | MacroEventKind::Conditional
-                | MacroEventKind::Usage => {}
-            }
-        }
+fn unavailable_reference_result<'a>(
+    resolution: &SourceMacroResolution,
+) -> Result<Option<SourceMacroUsageResolution<'a>>, SourcePreprocError> {
+    if let Some(error) = source_error_for_unavailable_resolution(resolution) {
+        return Err(error);
+    }
 
-        None
+    Ok(None)
+}
+
+fn source_error_for_unavailable_resolution(
+    resolution: &SourceMacroResolution,
+) -> Option<SourcePreprocError> {
+    let SourceMacroResolution::Unavailable(unavailable) = resolution else {
+        return None;
+    };
+
+    match unavailable {
+        SourcePreprocUnavailable::MissingIncludedSource { include_event_id, source } => {
+            Some(SourcePreprocError::MissingIncludedSource {
+                include_event_id: include_event_id.raw(),
+                source: source.raw(),
+            })
+        }
+        SourcePreprocUnavailable::MissingIncludeEvent { include_event_id } => {
+            Some(SourcePreprocError::MissingIncludeEvent {
+                include_event_id: include_event_id.raw(),
+            })
+        }
+        SourcePreprocUnavailable::IncludeEdgeNotInclude { include_event_id } => {
+            Some(SourcePreprocError::IncludeEdgeNotInclude {
+                include_event_id: include_event_id.raw(),
+            })
+        }
+        SourcePreprocUnavailable::IncludeChainUnavailable { source }
+        | SourcePreprocUnavailable::DetachedSource { source } => {
+            Some(SourcePreprocError::MissingIncludeEdge { source: source.raw() })
+        }
+        SourcePreprocUnavailable::MissingDefinitionName { event_id }
+        | SourcePreprocUnavailable::MissingDefinitionNameRange { event_id }
+        | SourcePreprocUnavailable::MissingReferenceName { event_id }
+        | SourcePreprocUnavailable::MissingReferenceNameRange { event_id } => {
+            Some(SourcePreprocError::MissingEvent { event_id: event_id.raw() })
+        }
+        SourcePreprocUnavailable::MacroCallAuthorityUnavailable
+        | SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable
+        | SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable
+        | SourcePreprocUnavailable::ExpansionAuthorityUnavailable => None,
     }
 }

@@ -12,7 +12,8 @@ impl SourcePreprocModel {
     }
 
     pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
-        SourcePreprocIndex::from_trace(trace).map(Self::new)
+        let index = SourcePreprocIndex::from_trace(trace)?;
+        Ok(Self::new(index))
     }
 
     pub fn index(&self) -> &SourcePreprocIndex {
@@ -92,7 +93,7 @@ impl SourcePreprocModel {
     }
 
     pub fn inactive_ranges(&self) -> &[SourceRange] {
-        &self.index.inactive_ranges
+        &self.tables.inactive_ranges
     }
 
     pub fn events(&self) -> impl Iterator<Item = SourcePreprocEvent<'_>> + '_ {
@@ -104,12 +105,10 @@ impl SourcePreprocModel {
     }
 
     pub fn macro_environment_at(&self, position: SourcePosition) -> SourceMacroEnvironment {
-        let mut environment = SourceMacroEnvironment::default();
         let end_order = self.source_order_at_position(position);
-        for directive in self.index.event_records.iter().take(end_order) {
-            self.apply_macro_state(directive, &mut environment);
-        }
-        environment
+        self.state_at_source_order(end_order)
+            .map(|state| self.environment_for_state(state))
+            .unwrap_or_default()
     }
 
     pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<SourceMacroBinding<'_>> {
@@ -225,17 +224,6 @@ impl SourcePreprocModel {
         self.index.event_records.iter().find(|directive| directive.event_id == event_id)
     }
 
-    pub(super) fn event_record_for_entity(
-        &self,
-        entity: SourcePreprocEntity,
-    ) -> Option<(usize, &SourcePreprocEventRecord)> {
-        self.index
-            .event_records
-            .iter()
-            .enumerate()
-            .find(|(_, directive)| source_event_matches_entity(directive, entity))
-    }
-
     fn source_order_at_position(&self, position: SourcePosition) -> usize {
         self.index
             .event_records
@@ -249,18 +237,28 @@ impl SourcePreprocModel {
             .unwrap_or(self.index.event_records.len())
     }
 
-    pub(super) fn macro_environment_before(
-        &self,
-        entity: SourcePreprocEntity,
-    ) -> Option<SourceMacroEnvironment> {
-        let mut environment = SourceMacroEnvironment::default();
-        for directive in &self.index.event_records {
-            if source_event_matches_entity(directive, entity) {
-                return Some(environment);
-            }
-            self.apply_macro_state(directive, &mut environment);
+    fn state_at_source_order(&self, source_order: usize) -> Option<&SourceMacroState> {
+        let checkpoint = self
+            .tables
+            .state_timeline
+            .checkpoints()
+            .iter()
+            .rev()
+            .find(|checkpoint| checkpoint.source_order <= source_order)?;
+        self.tables.state_timeline.states().get(checkpoint.state.raw())
+    }
+
+    fn environment_for_state(&self, state: &SourceMacroState) -> SourceMacroEnvironment {
+        SourceMacroEnvironment {
+            definitions: state
+                .definitions
+                .iter()
+                .filter_map(|(name, definition_id)| {
+                    self.define_index_for_definition_id(*definition_id)
+                        .map(|define_index| (name.clone(), define_index))
+                })
+                .collect(),
         }
-        None
     }
 
     fn bindings_for_environment(
@@ -285,31 +283,21 @@ impl SourcePreprocModel {
         Some(SourceMacroBinding { name, event_id: define.event_id, define_index, define })
     }
 
-    fn apply_macro_state(
+    pub(super) fn binding_for_definition_id(
         &self,
-        directive: &SourcePreprocEventRecord,
-        environment: &mut SourceMacroEnvironment,
-    ) {
-        match directive.kind {
-            MacroEventKind::Define => {
-                if let Some(define) = self.index.defines.get(directive.index)
-                    && let Some(name) = define.name.as_ref()
-                {
-                    environment.definitions.insert(name.clone(), directive.index);
-                }
-            }
-            MacroEventKind::Undef => {
-                if let Some(undef) = self.index.undefs.get(directive.index)
-                    && let Some(name) = undef.name.as_ref()
-                {
-                    environment.definitions.remove(name.as_str());
-                }
-            }
-            MacroEventKind::Include
-            | MacroEventKind::Conditional
-            | MacroEventKind::Branch
-            | MacroEventKind::Usage => {}
-        }
+        definition_id: SourceMacroDefinitionId,
+    ) -> Option<SourceMacroBinding<'_>> {
+        let definition = self.tables.macro_definitions.get(definition_id)?;
+        let define_index = self.define_index_for_definition_id(definition_id)?;
+        self.binding_for_define_index(definition.name.clone(), define_index)
+    }
+
+    fn define_index_for_definition_id(
+        &self,
+        definition_id: SourceMacroDefinitionId,
+    ) -> Option<usize> {
+        let definition = self.tables.macro_definitions.get(definition_id)?;
+        self.index.defines.iter().position(|define| define.event_id == definition.event_id)
     }
 
     fn event_from_record(
@@ -373,25 +361,6 @@ impl SourcePreprocModel {
                 })
             }
         }
-    }
-}
-
-fn source_event_matches_entity(
-    directive: &SourcePreprocEventRecord,
-    entity: SourcePreprocEntity,
-) -> bool {
-    match (directive.kind, entity) {
-        (MacroEventKind::Define, SourcePreprocEntity::Define(index))
-        | (MacroEventKind::Undef, SourcePreprocEntity::Undef(index))
-        | (MacroEventKind::Usage, SourcePreprocEntity::Usage(index))
-        | (MacroEventKind::Include, SourcePreprocEntity::Include(index)) => {
-            directive.index == index
-        }
-        (
-            MacroEventKind::Conditional | MacroEventKind::Branch,
-            SourcePreprocEntity::Conditional(index),
-        ) => directive.index == index,
-        _ => false,
     }
 }
 
@@ -743,7 +712,7 @@ wire active;
         assert!(references.iter().any(|reference| {
             matches!(
                 reference.site,
-                SourceMacroReferenceSite::ConditionalToken {
+                SourceMacroReferenceSite::IncludeGuardIfNDef {
                     conditional_index: site_conditional_index,
                     token_index: 0,
                 } if site_conditional_index == conditional_index
@@ -751,6 +720,26 @@ wire active;
                 && reference.range.source == header_source
                 && reference.definition.define.name_range.unwrap().source == header_source
         }));
+        let reference = model
+            .macro_references()
+            .iter()
+            .find(|reference| {
+                matches!(
+                    reference.site,
+                    SourceMacroReferenceSite::IncludeGuardIfNDef {
+                        conditional_index: site_conditional_index,
+                        token_index: 0,
+                    } if site_conditional_index == conditional_index
+                )
+            })
+            .expect("include guard token should be modeled as a resolved reference");
+        assert!(matches!(
+            reference.resolution,
+            SourceMacroResolution::Resolved {
+                reason: SourceMacroResolutionReason::IncludeGuardIfNDef,
+                ..
+            }
+        ));
     }
 
     #[test]

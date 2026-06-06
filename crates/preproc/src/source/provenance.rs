@@ -228,6 +228,7 @@ pub struct SourcePreprocTables {
     pub emitted_tokens: SourceEmittedTokenTable,
     pub token_provenance: SourceTokenProvenanceTable,
     pub include_graph: SourceIncludeGraph,
+    pub inactive_ranges: Vec<SourceRange>,
     pub state_timeline: SourceMacroStateTimeline,
     pub capabilities: SourcePreprocCapabilities,
     pub issues: Vec<SourcePreprocFactIssue>,
@@ -289,7 +290,11 @@ pub enum SourcePreprocUnavailable {
     MissingDefinitionNameRange { event_id: SourcePreprocEventId },
     MissingReferenceName { event_id: SourcePreprocEventId },
     MissingReferenceNameRange { event_id: SourcePreprocEventId },
+    MissingIncludedSource { include_event_id: SourcePreprocEventId, source: PreprocSourceId },
+    MissingIncludeEvent { include_event_id: SourcePreprocEventId },
+    IncludeEdgeNotInclude { include_event_id: SourcePreprocEventId },
     IncludeChainUnavailable { source: PreprocSourceId },
+    DetachedSource { source: PreprocSourceId },
     MacroCallAuthorityUnavailable,
     EmittedTokenAuthorityUnavailable,
     TokenProvenanceAuthorityUnavailable,
@@ -302,14 +307,16 @@ pub enum SourcePreprocFactIssue {
     MissingDefinitionNameRange { event_id: SourcePreprocEventId },
     MissingReferenceName { event_id: SourcePreprocEventId },
     MissingReferenceNameRange { event_id: SourcePreprocEventId },
+    MissingIncludedSource { include_event_id: SourcePreprocEventId, source: PreprocSourceId },
+    MissingIncludeEvent { include_event_id: SourcePreprocEventId },
+    IncludeEdgeNotInclude { include_event_id: SourcePreprocEventId },
     IncludeChainUnavailable { source: PreprocSourceId },
+    DetachedSource { source: PreprocSourceId },
 }
 
 impl SourcePreprocTables {
     pub fn from_index(index: &SourcePreprocIndex) -> Self {
-        let mut builder = SourcePreprocTableBuilder::new(index);
-        builder.build();
-        builder.tables
+        SourcePreprocModelBuilder::new(index).build()
     }
 
     pub fn capabilities(&self) -> &SourcePreprocCapabilities {
@@ -327,6 +334,7 @@ impl Default for SourcePreprocTables {
             emitted_tokens: SourceEmittedTokenTable::default(),
             token_provenance: SourceTokenProvenanceTable::default(),
             include_graph: SourceIncludeGraph::default(),
+            inactive_ranges: Vec::new(),
             state_timeline: SourceMacroStateTimeline::default(),
             capabilities: SourcePreprocCapabilities::unavailable(),
             issues: Vec::new(),
@@ -546,28 +554,35 @@ impl HasDirectiveRange for SourceIncludeDirective {
     }
 }
 
-struct SourcePreprocTableBuilder<'a> {
+pub struct SourcePreprocModelBuilder<'a> {
     index: &'a SourcePreprocIndex,
     tables: SourcePreprocTables,
     definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
     current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
     definition_ranges_partial: bool,
+    include_edges_partial: bool,
     references_partial: bool,
 }
 
-impl<'a> SourcePreprocTableBuilder<'a> {
-    fn new(index: &'a SourcePreprocIndex) -> Self {
+impl<'a> SourcePreprocModelBuilder<'a> {
+    pub fn new(index: &'a SourcePreprocIndex) -> Self {
         Self {
             index,
             tables: SourcePreprocTables::default(),
             definition_ids_by_define_index: BTreeMap::new(),
             current_state: BTreeMap::new(),
             definition_ranges_partial: false,
+            include_edges_partial: false,
             references_partial: false,
         }
     }
 
-    fn build(&mut self) {
+    pub fn build(mut self) -> SourcePreprocTables {
+        self.build_tables();
+        self.tables
+    }
+
+    fn build_tables(&mut self) {
         self.build_definition_table();
         self.build_include_graph();
         self.record_state_checkpoint(0, SourcePosition::from_first_event(self.index));
@@ -575,7 +590,7 @@ impl<'a> SourcePreprocTableBuilder<'a> {
         self.tables.capabilities = SourcePreprocCapabilities {
             source_events: CapabilityStatus::Complete,
             definition_name_ranges: partial_status(self.definition_ranges_partial),
-            include_edges: CapabilityStatus::Complete,
+            include_edges: partial_status(self.include_edges_partial),
             inactive_ranges: CapabilityStatus::Complete,
             macro_reference_resolution: partial_status(self.references_partial),
             macro_calls: CapabilityStatus::Unavailable(
@@ -625,20 +640,41 @@ impl<'a> SourcePreprocTableBuilder<'a> {
     }
 
     fn build_include_graph(&mut self) {
-        let resolved_sources_by_event = self
-            .index
-            .include_edges
-            .iter()
-            .map(|edge| (edge.include_event_id, edge.included_source))
-            .collect::<BTreeMap<_, _>>();
+        self.tables.inactive_ranges = self.index.inactive_ranges.clone();
+        let mut resolved_sources_by_event = BTreeMap::new();
+        let mut unavailable_by_event = BTreeMap::new();
+        let mut valid_edges = Vec::new();
 
-        self.tables.include_graph.edges = self.index.include_edges.clone();
+        for edge in &self.index.include_edges {
+            if let Some(unavailable) = self.validate_include_edge(edge) {
+                unavailable_by_event.insert(edge.include_event_id, unavailable);
+                continue;
+            }
+
+            valid_edges.push(*edge);
+            resolved_sources_by_event.insert(edge.include_event_id, edge.included_source);
+        }
+
+        for source in &self.index.sources {
+            if source.origin == PreprocSourceOrigin::Detached {
+                self.include_edges_partial = true;
+                self.tables
+                    .issues
+                    .push(SourcePreprocFactIssue::DetachedSource { source: source.id });
+            }
+        }
+
+        self.tables.include_graph.edges = valid_edges;
         for include in &self.index.includes {
             let id = SourceIncludeDirectiveId::new(self.tables.include_graph.directives.len());
             let resolved_source = resolved_sources_by_event.get(&include.event_id).copied();
-            let status = resolved_source
-                .map(|source| SourceIncludeStatus::Resolved { source })
-                .unwrap_or(SourceIncludeStatus::Unresolved);
+            let status = match resolved_source {
+                Some(source) => SourceIncludeStatus::Resolved { source },
+                None => unavailable_by_event
+                    .remove(&include.event_id)
+                    .map(SourceIncludeStatus::Unavailable)
+                    .unwrap_or(SourceIncludeStatus::Unresolved),
+            };
             self.tables.include_graph.directives.push(SourceIncludeDirective {
                 id,
                 event_id: include.event_id,
@@ -649,6 +685,50 @@ impl<'a> SourcePreprocTableBuilder<'a> {
                 status,
             });
         }
+    }
+
+    fn validate_include_edge(
+        &mut self,
+        edge: &SourceIncludeEdge,
+    ) -> Option<SourcePreprocUnavailable> {
+        if !self.index.sources.iter().any(|source| source.id == edge.included_source) {
+            self.include_edges_partial = true;
+            self.tables.issues.push(SourcePreprocFactIssue::MissingIncludedSource {
+                include_event_id: edge.include_event_id,
+                source: edge.included_source,
+            });
+            return Some(SourcePreprocUnavailable::MissingIncludedSource {
+                include_event_id: edge.include_event_id,
+                source: edge.included_source,
+            });
+        }
+
+        let Some(directive) = self
+            .index
+            .event_records
+            .iter()
+            .find(|directive| directive.event_id == edge.include_event_id)
+        else {
+            self.include_edges_partial = true;
+            self.tables.issues.push(SourcePreprocFactIssue::MissingIncludeEvent {
+                include_event_id: edge.include_event_id,
+            });
+            return Some(SourcePreprocUnavailable::MissingIncludeEvent {
+                include_event_id: edge.include_event_id,
+            });
+        };
+
+        if directive.kind != MacroEventKind::Include {
+            self.include_edges_partial = true;
+            self.tables.issues.push(SourcePreprocFactIssue::IncludeEdgeNotInclude {
+                include_event_id: edge.include_event_id,
+            });
+            return Some(SourcePreprocUnavailable::IncludeEdgeNotInclude {
+                include_event_id: edge.include_event_id,
+            });
+        }
+
+        None
     }
 
     fn scan_references_and_state(&mut self) {
@@ -716,16 +796,12 @@ impl<'a> SourcePreprocTableBuilder<'a> {
         };
         let event_id = conditional.event_id;
         let directive_range = conditional.range;
-        let tokens = conditional
-            .expr
-            .iter()
-            .enumerate()
-            .filter_map(|(token_index, token)| {
-                Some((token_index, token.value.clone(), token.range?))
-            })
-            .collect::<Vec<_>>();
-
-        for (token_index, name, name_range) in tokens {
+        for (token_index, token) in conditional.expr.iter().enumerate() {
+            let name = token.value.clone();
+            let Some(name_range) = token.range else {
+                self.record_missing_reference_name_range(event_id);
+                continue;
+            };
             let (site, resolution) =
                 if let Some(definition) = self.current_state.get(name.as_str()).copied() {
                     (
@@ -810,14 +886,31 @@ impl<'a> SourcePreprocTableBuilder<'a> {
             }
             Err(_) => {
                 self.references_partial = true;
-                self.tables.issues.push(SourcePreprocFactIssue::IncludeChainUnavailable {
-                    source: definition_source,
-                });
-                SourceMacroResolution::Unavailable(
-                    SourcePreprocUnavailable::IncludeChainUnavailable { source: definition_source },
-                )
+                if self.source_is_detached(definition_source) {
+                    self.tables
+                        .issues
+                        .push(SourcePreprocFactIssue::DetachedSource { source: definition_source });
+                    SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
+                        source: definition_source,
+                    })
+                } else {
+                    self.tables.issues.push(SourcePreprocFactIssue::IncludeChainUnavailable {
+                        source: definition_source,
+                    });
+                    SourceMacroResolution::Unavailable(
+                        SourcePreprocUnavailable::IncludeChainUnavailable {
+                            source: definition_source,
+                        },
+                    )
+                }
             }
         }
+    }
+
+    fn source_is_detached(&self, source: PreprocSourceId) -> bool {
+        self.index.sources.iter().any(|candidate| {
+            candidate.id == source && candidate.origin == PreprocSourceOrigin::Detached
+        })
     }
 
     fn include_guard_definition_after_ifndef(
