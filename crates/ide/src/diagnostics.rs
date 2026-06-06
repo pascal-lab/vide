@@ -334,10 +334,22 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             let Some(module_name) = instantiation.module_name.as_ref() else {
                 continue;
             };
-            let range = src_map
-                .get(instantiation_id)
-                .map(|src| src.range())
-                .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
+            let Some(src) = src_map.get(instantiation_id) else {
+                continue;
+            };
+            let mut diag_file_id = file_id;
+            let mut range = src.range();
+            if let Ok(Some(provenance)) =
+                hir::preproc::diagnostic_provenance_for_range(db, file_id, range)
+            {
+                let Some((target_file_id, target_range)) =
+                    diagnostic_preproc_target_file_range(&provenance)
+                else {
+                    continue;
+                };
+                diag_file_id = target_file_id;
+                range = target_range;
+            }
 
             match resolve_module_name(db, file_id, module_name) {
                 ModuleResolution::Ambiguous { candidates, kind } => {
@@ -348,7 +360,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                             kind,
                         );
                     diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.diagnostic(
-                        file_id,
+                        diag_file_id,
                         range,
                         severity,
                         message,
@@ -364,6 +376,20 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
     }
 
     diagnostics
+}
+
+fn diagnostic_preproc_target_file_range(
+    provenance: &hir::preproc::DiagnosticProvenance,
+) -> Option<(FileId, TextRange)> {
+    match provenance {
+        hir::preproc::DiagnosticProvenance::SourceToken { source, range }
+        | hir::preproc::DiagnosticProvenance::MacroBody { source, range, .. }
+        | hir::preproc::DiagnosticProvenance::MacroArgument { source, range, .. }
+        | hir::preproc::DiagnosticProvenance::VirtualExpansion { source, range } => {
+            Some((source.file_id(), *range))
+        }
+        hir::preproc::DiagnosticProvenance::Unavailable(_) => None,
+    }
 }
 
 fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -595,6 +621,34 @@ mod tests {
             }),
             "expected strict ambiguity warning: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn preproc_macro_generated_instantiation_diagnostic_uses_macro_body_provenance() {
+        let top = "`define MAKE child u();\nmodule top;\n  `MAKE\nendmodule\n";
+        let db = db_with_files(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+                ("/project/top.sv", top),
+            ],
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diag| {
+                diag.source == DiagnosticSource::Vide
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+            })
+            .unwrap_or_else(|| {
+                panic!("expected generated instantiation diagnostic: {diagnostics:?}")
+            });
+
+        assert_eq!(diagnostic.file_id, FileId(2));
+        assert_eq!(diagnostic.range, range_of(top, "child"));
+        assert_ne!(diagnostic.range, range_of(top, "`MAKE"));
     }
 
     #[test]

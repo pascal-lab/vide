@@ -4,8 +4,8 @@ use std::{
 };
 
 use preproc::source::{
-    PreprocSourceId, SourceMacroExpansionId, SourcePreprocError, SourcePreprocModel,
-    SourcePreprocUnavailable, SourceRange,
+    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroExpansionId,
+    SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
@@ -145,6 +145,7 @@ pub struct MappedSourcePreprocModel {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PreprocSourceMap {
     entries: FxHashMap<PreprocSourceId, PreprocSourceMapping>,
+    expansion_entries: FxHashMap<SourceMacroExpansionId, PreprocExpansionMapping>,
     text_lengths: FxHashMap<PreprocSourceId, usize>,
     range_offsets: FxHashMap<PreprocSourceId, usize>,
 }
@@ -154,6 +155,16 @@ pub enum PreprocSourceMapping {
     RealFile(FileId),
     VirtualFile { file_id: FileId, path: VfsPath, origin: PreprocVirtualOrigin },
     Unmapped(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocExpansionMapping {
+    pub file_id: FileId,
+    pub path: VfsPath,
+    pub origin: PreprocVirtualOrigin,
+    pub text: String,
+    pub emitted_range: SourceEmittedTokenRange,
+    token_ranges: FxHashMap<SourceEmittedTokenId, TextRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +193,15 @@ pub enum PreprocSourceMapError {
         range: TextRange,
         mapped_range: TextRange,
         text_len: usize,
+    },
+    MissingExpansionVirtualFile {
+        expansion: SourceMacroExpansionId,
+    },
+    MissingEmittedToken {
+        token: SourceEmittedTokenId,
+    },
+    MissingEmittedTokenRange {
+        range: SourceEmittedTokenRange,
     },
 }
 
@@ -225,6 +245,73 @@ impl PreprocSourceMap {
 
     pub fn get(&self, source: PreprocSourceId) -> Option<&PreprocSourceMapping> {
         self.entries.get(&source)
+    }
+
+    pub fn insert_expansion_virtual_file(
+        &mut self,
+        expansion: SourceMacroExpansionId,
+        file_id: FileId,
+        path: VfsPath,
+        text: String,
+        emitted_range: SourceEmittedTokenRange,
+        token_ranges: FxHashMap<SourceEmittedTokenId, TextRange>,
+    ) {
+        self.expansion_entries.insert(
+            expansion,
+            PreprocExpansionMapping {
+                file_id,
+                path,
+                origin: PreprocVirtualOrigin::Expansion { expansion },
+                text,
+                emitted_range,
+                token_ranges,
+            },
+        );
+    }
+
+    pub fn expansion(&self, expansion: SourceMacroExpansionId) -> Option<&PreprocExpansionMapping> {
+        self.expansion_entries.get(&expansion)
+    }
+
+    pub fn expansion_source(
+        &self,
+        expansion: SourceMacroExpansionId,
+    ) -> Result<PreprocSourceMapping, PreprocSourceMapError> {
+        let entry = self
+            .expansion(expansion)
+            .ok_or(PreprocSourceMapError::MissingExpansionVirtualFile { expansion })?;
+        Ok(PreprocSourceMapping::VirtualFile {
+            file_id: entry.file_id,
+            path: entry.path.clone(),
+            origin: entry.origin.clone(),
+        })
+    }
+
+    pub fn emitted_token_range(
+        &self,
+        expansion: SourceMacroExpansionId,
+        emitted_range: SourceEmittedTokenRange,
+    ) -> Result<TextRange, PreprocSourceMapError> {
+        let entry = self
+            .expansion(expansion)
+            .ok_or(PreprocSourceMapError::MissingExpansionVirtualFile { expansion })?;
+        expansion_text_range(entry, emitted_range)
+            .ok_or(PreprocSourceMapError::MissingEmittedTokenRange { range: emitted_range })
+    }
+
+    pub fn emitted_token_text_range(
+        &self,
+        expansion: SourceMacroExpansionId,
+        token: SourceEmittedTokenId,
+    ) -> Result<TextRange, PreprocSourceMapError> {
+        let entry = self
+            .expansion(expansion)
+            .ok_or(PreprocSourceMapError::MissingExpansionVirtualFile { expansion })?;
+        entry
+            .token_ranges
+            .get(&token)
+            .copied()
+            .ok_or(PreprocSourceMapError::MissingEmittedToken { token })
     }
 
     pub fn file_id(&self, source: PreprocSourceId) -> Result<FileId, PreprocSourceMapError> {
@@ -576,6 +663,76 @@ fn shift_text_range(range: TextRange, offset: usize) -> Option<TextRange> {
     ))
 }
 
+fn expansion_text_range(
+    entry: &PreprocExpansionMapping,
+    emitted_range: SourceEmittedTokenRange,
+) -> Option<TextRange> {
+    if emitted_range.len == 0 {
+        return Some(TextRange::empty(TextSize::from(0)));
+    }
+
+    let start = emitted_range.start;
+    let end = SourceEmittedTokenId::new(start.raw().checked_add(emitted_range.len - 1)?);
+    let start_range = entry.token_ranges.get(&start)?;
+    let end_range = entry.token_ranges.get(&end)?;
+    Some(TextRange::new(start_range.start(), end_range.end()))
+}
+
+fn materialize_expansion_virtual_files(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+    model: &SourcePreprocModel,
+    source_map: &mut PreprocSourceMap,
+) {
+    for expansion in model.macro_expansions().iter() {
+        let Some((text, token_ranges)) =
+            materialized_expansion_text_and_ranges(model, expansion.emitted_token_range)
+        else {
+            continue;
+        };
+        let path = preproc_virtual_expansion_path(profile_id, expansion.id);
+        let file_id = preproc_virtual_file_id(db, &path);
+        source_map.insert_expansion_virtual_file(
+            expansion.id,
+            file_id,
+            path,
+            text,
+            expansion.emitted_token_range,
+            token_ranges,
+        );
+    }
+}
+
+fn materialized_expansion_text_and_ranges(
+    model: &SourcePreprocModel,
+    emitted_range: SourceEmittedTokenRange,
+) -> Option<(String, FxHashMap<SourceEmittedTokenId, TextRange>)> {
+    let mut text = String::new();
+    let mut token_ranges = FxHashMap::default();
+
+    for raw in
+        emitted_range.start.raw()..emitted_range.start.raw().checked_add(emitted_range.len)?
+    {
+        let token_id = SourceEmittedTokenId::new(raw);
+        let token = model.emitted_tokens().get(token_id)?;
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        let start = text.len();
+        text.push_str(token.text.as_str());
+        let end = text.len();
+        token_ranges.insert(
+            token_id,
+            TextRange::new(
+                TextSize::from(u32::try_from(start).ok()?),
+                TextSize::from(u32::try_from(end).ok()?),
+            ),
+        );
+    }
+
+    Some((text, token_ranges))
+}
+
 fn syntax_tree_options_for_file(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -830,7 +987,7 @@ fn source_preproc_model(
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
     };
 
-    let source_map = match source_preproc_file_ids(db, file_id, profile_id, &trace, &options) {
+    let mut source_map = match source_preproc_file_ids(db, file_id, profile_id, &trace, &options) {
         Ok(source_map) => source_map,
         Err(err) => return Arc::new(Err(err)),
     };
@@ -838,6 +995,7 @@ fn source_preproc_model(
         Ok(model) => model,
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
     };
+    materialize_expansion_virtual_files(db, profile_id, &model, &mut source_map);
 
     Arc::new(Ok(MappedSourcePreprocModel { model, source_map }))
 }
