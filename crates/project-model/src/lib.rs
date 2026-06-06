@@ -264,7 +264,7 @@ impl Workspace {
         self.semantic_profile.as_ref()
     }
 
-    fn root(&self) -> &AbsPathBuf {
+    pub fn root(&self) -> &AbsPathBuf {
         &self.workspace_root
     }
 
@@ -1119,8 +1119,8 @@ include_dirs = ["include"]
         let roots = source_root_config.partition(&vfs);
         let manifest_id = roots[0].file_for_path(&VfsPath::from(manifest)).unwrap();
         let top_id = roots[0].file_for_path(&VfsPath::from(top)).unwrap();
-        assert_eq!(roots[0].file_kind(&manifest_id), SourceFileKind::ProjectManifest);
-        assert_eq!(roots[0].file_kind(&top_id), SourceFileKind::SystemVerilog);
+        assert_eq!(roots[0].file_kind(manifest_id), SourceFileKind::ProjectManifest);
+        assert_eq!(roots[0].file_kind(top_id), SourceFileKind::SystemVerilog);
     }
 
     #[test]
