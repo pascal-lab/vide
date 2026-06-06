@@ -91,7 +91,7 @@ fn handle_preproc_macro(
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
     if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
-        return Some(RangeInfo::new(definition.range, macro_definition_markup(&definition)));
+        return Some(RangeInfo::new(definition.name_range, macro_definition_markup(&definition)));
     }
 
     let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;

@@ -25,7 +25,17 @@ pub type PreprocResult<T> = Result<T, PreprocError>;
 pub enum PreprocError {
     SourceQuery(SourcePreprocQueryError),
     MissingRootSource,
-    UnmappedSource { buffer_id: u32 },
+    UnmappedSource {
+        buffer_id: u32,
+    },
+    MismatchedDefinitionRangeFiles {
+        event_id: u32,
+        directive_file_id: FileId,
+        name_file_id: FileId,
+    },
+    MissingDefinitionNameRange {
+        event_id: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,8 +44,8 @@ pub struct MacroDefinition {
     pub name: SmolStr,
     pub define_index: usize,
     pub event_id: u32,
-    pub event_range: TextRange,
-    pub range: TextRange,
+    pub directive_range: TextRange,
+    pub name_range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,8 +68,8 @@ pub struct MacroUsageResolution {
 pub struct MacroDefinitionProvenance {
     pub event_id: u32,
     pub file_id: FileId,
-    pub range: TextRange,
-    pub name_range: Option<TextRange>,
+    pub directive_range: TextRange,
+    pub name_range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,8 +111,8 @@ impl MacroDefinitionKey {
     fn from_definition(definition: &MacroDefinition) -> Self {
         Self {
             file_id: definition.file_id,
-            range_start: definition.range.start(),
-            range_end: definition.range.end(),
+            range_start: definition.name_range.start(),
+            range_end: definition.name_range.end(),
             name: definition.name.clone(),
         }
     }
@@ -264,9 +274,12 @@ pub fn macro_definition_at(
     let mapped = mapped_result(mapped.as_ref())?;
 
     for (define_index, define) in mapped.model.defines().iter().enumerate() {
-        let (define_file_id, event_range) = map_source_range(mapped, define.range)?;
-        let (_, range) = map_source_range(mapped, define.name_range.unwrap_or(define.range))?;
-        if define_file_id == file_id && range_contains_offset(range, offset) {
+        let Some(source_name_range) = define.name_range else {
+            continue;
+        };
+        let (define_file_id, directive_range, name_range) =
+            map_definition_ranges(mapped, define.event_id.raw(), define.range, source_name_range)?;
+        if define_file_id == file_id && range_contains_offset(name_range, offset) {
             return Ok(Some(MacroDefinition {
                 file_id: define_file_id,
                 name: match define.name.clone() {
@@ -275,8 +288,8 @@ pub fn macro_definition_at(
                 },
                 define_index,
                 event_id: define.event_id.raw(),
-                event_range,
-                range,
+                directive_range,
+                name_range,
             }));
         }
     }
@@ -531,14 +544,23 @@ fn map_definition_provenance(
     provenance: &SourcePreprocProvenance,
 ) -> PreprocResult<MacroDefinitionProvenance> {
     let (file_id, range) = map_source_range(mapped, provenance.range)?;
-    let name_range = provenance
-        .name_range
-        .map(|source_range| map_source_range(mapped, source_range).map(|(_, range)| range))
-        .transpose()?;
+    let Some(source_name_range) = provenance.name_range else {
+        return Err(PreprocError::MissingDefinitionNameRange {
+            event_id: provenance.event_id.raw(),
+        });
+    };
+    let (name_file_id, name_range) = map_source_range(mapped, source_name_range)?;
+    if name_file_id != file_id {
+        return Err(PreprocError::MismatchedDefinitionRangeFiles {
+            event_id: provenance.event_id.raw(),
+            directive_file_id: file_id,
+            name_file_id,
+        });
+    }
     Ok(MacroDefinitionProvenance {
         event_id: provenance.event_id.raw(),
         file_id,
-        range,
+        directive_range: range,
         name_range,
     })
 }
@@ -566,20 +588,44 @@ fn map_binding_definition(
     mapped: &MappedSourcePreprocModel,
     binding: SourceMacroBinding<'_>,
 ) -> PreprocResult<Option<MacroDefinition>> {
-    let (file_id, event_range) = map_source_range(mapped, binding.define.range)?;
-    let (_, range) =
-        map_source_range(mapped, binding.define.name_range.unwrap_or(binding.define.range))?;
     let Some(name) = binding.define.name.clone() else {
         return Ok(None);
     };
+    let Some(source_name_range) = binding.define.name_range else {
+        return Ok(None);
+    };
+    let (file_id, directive_range, name_range) = map_definition_ranges(
+        mapped,
+        binding.event_id.raw(),
+        binding.define.range,
+        source_name_range,
+    )?;
     Ok(Some(MacroDefinition {
         file_id,
         name,
         define_index: binding.define_index,
         event_id: binding.event_id.raw(),
-        event_range,
-        range,
+        directive_range,
+        name_range,
     }))
+}
+
+fn map_definition_ranges(
+    mapped: &MappedSourcePreprocModel,
+    event_id: u32,
+    directive_source_range: SourceRange,
+    name_source_range: SourceRange,
+) -> PreprocResult<(FileId, TextRange, TextRange)> {
+    let (directive_file_id, directive_range) = map_source_range(mapped, directive_source_range)?;
+    let (name_file_id, name_range) = map_source_range(mapped, name_source_range)?;
+    if directive_file_id != name_file_id {
+        return Err(PreprocError::MismatchedDefinitionRangeFiles {
+            event_id,
+            directive_file_id,
+            name_file_id,
+        });
+    }
+    Ok((directive_file_id, directive_range, name_range))
 }
 
 fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroReference) {
@@ -599,7 +645,7 @@ fn push_unique_macro_definition(
 ) {
     if definitions.iter().any(|existing| {
         existing.file_id == definition.file_id
-            && existing.range == definition.range
+            && existing.name_range == definition.name_range
             && existing.name == definition.name
     }) {
         return;
@@ -865,7 +911,7 @@ endmodule
         assert_eq!(resolution.usage.file_id, TOP);
         assert_eq!(resolution.definition.file_id, HEADER);
         assert_eq!(resolution.definition.name.as_str(), "HEADER_WIDTH");
-        assert!(text_at_range(header_text, resolution.definition.range).contains("HEADER_WIDTH"));
+        assert_eq!(text_at_range(header_text, resolution.definition.name_range), "HEADER_WIDTH");
 
         let include =
             include_directive_at(&db, TOP, offset(root_text, "defs.vh")).unwrap().unwrap();
@@ -997,7 +1043,7 @@ localparam int ENABLED = `HEADER_FLAG;
         assert_eq!(text_at_range(root_text, definitions.reference.range), "`HEADER_FLAG");
         assert!(definitions.definitions.iter().any(|indexed| {
             indexed.file_id == HEADER
-                && indexed.range == definition.range
+                && indexed.name_range == definition.name_range
                 && indexed.name == definition.name
         }));
     }
@@ -1018,7 +1064,7 @@ localparam int ENABLED = `HEADER_FLAG;
         assert_eq!(resolution.reference.file_id, HEADER);
         let definition =
             resolution.definitions.iter().find(|definition| definition.file_id == HEADER).unwrap();
-        assert_eq!(text_at_range(header_text, definition.range), "HEADER_FLAG");
+        assert_eq!(text_at_range(header_text, definition.name_range), "HEADER_FLAG");
 
         let refs = macro_references(&db, HEADER, definition).unwrap();
         assert!(refs.iter().any(|reference| {
@@ -1044,7 +1090,7 @@ localparam int ENABLED = `HEADER_FLAG;
         assert_eq!(resolution.reference.file_id, HEADER);
         assert!(resolution.definitions.iter().any(|definition| {
             definition.file_id == HEADER
-                && text_at_range(header_text, definition.range) == "HEADER_FLAG"
+                && text_at_range(header_text, definition.name_range) == "HEADER_FLAG"
         }));
     }
 }
