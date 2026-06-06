@@ -67,6 +67,9 @@ fn handle_preproc_macro(
     let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
     let reference_range = resolution.reference.range;
     let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
+    if targets.is_empty() {
+        return None;
+    }
     Some(RangeInfo::new(reference_range, targets))
 }
 

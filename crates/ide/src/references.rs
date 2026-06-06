@@ -98,6 +98,9 @@ fn handle_preproc_macro(
     } else {
         macro_reference_definitions_at(db, file_id, offset).ok()??.definitions
     };
+    if definitions.is_empty() {
+        return None;
+    }
 
     definitions
         .into_iter()
@@ -113,6 +116,7 @@ fn macro_references_for_definition(
 ) -> Option<References> {
     let refs = macro_references(db, file_id, &definition)
         .ok()?
+        .references
         .into_iter()
         .filter(|usage| {
             config.search_scope.as_ref().is_none_or(|scope| {
