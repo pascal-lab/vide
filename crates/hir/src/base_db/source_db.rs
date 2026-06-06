@@ -5,7 +5,7 @@ use std::{
 
 use preproc::source::{
     PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroExpansionId,
-    SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
+    SourcePosition, SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
@@ -323,6 +323,37 @@ impl PreprocSourceMap {
             }
             None => Err(PreprocSourceMapError::MissingSource { source }),
         }
+    }
+
+    pub fn source_positions_for_file_offset(
+        &self,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Vec<SourcePosition> {
+        let mut positions = self
+            .entries
+            .iter()
+            .filter_map(|(source, mapping)| {
+                let mapped_file_id = match mapping {
+                    PreprocSourceMapping::RealFile(mapped_file_id)
+                    | PreprocSourceMapping::VirtualFile { file_id: mapped_file_id, .. } => {
+                        *mapped_file_id
+                    }
+                    PreprocSourceMapping::Unmapped(_) => return None,
+                };
+                if mapped_file_id != file_id {
+                    return None;
+                }
+
+                let range_offset = self.range_offsets.get(source).copied().unwrap_or(0);
+                let source_offset = unshift_text_size(offset, range_offset)?;
+                let text_len = self.text_lengths.get(source).copied()?;
+                (usize::from(source_offset) <= text_len)
+                    .then_some(SourcePosition { source: *source, offset: source_offset })
+            })
+            .collect::<Vec<_>>();
+        positions.sort_by_key(|position| position.source.raw());
+        positions
     }
 
     pub fn map_range(&self, source_range: SourceRange) -> Result<TextRange, PreprocSourceMapError> {
@@ -661,6 +692,11 @@ fn shift_text_range(range: TextRange, offset: usize) -> Option<TextRange> {
         TextSize::from(u32::try_from(start).ok()?),
         TextSize::from(u32::try_from(end).ok()?),
     ))
+}
+
+fn unshift_text_size(offset: TextSize, range_offset: usize) -> Option<TextSize> {
+    let offset = usize::from(offset).checked_sub(range_offset)?;
+    Some(TextSize::from(u32::try_from(offset).ok()?))
 }
 
 fn expansion_text_range(

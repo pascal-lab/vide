@@ -44,6 +44,7 @@ pub enum SourceMacroReferenceSite {
     Usage { usage_index: usize },
     ConditionalToken { conditional_index: usize, token_index: usize },
     IncludeGuardIfNDef { conditional_index: usize, token_index: usize },
+    MacroBodyToken { call: SourceMacroCallId, token_index: usize },
     ExpansionToken { emitted_token: SourceEmittedTokenId },
 }
 
@@ -696,6 +697,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         self.scan_references_and_state();
         self.build_emitted_token_tables();
         self.build_macro_expansion_graph();
+        self.record_macro_body_references_for_calls();
         let macro_expansions = if self.tables.macro_calls.is_empty() {
             CapabilityStatus::Complete
         } else if self.index.emitted_tokens.is_empty() {
@@ -1334,6 +1336,57 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         }
     }
 
+    fn record_macro_body_references_for_calls(&mut self) {
+        let calls = self.tables.macro_calls.iter().cloned().collect::<Vec<_>>();
+        for call in calls {
+            let SourceMacroResolution::Resolved { definition, .. } = call.callee else {
+                continue;
+            };
+            let Some(definition) = self.tables.macro_definitions.get(definition).cloned() else {
+                continue;
+            };
+            let call_position = SourcePosition {
+                source: call.call_range.source,
+                offset: call.call_range.range.start(),
+            };
+            for (token_index, token) in definition.body_tokens.iter().enumerate() {
+                let Some(name) = macro_reference_name_from_body_token(token) else {
+                    continue;
+                };
+                let Some(name_range) = token.range else {
+                    self.record_missing_reference_name_range(definition.event_id);
+                    continue;
+                };
+                let resolution =
+                    self.resolve_visible_reference_at_position(name.as_str(), call_position);
+                if self.macro_reference_exists(name.as_str(), name_range, &resolution) {
+                    continue;
+                }
+                self.push_reference(
+                    definition.event_id,
+                    SourceMacroReferenceSite::MacroBodyToken { call: call.id, token_index },
+                    name,
+                    name_range,
+                    definition.directive_range,
+                    resolution,
+                );
+            }
+        }
+    }
+
+    fn macro_reference_exists(
+        &self,
+        name: &str,
+        name_range: SourceRange,
+        resolution: &SourceMacroResolution,
+    ) -> bool {
+        self.tables.macro_references.iter().any(|reference| {
+            reference.name.as_str() == name
+                && reference.name_range == name_range
+                && &reference.resolution == resolution
+        })
+    }
+
     fn direct_emitted_tokens_by_call(
         &self,
     ) -> BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>> {
@@ -1471,6 +1524,22 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
     fn resolve_visible_reference(&mut self, name: &str) -> SourceMacroResolution {
         let Some(definition) = self.current_state.get(name).copied() else {
+            return SourceMacroResolution::Undefined;
+        };
+        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+    }
+
+    fn resolve_visible_reference_at_position(
+        &mut self,
+        name: &str,
+        position: SourcePosition,
+    ) -> SourceMacroResolution {
+        let Some(definition) = self
+            .tables
+            .state_timeline
+            .state_at_position(position)
+            .and_then(|state| state.definitions.get(name).copied())
+        else {
             return SourceMacroResolution::Undefined;
         };
         self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
@@ -1661,6 +1730,14 @@ fn boundary_after(directive_range: SourceRange) -> SourcePosition {
 
 fn partial_status(is_partial: bool) -> CapabilityStatus {
     if is_partial { CapabilityStatus::Partial } else { CapabilityStatus::Complete }
+}
+
+fn macro_reference_name_from_body_token(token: &SourceMacroToken) -> Option<SmolStr> {
+    if !token.raw.starts_with('`') {
+        return None;
+    }
+    let name = token.value.strip_prefix('`').unwrap_or(token.value.as_str());
+    (!name.is_empty()).then(|| SmolStr::new(name))
 }
 
 fn emitted_token_range_from_ids(
