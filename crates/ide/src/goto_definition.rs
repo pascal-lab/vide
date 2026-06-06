@@ -61,7 +61,7 @@ fn handle_preproc_macro(
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
-        return Some(RangeInfo::new(definition.range, vec![macro_nav_target(definition)]));
+        return Some(RangeInfo::new(definition.name_range, vec![macro_nav_target(definition)]));
     }
 
     let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
@@ -73,8 +73,8 @@ fn handle_preproc_macro(
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
     NavTarget {
         file_id: definition.file_id,
-        full_range: definition.range,
-        focus_range: Some(definition.range),
+        full_range: definition.name_range,
+        focus_range: Some(definition.name_range),
         name: Some(definition.name),
         kind: None,
         container_name: None,

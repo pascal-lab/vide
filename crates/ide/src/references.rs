@@ -139,8 +139,8 @@ fn macro_references_for_definition(
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
     NavTarget {
         file_id: definition.file_id,
-        full_range: definition.range,
-        focus_range: Some(definition.range),
+        full_range: definition.name_range,
+        focus_range: Some(definition.name_range),
         name: Some(definition.name),
         kind: None,
         container_name: None,
