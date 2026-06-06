@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use preproc::source::{
     CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId,
     SourceEmittedTokenRange, SourceIncludeChainEntry, SourceIncludeDirectiveId,
-    SourceIncludeStatus, SourceMacroCall as SourceMacroCallFact, SourceMacroCallId,
+    SourceIncludeStatus, SourceMacroArgument as SourceMacroArgumentFact,
+    SourceMacroCall as SourceMacroCallFact, SourceMacroCallId,
     SourceMacroCallStatus as SourceMacroCallStatusFact,
     SourceMacroDefinition as SourceMacroDefinitionFact, SourceMacroDefinitionId,
     SourceMacroExpansion as SourceMacroExpansionFact, SourceMacroExpansionId,
@@ -154,10 +155,18 @@ pub struct MacroDefinition {
     pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub name: SmolStr,
+    pub params: Option<Vec<MacroDefinitionParam>>,
     pub define_index: usize,
     pub event_id: u32,
     pub directive_range: TextRange,
     pub name_range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroDefinitionParam {
+    pub param_index: usize,
+    pub name: Option<SmolStr>,
+    pub range: Option<TextRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,6 +276,7 @@ pub struct MacroCall {
     pub source: MappedPreprocSource,
     pub capability: PreprocAvailability,
     pub file_id: FileId,
+    pub arguments: Vec<MacroArgument>,
     pub directive_range: TextRange,
     pub range: TextRange,
     pub callee: MacroResolution,
@@ -274,10 +284,19 @@ pub struct MacroCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroArgument {
+    pub argument_index: usize,
+    pub source: Option<MappedPreprocSource>,
+    pub range: Option<TextRange>,
+    pub tokens: Vec<SmolStr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroExpansion {
     pub id: MacroExpansionId,
     pub call: MacroCall,
     pub definition_id: MacroDefinitionId,
+    pub definition: MacroDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
     pub virtual_source: MappedPreprocSource,
     pub virtual_range: TextRange,
@@ -368,6 +387,13 @@ pub struct MacroExpansionUnavailable {
 pub struct RecursiveMacroExpansion {
     pub root_call: MacroCall,
     pub expansions: Vec<MacroExpansion>,
+    pub unavailable: Vec<MacroExpansionUnavailable>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecursiveMacroExpansionProvenance {
+    pub root_call: MacroCall,
+    pub expansions: Vec<MacroExpansionProvenance>,
     pub unavailable: Vec<MacroExpansionUnavailable>,
 }
 
@@ -682,6 +708,7 @@ fn configured_predefine_definition(
         capability: PreprocAvailability::Complete,
         file_id,
         name: predefine_name,
+        params: None,
         define_index: CONFIGURED_PREDEFINE_DEFINE_INDEX,
         event_id: CONFIGURED_PREDEFINE_EVENT_ID,
         directive_range: source.range,
@@ -1223,6 +1250,40 @@ pub fn recursive_macro_expansions_at(
         };
         let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
         push_unique_recursive_macro_expansion(&mut expansions, recursive);
+    }
+
+    if !expansions.is_empty() {
+        return Ok(expansions);
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
+}
+
+pub fn recursive_macro_expansion_provenances_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<RecursiveMacroExpansionProvenance>> {
+    let mut expansions = Vec::new();
+    let mut first_error = None;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+            continue;
+        };
+        let recursive = recursive_macro_expansion_provenance_for_call(mapped, call_fact)?;
+        push_unique_recursive_macro_expansion_provenance(&mut expansions, recursive);
     }
 
     if !expansions.is_empty() {
@@ -1815,12 +1876,30 @@ fn map_macro_definition(
         directive_range = manifest_source.range;
         name_range = manifest_source.range;
     }
+    let params = definition
+        .params
+        .as_ref()
+        .map(|params| {
+            params
+                .iter()
+                .enumerate()
+                .map(|(param_index, param)| {
+                    let range = param
+                        .name_range
+                        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+                        .transpose()?;
+                    Ok(MacroDefinitionParam { param_index, name: param.name.clone(), range })
+                })
+                .collect::<PreprocResult<Vec<_>>>()
+        })
+        .transpose()?;
     Ok(MacroDefinition {
         id: definition.id.into(),
         file_id: source.file_id(),
         source,
         capability: capability_status(&mapped.model.capabilities().definition_name_ranges),
         name: definition.name.clone(),
+        params,
         define_index: define_index_for_definition(mapped, definition)?,
         event_id: definition.event_id.raw(),
         directive_range,
@@ -1934,16 +2013,39 @@ fn map_macro_call(
     call: &SourceMacroCallFact,
 ) -> PreprocResult<MacroCall> {
     let (source, range) = map_mapped_source_range(mapped, call.call_range)?;
+    let arguments = call
+        .arguments
+        .iter()
+        .map(|argument| map_macro_argument(mapped, argument))
+        .collect::<PreprocResult<Vec<_>>>()?;
     Ok(MacroCall {
         id: call.id.into(),
         reference_id: call.reference.into(),
         file_id: source.file_id(),
         source,
         capability: macro_call_availability(&call.status),
+        arguments,
         directive_range: range,
         range,
         callee: map_macro_resolution(mapped, &call.callee)?,
         expansion: call.expansion.map(Into::into),
+    })
+}
+
+fn map_macro_argument(
+    mapped: &MappedSourcePreprocModel,
+    argument: &SourceMacroArgumentFact,
+) -> PreprocResult<MacroArgument> {
+    let (source, range) = argument
+        .argument_range
+        .map(|range| map_mapped_source_range(mapped, range))
+        .transpose()?
+        .map_or((None, None), |(source, range)| (Some(source), Some(range)));
+    Ok(MacroArgument {
+        argument_index: argument.argument_index,
+        source,
+        range,
+        tokens: argument.tokens.iter().map(|token| token.raw.clone()).collect(),
     })
 }
 
@@ -1958,10 +2060,20 @@ fn map_macro_expansion(
             }),
         });
     };
+    let Some(definition) = mapped.model.macro_definitions().get(expansion.definition) else {
+        return Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::Source(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition {
+                    call: expansion.call,
+                },
+            ),
+        });
+    };
     Ok(MacroExpansion {
         id: expansion.id.into(),
         call: map_macro_call(mapped, call)?,
         definition_id: expansion.definition.into(),
+        definition: map_macro_definition(mapped, definition)?,
         emitted_token_range: expansion.emitted_token_range,
         virtual_source: map_expansion_virtual_source(mapped, expansion.id)?,
         virtual_range: mapped
@@ -2073,6 +2185,39 @@ fn recursive_macro_expansion_for_call(
     Ok(RecursiveMacroExpansion { root_call, expansions, unavailable })
 }
 
+fn recursive_macro_expansion_provenance_for_call(
+    mapped: &MappedSourcePreprocModel,
+    call_fact: &SourceMacroCallFact,
+) -> PreprocResult<RecursiveMacroExpansionProvenance> {
+    let root_call = map_macro_call(mapped, call_fact)?;
+    let recursive = mapped.model.recursive_macro_expansion(call_fact.id);
+    let expansions = recursive
+        .expansions
+        .into_iter()
+        .filter_map(|expansion| mapped.model.macro_expansions().get(expansion))
+        .map(|expansion| macro_expansion_provenance_for_expansion(mapped, expansion))
+        .collect::<PreprocResult<Vec<_>>>()?;
+    let unavailable = recursive
+        .unavailable
+        .into_iter()
+        .map(|unavailable| {
+            let Some(call) = mapped.model.macro_calls().get(unavailable.call) else {
+                return Err(PreprocError::Unavailable {
+                    reason: PreprocUnavailable::Source(
+                        SourcePreprocUnavailable::MissingMacroCall { call: unavailable.call },
+                    ),
+                });
+            };
+            Ok(MacroExpansionUnavailable {
+                call: map_macro_call(mapped, call)?,
+                reason: PreprocUnavailable::Source(unavailable.reason),
+            })
+        })
+        .collect::<PreprocResult<Vec<_>>>()?;
+
+    Ok(RecursiveMacroExpansionProvenance { root_call, expansions, unavailable })
+}
+
 fn diagnostic_provenance_for_call(
     mapped: &MappedSourcePreprocModel,
     call_fact: &SourceMacroCallFact,
@@ -2104,6 +2249,14 @@ fn macro_expansion_provenance_for_call(
     let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
         return Ok(None);
     };
+    Ok(Some(macro_expansion_provenance_for_expansion(mapped, expansion)?))
+}
+
+fn macro_expansion_provenance_for_expansion(
+    mapped: &MappedSourcePreprocModel,
+    expansion: &SourceMacroExpansionFact,
+) -> PreprocResult<MacroExpansionProvenance> {
+    let expansion_id = expansion.id;
     let expansion = map_macro_expansion(mapped, expansion)?;
     let mut tokens = Vec::new();
     for token_id in emitted_token_ids(expansion.emitted_token_range) {
@@ -2128,7 +2281,7 @@ fn macro_expansion_provenance_for_call(
         });
     }
 
-    Ok(Some(MacroExpansionProvenance { expansion, tokens }))
+    Ok(MacroExpansionProvenance { expansion, tokens })
 }
 
 fn emitted_token_ids(range: SourceEmittedTokenRange) -> impl Iterator<Item = SourceEmittedTokenId> {
@@ -2410,6 +2563,16 @@ fn push_unique_macro_expansion_query(
 fn push_unique_recursive_macro_expansion(
     expansions: &mut Vec<RecursiveMacroExpansion>,
     expansion: RecursiveMacroExpansion,
+) {
+    if expansions.iter().any(|existing| existing == &expansion) {
+        return;
+    }
+    expansions.push(expansion);
+}
+
+fn push_unique_recursive_macro_expansion_provenance(
+    expansions: &mut Vec<RecursiveMacroExpansionProvenance>,
+    expansion: RecursiveMacroExpansionProvenance,
 ) {
     if expansions.iter().any(|existing| existing == &expansion) {
         return;
