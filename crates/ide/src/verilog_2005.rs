@@ -1239,6 +1239,84 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_param_supports_navigation_hover_and_references() {
+    let text = r#"
+`define SHIFT(/*marker:param_def*/value, amount) ((/*marker:param_ref*/value) << amount)
+module top;
+  localparam int W = `SHIFT(4, 1);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let param_def = position(file_id, &markers, "param_def");
+    let param_ref = position(file_id, &markers, "param_ref");
+    let param_def_range = marked_range(&markers, "param_def", TextSize::of("value"));
+    let param_ref_range = marked_range(&markers, "param_ref", TextSize::of("value"));
+
+    let nav = analysis
+        .goto_definition(param_ref)
+        .unwrap()
+        .expect("macro parameter reference navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(param_def_range)),
+        "macro parameter body reference should navigate to formal: {nav:?}"
+    );
+
+    let definition_nav = analysis
+        .goto_definition(param_def)
+        .unwrap()
+        .expect("macro parameter definition navigation expected");
+    assert!(
+        definition_nav.info.iter().any(|target| target.focus_range == Some(param_def_range)),
+        "macro parameter definition should be linkable: {definition_nav:?}"
+    );
+
+    let hover = analysis
+        .hover(param_ref, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro parameter hover expected");
+    assert!(
+        hover.info.as_str().contains("Macro parameter")
+            && hover.info.as_str().contains("value")
+            && hover.info.as_str().contains("SHIFT"),
+        "hover should identify macro parameter: {}",
+        hover.info.as_str()
+    );
+
+    let refs = analysis
+        .references(param_def, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("macro parameter references expected");
+    assert!(
+        refs.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(param_def_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == param_ref_range))
+        }),
+        "references should connect formal and body parameter use: {refs:?}"
+    );
+
+    let refs_from_ref = analysis
+        .references(param_ref, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("macro parameter references from body use expected");
+    assert!(
+        refs_from_ref.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(param_def_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == param_ref_range))
+        }),
+        "references from body use should include the formal and use: {refs_from_ref:?}"
+    );
+}
+
+#[test]
 fn preproc_macro_definition_supports_navigation_and_hover() {
     let text = r#"
 `define /*marker:definition*/LOCAL_WIDTH 8

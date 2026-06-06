@@ -4,7 +4,8 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        IncludeTarget, MacroDefinition, include_directives_at, macro_definition_at,
+        IncludeTarget, MacroDefinition, MacroParamDefinition, include_directives_at,
+        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
         macro_reference_definitions_at,
     },
     semantics::Semantics,
@@ -90,6 +91,21 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
+    if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
+        return Some(RangeInfo::new(definition.range, macro_param_definition_markup(&definition)));
+    }
+
+    let param_resolution = macro_param_reference_definitions_at(db, file_id, offset).ok()?;
+    if let Some(param_resolution) = param_resolution {
+        if param_resolution.definitions.is_empty() {
+            return None;
+        }
+        return Some(RangeInfo::new(
+            param_resolution.range,
+            macro_param_definitions_markup(&param_resolution.definitions),
+        ));
+    }
+
     if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
         return Some(RangeInfo::new(
             definition.name_range,
@@ -102,6 +118,31 @@ fn handle_preproc_macro(
         return None;
     }
     Some(RangeInfo::new(resolution.range, macro_definitions_markup(db, &resolution.definitions)))
+}
+
+fn macro_param_definition_markup(definition: &MacroParamDefinition) -> Markup {
+    macro_param_definitions_markup(std::slice::from_ref(definition))
+}
+
+fn macro_param_definitions_markup(definitions: &[MacroParamDefinition]) -> Markup {
+    let mut markup = Markup::new();
+    if definitions.len() == 1 {
+        markup.print("Macro parameter");
+        markup.newline();
+        markup.push_with_backticks(definitions[0].name.as_str());
+        markup.print(" of ");
+        markup.push_with_backticks(definitions[0].macro_definition.name.as_str());
+        return markup;
+    }
+
+    markup.print("Macro parameters");
+    for definition in definitions {
+        markup.newline();
+        markup.push_with_backticks(definition.name.as_str());
+        markup.print(" of ");
+        markup.push_with_backticks(definition.macro_definition.name.as_str());
+    }
+    markup
 }
 
 fn macro_definition_markup(db: &RootDb, definition: &MacroDefinition) -> Markup {
