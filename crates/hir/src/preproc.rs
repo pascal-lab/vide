@@ -11,9 +11,8 @@ use preproc::source::{
     SourceMacroExpansionStatus as SourceMacroExpansionStatusFact,
     SourceMacroReference as SourceMacroReferenceFact, SourceMacroReferenceId,
     SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
-    SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePosition,
-    SourcePreprocError, SourcePreprocUnavailable, SourceRange,
-    SourceTokenProvenance as SourceTokenProvenanceFact,
+    SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePreprocError,
+    SourcePreprocUnavailable, SourceRange, SourceTokenProvenance as SourceTokenProvenanceFact,
 };
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
@@ -62,6 +61,10 @@ pub enum PreprocError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocUnavailable {
     Source(SourcePreprocUnavailable),
+    AmbiguousMacroReferenceContexts { contexts: usize },
+    AmbiguousMacroExpansionContexts { contexts: usize },
+    AmbiguousDiagnosticProvenance { targets: usize },
+    AmbiguousIncludeTargets { targets: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,12 +98,6 @@ mapped_preproc_id!(MacroReferenceId, SourceMacroReferenceId);
 mapped_preproc_id!(IncludeDirectiveId, SourceIncludeDirectiveId);
 mapped_preproc_id!(MacroCallId, SourceMacroCallId);
 mapped_preproc_id!(MacroExpansionId, SourceMacroExpansionId);
-
-impl MacroDefinitionId {
-    fn core_id(self) -> SourceMacroDefinitionId {
-        self.0
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappedPreprocSource {
@@ -206,9 +203,9 @@ pub struct MacroReferenceResolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReferenceDefinitions {
-    pub reference: MacroReference,
+    pub references: Vec<MacroReference>,
+    pub range: TextRange,
     pub definitions: Vec<MacroDefinition>,
-    pub resolution: MacroResolution,
     pub capability: PreprocAvailability,
 }
 
@@ -306,6 +303,7 @@ pub enum DiagnosticProvenance {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacroExpansionQuery {
     Available(MacroExpansion),
+    Ambiguous(Vec<MacroExpansion>),
     Unavailable(MacroExpansionUnavailable),
 }
 
@@ -484,16 +482,35 @@ pub fn visible_macros_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroDefinition>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let position = root_position(mapped, offset)?;
+    let mut definitions = Vec::new();
+    let mut first_error = None;
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
 
-    mapped
-        .model
-        .visible_macros_at(position)
-        .into_iter()
-        .map(|definition| map_macro_definition(mapped, definition))
-        .collect()
+        for position in mapped.source_map.source_positions_for_file_offset(file_id, offset) {
+            for definition in mapped.model.visible_macros_at(position) {
+                match map_macro_definition(mapped, definition) {
+                    Ok(definition) => push_unique_macro_definition(&mut definitions, definition),
+                    Err(error) => record_first_error(&mut first_error, error),
+                }
+            }
+        }
+    }
+
+    if definitions.is_empty()
+        && let Some(error) = first_error
+    {
+        return Err(error);
+    }
+
+    Ok(definitions)
 }
 
 pub fn visible_macro_names_at(
@@ -501,12 +518,8 @@ pub fn visible_macro_names_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Vec<SmolStr>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let position = root_position(mapped, offset)?;
-
     let mut names = UniqVec::<SmolStr, SmolStr>::default();
-    for definition in mapped.model.visible_macros_at(position) {
+    for definition in visible_macros_at(db, file_id, offset)? {
         names.push_unique(definition.name.clone());
     }
     for name in configured_predefine_names(db, file_id) {
@@ -566,61 +579,107 @@ pub fn macro_usage_resolution_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroUsageResolution>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
+    let mut resolutions = macro_usage_resolutions_at(db, file_id, offset)?;
+    match resolutions.len() {
+        0 => Ok(None),
+        1 => Ok(resolutions.pop()),
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts },
+        }),
+    }
+}
 
-    for reference in mapped.model.macro_references().iter() {
-        let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
-            continue;
+pub fn macro_usage_resolutions_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<MacroUsageResolution>> {
+    let mut resolutions = Vec::new();
+    let mut first_error = None;
+    let mut unavailable_contexts = 0;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
         };
-        let mapped_reference = map_macro_reference(mapped, reference)?;
-        if mapped_reference.file_id != file_id
-            || !range_contains_offset(mapped_reference.range, offset)
-        {
-            continue;
-        }
 
-        let SourceMacroResolutionFact::Resolved { definition, include_chain, .. } =
-            &reference.resolution
-        else {
-            return match &reference.resolution {
-                SourceMacroResolutionFact::Undefined => Ok(None),
-                SourceMacroResolutionFact::Unavailable(reason) => {
-                    Err(unavailable_error(reason.clone()))
-                }
-                SourceMacroResolutionFact::Resolved { .. } => unreachable!(),
+        for reference in mapped.model.macro_references().iter() {
+            let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
+                continue;
             };
-        };
-        let definition_fact =
-            mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
-                PreprocError::SourceQuery(SourcePreprocQueryError::Model(
-                    SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
-                ))
-            })?;
-        let definition = map_macro_definition(mapped, definition_fact)?;
-        let definition_provenance =
-            map_definition_provenance_from_definition(mapped, definition_fact)?;
-        let include_chain = map_include_chain(mapped, include_chain)?;
+            match mapped_source_range_contains_offset(mapped, reference.name_range, file_id, offset)
+            {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
+            }
 
-        return Ok(Some(MacroUsageResolution {
-            usage: MacroUsage {
-                reference_id: mapped_reference.id,
-                source: mapped_reference.source,
-                capability: mapped_reference.capability.clone(),
-                file_id: mapped_reference.file_id,
-                name: mapped_reference.name,
-                usage_index,
-                directive_range: mapped_reference.directive_range,
-                range: mapped_reference.range,
-                resolution: mapped_reference.resolution,
-            },
-            definition,
-            definition_provenance,
-            include_chain,
-        }));
+            let SourceMacroResolutionFact::Resolved { definition, include_chain, .. } =
+                &reference.resolution
+            else {
+                if let SourceMacroResolutionFact::Unavailable(reason) = &reference.resolution {
+                    unavailable_contexts += 1;
+                    record_first_error(&mut first_error, unavailable_error(reason.clone()));
+                }
+                continue;
+            };
+            let mapped_reference = map_macro_reference(mapped, reference)?;
+            let definition_fact =
+                mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
+                    PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                        SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
+                    ))
+                })?;
+            let definition = map_macro_definition(mapped, definition_fact)?;
+            let definition_provenance =
+                map_definition_provenance_from_definition(mapped, definition_fact)?;
+            let include_chain = map_include_chain(mapped, include_chain)?;
+
+            push_unique_macro_usage_resolution(
+                &mut resolutions,
+                MacroUsageResolution {
+                    usage: MacroUsage {
+                        reference_id: mapped_reference.id,
+                        source: mapped_reference.source,
+                        capability: mapped_reference.capability.clone(),
+                        file_id: mapped_reference.file_id,
+                        name: mapped_reference.name,
+                        usage_index,
+                        directive_range: mapped_reference.directive_range,
+                        range: mapped_reference.range,
+                        resolution: mapped_reference.resolution,
+                    },
+                    definition,
+                    definition_provenance,
+                    include_chain,
+                },
+            );
+        }
     }
 
-    Ok(None)
+    if !resolutions.is_empty() {
+        return Ok(resolutions);
+    }
+    if unavailable_contexts > 1 {
+        return Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
+                contexts: unavailable_contexts,
+            },
+        });
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
 }
 
 pub fn macro_reference_at(
@@ -628,19 +687,17 @@ pub fn macro_reference_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroReference>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-
-    for reference in mapped.model.macro_references().iter() {
-        let mapped_reference = map_macro_reference(mapped, reference)?;
-        if mapped_reference.file_id == file_id
-            && range_contains_offset(mapped_reference.range, offset)
-        {
-            return Ok(Some(mapped_reference));
-        }
+    let Some(mut contexts) = macro_reference_definitions_at(db, file_id, offset)? else {
+        return Ok(None);
+    };
+    if contexts.references.len() == 1 {
+        return Ok(contexts.references.pop());
     }
-
-    Ok(None)
+    Err(PreprocError::Unavailable {
+        reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
+            contexts: contexts.references.len(),
+        },
+    })
 }
 
 pub fn macro_reference_resolution_at(
@@ -648,13 +705,21 @@ pub fn macro_reference_resolution_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroReferenceResolution>> {
-    let Some(resolution) = macro_reference_definitions_at(db, file_id, offset)? else {
+    let Some(mut resolution) = macro_reference_definitions_at(db, file_id, offset)? else {
         return Ok(None);
     };
+    if resolution.references.len() != 1 || resolution.definitions.len() != 1 {
+        return Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
+                contexts: resolution.references.len().max(resolution.definitions.len()),
+            },
+        });
+    }
+    let reference = resolution.references.pop().unwrap();
     let Some(definition) = resolution.definitions.into_iter().next() else {
         return Ok(None);
     };
-    Ok(Some(MacroReferenceResolution { reference: resolution.reference, definition }))
+    Ok(Some(MacroReferenceResolution { reference, definition }))
 }
 
 pub fn macro_reference_definitions_at(
@@ -662,25 +727,82 @@ pub fn macro_reference_definitions_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroReferenceDefinitions>> {
-    let Some(reference) = macro_reference_at(db, file_id, offset)? else {
+    let mut definitions = Vec::new();
+    let mut references = Vec::new();
+    let mut query_range = None;
+    let mut first_error = None;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+
+        for reference in mapped.model.macro_references().iter() {
+            let (_, range) = match mapped_source_range_at_offset(
+                mapped,
+                reference.name_range,
+                file_id,
+                offset,
+            ) {
+                Ok(Some(hit)) => hit,
+                Ok(None) => continue,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
+            };
+            query_range.get_or_insert(range);
+
+            let mapped_reference = match map_macro_reference(mapped, reference) {
+                Ok(reference) => reference,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
+            };
+            push_unique_macro_reference_context(&mut references, mapped_reference);
+
+            let SourceMacroResolutionFact::Resolved { definition, .. } = &reference.resolution
+            else {
+                continue;
+            };
+            let Some(definition) = mapped.model.macro_definitions().get(*definition) else {
+                record_first_error(
+                    &mut first_error,
+                    PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                        SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
+                    )),
+                );
+                continue;
+            };
+            let definition = match map_macro_definition(mapped, definition) {
+                Ok(definition) => definition,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
+            };
+
+            push_unique_macro_definition(&mut definitions, definition);
+        }
+    }
+
+    let Some(range) = query_range else {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
         return Ok(None);
     };
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let definitions = match &reference.resolution {
-        MacroResolution::Resolved { definition_id, .. } => {
-            let Some(definition) = mapped.model.macro_definitions().get(definition_id.core_id())
-            else {
-                return Ok(None);
-            };
-            vec![map_macro_definition(mapped, definition)?]
-        }
-        MacroResolution::Undefined | MacroResolution::Unavailable(_) => Vec::new(),
-    };
+
     Ok(Some(MacroReferenceDefinitions {
-        resolution: reference.resolution.clone(),
-        capability: reference.capability.clone(),
-        reference,
+        capability: macro_reference_context_capability(&references),
+        references,
+        range,
         definitions,
     }))
 }
@@ -690,32 +812,62 @@ pub fn immediate_macro_expansion_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroExpansionQuery>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-        return Ok(None);
-    };
-    let call = map_macro_call(mapped, call_fact)?;
+    let mut queries = macro_expansion_queries_at(db, file_id, offset)?;
+    let available = queries
+        .iter()
+        .filter_map(|query| match query {
+            MacroExpansionQuery::Available(expansion) => Some(expansion.clone()),
+            MacroExpansionQuery::Ambiguous(expansions) => Some(expansions.first()?.clone()),
+            MacroExpansionQuery::Unavailable(_) => None,
+        })
+        .collect::<Vec<_>>();
+    if available.len() > 1 {
+        return Ok(Some(MacroExpansionQuery::Ambiguous(available)));
+    }
+    if available.len() == 1 {
+        return Ok(Some(MacroExpansionQuery::Available(available.into_iter().next().unwrap())));
+    }
+    match queries.len() {
+        0 => Ok(None),
+        1 => Ok(queries.pop()),
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
+        }),
+    }
+}
 
-    Ok(Some(match mapped.model.immediate_macro_expansion(call_fact.id) {
-        SourceMacroExpansionQueryFact::Available(expansion) => {
-            let Some(expansion) = mapped.model.macro_expansions().get(expansion) else {
-                return Ok(Some(MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
-                    call,
-                    reason: PreprocUnavailable::Source(
-                        SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
-                    ),
-                })));
-            };
-            MacroExpansionQuery::Available(map_macro_expansion(mapped, expansion)?)
-        }
-        SourceMacroExpansionQueryFact::Unavailable(reason) => {
-            MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
-                call,
-                reason: PreprocUnavailable::Source(reason),
-            })
-        }
-    }))
+pub fn macro_expansion_queries_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<MacroExpansionQuery>> {
+    let mut queries = Vec::new();
+    let mut first_error = None;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+            continue;
+        };
+        let query = immediate_macro_expansion_for_call(mapped, call_fact)?;
+        push_unique_macro_expansion_query(&mut queries, query);
+    }
+
+    if !queries.is_empty() {
+        return Ok(queries);
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
 }
 
 pub fn recursive_macro_expansion_at(
@@ -723,38 +875,48 @@ pub fn recursive_macro_expansion_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<RecursiveMacroExpansion>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-        return Ok(None);
-    };
-    let root_call = map_macro_call(mapped, call_fact)?;
-    let recursive = mapped.model.recursive_macro_expansion(call_fact.id);
-    let expansions = recursive
-        .expansions
-        .into_iter()
-        .filter_map(|expansion| mapped.model.macro_expansions().get(expansion))
-        .map(|expansion| map_macro_expansion(mapped, expansion))
-        .collect::<PreprocResult<Vec<_>>>()?;
-    let unavailable = recursive
-        .unavailable
-        .into_iter()
-        .map(|unavailable| {
-            let Some(call) = mapped.model.macro_calls().get(unavailable.call) else {
-                return Err(PreprocError::Unavailable {
-                    reason: PreprocUnavailable::Source(
-                        SourcePreprocUnavailable::MissingMacroCall { call: unavailable.call },
-                    ),
-                });
-            };
-            Ok(MacroExpansionUnavailable {
-                call: map_macro_call(mapped, call)?,
-                reason: PreprocUnavailable::Source(unavailable.reason),
-            })
-        })
-        .collect::<PreprocResult<Vec<_>>>()?;
+    let expansions = recursive_macro_expansions_at(db, file_id, offset)?;
+    match expansions.len() {
+        0 => Ok(None),
+        1 => Ok(expansions.into_iter().next()),
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
+        }),
+    }
+}
 
-    Ok(Some(RecursiveMacroExpansion { root_call, expansions, unavailable }))
+pub fn recursive_macro_expansions_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<RecursiveMacroExpansion>> {
+    let mut expansions = Vec::new();
+    let mut first_error = None;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+            continue;
+        };
+        let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
+        push_unique_recursive_macro_expansion(&mut expansions, recursive);
+    }
+
+    if !expansions.is_empty() {
+        return Ok(expansions);
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
 }
 
 pub fn macro_expansion_provenance_at(
@@ -762,12 +924,48 @@ pub fn macro_expansion_provenance_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroExpansionProvenance>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-        return Ok(None);
-    };
-    macro_expansion_provenance_for_call(mapped, call_fact)
+    let provenances = macro_expansion_provenances_at(db, file_id, offset)?;
+    match provenances.len() {
+        0 => Ok(None),
+        1 => Ok(provenances.into_iter().next()),
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
+        }),
+    }
+}
+
+pub fn macro_expansion_provenances_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<MacroExpansionProvenance>> {
+    let mut provenances = Vec::new();
+    let mut first_error = None;
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+            continue;
+        };
+        if let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? {
+            push_unique_macro_expansion_provenance(&mut provenances, provenance);
+        }
+    }
+
+    if !provenances.is_empty() {
+        return Ok(provenances);
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
 }
 
 pub fn macro_expansion_provenance_for_range(
@@ -775,12 +973,48 @@ pub fn macro_expansion_provenance_for_range(
     file_id: FileId,
     range: TextRange,
 ) -> PreprocResult<Option<MacroExpansionProvenance>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
-        return Ok(None);
-    };
-    macro_expansion_provenance_for_call(mapped, call_fact)
+    let provenances = macro_expansion_provenances_for_range(db, file_id, range)?;
+    match provenances.len() {
+        0 => Ok(None),
+        1 => Ok(provenances.into_iter().next()),
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
+        }),
+    }
+}
+
+pub fn macro_expansion_provenances_for_range(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    range: TextRange,
+) -> PreprocResult<Vec<MacroExpansionProvenance>> {
+    let mut provenances = Vec::new();
+    let mut first_error = None;
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+        let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
+            continue;
+        };
+        if let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? {
+            push_unique_macro_expansion_provenance(&mut provenances, provenance);
+        }
+    }
+
+    if !provenances.is_empty() {
+        return Ok(provenances);
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
 }
 
 pub fn diagnostic_provenance_for_range(
@@ -788,25 +1022,51 @@ pub fn diagnostic_provenance_for_range(
     file_id: FileId,
     range: TextRange,
 ) -> PreprocResult<Option<DiagnosticProvenance>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
-        return Ok(None);
-    };
+    let mut provenances = Vec::new();
+    let mut first_error = None;
 
-    match mapped.model.immediate_macro_expansion(call_fact.id) {
-        SourceMacroExpansionQueryFact::Available(_) => {
-            let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? else {
-                return Ok(Some(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
-                ))));
-            };
-            Ok(Some(diagnostic_target_for_expansion(&provenance)))
-        }
-        SourceMacroExpansionQueryFact::Unavailable(reason) => {
-            Ok(Some(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(reason))))
-        }
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+        let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
+            continue;
+        };
+        let provenance = diagnostic_provenance_for_call(mapped, call_fact)?;
+        push_unique_diagnostic_provenance(&mut provenances, provenance);
     }
+
+    let precise = provenances
+        .iter()
+        .filter(|provenance| !matches!(provenance, DiagnosticProvenance::Unavailable(_)))
+        .cloned()
+        .collect::<Vec<_>>();
+    if precise.len() == 1 {
+        return Ok(Some(precise.into_iter().next().unwrap()));
+    }
+    if precise.len() > 1 {
+        return Ok(Some(DiagnosticProvenance::Unavailable(
+            PreprocUnavailable::AmbiguousDiagnosticProvenance { targets: precise.len() },
+        )));
+    }
+    if provenances.len() == 1 {
+        return Ok(provenances.into_iter().next());
+    }
+    if provenances.len() > 1 {
+        return Ok(Some(DiagnosticProvenance::Unavailable(
+            PreprocUnavailable::AmbiguousDiagnosticProvenance { targets: provenances.len() },
+        )));
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(None)
 }
 
 pub fn macro_references(
@@ -901,59 +1161,124 @@ pub fn include_directive_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<IncludeDirective>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
-    for include in mapped.model.include_graph().directives() {
-        let (source, range) = map_mapped_source_range(mapped, include.directive_range)?;
-        let include_file_id = source.file_id();
-        if include_file_id != file_id || !range_contains_offset(range, offset) {
-            continue;
-        }
-        let status = map_include_status(mapped, &include.status)?;
-        let resolved_file = match &status {
-            IncludeDirectiveStatus::Resolved { source } => Some(source.file_id()),
-            IncludeDirectiveStatus::Unresolved | IncludeDirectiveStatus::Unavailable(_) => None,
-        };
-        let target = match &include.target {
-            MacroIncludeTarget::Literal { path, .. } => {
-                IncludeTarget::Literal { path: path.clone(), resolved_file }
+    let mut directives = include_directives_at(db, file_id, offset)?;
+    match directives.len() {
+        0 => Ok(None),
+        1 => Ok(directives.pop()),
+        targets => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousIncludeTargets { targets },
+        }),
+    }
+}
+
+pub fn include_directives_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<IncludeDirective>> {
+    let mut directives = Vec::new();
+    let mut first_error = None;
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
             }
-            MacroIncludeTarget::Token { raw } => IncludeTarget::Token { raw: raw.clone() },
         };
-        return Ok(Some(IncludeDirective {
-            id: include.id.into(),
-            source,
-            capability: capability_status(&mapped.model.capabilities().include_edges),
-            file_id: include_file_id,
-            include_index: include.id.raw(),
-            range,
-            target,
-            status,
-        }));
+        for include in mapped.model.include_graph().directives() {
+            let Some(target_range) = include.target_range else {
+                continue;
+            };
+            let (source, range) =
+                match mapped_source_range_at_offset(mapped, target_range, file_id, offset) {
+                    Ok(Some(hit)) => hit,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        record_first_error(&mut first_error, error);
+                        continue;
+                    }
+                };
+            let status = map_include_status(mapped, &include.status)?;
+            let resolved_file = match &status {
+                IncludeDirectiveStatus::Resolved { source } => Some(source.file_id()),
+                IncludeDirectiveStatus::Unresolved | IncludeDirectiveStatus::Unavailable(_) => None,
+            };
+            let target = match &include.target {
+                MacroIncludeTarget::Literal { path, .. } => {
+                    IncludeTarget::Literal { path: path.clone(), resolved_file }
+                }
+                MacroIncludeTarget::Token { raw } => IncludeTarget::Token { raw: raw.clone() },
+            };
+            let directive = IncludeDirective {
+                id: include.id.into(),
+                source,
+                capability: capability_status(&mapped.model.capabilities().include_edges),
+                file_id,
+                include_index: include.id.raw(),
+                range,
+                target,
+                status,
+            };
+            push_unique_include_directive(&mut directives, directive);
+        }
     }
 
-    Ok(None)
+    if !directives.is_empty() {
+        return Ok(directives);
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+
+    Ok(Vec::new())
 }
 
 pub fn inactive_branches(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> PreprocResult<Vec<InactiveBranch>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
     let mut branches = Vec::new();
+    let mut first_error = None;
 
-    for source_range in mapped.model.inactive_ranges() {
-        let (source, range) = map_mapped_source_range(mapped, *source_range)?;
-        let branch_file_id = source.file_id();
-        if branch_file_id == file_id {
-            branches.push(InactiveBranch {
-                source,
-                capability: capability_status(&mapped.model.capabilities().inactive_ranges),
-                file_id: branch_file_id,
-                range,
-            });
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+
+        for source_range in mapped.model.inactive_ranges() {
+            let (source, range) = match map_mapped_source_range(mapped, *source_range) {
+                Ok(mapped_range) => mapped_range,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
+            };
+            let branch_file_id = source.file_id();
+            if branch_file_id == file_id {
+                push_unique_inactive_branch(
+                    &mut branches,
+                    InactiveBranch {
+                        source,
+                        capability: capability_status(&mapped.model.capabilities().inactive_ranges),
+                        file_id: branch_file_id,
+                        range,
+                    },
+                );
+            }
         }
+    }
+
+    if branches.is_empty()
+        && let Some(error) = first_error
+    {
+        return Err(error);
     }
 
     Ok(branches)
@@ -965,12 +1290,27 @@ fn mapped_result(
     result.as_ref().map_err(|err| err.clone().into())
 }
 
-fn root_position(
-    mapped: &MappedSourcePreprocModel,
-    offset: TextSize,
-) -> PreprocResult<SourcePosition> {
-    let source = mapped.model.root_source().ok_or(PreprocError::MissingRootSource)?;
-    Ok(SourcePosition { source, offset })
+fn source_preproc_query_model_file_ids(db: &dyn SourceRootDb, file_id: FileId) -> Vec<FileId> {
+    let profile_id = db.file_compilation_profile(file_id);
+    let mut file_ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    push_unique_file_id(&mut file_ids, &mut seen, file_id);
+    for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
+        push_unique_file_id(&mut file_ids, &mut seen, model_file_id);
+    }
+    file_ids
+}
+
+fn push_unique_file_id(file_ids: &mut Vec<FileId>, seen: &mut FxHashSet<FileId>, file_id: FileId) {
+    if seen.insert(file_id) {
+        file_ids.push(file_id);
+    }
+}
+
+fn record_first_error(first_error: &mut Option<PreprocError>, error: PreprocError) {
+    if first_error.is_none() {
+        *first_error = Some(error);
+    }
 }
 
 fn map_source_range(
@@ -995,6 +1335,26 @@ fn map_mapped_source_range(
     let range = mapped.source_map.map_range(source_range).map_err(PreprocError::SourceMap)?;
     let source = map_mapped_source_id(mapped, source_range.source)?;
     Ok((source, range))
+}
+
+fn mapped_source_range_at_offset(
+    mapped: &MappedSourcePreprocModel,
+    source_range: SourceRange,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<(MappedPreprocSource, TextRange)>> {
+    let (source, range) = map_mapped_source_range(mapped, source_range)?;
+    Ok((source.file_id() == file_id && range_contains_offset(range, offset))
+        .then_some((source, range)))
+}
+
+fn mapped_source_range_contains_offset(
+    mapped: &MappedSourcePreprocModel,
+    source_range: SourceRange,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<bool> {
+    Ok(mapped_source_range_at_offset(mapped, source_range, file_id, offset)?.is_some())
 }
 
 fn map_mapped_source_id(
@@ -1161,6 +1521,84 @@ fn source_macro_call_intersecting_range(
         };
         source.file_id() == file_id && range.intersect(source_range).is_some()
     })
+}
+
+fn immediate_macro_expansion_for_call(
+    mapped: &MappedSourcePreprocModel,
+    call_fact: &SourceMacroCallFact,
+) -> PreprocResult<MacroExpansionQuery> {
+    let call = map_macro_call(mapped, call_fact)?;
+    Ok(match mapped.model.immediate_macro_expansion(call_fact.id) {
+        SourceMacroExpansionQueryFact::Available(expansion) => {
+            let Some(expansion) = mapped.model.macro_expansions().get(expansion) else {
+                return Ok(MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
+                    call,
+                    reason: PreprocUnavailable::Source(
+                        SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
+                    ),
+                }));
+            };
+            MacroExpansionQuery::Available(map_macro_expansion(mapped, expansion)?)
+        }
+        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+            MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
+                call,
+                reason: PreprocUnavailable::Source(reason),
+            })
+        }
+    })
+}
+
+fn recursive_macro_expansion_for_call(
+    mapped: &MappedSourcePreprocModel,
+    call_fact: &SourceMacroCallFact,
+) -> PreprocResult<RecursiveMacroExpansion> {
+    let root_call = map_macro_call(mapped, call_fact)?;
+    let recursive = mapped.model.recursive_macro_expansion(call_fact.id);
+    let expansions = recursive
+        .expansions
+        .into_iter()
+        .filter_map(|expansion| mapped.model.macro_expansions().get(expansion))
+        .map(|expansion| map_macro_expansion(mapped, expansion))
+        .collect::<PreprocResult<Vec<_>>>()?;
+    let unavailable = recursive
+        .unavailable
+        .into_iter()
+        .map(|unavailable| {
+            let Some(call) = mapped.model.macro_calls().get(unavailable.call) else {
+                return Err(PreprocError::Unavailable {
+                    reason: PreprocUnavailable::Source(
+                        SourcePreprocUnavailable::MissingMacroCall { call: unavailable.call },
+                    ),
+                });
+            };
+            Ok(MacroExpansionUnavailable {
+                call: map_macro_call(mapped, call)?,
+                reason: PreprocUnavailable::Source(unavailable.reason),
+            })
+        })
+        .collect::<PreprocResult<Vec<_>>>()?;
+
+    Ok(RecursiveMacroExpansion { root_call, expansions, unavailable })
+}
+
+fn diagnostic_provenance_for_call(
+    mapped: &MappedSourcePreprocModel,
+    call_fact: &SourceMacroCallFact,
+) -> PreprocResult<DiagnosticProvenance> {
+    match mapped.model.immediate_macro_expansion(call_fact.id) {
+        SourceMacroExpansionQueryFact::Available(_) => {
+            let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? else {
+                return Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
+                )));
+            };
+            Ok(diagnostic_target_for_expansion(&provenance))
+        }
+        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+            Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(reason)))
+        }
+    }
 }
 
 fn macro_expansion_provenance_for_call(
@@ -1451,6 +1889,112 @@ fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroR
     refs.push(reference);
 }
 
+fn push_unique_macro_reference_context(refs: &mut Vec<MacroReference>, reference: MacroReference) {
+    if refs.iter().any(|existing| existing == &reference) {
+        return;
+    }
+    refs.push(reference);
+}
+
+fn push_unique_macro_usage_resolution(
+    resolutions: &mut Vec<MacroUsageResolution>,
+    resolution: MacroUsageResolution,
+) {
+    if resolutions.iter().any(|existing| existing == &resolution) {
+        return;
+    }
+    resolutions.push(resolution);
+}
+
+fn push_unique_macro_expansion_query(
+    queries: &mut Vec<MacroExpansionQuery>,
+    query: MacroExpansionQuery,
+) {
+    if queries.iter().any(|existing| existing == &query) {
+        return;
+    }
+    queries.push(query);
+}
+
+fn push_unique_recursive_macro_expansion(
+    expansions: &mut Vec<RecursiveMacroExpansion>,
+    expansion: RecursiveMacroExpansion,
+) {
+    if expansions.iter().any(|existing| existing == &expansion) {
+        return;
+    }
+    expansions.push(expansion);
+}
+
+fn push_unique_macro_expansion_provenance(
+    provenances: &mut Vec<MacroExpansionProvenance>,
+    provenance: MacroExpansionProvenance,
+) {
+    if provenances.iter().any(|existing| existing == &provenance) {
+        return;
+    }
+    provenances.push(provenance);
+}
+
+fn push_unique_diagnostic_provenance(
+    provenances: &mut Vec<DiagnosticProvenance>,
+    provenance: DiagnosticProvenance,
+) {
+    if provenances.iter().any(|existing| existing == &provenance) {
+        return;
+    }
+    provenances.push(provenance);
+}
+
+fn push_unique_include_directive(
+    directives: &mut Vec<IncludeDirective>,
+    directive: IncludeDirective,
+) {
+    if directives.iter().any(|existing| {
+        existing.file_id == directive.file_id
+            && existing.range == directive.range
+            && existing.target == directive.target
+            && existing.status == directive.status
+    }) {
+        return;
+    }
+    directives.push(directive);
+}
+
+fn push_unique_inactive_branch(branches: &mut Vec<InactiveBranch>, branch: InactiveBranch) {
+    if branches
+        .iter()
+        .any(|existing| existing.file_id == branch.file_id && existing.range == branch.range)
+    {
+        return;
+    }
+    branches.push(branch);
+}
+
+fn macro_reference_context_capability(references: &[MacroReference]) -> PreprocAvailability {
+    if references
+        .iter()
+        .all(|reference| matches!(reference.capability, PreprocAvailability::Complete))
+    {
+        return PreprocAvailability::Complete;
+    }
+    if references
+        .iter()
+        .any(|reference| matches!(reference.capability, PreprocAvailability::Partial))
+    {
+        return PreprocAvailability::Partial;
+    }
+    references
+        .iter()
+        .find_map(|reference| match &reference.capability {
+            PreprocAvailability::Unavailable(reason) => {
+                Some(PreprocAvailability::Unavailable(reason.clone()))
+            }
+            PreprocAvailability::Complete | PreprocAvailability::Partial => None,
+        })
+        .unwrap_or(PreprocAvailability::Complete)
+}
+
 fn push_unique_macro_definition(
     definitions: &mut Vec<MacroDefinition>,
     definition: MacroDefinition,
@@ -1661,6 +2205,21 @@ mod tests {
         TextSize::from(u32::try_from(text.find(needle).unwrap() + needle.len()).unwrap())
     }
 
+    fn offset_after_n(text: &str, needle: &str, occurrence: usize) -> TextSize {
+        let mut cursor = 0;
+        for index in 0..=occurrence {
+            let relative = text[cursor..].find(needle).unwrap_or_else(|| {
+                panic!("missing occurrence {occurrence} of {needle:?} in fixture")
+            });
+            let absolute = cursor + relative;
+            if index == occurrence {
+                return TextSize::from(u32::try_from(absolute + needle.len()).unwrap());
+            }
+            cursor = absolute + needle.len();
+        }
+        unreachable!()
+    }
+
     fn text_at_range(text: &str, range: TextRange) -> &str {
         &text[usize::from(range.start())..usize::from(range.end())]
     }
@@ -1685,6 +2244,8 @@ endmodule
 
         let include =
             include_directive_at(&db, TOP, offset(root_text, "defs.vh")).unwrap().unwrap();
+        assert_eq!(text_at_range(root_text, include.range), "\"defs.vh\"");
+        assert!(include_directive_at(&db, TOP, offset(root_text, "`include")).unwrap().is_none());
         let IncludeTarget::Literal { resolved_file, .. } = include.target else {
             panic!("literal include expected");
         };
@@ -1993,12 +2554,144 @@ localparam int ENABLED = `HEADER_FLAG;
             macro_reference_definitions_at(&db, TOP, offset_after(root_text, "ENABLED = `"))
                 .unwrap()
                 .unwrap();
-        assert_eq!(text_at_range(root_text, definitions.reference.range), "`HEADER_FLAG");
+        assert_eq!(text_at_range(root_text, definitions.range), "`HEADER_FLAG");
         assert!(matches!(definitions.capability, PreprocAvailability::Complete));
         assert!(definitions.definitions.iter().any(|indexed| {
             indexed.file_id == HEADER
                 && indexed.name_range == definition.name_range
                 && indexed.name == definition.name
+        }));
+    }
+
+    #[test]
+    fn preproc_header_ifdef_reference_uses_including_root_context() {
+        let root_text = r#"`include "defs.vh"
+`include "leaf.vh"
+"#;
+        let header_text = "`define FEATURE_B 1\n";
+        let leaf_text = r#"`ifdef FEATURE_B
+wire enabled;
+`endif
+"#;
+        let db = db_with_nested_files(root_text, header_text, leaf_text);
+
+        let definitions = macro_reference_definitions_at(&db, LEAF, offset(leaf_text, "FEATURE_B"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(text_at_range(leaf_text, definitions.range), "FEATURE_B");
+        assert!(definitions.definitions.iter().any(|definition| {
+            definition.file_id == HEADER
+                && text_at_range(header_text, definition.name_range) == "FEATURE_B"
+        }));
+    }
+
+    #[test]
+    fn preproc_header_macro_body_references_use_expansion_context() {
+        let root_text = r#"`include "defs.vh"
+module top;
+localparam int W = `DEMO_WIDTH;
+localparam int N = `DEMO_NEXT(1);
+localparam int R = `DEMO_RESET;
+endmodule
+"#;
+        let header_text = r#"`ifndef SHARED_DEFS_SVH
+`define SHARED_DEFS_SVH
+`include "leaf.vh"
+`define DEMO_WIDTH `MATH_WIDTH
+`define DEMO_RESET {`DEMO_WIDTH{1'b0}}
+`define DEMO_NEXT(value) ((value) + `MATH_ONE)
+`endif
+"#;
+        let leaf_text = r#"`define MATH_WIDTH 12
+`define MATH_ONE 12'd1
+"#;
+        let db = db_with_nested_files(root_text, header_text, leaf_text);
+
+        let math_width =
+            macro_reference_definitions_at(&db, HEADER, offset(header_text, "MATH_WIDTH"))
+                .unwrap()
+                .unwrap();
+        assert!(math_width.definitions.iter().any(|definition| {
+            definition.file_id == LEAF
+                && text_at_range(leaf_text, definition.name_range) == "MATH_WIDTH"
+        }));
+
+        let math_one = macro_reference_definitions_at(&db, HEADER, offset(header_text, "MATH_ONE"))
+            .unwrap()
+            .unwrap();
+        assert!(math_one.definitions.iter().any(|definition| {
+            definition.file_id == LEAF
+                && text_at_range(leaf_text, definition.name_range) == "MATH_ONE"
+        }));
+
+        let demo_width = macro_reference_definitions_at(
+            &db,
+            HEADER,
+            offset_after(header_text, "`define DEMO_RESET {`"),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(demo_width.definitions.iter().any(|definition| {
+            definition.file_id == HEADER
+                && text_at_range(header_text, definition.name_range) == "DEMO_WIDTH"
+        }));
+    }
+
+    #[test]
+    fn preproc_header_reference_reports_all_including_context_definitions() {
+        let root_text = r#"`define WIDTH 8
+`include "defs.vh"
+`undef WIDTH
+`define WIDTH 16
+`include "defs.vh"
+"#;
+        let header_text = "localparam int W = `WIDTH;\n";
+        let db = db_with_files(root_text, header_text);
+
+        let definitions = macro_reference_definitions_at(&db, HEADER, offset(header_text, "WIDTH"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(text_at_range(header_text, definitions.range), "`WIDTH");
+        assert_eq!(definitions.definitions.len(), 2);
+        assert!(definitions.definitions.iter().any(|definition| {
+            definition.file_id == TOP
+                && definition.name_range.start() == offset_after_n(root_text, "`define ", 0)
+        }));
+        assert!(definitions.definitions.iter().any(|definition| {
+            definition.file_id == TOP
+                && definition.name_range.start() == offset_after_n(root_text, "`define ", 1)
+        }));
+    }
+
+    #[test]
+    fn preproc_header_macro_body_reference_reports_all_expansion_context_definitions() {
+        let root_text = r#"`define WIDTH 8
+`include "defs.vh"
+localparam int A = `USE_WIDTH;
+`undef WIDTH
+`define WIDTH 16
+`include "defs.vh"
+localparam int B = `USE_WIDTH;
+"#;
+        let header_text = "`define USE_WIDTH `WIDTH\n";
+        let db = db_with_files(root_text, header_text);
+
+        let definitions =
+            macro_reference_definitions_at(&db, HEADER, offset_after(header_text, "USE_WIDTH `"))
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(text_at_range(header_text, definitions.range), "`WIDTH");
+        assert_eq!(definitions.definitions.len(), 2);
+        assert!(definitions.definitions.iter().any(|definition| {
+            definition.file_id == TOP
+                && definition.name_range.start() == offset_after_n(root_text, "`define ", 0)
+        }));
+        assert!(definitions.definitions.iter().any(|definition| {
+            definition.file_id == TOP
+                && definition.name_range.start() == offset_after_n(root_text, "`define ", 1)
         }));
     }
 
@@ -2028,7 +2721,7 @@ localparam int ENABLED = `HEADER_FLAG;
                 .unwrap()
                 .unwrap();
 
-        assert_eq!(resolution.reference.file_id, HEADER);
+        assert!(resolution.references.iter().any(|reference| reference.file_id == HEADER));
         let definition =
             resolution.definitions.iter().find(|definition| definition.file_id == HEADER).unwrap();
         assert_eq!(text_at_range(header_text, definition.name_range), "HEADER_FLAG");
@@ -2054,7 +2747,7 @@ localparam int ENABLED = `HEADER_FLAG;
                 .unwrap()
                 .unwrap();
 
-        assert_eq!(resolution.reference.file_id, HEADER);
+        assert!(resolution.references.iter().any(|reference| reference.file_id == HEADER));
         assert!(resolution.definitions.iter().any(|definition| {
             definition.file_id == HEADER
                 && text_at_range(header_text, definition.name_range) == "HEADER_FLAG"
