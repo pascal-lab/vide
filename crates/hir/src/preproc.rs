@@ -998,6 +998,32 @@ endmodule
     }
 
     #[test]
+    fn preproc_visible_macro_names_follow_define_undef_boundaries() {
+        let root_text = r#"`define A005_LOCAL 1
+`undef A005_LOCAL
+`define A005_NEXT 2
+module top;
+localparam int W = `A005_;
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        let names_after_define =
+            visible_macro_names_at(&db, TOP, offset_after(root_text, "`define A005_LOCAL 1\n"))
+                .unwrap();
+        let names_after_undef =
+            visible_macro_names_at(&db, TOP, offset_after(root_text, "`undef A005_LOCAL\n"))
+                .unwrap();
+        let names_after_next =
+            visible_macro_names_at(&db, TOP, offset_after(root_text, "`define A005_NEXT 2\n"))
+                .unwrap();
+
+        assert!(names_after_define.iter().any(|name| name == "A005_LOCAL"));
+        assert!(!names_after_undef.iter().any(|name| name == "A005_LOCAL"));
+        assert!(names_after_next.iter().any(|name| name == "A005_NEXT"));
+    }
+
+    #[test]
     fn preproc_inactive_branch_uses_header_define() {
         let root_text = r#"`include "defs.vh"
 `ifndef HEADER_FLAG
