@@ -4,7 +4,7 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
+        IncludeTarget, MacroDefinition, include_directives_at, macro_definition_at,
         macro_reference_definitions_at,
     },
     semantics::Semantics,
@@ -91,19 +91,41 @@ fn handle_preproc_macro(
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
     if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
-        return Some(RangeInfo::new(definition.name_range, macro_definition_markup(&definition)));
+        return Some(RangeInfo::new(
+            definition.name_range,
+            macro_definition_markup(db, &definition),
+        ));
     }
 
     let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
-    let definition = resolution.definitions.into_iter().next()?;
-    Some(RangeInfo::new(resolution.reference.range, macro_definition_markup(&definition)))
+    if resolution.definitions.is_empty() {
+        return None;
+    }
+    Some(RangeInfo::new(resolution.range, macro_definitions_markup(db, &resolution.definitions)))
 }
 
-fn macro_definition_markup(definition: &MacroDefinition) -> Markup {
+fn macro_definition_markup(db: &RootDb, definition: &MacroDefinition) -> Markup {
+    macro_definitions_markup(db, std::slice::from_ref(definition))
+}
+
+fn macro_definitions_markup(db: &RootDb, definitions: &[MacroDefinition]) -> Markup {
     let mut markup = Markup::new();
-    markup.print("Macro");
-    markup.newline();
-    markup.push_with_backticks(definition.name.as_str());
+    if definitions.len() == 1 {
+        markup.print("Macro");
+        markup.newline();
+        markup.push_with_backticks(definitions[0].name.as_str());
+        return markup;
+    }
+
+    markup.print("Macro definitions");
+    for definition in definitions {
+        markup.newline();
+        markup.push_with_backticks(definition.name.as_str());
+        if let Some(path) = db.file_path(definition.file_id) {
+            markup.print(" ");
+            markup.print(&path.to_string());
+        }
+    }
     markup
 }
 
@@ -112,27 +134,28 @@ fn handle_preproc_include(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Markup>> {
-    let include = include_directive_at(db, file_id, offset).ok()??;
+    let includes = include_directives_at(db, file_id, offset).ok()?;
+    let range = includes.first()?.range;
     let mut markup = Markup::new();
-    match include.target {
-        IncludeTarget::Literal { path, resolved_file } => {
-            markup.print("Include");
-            markup.newline();
-            markup.push_with_backticks(path.as_str());
-            if let Some(target_file_id) = resolved_file
-                && let Some(path) = db.file_path(target_file_id)
-            {
-                markup.newline();
-                markup.print(&path.to_string());
+    markup.print("Include");
+    for include in includes {
+        markup.newline();
+        match include.target {
+            IncludeTarget::Literal { path, resolved_file } => {
+                markup.push_with_backticks(path.as_str());
+                if let Some(target_file_id) = resolved_file
+                    && let Some(path) = db.file_path(target_file_id)
+                {
+                    markup.newline();
+                    markup.print(&path.to_string());
+                }
+            }
+            IncludeTarget::Token { raw } => {
+                markup.push_with_backticks(raw.as_str());
             }
         }
-        IncludeTarget::Token { raw } => {
-            markup.print("Include");
-            markup.newline();
-            markup.push_with_backticks(raw.as_str());
-        }
     }
-    Some(RangeInfo::new(include.range, markup))
+    Some(RangeInfo::new(range, markup))
 }
 
 fn handle_definition(
