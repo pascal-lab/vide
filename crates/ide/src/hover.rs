@@ -11,9 +11,8 @@ use hir::{
     semantics::Semantics,
 };
 use syntax::{
-    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
-    has_text_range::HasTextRange,
     token::TokenKindExt,
 };
 use utils::{get::GetRef, line_index::TextSize};
@@ -52,11 +51,20 @@ pub(crate) fn hover(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
-
-    let res = handle_literal(&sema, hir_file_id, token)
-        .or_else(|| handle_definition(&sema, hir_file_id, token))?;
-    Some(RangeInfo::new(token.text_range()?, res))
+    let selection = crate::source_tokens::token_candidates_at_offset(
+        db,
+        file_id,
+        root,
+        offset,
+        token_precedence,
+    )?;
+    let markups = selection
+        .tokens
+        .into_iter()
+        .filter_map(|token| hover_for_token(&sema, hir_file_id, token))
+        .collect::<Vec<_>>();
+    let res = merge_hover_results(markups)?;
+    Some(RangeInfo::new(selection.range, res))
 }
 
 pub(crate) fn token_precedence(kind: TokenKind) -> usize {
@@ -84,6 +92,24 @@ fn handle_literal(
     };
 
     render::render_literal(literal)
+}
+
+fn hover_for_token(
+    sema: &Semantics<RootDb>,
+    file_id: HirFileId,
+    token: SyntaxTokenWithParent,
+) -> Option<Markup> {
+    handle_literal(sema, file_id, token).or_else(|| handle_definition(sema, file_id, token))
+}
+
+fn merge_hover_results(markups: Vec<Markup>) -> Option<Markup> {
+    let mut iter = markups.into_iter();
+    let mut res = iter.next()?;
+    for markup in iter {
+        res.horizontal_line();
+        res.merge(markup);
+    }
+    Some(res)
 }
 
 fn handle_preproc_macro(

@@ -11,8 +11,7 @@ use hir::{
 };
 use itertools::Itertools;
 use syntax::{
-    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
-    has_text_range::HasTextRange,
+    SyntaxTokenWithParent, TokenKind,
     token::{TokenKindExt, pair_token},
 };
 use utils::line_index::{TextRange, TextSize};
@@ -41,19 +40,42 @@ pub(crate) fn goto_definition(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let selection = crate::source_tokens::token_candidates_at_offset(
+        db,
+        file_id,
+        root,
+        offset,
+        token_precedence,
+    )?;
+    let navs = selection
+        .tokens
+        .into_iter()
+        .filter_map(|token| nav_targets_for_token(db, &sema, hir_file_id, token))
+        .flatten()
+        .unique()
+        .collect_vec();
+    if navs.is_empty() {
+        return None;
+    }
 
-    let navs = handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
-        DefinitionClass::resolve(&sema, hir_file_id, token)?
+    Some(RangeInfo::new(selection.range, navs))
+}
+
+fn nav_targets_for_token(
+    db: &RootDb,
+    sema: &Semantics<RootDb>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent,
+) -> Option<Vec<NavTarget>> {
+    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
+        DefinitionClass::resolve(sema, hir_file_id, token)?
             .origins()
             .into_iter()
             .unique()
             .filter_map(|def| def.to_nav(db))
             .collect_vec()
             .into()
-    })?;
-
-    Some(RangeInfo::new(token.text_range()?, navs))
+    })
 }
 
 fn handle_preproc_macro(

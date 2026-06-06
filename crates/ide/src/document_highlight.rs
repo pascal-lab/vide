@@ -1,5 +1,5 @@
 use hir::{container::InFile, file::HirFileId, semantics::Semantics};
-use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
+use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -33,16 +33,20 @@ pub(crate) fn document_highlight(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
-
-    handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
-            DefinitionClass::Definition(def) => def,
-            DefinitionClass::PortConnShorthand { local, .. } => local,
-            DefinitionClass::Ambiguous(_) => return None,
-        };
-        highlight_refs(&sema, file_id, def, config)
-    })
+    let selection = crate::source_tokens::token_candidates_at_offset(
+        db,
+        file_id,
+        root,
+        offset,
+        token_precedence,
+    )?;
+    let highlights = selection
+        .tokens
+        .into_iter()
+        .filter_map(|token| highlight_for_token(&sema, file_id, hir_file_id, token, config.clone()))
+        .flatten()
+        .collect::<Vec<_>>();
+    (!highlights.is_empty()).then_some(highlights)
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
@@ -66,6 +70,23 @@ fn handle_ctrl_flow_kw(
         .map(|(range, category)| DocumentHighlight { range, category })
         .collect();
     Some(highlights)
+}
+
+fn highlight_for_token(
+    sema: &Semantics<'_, RootDb>,
+    file_id: FileId,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent,
+    config: DocumentHighlightConfig,
+) -> Option<Vec<DocumentHighlight>> {
+    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
+        let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
+            DefinitionClass::Definition(def) => def,
+            DefinitionClass::PortConnShorthand { local, .. } => local,
+            DefinitionClass::Ambiguous(_) => return None,
+        };
+        highlight_refs(sema, file_id, def, config)
+    })
 }
 
 fn highlight_refs<'a>(

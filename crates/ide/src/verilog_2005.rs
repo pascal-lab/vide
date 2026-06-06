@@ -1317,6 +1317,74 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_argument_source_token_resolves_to_hir_definition() {
+    let text = r#"
+`define NEXT(value) (value + 1)
+module top(input logic /*marker:def*/payload_i);
+  logic active_data;
+  assign active_data = `NEXT(/*marker:arg*/payload_i);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let definition_range = marked_range(&markers, "def", TextSize::of("payload_i"));
+    let arg_range = marked_range(&markers, "arg", TextSize::of("payload_i"));
+    let def = position(file_id, &markers, "def");
+    let arg = position(file_id, &markers, "arg");
+
+    let nav = analysis
+        .goto_definition(arg)
+        .unwrap()
+        .expect("macro argument source token navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(definition_range)),
+        "macro argument should navigate through expanded HIR to payload_i definition: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(arg, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro argument source token hover expected");
+    assert!(
+        hover.info.as_str().contains("payload_i"),
+        "macro argument hover should render the HIR definition: {}",
+        hover.info.as_str()
+    );
+
+    let refs = analysis
+        .references(arg, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("macro argument source token references expected");
+    assert!(
+        refs.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(definition_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == arg_range))
+        }),
+        "macro argument references should include the source argument token: {refs:?}"
+    );
+
+    let refs_from_def = analysis
+        .references(def, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("payload_i definition references expected");
+    assert!(
+        refs_from_def.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(definition_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == arg_range))
+        }),
+        "references from payload_i definition should include macro argument source token: {refs_from_def:?}"
+    );
+}
+
+#[test]
 fn preproc_macro_definition_supports_navigation_and_hover() {
     let text = r#"
 `define /*marker:definition*/LOCAL_WIDTH 8
