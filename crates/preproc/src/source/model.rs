@@ -109,6 +109,54 @@ impl SourcePreprocModel {
             .unwrap_or_default()
     }
 
+    pub fn immediate_macro_expansion(&self, call: SourceMacroCallId) -> SourceMacroExpansionQuery {
+        let Some(call_fact) = self.tables.macro_calls.get(call) else {
+            return SourceMacroExpansionQuery::Unavailable(
+                SourcePreprocUnavailable::MissingMacroCall { call },
+            );
+        };
+        match (call_fact.expansion, &call_fact.status) {
+            (Some(expansion), SourceMacroCallStatus::ExpansionAvailable)
+                if self.tables.macro_expansions.get(expansion).is_some() =>
+            {
+                SourceMacroExpansionQuery::Available(expansion)
+            }
+            (Some(expansion), SourceMacroCallStatus::ExpansionAvailable) => {
+                SourceMacroExpansionQuery::Unavailable(
+                    SourcePreprocUnavailable::MissingMacroExpansion {
+                        call: self
+                            .tables
+                            .macro_expansions
+                            .get(expansion)
+                            .map(|expansion| expansion.call)
+                            .unwrap_or(call),
+                    },
+                )
+            }
+            (_, SourceMacroCallStatus::ExpansionUnavailable(reason)) => {
+                SourceMacroExpansionQuery::Unavailable(reason.clone())
+            }
+            (None, SourceMacroCallStatus::ExpansionAvailable) => {
+                SourceMacroExpansionQuery::Unavailable(
+                    SourcePreprocUnavailable::MissingMacroExpansion { call },
+                )
+            }
+        }
+    }
+
+    pub fn recursive_macro_expansion(
+        &self,
+        call: SourceMacroCallId,
+    ) -> SourceRecursiveMacroExpansion {
+        let mut result = SourceRecursiveMacroExpansion {
+            root_call: call,
+            expansions: Vec::new(),
+            unavailable: Vec::new(),
+        };
+        self.collect_recursive_macro_expansion(call, &mut result, &mut Vec::new());
+        result
+    }
+
     pub fn provenance(&self, entity: SourcePreprocEntity) -> Option<SourcePreprocProvenance> {
         let (event_id, name, range, name_range) = match entity {
             SourcePreprocEntity::Define(index) => {
@@ -165,6 +213,45 @@ impl SourcePreprocModel {
             .values()
             .filter_map(|definition_id| self.tables.macro_definitions.get(*definition_id))
             .collect()
+    }
+
+    fn collect_recursive_macro_expansion(
+        &self,
+        call: SourceMacroCallId,
+        result: &mut SourceRecursiveMacroExpansion,
+        visiting: &mut Vec<SourceMacroCallId>,
+    ) {
+        if visiting.contains(&call) {
+            result.unavailable.push(SourceMacroExpansionUnavailable {
+                call,
+                reason: SourcePreprocUnavailable::MissingMacroExpansion { call },
+            });
+            return;
+        }
+
+        match self.immediate_macro_expansion(call) {
+            SourceMacroExpansionQuery::Available(expansion_id) => {
+                if result.expansions.contains(&expansion_id) {
+                    return;
+                }
+                result.expansions.push(expansion_id);
+                let Some(expansion) = self.tables.macro_expansions.get(expansion_id) else {
+                    result.unavailable.push(SourceMacroExpansionUnavailable {
+                        call,
+                        reason: SourcePreprocUnavailable::MissingMacroExpansion { call },
+                    });
+                    return;
+                };
+                visiting.push(call);
+                for child in &expansion.child_calls {
+                    self.collect_recursive_macro_expansion(*child, result, visiting);
+                }
+                visiting.pop();
+            }
+            SourceMacroExpansionQuery::Unavailable(reason) => {
+                result.unavailable.push(SourceMacroExpansionUnavailable { call, reason });
+            }
+        }
     }
 
     fn event_from_record(
@@ -636,19 +723,26 @@ logic [`HEADER_WIDTH-1:0] data;
             .find(|call| call.reference == reference.id)
             .expect("macro usage should create a call fact");
         assert_eq!(call.call_range.source, root_source);
-        assert!(matches!(
-            call.status,
-            SourceMacroCallStatus::ExpansionUnavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable
-            )
-        ));
+        assert_eq!(call.status, SourceMacroCallStatus::ExpansionAvailable);
+        let SourceMacroExpansionQuery::Available(expansion_id) =
+            model.immediate_macro_expansion(call.id)
+        else {
+            panic!("object-like macro call should have an immediate expansion");
+        };
+        assert_eq!(call.expansion, Some(expansion_id));
+        let expansion = model.macro_expansions().get(expansion_id).unwrap();
+        assert_eq!(expansion.call, call.id);
+        assert_eq!(*resolved_definition, expansion.definition);
+        assert!(expansion.child_calls.is_empty());
+        assert_eq!(expansion.status, SourceMacroExpansionStatus::Complete);
 
-        assert!(model.macro_expansions().is_empty());
         let emitted = model
             .emitted_tokens()
             .iter()
             .find(|token| token.text.as_str() == "8")
             .expect("macro body token should be emitted by adapter authority");
+        assert_eq!(expansion.emitted_token_range.start, emitted.id);
+        assert_eq!(expansion.emitted_token_range.len, 1);
         let provenance = model.token_provenance().get(emitted.provenance).unwrap();
         assert!(matches!(
             provenance,
@@ -660,11 +754,11 @@ logic [`HEADER_WIDTH-1:0] data;
                 && body_token_range.source == header_source
                 && *body_call == call.id
         ));
+        let recursive = model.recursive_macro_expansion(call.id);
+        assert_eq!(recursive.expansions, vec![expansion_id]);
+        assert!(recursive.unavailable.is_empty());
         assert_eq!(model.capabilities().macro_calls, CapabilityStatus::Complete);
-        assert!(matches!(
-            &model.capabilities().macro_expansions,
-            CapabilityStatus::Unavailable(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
-        ));
+        assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
         assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
         assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
     }
@@ -695,6 +789,86 @@ endmodule
         let call = model.macro_calls().get(*call).expect("call id should resolve");
         assert_eq!(call.call_range.source, root_source);
         assert_eq!(text_at_range(root_text, call.call_range.range), "`ID(7)");
+        assert_eq!(call.arguments.len(), 1);
+        assert_eq!(call.arguments[0].argument_index, 0);
+        assert_eq!(call.arguments[0].argument_range, Some(*argument_token_range));
+
+        let SourceMacroExpansionQuery::Available(expansion_id) =
+            model.immediate_macro_expansion(call.id)
+        else {
+            panic!("function-like macro call should have an immediate expansion");
+        };
+        let expansion = model.macro_expansions().get(expansion_id).unwrap();
+        assert_eq!(expansion.emitted_token_range.start, emitted.id);
+        assert_eq!(expansion.emitted_token_range.len, 1);
+    }
+
+    #[test]
+    fn source_model_builds_nested_macro_expansion_provenance_chain() {
+        let root_text = r#"`define LEAF 3
+`define WRAP `LEAF
+module m;
+localparam int W = `WRAP;
+endmodule
+"#;
+        let (model, root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+        let wrap_reference = model
+            .macro_references()
+            .iter()
+            .find(|reference| reference.name.as_str() == "WRAP")
+            .expect("outer macro usage should create a reference");
+        let wrap_call = model
+            .macro_calls()
+            .iter()
+            .find(|call| call.reference == wrap_reference.id)
+            .expect("outer macro usage should create a call");
+        assert_eq!(wrap_call.call_range.source, root_source);
+
+        let leaf_call = model
+            .macro_calls()
+            .iter()
+            .find(|call| {
+                let reference = model.macro_references().get(call.reference).unwrap();
+                reference.name.as_str() == "LEAF"
+                    && matches!(
+                        reference.site,
+                        SourceMacroReferenceSite::ExpansionToken { emitted_token: _ }
+                    )
+            })
+            .expect("nested macro invocation should create an expansion-token call");
+        let leaf_reference = model.macro_references().get(leaf_call.reference).unwrap();
+        assert_eq!(text_at_range(root_text, leaf_reference.name_range.range), "`LEAF");
+
+        let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
+            model.immediate_macro_expansion(wrap_call.id)
+        else {
+            panic!("outer macro should have expansion range from nested emitted tokens");
+        };
+        let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
+        assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
+
+        let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
+            model.immediate_macro_expansion(leaf_call.id)
+        else {
+            panic!("nested macro should have its own immediate expansion");
+        };
+        let emitted = model
+            .emitted_tokens()
+            .iter()
+            .find(|token| token.text.as_str() == "3")
+            .expect("nested macro body token should be emitted");
+        let SourceTokenProvenance::MacroBody { call, .. } =
+            model.token_provenance().get(emitted.provenance).unwrap()
+        else {
+            panic!("nested emitted token should keep macro body provenance");
+        };
+        assert_eq!(*call, leaf_call.id);
+        assert_eq!(wrap_expansion.emitted_token_range.start, emitted.id);
+
+        let recursive = model.recursive_macro_expansion(wrap_call.id);
+        assert_eq!(recursive.expansions, vec![wrap_expansion_id, leaf_expansion_id]);
+        assert!(recursive.unavailable.is_empty());
     }
 
     #[test]
@@ -733,6 +907,97 @@ endmodule
         ));
         assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
         assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Partial);
+        assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Partial);
+        for call in model.macro_calls().iter() {
+            assert!(matches!(
+                model.immediate_macro_expansion(call.id),
+                SourceMacroExpansionQuery::Unavailable(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn source_model_does_not_create_expansion_without_emitted_token_authority() {
+        let root_text = "`define A 1\nmodule m; localparam int W = `A; endmodule\n";
+        let define_start = root_text.find("`define").unwrap();
+        let define_end = root_text.find('\n').unwrap();
+        let usage_start = root_text.find("`A").unwrap();
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![SourceBufferId {
+                path: ROOT_PATH.to_owned(),
+                buffer_id: 1,
+                origin: SourceBufferOrigin::Source,
+            }],
+            events: vec![
+                PreprocessorTraceEvent {
+                    event_id: PreprocessorTraceEventId(0),
+                    kind: SyntaxKind::DEFINE_DIRECTIVE,
+                    range: Some(SourceBufferRange {
+                        buffer_id: 1,
+                        range: define_start..define_end,
+                    }),
+                    directive: None,
+                    name: Some(PreprocessorTraceToken {
+                        raw_text: "A".to_owned(),
+                        value_text: "A".to_owned(),
+                        token_kind: TokenKind::IDENTIFIER,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 8..9 }),
+                    }),
+                    include_file_name: None,
+                    params: Vec::new(),
+                    body_tokens: vec![PreprocessorTraceToken {
+                        raw_text: "1".to_owned(),
+                        value_text: "1".to_owned(),
+                        token_kind: TokenKind::INTEGER_LITERAL,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 10..11 }),
+                    }],
+                    expr_tokens: Vec::new(),
+                    disabled_ranges: Vec::new(),
+                },
+                PreprocessorTraceEvent {
+                    event_id: PreprocessorTraceEventId(1),
+                    kind: SyntaxKind::MACRO_USAGE,
+                    range: Some(SourceBufferRange {
+                        buffer_id: 1,
+                        range: usage_start..usage_start + 2,
+                    }),
+                    directive: None,
+                    name: Some(PreprocessorTraceToken {
+                        raw_text: "`A".to_owned(),
+                        value_text: "`A".to_owned(),
+                        token_kind: TokenKind::DIRECTIVE,
+                        range: Some(SourceBufferRange {
+                            buffer_id: 1,
+                            range: usage_start..usage_start + 2,
+                        }),
+                    }),
+                    include_file_name: None,
+                    params: Vec::new(),
+                    body_tokens: Vec::new(),
+                    expr_tokens: Vec::new(),
+                    disabled_ranges: Vec::new(),
+                },
+            ],
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let model = SourcePreprocModel::from_trace(trace).unwrap();
+        let call = model.macro_calls().iter().next().expect("usage should create a call");
+
+        assert!(model.macro_expansions().is_empty());
+        assert!(matches!(
+            model.immediate_macro_expansion(call.id),
+            SourceMacroExpansionQuery::Unavailable(
+                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable
+            )
+        ));
+        assert!(matches!(
+            &model.capabilities().macro_expansions,
+            CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable
+            )
+        ));
     }
 
     #[test]
