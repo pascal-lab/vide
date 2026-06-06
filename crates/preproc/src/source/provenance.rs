@@ -112,6 +112,8 @@ pub enum SourceIncludeStatus {
 pub struct SourceMacroStateTimeline {
     states: Vec<SourceMacroState>,
     checkpoints: Vec<SourceMacroStateCheckpoint>,
+    source_order_boundaries: BTreeMap<PreprocSourceId, Vec<SourceMacroStatePositionBoundary>>,
+    final_source_order: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +127,12 @@ pub struct SourceMacroStateCheckpoint {
     pub source_order: usize,
     pub boundary: SourcePosition,
     pub state: SourceMacroStateId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SourceMacroStatePositionBoundary {
+    source_order: usize,
+    boundary: SourcePosition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -370,7 +378,41 @@ impl SourceMacroStateTimeline {
 
 impl Default for SourceMacroStateTimeline {
     fn default() -> Self {
-        Self { states: Vec::new(), checkpoints: Vec::new() }
+        Self {
+            states: Vec::new(),
+            checkpoints: Vec::new(),
+            source_order_boundaries: BTreeMap::new(),
+            final_source_order: 0,
+        }
+    }
+}
+
+impl SourceMacroStateTimeline {
+    pub fn state_at_position(&self, position: SourcePosition) -> Option<&SourceMacroState> {
+        let source_order = self.source_order_at_position(position);
+        self.state_at_source_order(source_order)
+    }
+
+    fn source_order_at_position(&self, position: SourcePosition) -> usize {
+        let Some(boundaries) = self.source_order_boundaries.get(&position.source) else {
+            return self.final_source_order;
+        };
+        let index =
+            boundaries.partition_point(|boundary| boundary.boundary.offset <= position.offset);
+        boundaries
+            .get(index)
+            .map(|boundary| boundary.source_order)
+            .unwrap_or(self.final_source_order)
+    }
+
+    fn state_at_source_order(&self, source_order: usize) -> Option<&SourceMacroState> {
+        let index =
+            self.checkpoints.partition_point(|checkpoint| checkpoint.source_order <= source_order);
+        if index == 0 {
+            return None;
+        }
+        let checkpoint = &self.checkpoints[index - 1];
+        self.states.get(checkpoint.state.raw())
     }
 }
 
@@ -585,6 +627,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     fn build_tables(&mut self) {
         self.build_definition_table();
         self.build_include_graph();
+        self.record_position_boundaries();
         self.record_state_checkpoint(0, SourcePosition::from_first_event(self.index));
         self.scan_references_and_state();
         self.tables.capabilities = SourcePreprocCapabilities {
@@ -636,6 +679,25 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 body_tokens: define.body.clone(),
             });
             self.definition_ids_by_define_index.insert(define_index, id);
+        }
+    }
+
+    fn record_position_boundaries(&mut self) {
+        self.tables.state_timeline.final_source_order = self.index.event_records.len();
+        for (source_order, directive) in self.index.event_records.iter().enumerate() {
+            self.tables
+                .state_timeline
+                .source_order_boundaries
+                .entry(directive.range.source)
+                .or_default()
+                .push(SourceMacroStatePositionBoundary {
+                    source_order,
+                    boundary: boundary_after(directive.range),
+                });
+        }
+
+        for boundaries in self.tables.state_timeline.source_order_boundaries.values_mut() {
+            boundaries.sort_by_key(|boundary| (boundary.boundary.offset, boundary.source_order));
         }
     }
 

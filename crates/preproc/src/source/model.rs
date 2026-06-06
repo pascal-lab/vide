@@ -104,16 +104,12 @@ impl SourcePreprocModel {
             .filter_map(|(source_order, directive)| self.event_from_record(source_order, directive))
     }
 
-    pub fn macro_environment_at(&self, position: SourcePosition) -> SourceMacroEnvironment {
-        let end_order = self.source_order_at_position(position);
-        self.state_at_source_order(end_order)
-            .map(|state| self.environment_for_state(state))
-            .unwrap_or_default()
-    }
-
     pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<SourceMacroBinding<'_>> {
-        let environment = self.macro_environment_at(position);
-        self.bindings_for_environment(&environment)
+        self.tables
+            .state_timeline
+            .state_at_position(position)
+            .map(|state| self.bindings_for_state(state))
+            .unwrap_or_default()
     }
 
     pub fn provenance(&self, entity: SourcePreprocEntity) -> Option<SourcePreprocProvenance> {
@@ -224,52 +220,13 @@ impl SourcePreprocModel {
         self.index.event_records.iter().find(|directive| directive.event_id == event_id)
     }
 
-    fn source_order_at_position(&self, position: SourcePosition) -> usize {
-        self.index
-            .event_records
-            .iter()
-            .enumerate()
-            .find(|(_, directive)| {
-                directive.range.source == position.source
-                    && directive.range.range.end() > position.offset
-            })
-            .map(|(source_order, _)| source_order)
-            .unwrap_or(self.index.event_records.len())
-    }
-
-    fn state_at_source_order(&self, source_order: usize) -> Option<&SourceMacroState> {
-        let checkpoint = self
-            .tables
-            .state_timeline
-            .checkpoints()
-            .iter()
-            .rev()
-            .find(|checkpoint| checkpoint.source_order <= source_order)?;
-        self.tables.state_timeline.states().get(checkpoint.state.raw())
-    }
-
-    fn environment_for_state(&self, state: &SourceMacroState) -> SourceMacroEnvironment {
-        SourceMacroEnvironment {
-            definitions: state
-                .definitions
-                .iter()
-                .filter_map(|(name, definition_id)| {
-                    self.define_index_for_definition_id(*definition_id)
-                        .map(|define_index| (name.clone(), define_index))
-                })
-                .collect(),
-        }
-    }
-
-    fn bindings_for_environment(
-        &self,
-        environment: &SourceMacroEnvironment,
-    ) -> Vec<SourceMacroBinding<'_>> {
-        environment
+    fn bindings_for_state(&self, state: &SourceMacroState) -> Vec<SourceMacroBinding<'_>> {
+        state
             .definitions
             .iter()
-            .filter_map(|(name, define_index)| {
-                self.binding_for_define_index(name.clone(), *define_index)
+            .filter_map(|(name, definition_id)| {
+                let define_index = self.define_index_for_definition_id(*definition_id)?;
+                self.binding_for_define_index(name.clone(), define_index)
             })
             .collect()
     }
@@ -437,6 +394,30 @@ mod tests {
         &text[usize::from(range.start())..usize::from(range.end())]
     }
 
+    fn visible_macro_names(
+        model: &SourcePreprocModel,
+        source: PreprocSourceId,
+        offset: TextSize,
+    ) -> Vec<SmolStr> {
+        model
+            .visible_macros_at(SourcePosition { source, offset })
+            .into_iter()
+            .map(|binding| binding.name)
+            .collect()
+    }
+
+    fn visible_macro_binding<'a>(
+        model: &'a SourcePreprocModel,
+        source: PreprocSourceId,
+        offset: TextSize,
+        name: &str,
+    ) -> Option<SourceMacroBinding<'a>> {
+        model
+            .visible_macros_at(SourcePosition { source, offset })
+            .into_iter()
+            .find(|binding| binding.name == name)
+    }
+
     #[test]
     fn source_model_applies_include_define_after_include_point_only() {
         let root_text = r#"`include "defs.vh"
@@ -445,17 +426,20 @@ logic [`HEADER_WIDTH-1:0] data;
         let header_text = "`define HEADER_WIDTH 8\n";
         let (model, root_source, header_source) = source_model(root_text, header_text);
 
-        let before_include = model.macro_environment_at(SourcePosition {
-            source: root_source,
-            offset: offset_before(root_text, "`include"),
-        });
-        assert!(!before_include.contains("HEADER_WIDTH"));
+        assert!(
+            !visible_macro_names(&model, root_source, offset_before(root_text, "`include"))
+                .iter()
+                .any(|name| name == "HEADER_WIDTH")
+        );
 
-        let after_include = model.macro_environment_at(SourcePosition {
-            source: root_source,
-            offset: offset_after(root_text, "`include \"defs.vh\"\n"),
-        });
-        assert_eq!(after_include.define_index("HEADER_WIDTH"), Some(0));
+        let after_include = visible_macro_binding(
+            &model,
+            root_source,
+            offset_after(root_text, "`include \"defs.vh\"\n"),
+            "HEADER_WIDTH",
+        )
+        .unwrap();
+        assert_eq!(after_include.define_index, 0);
 
         let binding = model
             .visible_macros_at(SourcePosition {
@@ -477,18 +461,25 @@ logic [`HEADER_WIDTH-1:0] data;
         let header_text = "`define HEADER_WIDTH 8\n";
         let (model, root_source, header_source) = source_model(root_text, header_text);
 
-        let after_include = model.macro_environment_at(SourcePosition {
-            source: root_source,
-            offset: offset_after(root_text, "`include \"defs.vh\"\n"),
-        });
-        assert_eq!(after_include.define_index("HEADER_WIDTH"), Some(0));
+        let after_include = visible_macro_binding(
+            &model,
+            root_source,
+            offset_after(root_text, "`include \"defs.vh\"\n"),
+            "HEADER_WIDTH",
+        )
+        .unwrap();
+        assert_eq!(after_include.define_index, 0);
         assert_eq!(model.defines()[0].name_range.unwrap().source, header_source);
 
-        let after_undef = model.macro_environment_at(SourcePosition {
-            source: root_source,
-            offset: offset_after(root_text, "`undef HEADER_WIDTH\n"),
-        });
-        assert!(!after_undef.contains("HEADER_WIDTH"));
+        assert!(
+            visible_macro_binding(
+                &model,
+                root_source,
+                offset_after(root_text, "`undef HEADER_WIDTH\n"),
+                "HEADER_WIDTH",
+            )
+            .is_none()
+        );
         assert_eq!(model.undefs()[0].name.as_deref(), Some("HEADER_WIDTH"));
         assert_eq!(model.undefs()[0].name_range.unwrap().source, root_source);
     }
@@ -505,11 +496,14 @@ logic [`HEADER_WIDTH-1:0] data;
         assert_eq!(model.defines()[0].name_range.unwrap().source, header_source);
         assert_eq!(model.defines()[1].name_range.unwrap().source, root_source);
 
-        let after_override = model.macro_environment_at(SourcePosition {
-            source: root_source,
-            offset: offset_after(root_text, "`define HEADER_WIDTH 16\n"),
-        });
-        assert_eq!(after_override.define_index("HEADER_WIDTH"), Some(1));
+        let after_override = visible_macro_binding(
+            &model,
+            root_source,
+            offset_after(root_text, "`define HEADER_WIDTH 16\n"),
+            "HEADER_WIDTH",
+        )
+        .unwrap();
+        assert_eq!(after_override.define_index, 1);
 
         let binding = model
             .visible_macros_at(SourcePosition {
@@ -521,6 +515,49 @@ logic [`HEADER_WIDTH-1:0] data;
             .unwrap();
         assert_eq!(binding.define.body[0].value.as_str(), "16");
         assert_eq!(binding.define.name_range.unwrap().source, root_source);
+    }
+
+    #[test]
+    fn visible_macro_query_reads_timeline_without_event_records() {
+        let root_text = r#"`define A 1
+`undef A
+`define B 2
+"#;
+        let trace = SyntaxTree::preprocessor_trace(
+            root_text,
+            "source",
+            ROOT_PATH,
+            &SyntaxTreeOptions::default(),
+        )
+        .expect("trace should include root source");
+        let root_source = PreprocSourceId::from(trace.root_buffer_id);
+        let mut model = SourcePreprocModel::from_trace(trace).unwrap();
+
+        let names_after_define =
+            visible_macro_names(&model, root_source, offset_after(root_text, "`define A 1\n"));
+        let names_after_undef =
+            visible_macro_names(&model, root_source, offset_after(root_text, "`undef A\n"));
+        let names_after_second_define =
+            visible_macro_names(&model, root_source, offset_after(root_text, "`define B 2\n"));
+
+        assert_eq!(names_after_define, vec![SmolStr::new("A")]);
+        assert!(names_after_undef.is_empty(), "{names_after_undef:?}");
+        assert_eq!(names_after_second_define, vec![SmolStr::new("B")]);
+
+        model.index.event_records.clear();
+
+        assert_eq!(
+            visible_macro_names(&model, root_source, offset_after(root_text, "`define A 1\n")),
+            names_after_define
+        );
+        assert_eq!(
+            visible_macro_names(&model, root_source, offset_after(root_text, "`undef A\n")),
+            names_after_undef
+        );
+        assert_eq!(
+            visible_macro_names(&model, root_source, offset_after(root_text, "`define B 2\n")),
+            names_after_second_define
+        );
     }
 
     #[test]
