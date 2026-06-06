@@ -7,7 +7,10 @@ use std::{
 use hir::{
     base_db::{
         change::Change,
-        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        project::{
+            CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
+            ProjectConfig,
+        },
         salsa::Durability,
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId},
@@ -202,7 +205,7 @@ fn setup_marked_with_predefines(
         vec![CompilationProfile {
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
-            preprocess: PreprocessConfig { predefines, include_dirs: Vec::new() },
+            preprocess: PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
         }],
     )));
     change.add_changed_file(ChangedFile {
@@ -259,8 +262,8 @@ fn setup_include_macro_project(
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
             preprocess: PreprocessConfig {
-                predefines: Vec::new(),
                 include_dirs: vec![include_dir],
+                ..PreprocessConfig::default()
             },
         }],
     )));
@@ -918,6 +921,85 @@ endmodule
 }
 
 #[test]
+fn manifest_predefine_usage_navigates_to_vide_toml_define() {
+    let dir = TestDir::new("manifest-predefine-navigation");
+    let top_path = dir.path().join("top.sv");
+    let manifest_path = dir.path().join("vide.toml");
+    let marked_top_text = normalize_fixture_text(
+        r#"
+`ifdef FROM_MANIFEST
+module top;
+localparam int W = `/*marker:usage*/FROM_MANIFEST;
+endmodule
+`endif
+"#,
+    );
+    let marked_manifest_text =
+        normalize_fixture_text(r#"defines = [/*marker:def*/"FROM_MANIFEST=1"]"#);
+    let (top_text, top_markers) = strip_markers(marked_top_text);
+    let (manifest_text, manifest_markers) = strip_markers(marked_manifest_text);
+    let manifest_range =
+        marked_range(&manifest_markers, "def", TextSize::of("\"FROM_MANIFEST=1\""));
+
+    let top_file_id = FileId(0);
+    let manifest_file_id = FileId(1);
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top_file_id])]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig {
+                predefines: vec![Predefine::with_source(
+                    "FROM_MANIFEST=1",
+                    PredefineSource { path: manifest_path, range: manifest_range },
+                )],
+                include_dirs: Vec::new(),
+            },
+        }],
+    )));
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: manifest_file_id,
+        change_kind: ChangeKind::Create(Arc::from(manifest_text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let analysis = host.make_analysis();
+
+    let nav = analysis
+        .goto_definition(position(top_file_id, &top_markers, "usage"))
+        .unwrap()
+        .expect("manifest predefine navigation expected");
+    assert!(
+        nav.info.iter().any(|target| {
+            target.file_id == manifest_file_id && target.focus_range == Some(manifest_range)
+        }),
+        "predefine usage should navigate to vide.toml define: {nav:?}"
+    );
+
+    let manifest_nav = analysis
+        .goto_definition(position(manifest_file_id, &manifest_markers, "def"))
+        .unwrap()
+        .expect("manifest predefine definition should be linkable");
+    assert!(
+        manifest_nav.info.iter().any(|target| {
+            target.file_id == manifest_file_id && target.focus_range == Some(manifest_range)
+        }),
+        "manifest define should resolve to its own authoritative range: {manifest_nav:?}"
+    );
+}
+
+#[test]
 fn file_preprocess_config_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
     let text = r#"
 module ifdef_nav(
@@ -1029,8 +1111,8 @@ endmodule
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
             preprocess: PreprocessConfig {
-                predefines: Vec::new(),
                 include_dirs: vec![src_dir.clone()],
+                ..PreprocessConfig::default()
             },
         }],
     )));
