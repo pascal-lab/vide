@@ -453,7 +453,8 @@ impl PreprocessorTraceTokenProvenance {
                 }
             }
             Self::BUILTIN => Self::Builtin { name: macro_name },
-            Self::UNAVAILABLE | _ => Self::Unavailable,
+            Self::UNAVAILABLE => Self::Unavailable,
+            _ => Self::Unavailable,
         }
     }
 }
