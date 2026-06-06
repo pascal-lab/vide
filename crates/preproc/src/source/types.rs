@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use smol_str::SmolStr;
 use utils::line_index::{TextRange, TextSize};
 
+use super::provenance::SourcePreprocTables;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PreprocSourceId(u32);
 
@@ -156,6 +158,7 @@ pub struct SourceMacroToken {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocModel {
     pub(super) index: SourcePreprocIndex,
+    pub(super) tables: SourcePreprocTables,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -172,7 +175,7 @@ pub struct SourceMacroBinding<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroResolution<'a> {
+pub struct SourceMacroUsageResolution<'a> {
     pub usage_index: usize,
     pub usage: &'a SourceMacroUsage,
     pub definition: SourceMacroBinding<'a>,

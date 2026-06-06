@@ -2,12 +2,6 @@ use smol_str::SmolStr;
 
 use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceMacroReferenceSite {
-    Usage { usage_index: usize },
-    ConditionalToken { conditional_index: usize, token_index: usize },
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroReferenceResolution<'a> {
     pub site: SourceMacroReferenceSite,
@@ -22,7 +16,7 @@ impl SourcePreprocModel {
     pub fn definition_for_usage(
         &self,
         usage_index: usize,
-    ) -> Result<Option<SourceMacroResolution<'_>>, SourcePreprocError> {
+    ) -> Result<Option<SourceMacroUsageResolution<'_>>, SourcePreprocError> {
         let Some(usage) = self.index.usages.get(usage_index) else {
             return Ok(None);
         };
@@ -50,7 +44,7 @@ impl SourcePreprocModel {
             .provenance(SourcePreprocEntity::Define(define_index))
             .ok_or(SourcePreprocError::MissingEvent { event_id: define.event_id.raw() })?;
         let definition_include_chain = self.include_chain_for_source(define.range.source)?;
-        Ok(Some(SourceMacroResolution {
+        Ok(Some(SourceMacroUsageResolution {
             usage_index,
             usage,
             definition,

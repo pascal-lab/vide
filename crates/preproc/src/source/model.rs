@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use smol_str::SmolStr;
 use syntax::PreprocessorTrace;
 
-use super::types::*;
+use super::{provenance::*, types::*};
 
 impl SourcePreprocModel {
     pub fn new(index: SourcePreprocIndex) -> Self {
-        Self { index }
+        let tables = SourcePreprocTables::from_index(&index);
+        Self { index, tables }
     }
 
     pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
@@ -20,6 +21,46 @@ impl SourcePreprocModel {
 
     pub fn into_index(self) -> SourcePreprocIndex {
         self.index
+    }
+
+    pub fn provenance_tables(&self) -> &SourcePreprocTables {
+        &self.tables
+    }
+
+    pub fn macro_definitions(&self) -> &SourceMacroDefinitionTable {
+        &self.tables.macro_definitions
+    }
+
+    pub fn macro_references(&self) -> &SourceMacroReferenceTable {
+        &self.tables.macro_references
+    }
+
+    pub fn macro_calls(&self) -> &SourceMacroCallTable {
+        &self.tables.macro_calls
+    }
+
+    pub fn macro_expansions(&self) -> &SourceMacroExpansionTable {
+        &self.tables.macro_expansions
+    }
+
+    pub fn emitted_tokens(&self) -> &SourceEmittedTokenTable {
+        &self.tables.emitted_tokens
+    }
+
+    pub fn token_provenance(&self) -> &SourceTokenProvenanceTable {
+        &self.tables.token_provenance
+    }
+
+    pub fn include_graph(&self) -> &SourceIncludeGraph {
+        &self.tables.include_graph
+    }
+
+    pub fn state_timeline(&self) -> &SourceMacroStateTimeline {
+        &self.tables.state_timeline
+    }
+
+    pub fn capabilities(&self) -> &SourcePreprocCapabilities {
+        &self.tables.capabilities
     }
 
     pub fn root_source(&self) -> Option<PreprocSourceId> {
@@ -561,6 +602,81 @@ logic [`HEADER_WIDTH-1:0] data;
         assert_eq!(resolution.definition_include_chain.len(), 1);
         assert_eq!(resolution.definition_include_chain[0].include_range.source, root_source);
         assert_eq!(resolution.definition_include_chain[0].included_source, header_source);
+    }
+
+    #[test]
+    fn source_model_exposes_expansion_provenance_skeleton_tables() {
+        let root_text = r#"`include "defs.vh"
+logic [`HEADER_WIDTH-1:0] data;
+"#;
+        let header_text = "`define HEADER_WIDTH 8\n";
+        let (model, root_source, header_source) = source_model(root_text, header_text);
+
+        let definition = model
+            .macro_definitions()
+            .iter()
+            .find(|definition| definition.name.as_str() == "HEADER_WIDTH")
+            .expect("definition table should include precise macro definition");
+        assert_eq!(definition.directive_range.source, header_source);
+        assert_eq!(definition.name_range.source, header_source);
+        assert_ne!(definition.directive_range.range, definition.name_range.range);
+        assert_eq!(text_at_range(header_text, definition.name_range.range), "HEADER_WIDTH");
+
+        let reference = model
+            .macro_references()
+            .iter()
+            .find(|reference| {
+                reference.name.as_str() == "HEADER_WIDTH"
+                    && matches!(reference.site, SourceMacroReferenceSite::Usage { usage_index: _ })
+            })
+            .expect("reference table should include resolved macro usage");
+        assert_eq!(reference.name_range.source, root_source);
+        assert_eq!(reference.directive_range.source, root_source);
+        let SourceMacroResolution::Resolved {
+            definition: resolved_definition,
+            reason,
+            include_chain,
+        } = &reference.resolution
+        else {
+            panic!("macro usage should resolve to included definition");
+        };
+        assert_eq!(*reason, SourceMacroResolutionReason::VisibleDefinition);
+        assert_eq!(include_chain.len(), 1);
+        assert_eq!(
+            model.macro_definitions().get(*resolved_definition).unwrap().name.as_str(),
+            "HEADER_WIDTH"
+        );
+
+        assert_eq!(model.include_graph().directives().len(), 1);
+        assert!(matches!(
+            &model.include_graph().directives()[0].status,
+            SourceIncludeStatus::Resolved { source } if *source == header_source
+        ));
+        assert!(!model.state_timeline().checkpoints().is_empty());
+        assert!(model.macro_calls().is_empty());
+        assert!(model.macro_expansions().is_empty());
+        assert!(model.emitted_tokens().is_empty());
+        assert!(model.token_provenance().is_empty());
+        assert!(matches!(
+            &model.capabilities().macro_calls,
+            CapabilityStatus::Unavailable(SourcePreprocUnavailable::MacroCallAuthorityUnavailable)
+        ));
+        assert!(matches!(
+            &model.capabilities().macro_expansions,
+            CapabilityStatus::Unavailable(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
+        ));
+        assert!(matches!(
+            &model.capabilities().emitted_tokens,
+            CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable
+            )
+        ));
+        assert!(matches!(
+            &model.capabilities().emitted_token_provenance,
+            CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable
+            )
+        ));
     }
 
     #[test]
