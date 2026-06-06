@@ -140,17 +140,13 @@ fn profile_inputs(
             profile.source_roots.clone(),
             profile.top_modules.clone(),
             profile.preprocess.include_dirs.clone(),
-            profile.preprocess.predefines.clone(),
+            profile.preprocess.predefine_strings(),
         );
     }
 
     let preprocess = project_config.preprocess_for_profile(profile_id);
-    (
-        root_scoped_source_root.into_iter().collect(),
-        Vec::new(),
-        preprocess.include_dirs,
-        preprocess.predefines,
-    )
+    let predefines = preprocess.predefine_strings();
+    (root_scoped_source_root.into_iter().collect(), Vec::new(), preprocess.include_dirs, predefines)
 }
 
 fn all_non_ignored_roots(db: &dyn SourceRootDb) -> Vec<SourceRootId> {

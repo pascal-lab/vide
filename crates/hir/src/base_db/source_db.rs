@@ -23,7 +23,7 @@ use vfs::{FileId, VfsPath, anchored_path::AnchoredPath};
 use crate::base_db::{
     compilation_plan::{self, CompilationPlan},
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
-    project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
+    project::{CompilationProfileId, Predefine, PreprocessConfig, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
 };
 
@@ -104,7 +104,7 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
             let preprocess = db.file_preprocess_config(file_id);
             let include_paths = preprocess.include_dir_strings();
             let options = syntax::SyntaxTreeOptions {
-                predefines: preprocess.predefines.clone(),
+                predefines: preprocess.predefine_strings(),
                 include_paths,
                 ..syntax::SyntaxTreeOptions::without_include_expansion()
             };
@@ -146,6 +146,7 @@ pub struct MappedSourcePreprocModel {
 pub struct PreprocSourceMap {
     entries: FxHashMap<PreprocSourceId, PreprocSourceMapping>,
     expansion_entries: FxHashMap<SourceMacroExpansionId, PreprocExpansionMapping>,
+    predefine_sources: FxHashMap<PreprocSourceId, PreprocManifestSource>,
     text_lengths: FxHashMap<PreprocSourceId, usize>,
     range_offsets: FxHashMap<PreprocSourceId, usize>,
 }
@@ -165,6 +166,12 @@ pub struct PreprocExpansionMapping {
     pub text: String,
     pub emitted_range: SourceEmittedTokenRange,
     token_ranges: FxHashMap<SourceEmittedTokenId, TextRange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreprocManifestSource {
+    pub file_id: FileId,
+    pub range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,6 +215,7 @@ pub enum PreprocSourceMapError {
 impl PreprocSourceMap {
     pub fn insert_real_file(&mut self, source: PreprocSourceId, file_id: FileId, text_len: usize) {
         self.entries.insert(source, PreprocSourceMapping::RealFile(file_id));
+        self.predefine_sources.remove(&source);
         self.text_lengths.insert(source, text_len);
         self.range_offsets.insert(source, 0);
     }
@@ -233,18 +241,35 @@ impl PreprocSourceMap {
         range_offset: usize,
     ) {
         self.entries.insert(source, PreprocSourceMapping::VirtualFile { file_id, path, origin });
+        self.predefine_sources.remove(&source);
         self.text_lengths.insert(source, text_len);
         self.range_offsets.insert(source, range_offset);
     }
 
     pub fn insert_unmapped(&mut self, source: PreprocSourceId, reason: SourcePreprocUnavailable) {
         self.entries.insert(source, PreprocSourceMapping::Unmapped(reason));
+        self.predefine_sources.remove(&source);
         self.text_lengths.remove(&source);
         self.range_offsets.remove(&source);
     }
 
+    fn insert_predefine_manifest_source(
+        &mut self,
+        source: PreprocSourceId,
+        manifest_source: PreprocManifestSource,
+    ) {
+        self.predefine_sources.insert(source, manifest_source);
+    }
+
     pub fn get(&self, source: PreprocSourceId) -> Option<&PreprocSourceMapping> {
         self.entries.get(&source)
+    }
+
+    pub fn predefine_manifest_source(
+        &self,
+        source: PreprocSourceId,
+    ) -> Option<PreprocManifestSource> {
+        self.predefine_sources.get(&source).copied()
     }
 
     pub fn insert_expansion_virtual_file(
@@ -445,6 +470,7 @@ fn source_preproc_file_ids(
     profile_id: Option<CompilationProfileId>,
     trace: &PreprocessorTrace,
     options: &SyntaxTreeOptions,
+    preprocess: &PreprocessConfig,
 ) -> Result<PreprocSourceMap, SourcePreprocQueryError> {
     let mut source_map = PreprocSourceMap::default();
     let path_file_ids = path_file_ids(db);
@@ -458,7 +484,7 @@ fn source_preproc_file_ids(
         .map(|source| PreprocSourceId::from(source.buffer_id))
         .collect::<Vec<_>>();
     let predefine_map =
-        PredefineVirtualMapping::new(db, profile_id, &options.predefines, predefine_sources);
+        PredefineVirtualMapping::new(db, profile_id, &preprocess.predefines, predefine_sources);
 
     for source in &trace.source_buffers {
         let source_id = PreprocSourceId::from(source.buffer_id);
@@ -507,6 +533,9 @@ fn source_preproc_file_ids(
                         entry.text_len,
                         entry.range_offset,
                     );
+                    if let Some(manifest_source) = entry.manifest_source(&path_file_ids) {
+                        source_map.insert_predefine_manifest_source(source_id, manifest_source);
+                    }
                 } else {
                     source_map.insert_unmapped(
                         source_id,
@@ -625,13 +654,14 @@ struct PredefineVirtualEntry {
     path: VfsPath,
     text_len: usize,
     range_offset: usize,
+    predefine: Predefine,
 }
 
 impl PredefineVirtualMapping {
     fn new(
         db: &dyn SourceRootDb,
         profile_id: Option<CompilationProfileId>,
-        predefines: &[String],
+        predefines: &[Predefine],
         mut sources: Vec<PreprocSourceId>,
     ) -> Self {
         sources.sort_by_key(|source| source.raw());
@@ -641,17 +671,23 @@ impl PredefineVirtualMapping {
 
         let texts = predefines
             .iter()
-            .map(|predefine| materialized_predefine_text(predefine))
+            .map(|predefine| materialized_predefine_text(predefine.as_str()))
             .collect::<Vec<_>>();
         let text_len = texts.iter().map(String::len).sum();
         let path = preproc_virtual_predefines_path(profile_id);
         let file_id = preproc_virtual_file_id(db, &path);
         let mut range_offset = 0usize;
         let mut entries = FxHashMap::default();
-        for (source, text) in sources.into_iter().zip(texts) {
+        for (index, (source, text)) in sources.into_iter().zip(texts).enumerate() {
             entries.insert(
                 source,
-                PredefineVirtualEntry { file_id, path: path.clone(), text_len, range_offset },
+                PredefineVirtualEntry {
+                    file_id,
+                    path: path.clone(),
+                    text_len,
+                    range_offset,
+                    predefine: predefines[index].clone(),
+                },
             );
             range_offset += text.len();
         }
@@ -661,6 +697,17 @@ impl PredefineVirtualMapping {
 
     fn entry(&self, source: PreprocSourceId) -> Option<&PredefineVirtualEntry> {
         self.entries.get(&source)
+    }
+}
+
+impl PredefineVirtualEntry {
+    fn manifest_source(
+        &self,
+        path_file_ids: &PathIdentityIndex<FileId>,
+    ) -> Option<PreprocManifestSource> {
+        let source = self.predefine.source.as_ref()?;
+        let file_id = path_file_ids.get_path(source.path.as_path())?;
+        Some(PreprocManifestSource { file_id, range: source.range })
     }
 }
 
@@ -778,7 +825,7 @@ fn syntax_tree_options_for_file(
     let profile_id = db.file_compilation_profile(file_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
     syntax::SyntaxTreeOptions {
-        predefines: preprocess.predefines.clone(),
+        predefines: preprocess.predefine_strings(),
         include_paths: preprocess.include_dir_strings(),
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
@@ -793,7 +840,7 @@ fn syntax_tree_options_for_profile(
     let preprocess = project_config.preprocess_for_profile(profile_id);
     let include_paths = preprocess.include_dir_strings();
     syntax::SyntaxTreeOptions {
-        predefines: preprocess.predefines,
+        predefines: preprocess.predefine_strings(),
         include_paths,
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
@@ -1016,6 +1063,7 @@ fn source_preproc_model(
     let text = db.file_text(file_id);
     let identity = source_file_identity(db, file_id);
     let profile_id = db.file_compilation_profile(file_id);
+    let preprocess = db.file_preprocess_config(file_id);
     let options = syntax_tree_options_for_file(db, file_id);
     let Some(trace) =
         SyntaxTree::preprocessor_trace(&text, &identity.name, &identity.path, &options)
@@ -1023,10 +1071,11 @@ fn source_preproc_model(
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
     };
 
-    let mut source_map = match source_preproc_file_ids(db, file_id, profile_id, &trace, &options) {
-        Ok(source_map) => source_map,
-        Err(err) => return Arc::new(Err(err)),
-    };
+    let mut source_map =
+        match source_preproc_file_ids(db, file_id, profile_id, &trace, &options, &preprocess) {
+            Ok(source_map) => source_map,
+            Err(err) => return Arc::new(Err(err)),
+        };
     let model = match SourcePreprocModel::from_trace(trace) {
         Ok(model) => model,
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
@@ -1362,7 +1411,9 @@ mod tests {
             emitted_tokens: Vec::new(),
         };
         let options = SyntaxTreeOptions::default();
-        let source_map = source_preproc_file_ids(&db, TOP, None, &trace, &options).unwrap();
+        let preprocess = PreprocessConfig::default();
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
 
         assert_eq!(
             source_map.get(PreprocSourceId::from(2)),
@@ -1406,8 +1457,11 @@ mod tests {
             predefines: vec!["FIRST=1".to_owned(), "SECOND".to_owned()],
             ..SyntaxTreeOptions::default()
         };
+        let preprocess =
+            PreprocessConfig::with_predefine_strings(["FIRST=1", "SECOND"], Vec::new());
 
-        let source_map = source_preproc_file_ids(&db, TOP, None, &trace, &options).unwrap();
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
         let first = PreprocSourceId::from(2);
         let second = PreprocSourceId::from(3);
         let expected_path = preproc_virtual_predefines_path(None);
@@ -1473,9 +1527,16 @@ mod tests {
             ..SyntaxTreeOptions::default()
         };
 
-        let source_map =
-            source_preproc_file_ids(&db, TOP, Some(CompilationProfileId(7)), &trace, &options)
-                .unwrap();
+        let preprocess = PreprocessConfig::default();
+        let source_map = source_preproc_file_ids(
+            &db,
+            TOP,
+            Some(CompilationProfileId(7)),
+            &trace,
+            &options,
+            &preprocess,
+        )
+        .unwrap();
         let source = PreprocSourceId::from(4);
         let Some(PreprocSourceMapping::VirtualFile { path, origin, .. }) = source_map.get(source)
         else {
