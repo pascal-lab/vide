@@ -83,11 +83,11 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
+    if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
         return Some(RangeInfo::new(definition.range, vec![macro_param_nav_target(definition)]));
     }
 
-    if let Some(resolution) = macro_param_reference_definitions_at(db, file_id, offset).ok()? {
+    if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
         let reference_range = resolution.range;
         let targets = resolution.definitions.into_iter().map(macro_param_nav_target).collect_vec();
         if targets.is_empty() {
@@ -96,17 +96,20 @@ fn handle_preproc_macro(
         return Some(RangeInfo::new(reference_range, targets));
     }
 
-    if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
+    if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
         return Some(RangeInfo::new(definition.name_range, vec![macro_nav_target(definition)]));
     }
 
-    let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
-    let reference_range = resolution.range;
-    let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
-    if targets.is_empty() {
-        return None;
+    if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
+        let reference_range = resolution.range;
+        let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
+        if targets.is_empty() {
+            return None;
+        }
+        return Some(RangeInfo::new(reference_range, targets));
     }
-    Some(RangeInfo::new(reference_range, targets))
+
+    None
 }
 
 fn macro_param_nav_target(definition: MacroParamDefinition) -> NavTarget {

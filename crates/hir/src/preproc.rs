@@ -24,7 +24,7 @@ use utils::{
 use vfs::FileId;
 
 use crate::base_db::{
-    project::CompilationProfileId,
+    project::{CompilationProfileId, Predefine},
     source_db::{
         MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping,
         PreprocVirtualOrigin, SourceFileKind, SourcePreprocQueryError, SourceRootDb,
@@ -65,6 +65,7 @@ pub enum PreprocUnavailable {
     AmbiguousMacroReferenceContexts { contexts: usize },
     AmbiguousMacroExpansionContexts { contexts: usize },
     AmbiguousMacroParamContexts { contexts: usize },
+    AmbiguousMacroDefinitionContexts { contexts: usize },
     AmbiguousDiagnosticProvenance { targets: usize },
     AmbiguousIncludeTargets { targets: usize },
 }
@@ -95,11 +96,25 @@ macro_rules! mapped_preproc_id {
     };
 }
 
-mapped_preproc_id!(MacroDefinitionId, SourceMacroDefinitionId);
 mapped_preproc_id!(MacroReferenceId, SourceMacroReferenceId);
 mapped_preproc_id!(IncludeDirectiveId, SourceIncludeDirectiveId);
 mapped_preproc_id!(MacroCallId, SourceMacroCallId);
 mapped_preproc_id!(MacroExpansionId, SourceMacroExpansionId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MacroDefinitionId {
+    Source(SourceMacroDefinitionId),
+    ConfiguredPredefine { file_id: FileId, range: TextRange },
+}
+
+impl From<SourceMacroDefinitionId> for MacroDefinitionId {
+    fn from(value: SourceMacroDefinitionId) -> Self {
+        Self::Source(value)
+    }
+}
+
+const CONFIGURED_PREDEFINE_DEFINE_INDEX: usize = usize::MAX;
+const CONFIGURED_PREDEFINE_EVENT_ID: u32 = u32::MAX;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappedPreprocSource {
@@ -570,13 +585,13 @@ fn configured_predefine_names(db: &dyn SourceRootDb, file_id: FileId) -> Vec<Smo
 
     let profile_id = db.file_compilation_profile(file_id);
     for predefine in &db.project_config().preprocess_for_profile(profile_id).predefines {
-        if let Some(name) = predefine_macro_name(predefine) {
+        if let Some(name) = predefine_macro_name(predefine.as_str()) {
             names.push_unique(name);
         }
     }
 
     for predefine in &db.file_preprocess_config(file_id).predefines {
-        if let Some(name) = predefine_macro_name(predefine) {
+        if let Some(name) = predefine_macro_name(predefine.as_str()) {
             names.push_unique(name);
         }
     }
@@ -590,21 +605,136 @@ fn predefine_macro_name(predefine: &str) -> Option<SmolStr> {
     if name.is_empty() { None } else { Some(SmolStr::new(name)) }
 }
 
+fn configured_predefine_definitions_for_name(
+    db: &dyn SourceRootDb,
+    context_file_id: FileId,
+    name: &SmolStr,
+) -> Vec<MacroDefinition> {
+    let mut definitions = Vec::new();
+    let profile_id = db.file_compilation_profile(context_file_id);
+    let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
+    for predefine in &project_preprocess.predefines {
+        if let Some(definition) = configured_predefine_definition(db, predefine, name) {
+            push_unique_macro_definition(&mut definitions, definition);
+        }
+    }
+    for predefine in &db.file_preprocess_config(context_file_id).predefines {
+        if let Some(definition) = configured_predefine_definition(db, predefine, name) {
+            push_unique_macro_definition(&mut definitions, definition);
+        }
+    }
+    definitions
+}
+
+fn configured_predefine_definitions_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Vec<MacroDefinition> {
+    let mut definitions = Vec::new();
+    for context_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let profile_id = db.file_compilation_profile(context_file_id);
+        let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
+        for predefine in &project_preprocess.predefines {
+            if let Some(definition) =
+                configured_predefine_definition_at(db, predefine, file_id, offset)
+            {
+                push_unique_macro_definition(&mut definitions, definition);
+            }
+        }
+        for predefine in &db.file_preprocess_config(context_file_id).predefines {
+            if let Some(definition) =
+                configured_predefine_definition_at(db, predefine, file_id, offset)
+            {
+                push_unique_macro_definition(&mut definitions, definition);
+            }
+        }
+    }
+    definitions
+}
+
+fn configured_predefine_definition_at(
+    db: &dyn SourceRootDb,
+    predefine: &Predefine,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<MacroDefinition> {
+    let definition =
+        configured_predefine_definition(db, predefine, &predefine_macro_name(predefine.as_str())?)?;
+    (definition.file_id == file_id && range_contains_offset(definition.name_range, offset))
+        .then_some(definition)
+}
+
+fn configured_predefine_definition(
+    db: &dyn SourceRootDb,
+    predefine: &Predefine,
+    name: &SmolStr,
+) -> Option<MacroDefinition> {
+    let predefine_name = predefine_macro_name(predefine.as_str())?;
+    if &predefine_name != name {
+        return None;
+    }
+    let source = predefine.source.as_ref()?;
+    let file_id = file_id_for_predefine_source_path(db, &source.path)?;
+    Some(MacroDefinition {
+        id: MacroDefinitionId::ConfiguredPredefine { file_id, range: source.range },
+        source: MappedPreprocSource::RealFile { file_id },
+        capability: PreprocAvailability::Complete,
+        file_id,
+        name: predefine_name,
+        define_index: CONFIGURED_PREDEFINE_DEFINE_INDEX,
+        event_id: CONFIGURED_PREDEFINE_EVENT_ID,
+        directive_range: source.range,
+        name_range: source.range,
+    })
+}
+
+fn file_id_for_predefine_source_path(
+    db: &dyn SourceRootDb,
+    path: &utils::paths::AbsPathBuf,
+) -> Option<FileId> {
+    db.files().iter().copied().find(|file_id| db.file_path(*file_id).as_ref() == Some(path))
+}
+
 pub fn macro_definition_at(
     db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroDefinition>> {
-    let mapped = db.source_preproc_model(file_id);
-    let mapped = mapped_result(mapped.as_ref())?;
+    let mut first_error = None;
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
 
-    for definition in mapped.model.macro_definitions().iter() {
-        let mapped_definition = map_macro_definition(mapped, definition)?;
-        if mapped_definition.file_id == file_id
-            && range_contains_offset(mapped_definition.name_range, offset)
-        {
-            return Ok(Some(mapped_definition));
+        for definition in mapped.model.macro_definitions().iter() {
+            let mapped_definition = map_macro_definition(mapped, definition)?;
+            if mapped_definition.file_id == file_id
+                && range_contains_offset(mapped_definition.name_range, offset)
+            {
+                return Ok(Some(mapped_definition));
+            }
         }
+    }
+
+    let mut configured_definitions = configured_predefine_definitions_at(db, file_id, offset);
+    match configured_definitions.len() {
+        0 => {}
+        1 => return Ok(configured_definitions.pop()),
+        contexts => {
+            return Err(PreprocError::Unavailable {
+                reason: PreprocUnavailable::AmbiguousMacroDefinitionContexts { contexts },
+            });
+        }
+    }
+
+    if let Some(error) = first_error {
+        return Err(error);
     }
 
     Ok(None)
@@ -939,30 +1069,42 @@ pub fn macro_reference_definitions_at(
                     continue;
                 }
             };
-            push_unique_macro_reference_context(&mut references, mapped_reference);
+            push_unique_macro_reference_context(&mut references, mapped_reference.clone());
 
-            let SourceMacroResolutionFact::Resolved { definition, .. } = &reference.resolution
-            else {
-                continue;
-            };
-            let Some(definition) = mapped.model.macro_definitions().get(*definition) else {
-                record_first_error(
-                    &mut first_error,
-                    PreprocError::SourceQuery(SourcePreprocQueryError::Model(
-                        SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
-                    )),
-                );
-                continue;
-            };
-            let definition = match map_macro_definition(mapped, definition) {
-                Ok(definition) => definition,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
+            match &reference.resolution {
+                SourceMacroResolutionFact::Resolved { definition, .. } => {
+                    let Some(definition) = mapped.model.macro_definitions().get(*definition) else {
+                        record_first_error(
+                            &mut first_error,
+                            PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                                SourcePreprocError::MissingEvent {
+                                    event_id: reference.event_id.raw(),
+                                },
+                            )),
+                        );
+                        continue;
+                    };
+                    let definition = match map_macro_definition(mapped, definition) {
+                        Ok(definition) => definition,
+                        Err(error) => {
+                            record_first_error(&mut first_error, error);
+                            continue;
+                        }
+                    };
+
+                    push_unique_macro_definition(&mut definitions, definition);
                 }
-            };
-
-            push_unique_macro_definition(&mut definitions, definition);
+                SourceMacroResolutionFact::Undefined => {
+                    for definition in configured_predefine_definitions_for_name(
+                        db,
+                        model_file_id,
+                        &mapped_reference.name,
+                    ) {
+                        push_unique_macro_definition(&mut definitions, definition);
+                    }
+                }
+                SourceMacroResolutionFact::Unavailable(_) => {}
+            }
         }
     }
 
@@ -1345,19 +1487,24 @@ pub(crate) fn build_macro_reference_index(
                 continue;
             }
         };
-        collect_macro_references_in_model(mapped, model_file_id, &mut index);
+        collect_macro_references_in_model(db, mapped, model_file_id, &mut index);
     }
 
     index
 }
 
 fn collect_macro_references_in_model(
+    db: &dyn SourceRootDb,
     mapped: &MappedSourcePreprocModel,
     model_file_id: FileId,
     index: &mut MacroReferenceIndex,
 ) {
     for reference in mapped.model.macro_references().iter() {
         let SourceMacroResolutionFact::Resolved { definition, .. } = reference.resolution else {
+            if reference.resolution == SourceMacroResolutionFact::Undefined {
+                collect_configured_predefine_reference(db, mapped, model_file_id, reference, index);
+                continue;
+            }
             if let SourceMacroResolutionFact::Unavailable(reason) = &reference.resolution {
                 index.push_issue(MacroReferenceIndexIssue::UnavailableReference {
                     file_id: model_file_id,
@@ -1399,6 +1546,29 @@ fn collect_macro_references_in_model(
             }
         };
         index.push(definition, reference);
+    }
+}
+
+fn collect_configured_predefine_reference(
+    db: &dyn SourceRootDb,
+    mapped: &MappedSourcePreprocModel,
+    model_file_id: FileId,
+    source_reference: &SourceMacroReferenceFact,
+    index: &mut MacroReferenceIndex,
+) {
+    let reference = match map_macro_reference(mapped, source_reference) {
+        Ok(reference) => reference,
+        Err(error) => {
+            index.push_issue(MacroReferenceIndexIssue::SkippedModel {
+                file_id: model_file_id,
+                error,
+            });
+            return;
+        }
+    };
+    for definition in configured_predefine_definitions_for_name(db, model_file_id, &reference.name)
+    {
+        index.push(definition, reference.clone());
     }
 }
 
@@ -1632,12 +1802,19 @@ fn map_macro_definition(
     mapped: &MappedSourcePreprocModel,
     definition: &SourceMacroDefinitionFact,
 ) -> PreprocResult<MacroDefinition> {
-    let (source, directive_range, name_range) = map_definition_ranges(
+    let (mut source, mut directive_range, mut name_range) = map_definition_ranges(
         mapped,
         definition.event_id.raw(),
         definition.directive_range,
         definition.name_range,
     )?;
+    if let Some(manifest_source) =
+        mapped.source_map.predefine_manifest_source(definition.name_range.source)
+    {
+        source = MappedPreprocSource::RealFile { file_id: manifest_source.file_id };
+        directive_range = manifest_source.range;
+        name_range = manifest_source.range;
+    }
     Ok(MacroDefinition {
         id: definition.id.into(),
         file_id: source.file_id(),
@@ -2449,7 +2626,10 @@ mod tests {
     use crate::{
         base_db::{
             diagnostics_config::DiagnosticsConfig,
-            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+            project::{
+                CompilationProfile, CompilationProfileId, Predefine, PredefineSource,
+                PreprocessConfig, ProjectConfig,
+            },
             salsa::{self, Durability},
             source_db::{
                 FileLoader, PreprocVirtualOrigin, SourceDb, SourceDbStorage, SourceFileKind,
@@ -2466,6 +2646,7 @@ mod tests {
     const TOP: FileId = FileId(0);
     const HEADER: FileId = FileId(1);
     const LEAF: FileId = FileId(2);
+    const MANIFEST: FileId = FileId(3);
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
@@ -2509,6 +2690,16 @@ mod tests {
     fn db_with_entries_and_predefines(
         entries: &[(FileId, &str, &str)],
         predefines: Vec<String>,
+    ) -> TestDb {
+        db_with_entries_and_predefine_entries(
+            entries,
+            predefines.into_iter().map(Predefine::new).collect(),
+        )
+    }
+
+    fn db_with_entries_and_predefine_entries(
+        entries: &[(FileId, &str, &str)],
+        predefines: Vec<Predefine>,
     ) -> TestDb {
         let include_dir = abs_path("include");
 
@@ -2843,6 +3034,59 @@ endmodule
 
         assert!(names.iter().any(|name| name == "A005_LOCAL"), "{names:?}");
         assert!(names.iter().any(|name| name == "A005_MAGIC"), "{names:?}");
+    }
+
+    #[test]
+    fn preproc_manifest_predefine_definition_uses_manifest_provenance() {
+        let root_text = r#"`ifdef FROM_MANIFEST
+module top;
+localparam int W = `FROM_MANIFEST;
+endmodule
+`endif
+"#;
+        let manifest_text = "defines = [\"FROM_MANIFEST=1\"]\n";
+        let manifest_range = TextRange::new(
+            offset(manifest_text, "\"FROM_MANIFEST=1\""),
+            offset_after(manifest_text, "\"FROM_MANIFEST=1\""),
+        );
+        let predefine = Predefine::with_source(
+            "FROM_MANIFEST=1",
+            PredefineSource { path: abs_path("vide.toml"), range: manifest_range },
+        );
+        let db = db_with_entries_and_predefine_entries(
+            &[(TOP, "rtl/top.v", root_text), (MANIFEST, "vide.toml", manifest_text)],
+            vec![predefine],
+        );
+
+        let resolution = macro_reference_definitions_at(
+            &db,
+            TOP,
+            offset_after_n(root_text, "`FROM_MANIFEST", 0),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            resolution.definitions.iter().any(|definition| {
+                definition.file_id == MANIFEST && definition.name_range == manifest_range
+            }),
+            "predefine reference should target the manifest source range: {resolution:?}"
+        );
+
+        let definition =
+            macro_definition_at(&db, MANIFEST, manifest_range.start()).unwrap().unwrap();
+        assert_eq!(definition.file_id, MANIFEST);
+        assert_eq!(definition.name.as_str(), "FROM_MANIFEST");
+        assert_eq!(definition.name_range, manifest_range);
+        assert_eq!(text_at_range(manifest_text, definition.name_range), "\"FROM_MANIFEST=1\"");
+
+        let references = macro_references(&db, MANIFEST, &definition).unwrap();
+        assert!(
+            references.references.iter().any(|reference| {
+                reference.file_id == TOP
+                    && text_at_range(root_text, reference.range) == "FROM_MANIFEST"
+            }),
+            "manifest predefine definition should find source references: {references:?}"
+        );
     }
 
     #[test]
