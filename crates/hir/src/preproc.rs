@@ -372,7 +372,7 @@ pub enum DiagnosticProvenance {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacroExpansionQuery {
-    Available(MacroExpansion),
+    Available(Box<MacroExpansion>),
     Ambiguous(Vec<MacroExpansion>),
     Unavailable(MacroExpansionUnavailable),
 }
@@ -1159,7 +1159,7 @@ pub fn immediate_macro_expansion_at(
     let available = queries
         .iter()
         .filter_map(|query| match query {
-            MacroExpansionQuery::Available(expansion) => Some(expansion.clone()),
+            MacroExpansionQuery::Available(expansion) => Some(expansion.as_ref().clone()),
             MacroExpansionQuery::Ambiguous(expansions) => Some(expansions.first()?.clone()),
             MacroExpansionQuery::Unavailable(_) => None,
         })
@@ -1168,7 +1168,9 @@ pub fn immediate_macro_expansion_at(
         return Ok(Some(MacroExpansionQuery::Ambiguous(available)));
     }
     if available.len() == 1 {
-        return Ok(Some(MacroExpansionQuery::Available(available.into_iter().next().unwrap())));
+        return Ok(Some(MacroExpansionQuery::Available(Box::new(
+            available.into_iter().next().unwrap(),
+        ))));
     }
     match queries.len() {
         0 => Ok(None),
@@ -2141,7 +2143,7 @@ fn immediate_macro_expansion_for_call(
                     ),
                 }));
             };
-            MacroExpansionQuery::Available(map_macro_expansion(mapped, expansion)?)
+            MacroExpansionQuery::Available(Box::new(map_macro_expansion(mapped, expansion)?))
         }
         SourceMacroExpansionQueryFact::Unavailable(reason) => {
             MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
