@@ -11,7 +11,7 @@ use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use syntax::{
-    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
@@ -77,15 +77,35 @@ pub(crate) fn references(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let selection = crate::source_tokens::token_candidates_at_offset(
+        db,
+        file_id,
+        root,
+        offset,
+        token_precedence,
+    )?;
+    let references = selection
+        .tokens
+        .into_iter()
+        .filter_map(|token| references_for_token(&sema, hir_file_id, token, config.clone()))
+        .flatten()
+        .collect_vec();
+    (!references.is_empty()).then_some(references)
+}
 
-    handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
+fn references_for_token(
+    sema: &Semantics<RootDb>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent,
+    config: ReferencesConfig,
+) -> Option<Vec<References>> {
+    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
+        let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
             DefinitionClass::Ambiguous(_) => return None,
         };
-        Some(vec![search_refs(&sema, def, config)])
+        Some(vec![search_refs(sema, def, config)])
     })
 }
 
