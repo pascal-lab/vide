@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    MacroIncludeTarget, SourceIncludeChainEntry, SourceMacroBinding, SourcePosition,
-    SourcePreprocError, SourcePreprocProvenance, SourceRange,
+    CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceIncludeChainEntry,
+    SourceIncludeDirectiveId, SourceIncludeStatus, SourceMacroBinding,
+    SourceMacroDefinition as SourceMacroDefinitionFact, SourceMacroDefinitionId,
+    SourceMacroReference as SourceMacroReferenceFact, SourceMacroReferenceId,
+    SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
+    SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePosition,
+    SourcePreprocError, SourcePreprocUnavailable, SourceRange,
 };
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
 use utils::{
     line_index::{TextRange, TextSize},
-    path_identity::PathIdentityIndex,
-    paths::{AbsPathBuf, Utf8Path},
     uniq_vec::UniqVec,
 };
 use vfs::FileId;
@@ -33,13 +36,95 @@ pub enum PreprocError {
         directive_file_id: FileId,
         name_file_id: FileId,
     },
+    MismatchedReferenceRangeFiles {
+        event_id: u32,
+        directive_file_id: FileId,
+        name_file_id: FileId,
+    },
     MissingDefinitionNameRange {
         event_id: u32,
+    },
+    Unavailable {
+        reason: PreprocUnavailable,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreprocUnavailable {
+    Source(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreprocAvailability {
+    Complete,
+    Partial,
+    Unavailable(PreprocUnavailable),
+}
+
+macro_rules! mapped_preproc_id {
+    ($name:ident, $core:ty) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name($core);
+
+        impl $name {
+            pub fn raw(self) -> usize {
+                self.0.raw()
+            }
+        }
+
+        impl From<$core> for $name {
+            fn from(value: $core) -> Self {
+                Self(value)
+            }
+        }
+    };
+}
+
+mapped_preproc_id!(MacroDefinitionId, SourceMacroDefinitionId);
+mapped_preproc_id!(MacroReferenceId, SourceMacroReferenceId);
+mapped_preproc_id!(IncludeDirectiveId, SourceIncludeDirectiveId);
+
+impl MacroDefinitionId {
+    fn core_id(self) -> SourceMacroDefinitionId {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MappedPreprocSource {
+    RealFile { file_id: FileId },
+}
+
+impl MappedPreprocSource {
+    pub fn file_id(self) -> FileId {
+        match self {
+            Self::RealFile { file_id } => file_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroResolution {
+    Resolved {
+        definition_id: MacroDefinitionId,
+        reason: MacroResolutionReason,
+        include_chain: Vec<IncludeChainEntry>,
+    },
+    Undefined,
+    Unavailable(PreprocUnavailable),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroResolutionReason {
+    VisibleDefinition,
+    IncludeGuardIfNDef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinition {
+    pub id: MacroDefinitionId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub name: SmolStr,
     pub define_index: usize,
@@ -50,10 +135,15 @@ pub struct MacroDefinition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroUsage {
+    pub reference_id: MacroReferenceId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub name: SmolStr,
     pub usage_index: usize,
+    pub directive_range: TextRange,
     pub range: TextRange,
+    pub resolution: MacroResolution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +156,9 @@ pub struct MacroUsageResolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinitionProvenance {
+    pub id: MacroDefinitionId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
     pub event_id: u32,
     pub file_id: FileId,
     pub directive_range: TextRange,
@@ -82,9 +175,14 @@ pub struct IncludeChainEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReference {
+    pub id: MacroReferenceId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub name: SmolStr,
+    pub directive_range: TextRange,
     pub range: TextRange,
+    pub resolution: MacroResolution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,6 +195,8 @@ pub struct MacroReferenceResolution {
 pub struct MacroReferenceDefinitions {
     pub reference: MacroReference,
     pub definitions: Vec<MacroDefinition>,
+    pub resolution: MacroResolution,
+    pub capability: PreprocAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -141,6 +241,32 @@ impl MacroReferenceKey {
 pub struct MacroReferenceIndex {
     references_by_definition: BTreeMap<MacroDefinitionKey, Vec<MacroReference>>,
     definitions_by_reference: BTreeMap<MacroReferenceKey, Vec<MacroDefinition>>,
+    issues: Vec<MacroReferenceIndexIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReferences {
+    pub references: Vec<MacroReference>,
+    pub status: MacroReferenceIndexStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroReferenceIndexStatus {
+    Complete,
+    Partial { issues: Vec<MacroReferenceIndexIssue> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroReferenceIndexIssue {
+    SkippedModel {
+        file_id: FileId,
+        error: PreprocError,
+    },
+    UnavailableReference {
+        file_id: FileId,
+        reference_id: MacroReferenceId,
+        reason: PreprocUnavailable,
+    },
 }
 
 impl MacroReferenceIndex {
@@ -160,6 +286,14 @@ impl MacroReferenceIndex {
             .map(Vec::as_slice)
     }
 
+    pub fn status(&self) -> MacroReferenceIndexStatus {
+        if self.issues.is_empty() {
+            MacroReferenceIndexStatus::Complete
+        } else {
+            MacroReferenceIndexStatus::Partial { issues: self.issues.clone() }
+        }
+    }
+
     fn push(&mut self, definition: MacroDefinition, reference: MacroReference) {
         let definition_key = MacroDefinitionKey::from_definition(&definition);
         let references = self.references_by_definition.entry(definition_key).or_default();
@@ -169,18 +303,30 @@ impl MacroReferenceIndex {
         let definitions = self.definitions_by_reference.entry(reference_key).or_default();
         push_unique_macro_definition(definitions, definition);
     }
+
+    fn push_issue(&mut self, issue: MacroReferenceIndexIssue) {
+        if !self.issues.contains(&issue) {
+            self.issues.push(issue);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncludeDirective {
+    pub id: IncludeDirectiveId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub include_index: usize,
     pub range: TextRange,
     pub target: IncludeTarget,
+    pub status: IncludeDirectiveStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InactiveBranch {
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub range: TextRange,
 }
@@ -189,6 +335,13 @@ pub struct InactiveBranch {
 pub enum IncludeTarget {
     Literal { path: SmolStr, resolved_file: Option<FileId> },
     Token { raw: SmolStr },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IncludeDirectiveStatus {
+    Resolved { source: MappedPreprocSource },
+    Unresolved,
+    Unavailable(PreprocUnavailable),
 }
 
 impl From<SourcePreprocQueryError> for PreprocError {
@@ -273,24 +426,12 @@ pub fn macro_definition_at(
     let mapped = db.source_preproc_model(file_id);
     let mapped = mapped_result(mapped.as_ref())?;
 
-    for (define_index, define) in mapped.model.defines().iter().enumerate() {
-        let Some(source_name_range) = define.name_range else {
-            continue;
-        };
-        let (define_file_id, directive_range, name_range) =
-            map_definition_ranges(mapped, define.event_id.raw(), define.range, source_name_range)?;
-        if define_file_id == file_id && range_contains_offset(name_range, offset) {
-            return Ok(Some(MacroDefinition {
-                file_id: define_file_id,
-                name: match define.name.clone() {
-                    Some(name) => name,
-                    None => return Ok(None),
-                },
-                define_index,
-                event_id: define.event_id.raw(),
-                directive_range,
-                name_range,
-            }));
+    for definition in mapped.model.macro_definitions().iter() {
+        let mapped_definition = map_macro_definition(mapped, definition)?;
+        if mapped_definition.file_id == file_id
+            && range_contains_offset(mapped_definition.name_range, offset)
+        {
+            return Ok(Some(mapped_definition));
         }
     }
 
@@ -305,27 +446,51 @@ pub fn macro_usage_resolution_at(
     let mapped = db.source_preproc_model(file_id);
     let mapped = mapped_result(mapped.as_ref())?;
 
-    for (usage_index, usage) in mapped.model.usages().iter().enumerate() {
-        let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
-        if usage_file_id != file_id || !range_contains_offset(range, offset) {
+    for reference in mapped.model.macro_references().iter() {
+        let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
+            continue;
+        };
+        let mapped_reference = map_macro_reference(mapped, reference)?;
+        if mapped_reference.file_id != file_id
+            || !range_contains_offset(mapped_reference.range, offset)
+        {
             continue;
         }
 
-        let Some(name) = usage.name.clone() else {
-            return Ok(None);
+        let SourceMacroResolutionFact::Resolved { definition, include_chain, .. } =
+            &reference.resolution
+        else {
+            return match &reference.resolution {
+                SourceMacroResolutionFact::Undefined => Ok(None),
+                SourceMacroResolutionFact::Unavailable(reason) => {
+                    Err(unavailable_error(reason.clone()))
+                }
+                SourceMacroResolutionFact::Resolved { .. } => unreachable!(),
+            };
         };
-        let Some(source_resolution) = mapped.model.definition_for_usage(usage_index)? else {
-            return Ok(None);
-        };
-        let Some(definition) = map_binding_definition(mapped, source_resolution.definition)? else {
-            return Ok(None);
-        };
+        let definition_fact =
+            mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
+                PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                    SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
+                ))
+            })?;
+        let definition = map_macro_definition(mapped, definition_fact)?;
         let definition_provenance =
-            map_definition_provenance(mapped, &source_resolution.definition_provenance)?;
-        let include_chain = map_include_chain(mapped, &source_resolution.definition_include_chain)?;
+            map_definition_provenance_from_definition(mapped, definition_fact)?;
+        let include_chain = map_include_chain(mapped, include_chain)?;
 
         return Ok(Some(MacroUsageResolution {
-            usage: MacroUsage { file_id: usage_file_id, name, usage_index, range },
+            usage: MacroUsage {
+                reference_id: mapped_reference.id,
+                source: mapped_reference.source,
+                capability: mapped_reference.capability.clone(),
+                file_id: mapped_reference.file_id,
+                name: mapped_reference.name,
+                usage_index,
+                directive_range: mapped_reference.directive_range,
+                range: mapped_reference.range,
+                resolution: mapped_reference.resolution,
+            },
             definition,
             definition_provenance,
             include_chain,
@@ -343,31 +508,12 @@ pub fn macro_reference_at(
     let mapped = db.source_preproc_model(file_id);
     let mapped = mapped_result(mapped.as_ref())?;
 
-    for usage in mapped.model.usages() {
-        let (usage_file_id, range) = map_source_range(mapped, usage.range)?;
-        if usage_file_id != file_id || !range_contains_offset(range, offset) {
-            continue;
-        }
-        let Some(name) = usage.name.clone() else {
-            return Ok(None);
-        };
-        return Ok(Some(MacroReference { file_id: usage_file_id, name, range }));
-    }
-
-    for conditional in mapped.model.conditionals() {
-        for token in &conditional.expr {
-            let Some(source_range) = token.range else {
-                continue;
-            };
-            let (reference_file_id, range) = map_source_range(mapped, source_range)?;
-            if reference_file_id != file_id || !range_contains_offset(range, offset) {
-                continue;
-            }
-            return Ok(Some(MacroReference {
-                file_id: reference_file_id,
-                name: token.value.clone(),
-                range,
-            }));
+    for reference in mapped.model.macro_references().iter() {
+        let mapped_reference = map_macro_reference(mapped, reference)?;
+        if mapped_reference.file_id == file_id
+            && range_contains_offset(mapped_reference.range, offset)
+        {
+            return Ok(Some(mapped_reference));
         }
     }
 
@@ -396,25 +542,36 @@ pub fn macro_reference_definitions_at(
     let Some(reference) = macro_reference_at(db, file_id, offset)? else {
         return Ok(None);
     };
-    let profile_id = db.file_compilation_profile(file_id);
-    let index = db.macro_reference_index_for_profile(profile_id);
-    let definitions = index.definitions_for_reference(&reference).unwrap_or(&[]).to_vec();
-    if definitions.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(MacroReferenceDefinitions { reference, definitions }))
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let definitions = match &reference.resolution {
+        MacroResolution::Resolved { definition_id, .. } => {
+            let Some(definition) = mapped.model.macro_definitions().get(definition_id.core_id())
+            else {
+                return Ok(None);
+            };
+            vec![map_macro_definition(mapped, definition)?]
+        }
+        MacroResolution::Undefined | MacroResolution::Unavailable(_) => Vec::new(),
+    };
+    Ok(Some(MacroReferenceDefinitions {
+        resolution: reference.resolution.clone(),
+        capability: reference.capability.clone(),
+        reference,
+        definitions,
+    }))
 }
 
 pub fn macro_references(
     db: &dyn SourceRootDb,
     file_id: FileId,
     definition: &MacroDefinition,
-) -> PreprocResult<Vec<MacroReference>> {
+) -> PreprocResult<MacroReferences> {
     let profile_id = db
         .file_compilation_profile(file_id)
         .or_else(|| db.file_compilation_profile(definition.file_id));
     let index = db.macro_reference_index_for_profile(profile_id);
-    Ok(index.references_for(definition))
+    Ok(MacroReferences { references: index.references_for(definition), status: index.status() })
 }
 
 pub(crate) fn build_macro_reference_index(
@@ -425,16 +582,17 @@ pub(crate) fn build_macro_reference_index(
 
     for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
         let mapped = db.source_preproc_model(model_file_id);
-        let Ok(mapped) = mapped.as_ref() else {
-            continue;
+        let mapped = match mapped.as_ref() {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                index.push_issue(MacroReferenceIndexIssue::SkippedModel {
+                    file_id: model_file_id,
+                    error: error.clone().into(),
+                });
+                continue;
+            }
         };
-        if let Err(err) = collect_macro_references_in_model(mapped, &mut index) {
-            tracing::debug!(
-                ?model_file_id,
-                ?err,
-                "failed to add preprocessor macro references to index",
-            );
-        }
+        collect_macro_references_in_model(mapped, model_file_id, &mut index);
     }
 
     index
@@ -442,20 +600,53 @@ pub(crate) fn build_macro_reference_index(
 
 fn collect_macro_references_in_model(
     mapped: &MappedSourcePreprocModel,
+    model_file_id: FileId,
     index: &mut MacroReferenceIndex,
-) -> PreprocResult<()> {
-    for resolved in mapped.model.resolved_macro_references()? {
-        let Some(definition) = map_binding_definition(mapped, resolved.definition)? else {
+) {
+    for reference in mapped.model.macro_references().iter() {
+        let SourceMacroResolutionFact::Resolved { definition, .. } = reference.resolution else {
+            if let SourceMacroResolutionFact::Unavailable(reason) = &reference.resolution {
+                index.push_issue(MacroReferenceIndexIssue::UnavailableReference {
+                    file_id: model_file_id,
+                    reference_id: reference.id.into(),
+                    reason: PreprocUnavailable::Source(reason.clone()),
+                });
+            }
             continue;
         };
-        let (reference_file_id, range) = map_source_range(mapped, resolved.range)?;
-        index.push(
-            definition,
-            MacroReference { file_id: reference_file_id, name: resolved.name, range },
-        );
-    }
 
-    Ok(())
+        let Some(definition) = mapped.model.macro_definitions().get(definition) else {
+            index.push_issue(MacroReferenceIndexIssue::SkippedModel {
+                file_id: model_file_id,
+                error: PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                    SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
+                )),
+            });
+            continue;
+        };
+
+        let definition = match map_macro_definition(mapped, definition) {
+            Ok(definition) => definition,
+            Err(error) => {
+                index.push_issue(MacroReferenceIndexIssue::SkippedModel {
+                    file_id: model_file_id,
+                    error,
+                });
+                continue;
+            }
+        };
+        let reference = match map_macro_reference(mapped, reference) {
+            Ok(reference) => reference,
+            Err(error) => {
+                index.push_issue(MacroReferenceIndexIssue::SkippedModel {
+                    file_id: model_file_id,
+                    error,
+                });
+                continue;
+            }
+        };
+        index.push(definition, reference);
+    }
 }
 
 pub fn include_directive_at(
@@ -465,23 +656,32 @@ pub fn include_directive_at(
 ) -> PreprocResult<Option<IncludeDirective>> {
     let mapped = db.source_preproc_model(file_id);
     let mapped = mapped_result(mapped.as_ref())?;
-    for (include_index, include) in mapped.model.includes().iter().enumerate() {
-        let (include_file_id, range) = map_source_range(mapped, include.range)?;
+    for include in mapped.model.include_graph().directives() {
+        let (source, range) = map_mapped_source_range(mapped, include.directive_range)?;
+        let include_file_id = source.file_id();
         if include_file_id != file_id || !range_contains_offset(range, offset) {
             continue;
         }
+        let status = map_include_status(mapped, &include.status)?;
+        let resolved_file = match &status {
+            IncludeDirectiveStatus::Resolved { source } => Some(source.file_id()),
+            IncludeDirectiveStatus::Unresolved | IncludeDirectiveStatus::Unavailable(_) => None,
+        };
         let target = match &include.target {
-            MacroIncludeTarget::Literal { path, .. } => IncludeTarget::Literal {
-                path: path.clone(),
-                resolved_file: resolve_literal_include(db, include_file_id, path),
-            },
+            MacroIncludeTarget::Literal { path, .. } => {
+                IncludeTarget::Literal { path: path.clone(), resolved_file }
+            }
             MacroIncludeTarget::Token { raw } => IncludeTarget::Token { raw: raw.clone() },
         };
         return Ok(Some(IncludeDirective {
+            id: include.id.into(),
+            source,
+            capability: capability_status(&mapped.model.capabilities().include_edges),
             file_id: include_file_id,
-            include_index,
+            include_index: include.id.raw(),
             range,
             target,
+            status,
         }));
     }
 
@@ -497,9 +697,15 @@ pub fn inactive_branches(
     let mut branches = Vec::new();
 
     for source_range in mapped.model.inactive_ranges() {
-        let (branch_file_id, range) = map_source_range(mapped, *source_range)?;
+        let (source, range) = map_mapped_source_range(mapped, *source_range)?;
+        let branch_file_id = source.file_id();
         if branch_file_id == file_id {
-            branches.push(InactiveBranch { file_id: branch_file_id, range });
+            branches.push(InactiveBranch {
+                source,
+                capability: capability_status(&mapped.model.capabilities().inactive_ranges),
+                file_id: branch_file_id,
+                range,
+            });
         }
     }
 
@@ -524,45 +730,200 @@ fn map_source_range(
     mapped: &MappedSourcePreprocModel,
     source_range: SourceRange,
 ) -> PreprocResult<(FileId, TextRange)> {
-    let file_id = map_source_id(mapped, source_range.source)?;
-    Ok((file_id, source_range.range))
+    let (source, range) = map_mapped_source_range(mapped, source_range)?;
+    Ok((source.file_id(), range))
 }
 
 fn map_source_id(
     mapped: &MappedSourcePreprocModel,
-    source: preproc::source::PreprocSourceId,
+    source: PreprocSourceId,
 ) -> PreprocResult<FileId> {
     mapped
-        .source_file_ids
-        .get(&source)
-        .copied()
+        .source_map
+        .file_id(source)
         .ok_or_else(|| PreprocError::UnmappedSource { buffer_id: source.raw() })
 }
 
-fn map_definition_provenance(
+fn map_mapped_source_range(
     mapped: &MappedSourcePreprocModel,
-    provenance: &SourcePreprocProvenance,
-) -> PreprocResult<MacroDefinitionProvenance> {
-    let (file_id, range) = map_source_range(mapped, provenance.range)?;
-    let Some(source_name_range) = provenance.name_range else {
-        return Err(PreprocError::MissingDefinitionNameRange {
-            event_id: provenance.event_id.raw(),
-        });
-    };
-    let (name_file_id, name_range) = map_source_range(mapped, source_name_range)?;
-    if name_file_id != file_id {
-        return Err(PreprocError::MismatchedDefinitionRangeFiles {
-            event_id: provenance.event_id.raw(),
-            directive_file_id: file_id,
-            name_file_id,
-        });
-    }
-    Ok(MacroDefinitionProvenance {
-        event_id: provenance.event_id.raw(),
-        file_id,
-        directive_range: range,
+    source_range: SourceRange,
+) -> PreprocResult<(MappedPreprocSource, TextRange)> {
+    let source = map_mapped_source_id(mapped, source_range.source)?;
+    Ok((source, source_range.range))
+}
+
+fn map_mapped_source_id(
+    mapped: &MappedSourcePreprocModel,
+    source: PreprocSourceId,
+) -> PreprocResult<MappedPreprocSource> {
+    Ok(MappedPreprocSource::RealFile { file_id: map_source_id(mapped, source)? })
+}
+
+fn map_macro_definition(
+    mapped: &MappedSourcePreprocModel,
+    definition: &SourceMacroDefinitionFact,
+) -> PreprocResult<MacroDefinition> {
+    let (source, directive_range, name_range) = map_definition_ranges(
+        mapped,
+        definition.event_id.raw(),
+        definition.directive_range,
+        definition.name_range,
+    )?;
+    Ok(MacroDefinition {
+        id: definition.id.into(),
+        source,
+        capability: capability_status(&mapped.model.capabilities().definition_name_ranges),
+        file_id: source.file_id(),
+        name: definition.name.clone(),
+        define_index: define_index_for_definition(mapped, definition)?,
+        event_id: definition.event_id.raw(),
+        directive_range,
         name_range,
     })
+}
+
+fn map_definition_provenance_from_definition(
+    mapped: &MappedSourcePreprocModel,
+    definition: &SourceMacroDefinitionFact,
+) -> PreprocResult<MacroDefinitionProvenance> {
+    let definition = map_macro_definition(mapped, definition)?;
+    Ok(MacroDefinitionProvenance {
+        id: definition.id,
+        source: definition.source,
+        capability: definition.capability,
+        event_id: definition.event_id,
+        file_id: definition.file_id,
+        directive_range: definition.directive_range,
+        name_range: definition.name_range,
+    })
+}
+
+fn map_macro_reference(
+    mapped: &MappedSourcePreprocModel,
+    reference: &SourceMacroReferenceFact,
+) -> PreprocResult<MacroReference> {
+    let (source, directive_range, name_range) = map_reference_ranges(mapped, reference)?;
+    Ok(MacroReference {
+        id: reference.id.into(),
+        source,
+        capability: capability_status(&mapped.model.capabilities().macro_reference_resolution),
+        file_id: source.file_id(),
+        name: reference.name.clone(),
+        directive_range,
+        range: name_range,
+        resolution: map_macro_resolution(mapped, &reference.resolution)?,
+    })
+}
+
+fn map_macro_resolution(
+    mapped: &MappedSourcePreprocModel,
+    resolution: &SourceMacroResolutionFact,
+) -> PreprocResult<MacroResolution> {
+    Ok(match resolution {
+        SourceMacroResolutionFact::Resolved { definition, reason, include_chain } => {
+            MacroResolution::Resolved {
+                definition_id: (*definition).into(),
+                reason: map_macro_resolution_reason(*reason),
+                include_chain: map_include_chain(mapped, include_chain)?,
+            }
+        }
+        SourceMacroResolutionFact::Undefined => MacroResolution::Undefined,
+        SourceMacroResolutionFact::Unavailable(reason) => {
+            MacroResolution::Unavailable(PreprocUnavailable::Source(reason.clone()))
+        }
+    })
+}
+
+fn map_macro_resolution_reason(reason: SourceMacroResolutionReasonFact) -> MacroResolutionReason {
+    match reason {
+        SourceMacroResolutionReasonFact::VisibleDefinition => {
+            MacroResolutionReason::VisibleDefinition
+        }
+        SourceMacroResolutionReasonFact::IncludeGuardIfNDef => {
+            MacroResolutionReason::IncludeGuardIfNDef
+        }
+    }
+}
+
+fn map_reference_ranges(
+    mapped: &MappedSourcePreprocModel,
+    reference: &SourceMacroReferenceFact,
+) -> PreprocResult<(MappedPreprocSource, TextRange, TextRange)> {
+    let (directive_source, directive_range) =
+        map_mapped_source_range(mapped, reference.directive_range)?;
+    let (name_source, name_range) = map_mapped_source_range(mapped, reference.name_range)?;
+    if directive_source != name_source {
+        return Err(PreprocError::MismatchedReferenceRangeFiles {
+            event_id: reference.event_id.raw(),
+            directive_file_id: directive_source.file_id(),
+            name_file_id: name_source.file_id(),
+        });
+    }
+    Ok((directive_source, directive_range, name_range))
+}
+
+fn map_include_status(
+    mapped: &MappedSourcePreprocModel,
+    status: &SourceIncludeStatus,
+) -> PreprocResult<IncludeDirectiveStatus> {
+    Ok(match status {
+        SourceIncludeStatus::Resolved { source } => {
+            IncludeDirectiveStatus::Resolved { source: map_mapped_source_id(mapped, *source)? }
+        }
+        SourceIncludeStatus::Unresolved => IncludeDirectiveStatus::Unresolved,
+        SourceIncludeStatus::Unavailable(reason) => {
+            IncludeDirectiveStatus::Unavailable(PreprocUnavailable::Source(reason.clone()))
+        }
+    })
+}
+
+fn capability_status(status: &CapabilityStatus) -> PreprocAvailability {
+    match status {
+        CapabilityStatus::Complete => PreprocAvailability::Complete,
+        CapabilityStatus::Partial => PreprocAvailability::Partial,
+        CapabilityStatus::Unavailable(reason) => {
+            PreprocAvailability::Unavailable(PreprocUnavailable::Source(reason.clone()))
+        }
+    }
+}
+
+fn unavailable_error(reason: SourcePreprocUnavailable) -> PreprocError {
+    PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) }
+}
+
+fn define_index_for_definition(
+    mapped: &MappedSourcePreprocModel,
+    definition: &SourceMacroDefinitionFact,
+) -> PreprocResult<usize> {
+    mapped
+        .model
+        .defines()
+        .iter()
+        .position(|define| define.event_id == definition.event_id)
+        .ok_or_else(|| {
+            PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                SourcePreprocError::MissingEvent { event_id: definition.event_id.raw() },
+            ))
+        })
+}
+
+fn map_definition_ranges(
+    mapped: &MappedSourcePreprocModel,
+    event_id: u32,
+    directive_source_range: SourceRange,
+    name_source_range: SourceRange,
+) -> PreprocResult<(MappedPreprocSource, TextRange, TextRange)> {
+    let (directive_source, directive_range) =
+        map_mapped_source_range(mapped, directive_source_range)?;
+    let (name_source, name_range) = map_mapped_source_range(mapped, name_source_range)?;
+    if directive_source != name_source {
+        return Err(PreprocError::MismatchedDefinitionRangeFiles {
+            event_id,
+            directive_file_id: directive_source.file_id(),
+            name_file_id: name_source.file_id(),
+        });
+    }
+    Ok((directive_source, directive_range, name_range))
 }
 
 fn map_include_chain(
@@ -588,44 +949,15 @@ fn map_binding_definition(
     mapped: &MappedSourcePreprocModel,
     binding: SourceMacroBinding<'_>,
 ) -> PreprocResult<Option<MacroDefinition>> {
-    let Some(name) = binding.define.name.clone() else {
+    let Some(definition) = mapped
+        .model
+        .macro_definitions()
+        .iter()
+        .find(|definition| definition.event_id == binding.event_id)
+    else {
         return Ok(None);
     };
-    let Some(source_name_range) = binding.define.name_range else {
-        return Ok(None);
-    };
-    let (file_id, directive_range, name_range) = map_definition_ranges(
-        mapped,
-        binding.event_id.raw(),
-        binding.define.range,
-        source_name_range,
-    )?;
-    Ok(Some(MacroDefinition {
-        file_id,
-        name,
-        define_index: binding.define_index,
-        event_id: binding.event_id.raw(),
-        directive_range,
-        name_range,
-    }))
-}
-
-fn map_definition_ranges(
-    mapped: &MappedSourcePreprocModel,
-    event_id: u32,
-    directive_source_range: SourceRange,
-    name_source_range: SourceRange,
-) -> PreprocResult<(FileId, TextRange, TextRange)> {
-    let (directive_file_id, directive_range) = map_source_range(mapped, directive_source_range)?;
-    let (name_file_id, name_range) = map_source_range(mapped, name_source_range)?;
-    if directive_file_id != name_file_id {
-        return Err(PreprocError::MismatchedDefinitionRangeFiles {
-            event_id,
-            directive_file_id,
-            name_file_id,
-        });
-    }
-    Ok((directive_file_id, directive_range, name_range))
+    Ok(Some(map_macro_definition(mapped, definition)?))
 }
 
 fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroReference) {
@@ -699,55 +1031,6 @@ fn preproc_reference_model_file_ids(
     let mut file_ids = file_ids.into_iter().collect::<Vec<_>>();
     file_ids.sort();
     file_ids
-}
-
-fn resolve_literal_include(db: &dyn SourceRootDb, file_id: FileId, path: &str) -> Option<FileId> {
-    let includer_path = db.file_path(file_id)?;
-    let include_dirs = db.file_preprocess_config(file_id).include_dirs.clone();
-    let path_file_ids = path_file_ids(db);
-    resolve_include_target(path, &includer_path, &include_dirs, &path_file_ids)
-}
-
-fn path_file_ids(db: &dyn SourceRootDb) -> PathIdentityIndex<FileId> {
-    let mut index = PathIdentityIndex::default();
-    for file_id in db.files().iter().copied() {
-        if db.file_is_project_ignored(file_id) {
-            continue;
-        }
-        if let Some(path) = db.file_path(file_id) {
-            index.insert_path(&path, file_id);
-        }
-    }
-    index
-}
-
-fn resolve_include_target(
-    path: &str,
-    includer_path: &AbsPathBuf,
-    include_dirs: &[AbsPathBuf],
-    path_file_ids: &PathIdentityIndex<FileId>,
-) -> Option<FileId> {
-    let include_path = Utf8Path::new(path);
-    if include_path.is_absolute() {
-        let abs_path = AbsPathBuf::try_from(include_path.to_path_buf()).ok()?.normalize();
-        return path_file_ids.get_path(abs_path.as_path());
-    }
-
-    if let Some(parent) = includer_path.parent() {
-        let candidate = parent.absolutize(include_path);
-        if let Some(file_id) = path_file_ids.get_path(candidate.as_path()) {
-            return Some(file_id);
-        }
-    }
-
-    for include_dir in include_dirs {
-        let candidate = include_dir.absolutize(include_path);
-        if let Some(file_id) = path_file_ids.get_path(candidate.as_path()) {
-            return Some(file_id);
-        }
-    }
-
-    None
 }
 
 fn range_contains_offset(range: TextRange, offset: TextSize) -> bool {
@@ -1053,25 +1336,50 @@ localparam int ENABLED = `HEADER_FLAG;
             .unwrap()
             .unwrap();
 
-        let refs = macro_references(&db, HEADER, &definition).unwrap();
+        assert_eq!(definition.source.file_id(), HEADER);
+        assert!(matches!(definition.capability, PreprocAvailability::Complete));
+
+        let refs = macro_references(&db, HEADER, &definition).unwrap().references;
 
         assert!(refs.iter().any(|reference| {
             reference.file_id == TOP && text_at_range(root_text, reference.range) == "HEADER_FLAG"
         }));
         assert!(refs.iter().any(|reference| {
-            reference.file_id == TOP && text_at_range(root_text, reference.range) == "`HEADER_FLAG"
+            reference.file_id == TOP
+                && matches!(
+                    reference.resolution,
+                    MacroResolution::Resolved {
+                        reason: MacroResolutionReason::VisibleDefinition,
+                        ..
+                    }
+                )
+                && text_at_range(root_text, reference.range) == "HEADER_FLAG"
         }));
 
         let definitions =
-            macro_reference_definitions_at(&db, TOP, offset_after(root_text, "ENABLED = "))
+            macro_reference_definitions_at(&db, TOP, offset_after(root_text, "ENABLED = `"))
                 .unwrap()
                 .unwrap();
         assert_eq!(text_at_range(root_text, definitions.reference.range), "`HEADER_FLAG");
+        assert!(matches!(definitions.capability, PreprocAvailability::Complete));
         assert!(definitions.definitions.iter().any(|indexed| {
             indexed.file_id == HEADER
                 && indexed.name_range == definition.name_range
                 && indexed.name == definition.name
         }));
+    }
+
+    #[test]
+    fn preproc_macro_definition_at_only_hits_name_range() {
+        let root_text = "`define HEADER_FLAG 1\n";
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        assert!(macro_definition_at(&db, TOP, offset(root_text, "`define")).unwrap().is_none());
+
+        let definition =
+            macro_definition_at(&db, TOP, offset(root_text, "HEADER_FLAG")).unwrap().unwrap();
+        assert_eq!(text_at_range(root_text, definition.name_range), "HEADER_FLAG");
+        assert_ne!(definition.directive_range, definition.name_range);
     }
 
     #[test]
@@ -1092,7 +1400,7 @@ localparam int ENABLED = `HEADER_FLAG;
             resolution.definitions.iter().find(|definition| definition.file_id == HEADER).unwrap();
         assert_eq!(text_at_range(header_text, definition.name_range), "HEADER_FLAG");
 
-        let refs = macro_references(&db, HEADER, definition).unwrap();
+        let refs = macro_references(&db, HEADER, definition).unwrap().references;
         assert!(refs.iter().any(|reference| {
             reference.file_id == HEADER
                 && reference.range.start() == offset(header_text, "HEADER_FLAG")

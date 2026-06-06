@@ -127,7 +127,33 @@ pub struct CompilationDiagnostic {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappedSourcePreprocModel {
     pub model: SourcePreprocModel,
-    pub source_file_ids: FxHashMap<PreprocSourceId, FileId>,
+    pub source_map: PreprocSourceMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PreprocSourceMap {
+    entries: FxHashMap<PreprocSourceId, PreprocSourceMapping>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreprocSourceMapping {
+    RealFile(FileId),
+}
+
+impl PreprocSourceMap {
+    pub fn insert_real_file(&mut self, source: PreprocSourceId, file_id: FileId) {
+        self.entries.insert(source, PreprocSourceMapping::RealFile(file_id));
+    }
+
+    pub fn get(&self, source: PreprocSourceId) -> Option<PreprocSourceMapping> {
+        self.entries.get(&source).copied()
+    }
+
+    pub fn file_id(&self, source: PreprocSourceId) -> Option<FileId> {
+        match self.get(source)? {
+            PreprocSourceMapping::RealFile(file_id) => Some(file_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,15 +201,15 @@ fn source_preproc_file_ids(
     db: &dyn SourceRootDb,
     file_id: FileId,
     trace: &PreprocessorTrace,
-) -> Result<FxHashMap<PreprocSourceId, FileId>, SourcePreprocQueryError> {
-    let mut source_file_ids = FxHashMap::default();
+) -> Result<PreprocSourceMap, SourcePreprocQueryError> {
+    let mut source_map = PreprocSourceMap::default();
     let path_file_ids = path_file_ids(db);
-    source_file_ids.insert(PreprocSourceId::from(trace.root_buffer_id), file_id);
+    source_map.insert_real_file(PreprocSourceId::from(trace.root_buffer_id), file_id);
 
     for source in &trace.source_buffers {
         let source_id = PreprocSourceId::from(source.buffer_id);
         if source_id == PreprocSourceId::from(trace.root_buffer_id) {
-            source_file_ids.insert(source_id, file_id);
+            source_map.insert_real_file(source_id, file_id);
             continue;
         }
 
@@ -195,13 +221,13 @@ fn source_preproc_file_ids(
                         path: source.path.clone(),
                     });
                 };
-                source_file_ids.insert(source_id, mapped_file_id);
+                source_map.insert_real_file(source_id, mapped_file_id);
             }
             SourceBufferOrigin::Predefine => {}
         }
     }
 
-    Ok(source_file_ids)
+    Ok(source_map)
 }
 
 fn syntax_tree_options_for_file(
@@ -457,8 +483,8 @@ fn source_preproc_model(
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
     };
 
-    let source_file_ids = match source_preproc_file_ids(db, file_id, &trace) {
-        Ok(source_file_ids) => source_file_ids,
+    let source_map = match source_preproc_file_ids(db, file_id, &trace) {
+        Ok(source_map) => source_map,
         Err(err) => return Arc::new(Err(err)),
     };
     let model = match SourcePreprocModel::from_trace(trace) {
@@ -466,7 +492,7 @@ fn source_preproc_model(
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
     };
 
-    Arc::new(Ok(MappedSourcePreprocModel { model, source_file_ids }))
+    Arc::new(Ok(MappedSourcePreprocModel { model, source_map }))
 }
 
 fn macro_reference_index_for_profile(
