@@ -3,7 +3,7 @@ use hir::{
     container::InFile,
     file::HirFileId,
     preproc::{
-        IncludeTarget, MacroDefinition, include_directive_at, macro_definition_at,
+        IncludeTarget, MacroDefinition, include_directives_at, macro_definition_at,
         macro_reference_definitions_at,
     },
     semantics::Semantics,
@@ -65,7 +65,7 @@ fn handle_preproc_macro(
     }
 
     let resolution = macro_reference_definitions_at(db, file_id, offset).ok()??;
-    let reference_range = resolution.reference.range;
+    let reference_range = resolution.range;
     let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
     if targets.is_empty() {
         return None;
@@ -90,24 +90,33 @@ fn handle_preproc_include(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let include = include_directive_at(db, file_id, offset).ok()??;
-    let IncludeTarget::Literal { path, resolved_file: Some(target_file_id) } = include.target
-    else {
+    let includes = include_directives_at(db, file_id, offset).ok()?;
+    let range = includes.first()?.range;
+    let targets = includes
+        .into_iter()
+        .filter_map(|include| {
+            let IncludeTarget::Literal { path, resolved_file: Some(target_file_id) } =
+                include.target
+            else {
+                return None;
+            };
+            let target_range = TextRange::empty(TextSize::new(0));
+            Some(NavTarget {
+                file_id: target_file_id,
+                full_range: target_range,
+                focus_range: Some(target_range),
+                name: Some(path),
+                kind: None,
+                container_name: None,
+                description: db.file_path(target_file_id).map(|path| path.to_string()),
+            })
+        })
+        .unique()
+        .collect_vec();
+    if targets.is_empty() {
         return None;
-    };
-    let target_range = TextRange::empty(TextSize::new(0));
-    Some(RangeInfo::new(
-        include.range,
-        vec![NavTarget {
-            file_id: target_file_id,
-            full_range: target_range,
-            focus_range: Some(target_range),
-            name: Some(path),
-            kind: None,
-            container_name: None,
-            description: db.file_path(target_file_id).map(|path| path.to_string()),
-        }],
-    ))
+    }
+    Some(RangeInfo::new(range, targets))
 }
 
 fn handle_ctrl_flow_kw(
