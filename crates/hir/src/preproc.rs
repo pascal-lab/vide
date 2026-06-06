@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenRange,
-    SourceIncludeChainEntry, SourceIncludeDirectiveId, SourceIncludeStatus,
-    SourceMacroCall as SourceMacroCallFact, SourceMacroCallId,
+    CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId,
+    SourceEmittedTokenRange, SourceIncludeChainEntry, SourceIncludeDirectiveId,
+    SourceIncludeStatus, SourceMacroCall as SourceMacroCallFact, SourceMacroCallId,
     SourceMacroCallStatus as SourceMacroCallStatusFact,
     SourceMacroDefinition as SourceMacroDefinitionFact, SourceMacroDefinitionId,
     SourceMacroExpansion as SourceMacroExpansionFact, SourceMacroExpansionId,
@@ -13,6 +13,7 @@ use preproc::source::{
     SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
     SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePosition,
     SourcePreprocError, SourcePreprocUnavailable, SourceRange,
+    SourceTokenProvenance as SourceTokenProvenanceFact,
 };
 use rustc_hash::FxHashSet;
 use smol_str::SmolStr;
@@ -230,8 +231,76 @@ pub struct MacroExpansion {
     pub call: MacroCall,
     pub definition_id: MacroDefinitionId,
     pub emitted_token_range: SourceEmittedTokenRange,
+    pub virtual_source: MappedPreprocSource,
+    pub virtual_range: TextRange,
     pub child_calls: Vec<MacroCallId>,
     pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansionProvenance {
+    pub expansion: MacroExpansion,
+    pub tokens: Vec<EmittedTokenProvenance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmittedTokenProvenance {
+    pub token: SourceEmittedTokenId,
+    pub text: SmolStr,
+    pub virtual_range: TextRange,
+    pub provenance: TokenProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenProvenance {
+    SourceToken {
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    MacroBody {
+        call: MacroCall,
+        definition_id: MacroDefinitionId,
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    MacroArgument {
+        call: MacroCall,
+        argument_index: usize,
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    Predefine {
+        source: MappedPreprocSource,
+    },
+    Builtin {
+        name: SmolStr,
+    },
+    Unavailable(PreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticProvenance {
+    SourceToken {
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    MacroBody {
+        call: MacroCall,
+        definition_id: MacroDefinitionId,
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    MacroArgument {
+        call: MacroCall,
+        argument_index: usize,
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    VirtualExpansion {
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    Unavailable(PreprocUnavailable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -688,6 +757,58 @@ pub fn recursive_macro_expansion_at(
     Ok(Some(RecursiveMacroExpansion { root_call, expansions, unavailable }))
 }
 
+pub fn macro_expansion_provenance_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<MacroExpansionProvenance>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
+        return Ok(None);
+    };
+    macro_expansion_provenance_for_call(mapped, call_fact)
+}
+
+pub fn macro_expansion_provenance_for_range(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    range: TextRange,
+) -> PreprocResult<Option<MacroExpansionProvenance>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
+        return Ok(None);
+    };
+    macro_expansion_provenance_for_call(mapped, call_fact)
+}
+
+pub fn diagnostic_provenance_for_range(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    range: TextRange,
+) -> PreprocResult<Option<DiagnosticProvenance>> {
+    let mapped = db.source_preproc_model(file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
+        return Ok(None);
+    };
+
+    match mapped.model.immediate_macro_expansion(call_fact.id) {
+        SourceMacroExpansionQueryFact::Available(_) => {
+            let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? else {
+                return Ok(Some(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
+                ))));
+            };
+            Ok(Some(diagnostic_target_for_expansion(&provenance)))
+        }
+        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+            Ok(Some(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(reason))))
+        }
+    }
+}
+
 pub fn macro_references(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -991,9 +1112,29 @@ fn map_macro_expansion(
         call: map_macro_call(mapped, call)?,
         definition_id: expansion.definition.into(),
         emitted_token_range: expansion.emitted_token_range,
+        virtual_source: map_expansion_virtual_source(mapped, expansion.id)?,
+        virtual_range: mapped
+            .source_map
+            .emitted_token_range(expansion.id, expansion.emitted_token_range)
+            .map_err(PreprocError::SourceMap)?,
         child_calls: expansion.child_calls.iter().copied().map(Into::into).collect(),
         capability: macro_expansion_availability(&expansion.status),
     })
+}
+
+fn map_expansion_virtual_source(
+    mapped: &MappedSourcePreprocModel,
+    expansion: SourceMacroExpansionId,
+) -> PreprocResult<MappedPreprocSource> {
+    match mapped.source_map.expansion_source(expansion).map_err(PreprocError::SourceMap)? {
+        PreprocSourceMapping::VirtualFile { file_id, path, origin } => {
+            Ok(MappedPreprocSource::VirtualFile { file_id, path, origin })
+        }
+        PreprocSourceMapping::RealFile(file_id) => Ok(MappedPreprocSource::RealFile { file_id }),
+        PreprocSourceMapping::Unmapped(reason) => {
+            Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) })
+        }
+    }
 }
 
 fn source_macro_call_at(
@@ -1007,6 +1148,148 @@ fn source_macro_call_at(
         };
         source.file_id() == file_id && range_contains_offset(range, offset)
     })
+}
+
+fn source_macro_call_intersecting_range(
+    mapped: &MappedSourcePreprocModel,
+    file_id: FileId,
+    source_range: TextRange,
+) -> Option<&SourceMacroCallFact> {
+    mapped.model.macro_calls().iter().find(|call| {
+        let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
+            return false;
+        };
+        source.file_id() == file_id && range.intersect(source_range).is_some()
+    })
+}
+
+fn macro_expansion_provenance_for_call(
+    mapped: &MappedSourcePreprocModel,
+    call_fact: &SourceMacroCallFact,
+) -> PreprocResult<Option<MacroExpansionProvenance>> {
+    let SourceMacroExpansionQueryFact::Available(expansion_id) =
+        mapped.model.immediate_macro_expansion(call_fact.id)
+    else {
+        return Ok(None);
+    };
+    let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
+        return Ok(None);
+    };
+    let expansion = map_macro_expansion(mapped, expansion)?;
+    let mut tokens = Vec::new();
+    for token_id in emitted_token_ids(expansion.emitted_token_range) {
+        let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
+            return Err(PreprocError::SourceMap(PreprocSourceMapError::MissingEmittedToken {
+                token: token_id,
+            }));
+        };
+        let Some(provenance) = mapped.model.token_provenance().get(token.provenance) else {
+            return Err(unavailable_error(
+                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
+            ));
+        };
+        tokens.push(EmittedTokenProvenance {
+            token: token_id,
+            text: token.text.clone(),
+            virtual_range: mapped
+                .source_map
+                .emitted_token_text_range(expansion_id, token_id)
+                .map_err(PreprocError::SourceMap)?,
+            provenance: map_token_provenance(mapped, provenance)?,
+        });
+    }
+
+    Ok(Some(MacroExpansionProvenance { expansion, tokens }))
+}
+
+fn emitted_token_ids(range: SourceEmittedTokenRange) -> impl Iterator<Item = SourceEmittedTokenId> {
+    let start = range.start.raw();
+    let end = start.saturating_add(range.len);
+    (start..end).map(SourceEmittedTokenId::new)
+}
+
+fn map_token_provenance(
+    mapped: &MappedSourcePreprocModel,
+    provenance: &SourceTokenProvenanceFact,
+) -> PreprocResult<TokenProvenance> {
+    Ok(match provenance {
+        SourceTokenProvenanceFact::Source { token_range } => {
+            let (source, range) = map_mapped_source_range(mapped, *token_range)?;
+            TokenProvenance::SourceToken { source, range }
+        }
+        SourceTokenProvenanceFact::MacroBody { definition, body_token_range, call } => {
+            let call = mapped_macro_call(mapped, *call)?;
+            let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
+            TokenProvenance::MacroBody { call, definition_id: (*definition).into(), source, range }
+        }
+        SourceTokenProvenanceFact::MacroArgument { call, argument_index, argument_token_range } => {
+            let call = mapped_macro_call(mapped, *call)?;
+            let (source, range) = map_mapped_source_range(mapped, *argument_token_range)?;
+            TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
+        }
+        SourceTokenProvenanceFact::TokenPaste { .. }
+        | SourceTokenProvenanceFact::Stringification { .. } => TokenProvenance::Unavailable(
+            PreprocUnavailable::Source(SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance),
+        ),
+        SourceTokenProvenanceFact::Predefine { source } => {
+            TokenProvenance::Predefine { source: map_mapped_source_id(mapped, *source)? }
+        }
+        SourceTokenProvenanceFact::Builtin { name } => {
+            TokenProvenance::Builtin { name: name.clone() }
+        }
+        SourceTokenProvenanceFact::Unavailable(reason) => {
+            TokenProvenance::Unavailable(PreprocUnavailable::Source(reason.clone()))
+        }
+    })
+}
+
+fn mapped_macro_call(
+    mapped: &MappedSourcePreprocModel,
+    call: SourceMacroCallId,
+) -> PreprocResult<MacroCall> {
+    let Some(call) = mapped.model.macro_calls().get(call) else {
+        return Err(unavailable_error(SourcePreprocUnavailable::MissingMacroCall { call }));
+    };
+    map_macro_call(mapped, call)
+}
+
+fn diagnostic_target_for_expansion(provenance: &MacroExpansionProvenance) -> DiagnosticProvenance {
+    let mut saw_unavailable = None;
+    for token in &provenance.tokens {
+        match &token.provenance {
+            TokenProvenance::SourceToken { source, range } => {
+                return DiagnosticProvenance::SourceToken { source: source.clone(), range: *range };
+            }
+            TokenProvenance::MacroBody { call, definition_id, source, range } => {
+                return DiagnosticProvenance::MacroBody {
+                    call: call.clone(),
+                    definition_id: *definition_id,
+                    source: source.clone(),
+                    range: *range,
+                };
+            }
+            TokenProvenance::MacroArgument { call, argument_index, source, range } => {
+                return DiagnosticProvenance::MacroArgument {
+                    call: call.clone(),
+                    argument_index: *argument_index,
+                    source: source.clone(),
+                    range: *range,
+                };
+            }
+            TokenProvenance::Unavailable(reason) => {
+                saw_unavailable = Some(reason.clone());
+            }
+            TokenProvenance::Predefine { .. } | TokenProvenance::Builtin { .. } => {}
+        }
+    }
+
+    saw_unavailable.map_or_else(
+        || DiagnosticProvenance::VirtualExpansion {
+            source: provenance.expansion.virtual_source.clone(),
+            range: provenance.expansion.virtual_range,
+        },
+        DiagnosticProvenance::Unavailable,
+    )
 }
 
 fn map_macro_resolution(
@@ -1241,21 +1524,28 @@ mod tests {
     use rustc_hash::FxHashSet;
     use triomphe::Arc;
     use utils::{
-        line_index::TextSize,
+        get::Get,
+        line_index::{TextRange, TextSize},
         paths::{AbsPathBuf, Utf8PathBuf},
     };
     use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
 
     use super::*;
-    use crate::base_db::{
-        diagnostics_config::DiagnosticsConfig,
-        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
-        salsa::{self, Durability},
-        source_db::{
-            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
-            SourceRootDbStorage,
+    use crate::{
+        base_db::{
+            diagnostics_config::DiagnosticsConfig,
+            project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+            salsa::{self, Durability},
+            source_db::{
+                FileLoader, PreprocVirtualOrigin, SourceDb, SourceDbStorage, SourceFileKind,
+                SourceRootDb, SourceRootDbStorage,
+            },
+            source_root::{SourceRoot, SourceRootId},
         },
-        source_root::{SourceRoot, SourceRootId},
+        container::InFile,
+        db::{HirDb, HirDbStorage, InternDbStorage},
+        hir_def::module::ModuleId,
+        source_map::IsSrc,
     };
 
     const TOP: FileId = FileId(0);
@@ -1264,7 +1554,7 @@ mod tests {
     const ROOT: SourceRootId = SourceRootId(0);
     const PROFILE: CompilationProfileId = CompilationProfileId(0);
 
-    #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
+    #[salsa::database(SourceDbStorage, SourceRootDbStorage, InternDbStorage, HirDbStorage)]
     #[derive(Default)]
     struct TestDb {
         storage: salsa::Storage<Self>,
@@ -1430,6 +1720,121 @@ endmodule
         assert_eq!(recursive.expansions.len(), 2);
         assert!(recursive.expansions.iter().any(|expansion| !expansion.child_calls.is_empty()));
         assert!(recursive.unavailable.is_empty());
+    }
+
+    #[test]
+    fn preproc_macro_expansion_materializes_virtual_source_and_token_provenance() {
+        let root_text = r#"`define MAKE_DECL(name) logic name;
+module top;
+`MAKE_DECL(generated)
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        let provenance = macro_expansion_provenance_at(&db, TOP, offset(root_text, "`MAKE_DECL"))
+            .unwrap()
+            .unwrap();
+        let MappedPreprocSource::VirtualFile { path, origin, .. } =
+            &provenance.expansion.virtual_source
+        else {
+            panic!("macro expansion should expose a virtual expansion source");
+        };
+        assert_eq!(
+            path,
+            &VfsPath::new_virtual_path("/__vide/preproc/profile-0/expansion/0.sv".to_owned())
+        );
+        assert_eq!(
+            origin,
+            &PreprocVirtualOrigin::Expansion { expansion: SourceMacroExpansionId::new(0) }
+        );
+
+        let mapped = db.source_preproc_model(TOP);
+        let mapped = mapped.as_ref().as_ref().unwrap();
+        let virtual_file = mapped.source_map.expansion(SourceMacroExpansionId::new(0)).unwrap();
+        assert_eq!(virtual_file.text, "logic generated ;");
+        assert_eq!(provenance.expansion.virtual_range, TextRange::new(0.into(), 17.into()));
+
+        let logic = provenance
+            .tokens
+            .iter()
+            .find(|token| token.text.as_str() == "logic")
+            .expect("macro body token should be present");
+        let TokenProvenance::MacroBody { source, range, .. } = &logic.provenance else {
+            panic!("logic should come from the macro body: {logic:?}");
+        };
+        assert_eq!(source.file_id(), TOP);
+        assert_eq!(text_at_range(root_text, *range), "logic");
+        assert_eq!(logic.virtual_range, TextRange::new(0.into(), 5.into()));
+
+        let generated = provenance
+            .tokens
+            .iter()
+            .find(|token| token.text.as_str() == "generated")
+            .expect("macro argument token should be present");
+        let TokenProvenance::MacroArgument { source, range, argument_index, .. } =
+            &generated.provenance
+        else {
+            panic!("generated should come from the macro argument: {generated:?}");
+        };
+        assert_eq!(*argument_index, 0);
+        assert_eq!(source.file_id(), TOP);
+        assert_eq!(text_at_range(root_text, *range), "generated");
+        assert_eq!(generated.virtual_range, TextRange::new(6.into(), 15.into()));
+    }
+
+    #[test]
+    fn macro_generated_declaration_hir_range_resolves_to_expanded_token_provenance() {
+        let root_text = r#"`define MAKE_DECL(name) logic name;
+module top;
+`MAKE_DECL(generated)
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+        let (hir_file, _) = db.hir_file_with_source_map(TOP.into());
+        let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
+        let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
+        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let (declaration_id, _) =
+            module.declarations.iter().next().expect("generated declaration should lower to HIR");
+        let declaration_src = module_src_map
+            .get(declaration_id)
+            .expect("generated declaration should keep a source-map range");
+
+        let provenance = macro_expansion_provenance_for_range(&db, TOP, declaration_src.range())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(provenance.expansion.emitted_token_range.len, 3);
+        assert!(
+            provenance
+                .tokens
+                .iter()
+                .any(|token| matches!(token.provenance, TokenProvenance::MacroBody { .. }))
+        );
+        assert!(
+            provenance
+                .tokens
+                .iter()
+                .any(|token| matches!(token.provenance, TokenProvenance::MacroArgument { .. }))
+        );
+    }
+
+    #[test]
+    fn diagnostic_provenance_returns_unavailable_for_unsupported_expansion_mapping() {
+        let root_text = r#"`define JOIN(a,b) a``b
+module top;
+wire `JOIN(foo,bar);
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+        let call_range =
+            TextRange::new(offset(root_text, "`JOIN"), offset_after(root_text, "`JOIN(foo,bar)"));
+
+        let provenance = diagnostic_provenance_for_range(&db, TOP, call_range).unwrap().unwrap();
+        assert!(matches!(
+            provenance,
+            DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(_))
+        ));
     }
 
     #[test]
