@@ -1,0 +1,958 @@
+use std::collections::BTreeMap;
+
+use smol_str::SmolStr;
+
+use super::types::*;
+
+macro_rules! source_table_id {
+    ($name:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(usize);
+
+        impl $name {
+            pub fn new(raw: usize) -> Self {
+                Self(raw)
+            }
+
+            pub fn raw(self) -> usize {
+                self.0
+            }
+        }
+    };
+}
+
+source_table_id!(SourceMacroDefinitionId);
+source_table_id!(SourceMacroReferenceId);
+source_table_id!(SourceIncludeDirectiveId);
+source_table_id!(SourceMacroStateId);
+source_table_id!(SourceMacroCallId);
+source_table_id!(SourceMacroExpansionId);
+source_table_id!(SourceEmittedTokenId);
+source_table_id!(SourceTokenProvenanceId);
+
+pub trait HasDirectiveRange {
+    fn directive_range(&self) -> SourceRange;
+}
+
+pub trait HasNameRange {
+    fn name_range(&self) -> Option<SourceRange>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceMacroReferenceSite {
+    Usage { usage_index: usize },
+    ConditionalToken { conditional_index: usize, token_index: usize },
+    IncludeGuardIfNDef { conditional_index: usize, token_index: usize },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroDefinition {
+    pub id: SourceMacroDefinitionId,
+    pub event_id: SourcePreprocEventId,
+    pub name: SmolStr,
+    pub name_range: SourceRange,
+    pub directive_range: SourceRange,
+    pub params: Option<Vec<SourceMacroParam>>,
+    pub body_tokens: Vec<SourceMacroToken>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroReference {
+    pub id: SourceMacroReferenceId,
+    pub event_id: SourcePreprocEventId,
+    pub site: SourceMacroReferenceSite,
+    pub name: SmolStr,
+    pub name_range: SourceRange,
+    pub directive_range: SourceRange,
+    pub resolution: SourceMacroResolution,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceMacroResolution {
+    Resolved {
+        definition: SourceMacroDefinitionId,
+        reason: SourceMacroResolutionReason,
+        include_chain: Vec<SourceIncludeChainEntry>,
+    },
+    Undefined,
+    Unavailable(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceMacroResolutionReason {
+    VisibleDefinition,
+    IncludeGuardIfNDef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceIncludeGraph {
+    directives: Vec<SourceIncludeDirective>,
+    edges: Vec<SourceIncludeEdge>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceIncludeDirective {
+    pub id: SourceIncludeDirectiveId,
+    pub event_id: SourcePreprocEventId,
+    pub directive_range: SourceRange,
+    pub target: MacroIncludeTarget,
+    pub target_range: Option<SourceRange>,
+    pub resolved_source: Option<PreprocSourceId>,
+    pub status: SourceIncludeStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceIncludeStatus {
+    Resolved { source: PreprocSourceId },
+    Unresolved,
+    Unavailable(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroStateTimeline {
+    states: Vec<SourceMacroState>,
+    checkpoints: Vec<SourceMacroStateCheckpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroState {
+    pub id: SourceMacroStateId,
+    pub definitions: BTreeMap<SmolStr, SourceMacroDefinitionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroStateCheckpoint {
+    pub source_order: usize,
+    pub boundary: SourcePosition,
+    pub state: SourceMacroStateId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroCall {
+    pub id: SourceMacroCallId,
+    pub reference: SourceMacroReferenceId,
+    pub call_range: SourceRange,
+    pub callee: SourceMacroResolution,
+    pub arguments: Vec<SourceMacroArgument>,
+    pub expansion: Option<SourceMacroExpansionId>,
+    pub status: SourceMacroCallStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroArgument {
+    pub argument_index: usize,
+    pub argument_range: Option<SourceRange>,
+    pub tokens: Vec<SourceMacroToken>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceMacroCallStatus {
+    ExpansionAvailable,
+    ExpansionUnavailable(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroExpansion {
+    pub id: SourceMacroExpansionId,
+    pub call: SourceMacroCallId,
+    pub definition: SourceMacroDefinitionId,
+    pub emitted_token_range: SourceEmittedTokenRange,
+    pub child_calls: Vec<SourceMacroCallId>,
+    pub status: SourceMacroExpansionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceMacroExpansionStatus {
+    Complete,
+    Unavailable(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceEmittedTokenRange {
+    pub start: SourceEmittedTokenId,
+    pub len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceEmittedToken {
+    pub id: SourceEmittedTokenId,
+    pub text: SmolStr,
+    pub kind: SourceTokenKind,
+    pub emitted_range: SourceEmittedTokenRange,
+    pub provenance: SourceTokenProvenanceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceTokenKind {
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceTokenProvenance {
+    Source {
+        token_range: SourceRange,
+    },
+    MacroBody {
+        definition: SourceMacroDefinitionId,
+        body_token_range: SourceRange,
+        call: SourceMacroCallId,
+    },
+    MacroArgument {
+        call: SourceMacroCallId,
+        argument_index: usize,
+        argument_token_range: SourceRange,
+    },
+    TokenPaste {
+        call: SourceMacroCallId,
+        parts: Vec<SourceTokenProvenanceId>,
+    },
+    Stringification {
+        call: SourceMacroCallId,
+        argument_index: usize,
+    },
+    Predefine {
+        source: PreprocSourceId,
+    },
+    Builtin {
+        name: SmolStr,
+    },
+    Unavailable(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePreprocTables {
+    pub macro_definitions: SourceMacroDefinitionTable,
+    pub macro_references: SourceMacroReferenceTable,
+    pub macro_calls: SourceMacroCallTable,
+    pub macro_expansions: SourceMacroExpansionTable,
+    pub emitted_tokens: SourceEmittedTokenTable,
+    pub token_provenance: SourceTokenProvenanceTable,
+    pub include_graph: SourceIncludeGraph,
+    pub state_timeline: SourceMacroStateTimeline,
+    pub capabilities: SourcePreprocCapabilities,
+    pub issues: Vec<SourcePreprocFactIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourceMacroDefinitionTable {
+    definitions: Vec<SourceMacroDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourceMacroReferenceTable {
+    references: Vec<SourceMacroReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourceMacroCallTable {
+    calls: Vec<SourceMacroCall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourceMacroExpansionTable {
+    expansions: Vec<SourceMacroExpansion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourceEmittedTokenTable {
+    tokens: Vec<SourceEmittedToken>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourceTokenProvenanceTable {
+    provenance: Vec<SourceTokenProvenance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePreprocCapabilities {
+    pub source_events: CapabilityStatus,
+    pub definition_name_ranges: CapabilityStatus,
+    pub include_edges: CapabilityStatus,
+    pub inactive_ranges: CapabilityStatus,
+    pub macro_reference_resolution: CapabilityStatus,
+    pub macro_calls: CapabilityStatus,
+    pub macro_expansions: CapabilityStatus,
+    pub emitted_tokens: CapabilityStatus,
+    pub emitted_token_provenance: CapabilityStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CapabilityStatus {
+    Complete,
+    Partial,
+    Unavailable(SourcePreprocUnavailable),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourcePreprocUnavailable {
+    MissingDefinitionName { event_id: SourcePreprocEventId },
+    MissingDefinitionNameRange { event_id: SourcePreprocEventId },
+    MissingReferenceName { event_id: SourcePreprocEventId },
+    MissingReferenceNameRange { event_id: SourcePreprocEventId },
+    IncludeChainUnavailable { source: PreprocSourceId },
+    MacroCallAuthorityUnavailable,
+    EmittedTokenAuthorityUnavailable,
+    TokenProvenanceAuthorityUnavailable,
+    ExpansionAuthorityUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourcePreprocFactIssue {
+    MissingDefinitionName { event_id: SourcePreprocEventId },
+    MissingDefinitionNameRange { event_id: SourcePreprocEventId },
+    MissingReferenceName { event_id: SourcePreprocEventId },
+    MissingReferenceNameRange { event_id: SourcePreprocEventId },
+    IncludeChainUnavailable { source: PreprocSourceId },
+}
+
+impl SourcePreprocTables {
+    pub fn from_index(index: &SourcePreprocIndex) -> Self {
+        let mut builder = SourcePreprocTableBuilder::new(index);
+        builder.build();
+        builder.tables
+    }
+
+    pub fn capabilities(&self) -> &SourcePreprocCapabilities {
+        &self.capabilities
+    }
+}
+
+impl Default for SourcePreprocTables {
+    fn default() -> Self {
+        Self {
+            macro_definitions: SourceMacroDefinitionTable::default(),
+            macro_references: SourceMacroReferenceTable::default(),
+            macro_calls: SourceMacroCallTable::default(),
+            macro_expansions: SourceMacroExpansionTable::default(),
+            emitted_tokens: SourceEmittedTokenTable::default(),
+            token_provenance: SourceTokenProvenanceTable::default(),
+            include_graph: SourceIncludeGraph::default(),
+            state_timeline: SourceMacroStateTimeline::default(),
+            capabilities: SourcePreprocCapabilities::unavailable(),
+            issues: Vec::new(),
+        }
+    }
+}
+
+impl Default for SourceIncludeGraph {
+    fn default() -> Self {
+        Self { directives: Vec::new(), edges: Vec::new() }
+    }
+}
+
+impl SourceIncludeGraph {
+    pub fn directives(&self) -> &[SourceIncludeDirective] {
+        &self.directives
+    }
+
+    pub fn edges(&self) -> &[SourceIncludeEdge] {
+        &self.edges
+    }
+}
+
+impl SourceMacroStateTimeline {
+    pub fn states(&self) -> &[SourceMacroState] {
+        &self.states
+    }
+
+    pub fn checkpoints(&self) -> &[SourceMacroStateCheckpoint] {
+        &self.checkpoints
+    }
+}
+
+impl Default for SourceMacroStateTimeline {
+    fn default() -> Self {
+        Self { states: Vec::new(), checkpoints: Vec::new() }
+    }
+}
+
+impl SourcePreprocCapabilities {
+    pub fn unavailable() -> Self {
+        Self {
+            source_events: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            definition_name_ranges: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            include_edges: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            inactive_ranges: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            macro_reference_resolution: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            macro_calls: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::MacroCallAuthorityUnavailable,
+            ),
+            macro_expansions: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            emitted_tokens: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable,
+            ),
+            emitted_token_provenance: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
+            ),
+        }
+    }
+}
+
+impl SourceMacroDefinitionTable {
+    pub fn get(&self, id: SourceMacroDefinitionId) -> Option<&SourceMacroDefinition> {
+        self.definitions.get(id.raw())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SourceMacroDefinition> {
+        self.definitions.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.definitions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.definitions.is_empty()
+    }
+
+    fn push(&mut self, definition: SourceMacroDefinition) {
+        self.definitions.push(definition);
+    }
+}
+
+impl SourceMacroReferenceTable {
+    pub fn get(&self, id: SourceMacroReferenceId) -> Option<&SourceMacroReference> {
+        self.references.get(id.raw())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SourceMacroReference> {
+        self.references.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.references.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.references.is_empty()
+    }
+
+    fn push(&mut self, reference: SourceMacroReference) {
+        self.references.push(reference);
+    }
+}
+
+impl SourceMacroCallTable {
+    pub fn get(&self, id: SourceMacroCallId) -> Option<&SourceMacroCall> {
+        self.calls.get(id.raw())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SourceMacroCall> {
+        self.calls.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.calls.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.calls.is_empty()
+    }
+}
+
+impl SourceMacroExpansionTable {
+    pub fn get(&self, id: SourceMacroExpansionId) -> Option<&SourceMacroExpansion> {
+        self.expansions.get(id.raw())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SourceMacroExpansion> {
+        self.expansions.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.expansions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.expansions.is_empty()
+    }
+}
+
+impl SourceEmittedTokenTable {
+    pub fn get(&self, id: SourceEmittedTokenId) -> Option<&SourceEmittedToken> {
+        self.tokens.get(id.raw())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SourceEmittedToken> {
+        self.tokens.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
+    }
+}
+
+impl SourceTokenProvenanceTable {
+    pub fn get(&self, id: SourceTokenProvenanceId) -> Option<&SourceTokenProvenance> {
+        self.provenance.get(id.raw())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SourceTokenProvenance> {
+        self.provenance.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.provenance.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.provenance.is_empty()
+    }
+}
+
+impl HasDirectiveRange for SourceMacroDefinition {
+    fn directive_range(&self) -> SourceRange {
+        self.directive_range
+    }
+}
+
+impl HasNameRange for SourceMacroDefinition {
+    fn name_range(&self) -> Option<SourceRange> {
+        Some(self.name_range)
+    }
+}
+
+impl HasDirectiveRange for SourceMacroReference {
+    fn directive_range(&self) -> SourceRange {
+        self.directive_range
+    }
+}
+
+impl HasNameRange for SourceMacroReference {
+    fn name_range(&self) -> Option<SourceRange> {
+        Some(self.name_range)
+    }
+}
+
+impl HasDirectiveRange for SourceIncludeDirective {
+    fn directive_range(&self) -> SourceRange {
+        self.directive_range
+    }
+}
+
+struct SourcePreprocTableBuilder<'a> {
+    index: &'a SourcePreprocIndex,
+    tables: SourcePreprocTables,
+    definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
+    current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
+    definition_ranges_partial: bool,
+    references_partial: bool,
+}
+
+impl<'a> SourcePreprocTableBuilder<'a> {
+    fn new(index: &'a SourcePreprocIndex) -> Self {
+        Self {
+            index,
+            tables: SourcePreprocTables::default(),
+            definition_ids_by_define_index: BTreeMap::new(),
+            current_state: BTreeMap::new(),
+            definition_ranges_partial: false,
+            references_partial: false,
+        }
+    }
+
+    fn build(&mut self) {
+        self.build_definition_table();
+        self.build_include_graph();
+        self.record_state_checkpoint(0, SourcePosition::from_first_event(self.index));
+        self.scan_references_and_state();
+        self.tables.capabilities = SourcePreprocCapabilities {
+            source_events: CapabilityStatus::Complete,
+            definition_name_ranges: partial_status(self.definition_ranges_partial),
+            include_edges: CapabilityStatus::Complete,
+            inactive_ranges: CapabilityStatus::Complete,
+            macro_reference_resolution: partial_status(self.references_partial),
+            macro_calls: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::MacroCallAuthorityUnavailable,
+            ),
+            macro_expansions: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+            ),
+            emitted_tokens: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable,
+            ),
+            emitted_token_provenance: CapabilityStatus::Unavailable(
+                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
+            ),
+        };
+    }
+
+    fn build_definition_table(&mut self) {
+        for (define_index, define) in self.index.defines.iter().enumerate() {
+            let Some(name) = define.name.clone() else {
+                self.definition_ranges_partial = true;
+                self.tables.issues.push(SourcePreprocFactIssue::MissingDefinitionName {
+                    event_id: define.event_id,
+                });
+                continue;
+            };
+            let Some(name_range) = define.name_range else {
+                self.definition_ranges_partial = true;
+                self.tables.issues.push(SourcePreprocFactIssue::MissingDefinitionNameRange {
+                    event_id: define.event_id,
+                });
+                continue;
+            };
+
+            let id = SourceMacroDefinitionId::new(self.tables.macro_definitions.len());
+            self.tables.macro_definitions.push(SourceMacroDefinition {
+                id,
+                event_id: define.event_id,
+                name,
+                name_range,
+                directive_range: define.range,
+                params: define.params.clone(),
+                body_tokens: define.body.clone(),
+            });
+            self.definition_ids_by_define_index.insert(define_index, id);
+        }
+    }
+
+    fn build_include_graph(&mut self) {
+        let resolved_sources_by_event = self
+            .index
+            .include_edges
+            .iter()
+            .map(|edge| (edge.include_event_id, edge.included_source))
+            .collect::<BTreeMap<_, _>>();
+
+        self.tables.include_graph.edges = self.index.include_edges.clone();
+        for include in &self.index.includes {
+            let id = SourceIncludeDirectiveId::new(self.tables.include_graph.directives.len());
+            let resolved_source = resolved_sources_by_event.get(&include.event_id).copied();
+            let status = resolved_source
+                .map(|source| SourceIncludeStatus::Resolved { source })
+                .unwrap_or(SourceIncludeStatus::Unresolved);
+            self.tables.include_graph.directives.push(SourceIncludeDirective {
+                id,
+                event_id: include.event_id,
+                directive_range: include.range,
+                target: include.target.clone(),
+                target_range: include.target_range,
+                resolved_source,
+                status,
+            });
+        }
+    }
+
+    fn scan_references_and_state(&mut self) {
+        for (source_order, directive) in self.index.event_records.iter().enumerate() {
+            match directive.kind {
+                MacroEventKind::Define => self.apply_define(source_order, directive),
+                MacroEventKind::Undef => self.apply_undef(source_order, directive),
+                MacroEventKind::Conditional => self.record_conditional_references(directive),
+                MacroEventKind::Usage => self.record_usage_reference(directive),
+                MacroEventKind::Include | MacroEventKind::Branch => {}
+            }
+        }
+    }
+
+    fn apply_define(&mut self, source_order: usize, directive: &SourcePreprocEventRecord) {
+        if let Some(definition_id) = self.definition_ids_by_define_index.get(&directive.index) {
+            let definition = self
+                .tables
+                .macro_definitions
+                .get(*definition_id)
+                .expect("definition id should point at inserted definition");
+            self.current_state.insert(definition.name.clone(), *definition_id);
+            self.record_state_checkpoint(source_order + 1, boundary_after(directive.range));
+        }
+    }
+
+    fn apply_undef(&mut self, source_order: usize, directive: &SourcePreprocEventRecord) {
+        let Some(undef) = self.index.undefs.get(directive.index) else {
+            return;
+        };
+        if let Some(name) = undef.name.as_ref() {
+            self.current_state.remove(name.as_str());
+            self.record_state_checkpoint(source_order + 1, boundary_after(directive.range));
+        }
+    }
+
+    fn record_usage_reference(&mut self, directive: &SourcePreprocEventRecord) {
+        let Some(usage) = self.index.usages.get(directive.index) else {
+            return;
+        };
+        let Some(name) = usage.name.clone() else {
+            self.record_missing_reference_name(usage.event_id);
+            return;
+        };
+        let Some(name_range) = usage.name_range else {
+            self.record_missing_reference_name_range(usage.event_id);
+            return;
+        };
+        let event_id = usage.event_id;
+        let directive_range = usage.range;
+        let resolution = self.resolve_visible_reference(name.as_str());
+        self.push_reference(
+            event_id,
+            SourceMacroReferenceSite::Usage { usage_index: directive.index },
+            name,
+            name_range,
+            directive_range,
+            resolution,
+        );
+    }
+
+    fn record_conditional_references(&mut self, directive: &SourcePreprocEventRecord) {
+        let Some(conditional) = self.index.conditionals.get(directive.index) else {
+            return;
+        };
+        let event_id = conditional.event_id;
+        let directive_range = conditional.range;
+        let tokens = conditional
+            .expr
+            .iter()
+            .enumerate()
+            .filter_map(|(token_index, token)| {
+                Some((token_index, token.value.clone(), token.range?))
+            })
+            .collect::<Vec<_>>();
+
+        for (token_index, name, name_range) in tokens {
+            let (site, resolution) =
+                if let Some(definition) = self.current_state.get(name.as_str()).copied() {
+                    (
+                        SourceMacroReferenceSite::ConditionalToken {
+                            conditional_index: directive.index,
+                            token_index,
+                        },
+                        self.resolve_definition(
+                            definition,
+                            SourceMacroResolutionReason::VisibleDefinition,
+                        ),
+                    )
+                } else if let Some(definition) =
+                    self.include_guard_definition_after_ifndef(directive.index, name.as_str())
+                {
+                    (
+                        SourceMacroReferenceSite::IncludeGuardIfNDef {
+                            conditional_index: directive.index,
+                            token_index,
+                        },
+                        self.resolve_definition(
+                            definition,
+                            SourceMacroResolutionReason::IncludeGuardIfNDef,
+                        ),
+                    )
+                } else {
+                    (
+                        SourceMacroReferenceSite::ConditionalToken {
+                            conditional_index: directive.index,
+                            token_index,
+                        },
+                        SourceMacroResolution::Undefined,
+                    )
+                };
+            self.push_reference(event_id, site, name, name_range, directive_range, resolution);
+        }
+    }
+
+    fn push_reference(
+        &mut self,
+        event_id: SourcePreprocEventId,
+        site: SourceMacroReferenceSite,
+        name: SmolStr,
+        name_range: SourceRange,
+        directive_range: SourceRange,
+        resolution: SourceMacroResolution,
+    ) {
+        let id = SourceMacroReferenceId::new(self.tables.macro_references.len());
+        self.tables.macro_references.push(SourceMacroReference {
+            id,
+            event_id,
+            site,
+            name,
+            name_range,
+            directive_range,
+            resolution,
+        });
+    }
+
+    fn resolve_visible_reference(&mut self, name: &str) -> SourceMacroResolution {
+        let Some(definition) = self.current_state.get(name).copied() else {
+            return SourceMacroResolution::Undefined;
+        };
+        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+    }
+
+    fn resolve_definition(
+        &mut self,
+        definition: SourceMacroDefinitionId,
+        reason: SourceMacroResolutionReason,
+    ) -> SourceMacroResolution {
+        let definition_source = self
+            .tables
+            .macro_definitions
+            .get(definition)
+            .expect("definition id should point at inserted definition")
+            .directive_range
+            .source;
+        match include_chain_for_source(self.index, definition_source) {
+            Ok(include_chain) => {
+                SourceMacroResolution::Resolved { definition, reason, include_chain }
+            }
+            Err(_) => {
+                self.references_partial = true;
+                self.tables.issues.push(SourcePreprocFactIssue::IncludeChainUnavailable {
+                    source: definition_source,
+                });
+                SourceMacroResolution::Unavailable(
+                    SourcePreprocUnavailable::IncludeChainUnavailable { source: definition_source },
+                )
+            }
+        }
+    }
+
+    fn include_guard_definition_after_ifndef(
+        &self,
+        conditional_index: usize,
+        name: &str,
+    ) -> Option<SourceMacroDefinitionId> {
+        let conditional = self.index.conditionals.get(conditional_index)?;
+        if conditional.kind != MacroConditionalKind::IfNDef {
+            return None;
+        }
+
+        let source = conditional.range.source;
+        let (conditional_order, _) =
+            self.index.event_records.iter().enumerate().find(|(_, directive)| {
+                directive.kind == MacroEventKind::Conditional
+                    && directive.index == conditional_index
+            })?;
+        for directive in self.index.event_records.iter().skip(conditional_order + 1) {
+            if directive.range.source != source {
+                continue;
+            }
+            match directive.kind {
+                MacroEventKind::Define => {
+                    let define = self.index.defines.get(directive.index)?;
+                    if define.name.as_deref() == Some(name) {
+                        return self.definition_ids_by_define_index.get(&directive.index).copied();
+                    }
+                }
+                MacroEventKind::Branch => break,
+                MacroEventKind::Undef
+                | MacroEventKind::Include
+                | MacroEventKind::Conditional
+                | MacroEventKind::Usage => {}
+            }
+        }
+        None
+    }
+
+    fn record_missing_reference_name(&mut self, event_id: SourcePreprocEventId) {
+        self.references_partial = true;
+        self.tables.issues.push(SourcePreprocFactIssue::MissingReferenceName { event_id });
+    }
+
+    fn record_missing_reference_name_range(&mut self, event_id: SourcePreprocEventId) {
+        self.references_partial = true;
+        self.tables.issues.push(SourcePreprocFactIssue::MissingReferenceNameRange { event_id });
+    }
+
+    fn record_state_checkpoint(&mut self, source_order: usize, boundary: SourcePosition) {
+        let id = SourceMacroStateId::new(self.tables.state_timeline.states.len());
+        self.tables
+            .state_timeline
+            .states
+            .push(SourceMacroState { id, definitions: self.current_state.clone() });
+        self.tables.state_timeline.checkpoints.push(SourceMacroStateCheckpoint {
+            source_order,
+            boundary,
+            state: id,
+        });
+    }
+}
+
+impl SourcePosition {
+    fn from_first_event(index: &SourcePreprocIndex) -> Self {
+        index
+            .event_records
+            .first()
+            .map(|record| SourcePosition {
+                source: record.range.source,
+                offset: record.range.range.start(),
+            })
+            .unwrap_or(SourcePosition {
+                source: index.root_source.unwrap_or_else(|| PreprocSourceId::new(0)),
+                offset: 0.into(),
+            })
+    }
+}
+
+fn boundary_after(directive_range: SourceRange) -> SourcePosition {
+    SourcePosition { source: directive_range.source, offset: directive_range.range.end() }
+}
+
+fn partial_status(is_partial: bool) -> CapabilityStatus {
+    if is_partial { CapabilityStatus::Partial } else { CapabilityStatus::Complete }
+}
+
+fn include_chain_for_source(
+    index: &SourcePreprocIndex,
+    source: PreprocSourceId,
+) -> Result<Vec<SourceIncludeChainEntry>, SourcePreprocError> {
+    let mut chain = Vec::new();
+    let mut current = source;
+    let mut visited = BTreeMap::new();
+
+    loop {
+        if visited.insert(current, ()).is_some() {
+            return Err(SourcePreprocError::IncludeCycle { source: current.raw() });
+        }
+
+        let Some(source) = index.sources.iter().find(|candidate| candidate.id == current) else {
+            return Err(SourcePreprocError::MissingIncludedSource {
+                include_event_id: 0,
+                source: current.raw(),
+            });
+        };
+
+        match source.origin {
+            PreprocSourceOrigin::Root | PreprocSourceOrigin::Predefine => break,
+            PreprocSourceOrigin::Detached => {
+                return Err(SourcePreprocError::MissingIncludeEdge { source: current.raw() });
+            }
+            PreprocSourceOrigin::Included { include_event_id } => {
+                let directive = index
+                    .event_records
+                    .iter()
+                    .find(|directive| directive.event_id == include_event_id)
+                    .ok_or(SourcePreprocError::MissingIncludeEvent {
+                        include_event_id: include_event_id.raw(),
+                    })?;
+                if directive.kind != MacroEventKind::Include {
+                    return Err(SourcePreprocError::IncludeEdgeNotInclude {
+                        include_event_id: include_event_id.raw(),
+                    });
+                }
+                chain.push(SourceIncludeChainEntry {
+                    include_event_id,
+                    include_range: directive.range,
+                    included_source: current,
+                });
+                current = directive.range.source;
+            }
+        }
+    }
+
+    chain.reverse();
+    Ok(chain)
+}
