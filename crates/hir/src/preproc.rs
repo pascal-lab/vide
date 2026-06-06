@@ -9,8 +9,9 @@ use preproc::source::{
     SourceMacroExpansion as SourceMacroExpansionFact, SourceMacroExpansionId,
     SourceMacroExpansionQuery as SourceMacroExpansionQueryFact,
     SourceMacroExpansionStatus as SourceMacroExpansionStatusFact,
-    SourceMacroReference as SourceMacroReferenceFact, SourceMacroReferenceId,
-    SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
+    SourceMacroParam as SourceMacroParamFact, SourceMacroReference as SourceMacroReferenceFact,
+    SourceMacroReferenceId, SourceMacroReferenceSite,
+    SourceMacroResolution as SourceMacroResolutionFact,
     SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePreprocError,
     SourcePreprocUnavailable, SourceRange, SourceTokenProvenance as SourceTokenProvenanceFact,
 };
@@ -63,6 +64,7 @@ pub enum PreprocUnavailable {
     Source(SourcePreprocUnavailable),
     AmbiguousMacroReferenceContexts { contexts: usize },
     AmbiguousMacroExpansionContexts { contexts: usize },
+    AmbiguousMacroParamContexts { contexts: usize },
     AmbiguousDiagnosticProvenance { targets: usize },
     AmbiguousIncludeTargets { targets: usize },
 }
@@ -141,6 +143,40 @@ pub struct MacroDefinition {
     pub event_id: u32,
     pub directive_range: TextRange,
     pub name_range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamDefinition {
+    pub macro_definition: MacroDefinition,
+    pub param_index: usize,
+    pub name: SmolStr,
+    pub range: TextRange,
+    pub param_range: Option<TextRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamReference {
+    pub macro_definition: MacroDefinition,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub param_index: usize,
+    pub token_index: usize,
+    pub name: SmolStr,
+    pub range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamReferenceDefinitions {
+    pub references: Vec<MacroParamReference>,
+    pub range: TextRange,
+    pub definitions: Vec<MacroParamDefinition>,
+    pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamReferences {
+    pub references: Vec<MacroParamReference>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -572,6 +608,144 @@ pub fn macro_definition_at(
     }
 
     Ok(None)
+}
+
+pub fn macro_param_definition_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<MacroParamDefinition>> {
+    let mut definitions = macro_param_definitions_at(db, file_id, offset)?;
+    match definitions.len() {
+        0 => Ok(None),
+        1 => Ok(definitions.pop()),
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroParamContexts { contexts },
+        }),
+    }
+}
+
+pub fn macro_param_definitions_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Vec<MacroParamDefinition>> {
+    let mut definitions = Vec::new();
+    let mut first_error = None;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+
+        for definition in mapped.model.macro_definitions().iter() {
+            let Some(params) = &definition.params else {
+                continue;
+            };
+            for (param_index, param) in params.iter().enumerate() {
+                let Some(param_definition) =
+                    map_macro_param_definition(mapped, definition, param_index, param)?
+                else {
+                    continue;
+                };
+                if param_definition.macro_definition.file_id == file_id
+                    && range_contains_offset(param_definition.range, offset)
+                {
+                    push_unique_macro_param_definition(&mut definitions, param_definition);
+                }
+            }
+        }
+    }
+
+    if definitions.is_empty()
+        && let Some(error) = first_error
+    {
+        return Err(error);
+    }
+
+    Ok(definitions)
+}
+
+pub fn macro_param_reference_definitions_at(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> PreprocResult<Option<MacroParamReferenceDefinitions>> {
+    let mut definitions = Vec::new();
+    let mut references = Vec::new();
+    let mut query_range = None;
+    let mut first_error = None;
+
+    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+
+        for definition in mapped.model.macro_definitions().iter() {
+            let Some(params) = &definition.params else {
+                continue;
+            };
+            for (token_index, token) in definition.body_tokens.iter().enumerate() {
+                let Some(token_range) = token.range else {
+                    continue;
+                };
+                let (_, range) =
+                    match mapped_source_range_at_offset(mapped, token_range, file_id, offset) {
+                        Ok(Some(hit)) => hit,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            record_first_error(&mut first_error, error);
+                            continue;
+                        }
+                    };
+
+                for (param_index, param) in params.iter().enumerate() {
+                    if param.name.as_ref() != Some(&token.value) {
+                        continue;
+                    }
+                    let Some(param_definition) =
+                        map_macro_param_definition(mapped, definition, param_index, param)?
+                    else {
+                        continue;
+                    };
+                    let reference = map_macro_param_reference(
+                        mapped,
+                        definition,
+                        param_index,
+                        token_index,
+                        token_range,
+                    )?;
+                    query_range.get_or_insert(range);
+                    push_unique_macro_param_definition(&mut definitions, param_definition);
+                    push_unique_macro_param_reference(&mut references, reference);
+                }
+            }
+        }
+    }
+
+    let Some(range) = query_range else {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        return Ok(None);
+    };
+
+    Ok(Some(MacroParamReferenceDefinitions {
+        capability: macro_param_reference_context_capability(&references),
+        references,
+        range,
+        definitions,
+    }))
 }
 
 pub fn macro_usage_resolution_at(
@@ -1081,6 +1255,78 @@ pub fn macro_references(
     Ok(MacroReferences { references: index.references_for(definition), status: index.status() })
 }
 
+pub fn macro_param_references(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    definition: &MacroParamDefinition,
+) -> PreprocResult<MacroParamReferences> {
+    let profile_id = db
+        .file_compilation_profile(file_id)
+        .or_else(|| db.file_compilation_profile(definition.macro_definition.file_id));
+    let mut references = Vec::new();
+    let mut first_error = None;
+
+    for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+
+        for source_definition in mapped.model.macro_definitions().iter() {
+            let mapped_definition = match map_macro_definition(mapped, source_definition) {
+                Ok(definition) => definition,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
+            };
+            if !same_macro_definition(&mapped_definition, &definition.macro_definition) {
+                continue;
+            }
+            let Some(params) = &source_definition.params else {
+                continue;
+            };
+            let Some(param) = params.get(definition.param_index) else {
+                continue;
+            };
+            if param.name.as_ref() != Some(&definition.name) {
+                continue;
+            }
+
+            for (token_index, token) in source_definition.body_tokens.iter().enumerate() {
+                if param.name.as_ref() != Some(&token.value) {
+                    continue;
+                }
+                let Some(token_range) = token.range else {
+                    continue;
+                };
+                match map_macro_param_reference(
+                    mapped,
+                    source_definition,
+                    definition.param_index,
+                    token_index,
+                    token_range,
+                ) {
+                    Ok(reference) => push_unique_macro_param_reference(&mut references, reference),
+                    Err(error) => record_first_error(&mut first_error, error),
+                }
+            }
+        }
+    }
+
+    if references.is_empty()
+        && let Some(error) = first_error
+    {
+        return Err(error);
+    }
+
+    Ok(MacroParamReferences { references })
+}
+
 pub(crate) fn build_macro_reference_index(
     db: &dyn SourceRootDb,
     profile_id: Option<CompilationProfileId>,
@@ -1402,6 +1648,74 @@ fn map_macro_definition(
         event_id: definition.event_id.raw(),
         directive_range,
         name_range,
+    })
+}
+
+fn map_macro_param_definition(
+    mapped: &MappedSourcePreprocModel,
+    definition: &SourceMacroDefinitionFact,
+    param_index: usize,
+    param: &SourceMacroParamFact,
+) -> PreprocResult<Option<MacroParamDefinition>> {
+    let Some(name) = &param.name else {
+        return Ok(None);
+    };
+    let Some(name_source_range) = param.name_range else {
+        return Ok(None);
+    };
+    let macro_definition = map_macro_definition(mapped, definition)?;
+    let (source, range) = map_mapped_source_range(mapped, name_source_range)?;
+    if source.file_id() != macro_definition.file_id {
+        return Err(PreprocError::MismatchedDefinitionRangeFiles {
+            event_id: definition.event_id.raw(),
+            directive_file_id: macro_definition.file_id,
+            name_file_id: source.file_id(),
+        });
+    }
+    let param_range = param
+        .range
+        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+        .transpose()?;
+
+    Ok(Some(MacroParamDefinition {
+        macro_definition,
+        param_index,
+        name: name.clone(),
+        range,
+        param_range,
+    }))
+}
+
+fn map_macro_param_reference(
+    mapped: &MappedSourcePreprocModel,
+    definition: &SourceMacroDefinitionFact,
+    param_index: usize,
+    token_index: usize,
+    token_range: SourceRange,
+) -> PreprocResult<MacroParamReference> {
+    let macro_definition = map_macro_definition(mapped, definition)?;
+    let (source, range) = map_mapped_source_range(mapped, token_range)?;
+    let file_id = source.file_id();
+    let name = definition
+        .params
+        .as_ref()
+        .and_then(|params| params.get(param_index))
+        .and_then(|param| param.name.clone())
+        .ok_or_else(|| {
+            PreprocError::SourceQuery(SourcePreprocQueryError::Model(
+                SourcePreprocError::MissingEvent { event_id: definition.event_id.raw() },
+            ))
+        })?;
+
+    Ok(MacroParamReference {
+        macro_definition,
+        source,
+        capability: PreprocAvailability::Complete,
+        file_id,
+        param_index,
+        token_index,
+        name,
+        range,
     })
 }
 
@@ -2007,6 +2321,63 @@ fn push_unique_macro_definition(
         return;
     }
     definitions.push(definition);
+}
+
+fn same_macro_definition(left: &MacroDefinition, right: &MacroDefinition) -> bool {
+    left.file_id == right.file_id && left.name_range == right.name_range && left.name == right.name
+}
+
+fn same_macro_param_definition(left: &MacroParamDefinition, right: &MacroParamDefinition) -> bool {
+    same_macro_definition(&left.macro_definition, &right.macro_definition)
+        && left.param_index == right.param_index
+        && left.range == right.range
+        && left.name == right.name
+}
+
+fn push_unique_macro_param_definition(
+    definitions: &mut Vec<MacroParamDefinition>,
+    definition: MacroParamDefinition,
+) {
+    if definitions.iter().any(|existing| same_macro_param_definition(existing, &definition)) {
+        return;
+    }
+    definitions.push(definition);
+}
+
+fn push_unique_macro_param_reference(
+    refs: &mut Vec<MacroParamReference>,
+    reference: MacroParamReference,
+) {
+    if refs.iter().any(|existing| {
+        same_macro_definition(&existing.macro_definition, &reference.macro_definition)
+            && existing.param_index == reference.param_index
+            && existing.file_id == reference.file_id
+            && existing.range == reference.range
+            && existing.name == reference.name
+    }) {
+        return;
+    }
+    refs.push(reference);
+}
+
+fn macro_param_reference_context_capability(
+    references: &[MacroParamReference],
+) -> PreprocAvailability {
+    if references
+        .iter()
+        .any(|reference| matches!(reference.capability, PreprocAvailability::Partial))
+    {
+        return PreprocAvailability::Partial;
+    }
+    references
+        .iter()
+        .find_map(|reference| match &reference.capability {
+            PreprocAvailability::Unavailable(reason) => {
+                Some(PreprocAvailability::Unavailable(reason.clone()))
+            }
+            PreprocAvailability::Complete | PreprocAvailability::Partial => None,
+        })
+        .unwrap_or(PreprocAvailability::Complete)
 }
 
 fn preproc_reference_model_file_ids(
@@ -2636,6 +3007,45 @@ endmodule
             definition.file_id == HEADER
                 && text_at_range(header_text, definition.name_range) == "DEMO_WIDTH"
         }));
+    }
+
+    #[test]
+    fn preproc_macro_param_references_resolve_to_formals() {
+        let root_text = r#"`include "defs.vh"
+module top;
+localparam int W = `SHIFT(4, 1);
+endmodule
+"#;
+        let header_text = "`define SHIFT(value, amount) ((value) << amount)\n";
+        let db = db_with_files(root_text, header_text);
+
+        let value_definition =
+            macro_param_definition_at(&db, HEADER, offset_after(header_text, "SHIFT("))
+                .unwrap()
+                .unwrap();
+        assert_eq!(value_definition.name.as_str(), "value");
+        assert_eq!(text_at_range(header_text, value_definition.range), "value");
+
+        let value_reference = macro_param_reference_definitions_at(
+            &db,
+            HEADER,
+            offset_after(header_text, "SHIFT(value, amount) (("),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(text_at_range(header_text, value_reference.range), "value");
+        assert!(value_reference.definitions.iter().any(|definition| {
+            definition.param_index == value_definition.param_index
+                && text_at_range(header_text, definition.range) == "value"
+        }));
+
+        let refs = macro_param_references(&db, HEADER, &value_definition).unwrap().references;
+        assert!(refs.iter().any(|reference| {
+            reference.file_id == HEADER && text_at_range(header_text, reference.range) == "value"
+        }));
+        assert!(
+            !refs.iter().any(|reference| text_at_range(header_text, reference.range) == "amount")
+        );
     }
 
     #[test]

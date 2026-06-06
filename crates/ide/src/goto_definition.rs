@@ -3,7 +3,8 @@ use hir::{
     container::InFile,
     file::HirFileId,
     preproc::{
-        IncludeTarget, MacroDefinition, include_directives_at, macro_definition_at,
+        IncludeTarget, MacroDefinition, MacroParamDefinition, include_directives_at,
+        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
         macro_reference_definitions_at,
     },
     semantics::Semantics,
@@ -60,6 +61,19 @@ fn handle_preproc_macro(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
+    if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
+        return Some(RangeInfo::new(definition.range, vec![macro_param_nav_target(definition)]));
+    }
+
+    if let Some(resolution) = macro_param_reference_definitions_at(db, file_id, offset).ok()? {
+        let reference_range = resolution.range;
+        let targets = resolution.definitions.into_iter().map(macro_param_nav_target).collect_vec();
+        if targets.is_empty() {
+            return None;
+        }
+        return Some(RangeInfo::new(reference_range, targets));
+    }
+
     if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
         return Some(RangeInfo::new(definition.name_range, vec![macro_nav_target(definition)]));
     }
@@ -71,6 +85,18 @@ fn handle_preproc_macro(
         return None;
     }
     Some(RangeInfo::new(reference_range, targets))
+}
+
+fn macro_param_nav_target(definition: MacroParamDefinition) -> NavTarget {
+    NavTarget {
+        file_id: definition.macro_definition.file_id,
+        full_range: definition.range,
+        focus_range: Some(definition.range),
+        name: Some(definition.name),
+        kind: None,
+        container_name: Some(definition.macro_definition.name),
+        description: Some("macro parameter".to_owned()),
+    }
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {

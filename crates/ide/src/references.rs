@@ -1,7 +1,9 @@
 use hir::{
     file::HirFileId,
     preproc::{
-        MacroDefinition, macro_definition_at, macro_reference_definitions_at, macro_references,
+        MacroDefinition, MacroParamDefinition, macro_definition_at, macro_param_definition_at,
+        macro_param_reference_definitions_at, macro_param_references,
+        macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
 };
@@ -93,6 +95,10 @@ fn handle_preproc_macro(
     offset: TextSize,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
+    if let Some(param_refs) = handle_preproc_macro_param(db, file_id, offset, config) {
+        return Some(param_refs);
+    }
+
     let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
         vec![definition]
     } else {
@@ -106,6 +112,60 @@ fn handle_preproc_macro(
         .into_iter()
         .map(|definition| macro_references_for_definition(db, file_id, definition, config))
         .collect()
+}
+
+fn handle_preproc_macro_param(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    config: &ReferencesConfig,
+) -> Option<Vec<References>> {
+    let definitions =
+        if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
+            vec![definition]
+        } else {
+            macro_param_reference_definitions_at(db, file_id, offset).ok()??.definitions
+        };
+    if definitions.is_empty() {
+        return None;
+    }
+
+    definitions
+        .into_iter()
+        .map(|definition| macro_param_references_for_definition(db, file_id, definition, config))
+        .collect()
+}
+
+fn macro_param_references_for_definition(
+    db: &RootDb,
+    file_id: FileId,
+    definition: MacroParamDefinition,
+    config: &ReferencesConfig,
+) -> Option<References> {
+    let refs = macro_param_references(db, file_id, &definition)
+        .ok()?
+        .references
+        .into_iter()
+        .filter(|usage| {
+            config.search_scope.as_ref().is_none_or(|scope| {
+                scope.range_for_file(usage.file_id).is_some_and(|range| {
+                    range.is_none_or(|range| range.intersect(usage.range).is_some())
+                })
+            })
+        })
+        .into_group_map_by(|usage| usage.file_id)
+        .into_iter()
+        .map(|(file_id, usages)| {
+            (
+                file_id,
+                usages
+                    .into_iter()
+                    .map(|usage| (usage.range, ReferenceCategory::empty()))
+                    .collect_vec(),
+            )
+        })
+        .collect();
+    Some(References { def: Some(vec![macro_param_nav_target(definition)]), refs })
 }
 
 fn macro_references_for_definition(
@@ -138,6 +198,18 @@ fn macro_references_for_definition(
         })
         .collect();
     Some(References { def: Some(vec![macro_nav_target(definition)]), refs })
+}
+
+fn macro_param_nav_target(definition: MacroParamDefinition) -> NavTarget {
+    NavTarget {
+        file_id: definition.macro_definition.file_id,
+        full_range: definition.range,
+        focus_range: Some(definition.range),
+        name: Some(definition.name),
+        kind: None,
+        container_name: Some(definition.macro_definition.name),
+        description: Some("macro parameter".to_owned()),
+    }
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
