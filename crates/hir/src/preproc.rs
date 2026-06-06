@@ -19,7 +19,10 @@ use vfs::FileId;
 
 use crate::base_db::{
     project::CompilationProfileId,
-    source_db::{MappedSourcePreprocModel, SourceFileKind, SourcePreprocQueryError, SourceRootDb},
+    source_db::{
+        MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping,
+        PreprocVirtualOrigin, SourceFileKind, SourcePreprocQueryError, SourceRootDb,
+    },
 };
 
 pub type PreprocResult<T> = Result<T, PreprocError>;
@@ -44,6 +47,7 @@ pub enum PreprocError {
     MissingDefinitionNameRange {
         event_id: u32,
     },
+    SourceMap(PreprocSourceMapError),
     Unavailable {
         reason: PreprocUnavailable,
     },
@@ -90,15 +94,16 @@ impl MacroDefinitionId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappedPreprocSource {
     RealFile { file_id: FileId },
+    VirtualFile { file_id: FileId, path: vfs::VfsPath, origin: PreprocVirtualOrigin },
 }
 
 impl MappedPreprocSource {
-    pub fn file_id(self) -> FileId {
+    pub fn file_id(&self) -> FileId {
         match self {
-            Self::RealFile { file_id } => file_id,
+            Self::RealFile { file_id } | Self::VirtualFile { file_id, .. } => *file_id,
         }
     }
 }
@@ -738,25 +743,41 @@ fn map_source_id(
     mapped: &MappedSourcePreprocModel,
     source: PreprocSourceId,
 ) -> PreprocResult<FileId> {
-    mapped
-        .source_map
-        .file_id(source)
-        .ok_or_else(|| PreprocError::UnmappedSource { buffer_id: source.raw() })
+    mapped.source_map.file_id(source).map_err(PreprocError::SourceMap)
 }
 
 fn map_mapped_source_range(
     mapped: &MappedSourcePreprocModel,
     source_range: SourceRange,
 ) -> PreprocResult<(MappedPreprocSource, TextRange)> {
+    let range = mapped.source_map.map_range(source_range).map_err(PreprocError::SourceMap)?;
     let source = map_mapped_source_id(mapped, source_range.source)?;
-    Ok((source, source_range.range))
+    Ok((source, range))
 }
 
 fn map_mapped_source_id(
     mapped: &MappedSourcePreprocModel,
     source: PreprocSourceId,
 ) -> PreprocResult<MappedPreprocSource> {
-    Ok(MappedPreprocSource::RealFile { file_id: map_source_id(mapped, source)? })
+    match mapped.source_map.get(source) {
+        Some(PreprocSourceMapping::RealFile(file_id)) => {
+            Ok(MappedPreprocSource::RealFile { file_id: *file_id })
+        }
+        Some(PreprocSourceMapping::VirtualFile { file_id, path, origin }) => {
+            Ok(MappedPreprocSource::VirtualFile {
+                file_id: *file_id,
+                path: path.clone(),
+                origin: origin.clone(),
+            })
+        }
+        Some(PreprocSourceMapping::Unmapped(reason)) => {
+            Err(PreprocError::SourceMap(PreprocSourceMapError::UnmappedSource {
+                source,
+                reason: reason.clone(),
+            }))
+        }
+        None => Err(PreprocError::SourceMap(PreprocSourceMapError::MissingSource { source })),
+    }
 }
 
 fn map_macro_definition(
@@ -771,9 +792,9 @@ fn map_macro_definition(
     )?;
     Ok(MacroDefinition {
         id: definition.id.into(),
+        file_id: source.file_id(),
         source,
         capability: capability_status(&mapped.model.capabilities().definition_name_ranges),
-        file_id: source.file_id(),
         name: definition.name.clone(),
         define_index: define_index_for_definition(mapped, definition)?,
         event_id: definition.event_id.raw(),
@@ -805,9 +826,9 @@ fn map_macro_reference(
     let (source, directive_range, name_range) = map_reference_ranges(mapped, reference)?;
     Ok(MacroReference {
         id: reference.id.into(),
+        file_id: source.file_id(),
         source,
         capability: capability_status(&mapped.model.capabilities().macro_reference_resolution),
-        file_id: source.file_id(),
         name: reference.name.clone(),
         directive_range,
         range: name_range,
