@@ -1122,6 +1122,37 @@ endmodule
 }
 
 #[test]
+fn preprocessor_trace_reports_nested_macro_call_range_in_macro_body() {
+    let source = r#"`define LEAF 3
+`define WRAP `LEAF
+module m;
+localparam int W = `WRAP;
+endmodule
+"#;
+    let trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    )
+    .expect("trace should include emitted tokens");
+
+    let leaf = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "3")
+        .expect("nested macro body token should be emitted");
+    let PreprocessorTraceTokenProvenance::MacroBody { macro_name, call_range, body_token_range } =
+        &leaf.provenance
+    else {
+        panic!("expected macro body provenance for nested `LEAF expansion: {leaf:?}");
+    };
+    assert_eq!(macro_name, "LEAF");
+    assert_eq!(&source[call_range.range.clone()], "`LEAF");
+    assert_eq!(&source[body_token_range.range.clone()], "3");
+}
+
+#[test]
 fn preprocessor_trace_keeps_unsupported_macro_ops_as_unavailable_tokens() {
     let source = r#"`define JOIN(a,b) a``b
 `define STR(x) `"x`"

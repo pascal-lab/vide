@@ -181,17 +181,78 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
   return token;
 }
 
-::RawSourceBufferRange to_rust_original_macro_range(
+bool is_single_buffer_range(slang::SourceRange range) {
+  return range != slang::SourceRange::NoLocation && range.start().valid() &&
+         range.end().valid() && range.start().buffer() == range.end().buffer();
+}
+
+::RawSourceBufferRange to_rust_original_macro_loc_range(
     const slang::SourceManager& sourceManager,
     slang::SourceRange range) {
-  if (range == slang::SourceRange::NoLocation || !range.start().valid() ||
-      !range.end().valid()) {
+  if (!is_single_buffer_range(range) || !sourceManager.isMacroLoc(range.start()) ||
+      !sourceManager.isMacroLoc(range.end())) {
     return empty_source_buffer_range();
   }
-
   auto start = sourceManager.getOriginalLoc(range.start());
   auto end = sourceManager.getOriginalLoc(range.end());
   return to_rust_source_buffer_range(slang::SourceRange(start, end));
+}
+
+enum class TraceExpansionRangeSpace {
+  FileBackedSource,
+  MacroExpansion,
+  InvalidOrMixed,
+};
+
+TraceExpansionRangeSpace classify_expansion_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange range) {
+  if (!is_single_buffer_range(range))
+    return TraceExpansionRangeSpace::InvalidOrMixed;
+
+  const bool startIsFile = sourceManager.isFileLoc(range.start());
+  const bool endIsFile = sourceManager.isFileLoc(range.end());
+  const bool startIsMacro = sourceManager.isMacroLoc(range.start());
+  const bool endIsMacro = sourceManager.isMacroLoc(range.end());
+  if (startIsFile && endIsFile)
+    return TraceExpansionRangeSpace::FileBackedSource;
+  if (startIsMacro && endIsMacro)
+    return TraceExpansionRangeSpace::MacroExpansion;
+  return TraceExpansionRangeSpace::InvalidOrMixed;
+}
+
+::RawSourceBufferRange to_rust_written_source_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange range) {
+  switch (classify_expansion_range(sourceManager, range)) {
+    case TraceExpansionRangeSpace::FileBackedSource:
+      return to_rust_source_buffer_range(range);
+    case TraceExpansionRangeSpace::MacroExpansion:
+      return to_rust_original_macro_loc_range(sourceManager, range);
+    case TraceExpansionRangeSpace::InvalidOrMixed:
+      return empty_source_buffer_range();
+  }
+  SLANG_UNREACHABLE;
+}
+
+::RawSourceBufferRange to_rust_macro_callsite_range_from_macro_loc(
+    const slang::SourceManager& sourceManager,
+    slang::SourceLocation macroLocation) {
+  if (!macroLocation.valid() || !sourceManager.isMacroLoc(macroLocation))
+    return empty_source_buffer_range();
+
+  return to_rust_written_source_range(sourceManager, sourceManager.getExpansionRange(macroLocation));
+}
+
+::RawSourceBufferRange to_rust_macro_argument_callsite_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange formalRange) {
+  if (classify_expansion_range(sourceManager, formalRange) !=
+      TraceExpansionRangeSpace::MacroExpansion) {
+    return empty_source_buffer_range();
+  }
+
+  return to_rust_macro_callsite_range_from_macro_loc(sourceManager, formalRange.start());
 }
 
 struct TraceSourceLocationKey {
@@ -289,16 +350,11 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
 
     if (sourceManager.isMacroArgLoc(location)) {
       auto tokenRange = token.range();
-      result.argument_token_range = to_rust_original_macro_range(sourceManager, tokenRange);
+      result.argument_token_range = to_rust_original_macro_loc_range(sourceManager, tokenRange);
 
       auto formalRange = sourceManager.getExpansionRange(location);
-      result.body_token_range = to_rust_original_macro_range(sourceManager, formalRange);
-
-      if (formalRange != slang::SourceRange::NoLocation && formalRange.start().valid() &&
-          sourceManager.isMacroLoc(formalRange.start())) {
-        result.call_range = to_rust_source_buffer_range(
-            sourceManager.getExpansionRange(formalRange.start()));
-      }
+      result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
+      result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
 
       if (result.call_range.has_range && result.body_token_range.has_range &&
           result.argument_token_range.has_range) {
@@ -307,8 +363,8 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
       return result;
     }
 
-    result.call_range = to_rust_source_buffer_range(sourceManager.getExpansionRange(location));
-    result.body_token_range = to_rust_original_macro_range(sourceManager, token.range());
+    result.call_range = to_rust_macro_callsite_range_from_macro_loc(sourceManager, location);
+    result.body_token_range = to_rust_original_macro_loc_range(sourceManager, token.range());
     if (result.call_range.has_range && result.body_token_range.has_range) {
       result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
     }
