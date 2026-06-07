@@ -36,6 +36,12 @@ impl Markup {
         self.text.push_str(contents);
     }
 
+    pub fn print_with_strong(&mut self, contents: &str) {
+        self.text.push_str("**");
+        self.text.push_str(contents);
+        self.text.push_str("**");
+    }
+
     pub fn println(&mut self, contents: &str) {
         self.text.push_str(contents);
     }
