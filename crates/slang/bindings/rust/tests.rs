@@ -1309,6 +1309,56 @@ endmodule
 }
 
 #[test]
+fn preprocessor_trace_reports_nested_macro_usage_in_actual_argument() {
+    let source = r#"`define PAYL payload_i
+`define NEXT(x) ((x) + 12'd1)
+module m(input logic [3:0] payload_i, output logic [3:0] y);
+assign y = `NEXT(`PAYL);
+endmodule
+"#;
+    let trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    )
+    .expect("trace should include macro usage events");
+
+    let next = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.raw_text == "`NEXT")
+        })
+        .expect("outer NEXT usage should be traced by the preprocessor runtime");
+    assert!(next.macro_definition_id.is_some());
+    assert!(next.macro_call_id.is_some());
+    assert!(next.macro_expansion_id.is_some());
+    assert_eq!(next.parent_macro_expansion_id, None);
+    assert_eq!(&source[next.range.as_ref().unwrap().range.clone()], "`NEXT(`PAYL)");
+    assert_eq!(next.arguments.len(), 1);
+    assert_eq!(&source[next.arguments[0].range.as_ref().unwrap().range.clone()], "`PAYL");
+    assert_eq!(
+        next.arguments[0].tokens.iter().map(|token| token.raw_text.as_str()).collect::<Vec<_>>(),
+        vec!["`PAYL"]
+    );
+
+    let payl = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.raw_text == "`PAYL")
+        })
+        .expect("nested PAYL usage in the actual argument should be traced");
+    assert!(payl.macro_definition_id.is_some());
+    assert!(payl.macro_call_id.is_some());
+    assert!(payl.macro_expansion_id.is_some());
+    assert_eq!(&source[payl.range.as_ref().unwrap().range.clone()], "`PAYL");
+}
+
+#[test]
 fn preprocessor_trace_reports_escaped_identifier_macro_body_identity() {
     let source = concat!(
         "`define ESC \\escaped_payload ",
@@ -1406,6 +1456,31 @@ endmodule
                 && source.text.as_deref() == Some("`define FROM_API 11\n")
         })
         .expect("configured predefine source buffer should expose materialized text");
+
+    let predefine_event = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::DEFINE_DIRECTIVE
+                && event.name.as_ref().is_some_and(|token| token.value_text == "FROM_API")
+        })
+        .expect("configured predefine should be traced as a define event");
+    assert_eq!(
+        predefine_event.range.as_ref().map(|range| range.buffer_id),
+        Some(predefine_source.buffer_id)
+    );
+    let predefine_definition_id =
+        predefine_event.macro_definition_id.expect("predefine should carry definition identity");
+
+    let predefine_usage = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|token| token.value_text == "`FROM_API")
+        })
+        .expect("configured predefine usage should be traced as a runtime macro usage");
+    assert_eq!(predefine_usage.macro_definition_id, Some(predefine_definition_id));
 
     let from_api = trace
         .emitted_tokens

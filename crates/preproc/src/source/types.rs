@@ -186,9 +186,20 @@ pub struct SourceMacroConditional {
 pub struct SourceMacroUsage {
     pub event_id: SourcePreprocEventId,
     pub identity: Option<SourceMacroCallKey>,
+    pub definition_identity: Option<SourceMacroDefinitionKey>,
+    pub expansion_identity: Option<SourceMacroExpansionKey>,
+    pub parent_expansion_identity: Option<SourceMacroExpansionKey>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
+    pub arguments: Vec<SourceMacroActualArgument>,
     pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroActualArgument {
+    pub argument_index: usize,
+    pub argument_range: Option<SourceRange>,
+    pub tokens: Vec<SourceMacroToken>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

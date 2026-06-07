@@ -220,11 +220,6 @@ uint32_t Preprocessor::getMacroDefinitionId(const DefineDirectiveSyntax& syntax)
     return it == macroDefinitionIds.end() ? 0 : it->second;
 }
 
-uint32_t Preprocessor::getMacroCallId(const MacroUsageSyntax& syntax) const {
-    auto it = macroCallIds.find(&syntax);
-    return it == macroCallIds.end() ? 0 : it->second;
-}
-
 uint32_t Preprocessor::allocateMacroDefinitionId(const DefineDirectiveSyntax* syntax) {
     if (!syntax)
         return 0;
@@ -720,13 +715,10 @@ Trivia Preprocessor::handleDefineDirective(Token directive) {
 std::pair<Trivia, Trivia> Preprocessor::handleMacroUsage(Token directive) {
     // delegate to a nested function to simplify the error handling paths
     inMacroBody = true;
-    uint32_t callId = 0;
-    auto [actualArgs, extraTrivia] = handleTopLevelMacro(directive, &callId);
+    auto [actualArgs, extraTrivia] = handleTopLevelMacro(directive);
     inMacroBody = false;
 
     auto syntax = alloc.emplace<MacroUsageSyntax>(directive, actualArgs);
-    if (callId != 0)
-        macroCallIds.emplace(syntax, callId);
     return std::make_pair(Trivia(TriviaKind::Directive, syntax), extraTrivia);
 }
 

@@ -102,6 +102,12 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceActualArgument {
+        tokens: Vec<RawPreprocessorTraceToken>,
+        range: RawSourceBufferRange,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTraceEvent {
         event_id: u32,
         kind: u16,
@@ -110,10 +116,15 @@ mod slang_ffi {
         has_macro_definition_id: bool,
         macro_call_id: u32,
         has_macro_call_id: bool,
+        macro_expansion_id: u32,
+        has_macro_expansion_id: bool,
+        parent_macro_expansion_id: u32,
+        has_parent_macro_expansion_id: bool,
         directive: RawPreprocessorTraceToken,
         name: RawPreprocessorTraceToken,
         include_file_name: RawPreprocessorTraceToken,
         params: Vec<RawPreprocessorTraceMacroParam>,
+        arguments: Vec<RawPreprocessorTraceActualArgument>,
         body_tokens: Vec<RawPreprocessorTraceToken>,
         expr_tokens: Vec<RawPreprocessorTraceToken>,
         disabled_ranges: Vec<RawSourceBufferRange>,

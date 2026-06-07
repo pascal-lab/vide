@@ -813,6 +813,65 @@ endmodule
     }
 
     #[test]
+    fn source_model_maps_nested_macro_usage_in_actual_argument_to_source_spelling() {
+        let root_text = r#"`define PAYL payload_i
+`define NEXT(x) ((x) + 12'd1)
+module m(input logic [3:0] payload_i, output logic [3:0] y);
+assign y = `NEXT(`PAYL);
+endmodule
+"#;
+        let (model, root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+        let next_usage_index = model
+            .usages()
+            .iter()
+            .position(|usage| usage.name.as_deref() == Some("NEXT"))
+            .expect("outer function macro usage should be traced");
+        let next_usage = &model.usages()[next_usage_index];
+        assert_eq!(next_usage.arguments.len(), 1);
+        let next_argument_range = next_usage.arguments[0]
+            .argument_range
+            .expect("actual argument should keep written source range");
+        assert_eq!(next_argument_range.source, root_source);
+        assert_eq!(text_at_range(root_text, next_argument_range.range), "`PAYL");
+        assert_eq!(
+            next_usage.arguments[0]
+                .tokens
+                .iter()
+                .map(|token| token.raw.as_str())
+                .collect::<Vec<_>>(),
+            vec!["`PAYL"]
+        );
+
+        let next_reference = reference_for_usage(&model, next_usage_index);
+        let next_call = model
+            .macro_calls()
+            .iter()
+            .find(|call| call.reference == next_reference.id)
+            .expect("outer macro usage should create a call");
+        assert_eq!(next_call.arguments[0].argument_range, Some(next_argument_range));
+        assert!(matches!(
+            model.immediate_macro_expansion(next_call.id),
+            SourceMacroExpansionQuery::Available(_)
+        ));
+
+        let payl_usage_index = model
+            .usages()
+            .iter()
+            .position(|usage| usage.name.as_deref() == Some("PAYL"))
+            .expect("nested actual-argument macro usage should be traced");
+        let payl_usage = &model.usages()[payl_usage_index];
+        assert_eq!(payl_usage.range.source, root_source);
+        assert_eq!(text_at_range(root_text, payl_usage.range.range), "`PAYL");
+        let payl_reference = reference_for_usage(&model, payl_usage_index);
+        let SourceMacroResolution::Resolved { definition, .. } = &payl_reference.resolution else {
+            panic!("PAYL usage should resolve through its runtime definition identity");
+        };
+        assert_eq!(model.macro_definitions().get(*definition).unwrap().name.as_str(), "PAYL");
+        assert!(model.macro_calls().iter().any(|call| call.reference == payl_reference.id));
+    }
+
+    #[test]
     fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
         let trace = PreprocessorTrace {
             root_buffer_id: 1,
@@ -829,6 +888,8 @@ endmodule
                     range: Some(SourceBufferRange { buffer_id: 1, range: 0..12 }),
                     macro_definition_id: Some(PreprocessorTraceMacroDefinitionId(10)),
                     macro_call_id: None,
+                    macro_expansion_id: None,
+                    parent_macro_expansion_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "A".to_owned(),
@@ -838,6 +899,7 @@ endmodule
                     }),
                     include_file_name: None,
                     params: Vec::new(),
+                    arguments: Vec::new(),
                     body_tokens: vec![PreprocessorTraceToken {
                         raw_text: "1".to_owned(),
                         value_text: "1".to_owned(),
@@ -853,6 +915,8 @@ endmodule
                     range: Some(SourceBufferRange { buffer_id: 1, range: 13..25 }),
                     macro_definition_id: Some(PreprocessorTraceMacroDefinitionId(20)),
                     macro_call_id: None,
+                    macro_expansion_id: None,
+                    parent_macro_expansion_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "B".to_owned(),
@@ -862,6 +926,7 @@ endmodule
                     }),
                     include_file_name: None,
                     params: Vec::new(),
+                    arguments: Vec::new(),
                     body_tokens: vec![PreprocessorTraceToken {
                         raw_text: "2".to_owned(),
                         value_text: "2".to_owned(),
@@ -877,6 +942,8 @@ endmodule
                     range: Some(SourceBufferRange { buffer_id: 1, range: 40..42 }),
                     macro_definition_id: None,
                     macro_call_id: Some(PreprocessorTraceMacroCallId(200)),
+                    macro_expansion_id: None,
+                    parent_macro_expansion_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "`B".to_owned(),
@@ -886,6 +953,7 @@ endmodule
                     }),
                     include_file_name: None,
                     params: Vec::new(),
+                    arguments: Vec::new(),
                     body_tokens: Vec::new(),
                     expr_tokens: Vec::new(),
                     disabled_ranges: Vec::new(),
@@ -1052,8 +1120,12 @@ endmodule
             usages: vec![SourceMacroUsage {
                 event_id: SourcePreprocEventId(1),
                 identity: Some(SourceMacroCallKey::new(20)),
+                definition_identity: None,
+                expansion_identity: None,
+                parent_expansion_identity: None,
                 name: Some(SmolStr::new("A")),
                 name_range: Some(usage_range),
+                arguments: Vec::new(),
                 range: usage_range,
             }],
             ..SourcePreprocIndex::default()
@@ -1072,7 +1144,7 @@ endmodule
     }
 
     #[test]
-    fn source_model_keeps_nested_macro_identity_without_range_recovery() {
+    fn source_model_builds_nested_expansion_graph_from_runtime_usage_records() {
         let root_text = r#"`define LEAF 3
 `define WRAP `LEAF
 module m;
@@ -1099,31 +1171,25 @@ endmodule
             .find(|call| {
                 let reference = model.macro_references().get(call.reference).unwrap();
                 reference.name.as_str() == "LEAF"
-                    && matches!(
-                        reference.site,
-                        SourceMacroReferenceSite::ExpansionToken { emitted_token: _ }
-                    )
+                    && matches!(reference.site, SourceMacroReferenceSite::Usage { .. })
             })
-            .expect("nested macro invocation should create an expansion-token call");
+            .expect("nested macro invocation should create a runtime usage call");
         let leaf_reference = model.macro_references().get(leaf_call.reference).unwrap();
         assert_eq!(text_at_range(root_text, leaf_reference.name_range.range), "`LEAF");
+        assert_eq!(leaf_call.parent_expansion_identity, wrap_call.expansion_identity);
 
         let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
             model.immediate_macro_expansion(wrap_call.id)
         else {
-            assert!(matches!(
-                model.immediate_macro_expansion(wrap_call.id),
-                SourceMacroExpansionQuery::Unavailable(
-                    SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
-                )
-            ));
-            assert_eq!(wrap_call.expansion_identity, None);
-            assert!(matches!(model.capabilities().macro_expansions, CapabilityStatus::Partial));
-            return;
+            panic!("outer macro should have an expansion identity from the runtime usage record");
         };
-        panic!(
-            "outer macro should not recover tokenless nested expansion by range: {wrap_expansion_id:?}"
-        );
+        let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
+        assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
+
+        let recursive = model.recursive_macro_expansion(wrap_call.id);
+        assert_eq!(recursive.expansions.len(), 2);
+        assert!(recursive.expansions.contains(&wrap_expansion_id));
+        assert!(recursive.unavailable.is_empty());
     }
 
     #[test]
@@ -1142,12 +1208,9 @@ endmodule
             .find(|call| {
                 let reference = model.macro_references().get(call.reference).unwrap();
                 reference.name.as_str() == "LEAF"
-                    && matches!(
-                        reference.site,
-                        SourceMacroReferenceSite::ExpansionToken { emitted_token: _ }
-                    )
+                    && matches!(reference.site, SourceMacroReferenceSite::Usage { .. })
             })
-            .expect("nested macro invocation should create an expansion-token call");
+            .expect("nested macro invocation should create a runtime usage call");
         assert!(leaf_call.identity.is_some());
         assert!(leaf_call.expansion_identity.is_some());
         assert!(leaf_call.parent_expansion_identity.is_some());
@@ -1250,6 +1313,8 @@ endmodule
                     }),
                     macro_definition_id: None,
                     macro_call_id: None,
+                    macro_expansion_id: None,
+                    parent_macro_expansion_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "A".to_owned(),
@@ -1259,6 +1324,7 @@ endmodule
                     }),
                     include_file_name: None,
                     params: Vec::new(),
+                    arguments: Vec::new(),
                     body_tokens: vec![PreprocessorTraceToken {
                         raw_text: "1".to_owned(),
                         value_text: "1".to_owned(),
@@ -1277,6 +1343,8 @@ endmodule
                     }),
                     macro_definition_id: None,
                     macro_call_id: None,
+                    macro_expansion_id: None,
+                    parent_macro_expansion_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "`A".to_owned(),
@@ -1289,6 +1357,7 @@ endmodule
                     }),
                     include_file_name: None,
                     params: Vec::new(),
+                    arguments: Vec::new(),
                     body_tokens: Vec::new(),
                     expr_tokens: Vec::new(),
                     disabled_ranges: Vec::new(),
@@ -1497,6 +1566,8 @@ logic [`LEAF_WIDTH-1:0] data;
                 range: None,
                 macro_definition_id: None,
                 macro_call_id: None,
+                macro_expansion_id: None,
+                parent_macro_expansion_id: None,
                 directive: None,
                 name: Some(PreprocessorTraceToken {
                     raw_text: "WIDTH".to_owned(),
@@ -1506,6 +1577,7 @@ logic [`LEAF_WIDTH-1:0] data;
                 }),
                 include_file_name: None,
                 params: Vec::new(),
+                arguments: Vec::new(),
                 body_tokens: Vec::new(),
                 expr_tokens: Vec::new(),
                 disabled_ranges: Vec::new(),
