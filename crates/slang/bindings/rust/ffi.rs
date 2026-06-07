@@ -532,17 +532,6 @@ mod slang_ffi {
         ) -> RawLexedTokenAtOffset;
 
         #[namespace = "wrapper::syntax"]
-        fn SyntaxTree_preprocessorTrace(
-            text: CxxSV,
-            name: CxxSV,
-            path: CxxSV,
-            predefines: Vec<String>,
-            include_paths: Vec<String>,
-            include_buffers: Vec<RawSourceBuffer>,
-            expand_includes: bool,
-        ) -> RawPreprocessorTrace;
-
-        #[namespace = "wrapper::syntax"]
         fn SyntaxTree_preprocessorTraceFromParsed(tree: &SyntaxTree) -> RawPreprocessorTrace;
 
         #[namespace = "wrapper::syntax"]
@@ -675,7 +664,6 @@ impl_functions! {
         fn libraryMapExpectedSyntaxAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> Vec<RawExpectedSyntax> |> SyntaxTree_libraryMapExpectedSyntaxAtOffset;
         fn directiveAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_directiveAtOffset;
         fn tokenWordAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_tokenWordAtOffset;
-        fn preprocessorTrace(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> RawPreprocessorTrace |> SyntaxTree_preprocessorTrace;
         fn preprocessorTraceFromParsed(&self) -> RawPreprocessorTrace |> SyntaxTree_preprocessorTraceFromParsed;
         fn buffer_id(&self) -> u32 |> SyntaxTree_buffer_id;
     }

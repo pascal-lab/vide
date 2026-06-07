@@ -14,6 +14,17 @@ const ROOT_PATH: &str = "sample/rtl/top.sv";
 const HEADER_PATH: &str = "sample/include/defs.vh";
 const INCLUDE_DIR: &str = "sample/include";
 
+fn preprocessor_trace(
+    root_text: &str,
+    name: &str,
+    path: &str,
+    options: &SyntaxTreeOptions,
+) -> PreprocessorTrace {
+    SyntaxTree::from_text_with_options_and_trace(root_text, name, path, options)
+        .preprocessor_trace
+        .expect("parse-derived trace should be present when requested")
+}
+
 fn source_model(
     root_text: &str,
     header_text: &str,
@@ -27,8 +38,7 @@ fn source_model(
         expand_includes: true,
         ..SyntaxTreeOptions::default()
     };
-    let trace = SyntaxTree::preprocessor_trace(root_text, "source", ROOT_PATH, &options)
-        .expect("trace should include root source");
+    let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let header_source = first_non_root_source(&trace, root_source);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
@@ -64,8 +74,7 @@ fn source_model_from_root(
     root_text: &str,
     options: SyntaxTreeOptions,
 ) -> (SourcePreprocModel, PreprocSourceId) {
-    let trace = SyntaxTree::preprocessor_trace(root_text, "source", ROOT_PATH, &options)
-        .expect("trace should include root source");
+    let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
     (model, root_source)
@@ -255,13 +264,7 @@ fn visible_macro_query_reads_timeline_without_event_records() {
 `undef A
 `define B 2
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        root_text,
-        "source",
-        ROOT_PATH,
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include root source");
+    let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &SyntaxTreeOptions::default());
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let mut model = SourcePreprocModel::from_trace(trace).unwrap();
 
@@ -1282,8 +1285,7 @@ logic [`LEAF_WIDTH-1:0] data;
         expand_includes: true,
         ..SyntaxTreeOptions::default()
     };
-    let trace = SyntaxTree::preprocessor_trace(root_text, "source", ROOT_PATH, &options)
-        .expect("trace should include root source");
+    let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
     let header_source = source_by_path_suffix(&model, "include/defs.vh");
