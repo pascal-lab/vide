@@ -47,18 +47,6 @@ pub struct PreprocSourceMap {
     range_offsets: FxHashMap<PreprocSourceId, usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SourcePreprocContextIndex {
-    contexts_by_file: FxHashMap<FileId, Vec<FileId>>,
-    issues: Vec<SourcePreprocContextIndexIssue>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourcePreprocContextIndexIssue {
-    pub model_file_id: FileId,
-    pub error: SourcePreprocQueryError,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocRelevantContexts {
     pub model_file_ids: Vec<FileId>,
@@ -458,39 +446,6 @@ impl PreprocSourceMap {
     }
 }
 
-impl SourcePreprocContextIndex {
-    fn push_context(&mut self, file_id: FileId, model_file_id: FileId) {
-        let contexts = self.contexts_by_file.entry(file_id).or_default();
-        if !contexts.contains(&model_file_id) {
-            contexts.push(model_file_id);
-            contexts.sort();
-        }
-    }
-
-    fn push_issue(&mut self, issue: SourcePreprocContextIndexIssue) {
-        self.issues.push(issue);
-    }
-
-    pub fn relevant_contexts(&self, file_id: FileId) -> SourcePreprocRelevantContexts {
-        SourcePreprocRelevantContexts {
-            model_file_ids: self.contexts_by_file.get(&file_id).cloned().unwrap_or_default(),
-            status: self.status(),
-        }
-    }
-
-    pub fn status(&self) -> SourcePreprocContextStatus {
-        if self.issues.is_empty() {
-            SourcePreprocContextStatus::Complete
-        } else {
-            SourcePreprocContextStatus::Partial { skipped_models: self.issues.len() }
-        }
-    }
-
-    pub fn issues(&self) -> &[SourcePreprocContextIndexIssue] {
-        &self.issues
-    }
-}
-
 fn preproc_context_file_ids(
     mapped: &MappedSourcePreprocModel,
     model_file_id: FileId,
@@ -692,29 +647,40 @@ pub(super) fn source_preproc_model(
     Arc::new(Ok(MappedSourcePreprocModel { model, source_map }))
 }
 
-pub(super) fn source_preproc_context_index_for_profile(
+pub(super) fn source_preproc_contexts_for_file(
     db: &dyn SourceRootDb,
-    profile_id: Option<CompilationProfileId>,
-) -> Arc<SourcePreprocContextIndex> {
-    let mut index = SourcePreprocContextIndex::default();
+    file_id: FileId,
+) -> Arc<SourcePreprocRelevantContexts> {
+    let profile_id = db.file_compilation_profile(file_id);
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let mut model_file_ids = UniqVec::<FileId, FileId>::default();
+    let mut skipped_models = 0usize;
 
-    for model_file_id in workspace_preproc_model_file_ids(db, profile_id) {
-        index.push_context(model_file_id, model_file_id);
+    for model_file_id in plan.roots.iter().copied() {
+        if model_file_id == file_id {
+            continue;
+        }
+        if !matches!(
+            db.file_kind(model_file_id),
+            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+        ) {
+            continue;
+        }
         let mapped = db.source_preproc_model(model_file_id);
         match mapped.as_ref() {
             Ok(mapped) => {
-                for file_id in preproc_context_file_ids(mapped, model_file_id) {
-                    index.push_context(file_id, model_file_id);
+                if preproc_context_file_ids(mapped, model_file_id).contains(&file_id) {
+                    model_file_ids.push_unique(model_file_id);
                 }
             }
-            Err(error) => {
-                index.push_issue(SourcePreprocContextIndexIssue {
-                    model_file_id,
-                    error: error.clone(),
-                });
-            }
+            Err(_) => skipped_models += 1,
         }
     }
 
-    Arc::new(index)
+    let status = if skipped_models == 0 {
+        SourcePreprocContextStatus::Complete
+    } else {
+        SourcePreprocContextStatus::Partial { skipped_models }
+    };
+    Arc::new(SourcePreprocRelevantContexts { model_file_ids: model_file_ids.into_vec(), status })
 }
