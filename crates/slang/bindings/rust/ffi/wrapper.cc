@@ -4,6 +4,7 @@
 #include "slang/parsing/ParserMetadata.h"
 #include "slang/syntax/AllSyntax.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <mutex>
 #include <unordered_map>
@@ -346,6 +347,21 @@ void apply_direct_macro_token_provenance(
   return result;
 }
 
+::RawPreprocessorTraceToken to_rust_preprocessor_trace_written_token(
+    slang::parsing::Token token,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace_token();
+  if (!token)
+    return result;
+
+  result.raw_text = rust::String(std::string(token.rawText()));
+  result.value_text = rust::String(std::string(token.valueText()));
+  result.token_kind = static_cast<uint16_t>(token.kind);
+  result.range = to_rust_written_source_range(sourceManager, token.range());
+  result.has_token = true;
+  return result;
+}
+
 template<typename TTokens>
 rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
     const TTokens& tokens) {
@@ -353,6 +369,43 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
   for (auto token : tokens)
     result.emplace_back(to_rust_preprocessor_trace_token(token));
   return result;
+}
+
+template<typename TTokens>
+rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_written_tokens(
+    const TTokens& tokens,
+    const slang::SourceManager& sourceManager) {
+  rust::Vec<::RawPreprocessorTraceToken> result;
+  for (auto token : tokens)
+    result.emplace_back(to_rust_preprocessor_trace_written_token(token, sourceManager));
+  return result;
+}
+
+template<typename TTokens>
+::RawSourceBufferRange to_rust_written_token_range(
+    const TTokens& tokens,
+    const slang::SourceManager& sourceManager) {
+  std::optional<::RawSourceBufferRange> merged;
+  for (auto token : tokens) {
+    auto range = to_rust_written_source_range(sourceManager, token.range());
+    if (!range.has_range)
+      continue;
+
+    if (!merged) {
+      merged = range;
+      continue;
+    }
+
+    if (merged->buffer_id != range.buffer_id)
+      return empty_source_buffer_range();
+
+    merged->range_start = std::min(merged->range_start, range.range_start);
+    merged->range_end = std::max(merged->range_end, range.range_end);
+  }
+
+  if (merged && merged->range_start < merged->range_end)
+    return *merged;
+  return empty_source_buffer_range();
 }
 
 ::RawPreprocessorTraceEmittedToken to_rust_preprocessor_trace_emitted_token(
@@ -470,10 +523,9 @@ rust::Vec<::RawSourceBufferRange> to_rust_trace_disabled_ranges(const TTokens& t
 }
 
 // Directive syntax node ranges are payload ranges, not trace event ranges. For example,
-// generated MacroUsageSyntax ignores the inherited directive token and is NoLocation when
-// there are no actual args; EndIf/Else ranges are based on disabledTokens and can also be
-// empty. The trace contract needs the event's own source span, so anchor every directive
-// event at DirectiveSyntax::directive and extend only through that event's semantic payload.
+// EndIf/Else ranges are based on disabledTokens and can also be empty. The trace contract
+// needs the event's own source span, so anchor every directive event at
+// DirectiveSyntax::directive and extend only through that event's semantic payload.
 slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syntax) {
   auto* directiveSyntax = syntax.as_if<slang::syntax::DirectiveSyntax>();
   if (!directiveSyntax)
@@ -528,12 +580,6 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
     case slang::syntax::SyntaxKind::ElseDirective:
     case slang::syntax::SyntaxKind::EndIfDirective:
       break;
-    case slang::syntax::SyntaxKind::MacroUsage: {
-      const auto& usage = syntax.as<slang::syntax::MacroUsageSyntax>();
-      if (usage.args)
-        extend(usage.args->sourceRange());
-      break;
-    }
     default:
       extend(syntax.sourceRange());
       break;
@@ -556,6 +602,37 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
   return result;
 }
 
+::RawPreprocessorTraceActualArgument empty_preprocessor_trace_actual_argument() {
+  ::RawPreprocessorTraceActualArgument result;
+  result.tokens = rust::Vec<::RawPreprocessorTraceToken>();
+  result.range = empty_source_buffer_range();
+  return result;
+}
+
+::RawPreprocessorTraceActualArgument to_rust_trace_actual_argument(
+    const slang::syntax::MacroActualArgumentSyntax& argument,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace_actual_argument();
+  result.tokens = to_rust_preprocessor_trace_written_tokens(argument.tokens, sourceManager);
+  result.range = to_rust_written_token_range(argument.tokens, sourceManager);
+  return result;
+}
+
+rust::Vec<::RawPreprocessorTraceActualArgument> to_rust_trace_actual_arguments(
+    const slang::syntax::MacroActualArgumentListSyntax* arguments,
+    const slang::SourceManager& sourceManager) {
+  rust::Vec<::RawPreprocessorTraceActualArgument> result;
+  if (!arguments)
+    return result;
+
+  for (const auto* argument : arguments->args) {
+    if (!argument)
+      continue;
+    result.emplace_back(to_rust_trace_actual_argument(*argument, sourceManager));
+  }
+  return result;
+}
+
 ::RawPreprocessorTraceEvent to_rust_preprocessor_trace_event(
     const slang::syntax::SyntaxNode& syntax,
     uint32_t eventId,
@@ -568,10 +645,15 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
   directive.has_macro_definition_id = false;
   directive.macro_call_id = 0;
   directive.has_macro_call_id = false;
+  directive.macro_expansion_id = 0;
+  directive.has_macro_expansion_id = false;
+  directive.parent_macro_expansion_id = 0;
+  directive.has_parent_macro_expansion_id = false;
   directive.directive = empty_preprocessor_trace_token();
   directive.name = empty_preprocessor_trace_token();
   directive.include_file_name = empty_preprocessor_trace_token();
   directive.params = rust::Vec<::RawPreprocessorTraceMacroParam>();
+  directive.arguments = rust::Vec<::RawPreprocessorTraceActualArgument>();
   directive.body_tokens = rust::Vec<::RawPreprocessorTraceToken>();
   directive.expr_tokens = rust::Vec<::RawPreprocessorTraceToken>();
   directive.disabled_ranges = rust::Vec<::RawSourceBufferRange>();
@@ -617,18 +699,37 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
       directive.disabled_ranges = to_rust_trace_disabled_ranges(branch.disabledTokens);
       break;
     }
-    case slang::syntax::SyntaxKind::MacroUsage: {
-      const auto& usage = syntax.as<slang::syntax::MacroUsageSyntax>();
-      auto callId = preprocessor.getMacroCallId(usage);
-      directive.macro_call_id = callId;
-      directive.has_macro_call_id = callId != 0;
-      directive.name = to_rust_preprocessor_trace_token(usage.directive);
-      break;
-    }
     default:
       break;
   }
 
+  return directive;
+}
+
+::RawPreprocessorTraceEvent to_rust_preprocessor_trace_macro_usage_record(
+    const slang::parsing::Preprocessor::MacroUsageTraceRecord& record,
+    uint32_t eventId,
+    const slang::SourceManager& sourceManager) {
+  ::RawPreprocessorTraceEvent directive;
+  directive.event_id = eventId;
+  directive.kind = static_cast<uint16_t>(slang::syntax::SyntaxKind::MacroUsage);
+  directive.range = to_rust_written_source_range(sourceManager, record.range);
+  directive.macro_definition_id = record.definitionId;
+  directive.has_macro_definition_id = record.definitionId != 0;
+  directive.macro_call_id = record.callId;
+  directive.has_macro_call_id = record.callId != 0;
+  directive.macro_expansion_id = record.expansionId;
+  directive.has_macro_expansion_id = record.expansionId != 0;
+  directive.parent_macro_expansion_id = record.parentExpansionId;
+  directive.has_parent_macro_expansion_id = record.parentExpansionId != 0;
+  directive.directive = to_rust_preprocessor_trace_written_token(record.directive, sourceManager);
+  directive.name = directive.directive;
+  directive.include_file_name = empty_preprocessor_trace_token();
+  directive.params = rust::Vec<::RawPreprocessorTraceMacroParam>();
+  directive.arguments = to_rust_trace_actual_arguments(record.actualArgs, sourceManager);
+  directive.body_tokens = rust::Vec<::RawPreprocessorTraceToken>();
+  directive.expr_tokens = rust::Vec<::RawPreprocessorTraceToken>();
+  directive.disabled_ranges = rust::Vec<::RawSourceBufferRange>();
   return directive;
 }
 
@@ -1126,9 +1227,30 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
     if (!sourceBufferIds.contains(bufferId))
       predefineBufferIds.insert(bufferId);
   }
+
+  for (auto* define : preprocessor.getDefinedMacros()) {
+    if (!define)
+      continue;
+    auto location = define->directive.location();
+    if (!location.valid() || !predefineBufferIds.contains(location.buffer().getId()))
+      continue;
+
+    auto eventId = static_cast<uint32_t>(result.events.size());
+    result.events.emplace_back(to_rust_preprocessor_trace_event(*define, eventId, preprocessor));
+  }
+
   preprocessor.pushSource(rootBuffer);
   std::unordered_map<TraceSourceLocationKey, uint32_t, TraceSourceLocationKeyHash>
       includeEventIdsByLocation;
+  size_t macroUsageTraceRecordCount = 0;
+  auto flushMacroUsageTraceRecords = [&]() {
+    auto records = preprocessor.getMacroUsageTraceRecords();
+    for (; macroUsageTraceRecordCount < records.size(); macroUsageTraceRecordCount++) {
+      auto eventId = static_cast<uint32_t>(result.events.size());
+      result.events.emplace_back(to_rust_preprocessor_trace_macro_usage_record(
+          records[macroUsageTraceRecordCount], eventId, sourceManager));
+    }
+  };
 
   while (true) {
     auto token = preprocessor.next();
@@ -1137,15 +1259,20 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
         continue;
 
       if (auto* syntax = trivia.syntax()) {
+        if (syntax->kind == slang::syntax::SyntaxKind::MacroUsage)
+          continue;
+
         auto eventId = static_cast<uint32_t>(result.events.size());
         if (syntax->kind == slang::syntax::SyntaxKind::IncludeDirective) {
           const auto& include = syntax->as<slang::syntax::IncludeDirectiveSyntax>();
           if (auto key = trace_source_location_key(include.directive.location()))
             includeEventIdsByLocation.emplace(*key, eventId);
         }
-        result.events.emplace_back(to_rust_preprocessor_trace_event(*syntax, eventId, preprocessor));
+        auto event = to_rust_preprocessor_trace_event(*syntax, eventId, preprocessor);
+        result.events.emplace_back(std::move(event));
       }
     }
+    flushMacroUsageTraceRecords();
 
     if (token.kind == slang::parsing::TokenKind::EndOfFile)
       break;

@@ -164,10 +164,13 @@ pub struct PreprocessorTraceEvent {
     pub range: Option<SourceBufferRange>,
     pub macro_definition_id: Option<PreprocessorTraceMacroDefinitionId>,
     pub macro_call_id: Option<PreprocessorTraceMacroCallId>,
+    pub macro_expansion_id: Option<PreprocessorTraceMacroExpansionId>,
+    pub parent_macro_expansion_id: Option<PreprocessorTraceMacroExpansionId>,
     pub directive: Option<PreprocessorTraceToken>,
     pub name: Option<PreprocessorTraceToken>,
     pub include_file_name: Option<PreprocessorTraceToken>,
     pub params: Vec<PreprocessorTraceMacroParam>,
+    pub arguments: Vec<PreprocessorTraceActualArgument>,
     pub body_tokens: Vec<PreprocessorTraceToken>,
     pub expr_tokens: Vec<PreprocessorTraceToken>,
     pub disabled_ranges: Vec<SourceBufferRange>,
@@ -234,6 +237,12 @@ pub struct PreprocessorTraceToken {
 pub struct PreprocessorTraceMacroParam {
     pub name: Option<PreprocessorTraceToken>,
     pub default_tokens: Option<Vec<PreprocessorTraceToken>>,
+    pub range: Option<SourceBufferRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceActualArgument {
+    pub tokens: Vec<PreprocessorTraceToken>,
     pub range: Option<SourceBufferRange>,
 }
 
@@ -402,10 +411,21 @@ impl PreprocessorTraceEvent {
             macro_call_id: raw
                 .has_macro_call_id
                 .then_some(PreprocessorTraceMacroCallId(raw.macro_call_id)),
+            macro_expansion_id: raw
+                .has_macro_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.macro_expansion_id)),
+            parent_macro_expansion_id: raw
+                .has_parent_macro_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.parent_macro_expansion_id)),
             directive: PreprocessorTraceToken::from_raw(raw.directive),
             name: PreprocessorTraceToken::from_raw(raw.name),
             include_file_name: PreprocessorTraceToken::from_raw(raw.include_file_name),
             params: raw.params.into_iter().map(PreprocessorTraceMacroParam::from_raw).collect(),
+            arguments: raw
+                .arguments
+                .into_iter()
+                .map(PreprocessorTraceActualArgument::from_raw)
+                .collect(),
             body_tokens: raw
                 .body_tokens
                 .into_iter()
@@ -1480,6 +1500,16 @@ impl hash::Hash for SyntaxNode<'_> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         let ptr = Pin::as_ref(&self._ptr).get_ref() as *const ffi::SyntaxNode;
         ptr.hash(state)
+    }
+}
+
+impl PreprocessorTraceActualArgument {
+    #[inline]
+    fn from_raw(raw: ffi::RawPreprocessorTraceActualArgument) -> Self {
+        Self {
+            tokens: raw.tokens.into_iter().filter_map(PreprocessorTraceToken::from_raw).collect(),
+            range: SourceBufferRange::from_raw(raw.range),
+        }
     }
 }
 

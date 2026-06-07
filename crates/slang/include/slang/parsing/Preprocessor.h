@@ -155,8 +155,22 @@ public:
     /// Gets the frontend identity assigned to a macro definition syntax node.
     uint32_t getMacroDefinitionId(const syntax::DefineDirectiveSyntax& syntax) const;
 
-    /// Gets the frontend identity assigned to a macro usage syntax node.
-    uint32_t getMacroCallId(const syntax::MacroUsageSyntax& syntax) const;
+    /// A macro usage observed by the preprocessor while expanding source tokens.
+    struct MacroUsageTraceRecord {
+        Token directive;
+        syntax::MacroActualArgumentListSyntax* actualArgs = nullptr;
+        SourceRange range;
+        uint32_t callId = 0;
+        uint32_t definitionId = 0;
+        uint32_t expansionId = 0;
+        uint32_t parentExpansionId = 0;
+    };
+
+    /// Gets all macro usages observed while preprocessing, including usages expanded from
+    /// macro replacement lists that do not become directive trivia in the parsed token stream.
+    std::span<const MacroUsageTraceRecord> getMacroUsageTraceRecords() const {
+        return macroUsageTraceRecords;
+    }
 
 private:
     Preprocessor(const Preprocessor& other);
@@ -287,6 +301,8 @@ private:
 
         SourceRange getRange() const;
         const SourceManager::MacroExpansionMetadata& getMetadata() const { return metadata; }
+        uint32_t getExpansionId() const { return expansionId; }
+        void setExpansionLoc(SourceLocation location);
         SourceManager::MacroTokenProvenance tokenProvenance(
             uint32_t bodyTokenIndex,
             uint32_t argumentIndex = SourceManager::MacroTokenProvenance::InvalidIndex,
@@ -309,18 +325,22 @@ private:
         bool any = false;
         bool isTopLevel = false;
         SourceManager::MacroExpansionMetadata metadata;
+        uint32_t expansionId = 0;
     };
 
     // Macro handling methods
     MacroDef findMacro(Token directive);
-    std::pair<syntax::MacroActualArgumentListSyntax*, Trivia> handleTopLevelMacro(
-        Token directive, uint32_t* callId = nullptr);
+    std::pair<syntax::MacroActualArgumentListSyntax*, Trivia> handleTopLevelMacro(Token directive);
     bool expandMacro(MacroDef macro, MacroExpansion& expansion,
                      syntax::MacroActualArgumentListSyntax* actualArgs);
     bool expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& expansion);
     bool expandReplacementList(std::span<Token const>& tokens,
                                SmallSet<const syntax::DefineDirectiveSyntax*, 8>& alreadyExpanded);
     bool applyMacroOps(std::span<Token const> tokens, SmallVectorBase<Token>& dest);
+    void recordMacroUsageTrace(Token directive, syntax::MacroActualArgumentListSyntax* actualArgs,
+                               MacroDef macro,
+                               const SourceManager::MacroExpansionMetadata& metadata,
+                               uint32_t expansionId);
     void createBuiltInMacro(std::string_view name, int value, std::string_view valueStr = {});
     void splitTokens(Token sourceToken, size_t offset, SmallVectorBase<Token>& results);
     Token getLastConsumed() const { return lastConsumed; }
@@ -414,7 +434,7 @@ private:
     // map from macro name to macro definition
     flat_hash_map<std::string_view, MacroDef> macros;
     flat_hash_map<const syntax::DefineDirectiveSyntax*, uint32_t> macroDefinitionIds;
-    flat_hash_map<const syntax::MacroUsageSyntax*, uint32_t> macroCallIds;
+    std::vector<MacroUsageTraceRecord> macroUsageTraceRecords;
     uint32_t nextMacroDefinitionId = 1;
     uint32_t nextMacroCallId = 1;
 

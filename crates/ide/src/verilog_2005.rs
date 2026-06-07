@@ -1550,6 +1550,59 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_hover_keeps_nested_actual_argument_macro_reference() {
+    let text = r#"
+`define /*marker:payl_def*/PAYL payload_i
+`define MATH_ONE 12'd1
+`define DEMO_NEXT(value) ((value) + `MATH_ONE)
+module top(input logic payload_i);
+  assign active_data = `/*marker:call*/DEMO_NEXT(`/*marker:payl*/PAYL);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let call_hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("outer macro call hover expected");
+    let call_info = call_hover.info.as_str();
+    assert!(
+        call_info.contains("`` `DEMO_NEXT(value) ``")
+            && call_info.contains("`value` = `` `PAYL ``")
+            && call_info.contains("Expanded result")
+            && call_info.contains("payload_i")
+            && call_info.contains("12")
+            && call_info.contains("Expansion steps")
+            && call_info.contains("1. `` `DEMO_NEXT(`PAYL) `` from `` `DEMO_NEXT(value) ``"),
+        "outer macro hover should keep expansion and written argument spelling: {call_info}"
+    );
+
+    let payl_position = position(file_id, &markers, "payl");
+    let payl_def_range = marked_range(&markers, "payl_def", TextSize::of("PAYL"));
+    let nav = analysis
+        .goto_definition(payl_position)
+        .unwrap()
+        .expect("nested actual-argument macro navigation expected");
+    assert!(
+        nav.info.iter().any(|target| {
+            target.name.as_deref() == Some("PAYL") && target.focus_range == Some(payl_def_range)
+        }),
+        "PAYL should navigate to its macro definition: {nav:?}"
+    );
+
+    let payl_hover = analysis
+        .hover(payl_position, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("nested actual-argument macro hover expected");
+    let payl_info = payl_hover.info.as_str();
+    assert!(
+        payl_info.contains("Macro") && payl_info.contains("PAYL"),
+        "PAYL hover should identify the nested macro reference: {payl_info}"
+    );
+}
+
+#[test]
 fn preproc_macro_hover_reports_unavailable_expansion() {
     let text = r#"
 `define JOIN(a,b) a``b

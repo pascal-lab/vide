@@ -336,6 +336,7 @@ pub enum SourcePreprocUnavailable {
     MissingMacroCall { call: SourceMacroCallId },
     MissingMacroExpansion { call: SourceMacroCallId },
     MissingEmittedTokenMacroCall { source: PreprocSourceId },
+    UnknownMacroUsageDefinitionIdentity { identity: SourceMacroDefinitionKey },
     MissingEmittedTokenMacroCallIdentity,
     UnknownEmittedTokenMacroCallIdentity { identity: SourceMacroCallKey },
     MissingEmittedTokenMacroDefinitionIdentity,
@@ -904,7 +905,11 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         };
         let event_id = usage.event_id;
         let directive_range = usage.range;
-        let resolution = self.resolve_visible_reference(name.as_str());
+        let definition_identity = usage.definition_identity;
+        let expansion_identity = usage.expansion_identity;
+        let parent_expansion_identity = usage.parent_expansion_identity;
+        let arguments = usage.arguments.clone();
+        let resolution = self.resolve_usage_reference(name.as_str(), definition_identity);
         let reference = self.push_reference(
             event_id,
             SourceMacroReferenceSite::Usage { usage_index: directive.index },
@@ -913,7 +918,17 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             directive_range,
             resolution.clone(),
         );
-        self.push_call(reference, directive_range, resolution, usage.identity, None, None);
+        let call = self.push_call(
+            reference,
+            directive_range,
+            resolution,
+            usage.identity,
+            expansion_identity,
+            parent_expansion_identity,
+        );
+        for argument in arguments {
+            self.record_macro_actual_argument(call, argument);
+        }
     }
 
     fn record_conditional_references(&mut self, directive: &SourcePreprocEventRecord) {
@@ -1337,6 +1352,34 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         call.arguments.sort_by_key(|argument| argument.argument_index);
     }
 
+    fn record_macro_actual_argument(
+        &mut self,
+        call: SourceMacroCallId,
+        argument: SourceMacroActualArgument,
+    ) {
+        let Some(call) = self.tables.macro_calls.get_mut(call) else {
+            return;
+        };
+        if let Some(existing) = call
+            .arguments
+            .iter_mut()
+            .find(|existing| existing.argument_index == argument.argument_index)
+        {
+            existing.argument_range =
+                merge_optional_source_ranges(existing.argument_range, argument.argument_range);
+            if existing.tokens.is_empty() {
+                existing.tokens = argument.tokens;
+            }
+            return;
+        }
+        call.arguments.push(SourceMacroArgument {
+            argument_index: argument.argument_index,
+            argument_range: argument.argument_range,
+            tokens: argument.tokens,
+        });
+        call.arguments.sort_by_key(|argument| argument.argument_index);
+    }
+
     fn build_macro_expansion_graph(&mut self) {
         if self.tables.macro_calls.is_empty() {
             return;
@@ -1578,6 +1621,23 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
     }
 
+    fn resolve_usage_reference(
+        &mut self,
+        name: &str,
+        identity: Option<SourceMacroDefinitionKey>,
+    ) -> SourceMacroResolution {
+        let Some(identity) = identity else {
+            return self.resolve_visible_reference(name);
+        };
+        let Some(definition) = self.definition_ids_by_identity.get(&identity).copied() else {
+            self.references_partial = true;
+            return SourceMacroResolution::Unavailable(
+                SourcePreprocUnavailable::UnknownMacroUsageDefinitionIdentity { identity },
+            );
+        };
+        self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
+    }
+
     fn resolve_visible_reference_at_position(
         &mut self,
         name: &str,
@@ -1812,4 +1872,14 @@ fn merge_source_ranges(existing: Option<SourceRange>, next: SourceRange) -> Opti
             existing.range.end().max(next.range.end()),
         ),
     })
+}
+
+fn merge_optional_source_ranges(
+    existing: Option<SourceRange>,
+    next: Option<SourceRange>,
+) -> Option<SourceRange> {
+    match next {
+        Some(next) => merge_source_ranges(existing, next),
+        None => existing,
+    }
 }

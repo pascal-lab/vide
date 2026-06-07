@@ -58,10 +58,7 @@ void Preprocessor::createBuiltInMacro(std::string_view name, int value, std::str
 }
 
 std::pair<MacroActualArgumentListSyntax*, Trivia> Preprocessor::handleTopLevelMacro(
-    Token directive, uint32_t* callId) {
-    if (callId)
-        *callId = 0;
-
+    Token directive) {
     auto macro = findMacro(directive);
     if (!macro.valid()) {
         if (options.ignoreDirectives.find(directive.valueText().substr(1)) !=
@@ -102,12 +99,11 @@ std::pair<MacroActualArgumentListSyntax*, Trivia> Preprocessor::handleTopLevelMa
     metadata.definitionId = macro.definitionId;
     if (sourceManager.isMacroLoc(directive.location()))
         metadata.parentExpansionId = directive.location().buffer().getId();
-    if (callId)
-        *callId = metadata.callId;
 
     MacroExpansion expansion{sourceManager, alloc, buffer, directive, true, metadata};
     if (!expandMacro(macro, expansion, actualArgs))
         return {actualArgs, Trivia()};
+    recordMacroUsageTrace(directive, actualArgs, macro, metadata, expansion.getExpansionId());
 
     // The macro is now expanded out into tokens, but some of those tokens might
     // be more macros that need to be expanded, or special characters that
@@ -416,6 +412,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansion.getRange(),
                                                                        macroName,
                                                                        expansion.getMetadata());
+        expansion.setExpansionLoc(expansionLoc);
 
         // simple macro; just take body tokens
         uint32_t bodyTokenIndex = 0;
@@ -481,6 +478,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
     SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansionRange,
                                                                    macroName,
                                                                    expansion.getMetadata());
+    expansion.setExpansionLoc(expansionLoc);
 
     auto append = [&](Token token, uint32_t bodyTokenIndex) {
         expansion.append(token, expansionLoc, start, expansionRange, false,
@@ -665,6 +663,11 @@ SourceRange Preprocessor::MacroExpansion::getRange() const {
     return {usageSite.location(), usageSite.location() + usageSite.rawText().length()};
 }
 
+void Preprocessor::MacroExpansion::setExpansionLoc(SourceLocation location) {
+    if (location.valid())
+        expansionId = location.buffer().getId();
+}
+
 SourceManager::MacroTokenProvenance Preprocessor::MacroExpansion::tokenProvenance(
     uint32_t bodyTokenIndex, uint32_t argumentIndex, uint32_t argumentTokenIndex) const {
     SourceManager::MacroTokenProvenance provenance;
@@ -775,6 +778,7 @@ bool Preprocessor::expandReplacementList(
         MacroExpansion expansion{sourceManager, alloc, expansionBuffer, token, false, metadata};
         if (!expandMacro(macro, expansion, actualArgs))
             return false;
+        recordMacroUsageTrace(token, actualArgs, macro, metadata, expansion.getExpansionId());
 
         // Recursively expand out nested macros; this ensures that we detect
         // any potentially recursive macros.
@@ -799,6 +803,7 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
     auto macroLoc = sourceManager.createExpansionLoc(
         loc, expansion.getRange(), SourceManager::MacroExpansionKind::Body,
         expansion.getMetadata());
+    expansion.setExpansionLoc(macroLoc);
     SmallVector<char> text;
     switch (intrinsic) {
         case MacroIntrinsic::File: {
@@ -826,6 +831,30 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
     }
 
     return true;
+}
+
+void Preprocessor::recordMacroUsageTrace(
+    Token directive, MacroActualArgumentListSyntax* actualArgs, MacroDef macro,
+    const SourceManager::MacroExpansionMetadata& metadata, uint32_t expansionId) {
+    if (metadata.callId == 0)
+        return;
+
+    SourceRange range = {directive.location(), directive.location() + directive.rawText().length()};
+    if (actualArgs) {
+        Token last = actualArgs->getLastToken();
+        if (last)
+            range = {directive.location(), last.location() + last.rawText().length()};
+    }
+
+    macroUsageTraceRecords.push_back(MacroUsageTraceRecord{
+        directive,
+        actualArgs,
+        range,
+        metadata.callId,
+        macro.definitionId,
+        expansionId,
+        metadata.parentExpansionId,
+    });
 }
 
 bool Preprocessor::MacroDef::needsArgs() const {

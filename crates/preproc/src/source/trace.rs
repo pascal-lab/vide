@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    PreprocessorTrace, PreprocessorTraceEmittedToken, PreprocessorTraceEvent,
-    PreprocessorTraceEventId, PreprocessorTraceMacroArgumentIdentity,
+    PreprocessorTrace, PreprocessorTraceActualArgument, PreprocessorTraceEmittedToken,
+    PreprocessorTraceEvent, PreprocessorTraceEventId, PreprocessorTraceMacroArgumentIdentity,
     PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroCallId,
     PreprocessorTraceMacroDefinitionId, PreprocessorTraceMacroExpansionId,
     PreprocessorTraceMacroParam, PreprocessorTraceToken, PreprocessorTraceTokenProvenance,
@@ -230,8 +230,21 @@ fn collect_trace_event(
             index.usages.push(SourceMacroUsage {
                 event_id,
                 identity: directive.macro_call_id.map(SourceMacroCallKey::from),
+                definition_identity: directive
+                    .macro_definition_id
+                    .map(SourceMacroDefinitionKey::from),
+                expansion_identity: directive.macro_expansion_id.map(SourceMacroExpansionKey::from),
+                parent_expansion_identity: directive
+                    .parent_macro_expansion_id
+                    .map(SourceMacroExpansionKey::from),
                 name: directive.name.as_ref().map(|token| macro_name(token.value_text.as_str())),
                 name_range: directive.name.as_ref().and_then(trace_token_range),
+                arguments: directive
+                    .arguments
+                    .into_iter()
+                    .enumerate()
+                    .map(macro_actual_argument_from_trace)
+                    .collect(),
                 range,
             });
             push_source_event_record(index, event_id, kind, event_index, range);
@@ -266,6 +279,16 @@ fn macro_param_from_trace(param: PreprocessorTraceMacroParam) -> SourceMacroPara
             .default_tokens
             .map(|tokens| tokens.into_iter().map(macro_token_from_trace).collect()),
         range: param.range.as_ref().and_then(source_range_from_trace),
+    }
+}
+
+fn macro_actual_argument_from_trace(
+    (argument_index, argument): (usize, PreprocessorTraceActualArgument),
+) -> SourceMacroActualArgument {
+    SourceMacroActualArgument {
+        argument_index,
+        argument_range: argument.range.as_ref().and_then(source_range_from_trace),
+        tokens: argument.tokens.into_iter().map(macro_token_from_trace).collect(),
     }
 }
 

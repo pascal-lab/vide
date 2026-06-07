@@ -2447,7 +2447,11 @@ fn map_token_provenance(
             ..
         } => {
             let call = mapped_macro_call(mapped, *call)?;
-            let (source, range) = map_mapped_source_range(mapped, *argument_token_range)?;
+            let Ok((source, range)) = map_mapped_source_range(mapped, *argument_token_range) else {
+                return Ok(TokenProvenance::Unavailable(PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
+                )));
+            };
             TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
         }
         SourceTokenProvenanceFact::TokenPaste { .. }
@@ -3134,16 +3138,21 @@ endmodule
             recursive_macro_expansion_at(&db, TOP, offset(root_text, "`WRAP")).unwrap().unwrap();
         assert_eq!(recursive.root_call.file_id, TOP);
         assert_eq!(text_at_range(root_text, recursive.root_call.range), "`WRAP");
-        assert!(recursive.expansions.is_empty());
-        assert!(matches!(
-            recursive.unavailable.as_slice(),
-            [MacroExpansionUnavailable {
-                reason: PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
-                ),
-                ..
-            }]
-        ));
+        assert!(recursive.unavailable.is_empty());
+        assert_eq!(recursive.expansions.len(), 2);
+        let wrap_expansion = recursive
+            .expansions
+            .iter()
+            .find(|expansion| expansion.definition.name.as_str() == "WRAP")
+            .expect("outer expansion should be mapped");
+        let leaf_expansion = recursive
+            .expansions
+            .iter()
+            .find(|expansion| expansion.definition.name.as_str() == "LEAF")
+            .expect("nested expansion should be mapped");
+        assert_eq!(text_at_range(root_text, wrap_expansion.call.range), "`WRAP");
+        assert_eq!(text_at_range(root_text, leaf_expansion.call.range), "`LEAF");
+        assert_eq!(wrap_expansion.child_calls, vec![leaf_expansion.call.id]);
     }
 
     #[test]
@@ -3205,6 +3214,52 @@ endmodule
         assert_eq!(source.file_id(), Some(TOP));
         assert_eq!(text_at_range(root_text, *range), "generated");
         assert_eq!(generated.display_range, TextRange::new(6.into(), 15.into()));
+    }
+
+    #[test]
+    fn preproc_maps_nested_actual_argument_macro_usage_without_dropping_expansion() {
+        let root_text = r#"`define PAYL payload_i
+`define NEXT(x) ((x) + 12'd1)
+module top(input logic [3:0] payload_i, output logic [3:0] y);
+assign y = `NEXT(`PAYL);
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        let payl = macro_reference_definitions_at(&db, TOP, offset_after(root_text, "`NEXT("))
+            .unwrap()
+            .expect("nested actual-argument macro reference should be mapped");
+        assert_eq!(text_at_range(root_text, payl.range), "`PAYL");
+        assert!(
+            payl.definitions.iter().any(|definition| {
+                definition.file_id == TOP && definition.name.as_str() == "PAYL"
+            })
+        );
+
+        let provenance =
+            macro_expansion_provenance_at(&db, TOP, offset(root_text, "`NEXT")).unwrap().unwrap();
+        let argument = provenance
+            .expansion
+            .call
+            .arguments
+            .iter()
+            .find(|argument| argument.argument_index == 0)
+            .expect("NEXT call should expose its written actual argument");
+        assert_eq!(argument.source.as_ref().and_then(MappedPreprocSource::file_id), Some(TOP));
+        assert_eq!(text_at_range(root_text, argument.range.unwrap()), "`PAYL");
+        assert_eq!(argument.tokens, vec![SmolStr::new("`PAYL")]);
+
+        let payload = provenance
+            .tokens
+            .iter()
+            .find(|token| token.text.as_str() == "payload_i")
+            .expect("expanded payload token should stay in NEXT expansion provenance");
+        assert!(matches!(
+            payload.provenance,
+            TokenProvenance::Unavailable(PreprocUnavailable::Source(
+                SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
+            ))
+        ));
     }
 
     #[test]
