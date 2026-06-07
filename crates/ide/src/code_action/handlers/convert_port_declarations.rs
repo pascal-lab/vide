@@ -45,6 +45,17 @@ const NON_ANSI_TO_ANSI_ID: CodeActionId = CodeActionId {
 };
 const NON_ANSI_TO_ANSI_LABEL: &str = "Convert non-ANSI port declarations to ANSI";
 
+// Assist: convert_port_declarations
+//
+// This converts module ports between ANSI declarations and non-ANSI declarations.
+//
+// ```
+// module top($0input a, output logic b); endmodule
+// ```
+// ->
+// ```
+// module top(a, b); input a; output logic b; endmodule
+// ```
 pub(super) fn convert_port_declarations(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

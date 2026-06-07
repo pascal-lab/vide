@@ -25,6 +25,17 @@ const SORT_NAMED_PARAMETER_ASSIGNMENTS_ID: CodeActionId = CodeActionId {
 };
 const SORT_NAMED_PARAMETER_ASSIGNMENTS_LABEL: &str = "Sort named parameter assignments";
 
+// Assist: sort_named_parameter_assignments
+//
+// This sorts named parameter assignments to match the target module's parameter declaration order.
+//
+// ```
+// child #(.B(2), $0.A(1)) u();
+// ```
+// ->
+// ```
+// child #(.A(1), .B(2)) u();
+// ```
 pub(super) fn sort_named_parameter_assignments(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
@@ -69,6 +80,17 @@ const SORT_NAMED_PORT_CONNECTIONS_ID: CodeActionId = CodeActionId {
 };
 const SORT_NAMED_PORT_CONNECTIONS_LABEL: &str = "Sort named port connections";
 
+// Assist: sort_named_port_connections
+//
+// This sorts named port connections to match the target module's port declaration order.
+//
+// ```
+// child u(.b(b), $0.a(a));
+// ```
+// ->
+// ```
+// child u(.a(a), .b(b));
+// ```
 pub(super) fn sort_named_port_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

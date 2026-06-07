@@ -36,6 +36,17 @@ const ALWAYS_FF_TO_ALWAYS_ID: CodeActionId = CodeActionId {
 };
 const ALWAYS_FF_TO_ALWAYS_LABEL: &str = "Convert to always @(...)";
 
+// Assist: convert_always_block
+//
+// This converts compatible procedural blocks between `always`, `always_comb`, and `always_ff`.
+//
+// ```
+// always$0 @(*) begin y = a; end
+// ```
+// ->
+// ```
+// always_comb begin y = a; end
+// ```
 pub(super) fn convert_always_block(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

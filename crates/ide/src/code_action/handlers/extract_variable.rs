@@ -23,6 +23,18 @@ use crate::code_action::{
 const ID: CodeActionId =
     CodeActionId { name: "extract_variable", kind: CodeActionKind::RefactorExtract, repair: None };
 
+// Assist: extract_variable
+//
+// This extracts a selected expression into a new local variable or continuous net declaration.
+//
+// ```
+// always_comb begin y = $0a + b$0; end
+// ```
+// ->
+// ```
+// always_comb begin logic value = a + b;
+// y = value; end
+// ```
 pub(super) fn extract_variable(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

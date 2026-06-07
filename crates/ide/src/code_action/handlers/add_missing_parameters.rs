@@ -25,6 +25,17 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Fill parameters";
 
+// Assist: add_missing_parameters
+//
+// This fills the missing parameter assignments for an instantiation from the target module definition.
+//
+// ```
+// child #($0.A(1)) u();
+// ```
+// ->
+// ```
+// child #(.A(1), .B(0)) u();
+// ```
 pub(super) fn add_missing_parameters(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

@@ -11,6 +11,17 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Add empty instance port list";
 
+// Assist: add_instance_parens
+//
+// This adds an empty port list to an instance that is missing one.
+//
+// ```
+// child u$0;
+// ```
+// ->
+// ```
+// child u();
+// ```
 pub(super) fn add_instance_parens(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

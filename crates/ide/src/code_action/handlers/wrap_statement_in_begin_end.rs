@@ -18,6 +18,17 @@ const WRAP_ID: CodeActionId = CodeActionId {
 };
 const WRAP_LABEL: &str = "Wrap statement in begin/end";
 
+// Assist: wrap_statement_in_begin_end
+//
+// This wraps a control-flow body statement in a `begin`/`end` block.
+//
+// ```
+// always_comb if (a) $0y = 1;
+// ```
+// ->
+// ```
+// always_comb if (a) begin y = 1; end
+// ```
 pub(super) fn wrap_statement_in_begin_end(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
@@ -47,6 +58,17 @@ const UNWRAP_ID: CodeActionId = CodeActionId {
 };
 const UNWRAP_LABEL: &str = "Unwrap single-statement begin/end";
 
+// Assist: unwrap_single_statement_block
+//
+// This unwraps a `begin`/`end` block that contains exactly one statement.
+//
+// ```
+// always_comb if (a) $0begin y = 1; end
+// ```
+// ->
+// ```
+// always_comb if (a) y = 1;
+// ```
 pub(super) fn unwrap_single_statement_block(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

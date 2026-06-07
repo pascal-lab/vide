@@ -21,6 +21,17 @@ const COLLAPSE_ID: CodeActionId = CodeActionId {
 };
 const COLLAPSE_LABEL: &str = "Collapse compound assignment";
 
+// Assist: expand_compound_assignment
+//
+// This expands compound assignments, or collapses simple self-assignments into compound assignments.
+//
+// ```
+// always_comb a $0+= b;
+// ```
+// ->
+// ```
+// always_comb a = a + b;
+// ```
 pub(super) fn expand_compound_assignment(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

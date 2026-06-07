@@ -11,6 +11,17 @@ const ID: CodeActionId = CodeActionId {
     repair: Some(RepairKind::InsertExpectedToken),
 };
 
+// Assist: insert_expected_token
+//
+// This inserts a token that the parser expected at the diagnostic location.
+//
+// ```
+// module top$0 endmodule
+// ```
+// ->
+// ```
+// module top; endmodule
+// ```
 pub(super) fn insert_expected_token(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

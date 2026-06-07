@@ -25,6 +25,17 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Fill connections";
 
+// Assist: add_missing_connections
+//
+// This fills the missing port connections for an instance from the target module definition.
+//
+// ```
+// child u($0.a(a));
+// ```
+// ->
+// ```
+// child u(.a(a), .b('0));
+// ```
 pub(super) fn add_missing_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
