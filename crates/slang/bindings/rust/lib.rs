@@ -103,6 +103,7 @@ pub struct SyntaxTreeBufferIds {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceBufferId {
     pub path: String,
+    pub text: Option<String>,
     pub buffer_id: u32,
     pub origin: SourceBufferOrigin,
 }
@@ -338,6 +339,7 @@ impl SyntaxTreeBufferIds {
                 .into_iter()
                 .map(|buffer| SourceBufferId {
                     path: buffer.path,
+                    text: buffer.has_text.then_some(buffer.text),
                     buffer_id: buffer.buffer_id,
                     origin: SourceBufferOrigin::from_raw(buffer.origin),
                 })
@@ -364,6 +366,7 @@ impl PreprocessorTrace {
                 .into_iter()
                 .map(|buffer| SourceBufferId {
                     path: buffer.path,
+                    text: buffer.has_text.then_some(buffer.text),
                     buffer_id: buffer.buffer_id,
                     origin: SourceBufferOrigin::from_raw(buffer.origin),
                 })

@@ -685,7 +685,10 @@ fn source_preproc_file_ids(
         .source_buffers
         .iter()
         .filter(|source| source.origin == SourceBufferOrigin::Predefine)
-        .map(|source| PreprocSourceId::from(source.buffer_id))
+        .map(|source| PredefineSourceBuffer {
+            source: PreprocSourceId::from(source.buffer_id),
+            text: source.text.as_deref(),
+        })
         .collect::<Vec<_>>();
     let predefine_map =
         PredefineVirtualMapping::new(db, profile_id, &preprocess.predefines, predefine_sources);
@@ -729,6 +732,13 @@ fn source_preproc_file_ids(
             }
             SourceBufferOrigin::Predefine => {
                 if let Some(entry) = predefine_map.entry(source_id) {
+                    let manifest_source = match entry.manifest_source(db, &path_file_ids) {
+                        Ok(manifest_source) => manifest_source,
+                        Err(reason) => {
+                            source_map.insert_unmapped(source_id, reason);
+                            continue;
+                        }
+                    };
                     source_map.insert_virtual_file_with_offset(
                         source_id,
                         entry.file_id,
@@ -737,9 +747,11 @@ fn source_preproc_file_ids(
                         entry.text_len,
                         entry.range_offset,
                     );
-                    if let Some(manifest_source) = entry.manifest_source(&path_file_ids) {
+                    if let Some(manifest_source) = manifest_source {
                         source_map.insert_predefine_manifest_source(source_id, manifest_source);
                     }
+                } else if let Some(reason) = predefine_map.unavailable_reason(source_id) {
+                    source_map.insert_unmapped(source_id, reason.clone());
                 } else {
                     source_map.insert_unmapped(
                         source_id,
@@ -851,12 +863,26 @@ fn materialized_predefine_text(predefine: &str) -> String {
 
 struct PredefineVirtualMapping {
     entries: FxHashMap<PreprocSourceId, PredefineVirtualEntry>,
+    unavailable: FxHashMap<PreprocSourceId, SourcePreprocUnavailable>,
 }
 
 struct PredefineVirtualEntry {
+    source: PreprocSourceId,
     file_id: Option<FileId>,
     path: VfsPath,
     text_len: usize,
+    range_offset: usize,
+    predefine: Predefine,
+}
+
+struct PredefineSourceBuffer<'a> {
+    source: PreprocSourceId,
+    text: Option<&'a str>,
+}
+
+struct PredefineConfigEntry {
+    text: String,
+    name: SmolStr,
     range_offset: usize,
     predefine: Predefine,
 }
@@ -866,13 +892,8 @@ impl PredefineVirtualMapping {
         db: &dyn SourceRootDb,
         profile_id: Option<CompilationProfileId>,
         predefines: &[Predefine],
-        mut sources: Vec<PreprocSourceId>,
+        sources: Vec<PredefineSourceBuffer<'_>>,
     ) -> Self {
-        sources.sort_by_key(|source| source.raw());
-        if sources.len() != predefines.len() || sources.is_empty() {
-            return Self { entries: FxHashMap::default() };
-        }
-
         let texts = predefines
             .iter()
             .map(|predefine| materialized_predefine_text(predefine.as_str()))
@@ -881,38 +902,139 @@ impl PredefineVirtualMapping {
         let path = preproc_virtual_predefines_path(profile_id);
         let file_id = materialized_preproc_virtual_file_id(db, &path);
         let mut range_offset = 0usize;
-        let mut entries = FxHashMap::default();
-        for (index, (source, text)) in sources.into_iter().zip(texts).enumerate() {
-            entries.insert(
-                source,
-                PredefineVirtualEntry {
-                    file_id,
-                    path: path.clone(),
-                    text_len,
+        let mut configs = Vec::new();
+        for (index, predefine) in predefines.iter().enumerate() {
+            let text = &texts[index];
+            if let Some(name) = materialized_predefine_name(text) {
+                configs.push(PredefineConfigEntry {
+                    text: text.clone(),
+                    name,
                     range_offset,
-                    predefine: predefines[index].clone(),
-                },
-            );
+                    predefine: predefine.clone(),
+                });
+            }
             range_offset += text.len();
         }
 
-        Self { entries }
+        let mut configs_by_text = FxHashMap::<String, Option<usize>>::default();
+        for (index, config) in configs.iter().enumerate() {
+            let slot = configs_by_text.entry(config.text.clone()).or_insert(Some(index));
+            if *slot != Some(index) {
+                *slot = None;
+            }
+        }
+
+        let mut entries = FxHashMap::default();
+        let mut unavailable = FxHashMap::default();
+        for source in sources {
+            let Some(source_text) = source.text else {
+                unavailable.insert(
+                    source.source,
+                    SourcePreprocUnavailable::MissingPredefineSourceText { source: source.source },
+                );
+                continue;
+            };
+            let Some(config_index) = configs_by_text.get(source_text).and_then(|index| *index)
+            else {
+                unavailable.insert(
+                    source.source,
+                    SourcePreprocUnavailable::UnverifiedPredefineSource { source: source.source },
+                );
+                continue;
+            };
+            let config = &configs[config_index];
+            if materialized_predefine_name(source_text).as_ref() != Some(&config.name) {
+                unavailable.insert(
+                    source.source,
+                    SourcePreprocUnavailable::UnverifiedPredefineSource { source: source.source },
+                );
+                continue;
+            }
+            entries.insert(
+                source.source,
+                PredefineVirtualEntry {
+                    source: source.source,
+                    file_id,
+                    path: path.clone(),
+                    text_len,
+                    range_offset: config.range_offset,
+                    predefine: config.predefine.clone(),
+                },
+            );
+        }
+
+        Self { entries, unavailable }
     }
 
     fn entry(&self, source: PreprocSourceId) -> Option<&PredefineVirtualEntry> {
         self.entries.get(&source)
+    }
+
+    fn unavailable_reason(&self, source: PreprocSourceId) -> Option<&SourcePreprocUnavailable> {
+        self.unavailable.get(&source)
     }
 }
 
 impl PredefineVirtualEntry {
     fn manifest_source(
         &self,
+        db: &dyn SourceRootDb,
         path_file_ids: &PathIdentityIndex<FileId>,
-    ) -> Option<PreprocManifestSource> {
-        let source = self.predefine.source.as_ref()?;
-        let file_id = path_file_ids.get_path(source.path.as_path())?;
-        Some(PreprocManifestSource { file_id, range: source.range })
+    ) -> Result<Option<PreprocManifestSource>, SourcePreprocUnavailable> {
+        let Some(source) = self.predefine.source.as_ref() else {
+            return Ok(None);
+        };
+        let Some(file_id) = path_file_ids.get_path(source.path.as_path()) else {
+            return Err(SourcePreprocUnavailable::UnverifiedPredefineSource {
+                source: self.source,
+            });
+        };
+        if !manifest_predefine_source_matches(
+            db.file_text(file_id).as_ref(),
+            source.range,
+            &self.predefine,
+        ) {
+            return Err(SourcePreprocUnavailable::UnverifiedPredefineSource {
+                source: self.source,
+            });
+        }
+        Ok(Some(PreprocManifestSource { file_id, range: source.range }))
     }
+}
+
+fn materialized_predefine_name(text: &str) -> Option<SmolStr> {
+    let rest = text.trim_start().strip_prefix("`define")?.trim_start();
+    let name =
+        rest.split(|ch: char| ch.is_whitespace() || ch == '(').next().unwrap_or_default().trim();
+    let name = name.strip_prefix('`').unwrap_or(name);
+    if name.is_empty() { None } else { Some(SmolStr::new(name)) }
+}
+
+fn manifest_predefine_source_matches(text: &str, range: TextRange, predefine: &Predefine) -> bool {
+    let start = usize::from(range.start());
+    let end = usize::from(range.end());
+    let Some(raw_source) = text.get(start..end) else {
+        return false;
+    };
+    let Some(source_definition) = unquote_manifest_predefine(raw_source) else {
+        return false;
+    };
+    source_definition == predefine.as_str()
+        && predefine_definition_name(source_definition)
+            == predefine_definition_name(predefine.as_str())
+}
+
+fn unquote_manifest_predefine(text: &str) -> Option<&str> {
+    let text = text.trim();
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .or_else(|| text.strip_prefix('\'').and_then(|text| text.strip_suffix('\'')))
+}
+
+fn predefine_definition_name(predefine: &str) -> Option<SmolStr> {
+    let name = predefine.split_once('=').map_or(predefine, |(name, _)| name);
+    let name = name.trim().strip_prefix('`').unwrap_or(name.trim());
+    if name.is_empty() { None } else { Some(SmolStr::new(name)) }
 }
 
 fn materialized_preproc_virtual_file_id(db: &dyn SourceRootDb, path: &VfsPath) -> Option<FileId> {
@@ -1589,7 +1711,7 @@ mod tests {
 
     use super::*;
     use crate::base_db::{
-        project::CompilationProfile,
+        project::{CompilationProfile, PredefineSource},
         salsa::{self, Durability},
     };
 
@@ -1644,9 +1766,47 @@ mod tests {
         db
     }
 
+    fn db_with_root_and_manifest(manifest_text: &str) -> TestDb {
+        let top_path = abs_path("rtl/top.v");
+        let manifest_path = abs_path("vide.toml");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        file_set.insert(MANIFEST, VfsPath::from(manifest_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        files.insert(MANIFEST);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        for (file_id, path, kind, text) in [
+            (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
+            (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, manifest_text),
+        ] {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
+            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+        }
+        db
+    }
+
     fn abs_path(path: &str) -> AbsPathBuf {
         let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
         AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
+
+    fn offset(text: &str, needle: &str) -> TextSize {
+        TextSize::try_from(text.find(needle).expect("needle must exist")).unwrap()
+    }
+
+    fn offset_after(text: &str, needle: &str) -> TextSize {
+        offset(text, needle) + TextSize::try_from(needle.len()).unwrap()
     }
 
     #[test]
@@ -1739,11 +1899,13 @@ mod tests {
             source_buffers: vec![
                 SourceBufferId {
                     path: abs_path("rtl/top.v").to_string(),
+                    text: None,
                     buffer_id: 1,
                     origin: SourceBufferOrigin::Source,
                 },
                 SourceBufferId {
                     path: abs_path("include/missing.vh").to_string(),
+                    text: None,
                     buffer_id: 2,
                     origin: SourceBufferOrigin::Source,
                 },
@@ -1770,24 +1932,35 @@ mod tests {
     }
 
     #[test]
-    fn source_preproc_mapping_records_predefines_as_display_virtual_source_without_backing() {
+    fn source_preproc_mapping_records_predefines_by_verified_source_text() {
         let db = db_with_root_file();
+        let first_text = materialized_predefine_text("FIRST=1");
+        let second_text = materialized_predefine_text("SECOND");
         let trace = PreprocessorTrace {
             root_buffer_id: 1,
             source_buffers: vec![
                 SourceBufferId {
                     path: abs_path("rtl/top.v").to_string(),
+                    text: None,
                     buffer_id: 1,
                     origin: SourceBufferOrigin::Source,
                 },
                 SourceBufferId {
                     path: "<api>".to_owned(),
+                    text: Some(second_text.clone()),
                     buffer_id: 2,
                     origin: SourceBufferOrigin::Predefine,
                 },
                 SourceBufferId {
                     path: "<api>".to_owned(),
-                    buffer_id: 3,
+                    text: Some(first_text.clone()),
+                    buffer_id: 9,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(materialized_predefine_text("EXTRA=9")),
+                    buffer_id: 4,
                     origin: SourceBufferOrigin::Predefine,
                 },
             ],
@@ -1804,10 +1977,10 @@ mod tests {
 
         let source_map =
             source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
-        let first = PreprocSourceId::from(2);
-        let second = PreprocSourceId::from(3);
+        let first = PreprocSourceId::from(9);
+        let second = PreprocSourceId::from(2);
+        let extra = PreprocSourceId::from(4);
         let expected_path = preproc_virtual_predefines_path(None);
-        let first_text = materialized_predefine_text("FIRST=1");
 
         let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(first)
         else {
@@ -1822,6 +1995,12 @@ mod tests {
                 path: expected_path,
                 origin: PreprocVirtualOrigin::Predefines { profile: None },
             })
+        );
+        assert_eq!(
+            source_map.get(extra),
+            Some(&PreprocSourceMapping::Unmapped(
+                SourcePreprocUnavailable::UnverifiedPredefineSource { source: extra }
+            ))
         );
         assert!(matches!(
             source_map.file_id(first),
@@ -1842,6 +2021,106 @@ mod tests {
     }
 
     #[test]
+    fn source_preproc_mapping_rejects_predefine_source_text_mismatch() {
+        let db = db_with_root_file();
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(materialized_predefine_text("SECOND=2")),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["FIRST=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess = PreprocessConfig::with_predefine_strings(["FIRST=1"], Vec::new());
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let source = PreprocSourceId::from(2);
+
+        assert_eq!(
+            source_map.get(source),
+            Some(&PreprocSourceMapping::Unmapped(
+                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+            ))
+        );
+        assert!(matches!(
+            source_map.map_range(SourceRange {
+                source,
+                range: TextRange::new(TextSize::from(0), TextSize::from(1)),
+            }),
+            Err(PreprocSourceMapError::UnmappedSource { .. })
+        ));
+    }
+
+    #[test]
+    fn source_preproc_mapping_rejects_manifest_range_mismatch() {
+        let manifest_text = "defines = [\"RIGHT=1\", \"WRONG=2\"]\n";
+        let db = db_with_root_and_manifest(manifest_text);
+        let wrong_range = TextRange::new(
+            offset(manifest_text, "\"WRONG=2\""),
+            offset_after(manifest_text, "\"WRONG=2\""),
+        );
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(materialized_predefine_text("RIGHT=1")),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["RIGHT=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess = PreprocessConfig {
+            predefines: vec![Predefine::with_source(
+                "RIGHT=1",
+                PredefineSource { path: abs_path("vide.toml"), range: wrong_range },
+            )],
+            include_dirs: Vec::new(),
+        };
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let source = PreprocSourceId::from(2);
+
+        assert_eq!(
+            source_map.get(source),
+            Some(&PreprocSourceMapping::Unmapped(
+                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+            ))
+        );
+    }
+
+    #[test]
     fn source_preproc_mapping_records_external_include_buffer_as_display_virtual_source() {
         let db = db_with_root_file();
         let external_path = "/external/generated_defs.vh".to_owned();
@@ -1850,11 +2129,13 @@ mod tests {
             source_buffers: vec![
                 SourceBufferId {
                     path: abs_path("rtl/top.v").to_string(),
+                    text: None,
                     buffer_id: 1,
                     origin: SourceBufferOrigin::Source,
                 },
                 SourceBufferId {
                     path: external_path.clone(),
+                    text: None,
                     buffer_id: 4,
                     origin: SourceBufferOrigin::Source,
                 },

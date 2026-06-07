@@ -1398,6 +1398,15 @@ endmodule
     )
     .expect("trace should include emitted tokens");
 
+    let predefine_source = trace
+        .source_buffers
+        .iter()
+        .find(|source| {
+            source.origin == SourceBufferOrigin::Predefine
+                && source.text.as_deref() == Some("`define FROM_API 11\n")
+        })
+        .expect("configured predefine source buffer should expose materialized text");
+
     let from_api = trace
         .emitted_tokens
         .iter()
@@ -1408,7 +1417,7 @@ endmodule
     else {
         unreachable!();
     };
-    assert_ne!(body_token_range.buffer_id, trace.root_buffer_id);
+    assert_eq!(body_token_range.buffer_id, predefine_source.buffer_id);
 
     let intrinsic = trace
         .emitted_tokens

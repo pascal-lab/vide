@@ -3425,28 +3425,36 @@ endmodule
 
     #[test]
     fn preproc_manifest_predefine_definition_uses_manifest_provenance() {
-        let root_text = r#"`ifdef FROM_MANIFEST
+        let root_text = r#"`ifdef Z_FROM_MANIFEST
 module top;
-localparam int W = `FROM_MANIFEST;
+localparam int W = `Z_FROM_MANIFEST;
 endmodule
 `endif
 "#;
-        let manifest_text = "defines = [\"FROM_MANIFEST=1\"]\n";
+        let manifest_text = "defines = [\"A_OTHER=2\", \"Z_FROM_MANIFEST=1\"]\n";
         let manifest_range = TextRange::new(
-            offset(manifest_text, "\"FROM_MANIFEST=1\""),
-            offset_after(manifest_text, "\"FROM_MANIFEST=1\""),
+            offset(manifest_text, "\"Z_FROM_MANIFEST=1\""),
+            offset_after(manifest_text, "\"Z_FROM_MANIFEST=1\""),
+        );
+        let other_range = TextRange::new(
+            offset(manifest_text, "\"A_OTHER=2\""),
+            offset_after(manifest_text, "\"A_OTHER=2\""),
         );
         let predefine = Predefine::with_source(
-            "FROM_MANIFEST=1",
+            "Z_FROM_MANIFEST=1",
             PredefineSource { path: abs_path("vide.toml"), range: manifest_range },
+        );
+        let other_predefine = Predefine::with_source(
+            "A_OTHER=2",
+            PredefineSource { path: abs_path("vide.toml"), range: other_range },
         );
         let db = db_with_entries_and_predefine_entries(
             &[(TOP, "rtl/top.v", root_text), (MANIFEST, "vide.toml", manifest_text)],
-            vec![predefine],
+            vec![other_predefine, predefine],
         );
 
         let resolution =
-            macro_reference_definitions_at(&db, TOP, offset(root_text, "FROM_MANIFEST;"))
+            macro_reference_definitions_at(&db, TOP, offset(root_text, "Z_FROM_MANIFEST;"))
                 .unwrap()
                 .unwrap();
         assert!(
@@ -3459,15 +3467,15 @@ endmodule
         let definition =
             macro_definition_at(&db, MANIFEST, manifest_range.start()).unwrap().unwrap();
         assert_eq!(definition.file_id, MANIFEST);
-        assert_eq!(definition.name.as_str(), "FROM_MANIFEST");
+        assert_eq!(definition.name.as_str(), "Z_FROM_MANIFEST");
         assert_eq!(definition.name_range, manifest_range);
-        assert_eq!(text_at_range(manifest_text, definition.name_range), "\"FROM_MANIFEST=1\"");
+        assert_eq!(text_at_range(manifest_text, definition.name_range), "\"Z_FROM_MANIFEST=1\"");
 
         let references = macro_references(&db, MANIFEST, &definition).unwrap();
         assert!(
             references.references.iter().any(|reference| {
                 reference.file_id == TOP
-                    && text_at_range(root_text, reference.range) == "FROM_MANIFEST"
+                    && text_at_range(root_text, reference.range) == "Z_FROM_MANIFEST"
             }),
             "manifest predefine definition should find source references: {references:?}"
         );
