@@ -116,6 +116,57 @@ pub fn macro_reference_at(
     })?))
 }
 
+pub fn macro_references_in_range(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+    range: TextRange,
+) -> PreprocResult<Vec<MacroReference>> {
+    let mut references = UniqVec::<MacroReference, ()>::default();
+    let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+
+    for model_file_id in contexts.model_file_ids.iter().copied() {
+        let mapped = db.source_preproc_model(model_file_id);
+        let mapped = match mapped_result(mapped.as_ref()) {
+            Ok(mapped) => mapped,
+            Err(error) => {
+                record_first_error(&mut first_error, error);
+                continue;
+            }
+        };
+
+        for reference in mapped.model.macro_references().iter() {
+            let Ok((source, reference_range)) =
+                map_mapped_source_range(mapped, reference.name_range)
+            else {
+                continue;
+            };
+            if source.file_id() != Some(file_id)
+                || reference_range
+                    .intersect(range)
+                    .is_none_or(|intersection| intersection.is_empty())
+            {
+                continue;
+            }
+
+            match map_macro_reference(mapped, reference) {
+                Ok(reference) => {
+                    references.push_unique_eq(reference);
+                }
+                Err(error) => record_first_error(&mut first_error, error),
+            }
+        }
+    }
+
+    if references.is_empty()
+        && let Err(error) = finish_empty_single_query(&contexts, first_error)
+    {
+        return Err(error);
+    }
+
+    Ok(references.into_vec())
+}
+
 pub fn macro_reference_resolution_at(
     db: &dyn SourceRootDb,
     file_id: FileId,

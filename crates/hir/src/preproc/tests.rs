@@ -1077,6 +1077,35 @@ fn preproc_ifndef_guard_reference_resolves_to_following_define() {
 }
 
 #[test]
+fn preproc_macro_references_in_range_includes_undefined_conditionals() {
+    let root_text = r#"`define KNOWN 1
+`ifdef UNKNOWN
+`endif
+`ifndef KNOWN
+`endif
+module top;
+endmodule
+"#;
+    let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+    let references =
+        macro_references_in_range(&db, TOP, TextRange::up_to(TextSize::of(root_text))).unwrap();
+
+    let unknown = references
+        .iter()
+        .find(|reference| reference.name.as_str() == "UNKNOWN")
+        .expect("undefined conditional macro reference should be present");
+    assert_eq!(text_at_range(root_text, unknown.range), "UNKNOWN");
+    assert!(matches!(unknown.resolution, MacroResolution::Undefined));
+
+    let known = references
+        .iter()
+        .find(|reference| reference.name.as_str() == "KNOWN")
+        .expect("resolved conditional macro reference should be present");
+    assert_eq!(text_at_range(root_text, known.range), "KNOWN");
+    assert!(matches!(known.resolution, MacroResolution::Resolved { .. }));
+}
+
+#[test]
 fn preproc_project_header_guard_reference_is_indexed_without_include() {
     let root_text = "module top; endmodule\n";
     let header_text = r#"`ifndef HEADER_FLAG
