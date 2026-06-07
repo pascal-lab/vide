@@ -29,6 +29,17 @@ const PARAMS_ID: CodeActionId = CodeActionId {
 };
 const PARAMS_LABEL: &str = "Convert ordered parameter assignments to named assignments";
 
+// Assist: convert_ordered_ports
+//
+// This converts ordered port connections to named port connections using the target module's port order.
+//
+// ```
+// child u($0a, b);
+// ```
+// ->
+// ```
+// child u(.a(a), .b(b));
+// ```
 pub(super) fn convert_ordered_ports(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
@@ -69,6 +80,17 @@ pub(super) fn convert_ordered_ports(
     Some(())
 }
 
+// Assist: convert_ordered_params
+//
+// This converts ordered parameter assignments to named parameter assignments using the target module's parameter order.
+//
+// ```
+// child #($01, 2) u();
+// ```
+// ->
+// ```
+// child #(.A(1), .B(2)) u();
+// ```
 pub(super) fn convert_ordered_params(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

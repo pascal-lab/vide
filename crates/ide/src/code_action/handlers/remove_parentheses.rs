@@ -15,6 +15,17 @@ const ID: CodeActionId = CodeActionId {
     repair: None,
 };
 
+// Assist: remove_parentheses
+//
+// This removes parentheses when they are redundant for the surrounding expression.
+//
+// ```
+// assign y = $0(a + b) + c;
+// ```
+// ->
+// ```
+// assign y = a + b + c;
+// ```
 pub(super) fn remove_parentheses(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

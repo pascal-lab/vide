@@ -17,6 +17,17 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Remove empty port connections";
 
+// Assist: remove_empty_port_connections
+//
+// This removes empty ordered port connections from an instance port list.
+//
+// ```
+// child u(a, $0, b);
+// ```
+// ->
+// ```
+// child u(a, b);
+// ```
 pub(super) fn remove_empty_port_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

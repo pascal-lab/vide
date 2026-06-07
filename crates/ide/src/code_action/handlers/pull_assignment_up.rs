@@ -20,6 +20,17 @@ const DOWN_ID: CodeActionId = CodeActionId {
     repair: None,
 };
 
+// Assist: pull_assignment_up
+//
+// This pulls matching assignments out of an if/else chain into a single ternary assignment.
+//
+// ```
+// always_comb if$0 (a) y = 1; else y = 0;
+// ```
+// ->
+// ```
+// always_comb y = a ? 1 : 0;
+// ```
 pub(super) fn pull_assignment_up(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
@@ -43,6 +54,17 @@ pub(super) fn pull_assignment_up(
     })
 }
 
+// Assist: pull_assignment_down
+//
+// This expands a ternary assignment into an if/else assignment chain.
+//
+// ```
+// always_comb $0y = a ? 1 : 0;
+// ```
+// ->
+// ```
+// always_comb if (a) y = 1; else y = 0;
+// ```
 pub(super) fn pull_assignment_down(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

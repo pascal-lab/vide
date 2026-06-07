@@ -12,6 +12,17 @@ use crate::code_action::{CodeActionCollector, CodeActionCtx, CodeActionId, CodeA
 const ID: CodeActionId =
     CodeActionId { name: "merge_nested_if", kind: CodeActionKind::RefactorRewrite, repair: None };
 
+// Assist: merge_nested_if
+//
+// This merges nested if statements without else branches into one if statement with a combined condition.
+//
+// ```
+// always_comb if$0 (a) begin if (b) y = 1; end
+// ```
+// ->
+// ```
+// always_comb if (a && b) y = 1;
+// ```
 pub(super) fn merge_nested_if(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
