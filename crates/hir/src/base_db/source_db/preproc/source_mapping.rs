@@ -349,19 +349,19 @@ fn manifest_predefine_source_matches(text: &str, range: TextRange, predefine: &P
     let Some(raw_source) = text.get(start..end) else {
         return false;
     };
-    let Some(source_definition) = unquote_manifest_predefine(raw_source) else {
+    let Some(source_definition) = decode_manifest_predefine_source(raw_source) else {
         return false;
     };
-    source_definition == predefine.as_str()
-        && predefine_definition_name(source_definition)
+    source_definition.as_str() == predefine.as_str()
+        && predefine_definition_name(source_definition.as_str())
             == predefine_definition_name(predefine.as_str())
 }
 
-fn unquote_manifest_predefine(text: &str) -> Option<&str> {
-    let text = text.trim();
-    text.strip_prefix('"')
-        .and_then(|text| text.strip_suffix('"'))
-        .or_else(|| text.strip_prefix('\'').and_then(|text| text.strip_suffix('\'')))
+fn decode_manifest_predefine_source(text: &str) -> Option<String> {
+    let document = format!("value = {}", text.trim());
+    toml::from_str::<toml::Value>(&document)
+        .ok()
+        .and_then(|document| document.get("value").and_then(toml::Value::as_str).map(str::to_owned))
 }
 
 fn predefine_definition_name(predefine: &str) -> Option<SmolStr> {
