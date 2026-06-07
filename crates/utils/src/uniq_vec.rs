@@ -34,6 +34,14 @@ impl<T, K: Eq + Hash> UniqVec<T, K> {
         true
     }
 
+    pub fn push_keyed<F>(&mut self, value: T, key: F) -> bool
+    where
+        F: FnOnce(&T) -> K,
+    {
+        let key = key(&value);
+        self.push([key], value)
+    }
+
     pub fn contains(&self, key: &K) -> bool {
         self.seen.contains(key)
     }
@@ -62,5 +70,22 @@ impl<T, K: Eq + Hash> UniqVec<T, K> {
 impl<T: Clone + Eq + Hash> UniqVec<T, T> {
     pub fn push_unique(&mut self, value: T) -> bool {
         self.push([value.clone()], value)
+    }
+}
+
+impl<T: PartialEq> UniqVec<T, ()> {
+    pub fn push_unique_by<F>(&mut self, value: T, same: F) -> bool
+    where
+        F: Fn(&T, &T) -> bool,
+    {
+        if self.items.iter().any(|existing| same(existing, &value)) {
+            return false;
+        }
+        self.items.push(value);
+        true
+    }
+
+    pub fn push_unique_eq(&mut self, value: T) -> bool {
+        self.push_unique_by(value, |existing, value| existing == value)
     }
 }
