@@ -1,6 +1,7 @@
 use preproc::source::{
     PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroExpansionId,
     SourcePosition, SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
+    SourceTokenProvenance,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
@@ -144,6 +145,30 @@ pub struct PreprocSourceMap {
     predefine_sources: FxHashMap<PreprocSourceId, PreprocManifestSource>,
     text_lengths: FxHashMap<PreprocSourceId, usize>,
     range_offsets: FxHashMap<PreprocSourceId, usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SourcePreprocContextIndex {
+    contexts_by_file: FxHashMap<FileId, Vec<FileId>>,
+    issues: Vec<SourcePreprocContextIndexIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePreprocContextIndexIssue {
+    pub model_file_id: FileId,
+    pub error: SourcePreprocQueryError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePreprocRelevantContexts {
+    pub model_file_ids: Vec<FileId>,
+    pub status: SourcePreprocContextStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourcePreprocContextStatus {
+    Complete,
+    Partial { skipped_models: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,6 +466,161 @@ impl PreprocSourceMap {
     }
 }
 
+impl SourcePreprocContextIndex {
+    fn push_context(&mut self, file_id: FileId, model_file_id: FileId) {
+        let contexts = self.contexts_by_file.entry(file_id).or_default();
+        if !contexts.contains(&model_file_id) {
+            contexts.push(model_file_id);
+            contexts.sort();
+        }
+    }
+
+    fn push_issue(&mut self, issue: SourcePreprocContextIndexIssue) {
+        self.issues.push(issue);
+    }
+
+    pub fn relevant_contexts(&self, file_id: FileId) -> SourcePreprocRelevantContexts {
+        SourcePreprocRelevantContexts {
+            model_file_ids: self.contexts_by_file.get(&file_id).cloned().unwrap_or_default(),
+            status: self.status(),
+        }
+    }
+
+    pub fn status(&self) -> SourcePreprocContextStatus {
+        if self.issues.is_empty() {
+            SourcePreprocContextStatus::Complete
+        } else {
+            SourcePreprocContextStatus::Partial { skipped_models: self.issues.len() }
+        }
+    }
+
+    pub fn issues(&self) -> &[SourcePreprocContextIndexIssue] {
+        &self.issues
+    }
+}
+
+fn preproc_context_file_ids(
+    mapped: &MappedSourcePreprocModel,
+    model_file_id: FileId,
+) -> Vec<FileId> {
+    let mut file_ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    push_unique_file_id(&mut file_ids, &mut seen, model_file_id);
+
+    for definition in mapped.model.macro_definitions().iter() {
+        collect_context_source_range(mapped, definition.directive_range, &mut file_ids, &mut seen);
+        collect_context_source_range(mapped, definition.name_range, &mut file_ids, &mut seen);
+        if let Some(params) = &definition.params {
+            for param in params {
+                if let Some(range) = param.name_range {
+                    collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+                }
+                if let Some(range) = param.range {
+                    collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+                }
+                if let Some(default) = &param.default {
+                    for token in default {
+                        if let Some(range) = token.range {
+                            collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+                        }
+                    }
+                }
+            }
+        }
+        for token in &definition.body_tokens {
+            if let Some(range) = token.range {
+                collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+            }
+        }
+    }
+
+    for reference in mapped.model.macro_references().iter() {
+        collect_context_source_range(mapped, reference.directive_range, &mut file_ids, &mut seen);
+        collect_context_source_range(mapped, reference.name_range, &mut file_ids, &mut seen);
+    }
+
+    for call in mapped.model.macro_calls().iter() {
+        collect_context_source_range(mapped, call.call_range, &mut file_ids, &mut seen);
+        for argument in &call.arguments {
+            if let Some(range) = argument.argument_range {
+                collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+            }
+            for token in &argument.tokens {
+                if let Some(range) = token.range {
+                    collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+                }
+            }
+        }
+    }
+
+    for include in mapped.model.include_graph().directives() {
+        collect_context_source_range(mapped, include.directive_range, &mut file_ids, &mut seen);
+        if let Some(range) = include.target_range {
+            collect_context_source_range(mapped, range, &mut file_ids, &mut seen);
+        }
+        if let Some(source) = include.resolved_source {
+            collect_context_source(mapped, source, &mut file_ids, &mut seen);
+        }
+    }
+
+    for range in mapped.model.inactive_ranges() {
+        collect_context_source_range(mapped, *range, &mut file_ids, &mut seen);
+    }
+
+    for provenance in mapped.model.token_provenance().iter() {
+        match provenance {
+            SourceTokenProvenance::Source { token_range }
+            | SourceTokenProvenance::MacroBody { body_token_range: token_range, .. } => {
+                collect_context_source_range(mapped, *token_range, &mut file_ids, &mut seen);
+            }
+            SourceTokenProvenance::MacroArgument {
+                body_token_range, argument_token_range, ..
+            } => {
+                collect_context_source_range(mapped, *body_token_range, &mut file_ids, &mut seen);
+                collect_context_source_range(
+                    mapped,
+                    *argument_token_range,
+                    &mut file_ids,
+                    &mut seen,
+                );
+            }
+            SourceTokenProvenance::TokenPaste { .. }
+            | SourceTokenProvenance::Stringification { .. }
+            | SourceTokenProvenance::Builtin { .. }
+            | SourceTokenProvenance::Unavailable(_) => {}
+            SourceTokenProvenance::Predefine { source } => {
+                collect_context_source(mapped, *source, &mut file_ids, &mut seen);
+            }
+        }
+    }
+
+    file_ids.sort();
+    file_ids
+}
+
+fn collect_context_source_range(
+    mapped: &MappedSourcePreprocModel,
+    range: SourceRange,
+    file_ids: &mut Vec<FileId>,
+    seen: &mut FxHashSet<FileId>,
+) {
+    collect_context_source(mapped, range.source, file_ids, seen);
+}
+
+fn collect_context_source(
+    mapped: &MappedSourcePreprocModel,
+    source: PreprocSourceId,
+    file_ids: &mut Vec<FileId>,
+    seen: &mut FxHashSet<FileId>,
+) {
+    if let Ok(file_id) = mapped.source_map.file_id(source) {
+        push_unique_file_id(file_ids, seen, file_id);
+    }
+    if let Some(manifest_source) = mapped.source_map.predefine_manifest_source(source) {
+        push_unique_file_id(file_ids, seen, manifest_source.file_id);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePreprocQueryError {
     UnsupportedFileKind(SourceFileKind),
@@ -479,6 +659,12 @@ fn insert_buffer_file_ids(
         if let Some(file_id) = path_file_ids.get(&buffer.path) {
             buffer_file_ids.insert(buffer.buffer_id, file_id);
         }
+    }
+}
+
+fn push_unique_file_id(file_ids: &mut Vec<FileId>, seen: &mut FxHashSet<FileId>, file_id: FileId) {
+    if seen.insert(file_id) {
+        file_ids.push(file_id);
     }
 }
 
@@ -997,6 +1183,10 @@ pub trait SourceRootDb: SourceDb {
         &self,
         file_id: FileId,
     ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
+    fn source_preproc_context_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<SourcePreprocContextIndex>;
     fn macro_reference_index_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
@@ -1063,6 +1253,54 @@ fn include_buffers_for_profile(
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
 }
 
+pub(crate) fn workspace_preproc_model_file_ids(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Vec<FileId> {
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let mut file_ids = FxHashSet::default();
+
+    for root in plan.roots.iter().copied() {
+        if matches!(
+            db.file_kind(root),
+            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+        ) {
+            file_ids.insert(root);
+        }
+    }
+    file_ids.extend(plan.include_only.iter().copied());
+
+    for source_root_id in &plan.source_roots {
+        for candidate in db.source_root(*source_root_id).iter() {
+            if db.file_is_project_ignored(candidate) {
+                continue;
+            }
+            if matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
+                file_ids.insert(candidate);
+            }
+        }
+    }
+
+    for candidate in db.files().iter().copied() {
+        if db.file_is_project_ignored(candidate) {
+            continue;
+        }
+        if !matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
+            continue;
+        }
+        let Some(path) = db.file_path(candidate) else {
+            continue;
+        };
+        if plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir)) {
+            file_ids.insert(candidate);
+        }
+    }
+
+    let mut file_ids = file_ids.into_iter().collect::<Vec<_>>();
+    file_ids.sort();
+    file_ids
+}
+
 fn source_preproc_model(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -1095,6 +1333,33 @@ fn source_preproc_model(
     materialize_expansion_virtual_files(db, profile_id, &model, &mut source_map);
 
     Arc::new(Ok(MappedSourcePreprocModel { model, source_map }))
+}
+
+fn source_preproc_context_index_for_profile(
+    db: &dyn SourceRootDb,
+    profile_id: Option<CompilationProfileId>,
+) -> Arc<SourcePreprocContextIndex> {
+    let mut index = SourcePreprocContextIndex::default();
+
+    for model_file_id in workspace_preproc_model_file_ids(db, profile_id) {
+        index.push_context(model_file_id, model_file_id);
+        let mapped = db.source_preproc_model(model_file_id);
+        match mapped.as_ref() {
+            Ok(mapped) => {
+                for file_id in preproc_context_file_ids(mapped, model_file_id) {
+                    index.push_context(file_id, model_file_id);
+                }
+            }
+            Err(error) => {
+                index.push_issue(SourcePreprocContextIndexIssue {
+                    model_file_id,
+                    error: error.clone(),
+                });
+            }
+        }
+    }
+
+    Arc::new(index)
 }
 
 fn macro_reference_index_for_profile(

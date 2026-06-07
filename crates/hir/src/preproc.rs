@@ -28,7 +28,8 @@ use crate::base_db::{
     project::{CompilationProfileId, Predefine},
     source_db::{
         MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping,
-        PreprocVirtualOrigin, SourceFileKind, SourcePreprocQueryError, SourceRootDb,
+        PreprocVirtualOrigin, SourceFileKind, SourcePreprocContextStatus, SourcePreprocQueryError,
+        SourceRootDb, workspace_preproc_model_file_ids,
     },
 };
 
@@ -69,6 +70,7 @@ pub enum PreprocUnavailable {
     AmbiguousMacroDefinitionContexts { contexts: usize },
     AmbiguousDiagnosticProvenance { targets: usize },
     AmbiguousIncludeTargets { targets: usize },
+    PartialPreprocContextIndex { skipped_models: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -563,7 +565,8 @@ pub fn visible_macros_at(
 ) -> PreprocResult<Vec<MacroDefinition>> {
     let mut definitions = Vec::new();
     let mut first_error = None;
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -584,7 +587,7 @@ pub fn visible_macros_at(
     }
 
     if definitions.is_empty()
-        && let Some(error) = first_error
+        && let Err(error) = finish_empty_single_query(&contexts, first_error)
     {
         return Err(error);
     }
@@ -658,9 +661,10 @@ fn configured_predefine_definitions_at(
     db: &dyn SourceRootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Vec<MacroDefinition> {
+) -> PreprocResult<Vec<MacroDefinition>> {
     let mut definitions = Vec::new();
-    for context_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+    for context_file_id in contexts.model_file_ids.iter().copied() {
         let profile_id = db.file_compilation_profile(context_file_id);
         let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
         for predefine in &project_preprocess.predefines {
@@ -678,7 +682,10 @@ fn configured_predefine_definitions_at(
             }
         }
     }
-    definitions
+    if definitions.is_empty() {
+        finish_empty_single_query(&contexts, None)?;
+    }
+    Ok(definitions)
 }
 
 fn configured_predefine_definition_at(
@@ -730,7 +737,8 @@ pub fn macro_definition_at(
     offset: TextSize,
 ) -> PreprocResult<Option<MacroDefinition>> {
     let mut first_error = None;
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -749,7 +757,7 @@ pub fn macro_definition_at(
         }
     }
 
-    let mut configured_definitions = configured_predefine_definitions_at(db, file_id, offset);
+    let mut configured_definitions = configured_predefine_definitions_at(db, file_id, offset)?;
     match configured_definitions.len() {
         0 => {}
         1 => return Ok(configured_definitions.pop()),
@@ -760,9 +768,7 @@ pub fn macro_definition_at(
         }
     }
 
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(None)
 }
@@ -789,8 +795,9 @@ pub fn macro_param_definitions_at(
 ) -> PreprocResult<Vec<MacroParamDefinition>> {
     let mut definitions = Vec::new();
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -820,7 +827,7 @@ pub fn macro_param_definitions_at(
     }
 
     if definitions.is_empty()
-        && let Some(error) = first_error
+        && let Err(error) = finish_empty_single_query(&contexts, first_error)
     {
         return Err(error);
     }
@@ -837,8 +844,9 @@ pub fn macro_param_reference_definitions_at(
     let mut references = Vec::new();
     let mut query_range = None;
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -891,9 +899,7 @@ pub fn macro_param_reference_definitions_at(
     }
 
     let Some(range) = query_range else {
-        if let Some(error) = first_error {
-            return Err(error);
-        }
+        finish_empty_single_query(&contexts, first_error)?;
         return Ok(None);
     };
 
@@ -928,8 +934,9 @@ pub fn macro_usage_resolutions_at(
     let mut resolutions = Vec::new();
     let mut first_error = None;
     let mut unavailable_contexts = 0;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1010,9 +1017,7 @@ pub fn macro_usage_resolutions_at(
             },
         });
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1066,8 +1071,9 @@ pub fn macro_reference_definitions_at(
     let mut references = Vec::new();
     let mut query_range = None;
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1140,9 +1146,7 @@ pub fn macro_reference_definitions_at(
     }
 
     let Some(range) = query_range else {
-        if let Some(error) = first_error {
-            return Err(error);
-        }
+        finish_empty_single_query(&contexts, first_error)?;
         return Ok(None);
     };
 
@@ -1192,8 +1196,9 @@ pub fn macro_expansion_queries_at(
 ) -> PreprocResult<Vec<MacroExpansionQuery>> {
     let mut queries = Vec::new();
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1212,9 +1217,7 @@ pub fn macro_expansion_queries_at(
     if !queries.is_empty() {
         return Ok(queries);
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1241,8 +1244,9 @@ pub fn recursive_macro_expansions_at(
 ) -> PreprocResult<Vec<RecursiveMacroExpansion>> {
     let mut expansions = Vec::new();
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1261,9 +1265,7 @@ pub fn recursive_macro_expansions_at(
     if !expansions.is_empty() {
         return Ok(expansions);
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1275,8 +1277,9 @@ pub fn recursive_macro_expansion_provenances_at(
 ) -> PreprocResult<Vec<RecursiveMacroExpansionProvenance>> {
     let mut expansions = Vec::new();
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1295,9 +1298,7 @@ pub fn recursive_macro_expansion_provenances_at(
     if !expansions.is_empty() {
         return Ok(expansions);
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1324,7 +1325,8 @@ pub fn macro_expansion_provenances_at(
 ) -> PreprocResult<Vec<MacroExpansionProvenance>> {
     let mut provenances = Vec::new();
     let mut first_error = None;
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1344,9 +1346,7 @@ pub fn macro_expansion_provenances_at(
     if !provenances.is_empty() {
         return Ok(provenances);
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1374,7 +1374,8 @@ pub fn macro_expansion_provenances_for_range(
     let mut provenances = Vec::new();
     let mut ambiguous_contexts = 0;
     let mut first_error = None;
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1407,9 +1408,7 @@ pub fn macro_expansion_provenances_for_range(
     if !provenances.is_empty() {
         return Ok(provenances);
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1422,8 +1421,9 @@ pub fn diagnostic_provenance_for_range(
     let mut provenances = Vec::new();
     let mut ambiguous_targets = 0;
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1473,9 +1473,7 @@ pub fn diagnostic_provenance_for_range(
             PreprocUnavailable::AmbiguousDiagnosticProvenance { targets: provenances.len() },
         )));
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(None)
 }
@@ -1503,7 +1501,7 @@ pub fn macro_param_references(
     let mut references = Vec::new();
     let mut first_error = None;
 
-    for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
+    for model_file_id in workspace_preproc_model_file_ids(db, profile_id) {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1570,7 +1568,7 @@ pub(crate) fn build_macro_reference_index(
 ) -> MacroReferenceIndex {
     let mut index = MacroReferenceIndex::default();
 
-    for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
+    for model_file_id in workspace_preproc_model_file_ids(db, profile_id) {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped.as_ref() {
             Ok(mapped) => mapped,
@@ -1689,7 +1687,8 @@ pub fn include_directives_at(
 ) -> PreprocResult<Vec<IncludeDirective>> {
     let mut directives = Vec::new();
     let mut first_error = None;
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    let contexts = source_preproc_single_query_contexts(db, file_id);
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1739,9 +1738,7 @@ pub fn include_directives_at(
     if !directives.is_empty() {
         return Ok(directives);
     }
-    if let Some(error) = first_error {
-        return Err(error);
-    }
+    finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
 }
@@ -1752,8 +1749,9 @@ pub fn inactive_branches(
 ) -> PreprocResult<Vec<InactiveBranch>> {
     let mut branches = Vec::new();
     let mut first_error = None;
+    let contexts = source_preproc_single_query_contexts(db, file_id);
 
-    for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
+    for model_file_id in contexts.model_file_ids.iter().copied() {
         let mapped = db.source_preproc_model(model_file_id);
         let mapped = match mapped_result(mapped.as_ref()) {
             Ok(mapped) => mapped,
@@ -1789,7 +1787,7 @@ pub fn inactive_branches(
     }
 
     if branches.is_empty()
-        && let Some(error) = first_error
+        && let Err(error) = finish_empty_single_query(&contexts, first_error)
     {
         return Err(error);
     }
@@ -1803,15 +1801,55 @@ fn mapped_result(
     result.as_ref().map_err(|err| err.clone().into())
 }
 
-fn source_preproc_query_model_file_ids(db: &dyn SourceRootDb, file_id: FileId) -> Vec<FileId> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourcePreprocQueryContexts {
+    model_file_ids: Vec<FileId>,
+    status: SourcePreprocContextStatus,
+}
+
+impl SourcePreprocQueryContexts {
+    fn partial_error(&self) -> Option<PreprocError> {
+        let SourcePreprocContextStatus::Partial { skipped_models } = self.status else {
+            return None;
+        };
+        Some(PreprocError::Unavailable {
+            reason: PreprocUnavailable::PartialPreprocContextIndex { skipped_models },
+        })
+    }
+}
+
+fn source_preproc_single_query_contexts(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+) -> SourcePreprocQueryContexts {
     let profile_id = db.file_compilation_profile(file_id);
+    let index = db.source_preproc_context_index_for_profile(profile_id);
+    let relevant = index.relevant_contexts(file_id);
     let mut file_ids = Vec::new();
     let mut seen = FxHashSet::default();
-    push_unique_file_id(&mut file_ids, &mut seen, file_id);
-    for model_file_id in preproc_reference_model_file_ids(db, profile_id) {
+    if matches!(
+        db.file_kind(file_id),
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
+    ) {
+        push_unique_file_id(&mut file_ids, &mut seen, file_id);
+    }
+    for model_file_id in relevant.model_file_ids {
         push_unique_file_id(&mut file_ids, &mut seen, model_file_id);
     }
-    file_ids
+    SourcePreprocQueryContexts { model_file_ids: file_ids, status: relevant.status }
+}
+
+fn finish_empty_single_query(
+    contexts: &SourcePreprocQueryContexts,
+    first_error: Option<PreprocError>,
+) -> PreprocResult<()> {
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    if let Some(error) = contexts.partial_error() {
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn push_unique_file_id(file_ids: &mut Vec<FileId>, seen: &mut FxHashSet<FileId>, file_id: FileId) {
@@ -2804,54 +2842,6 @@ fn macro_param_reference_context_capability(
         .unwrap_or(PreprocAvailability::Complete)
 }
 
-fn preproc_reference_model_file_ids(
-    db: &dyn SourceRootDb,
-    profile_id: Option<CompilationProfileId>,
-) -> Vec<FileId> {
-    let plan = db.compilation_plan_for_profile(profile_id);
-    let mut file_ids = FxHashSet::default();
-
-    for root in plan.roots.iter().copied() {
-        if matches!(
-            db.file_kind(root),
-            SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
-        ) {
-            file_ids.insert(root);
-        }
-    }
-    file_ids.extend(plan.include_only.iter().copied());
-
-    for source_root_id in &plan.source_roots {
-        for candidate in db.source_root(*source_root_id).iter() {
-            if db.file_is_project_ignored(candidate) {
-                continue;
-            }
-            if matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
-                file_ids.insert(candidate);
-            }
-        }
-    }
-
-    for candidate in db.files().iter().copied() {
-        if db.file_is_project_ignored(candidate) {
-            continue;
-        }
-        if !matches!(db.file_kind(candidate), SourceFileKind::IncludeHeader) {
-            continue;
-        }
-        let Some(path) = db.file_path(candidate) else {
-            continue;
-        };
-        if plan.include_dirs.iter().any(|include_dir| path.starts_with(include_dir)) {
-            file_ids.insert(candidate);
-        }
-    }
-
-    let mut file_ids = file_ids.into_iter().collect::<Vec<_>>();
-    file_ids.sort();
-    file_ids
-}
-
 #[cfg(test)]
 mod tests {
     use std::fmt;
@@ -3393,6 +3383,44 @@ endmodule
 
         assert!(names.iter().any(|name| name == "A005_LOCAL"), "{names:?}");
         assert!(names.iter().any(|name| name == "A005_MAGIC"), "{names:?}");
+    }
+
+    #[test]
+    fn preproc_single_offset_contexts_exclude_unrelated_profile_models() {
+        let root_text = r#"`include "defs.vh"
+module top;
+localparam int W = `HEADER_WIDTH;
+endmodule
+"#;
+        let header_text = "`define HEADER_WIDTH 8\n";
+        let unrelated_header_text = "`define UNUSED_WIDTH 16\n";
+        let db = db_with_nested_files(root_text, header_text, unrelated_header_text);
+
+        let contexts = source_preproc_single_query_contexts(&db, HEADER);
+
+        assert!(contexts.model_file_ids.contains(&TOP), "{contexts:?}");
+        assert!(contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
+        assert!(
+            !contexts.model_file_ids.contains(&LEAF),
+            "single-offset query contexts should not include unrelated profile model: {contexts:?}"
+        );
+    }
+
+    #[test]
+    fn preproc_partial_context_index_is_structured_unavailable() {
+        let contexts = SourcePreprocQueryContexts {
+            model_file_ids: Vec::new(),
+            status: SourcePreprocContextStatus::Partial { skipped_models: 2 },
+        };
+
+        let error = finish_empty_single_query(&contexts, None).unwrap_err();
+
+        assert!(matches!(
+            error,
+            PreprocError::Unavailable {
+                reason: PreprocUnavailable::PartialPreprocContextIndex { skipped_models: 2 }
+            }
+        ));
     }
 
     #[test]
