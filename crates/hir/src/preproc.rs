@@ -2328,12 +2328,17 @@ fn map_token_provenance(
             let (source, range) = map_mapped_source_range(mapped, *token_range)?;
             TokenProvenance::SourceToken { source, range }
         }
-        SourceTokenProvenanceFact::MacroBody { definition, body_token_range, call } => {
+        SourceTokenProvenanceFact::MacroBody { definition, body_token_range, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
             TokenProvenance::MacroBody { call, definition_id: (*definition).into(), source, range }
         }
-        SourceTokenProvenanceFact::MacroArgument { call, argument_index, argument_token_range } => {
+        SourceTokenProvenanceFact::MacroArgument {
+            call,
+            argument_index,
+            argument_token_range,
+            ..
+        } => {
             let call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_mapped_source_range(mapped, *argument_token_range)?;
             TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
@@ -3043,9 +3048,16 @@ endmodule
             recursive_macro_expansion_at(&db, TOP, offset(root_text, "`WRAP")).unwrap().unwrap();
         assert_eq!(recursive.root_call.file_id, TOP);
         assert_eq!(text_at_range(root_text, recursive.root_call.range), "`WRAP");
-        assert_eq!(recursive.expansions.len(), 2);
-        assert!(recursive.expansions.iter().any(|expansion| !expansion.child_calls.is_empty()));
-        assert!(recursive.unavailable.is_empty());
+        assert!(recursive.expansions.is_empty());
+        assert!(matches!(
+            recursive.unavailable.as_slice(),
+            [MacroExpansionUnavailable {
+                reason: PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
+                ),
+                ..
+            }]
+        ));
     }
 
     #[test]
@@ -3192,7 +3204,7 @@ endmodule
         assert!(matches!(
             provenance,
             DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable
+                SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
             ))
         ));
     }

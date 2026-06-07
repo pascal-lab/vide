@@ -3,8 +3,11 @@ use std::collections::BTreeMap;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     PreprocessorTrace, PreprocessorTraceEmittedToken, PreprocessorTraceEvent,
-    PreprocessorTraceEventId, PreprocessorTraceMacroParam, PreprocessorTraceToken,
-    PreprocessorTraceTokenProvenance, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
+    PreprocessorTraceEventId, PreprocessorTraceMacroArgumentIdentity,
+    PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroCallId,
+    PreprocessorTraceMacroDefinitionId, PreprocessorTraceMacroExpansionId,
+    PreprocessorTraceMacroParam, PreprocessorTraceToken, PreprocessorTraceTokenProvenance,
+    SourceBufferOrigin, SourceBufferRange, SyntaxKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -13,6 +16,50 @@ use super::*;
 impl From<PreprocessorTraceEventId> for SourcePreprocEventId {
     fn from(value: PreprocessorTraceEventId) -> Self {
         Self(value.0)
+    }
+}
+
+impl From<PreprocessorTraceMacroDefinitionId> for SourceMacroDefinitionKey {
+    fn from(value: PreprocessorTraceMacroDefinitionId) -> Self {
+        Self::new(value.0)
+    }
+}
+
+impl From<PreprocessorTraceMacroCallId> for SourceMacroCallKey {
+    fn from(value: PreprocessorTraceMacroCallId) -> Self {
+        Self::new(value.0)
+    }
+}
+
+impl From<PreprocessorTraceMacroExpansionId> for SourceMacroExpansionKey {
+    fn from(value: PreprocessorTraceMacroExpansionId) -> Self {
+        Self::new(value.0)
+    }
+}
+
+impl From<PreprocessorTraceMacroBodyIdentity> for SourceMacroBodyIdentity {
+    fn from(value: PreprocessorTraceMacroBodyIdentity) -> Self {
+        Self {
+            call: SourceMacroCallKey::from(value.call_id),
+            definition: SourceMacroDefinitionKey::from(value.definition_id),
+            expansion: SourceMacroExpansionKey::from(value.expansion_id),
+            parent_expansion: value.parent_expansion_id.map(SourceMacroExpansionKey::from),
+            body_token_index: value.body_token_index as usize,
+        }
+    }
+}
+
+impl From<PreprocessorTraceMacroArgumentIdentity> for SourceMacroArgumentIdentity {
+    fn from(value: PreprocessorTraceMacroArgumentIdentity) -> Self {
+        Self {
+            call: SourceMacroCallKey::from(value.call_id),
+            definition: SourceMacroDefinitionKey::from(value.definition_id),
+            expansion: SourceMacroExpansionKey::from(value.expansion_id),
+            parent_expansion: value.parent_expansion_id.map(SourceMacroExpansionKey::from),
+            body_token_index: value.body_token_index as usize,
+            argument_index: value.argument_index as usize,
+            argument_token_index: value.argument_token_index as usize,
+        }
     }
 }
 
@@ -182,6 +229,7 @@ fn collect_trace_event(
             let event_index = index.usages.len();
             index.usages.push(SourceMacroUsage {
                 event_id,
+                identity: directive.macro_call_id.map(SourceMacroCallKey::from),
                 name: directive.name.as_ref().map(|token| macro_name(token.value_text.as_str())),
                 name_range: directive.name.as_ref().and_then(trace_token_range),
                 range,
@@ -200,6 +248,7 @@ fn collect_trace_define(
 ) -> SourceMacroDefine {
     SourceMacroDefine {
         event_id,
+        identity: directive.macro_definition_id.map(SourceMacroDefinitionKey::from),
         name: directive.name.as_ref().map(trace_token_value),
         name_range: directive.name.as_ref().and_then(trace_token_range),
         params: (!directive.params.is_empty())
@@ -248,7 +297,7 @@ fn emitted_token_provenance_from_trace(
         }
         PreprocessorTraceTokenProvenance::MacroBody {
             macro_name,
-            identity: _,
+            identity,
             call_range,
             body_token_range,
         } => {
@@ -260,13 +309,14 @@ fn emitted_token_provenance_from_trace(
             };
             SourceTokenProvenanceFact::MacroBody {
                 macro_name: macro_name.to_smolstr(),
+                identity: Some(SourceMacroBodyIdentity::from(identity)),
                 call_range,
                 body_token_range,
             }
         }
         PreprocessorTraceTokenProvenance::MacroArgument {
             macro_name,
-            identity: _,
+            identity,
             call_range,
             body_token_range,
             argument_token_range,
@@ -282,13 +332,11 @@ fn emitted_token_provenance_from_trace(
             };
             SourceTokenProvenanceFact::MacroArgument {
                 macro_name: macro_name.to_smolstr(),
+                identity: Some(SourceMacroArgumentIdentity::from(identity)),
                 call_range,
                 body_token_range,
                 argument_token_range,
             }
-        }
-        PreprocessorTraceTokenProvenance::Builtin { name } => {
-            SourceTokenProvenanceFact::Builtin { name: name.to_smolstr() }
         }
         PreprocessorTraceTokenProvenance::Unavailable => SourceTokenProvenanceFact::Unavailable,
     }
