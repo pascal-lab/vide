@@ -658,8 +658,20 @@ rust::Vec<::RawSourceBufferId> collectSourceBufferIds(
 
     ::RawSourceBufferId sourceBuffer;
     sourceBuffer.path = rust::String(fullPath.string());
+    sourceBuffer.text = rust::String();
+    sourceBuffer.has_text = false;
     sourceBuffer.buffer_id = buffer.getId();
-    sourceBuffer.origin = predefineBufferIds.contains(buffer.getId()) ? 1 : 0;
+    if (predefineBufferIds.contains(buffer.getId())) {
+      auto text = sourceManager.getSourceText(buffer);
+      if (!text.empty() && text.back() == '\0')
+        text.remove_suffix(1);
+      sourceBuffer.text = rust::String(std::string(text));
+      sourceBuffer.has_text = true;
+      sourceBuffer.origin = 1;
+    }
+    else {
+      sourceBuffer.origin = 0;
+    }
     sourceBuffers.emplace_back(std::move(sourceBuffer));
   }
 

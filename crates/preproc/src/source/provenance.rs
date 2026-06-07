@@ -327,6 +327,8 @@ pub enum SourcePreprocUnavailable {
     IncludeEdgeNotInclude { include_event_id: SourcePreprocEventId },
     IncludeChainUnavailable { source: PreprocSourceId },
     DetachedSource { source: PreprocSourceId },
+    MissingPredefineSourceText { source: PreprocSourceId },
+    UnverifiedPredefineSource { source: PreprocSourceId },
     MacroCallAuthorityUnavailable,
     EmittedTokenAuthorityUnavailable,
     TokenProvenanceAuthorityUnavailable,

@@ -818,6 +818,7 @@ endmodule
             root_buffer_id: 1,
             source_buffers: vec![SourceBufferId {
                 path: ROOT_PATH.to_owned(),
+                text: None,
                 buffer_id: 1,
                 origin: SourceBufferOrigin::Source,
             }],
@@ -1235,6 +1236,7 @@ endmodule
             root_buffer_id: 1,
             source_buffers: vec![SourceBufferId {
                 path: ROOT_PATH.to_owned(),
+                text: None,
                 buffer_id: 1,
                 origin: SourceBufferOrigin::Source,
             }],
@@ -1485,6 +1487,7 @@ logic [`LEAF_WIDTH-1:0] data;
             root_buffer_id: 1,
             source_buffers: vec![SourceBufferId {
                 path: ROOT_PATH.to_owned(),
+                text: None,
                 buffer_id: 1,
                 origin: SourceBufferOrigin::Source,
             }],
