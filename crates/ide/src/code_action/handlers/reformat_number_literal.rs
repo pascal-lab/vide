@@ -46,7 +46,7 @@ pub(super) fn reformat_number_literal(
         return None;
     }
 
-    let replacement = format!("{}{}", prefix, add_group_separators(&digits, group_size));
+    let replacement = format!("{}{}", prefix, add_group_separators(digits, group_size));
     let label = format!("Convert {raw} to {replacement}");
     collector.add(ID, label, range, |builder| {
         builder.replace(range, replacement);
@@ -72,10 +72,10 @@ fn selected_integer_literal<'a>(
     Some((raw, "", raw, 3, range))
 }
 
-fn parse_based_literal<'a>(
-    raw: &'a str,
+fn parse_based_literal(
+    raw: &str,
     range: TextRange,
-) -> Option<(&'a str, &'a str, &'a str, usize, TextRange)> {
+) -> Option<(&str, &str, &str, usize, TextRange)> {
     let apostrophe = raw.find('\'')?;
     let after_quote = raw.get(apostrophe + 1..)?;
     let (sign_len, rest) = match after_quote.as_bytes().first().copied() {
