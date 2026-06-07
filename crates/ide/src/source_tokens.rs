@@ -86,7 +86,7 @@ fn source_token_range_for_offset(
         | TokenProvenance::Builtin { .. }
         | TokenProvenance::Unavailable(_) => return None,
     };
-    (source.file_id() == file_id && range.contains_inclusive(offset)).then_some(range)
+    (source.file_id() == file_id && range.contains(offset)).then_some(range)
 }
 
 fn tokens_with_exact_ranges<'tree>(
@@ -112,4 +112,25 @@ fn covering_range(ranges: &[TextRange]) -> TextRange {
     let start = ranges.iter().map(|range| range.start()).min().unwrap_or_default();
     let end = ranges.iter().map(|range| range.end()).max().unwrap_or_default();
     TextRange::new(start, end)
+}
+
+#[cfg(test)]
+mod tests {
+    use hir::preproc::{MappedPreprocSource, TokenProvenance};
+
+    use super::*;
+
+    #[test]
+    fn source_tokens_provenance_source_range_hit_test_is_half_open() {
+        let file_id = FileId(0);
+        let range = TextRange::new(5.into(), 10.into());
+        let provenance = TokenProvenance::SourceToken {
+            source: MappedPreprocSource::RealFile { file_id },
+            range,
+        };
+
+        assert_eq!(source_token_range_for_offset(&provenance, file_id, 5.into()), Some(range));
+        assert_eq!(source_token_range_for_offset(&provenance, file_id, 9.into()), Some(range));
+        assert_eq!(source_token_range_for_offset(&provenance, file_id, 10.into()), None);
+    }
 }

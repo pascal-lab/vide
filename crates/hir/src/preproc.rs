@@ -687,8 +687,7 @@ fn configured_predefine_definition_at(
 ) -> Option<MacroDefinition> {
     let definition =
         configured_predefine_definition(db, predefine, &predefine_macro_name(predefine.as_str())?)?;
-    (definition.file_id == file_id && range_contains_offset(definition.name_range, offset))
-        .then_some(definition)
+    (definition.file_id == file_id && definition.name_range.contains(offset)).then_some(definition)
 }
 
 fn configured_predefine_definition(
@@ -741,8 +740,7 @@ pub fn macro_definition_at(
 
         for definition in mapped.model.macro_definitions().iter() {
             let mapped_definition = map_macro_definition(mapped, definition)?;
-            if mapped_definition.file_id == file_id
-                && range_contains_offset(mapped_definition.name_range, offset)
+            if mapped_definition.file_id == file_id && mapped_definition.name_range.contains(offset)
             {
                 return Ok(Some(mapped_definition));
             }
@@ -811,7 +809,7 @@ pub fn macro_param_definitions_at(
                     continue;
                 };
                 if param_definition.macro_definition.file_id == file_id
-                    && range_contains_offset(param_definition.range, offset)
+                    && param_definition.range.contains(offset)
                 {
                     push_unique_macro_param_definition(&mut definitions, param_definition);
                 }
@@ -943,8 +941,12 @@ pub fn macro_usage_resolutions_at(
             let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
                 continue;
             };
-            match mapped_source_range_contains_offset(mapped, reference.name_range, file_id, offset)
-            {
+            match mapped_source_range_contains_provenance_offset(
+                mapped,
+                reference.name_range,
+                file_id,
+                offset,
+            ) {
                 Ok(true) => {}
                 Ok(false) => continue,
                 Err(error) => {
@@ -1823,11 +1825,10 @@ fn mapped_source_range_at_offset(
     offset: TextSize,
 ) -> PreprocResult<Option<(MappedPreprocSource, TextRange)>> {
     let (source, range) = map_mapped_source_range(mapped, source_range)?;
-    Ok((source.file_id() == file_id && range_contains_offset(range, offset))
-        .then_some((source, range)))
+    Ok((source.file_id() == file_id && range.contains(offset)).then_some((source, range)))
 }
 
-fn mapped_source_range_contains_offset(
+fn mapped_source_range_contains_provenance_offset(
     mapped: &MappedSourcePreprocModel,
     source_range: SourceRange,
     file_id: FileId,
@@ -2111,7 +2112,7 @@ fn source_macro_call_at(
         let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
             return false;
         };
-        source.file_id() == file_id && range_contains_offset(range, offset)
+        source.file_id() == file_id && range.contains(offset)
     })
 }
 
@@ -2770,10 +2771,6 @@ fn preproc_reference_model_file_ids(
     file_ids
 }
 
-fn range_contains_offset(range: TextRange, offset: TextSize) -> bool {
-    range.start() <= offset && offset <= range.end()
-}
-
 #[cfg(test)]
 mod tests {
     use std::fmt;
@@ -2973,6 +2970,7 @@ endmodule
             include_directive_at(&db, TOP, offset(root_text, "defs.vh")).unwrap().unwrap();
         assert_eq!(text_at_range(root_text, include.range), "\"defs.vh\"");
         assert!(include_directive_at(&db, TOP, offset(root_text, "`include")).unwrap().is_none());
+        assert!(include_directive_at(&db, TOP, include.range.end()).unwrap().is_none());
         let IncludeTarget::Literal { resolved_file, .. } = include.target else {
             panic!("literal include expected");
         };
@@ -3223,13 +3221,10 @@ endmodule
             vec![predefine],
         );
 
-        let resolution = macro_reference_definitions_at(
-            &db,
-            TOP,
-            offset_after_n(root_text, "`FROM_MANIFEST", 0),
-        )
-        .unwrap()
-        .unwrap();
+        let resolution =
+            macro_reference_definitions_at(&db, TOP, offset(root_text, "FROM_MANIFEST;"))
+                .unwrap()
+                .unwrap();
         assert!(
             resolution.definitions.iter().any(|definition| {
                 definition.file_id == MANIFEST && definition.name_range == manifest_range
@@ -3335,6 +3330,10 @@ localparam int ENABLED = `HEADER_FLAG;
                 .unwrap()
                 .unwrap();
         assert_eq!(text_at_range(root_text, definitions.range), "`HEADER_FLAG");
+        assert!(
+            macro_reference_definitions_at(&db, TOP, definitions.range.end()).unwrap().is_none()
+        );
+        assert!(macro_usage_resolution_at(&db, TOP, definitions.range.end()).unwrap().is_none());
         assert!(matches!(definitions.capability, PreprocAvailability::Complete));
         assert!(definitions.definitions.iter().any(|indexed| {
             indexed.file_id == HEADER
@@ -3434,6 +3433,9 @@ endmodule
                 .unwrap();
         assert_eq!(value_definition.name.as_str(), "value");
         assert_eq!(text_at_range(header_text, value_definition.range), "value");
+        assert!(
+            macro_param_definition_at(&db, HEADER, value_definition.range.end()).unwrap().is_none()
+        );
 
         let value_reference = macro_param_reference_definitions_at(
             &db,
@@ -3443,6 +3445,11 @@ endmodule
         .unwrap()
         .unwrap();
         assert_eq!(text_at_range(header_text, value_reference.range), "value");
+        assert!(
+            macro_param_reference_definitions_at(&db, HEADER, value_reference.range.end())
+                .unwrap()
+                .is_none()
+        );
         assert!(value_reference.definitions.iter().any(|definition| {
             definition.param_index == value_definition.param_index
                 && text_at_range(header_text, definition.range) == "value"
@@ -3524,6 +3531,7 @@ localparam int B = `USE_WIDTH;
         let definition =
             macro_definition_at(&db, TOP, offset(root_text, "HEADER_FLAG")).unwrap().unwrap();
         assert_eq!(text_at_range(root_text, definition.name_range), "HEADER_FLAG");
+        assert!(macro_definition_at(&db, TOP, definition.name_range.end()).unwrap().is_none());
         assert_ne!(definition.directive_range, definition.name_range);
     }
 
