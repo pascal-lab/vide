@@ -47,6 +47,47 @@ pub struct SourceRange {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourcePreprocEventId(pub(super) u32);
 
+macro_rules! source_identity_key {
+    ($name:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(u32);
+
+        impl $name {
+            pub fn new(raw: u32) -> Self {
+                Self(raw)
+            }
+
+            pub fn raw(self) -> u32 {
+                self.0
+            }
+        }
+    };
+}
+
+source_identity_key!(SourceMacroDefinitionKey);
+source_identity_key!(SourceMacroCallKey);
+source_identity_key!(SourceMacroExpansionKey);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroBodyIdentity {
+    pub call: SourceMacroCallKey,
+    pub definition: SourceMacroDefinitionKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+    pub body_token_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroArgumentIdentity {
+    pub call: SourceMacroCallKey,
+    pub definition: SourceMacroDefinitionKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+    pub body_token_index: usize,
+    pub argument_index: usize,
+    pub argument_token_index: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocSource {
     pub id: PreprocSourceId,
@@ -101,6 +142,7 @@ pub struct SourcePreprocEventRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroDefine {
     pub event_id: SourcePreprocEventId,
+    pub identity: Option<SourceMacroDefinitionKey>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub params: Option<Vec<SourceMacroParam>>,
@@ -143,6 +185,7 @@ pub struct SourceMacroConditional {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroUsage {
     pub event_id: SourcePreprocEventId,
+    pub identity: Option<SourceMacroCallKey>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub range: SourceRange,
@@ -176,11 +219,13 @@ pub enum SourceTokenProvenanceFact {
     },
     MacroBody {
         macro_name: SmolStr,
+        identity: Option<SourceMacroBodyIdentity>,
         call_range: SourceRange,
         body_token_range: SourceRange,
     },
     MacroArgument {
         macro_name: SmolStr,
+        identity: Option<SourceMacroArgumentIdentity>,
         call_range: SourceRange,
         body_token_range: SourceRange,
         argument_token_range: SourceRange,

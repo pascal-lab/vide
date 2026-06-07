@@ -323,8 +323,11 @@ mod tests {
     use smol_str::SmolStr;
     use syntax::{
         PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
-        PreprocessorTraceToken, SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
-        SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
+        PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroCallId,
+        PreprocessorTraceMacroDefinitionId, PreprocessorTraceMacroExpansionId,
+        PreprocessorTraceToken, PreprocessorTraceTokenProvenance, SourceBufferId,
+        SourceBufferOrigin, SourceBufferRange, SyntaxKind, SyntaxTree, SyntaxTreeBuffer,
+        SyntaxTreeOptions, TokenKind,
     };
     use utils::line_index::{TextRange, TextSize};
 
@@ -401,6 +404,10 @@ mod tests {
 
     fn text_at_range(text: &str, range: TextRange) -> &str {
         &text[usize::from(range.start())..usize::from(range.end())]
+    }
+
+    fn source_range(source: PreprocSourceId, start: u32, end: u32) -> SourceRange {
+        SourceRange { source, range: TextRange::new(TextSize::from(start), TextSize::from(end)) }
     }
 
     fn visible_macro_names(
@@ -750,6 +757,7 @@ logic [`HEADER_WIDTH-1:0] data;
                 definition: body_definition,
                 body_token_range,
                 call: body_call,
+                ..
             } if *body_definition == *resolved_definition
                 && body_token_range.source == header_source
                 && *body_call == call.id
@@ -777,8 +785,9 @@ endmodule
             .iter()
             .find(|token| token.text.as_str() == "7")
             .expect("argument replacement token should be emitted");
-        let SourceTokenProvenance::MacroArgument { call, argument_index, argument_token_range } =
-            model.token_provenance().get(emitted.provenance).unwrap()
+        let SourceTokenProvenance::MacroArgument {
+            call, argument_index, argument_token_range, ..
+        } = model.token_provenance().get(emitted.provenance).unwrap()
         else {
             panic!("argument replacement should map to MacroArgument provenance");
         };
@@ -804,7 +813,265 @@ endmodule
     }
 
     #[test]
-    fn source_model_builds_nested_macro_expansion_provenance_chain() {
+    fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![SourceBufferId {
+                path: ROOT_PATH.to_owned(),
+                buffer_id: 1,
+                origin: SourceBufferOrigin::Source,
+            }],
+            events: vec![
+                PreprocessorTraceEvent {
+                    event_id: PreprocessorTraceEventId(0),
+                    kind: SyntaxKind::DEFINE_DIRECTIVE,
+                    range: Some(SourceBufferRange { buffer_id: 1, range: 0..12 }),
+                    macro_definition_id: Some(PreprocessorTraceMacroDefinitionId(10)),
+                    macro_call_id: None,
+                    directive: None,
+                    name: Some(PreprocessorTraceToken {
+                        raw_text: "A".to_owned(),
+                        value_text: "A".to_owned(),
+                        token_kind: TokenKind::IDENTIFIER,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 8..9 }),
+                    }),
+                    include_file_name: None,
+                    params: Vec::new(),
+                    body_tokens: vec![PreprocessorTraceToken {
+                        raw_text: "1".to_owned(),
+                        value_text: "1".to_owned(),
+                        token_kind: TokenKind::INTEGER_LITERAL,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 8..9 }),
+                    }],
+                    expr_tokens: Vec::new(),
+                    disabled_ranges: Vec::new(),
+                },
+                PreprocessorTraceEvent {
+                    event_id: PreprocessorTraceEventId(1),
+                    kind: SyntaxKind::DEFINE_DIRECTIVE,
+                    range: Some(SourceBufferRange { buffer_id: 1, range: 13..25 }),
+                    macro_definition_id: Some(PreprocessorTraceMacroDefinitionId(20)),
+                    macro_call_id: None,
+                    directive: None,
+                    name: Some(PreprocessorTraceToken {
+                        raw_text: "B".to_owned(),
+                        value_text: "B".to_owned(),
+                        token_kind: TokenKind::IDENTIFIER,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 21..22 }),
+                    }),
+                    include_file_name: None,
+                    params: Vec::new(),
+                    body_tokens: vec![PreprocessorTraceToken {
+                        raw_text: "2".to_owned(),
+                        value_text: "2".to_owned(),
+                        token_kind: TokenKind::INTEGER_LITERAL,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 8..9 }),
+                    }],
+                    expr_tokens: Vec::new(),
+                    disabled_ranges: Vec::new(),
+                },
+                PreprocessorTraceEvent {
+                    event_id: PreprocessorTraceEventId(2),
+                    kind: SyntaxKind::MACRO_USAGE,
+                    range: Some(SourceBufferRange { buffer_id: 1, range: 40..42 }),
+                    macro_definition_id: None,
+                    macro_call_id: Some(PreprocessorTraceMacroCallId(200)),
+                    directive: None,
+                    name: Some(PreprocessorTraceToken {
+                        raw_text: "`B".to_owned(),
+                        value_text: "`B".to_owned(),
+                        token_kind: TokenKind::DIRECTIVE,
+                        range: Some(SourceBufferRange { buffer_id: 1, range: 40..42 }),
+                    }),
+                    include_file_name: None,
+                    params: Vec::new(),
+                    body_tokens: Vec::new(),
+                    expr_tokens: Vec::new(),
+                    disabled_ranges: Vec::new(),
+                },
+            ],
+            include_edges: Vec::new(),
+            emitted_tokens: vec![syntax::PreprocessorTraceEmittedToken {
+                raw_text: "2".to_owned(),
+                value_text: "2".to_owned(),
+                token_kind: TokenKind::INTEGER_LITERAL,
+                provenance: PreprocessorTraceTokenProvenance::MacroBody {
+                    macro_name: "B".to_owned(),
+                    identity: PreprocessorTraceMacroBodyIdentity {
+                        call_id: PreprocessorTraceMacroCallId(200),
+                        definition_id: PreprocessorTraceMacroDefinitionId(20),
+                        expansion_id: PreprocessorTraceMacroExpansionId(300),
+                        parent_expansion_id: None,
+                        body_token_index: 0,
+                    },
+                    call_range: SourceBufferRange { buffer_id: 1, range: 40..42 },
+                    body_token_range: SourceBufferRange { buffer_id: 1, range: 8..9 },
+                },
+            }],
+        };
+        let model = SourcePreprocModel::from_trace(trace).unwrap();
+        let emitted = model.emitted_tokens().iter().find(|token| token.text == "2").unwrap();
+        let SourceTokenProvenance::MacroBody { definition, call, identity, .. } =
+            model.token_provenance().get(emitted.provenance).unwrap()
+        else {
+            panic!("colliding range token should still resolve through direct body identity");
+        };
+
+        let definition = model.macro_definitions().get(*definition).unwrap();
+        assert_eq!(definition.name.as_str(), "B");
+        assert_eq!(definition.identity, Some(identity.definition));
+        assert_eq!(model.macro_calls().get(*call).unwrap().identity, Some(identity.call));
+    }
+
+    #[test]
+    fn source_model_preserves_multi_token_argument_direct_identity() {
+        let root_text = r#"`define NEXT(x) ((x) + 12'd1)
+module m(input logic [3:0] payload_i, output logic [3:0] y);
+assign y = `NEXT(payload_i[3:0]);
+endmodule
+"#;
+        let (model, root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+        let payload = model
+            .emitted_tokens()
+            .iter()
+            .find_map(|token| {
+                let SourceTokenProvenance::MacroArgument {
+                    identity,
+                    call,
+                    argument_index,
+                    body_token_range,
+                    argument_token_range,
+                } = model.token_provenance().get(token.provenance)?
+                else {
+                    return None;
+                };
+                (token.text.as_str() == "payload_i").then_some((
+                    *identity,
+                    *call,
+                    *argument_index,
+                    *body_token_range,
+                    *argument_token_range,
+                ))
+            })
+            .expect("payload identifier should be direct macro argument provenance");
+        let slice = model
+            .emitted_tokens()
+            .iter()
+            .find_map(|token| {
+                let SourceTokenProvenance::MacroArgument {
+                    identity,
+                    call,
+                    argument_index,
+                    body_token_range,
+                    argument_token_range,
+                } = model.token_provenance().get(token.provenance)?
+                else {
+                    return None;
+                };
+                (token.text.as_str() == "3").then_some((
+                    *identity,
+                    *call,
+                    *argument_index,
+                    *body_token_range,
+                    *argument_token_range,
+                ))
+            })
+            .expect("slice index should be direct macro argument provenance");
+
+        assert_eq!(payload.0.call, slice.0.call);
+        assert_eq!(payload.1, slice.1);
+        assert_eq!(payload.2, 0);
+        assert_eq!(slice.2, 0);
+        assert_eq!(payload.0.argument_token_index, 0);
+        assert_eq!(slice.0.argument_token_index, 2);
+        assert_eq!(payload.3, slice.3);
+        assert_eq!(payload.4.source, root_source);
+        assert_eq!(slice.4.source, root_source);
+        let call = model.macro_calls().get(payload.1).unwrap();
+        assert_eq!(call.arguments.len(), 1);
+        assert_eq!(
+            text_at_range(root_text, call.arguments[0].argument_range.unwrap().range),
+            "payload_i[3:0]"
+        );
+    }
+
+    #[test]
+    fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
+        let root_source = PreprocSourceId::from(1);
+        let define_range = source_range(root_source, 0, 11);
+        let name_range = source_range(root_source, 8, 9);
+        let body_range = source_range(root_source, 10, 11);
+        let usage_range = source_range(root_source, 24, 26);
+        let index = SourcePreprocIndex {
+            root_source: Some(root_source),
+            sources: vec![PreprocSource {
+                id: root_source,
+                path: SmolStr::new(ROOT_PATH),
+                origin: PreprocSourceOrigin::Root,
+            }],
+            event_records: vec![
+                SourcePreprocEventRecord {
+                    event_id: SourcePreprocEventId(0),
+                    kind: MacroEventKind::Define,
+                    range: define_range,
+                    index: 0,
+                },
+                SourcePreprocEventRecord {
+                    event_id: SourcePreprocEventId(1),
+                    kind: MacroEventKind::Usage,
+                    range: usage_range,
+                    index: 0,
+                },
+            ],
+            emitted_tokens: vec![SourceEmittedTokenFact {
+                raw: SmolStr::new("1"),
+                value: SmolStr::new("1"),
+                kind: SourceTokenKind::Syntax(TokenKind::INTEGER_LITERAL),
+                provenance: SourceTokenProvenanceFact::MacroBody {
+                    macro_name: SmolStr::new("A"),
+                    identity: None,
+                    call_range: usage_range,
+                    body_token_range: body_range,
+                },
+            }],
+            defines: vec![SourceMacroDefine {
+                event_id: SourcePreprocEventId(0),
+                identity: Some(SourceMacroDefinitionKey::new(10)),
+                name: Some(SmolStr::new("A")),
+                name_range: Some(name_range),
+                params: None,
+                body: vec![SourceMacroToken {
+                    raw: SmolStr::new("1"),
+                    value: SmolStr::new("1"),
+                    range: Some(body_range),
+                }],
+                range: define_range,
+            }],
+            usages: vec![SourceMacroUsage {
+                event_id: SourcePreprocEventId(1),
+                identity: Some(SourceMacroCallKey::new(20)),
+                name: Some(SmolStr::new("A")),
+                name_range: Some(usage_range),
+                range: usage_range,
+            }],
+            ..SourcePreprocIndex::default()
+        };
+
+        let model = SourcePreprocModel::new(index);
+        let emitted = model.emitted_tokens().iter().next().unwrap();
+        assert!(matches!(
+            model.token_provenance().get(emitted.provenance).unwrap(),
+            SourceTokenProvenance::Unavailable(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity
+            )
+        ));
+        assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Partial);
+        assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Partial);
+    }
+
+    #[test]
+    fn source_model_keeps_nested_macro_identity_without_range_recovery() {
         let root_text = r#"`define LEAF 3
 `define WRAP `LEAF
 module m;
@@ -843,10 +1110,46 @@ endmodule
         let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
             model.immediate_macro_expansion(wrap_call.id)
         else {
-            panic!("outer macro should have expansion range from nested emitted tokens");
+            assert!(matches!(
+                model.immediate_macro_expansion(wrap_call.id),
+                SourceMacroExpansionQuery::Unavailable(
+                    SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
+                )
+            ));
+            assert_eq!(wrap_call.expansion_identity, None);
+            assert!(matches!(model.capabilities().macro_expansions, CapabilityStatus::Partial));
+            return;
         };
-        let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
-        assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
+        panic!(
+            "outer macro should not recover tokenless nested expansion by range: {wrap_expansion_id:?}"
+        );
+    }
+
+    #[test]
+    fn source_model_builds_nested_leaf_expansion_from_direct_identity() {
+        let root_text = r#"`define LEAF 3
+`define WRAP `LEAF
+module m;
+localparam int W = `WRAP;
+endmodule
+"#;
+        let (model, _root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+        let leaf_call = model
+            .macro_calls()
+            .iter()
+            .find(|call| {
+                let reference = model.macro_references().get(call.reference).unwrap();
+                reference.name.as_str() == "LEAF"
+                    && matches!(
+                        reference.site,
+                        SourceMacroReferenceSite::ExpansionToken { emitted_token: _ }
+                    )
+            })
+            .expect("nested macro invocation should create an expansion-token call");
+        assert!(leaf_call.identity.is_some());
+        assert!(leaf_call.expansion_identity.is_some());
+        assert!(leaf_call.parent_expansion_identity.is_some());
 
         let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
             model.immediate_macro_expansion(leaf_call.id)
@@ -858,16 +1161,22 @@ endmodule
             .iter()
             .find(|token| token.text.as_str() == "3")
             .expect("nested macro body token should be emitted");
-        let SourceTokenProvenance::MacroBody { call, .. } =
+        let SourceTokenProvenance::MacroBody { identity, definition, call, .. } =
             model.token_provenance().get(emitted.provenance).unwrap()
         else {
             panic!("nested emitted token should keep macro body provenance");
         };
         assert_eq!(*call, leaf_call.id);
-        assert_eq!(wrap_expansion.emitted_token_range.start, emitted.id);
+        assert_eq!(Some(identity.call), leaf_call.identity);
+        assert_eq!(Some(identity.expansion), leaf_call.expansion_identity);
+        assert_eq!(identity.parent_expansion, leaf_call.parent_expansion_identity);
+        assert_eq!(
+            Some(identity.definition),
+            model.macro_definitions().get(*definition).unwrap().identity
+        );
 
-        let recursive = model.recursive_macro_expansion(wrap_call.id);
-        assert_eq!(recursive.expansions, vec![wrap_expansion_id, leaf_expansion_id]);
+        let recursive = model.recursive_macro_expansion(leaf_call.id);
+        assert_eq!(recursive.expansions, vec![leaf_expansion_id]);
         assert!(recursive.unavailable.is_empty());
     }
 
@@ -1005,7 +1314,7 @@ endmodule
     }
 
     #[test]
-    fn source_model_maps_predefine_and_builtin_emitted_token_provenance() {
+    fn source_model_maps_predefine_and_marks_intrinsic_unavailable() {
         let root_text = r#"module m;
 localparam int P = `FROM_API;
 localparam int L = `__LINE__;
@@ -1033,17 +1342,17 @@ endmodule
             candidate.id == *source && candidate.origin == PreprocSourceOrigin::Predefine
         }));
 
-        let builtin = model
+        let intrinsic = model
             .emitted_tokens()
             .iter()
-            .find(|token| {
-                matches!(
-                    model.token_provenance().get(token.provenance),
-                    Some(SourceTokenProvenance::Builtin { name }) if name == "__LINE__"
-                )
-            })
-            .expect("builtin macro token should be emitted");
-        assert!(!builtin.text.is_empty());
+            .find(|token| token.text.as_str() == "3")
+            .expect("intrinsic macro token should stay in emitted stream");
+        assert!(matches!(
+            model.token_provenance().get(intrinsic.provenance).unwrap(),
+            SourceTokenProvenance::Unavailable(
+                SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
+            )
+        ));
     }
 
     #[test]
