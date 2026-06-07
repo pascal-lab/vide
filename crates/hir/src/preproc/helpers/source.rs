@@ -48,15 +48,6 @@ pub(in crate::preproc) fn mapped_source_range_at_offset(
     Ok((source.file_id() == Some(file_id) && range.contains(offset)).then_some((source, range)))
 }
 
-pub(in crate::preproc) fn mapped_source_range_contains_provenance_offset(
-    mapped: &MappedSourcePreprocModel,
-    source_range: SourceRange,
-    file_id: FileId,
-    offset: TextSize,
-) -> PreprocResult<bool> {
-    Ok(mapped_source_range_at_offset(mapped, source_range, file_id, offset)?.is_some())
-}
-
 pub(in crate::preproc) fn map_mapped_source_id(
     mapped: &MappedSourcePreprocModel,
     source: PreprocSourceId,

@@ -30,23 +30,13 @@ pub fn macro_usage_resolutions_at(
             }
         };
 
-        for reference in mapped.model.macro_references().iter() {
+        for reference_id in mapped.macro_reference_ids_at(file_id, offset) {
+            let Some(reference) = mapped.model.macro_references().get(reference_id) else {
+                continue;
+            };
             let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
                 continue;
             };
-            match mapped_source_range_contains_provenance_offset(
-                mapped,
-                reference.name_range,
-                file_id,
-                offset,
-            ) {
-                Ok(true) => {}
-                Ok(false) => continue,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            }
 
             let SourceMacroResolutionFact::Resolved { definition, include_chain, .. } =
                 &reference.resolution
@@ -135,19 +125,10 @@ pub fn macro_references_in_range(
             }
         };
 
-        for reference in mapped.model.macro_references().iter() {
-            let Ok((source, reference_range)) =
-                map_mapped_source_range(mapped, reference.name_range)
-            else {
+        for reference_id in mapped.macro_reference_ids_intersecting_range(file_id, range) {
+            let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-            if source.file_id() != Some(file_id)
-                || reference_range
-                    .intersect(range)
-                    .is_none_or(|intersection| intersection.is_empty())
-            {
-                continue;
-            }
 
             match map_macro_reference(mapped, reference) {
                 Ok(reference) => {
@@ -210,7 +191,10 @@ pub fn macro_reference_definitions_at(
             }
         };
 
-        for reference in mapped.model.macro_references().iter() {
+        for reference_id in mapped.macro_reference_ids_at(file_id, offset) {
+            let Some(reference) = mapped.model.macro_references().get(reference_id) else {
+                continue;
+            };
             let (_, range) = match mapped_source_range_at_offset(
                 mapped,
                 reference.name_range,
