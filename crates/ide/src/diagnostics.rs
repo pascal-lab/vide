@@ -849,6 +849,54 @@ mod tests {
     }
 
     #[test]
+    fn syntax_only_manifest_does_not_disable_open_file_syntax_diagnostics() {
+        let manifest_id = FileId(0);
+        let open_file_id = FileId(1);
+        let mut manifest_files = FileSet::default();
+        manifest_files.insert(manifest_id, VfsPath::new_virtual_path("/project/vide.toml".into()));
+        let mut open_files = FileSet::default();
+        open_files.insert(open_file_id, VfsPath::new_virtual_path("/scratch/open.sv".into()));
+
+        let mut change = Change::new();
+        change.set_roots(vec![
+            SourceRoot::new_local(manifest_files),
+            SourceRoot::new_ignored(open_files),
+        ]);
+        change.set_project_config(Arc::new(ProjectConfig::new(vec![None, None], Vec::new())));
+        change.add_changed_file(ChangedFile {
+            file_id: manifest_id,
+            change_kind: ChangeKind::Create(Arc::from(""), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: open_file_id,
+            change_kind: ChangeKind::Create(
+                Arc::from("module open(;\nendmodule\n"),
+                LineEnding::Unix,
+            ),
+        });
+
+        let mut db = RootDb::new(None);
+        db.apply_change(change);
+
+        assert!(!db.project_config().has_compilation_profiles());
+        assert_eq!(db.project_config().profile_for_root(SourceRootId(0)), None);
+        assert_eq!(db.project_config().profile_for_root(SourceRootId(1)), None);
+        assert!(diagnostics(&db, manifest_id).is_empty());
+
+        let diagnostics = diagnostics(&db, open_file_id);
+        assert!(
+            diagnostics.iter().any(|diag| diag.source == DiagnosticSource::SlangParse),
+            "profile-less open files should keep syntax diagnostics: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|diag| {
+                diag.file_id == open_file_id && diag.source != DiagnosticSource::SlangSemantic
+            }),
+            "syntax-only manifest must not create semantic diagnostic ownership: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn best_effort_index_root_does_not_produce_fallback_compilation_plan() {
         let mut db = RootDb::new(None);
         let file_id = FileId(0);

@@ -1588,9 +1588,13 @@ mod tests {
     use vfs::{FileSet, VfsPath};
 
     use super::*;
-    use crate::base_db::salsa::{self, Durability};
+    use crate::base_db::{
+        project::CompilationProfile,
+        salsa::{self, Durability},
+    };
 
     const TOP: FileId = FileId(0);
+    const MANIFEST: FileId = FileId(1);
     const ROOT: SourceRootId = SourceRootId(0);
 
     #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
@@ -1624,6 +1628,10 @@ mod tests {
 
         let mut db = TestDb::default();
         db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
         db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
         db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
@@ -1664,6 +1672,63 @@ mod tests {
 
         assert_eq!(kind, SourceFileKind::ProjectManifest);
         assert!(!kind.is_slang_parse_unit());
+    }
+
+    #[test]
+    fn project_manifests_are_loadable_but_not_semantic_or_preproc_inputs() {
+        let top_path = abs_path("rtl/top.sv");
+        let manifest_path = abs_path("vide.toml");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        file_set.insert(MANIFEST, VfsPath::from(manifest_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        files.insert(MANIFEST);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        for (file_id, path, kind, text) in [
+            (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
+            (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, "defines = [\"M=1\"]\n"),
+        ] {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
+            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+        }
+        db.set_project_config_with_durability(
+            Arc::new(ProjectConfig::new(
+                vec![Some(CompilationProfileId(0))],
+                vec![CompilationProfile {
+                    source_roots: vec![ROOT],
+                    top_modules: Vec::new(),
+                    preprocess: PreprocessConfig::default(),
+                }],
+            )),
+            Durability::LOW,
+        );
+
+        assert_eq!(db.file_kind(MANIFEST), SourceFileKind::ProjectManifest);
+        assert!(db.parse_diagnostics(MANIFEST).is_empty());
+
+        let plan = db.compilation_plan_for_root(ROOT);
+        assert_eq!(plan.roots, vec![TOP]);
+        assert!(!plan.include_only.contains(&MANIFEST));
+
+        let preproc_model_files =
+            workspace_preproc_model_file_ids(&db, Some(CompilationProfileId(0)));
+        assert_eq!(preproc_model_files, vec![TOP]);
+        assert_eq!(
+            db.source_preproc_model(MANIFEST).as_ref(),
+            &Err(SourcePreprocQueryError::UnsupportedFileKind(SourceFileKind::ProjectManifest))
+        );
     }
 
     #[test]
