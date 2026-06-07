@@ -697,11 +697,48 @@ endmodule
     let contexts = source_preproc_single_query_contexts(&db, HEADER);
 
     assert!(contexts.model_file_ids.contains(&TOP), "{contexts:?}");
-    assert!(contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
+    assert!(!contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
     assert!(
         !contexts.model_file_ids.contains(&LEAF),
         "single-offset query contexts should not include unrelated profile model: {contexts:?}"
     );
+}
+
+#[test]
+fn preproc_header_query_uses_including_context_over_standalone_model() {
+    let root_text = r#"`define FEATURE 1
+`include "defs.vh"
+"#;
+    let header_text = r#"`ifdef FEATURE
+`define WIDTH 8
+`endif
+localparam int W = `WIDTH;
+"#;
+    let db = db_with_files(root_text, header_text);
+
+    let reference = macro_reference_at(&db, HEADER, offset(header_text, "WIDTH;"))
+        .unwrap()
+        .expect("included context should resolve the header reference without ambiguity");
+    assert_eq!(text_at_range(header_text, reference.range), "`WIDTH");
+    assert!(matches!(reference.resolution, MacroResolution::Resolved { .. }));
+
+    let resolution = macro_reference_resolution_at(&db, HEADER, offset(header_text, "WIDTH;"))
+        .unwrap()
+        .expect("header macro reference should resolve through the including root");
+    assert_eq!(resolution.definition.file_id, HEADER);
+    assert_eq!(text_at_range(header_text, resolution.definition.name_range), "WIDTH");
+}
+
+#[test]
+fn preproc_header_without_including_context_uses_standalone_model() {
+    let root_text = "module top; endmodule\n";
+    let header_text = "`define WIDTH 8\n";
+    let db = db_with_files(root_text, header_text);
+
+    let contexts = source_preproc_single_query_contexts(&db, HEADER);
+
+    assert!(contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
+    assert!(!contexts.model_file_ids.contains(&TOP), "{contexts:?}");
 }
 
 #[test]
