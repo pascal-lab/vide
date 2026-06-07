@@ -7,7 +7,6 @@ use crate::{
     definitions::DefinitionClass,
     goto_definition,
     navigation_target::{NavTarget, ToNav},
-    source_tokens::SourceTokenSelection,
 };
 
 pub(crate) fn goto_declaration(
@@ -25,21 +24,7 @@ pub(crate) fn goto_declaration(
         offset,
         goto_definition::token_precedence,
     )?;
-    let (range, tokens) = match selection {
-        SourceTokenSelection::NormalSyntax(selection) => (selection.range, selection.tokens),
-        SourceTokenSelection::Preproc(selection) => {
-            let _ = selection.hits.len();
-            (selection.range, selection.tokens)
-        }
-        SourceTokenSelection::Unavailable(unavailable) => {
-            let _ = unavailable.range;
-            return None;
-        }
-        SourceTokenSelection::Ambiguous(ambiguous) => {
-            let _ = (ambiguous.range, ambiguous.hits.len());
-            return None;
-        }
-    };
+    let (range, tokens) = selection.range_and_tokens()?;
 
     let origins = tokens
         .into_iter()

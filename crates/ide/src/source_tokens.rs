@@ -23,6 +23,21 @@ pub(crate) enum SourceTokenSelection<'tree> {
     Ambiguous(PreprocTokenAmbiguity),
 }
 
+impl<'tree> SourceTokenSelection<'tree> {
+    pub(crate) fn range_and_tokens(self) -> Option<(TextRange, Vec<SyntaxTokenWithParent<'tree>>)> {
+        match self {
+            Self::NormalSyntax(selection) => Some((selection.range, selection.tokens)),
+            Self::Preproc(selection) => Some(selection.range_and_tokens()),
+            Self::Unavailable(PreprocTokenUnavailable { range: _ }) => None,
+            Self::Ambiguous(PreprocTokenAmbiguity { range: _, hits: _ }) => None,
+        }
+    }
+
+    pub(crate) fn tokens(self) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
+        self.range_and_tokens().map(|(_, tokens)| tokens)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct NormalSyntaxSelection<'tree> {
     pub range: TextRange,
@@ -34,6 +49,14 @@ pub(crate) struct PreprocTokenSelection<'tree> {
     pub range: TextRange,
     pub hits: Vec<PreprocTokenHit>,
     pub tokens: Vec<SyntaxTokenWithParent<'tree>>,
+}
+
+impl<'tree> PreprocTokenSelection<'tree> {
+    pub(crate) fn range_and_tokens(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
+        let Self { range, hits, tokens } = self;
+        let _hit_count = hits.len();
+        (range, tokens)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, hash::Hash};
 
 use preproc::source::{
     CapabilityStatus, MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId,
@@ -403,7 +403,7 @@ pub struct RecursiveMacroExpansionProvenance {
     pub unavailable: Vec<MacroExpansionUnavailable>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct MacroDefinitionKey {
     file_id: FileId,
     range_start: TextSize,
@@ -422,7 +422,7 @@ impl MacroDefinitionKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct MacroReferenceKey {
     file_id: FileId,
     range_start: TextSize,
@@ -441,10 +441,73 @@ impl MacroReferenceKey {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MacroParamDefinitionKey {
+    macro_definition: MacroDefinitionKey,
+    param_index: usize,
+    range_start: TextSize,
+    range_end: TextSize,
+    name: SmolStr,
+}
+
+impl MacroParamDefinitionKey {
+    fn from_definition(definition: &MacroParamDefinition) -> Self {
+        Self {
+            macro_definition: MacroDefinitionKey::from_definition(&definition.macro_definition),
+            param_index: definition.param_index,
+            range_start: definition.range.start(),
+            range_end: definition.range.end(),
+            name: definition.name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MacroParamReferenceKey {
+    macro_definition: MacroDefinitionKey,
+    param_index: usize,
+    file_id: FileId,
+    range_start: TextSize,
+    range_end: TextSize,
+    name: SmolStr,
+}
+
+impl MacroParamReferenceKey {
+    fn from_reference(reference: &MacroParamReference) -> Self {
+        Self {
+            macro_definition: MacroDefinitionKey::from_definition(&reference.macro_definition),
+            param_index: reference.param_index,
+            file_id: reference.file_id,
+            range_start: reference.range.start(),
+            range_end: reference.range.end(),
+            name: reference.name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct InactiveBranchKey {
+    file_id: FileId,
+    range_start: TextSize,
+    range_end: TextSize,
+}
+
+impl InactiveBranchKey {
+    fn from_branch(branch: &InactiveBranch) -> Self {
+        Self {
+            file_id: branch.file_id,
+            range_start: branch.range.start(),
+            range_end: branch.range.end(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MacroReferenceIndex {
-    references_by_definition: BTreeMap<MacroDefinitionKey, Vec<MacroReference>>,
-    definitions_by_reference: BTreeMap<MacroReferenceKey, Vec<MacroDefinition>>,
+    references_by_definition:
+        BTreeMap<MacroDefinitionKey, UniqVec<MacroReference, MacroReferenceKey>>,
+    definitions_by_reference:
+        BTreeMap<MacroReferenceKey, UniqVec<MacroDefinition, MacroDefinitionKey>>,
     issues: Vec<MacroReferenceIndexIssue>,
 }
 
@@ -477,7 +540,7 @@ impl MacroReferenceIndex {
     pub fn references_for(&self, definition: &MacroDefinition) -> Vec<MacroReference> {
         self.references_by_definition
             .get(&MacroDefinitionKey::from_definition(definition))
-            .cloned()
+            .map(|references| references.as_slice().to_vec())
             .unwrap_or_default()
     }
 
@@ -487,7 +550,7 @@ impl MacroReferenceIndex {
     ) -> Option<&[MacroDefinition]> {
         self.definitions_by_reference
             .get(&MacroReferenceKey::from_reference(reference))
-            .map(Vec::as_slice)
+            .map(UniqVec::as_slice)
     }
 
     pub fn status(&self) -> MacroReferenceIndexStatus {
@@ -501,11 +564,19 @@ impl MacroReferenceIndex {
     fn push(&mut self, definition: MacroDefinition, reference: MacroReference) {
         let definition_key = MacroDefinitionKey::from_definition(&definition);
         let references = self.references_by_definition.entry(definition_key).or_default();
-        push_unique_macro_reference(references, reference.clone());
+        push_unique_value(
+            references,
+            MacroReferenceKey::from_reference(&reference),
+            reference.clone(),
+        );
 
         let reference_key = MacroReferenceKey::from_reference(&reference);
         let definitions = self.definitions_by_reference.entry(reference_key).or_default();
-        push_unique_macro_definition(definitions, definition);
+        push_unique_value(
+            definitions,
+            MacroDefinitionKey::from_definition(&definition),
+            definition,
+        );
     }
 
     fn push_issue(&mut self, issue: MacroReferenceIndexIssue) {
@@ -565,7 +636,7 @@ pub fn visible_macros_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroDefinition>> {
-    let mut definitions = Vec::new();
+    let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
     for model_file_id in contexts.model_file_ids.iter().copied() {
@@ -594,7 +665,7 @@ pub fn visible_macros_at(
         return Err(error);
     }
 
-    Ok(definitions)
+    Ok(definitions.into_vec())
 }
 
 pub fn visible_macro_names_at(
@@ -643,7 +714,7 @@ fn configured_predefine_definitions_for_name(
     context_file_id: FileId,
     name: &SmolStr,
 ) -> Vec<MacroDefinition> {
-    let mut definitions = Vec::new();
+    let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
     let profile_id = db.file_compilation_profile(context_file_id);
     let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
     for predefine in &project_preprocess.predefines {
@@ -656,7 +727,7 @@ fn configured_predefine_definitions_for_name(
             push_unique_macro_definition(&mut definitions, definition);
         }
     }
-    definitions
+    definitions.into_vec()
 }
 
 fn configured_predefine_definitions_at(
@@ -664,7 +735,7 @@ fn configured_predefine_definitions_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroDefinition>> {
-    let mut definitions = Vec::new();
+    let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
     let contexts = source_preproc_single_query_contexts(db, file_id);
     for context_file_id in contexts.model_file_ids.iter().copied() {
         let profile_id = db.file_compilation_profile(context_file_id);
@@ -687,7 +758,7 @@ fn configured_predefine_definitions_at(
     if definitions.is_empty() {
         finish_empty_single_query(&contexts, None)?;
     }
-    Ok(definitions)
+    Ok(definitions.into_vec())
 }
 
 fn configured_predefine_definition_at(
@@ -796,7 +867,7 @@ pub fn macro_param_definitions_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroParamDefinition>> {
-    let mut definitions = Vec::new();
+    let mut definitions = UniqVec::<MacroParamDefinition, MacroParamDefinitionKey>::default();
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
 
@@ -835,7 +906,7 @@ pub fn macro_param_definitions_at(
         return Err(error);
     }
 
-    Ok(definitions)
+    Ok(definitions.into_vec())
 }
 
 pub fn macro_param_reference_definitions_at(
@@ -843,8 +914,8 @@ pub fn macro_param_reference_definitions_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroParamReferenceDefinitions>> {
-    let mut definitions = Vec::new();
-    let mut references = Vec::new();
+    let mut definitions = UniqVec::<MacroParamDefinition, MacroParamDefinitionKey>::default();
+    let mut references = UniqVec::<MacroParamReference, MacroParamReferenceKey>::default();
     let mut query_range = None;
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
@@ -906,6 +977,8 @@ pub fn macro_param_reference_definitions_at(
         return Ok(None);
     };
 
+    let references = references.into_vec();
+    let definitions = definitions.into_vec();
     Ok(Some(MacroParamReferenceDefinitions {
         capability: macro_param_reference_context_capability(&references),
         references,
@@ -1051,18 +1124,24 @@ pub fn macro_reference_resolution_at(
     let Some(mut resolution) = macro_reference_definitions_at(db, file_id, offset)? else {
         return Ok(None);
     };
-    if resolution.references.len() != 1 || resolution.definitions.len() != 1 {
+    if resolution.references.len() != 1 {
         return Err(PreprocError::Unavailable {
             reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
-                contexts: resolution.references.len().max(resolution.definitions.len()),
+                contexts: resolution.references.len(),
             },
         });
     }
     let reference = resolution.references.pop().unwrap();
-    let Some(definition) = resolution.definitions.into_iter().next() else {
-        return Ok(None);
-    };
-    Ok(Some(MacroReferenceResolution { reference, definition }))
+    match resolution.definitions.len() {
+        0 => Ok(None),
+        1 => {
+            let definition = resolution.definitions.pop().unwrap();
+            Ok(Some(MacroReferenceResolution { reference, definition }))
+        }
+        contexts => Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts },
+        }),
+    }
 }
 
 pub fn macro_reference_definitions_at(
@@ -1070,7 +1149,7 @@ pub fn macro_reference_definitions_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroReferenceDefinitions>> {
-    let mut definitions = Vec::new();
+    let mut definitions = UniqVec::<MacroDefinition, MacroDefinitionKey>::default();
     let mut references = Vec::new();
     let mut query_range = None;
     let mut first_error = None;
@@ -1157,7 +1236,7 @@ pub fn macro_reference_definitions_at(
         capability: macro_reference_context_capability(&references),
         references,
         range,
-        definitions,
+        definitions: definitions.into_vec(),
     }))
 }
 
@@ -1518,7 +1597,7 @@ pub fn macro_param_references(
     let profile_id = db
         .file_compilation_profile(file_id)
         .or_else(|| db.file_compilation_profile(definition.macro_definition.file_id));
-    let mut references = Vec::new();
+    let mut references = UniqVec::<MacroParamReference, MacroParamReferenceKey>::default();
     let mut first_error = None;
 
     for model_file_id in workspace_preproc_model_file_ids(db, profile_id) {
@@ -1579,7 +1658,7 @@ pub fn macro_param_references(
         return Err(error);
     }
 
-    Ok(MacroParamReferences { references })
+    Ok(MacroParamReferences { references: references.into_vec() })
 }
 
 pub(crate) fn build_macro_reference_index(
@@ -1767,7 +1846,7 @@ pub fn inactive_branches(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> PreprocResult<Vec<InactiveBranch>> {
-    let mut branches = Vec::new();
+    let mut branches = UniqVec::<InactiveBranch, InactiveBranchKey>::default();
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
 
@@ -1812,7 +1891,7 @@ pub fn inactive_branches(
         return Err(error);
     }
 
-    Ok(branches)
+    Ok(branches.into_vec())
 }
 
 fn mapped_result(
@@ -2728,17 +2807,6 @@ fn map_include_chain(
         .collect()
 }
 
-fn push_unique_macro_reference(refs: &mut Vec<MacroReference>, reference: MacroReference) {
-    if refs.iter().any(|existing| {
-        existing.file_id == reference.file_id
-            && existing.range == reference.range
-            && existing.name == reference.name
-    }) {
-        return;
-    }
-    refs.push(reference);
-}
-
 fn push_unique_macro_reference_context(refs: &mut Vec<MacroReference>, reference: MacroReference) {
     if refs.iter().any(|existing| existing == &reference) {
         return;
@@ -2821,14 +2889,11 @@ fn push_unique_include_directive(
     directives.push(directive);
 }
 
-fn push_unique_inactive_branch(branches: &mut Vec<InactiveBranch>, branch: InactiveBranch) {
-    if branches
-        .iter()
-        .any(|existing| existing.file_id == branch.file_id && existing.range == branch.range)
-    {
-        return;
-    }
-    branches.push(branch);
+fn push_unique_inactive_branch(
+    branches: &mut UniqVec<InactiveBranch, InactiveBranchKey>,
+    branch: InactiveBranch,
+) {
+    push_unique_value(branches, InactiveBranchKey::from_branch(&branch), branch);
 }
 
 fn macro_reference_context_capability(references: &[MacroReference]) -> PreprocAvailability {
@@ -2855,55 +2920,37 @@ fn macro_reference_context_capability(references: &[MacroReference]) -> PreprocA
         .unwrap_or(PreprocAvailability::Complete)
 }
 
+fn push_unique_value<T, K: Eq + Hash>(values: &mut UniqVec<T, K>, key: K, value: T) {
+    values.push([key], value);
+}
+
 fn push_unique_macro_definition(
-    definitions: &mut Vec<MacroDefinition>,
+    definitions: &mut UniqVec<MacroDefinition, MacroDefinitionKey>,
     definition: MacroDefinition,
 ) {
-    if definitions.iter().any(|existing| {
-        existing.file_id == definition.file_id
-            && existing.name_range == definition.name_range
-            && existing.name == definition.name
-    }) {
-        return;
-    }
-    definitions.push(definition);
+    push_unique_value(definitions, MacroDefinitionKey::from_definition(&definition), definition);
 }
 
 fn same_macro_definition(left: &MacroDefinition, right: &MacroDefinition) -> bool {
-    left.file_id == right.file_id && left.name_range == right.name_range && left.name == right.name
-}
-
-fn same_macro_param_definition(left: &MacroParamDefinition, right: &MacroParamDefinition) -> bool {
-    same_macro_definition(&left.macro_definition, &right.macro_definition)
-        && left.param_index == right.param_index
-        && left.range == right.range
-        && left.name == right.name
+    MacroDefinitionKey::from_definition(left) == MacroDefinitionKey::from_definition(right)
 }
 
 fn push_unique_macro_param_definition(
-    definitions: &mut Vec<MacroParamDefinition>,
+    definitions: &mut UniqVec<MacroParamDefinition, MacroParamDefinitionKey>,
     definition: MacroParamDefinition,
 ) {
-    if definitions.iter().any(|existing| same_macro_param_definition(existing, &definition)) {
-        return;
-    }
-    definitions.push(definition);
+    push_unique_value(
+        definitions,
+        MacroParamDefinitionKey::from_definition(&definition),
+        definition,
+    );
 }
 
 fn push_unique_macro_param_reference(
-    refs: &mut Vec<MacroParamReference>,
+    refs: &mut UniqVec<MacroParamReference, MacroParamReferenceKey>,
     reference: MacroParamReference,
 ) {
-    if refs.iter().any(|existing| {
-        same_macro_definition(&existing.macro_definition, &reference.macro_definition)
-            && existing.param_index == reference.param_index
-            && existing.file_id == reference.file_id
-            && existing.range == reference.range
-            && existing.name == reference.name
-    }) {
-        return;
-    }
-    refs.push(reference);
+    push_unique_value(refs, MacroParamReferenceKey::from_reference(&reference), reference);
 }
 
 fn macro_param_reference_context_capability(

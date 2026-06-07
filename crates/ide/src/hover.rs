@@ -83,14 +83,7 @@ pub(crate) fn hover(
         SourceTokenSelection::Preproc(selection) => {
             hover_for_preproc_selection(&sema, hir_file_id, selection)
         }
-        SourceTokenSelection::Unavailable(unavailable) => {
-            let _ = unavailable.range;
-            None
-        }
-        SourceTokenSelection::Ambiguous(ambiguous) => {
-            let _ = (ambiguous.range, ambiguous.hits.len());
-            None
-        }
+        SourceTokenSelection::Unavailable(_) | SourceTokenSelection::Ambiguous(_) => None,
     }?;
     Some(with_expanded_macro_hover(db, file_id, offset, hover))
 }
@@ -100,8 +93,8 @@ fn hover_for_preproc_selection(
     hir_file_id: HirFileId,
     selection: PreprocTokenSelection<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    let _ = selection.hits.len();
-    hover_for_token_selection(sema, hir_file_id, selection.range, selection.tokens)
+    let (range, tokens) = selection.range_and_tokens();
+    hover_for_token_selection(sema, hir_file_id, range, tokens)
 }
 
 fn hover_for_token_selection(
