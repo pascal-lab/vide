@@ -525,7 +525,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         if (!it->second.isExpanded) {
             std::span<const Token> argTokens = it->second;
             SmallSet<const DefineDirectiveSyntax*, 8> alreadyExpanded;
-            if (!expandReplacementList(argTokens, alreadyExpanded))
+            if (!expandReplacementList(argTokens, alreadyExpanded, expansion.getExpansionId()))
                 return false;
 
             it->second = argTokens;
@@ -729,7 +729,8 @@ void Preprocessor::MacroExpansion::append(Token token, SourceLocation location,
 }
 
 bool Preprocessor::expandReplacementList(
-    std::span<Token const>& tokens, SmallSet<const DefineDirectiveSyntax*, 8>& alreadyExpanded) {
+    std::span<Token const>& tokens, SmallSet<const DefineDirectiveSyntax*, 8>& alreadyExpanded,
+    uint32_t parentExpansionId) {
 
     SmallVector<Token, 16> outBuffer;
     SmallVector<Token, 16> expansionBuffer;
@@ -774,6 +775,8 @@ bool Preprocessor::expandReplacementList(
         metadata.definitionId = macro.definitionId;
         if (sourceManager.isMacroLoc(token.location()))
             metadata.parentExpansionId = token.location().buffer().getId();
+        else
+            metadata.parentExpansionId = parentExpansionId;
 
         MacroExpansion expansion{sourceManager, alloc, expansionBuffer, token, false, metadata};
         if (!expandMacro(macro, expansion, actualArgs))

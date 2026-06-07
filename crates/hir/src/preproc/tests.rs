@@ -354,12 +354,12 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "payload_i")
         .expect("expanded payload token should stay in NEXT expansion provenance");
-    assert!(matches!(
-        payload.provenance,
-        TokenProvenance::Unavailable(PreprocUnavailable::Source(
-            SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
-        ))
-    ));
+    let TokenProvenance::MacroBody { call, source, range, .. } = &payload.provenance else {
+        panic!("nested PAYL expansion should keep direct macro body provenance: {payload:?}");
+    };
+    assert_eq!(source.file_id(), Some(TOP));
+    assert_eq!(text_at_range(root_text, *range), "payload_i");
+    assert_eq!(text_at_range(root_text, call.range), "`PAYL");
 
     let payl_offset = offset(root_text, "`PAYL");
     let queries = macro_expansion_queries_at(&db, TOP, payl_offset).unwrap();
@@ -368,12 +368,18 @@ endmodule
         MacroExpansionQuery::Available(expansion)
             if expansion.definition.name.as_str() == "NEXT"
     )));
-    assert!(queries.iter().any(|query| matches!(query, MacroExpansionQuery::Unavailable(_))));
+    assert!(queries.iter().any(|query| matches!(
+        query,
+        MacroExpansionQuery::Available(expansion)
+            if expansion.definition.name.as_str() == "PAYL"
+    )));
+    assert!(!queries.iter().any(|query| matches!(query, MacroExpansionQuery::Unavailable(_))));
     assert!(matches!(
         immediate_macro_expansion_at(&db, TOP, payl_offset),
-        Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts: 2 }
-        })
+        Ok(Some(MacroExpansionQuery::Ambiguous(expansions)))
+            if expansions.len() == 2
+                && expansions.iter().any(|expansion| expansion.definition.name.as_str() == "NEXT")
+                && expansions.iter().any(|expansion| expansion.definition.name.as_str() == "PAYL")
     ));
     assert!(matches!(
         macro_expansion_provenance_at(&db, TOP, payl_offset),

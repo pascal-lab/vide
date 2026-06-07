@@ -335,7 +335,8 @@ private:
                      syntax::MacroActualArgumentListSyntax* actualArgs);
     bool expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& expansion);
     bool expandReplacementList(std::span<Token const>& tokens,
-                               SmallSet<const syntax::DefineDirectiveSyntax*, 8>& alreadyExpanded);
+                               SmallSet<const syntax::DefineDirectiveSyntax*, 8>& alreadyExpanded,
+                               uint32_t parentExpansionId = 0);
     bool applyMacroOps(std::span<Token const> tokens, SmallVectorBase<Token>& dest);
     void recordMacroUsageTrace(Token directive, syntax::MacroActualArgumentListSyntax* actualArgs,
                                MacroDef macro,
