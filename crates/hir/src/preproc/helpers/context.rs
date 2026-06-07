@@ -27,9 +27,7 @@ pub(in crate::preproc) fn source_preproc_single_query_contexts(
     db: &dyn SourceRootDb,
     file_id: FileId,
 ) -> SourcePreprocQueryContexts {
-    let profile_id = db.file_compilation_profile(file_id);
-    let index = db.source_preproc_context_index_for_profile(profile_id);
-    let relevant = index.relevant_contexts(file_id);
+    let relevant = db.source_preproc_contexts_for_file(file_id);
     let mut file_ids = UniqVec::<FileId, FileId>::default();
     if matches!(
         db.file_kind(file_id),
@@ -37,7 +35,7 @@ pub(in crate::preproc) fn source_preproc_single_query_contexts(
     ) {
         file_ids.push_unique(file_id);
     }
-    for model_file_id in relevant.model_file_ids {
+    for model_file_id in relevant.model_file_ids.iter().copied() {
         file_ids.push_unique(model_file_id);
     }
     SourcePreprocQueryContexts { model_file_ids: file_ids.into_vec(), status: relevant.status }
