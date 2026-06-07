@@ -316,11 +316,6 @@ pub enum SourcePreprocError {
     MissingRootSource,
     MissingEventRange { source_order: usize, kind: MacroEventKind },
     MissingEvent { event_id: u32 },
-    MissingIncludedSource { include_event_id: u32, source: u32 },
-    MissingIncludeEvent { include_event_id: u32 },
-    IncludeEdgeNotInclude { include_event_id: u32 },
-    MissingIncludeEdge { source: u32 },
-    IncludeCycle { source: u32 },
 }
 
 impl PreprocSourceId {

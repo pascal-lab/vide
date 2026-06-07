@@ -11,7 +11,6 @@ use crate::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
-    source_tokens::SourceTokenSelection,
 };
 
 #[derive(Debug, Clone)]
@@ -41,21 +40,7 @@ pub(crate) fn document_highlight(
         offset,
         token_precedence,
     )?;
-    let tokens = match selection {
-        SourceTokenSelection::NormalSyntax(selection) => selection.tokens,
-        SourceTokenSelection::Preproc(selection) => {
-            let _ = selection.hits.len();
-            selection.tokens
-        }
-        SourceTokenSelection::Unavailable(unavailable) => {
-            let _ = unavailable.range;
-            return None;
-        }
-        SourceTokenSelection::Ambiguous(ambiguous) => {
-            let _ = (ambiguous.range, ambiguous.hits.len());
-            return None;
-        }
-    };
+    let tokens = selection.tokens()?;
     let highlights = tokens
         .into_iter()
         .filter_map(|token| highlight_for_token(&sema, file_id, hir_file_id, token, config.clone()))

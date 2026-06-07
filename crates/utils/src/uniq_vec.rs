@@ -2,10 +2,19 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashSet;
 
+#[derive(Debug, Clone)]
 pub struct UniqVec<T, K> {
     items: Vec<T>,
     seen: FxHashSet<K>,
 }
+
+impl<T: PartialEq, K: Eq + Hash> PartialEq for UniqVec<T, K> {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items && self.seen == other.seen
+    }
+}
+
+impl<T: Eq, K: Eq + Hash> Eq for UniqVec<T, K> {}
 
 impl<T, K: Eq + Hash> Default for UniqVec<T, K> {
     fn default() -> Self {
@@ -39,6 +48,10 @@ impl<T, K: Eq + Hash> UniqVec<T, K> {
 
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.items
     }
 
     pub fn into_vec(self) -> Vec<T> {

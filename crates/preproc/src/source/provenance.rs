@@ -380,10 +380,6 @@ pub enum SourcePreprocUnavailable {
     MissingDefinitionNameRange { event_id: SourcePreprocEventId },
     MissingReferenceName { event_id: SourcePreprocEventId },
     MissingReferenceNameRange { event_id: SourcePreprocEventId },
-    MissingIncludedSource { include_event_id: SourcePreprocEventId, source: PreprocSourceId },
-    MissingIncludeEvent { include_event_id: SourcePreprocEventId },
-    IncludeEdgeNotInclude { include_event_id: SourcePreprocEventId },
-    IncludeChainUnavailable { source: PreprocSourceId },
     DetachedSource { source: PreprocSourceId },
     MissingPredefineSourceText { source: PreprocSourceId },
     UnverifiedPredefineSource { source: PreprocSourceId },
@@ -414,10 +410,6 @@ pub enum SourcePreprocFactIssue {
     MissingDefinitionNameRange { event_id: SourcePreprocEventId },
     MissingReferenceName { event_id: SourcePreprocEventId },
     MissingReferenceNameRange { event_id: SourcePreprocEventId },
-    MissingIncludedSource { include_event_id: SourcePreprocEventId, source: PreprocSourceId },
-    MissingIncludeEvent { include_event_id: SourcePreprocEventId },
-    IncludeEdgeNotInclude { include_event_id: SourcePreprocEventId },
-    IncludeChainUnavailable { source: PreprocSourceId },
     DetachedSource { source: PreprocSourceId },
 }
 
