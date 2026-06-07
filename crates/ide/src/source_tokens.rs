@@ -1,7 +1,11 @@
-use hir::preproc::{
-    EmittedTokenProvenance, MacroDefinitionId, MacroExpansionProvenance, MappedPreprocSource,
-    TokenProvenance, macro_expansion_provenances_at,
+use hir::{
+    base_db::source_db::SourcePreprocQueryError,
+    preproc::{
+        EmittedTokenProvenance, MacroDefinitionId, MacroExpansionProvenance, MappedPreprocSource,
+        PreprocError, TokenProvenance, macro_expansion_provenances_at,
+    },
 };
+use rustc_hash::FxHashMap;
 use syntax::{
     SyntaxElement, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, WalkEvent,
     has_text_range::HasTextRange,
@@ -41,6 +45,36 @@ pub(crate) struct PreprocTokenUnavailable {
 pub(crate) struct PreprocTokenAmbiguity {
     pub range: TextRange,
     pub hits: Vec<PreprocTokenHit>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SourceTokenRequestCache {
+    provenance_by_offset:
+        FxHashMap<(FileId, TextSize), Result<Vec<MacroExpansionProvenance>, PreprocError>>,
+}
+
+impl SourceTokenRequestCache {
+    fn macro_expansion_provenances_at(
+        &mut self,
+        db: &RootDb,
+        file_id: FileId,
+        offset: TextSize,
+    ) -> Result<Vec<MacroExpansionProvenance>, PreprocError> {
+        self.provenance_by_offset
+            .entry((file_id, offset))
+            .or_insert_with(|| macro_expansion_provenances_at(db, file_id, offset))
+            .clone()
+    }
+
+    #[cfg(test)]
+    fn macro_expansion_provenances_at_with(
+        &mut self,
+        file_id: FileId,
+        offset: TextSize,
+        compute: impl FnOnce() -> Result<Vec<MacroExpansionProvenance>, PreprocError>,
+    ) -> Result<Vec<MacroExpansionProvenance>, PreprocError> {
+        self.provenance_by_offset.entry((file_id, offset)).or_insert_with(compute).clone()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,7 +124,22 @@ pub(crate) fn token_candidates_at_offset<'tree, F>(
 where
     F: Fn(TokenKind) -> usize,
 {
-    match provenance_token_candidates_at_offset(db, file_id, root, offset, &precedence) {
+    let mut cache = SourceTokenRequestCache::default();
+    token_candidates_at_offset_with_cache(db, file_id, root, offset, precedence, &mut cache)
+}
+
+pub(crate) fn token_candidates_at_offset_with_cache<'tree, F>(
+    db: &RootDb,
+    file_id: FileId,
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+    precedence: F,
+    cache: &mut SourceTokenRequestCache,
+) -> Option<SourceTokenSelection<'tree>>
+where
+    F: Fn(TokenKind) -> usize,
+{
+    match provenance_token_candidates_at_offset(db, file_id, root, offset, &precedence, cache) {
         ProvenanceTokenLookup::Available(selection) => {
             return Some(SourceTokenSelection::Preproc(selection));
         }
@@ -129,9 +178,18 @@ fn provenance_token_candidates_at_offset<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
+    cache: &mut SourceTokenRequestCache,
 ) -> ProvenanceTokenLookup<'tree> {
-    let Ok(provenances) = macro_expansion_provenances_at(db, file_id, offset) else {
-        return ProvenanceTokenLookup::NotApplicable;
+    let provenances = match cache.macro_expansion_provenances_at(db, file_id, offset) {
+        Ok(provenances) => provenances,
+        Err(PreprocError::SourceQuery(SourcePreprocQueryError::UnsupportedFileKind(_))) => {
+            return ProvenanceTokenLookup::NotApplicable;
+        }
+        Err(_) => {
+            return ProvenanceTokenLookup::Unavailable(PreprocTokenUnavailable {
+                range: TextRange::empty(offset),
+            });
+        }
     };
     if provenances.is_empty() {
         return ProvenanceTokenLookup::NotApplicable;
@@ -421,6 +479,34 @@ mod tests {
         };
 
         assert_eq!(ambiguous.hits.len(), 2);
+    }
+
+    #[test]
+    fn source_token_request_cache_reuses_provenance_lookup_for_repeated_reference_hits() {
+        let mut cache = SourceTokenRequestCache::default();
+        let mut lookups = 0usize;
+        let file_id = FileId(0);
+        let offset = TextSize::from(12);
+
+        for _ in 0..3 {
+            let result = cache
+                .macro_expansion_provenances_at_with(file_id, offset, || {
+                    lookups += 1;
+                    Ok(Vec::new())
+                })
+                .unwrap();
+            assert!(result.is_empty());
+        }
+
+        assert_eq!(lookups, 1, "repeated text hits at one offset should reuse the request cache");
+
+        let _ = cache
+            .macro_expansion_provenances_at_with(file_id, offset + TextSize::from(1), || {
+                lookups += 1;
+                Ok(Vec::new())
+            })
+            .unwrap();
+        assert_eq!(lookups, 2, "different offsets should remain distinct cache entries");
     }
 
     fn root_and_offset<'tree>(

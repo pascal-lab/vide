@@ -27,7 +27,7 @@ use crate::{
     ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
-    source_tokens::SourceTokenSelection,
+    source_tokens::{SourceTokenRequestCache, SourceTokenSelection},
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -205,6 +205,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             self.def.origins().into_iter().filter_map(|def| def.name_range(db)).collect();
 
         let finder = &Finder::new(&name);
+        let mut source_token_cache = SourceTokenRequestCache::default();
         for (text, file_id, range) in self.scope_files() {
             self.sema.db.unwind_if_cancelled();
 
@@ -214,7 +215,14 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
                     let Some(root) = (*parsed_file).root() else {
                         return Vec::new();
                     };
-                    Self::filter_tokens(sema.db, root, file_id, &def_ranges, offset)
+                    Self::filter_tokens(
+                        sema.db,
+                        root,
+                        file_id,
+                        &def_ranges,
+                        offset,
+                        &mut source_token_cache,
+                    )
                 })
                 .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
                 .for_each(|token| {
@@ -266,13 +274,15 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         file_id: FileId,
         names: &[InFile<TextRange>],
         offset: TextSize,
+        source_token_cache: &mut SourceTokenRequestCache,
     ) -> Vec<SyntaxTokenWithParent<'tree>> {
-        let Some(selection) = crate::source_tokens::token_candidates_at_offset(
+        let Some(selection) = crate::source_tokens::token_candidates_at_offset_with_cache(
             db,
             file_id,
             node,
             offset,
             super::token_precedence,
+            source_token_cache,
         ) else {
             return Vec::new();
         };
