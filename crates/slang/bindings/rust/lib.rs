@@ -448,34 +448,90 @@ impl PreprocessorTraceEvent {
 impl PreprocessorTraceEmittedToken {
     #[inline]
     fn from_raw(raw: ffi::RawPreprocessorTraceEmittedToken) -> Self {
+        let ffi::RawPreprocessorTraceEmittedToken {
+            raw_text,
+            value_text,
+            token_kind,
+            provenance_kind,
+            macro_name,
+            macro_call_id,
+            has_macro_call_id,
+            macro_definition_id,
+            has_macro_definition_id,
+            macro_expansion_id,
+            has_macro_expansion_id,
+            parent_macro_expansion_id,
+            has_parent_macro_expansion_id,
+            body_token_index,
+            has_body_token_index,
+            argument_index,
+            has_argument_index,
+            argument_token_index,
+            has_argument_token_index,
+            token_range,
+            call_range,
+            body_token_range,
+            argument_token_range,
+        } = raw;
         Self {
-            raw_text: raw.raw_text,
-            value_text: raw.value_text,
-            token_kind: TokenKind::from_id(raw.token_kind),
+            raw_text,
+            value_text,
+            token_kind: TokenKind::from_id(token_kind),
             provenance: PreprocessorTraceTokenProvenance::from_raw(
-                raw.provenance_kind,
-                raw.macro_name,
-                raw.macro_call_id,
-                raw.has_macro_call_id,
-                raw.macro_definition_id,
-                raw.has_macro_definition_id,
-                raw.macro_expansion_id,
-                raw.has_macro_expansion_id,
-                raw.parent_macro_expansion_id,
-                raw.has_parent_macro_expansion_id,
-                raw.body_token_index,
-                raw.has_body_token_index,
-                raw.argument_index,
-                raw.has_argument_index,
-                raw.argument_token_index,
-                raw.has_argument_token_index,
-                raw.token_range,
-                raw.call_range,
-                raw.body_token_range,
-                raw.argument_token_range,
+                RawPreprocessorTraceTokenProvenance {
+                    kind: provenance_kind,
+                    macro_name,
+                    identity: RawPreprocessorTraceMacroIdentity {
+                        call_id: macro_call_id,
+                        has_call_id: has_macro_call_id,
+                        definition_id: macro_definition_id,
+                        has_definition_id: has_macro_definition_id,
+                        expansion_id: macro_expansion_id,
+                        has_expansion_id: has_macro_expansion_id,
+                        parent_expansion_id: parent_macro_expansion_id,
+                        has_parent_expansion_id: has_parent_macro_expansion_id,
+                        body_token_index,
+                        has_body_token_index,
+                        argument_index,
+                        has_argument_index,
+                        argument_token_index,
+                        has_argument_token_index,
+                    },
+                    token_range,
+                    call_range,
+                    body_token_range,
+                    argument_token_range,
+                },
             ),
         }
     }
+}
+
+struct RawPreprocessorTraceTokenProvenance {
+    kind: u8,
+    macro_name: String,
+    identity: RawPreprocessorTraceMacroIdentity,
+    token_range: ffi::RawSourceBufferRange,
+    call_range: ffi::RawSourceBufferRange,
+    body_token_range: ffi::RawSourceBufferRange,
+    argument_token_range: ffi::RawSourceBufferRange,
+}
+
+struct RawPreprocessorTraceMacroIdentity {
+    call_id: u32,
+    has_call_id: bool,
+    definition_id: u32,
+    has_definition_id: bool,
+    expansion_id: u32,
+    has_expansion_id: bool,
+    parent_expansion_id: u32,
+    has_parent_expansion_id: bool,
+    body_token_index: u32,
+    has_body_token_index: bool,
+    argument_index: u32,
+    has_argument_index: bool,
+    argument_token_index: u32,
+    has_argument_token_index: bool,
 }
 
 impl PreprocessorTraceTokenProvenance {
@@ -485,86 +541,50 @@ impl PreprocessorTraceTokenProvenance {
     const UNAVAILABLE: u8 = 0;
 
     #[inline]
-    fn from_raw(
-        kind: u8,
-        macro_name: String,
-        macro_call_id: u32,
-        has_macro_call_id: bool,
-        macro_definition_id: u32,
-        has_macro_definition_id: bool,
-        macro_expansion_id: u32,
-        has_macro_expansion_id: bool,
-        parent_macro_expansion_id: u32,
-        has_parent_macro_expansion_id: bool,
-        body_token_index: u32,
-        has_body_token_index: bool,
-        argument_index: u32,
-        has_argument_index: bool,
-        argument_token_index: u32,
-        has_argument_token_index: bool,
-        token_range: ffi::RawSourceBufferRange,
-        call_range: ffi::RawSourceBufferRange,
-        body_token_range: ffi::RawSourceBufferRange,
-        argument_token_range: ffi::RawSourceBufferRange,
-    ) -> Self {
-        match kind {
-            Self::SOURCE => SourceBufferRange::from_raw(token_range)
+    fn from_raw(raw: RawPreprocessorTraceTokenProvenance) -> Self {
+        match raw.kind {
+            Self::SOURCE => SourceBufferRange::from_raw(raw.token_range)
                 .map(|token_range| Self::Source { token_range })
                 .unwrap_or(Self::Unavailable),
             Self::MACRO_BODY => {
-                let Some(call_range) = SourceBufferRange::from_raw(call_range) else {
+                let Some(call_range) = SourceBufferRange::from_raw(raw.call_range) else {
                     return Self::Unavailable;
                 };
-                let Some(body_token_range) = SourceBufferRange::from_raw(body_token_range) else {
-                    return Self::Unavailable;
-                };
-                let Some(identity) = PreprocessorTraceMacroBodyIdentity::from_raw(
-                    macro_call_id,
-                    has_macro_call_id,
-                    macro_definition_id,
-                    has_macro_definition_id,
-                    macro_expansion_id,
-                    has_macro_expansion_id,
-                    parent_macro_expansion_id,
-                    has_parent_macro_expansion_id,
-                    body_token_index,
-                    has_body_token_index,
-                ) else {
-                    return Self::Unavailable;
-                };
-                Self::MacroBody { macro_name, identity, call_range, body_token_range }
-            }
-            Self::MACRO_ARGUMENT => {
-                let Some(call_range) = SourceBufferRange::from_raw(call_range) else {
-                    return Self::Unavailable;
-                };
-                let Some(body_token_range) = SourceBufferRange::from_raw(body_token_range) else {
-                    return Self::Unavailable;
-                };
-                let Some(argument_token_range) = SourceBufferRange::from_raw(argument_token_range)
+                let Some(body_token_range) = SourceBufferRange::from_raw(raw.body_token_range)
                 else {
                     return Self::Unavailable;
                 };
-                let Some(identity) = PreprocessorTraceMacroArgumentIdentity::from_raw(
-                    macro_call_id,
-                    has_macro_call_id,
-                    macro_definition_id,
-                    has_macro_definition_id,
-                    macro_expansion_id,
-                    has_macro_expansion_id,
-                    parent_macro_expansion_id,
-                    has_parent_macro_expansion_id,
-                    body_token_index,
-                    has_body_token_index,
-                    argument_index,
-                    has_argument_index,
-                    argument_token_index,
-                    has_argument_token_index,
-                ) else {
+                let Some(identity) = PreprocessorTraceMacroBodyIdentity::from_raw(&raw.identity)
+                else {
+                    return Self::Unavailable;
+                };
+                Self::MacroBody {
+                    macro_name: raw.macro_name,
+                    identity,
+                    call_range,
+                    body_token_range,
+                }
+            }
+            Self::MACRO_ARGUMENT => {
+                let Some(call_range) = SourceBufferRange::from_raw(raw.call_range) else {
+                    return Self::Unavailable;
+                };
+                let Some(body_token_range) = SourceBufferRange::from_raw(raw.body_token_range)
+                else {
+                    return Self::Unavailable;
+                };
+                let Some(argument_token_range) =
+                    SourceBufferRange::from_raw(raw.argument_token_range)
+                else {
+                    return Self::Unavailable;
+                };
+                let Some(identity) =
+                    PreprocessorTraceMacroArgumentIdentity::from_raw(&raw.identity)
+                else {
                     return Self::Unavailable;
                 };
                 Self::MacroArgument {
-                    macro_name,
+                    macro_name: raw.macro_name,
                     identity,
                     call_range,
                     body_token_range,
@@ -579,60 +599,42 @@ impl PreprocessorTraceTokenProvenance {
 
 impl PreprocessorTraceMacroBodyIdentity {
     #[inline]
-    fn from_raw(
-        macro_call_id: u32,
-        has_macro_call_id: bool,
-        macro_definition_id: u32,
-        has_macro_definition_id: bool,
-        macro_expansion_id: u32,
-        has_macro_expansion_id: bool,
-        parent_macro_expansion_id: u32,
-        has_parent_macro_expansion_id: bool,
-        body_token_index: u32,
-        has_body_token_index: bool,
-    ) -> Option<Self> {
+    fn from_raw(raw: &RawPreprocessorTraceMacroIdentity) -> Option<Self> {
         Some(Self {
-            call_id: has_macro_call_id.then_some(PreprocessorTraceMacroCallId(macro_call_id))?,
-            definition_id: has_macro_definition_id
-                .then_some(PreprocessorTraceMacroDefinitionId(macro_definition_id))?,
-            expansion_id: has_macro_expansion_id
-                .then_some(PreprocessorTraceMacroExpansionId(macro_expansion_id))?,
-            parent_expansion_id: has_parent_macro_expansion_id
-                .then_some(PreprocessorTraceMacroExpansionId(parent_macro_expansion_id)),
-            body_token_index: has_body_token_index.then_some(body_token_index)?,
+            call_id: raw.has_call_id.then_some(PreprocessorTraceMacroCallId(raw.call_id))?,
+            definition_id: raw
+                .has_definition_id
+                .then_some(PreprocessorTraceMacroDefinitionId(raw.definition_id))?,
+            expansion_id: raw
+                .has_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.expansion_id))?,
+            parent_expansion_id: raw
+                .has_parent_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.parent_expansion_id)),
+            body_token_index: raw.has_body_token_index.then_some(raw.body_token_index)?,
         })
     }
 }
 
 impl PreprocessorTraceMacroArgumentIdentity {
     #[inline]
-    fn from_raw(
-        macro_call_id: u32,
-        has_macro_call_id: bool,
-        macro_definition_id: u32,
-        has_macro_definition_id: bool,
-        macro_expansion_id: u32,
-        has_macro_expansion_id: bool,
-        parent_macro_expansion_id: u32,
-        has_parent_macro_expansion_id: bool,
-        body_token_index: u32,
-        has_body_token_index: bool,
-        argument_index: u32,
-        has_argument_index: bool,
-        argument_token_index: u32,
-        has_argument_token_index: bool,
-    ) -> Option<Self> {
+    fn from_raw(raw: &RawPreprocessorTraceMacroIdentity) -> Option<Self> {
         Some(Self {
-            call_id: has_macro_call_id.then_some(PreprocessorTraceMacroCallId(macro_call_id))?,
-            definition_id: has_macro_definition_id
-                .then_some(PreprocessorTraceMacroDefinitionId(macro_definition_id))?,
-            expansion_id: has_macro_expansion_id
-                .then_some(PreprocessorTraceMacroExpansionId(macro_expansion_id))?,
-            parent_expansion_id: has_parent_macro_expansion_id
-                .then_some(PreprocessorTraceMacroExpansionId(parent_macro_expansion_id)),
-            body_token_index: has_body_token_index.then_some(body_token_index)?,
-            argument_index: has_argument_index.then_some(argument_index)?,
-            argument_token_index: has_argument_token_index.then_some(argument_token_index)?,
+            call_id: raw.has_call_id.then_some(PreprocessorTraceMacroCallId(raw.call_id))?,
+            definition_id: raw
+                .has_definition_id
+                .then_some(PreprocessorTraceMacroDefinitionId(raw.definition_id))?,
+            expansion_id: raw
+                .has_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.expansion_id))?,
+            parent_expansion_id: raw
+                .has_parent_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.parent_expansion_id)),
+            body_token_index: raw.has_body_token_index.then_some(raw.body_token_index)?,
+            argument_index: raw.has_argument_index.then_some(raw.argument_index)?,
+            argument_token_index: raw
+                .has_argument_token_index
+                .then_some(raw.argument_token_index)?,
         })
     }
 }
