@@ -17,7 +17,8 @@ const ID: CodeActionId = CodeActionId {
 
 // Assist: remove_parentheses
 //
-// This removes parentheses when they are redundant for the surrounding expression.
+// This removes parentheses when they are redundant for the surrounding
+// expression.
 //
 // ```
 // assign y = $0(a + b) + c;

@@ -14,7 +14,8 @@ const ID: CodeActionId =
 
 // Assist: merge_nested_if
 //
-// This merges nested if statements without else branches into one if statement with a combined condition.
+// This merges nested if statements without else branches into one if statement
+// with a combined condition.
 //
 // ```
 // always_comb if$0 (a) begin if (b) y = 1; end

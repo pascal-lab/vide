@@ -27,7 +27,8 @@ const LABEL: &str = "Fill connections";
 
 // Assist: add_missing_connections
 //
-// This fills the missing port connections for an instance from the target module definition.
+// This fills the missing port connections for an instance from the target
+// module definition.
 //
 // ```
 // child u($0.a(a));

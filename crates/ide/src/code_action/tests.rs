@@ -806,10 +806,7 @@ fn convert_non_ansi_ports_to_ansi() {
 fn convert_non_ansi_ports_to_ansi_merges_data_declaration() {
     let text = "module top (\n    /*caret*/c,\n    led0\n);\n    input  wire c;\n    output led0;\n    reg led0;\n\nendmodule\n";
     let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert_eq!(
-        fixed,
-        "module top (\n    input  wire c,\n    output reg led0\n);\nendmodule\n"
-    );
+    assert_eq!(fixed, "module top (\n    input  wire c,\n    output reg led0\n);\nendmodule\n");
 }
 
 #[test]
@@ -1029,7 +1026,8 @@ fn extract_variable_inserts_local_before_statement() {
 
 #[test]
 fn extract_variable_allows_selection_padding() {
-    let text = "module top; always_comb begin y =/*selection*/ a + b /*selection*/; end endmodule\n";
+    let text =
+        "module top; always_comb begin y =/*selection*/ a + b /*selection*/; end endmodule\n";
     let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
     assert_eq!(
         fixed,
@@ -1039,8 +1037,7 @@ fn extract_variable_allows_selection_padding() {
 
 #[test]
 fn extract_variable_uses_assignment_lhs_type() {
-    let text =
-        "module top; logic [7:0] y, a, b; always_comb begin y = /*selection*/a + b/*selection*/; end endmodule\n";
+    let text = "module top; logic [7:0] y, a, b; always_comb begin y = /*selection*/a + b/*selection*/; end endmodule\n";
     let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
     assert_eq!(
         fixed,
@@ -1052,10 +1049,7 @@ fn extract_variable_uses_assignment_lhs_type() {
 fn extract_variable_from_continuous_assign() {
     let text = "module top; assign y = /*selection*/a + b/*selection*/; endmodule\n";
     let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; wire logic value = a + b;\nassign y = value; endmodule\n"
-    );
+    assert_eq!(fixed, "module top; wire logic value = a + b;\nassign y = value; endmodule\n");
 }
 
 #[test]

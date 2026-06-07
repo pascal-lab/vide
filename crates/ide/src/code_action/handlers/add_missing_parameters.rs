@@ -27,7 +27,8 @@ const LABEL: &str = "Fill parameters";
 
 // Assist: add_missing_parameters
 //
-// This fills the missing parameter assignments for an instantiation from the target module definition.
+// This fills the missing parameter assignments for an instantiation from the
+// target module definition.
 //
 // ```
 // child #($0.A(1)) u();

@@ -31,7 +31,8 @@ const PARAMS_LABEL: &str = "Convert ordered parameter assignments to named assig
 
 // Assist: convert_ordered_ports
 //
-// This converts ordered port connections to named port connections using the target module's port order.
+// This converts ordered port connections to named port connections using the
+// target module's port order.
 //
 // ```
 // child u($0a, b);
@@ -82,7 +83,8 @@ pub(super) fn convert_ordered_ports(
 
 // Assist: convert_ordered_params
 //
-// This converts ordered parameter assignments to named parameter assignments using the target module's parameter order.
+// This converts ordered parameter assignments to named parameter assignments
+// using the target module's parameter order.
 //
 // ```
 // child #($01, 2) u();

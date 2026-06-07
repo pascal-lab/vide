@@ -47,7 +47,8 @@ const NON_ANSI_TO_ANSI_LABEL: &str = "Convert non-ANSI port declarations to ANSI
 
 // Assist: convert_port_declarations
 //
-// This converts module ports between ANSI declarations and non-ANSI declarations.
+// This converts module ports between ANSI declarations and non-ANSI
+// declarations.
 //
 // ```
 // module top($0input a, output logic b); endmodule

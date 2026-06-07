@@ -21,7 +21,8 @@ const LABEL: &str = "Split declaration";
 
 // Assist: split_declaration_declarators
 //
-// This splits a declaration with multiple declarators into one declaration per declarator.
+// This splits a declaration with multiple declarators into one declaration per
+// declarator.
 //
 // ```
 // logic $0a, b;

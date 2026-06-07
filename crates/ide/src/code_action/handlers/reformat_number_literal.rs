@@ -18,7 +18,8 @@ const MIN_NUMBER_OF_DIGITS_TO_FORMAT: usize = 5;
 
 // Assist: reformat_number_literal
 //
-// This adds digit separators to long integer literals or removes existing digit separators.
+// This adds digit separators to long integer literals or removes existing digit
+// separators.
 //
 // ```
 // localparam int value = 10000$0;

@@ -38,7 +38,8 @@ const ALWAYS_FF_TO_ALWAYS_LABEL: &str = "Convert to always @(...)";
 
 // Assist: convert_always_block
 //
-// This converts compatible procedural blocks between `always`, `always_comb`, and `always_ff`.
+// This converts compatible procedural blocks between `always`, `always_comb`,
+// and `always_ff`.
 //
 // ```
 // always$0 @(*) begin y = a; end
