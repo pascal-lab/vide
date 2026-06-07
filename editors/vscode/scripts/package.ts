@@ -110,6 +110,83 @@ function cargoBuildArgs(profile: BuildProfile, cargoTarget?: string): string[] {
   return args;
 }
 
+function cargoTargetEnvName(cargoTarget: string): string {
+  return cargoTarget.toUpperCase().replace(/-/g, '_');
+}
+
+function cargoTargetLinkerEnvKey(cargoTarget: string): string {
+  return `CARGO_TARGET_${cargoTargetEnvName(cargoTarget)}_LINKER`;
+}
+
+function cxxCompilerEnvKey(cargoTarget: string): string {
+  return `CXX_${cargoTarget.replace(/-/g, '_')}`;
+}
+
+function cargoLinkerForTarget(target: PlatformFolder, cargoTarget: string): string | undefined {
+  if (!target.startsWith('alpine-')) {
+    return undefined;
+  }
+
+  return (
+    optionalEnv(cxxCompilerEnvKey(cargoTarget)) ??
+    optionalEnv('TARGET_CXX') ??
+    `${cargoTarget}-g++`
+  );
+}
+
+function lateRustLinkFlagsForTarget(target: PlatformFolder): string[] {
+  if (!target.startsWith('alpine-')) {
+    return [];
+  }
+
+  // Static libstdc++ can introduce libc references after rustc's own musl -lc.
+  return ['-C', 'link-arg=-lc'];
+}
+
+function appendRustFlags(env: NodeJS.ProcessEnv, flags: string[]): NodeJS.ProcessEnv {
+  if (flags.length === 0) {
+    return env;
+  }
+
+  const encodedFlags = env.CARGO_ENCODED_RUSTFLAGS;
+  if (encodedFlags) {
+    return {
+      ...env,
+      CARGO_ENCODED_RUSTFLAGS: `${encodedFlags}\x1f${flags.join('\x1f')}`,
+    };
+  }
+
+  const rustFlags = env.RUSTFLAGS?.trim();
+  return {
+    ...env,
+    RUSTFLAGS: rustFlags ? `${rustFlags} ${flags.join(' ')}` : flags.join(' '),
+  };
+}
+
+function cargoBuildEnv(target: PlatformFolder, cargoTarget?: string): NodeJS.ProcessEnv {
+  if (!cargoTarget) {
+    return process.env;
+  }
+
+  let env = process.env;
+  const linkerEnvKey = cargoTargetLinkerEnvKey(cargoTarget);
+  if (!optionalEnv(linkerEnvKey)) {
+    const linker = cargoLinkerForTarget(target, cargoTarget);
+    if (linker) {
+      console.log(`Using Cargo linker for ${cargoTarget}: ${linker}`);
+      env = { ...env, [linkerEnvKey]: linker };
+    }
+  }
+
+  const lateLinkArgs = lateRustLinkFlagsForTarget(target);
+  if (lateLinkArgs.length > 0) {
+    console.log(`Adding Cargo link args for ${cargoTarget}: ${lateLinkArgs.join(' ')}`);
+    env = appendRustFlags(env, lateLinkArgs);
+  }
+
+  return env;
+}
+
 function cargoOutputDir(profile: BuildProfile, cargoTarget?: string): string {
   const pathParts = [repoRoot, 'target'];
   if (cargoTarget) {
@@ -155,7 +232,12 @@ function ensureTargetServerBinary(
     run('rustup', ['target', 'add', cargoTarget], repoRoot);
   }
 
-  run('cargo', cargoBuildArgs(profile, cargoTarget), repoRoot);
+  run(
+    'cargo',
+    cargoBuildArgs(profile, cargoTarget),
+    repoRoot,
+    cargoBuildEnv(target, cargoTarget),
+  );
 
   const sourcePath = path.join(cargoOutputDir(profile, cargoTarget), binFile);
   const destPath = path.join(serverOutDir, binFile);
