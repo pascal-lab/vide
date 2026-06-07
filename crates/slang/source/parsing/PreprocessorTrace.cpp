@@ -17,10 +17,11 @@ void PreprocessorTraceRecorder::setRootBuffer(SourceBuffer buffer) {
 }
 
 void PreprocessorTraceRecorder::recordDirective(const syntax::SyntaxNode& syntax,
-                                                uint32_t macroDefinitionId) {
+                                                uint32_t macroDefinitionId, bool isPredefine) {
     auto& event = pushEvent(PreprocessorTraceEvent::Kind::Directive);
     event.directive.syntax = &syntax;
     event.directive.macroDefinitionId = macroDefinitionId;
+    event.directive.isPredefine = isPredefine;
 }
 
 void PreprocessorTraceRecorder::recordEmittedToken(Token token) {

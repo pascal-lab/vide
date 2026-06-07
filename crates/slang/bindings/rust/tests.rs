@@ -1062,6 +1062,41 @@ wire disabled_by_header;
 }
 
 #[test]
+fn preprocessor_trace_from_parsed_tree_matches_static_trace() {
+    let dir = TestDir::new("slang-parse-preprocessor-trace");
+    let rtl_dir = dir.create_dir_all("rtl");
+    let include_dir = dir.create_dir_all("include");
+    let header_path = dir.write("include/defs.vh", "");
+    let source_path = rtl_dir.join("top.v").to_string();
+    let source = r#"`include "defs.vh"
+`define ID(x) x
+module m;
+localparam int A = `FROM_API;
+localparam int B = `ID(`HEADER_VALUE);
+endmodule
+"#;
+    let options = SyntaxTreeOptions {
+        predefines: vec!["FROM_API=11".to_owned()],
+        include_paths: vec![include_dir.to_string()],
+        include_buffers: vec![SyntaxTreeBuffer {
+            path: header_path.to_string(),
+            text: "`define HEADER_VALUE 7\n".to_owned(),
+        }],
+        expand_includes: true,
+    };
+
+    let parsed =
+        SyntaxTree::from_text_with_options_and_trace(source, "source", &source_path, &options);
+    assert_eq!(parsed.tree.diagnostics(), Vec::new());
+    let parsed_trace =
+        parsed.preprocessor_trace.expect("parse-derived trace should be present when requested");
+    let static_trace = SyntaxTree::preprocessor_trace(source, "source", &source_path, &options)
+        .expect("static trace should be present for comparison");
+
+    assert_eq!(parsed_trace, static_trace);
+}
+
+#[test]
 fn preprocessor_trace_reports_emitted_macro_body_and_argument_provenance() {
     let source = r#"`define OBJ 8
 `define ID(x) x

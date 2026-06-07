@@ -10,6 +10,7 @@
 #include "slang/parsing/Parser.h"
 #include "slang/parsing/ParserMetadata.h"
 #include "slang/parsing/Preprocessor.h"
+#include "slang/parsing/PreprocessorTrace.h"
 #include "slang/text/SourceManager.h"
 #include "slang/util/TimeTrace.h"
 
@@ -78,7 +79,8 @@ std::shared_ptr<SyntaxTree> SyntaxTree::fromText(std::string_view text, const Ba
 std::shared_ptr<SyntaxTree> SyntaxTree::fromText(std::string_view text,
                                                  SourceManager& sourceManager,
                                                  std::string_view name, std::string_view path,
-                                                 const Bag& options, const SourceLibrary* library) {
+                                                 const Bag& options, const SourceLibrary* library,
+                                                 PreprocessorTraceMode traceMode) {
     SourceBuffer buffer = sourceManager.assignText(path, text, {}, library);
     if (!buffer)
         return nullptr;
@@ -86,7 +88,7 @@ std::shared_ptr<SyntaxTree> SyntaxTree::fromText(std::string_view text,
     if (!name.empty())
         sourceManager.addLineDirective(SourceLocation(buffer.id, 0), 2, name, 0);
 
-    return create(sourceManager, std::span(&buffer, 1), options, {}, false);
+    return create(sourceManager, std::span(&buffer, 1), options, {}, false, traceMode);
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree::fromFileInMemory(std::string_view text,
@@ -106,14 +108,17 @@ std::shared_ptr<SyntaxTree> SyntaxTree::fromFileInMemory(std::string_view text,
 
 std::shared_ptr<SyntaxTree> SyntaxTree::fromBuffer(const SourceBuffer& buffer,
                                                    SourceManager& sourceManager, const Bag& options,
-                                                   MacroList inheritedMacros) {
-    return create(sourceManager, std::span(&buffer, 1), options, inheritedMacros, false);
+                                                   MacroList inheritedMacros,
+                                                   PreprocessorTraceMode traceMode) {
+    return create(sourceManager, std::span(&buffer, 1), options, inheritedMacros, false,
+                  traceMode);
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree::fromBuffers(std::span<const SourceBuffer> buffers,
                                                     SourceManager& sourceManager,
-                                                    const Bag& options, MacroList inheritedMacros) {
-    return create(sourceManager, buffers, options, inheritedMacros, false);
+                                                    const Bag& options, MacroList inheritedMacros,
+                                                    PreprocessorTraceMode traceMode) {
+    return create(sourceManager, buffers, options, inheritedMacros, false, traceMode);
 }
 
 SourceManager& SyntaxTree::getDefaultSourceManager() {
@@ -123,16 +128,18 @@ SourceManager& SyntaxTree::getDefaultSourceManager() {
 
 SyntaxTree::SyntaxTree(SyntaxNode* root, const SourceLibrary* library, SourceManager& sourceManager,
                        BumpAllocator&& alloc, Diagnostics&& diagnostics, ParserMetadata&& metadata,
-                       std::vector<const DefineDirectiveSyntax*>&& macros, Bag options) :
+                       std::vector<const DefineDirectiveSyntax*>&& macros, Bag options,
+                       std::unique_ptr<PreprocessorTraceSnapshot>&& preprocessorTrace) :
     rootNode(root), library(library), sourceMan(sourceManager), alloc(std::move(alloc)),
     diagnosticsBuffer(std::move(diagnostics)), options_(std::move(options)),
-    metadata(std::make_unique<ParserMetadata>(std::move(metadata))), macros(std::move(macros)) {
+    metadata(std::make_unique<ParserMetadata>(std::move(metadata))), macros(std::move(macros)),
+    preprocessorTrace(std::move(preprocessorTrace)) {
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree::create(SourceManager& sourceManager,
                                                std::span<const SourceBuffer> sources,
                                                const Bag& options, MacroList inheritedMacros,
-                                               bool guess) {
+                                               bool guess, PreprocessorTraceMode traceMode) {
     if (sources.empty())
         SLANG_THROW(std::invalid_argument("sources cannot be empty"));
 
@@ -145,7 +152,13 @@ std::shared_ptr<SyntaxTree> SyntaxTree::create(SourceManager& sourceManager,
 
     BumpAllocator alloc;
     Diagnostics diagnostics;
-    Preprocessor preprocessor(sourceManager, alloc, diagnostics, options, inheritedMacros);
+    std::optional<PreprocessorTraceRecorder> traceRecorder;
+    if (traceMode == PreprocessorTraceMode::Enabled) {
+        traceRecorder.emplace();
+        traceRecorder->setRootBuffer(sources.front());
+    }
+    Preprocessor preprocessor(sourceManager, alloc, diagnostics, options, inheritedMacros,
+                              traceRecorder ? &*traceRecorder : nullptr);
 
     const SourceLibrary* library = nullptr;
     for (auto it = sources.rbegin(); it != sources.rend(); it++) {
@@ -167,12 +180,17 @@ std::shared_ptr<SyntaxTree> SyntaxTree::create(SourceManager& sourceManager,
     else {
         root = &parser.parseGuess();
         if (!parser.isDone())
-            return create(sourceManager, sources, options, inheritedMacros, false);
+            return create(sourceManager, sources, options, inheritedMacros, false, traceMode);
     }
+
+    std::unique_ptr<PreprocessorTraceSnapshot> trace;
+    if (traceRecorder)
+        trace = std::make_unique<PreprocessorTraceSnapshot>(traceRecorder->snapshot());
 
     return std::shared_ptr<SyntaxTree>(
         new SyntaxTree(root, library, sourceManager, std::move(alloc), std::move(diagnostics),
-                       parser.getMetadata(), preprocessor.getDefinedMacros(), options));
+                       parser.getMetadata(), preprocessor.getDefinedMacros(), options,
+                       std::move(trace)));
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree::fromLibraryMapFile(std::string_view path,
