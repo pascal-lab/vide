@@ -12,6 +12,7 @@
 #include "slang/parsing/Lexer.h"
 #include "slang/parsing/NumberParser.h"
 #include "slang/parsing/Token.h"
+#include "slang/parsing/PreprocessorTrace.h"
 #include "slang/syntax/SyntaxNode.h"
 #include "slang/text/SourceManager.h"
 #include "slang/text/SourceLocation.h"
@@ -73,7 +74,8 @@ class SLANG_EXPORT Preprocessor {
 public:
     Preprocessor(SourceManager& sourceManager, BumpAllocator& alloc, Diagnostics& diagnostics,
                  const Bag& options = {},
-                 std::span<const syntax::DefineDirectiveSyntax* const> inheritedMacros = {});
+                 std::span<const syntax::DefineDirectiveSyntax* const> inheritedMacros = {},
+                 PreprocessorTraceRecorder* traceRecorder = nullptr);
 
     /// Gets the next token in the stream, after applying preprocessor rules.
     Token next();
@@ -154,17 +156,6 @@ public:
 
     /// Gets the frontend identity assigned to a macro definition syntax node.
     uint32_t getMacroDefinitionId(const syntax::DefineDirectiveSyntax& syntax) const;
-
-    /// A macro usage observed by the preprocessor while expanding source tokens.
-    struct MacroUsageTraceRecord {
-        Token directive;
-        syntax::MacroActualArgumentListSyntax* actualArgs = nullptr;
-        SourceRange range;
-        uint32_t callId = 0;
-        uint32_t definitionId = 0;
-        uint32_t expansionId = 0;
-        uint32_t parentExpansionId = 0;
-    };
 
     /// Gets all macro usages observed while preprocessing, including usages expanded from
     /// macro replacement lists that do not become directive trivia in the parsed token stream.
@@ -350,6 +341,8 @@ private:
                             const syntax::DefineDirectiveSyntax& right);
     uint32_t allocateMacroDefinitionId(const syntax::DefineDirectiveSyntax* syntax);
     uint32_t allocateMacroCallId();
+    void recordTracePredefines();
+    void recordTraceToken(Token token);
 
     // functions to advance the underlying token stream
     Token peek();
@@ -438,6 +431,7 @@ private:
     std::vector<MacroUsageTraceRecord> macroUsageTraceRecords;
     uint32_t nextMacroDefinitionId = 1;
     uint32_t nextMacroCallId = 1;
+    PreprocessorTraceRecorder* traceRecorder = nullptr;
 
     // list of expanded macro tokens to drain before continuing with active lexer
     SmallVector<Token> expandedTokens;
