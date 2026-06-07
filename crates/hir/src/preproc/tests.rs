@@ -816,6 +816,42 @@ endmodule
 }
 
 #[test]
+fn preproc_manifest_escaped_predefine_definition_uses_manifest_provenance() {
+    let root_text = r#"`ifdef MSG
+module top;
+localparam string S = `MSG;
+endmodule
+`endif
+"#;
+    let manifest_text = r#"defines = ["MSG=\"hello\""]
+"#;
+    let raw_define = r#""MSG=\"hello\"""#;
+    let manifest_range =
+        TextRange::new(offset(manifest_text, raw_define), offset_after(manifest_text, raw_define));
+    let predefine = Predefine::with_source(
+        r#"MSG="hello""#,
+        PredefineSource { path: abs_path("vide.toml"), range: manifest_range },
+    );
+    let db = db_with_entries_and_predefine_entries(
+        &[(TOP, "rtl/top.v", root_text), (MANIFEST, "vide.toml", manifest_text)],
+        vec![predefine],
+    );
+
+    let definition = macro_definition_at(&db, MANIFEST, manifest_range.start()).unwrap().unwrap();
+    assert_eq!(definition.file_id, MANIFEST);
+    assert_eq!(definition.name.as_str(), "MSG");
+    assert_eq!(definition.name_range, manifest_range);
+    assert_eq!(text_at_range(manifest_text, definition.name_range), raw_define);
+
+    let references = macro_references(&db, MANIFEST, &definition).unwrap();
+    assert!(
+        references.references.iter().any(|reference| reference.file_id == TOP
+            && text_at_range(root_text, reference.range) == "MSG"),
+        "escaped manifest predefine should still find source references: {references:?}"
+    );
+}
+
+#[test]
 fn preproc_visible_macro_names_follow_define_undef_boundaries() {
     let root_text = r#"`define A005_LOCAL 1
 `undef A005_LOCAL
