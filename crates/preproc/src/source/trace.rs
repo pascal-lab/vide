@@ -108,8 +108,6 @@ impl SourcePreprocIndex {
         }
         index.emitted_tokens = emitted_tokens.into_iter().map(emitted_token_from_trace).collect();
 
-        validate_include_edges(&index)?;
-
         Ok(index)
     }
 }
@@ -133,35 +131,6 @@ fn source_origin(
         .copied()
         .map(|include_event_id| PreprocSourceOrigin::Included { include_event_id })
         .unwrap_or(PreprocSourceOrigin::Detached)
-}
-
-fn validate_include_edges(index: &SourcePreprocIndex) -> Result<(), SourcePreprocError> {
-    for edge in &index.include_edges {
-        if !index.sources.iter().any(|source| source.id == edge.included_source) {
-            return Err(SourcePreprocError::MissingIncludedSource {
-                include_event_id: edge.include_event_id.raw(),
-                source: edge.included_source.raw(),
-            });
-        }
-
-        let Some(directive) = index
-            .event_records
-            .iter()
-            .find(|directive| directive.event_id == edge.include_event_id)
-        else {
-            return Err(SourcePreprocError::MissingIncludeEvent {
-                include_event_id: edge.include_event_id.raw(),
-            });
-        };
-
-        if directive.kind != MacroEventKind::Include {
-            return Err(SourcePreprocError::IncludeEdgeNotInclude {
-                include_event_id: edge.include_event_id.raw(),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 fn collect_trace_event(
