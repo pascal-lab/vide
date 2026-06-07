@@ -251,6 +251,16 @@ pub enum SourceTokenProvenance {
     Unavailable(SourcePreprocUnavailable),
 }
 
+struct EmittedTokenMacroCall {
+    token_id: SourceEmittedTokenId,
+    macro_name: SmolStr,
+    call_identity: SourceMacroCallKey,
+    definition: SourceMacroDefinitionId,
+    call_range: SourceRange,
+    expansion_identity: SourceMacroExpansionKey,
+    parent_expansion_identity: Option<SourceMacroExpansionKey>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocTables {
     pub macro_definitions: SourceMacroDefinitionTable,
@@ -1126,15 +1136,15 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 },
             );
         };
-        let Ok(call) = self.call_for_emitted_token(
+        let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
             token_id,
             macro_name,
-            identity.call,
+            call_identity: identity.call,
             definition,
             call_range,
-            identity.expansion,
-            identity.parent_expansion,
-        ) else {
+            expansion_identity: identity.expansion,
+            parent_expansion_identity: identity.parent_expansion,
+        }) else {
             return self.unavailable_token_provenance(
                 SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
                     identity: identity.call,
@@ -1173,15 +1183,15 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             );
         };
         let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
-        let Ok(call) = self.call_for_emitted_token(
+        let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
             token_id,
             macro_name,
-            identity.call,
+            call_identity: identity.call,
             definition,
             call_range,
-            call_expansion_identity,
-            None,
-        ) else {
+            expansion_identity: call_expansion_identity,
+            parent_expansion_identity: None,
+        }) else {
             return self.unavailable_token_provenance(
                 SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
                     identity: identity.call,
@@ -1211,19 +1221,13 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
     fn call_for_emitted_token(
         &mut self,
-        token_id: SourceEmittedTokenId,
-        macro_name: SmolStr,
-        call_identity: SourceMacroCallKey,
-        definition: SourceMacroDefinitionId,
-        call_range: SourceRange,
-        expansion_identity: SourceMacroExpansionKey,
-        parent_expansion_identity: Option<SourceMacroExpansionKey>,
+        request: EmittedTokenMacroCall,
     ) -> Result<SourceMacroCallId, SourcePreprocUnavailable> {
-        if let Some(call) = self.call_ids_by_identity.get(&call_identity).copied() {
+        if let Some(call) = self.call_ids_by_identity.get(&request.call_identity).copied() {
             self.record_call_expansion_identity(
                 call,
-                expansion_identity,
-                parent_expansion_identity,
+                request.expansion_identity,
+                request.parent_expansion_identity,
             )?;
             return Ok(call);
         }
@@ -1231,26 +1235,26 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         let event_id = self
             .tables
             .macro_definitions
-            .get(definition)
+            .get(request.definition)
             .expect("definition id should point at inserted definition")
             .event_id;
-        let resolution =
-            self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition);
+        let resolution = self
+            .resolve_definition(request.definition, SourceMacroResolutionReason::VisibleDefinition);
         let reference = self.push_reference(
             event_id,
-            SourceMacroReferenceSite::ExpansionToken { emitted_token: token_id },
-            macro_name.clone(),
-            call_range,
-            call_range,
+            SourceMacroReferenceSite::ExpansionToken { emitted_token: request.token_id },
+            request.macro_name.clone(),
+            request.call_range,
+            request.call_range,
             resolution.clone(),
         );
         Ok(self.push_call(
             reference,
-            call_range,
+            request.call_range,
             resolution,
-            Some(call_identity),
-            Some(expansion_identity),
-            parent_expansion_identity,
+            Some(request.call_identity),
+            Some(request.expansion_identity),
+            request.parent_expansion_identity,
         ))
     }
 

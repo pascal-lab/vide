@@ -380,7 +380,7 @@ pub enum DiagnosticProvenance {
 pub enum MacroExpansionQuery {
     Available(Box<MacroExpansion>),
     Ambiguous(Vec<MacroExpansion>),
-    Unavailable(MacroExpansionUnavailable),
+    Unavailable(Box<MacroExpansionUnavailable>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1335,7 +1335,7 @@ pub fn macro_expansion_provenances_at(
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
             match macro_expansion_provenance_for_call(mapped, call_fact)? {
                 MacroExpansionProvenanceForCall::Available(provenance) => {
-                    push_unique_macro_expansion_provenance(&mut provenances, provenance);
+                    push_unique_macro_expansion_provenance(&mut provenances, *provenance);
                 }
                 MacroExpansionProvenanceForCall::Unavailable(reason) => unavailable.push(reason),
             }
@@ -1392,7 +1392,7 @@ pub fn macro_expansion_provenances_for_range(
             [] => continue,
             [call_fact] => match macro_expansion_provenance_for_call(mapped, call_fact)? {
                 MacroExpansionProvenanceForCall::Available(provenance) => {
-                    push_unique_macro_expansion_provenance(&mut provenances, provenance);
+                    push_unique_macro_expansion_provenance(&mut provenances, *provenance);
                 }
                 MacroExpansionProvenanceForCall::Unavailable(reason) => unavailable.push(reason),
             },
@@ -2295,20 +2295,20 @@ fn immediate_macro_expansion_for_call(
     Ok(match mapped.model.immediate_macro_expansion(call_fact.id) {
         SourceMacroExpansionQueryFact::Available(expansion) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion) else {
-                return Ok(MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
+                return Ok(MacroExpansionQuery::Unavailable(Box::new(MacroExpansionUnavailable {
                     call,
                     reason: PreprocUnavailable::Source(
                         SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
                     ),
-                }));
+                })));
             };
             MacroExpansionQuery::Available(Box::new(map_macro_expansion(mapped, expansion)?))
         }
         SourceMacroExpansionQueryFact::Unavailable(reason) => {
-            MacroExpansionQuery::Unavailable(MacroExpansionUnavailable {
+            MacroExpansionQuery::Unavailable(Box::new(MacroExpansionUnavailable {
                 call,
                 reason: PreprocUnavailable::Source(reason),
-            })
+            }))
         }
     })
 }
@@ -2399,7 +2399,7 @@ fn diagnostic_provenance_for_call(
 }
 
 enum MacroExpansionProvenanceForCall {
-    Available(MacroExpansionProvenance),
+    Available(Box<MacroExpansionProvenance>),
     Unavailable(PreprocUnavailable),
 }
 
@@ -2416,9 +2416,9 @@ fn macro_expansion_provenance_for_call(
                     }),
                 ));
             };
-            MacroExpansionProvenanceForCall::Available(macro_expansion_provenance_for_expansion(
-                mapped, expansion,
-            )?)
+            MacroExpansionProvenanceForCall::Available(Box::new(
+                macro_expansion_provenance_for_expansion(mapped, expansion)?,
+            ))
         }
         SourceMacroExpansionQueryFact::Unavailable(reason) => {
             MacroExpansionProvenanceForCall::Unavailable(PreprocUnavailable::Source(reason))
