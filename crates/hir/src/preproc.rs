@@ -121,12 +121,14 @@ const CONFIGURED_PREDEFINE_EVENT_ID: u32 = u32::MAX;
 pub enum MappedPreprocSource {
     RealFile { file_id: FileId },
     VirtualFile { file_id: FileId, path: vfs::VfsPath, origin: PreprocVirtualOrigin },
+    VirtualDisplay { path: vfs::VfsPath, origin: PreprocVirtualOrigin },
 }
 
 impl MappedPreprocSource {
-    pub fn file_id(&self) -> FileId {
+    pub fn file_id(&self) -> Option<FileId> {
         match self {
-            Self::RealFile { file_id } | Self::VirtualFile { file_id, .. } => *file_id,
+            Self::RealFile { file_id } | Self::VirtualFile { file_id, .. } => Some(*file_id),
+            Self::VirtualDisplay { .. } => None,
         }
     }
 }
@@ -1683,7 +1685,7 @@ pub fn include_directives_at(
                 };
             let status = map_include_status(mapped, &include.status)?;
             let resolved_file = match &status {
-                IncludeDirectiveStatus::Resolved { source } => Some(source.file_id()),
+                IncludeDirectiveStatus::Resolved { source } => source.file_id(),
                 IncludeDirectiveStatus::Unresolved | IncludeDirectiveStatus::Unavailable(_) => None,
             };
             let target = match &include.target {
@@ -1741,7 +1743,9 @@ pub fn inactive_branches(
                     continue;
                 }
             };
-            let branch_file_id = source.file_id();
+            let Some(branch_file_id) = source.file_id() else {
+                continue;
+            };
             if branch_file_id == file_id {
                 push_unique_inactive_branch(
                     &mut branches,
@@ -1794,12 +1798,24 @@ fn record_first_error(first_error: &mut Option<PreprocError>, error: PreprocErro
     }
 }
 
+fn require_file_backed_source(source: &MappedPreprocSource) -> PreprocResult<FileId> {
+    source.file_id().ok_or_else(|| {
+        let MappedPreprocSource::VirtualDisplay { path, origin } = source else {
+            unreachable!("file-backed source should have a FileId");
+        };
+        PreprocError::SourceMap(PreprocSourceMapError::DisplayOnlyVirtualSource {
+            path: path.clone(),
+            origin: origin.clone(),
+        })
+    })
+}
+
 fn map_source_range(
     mapped: &MappedSourcePreprocModel,
     source_range: SourceRange,
 ) -> PreprocResult<(FileId, TextRange)> {
     let (source, range) = map_mapped_source_range(mapped, source_range)?;
-    Ok((source.file_id(), range))
+    Ok((require_file_backed_source(&source)?, range))
 }
 
 fn map_source_id(
@@ -1825,7 +1841,7 @@ fn mapped_source_range_at_offset(
     offset: TextSize,
 ) -> PreprocResult<Option<(MappedPreprocSource, TextRange)>> {
     let (source, range) = map_mapped_source_range(mapped, source_range)?;
-    Ok((source.file_id() == file_id && range.contains(offset)).then_some((source, range)))
+    Ok((source.file_id() == Some(file_id) && range.contains(offset)).then_some((source, range)))
 }
 
 fn mapped_source_range_contains_provenance_offset(
@@ -1851,6 +1867,9 @@ fn map_mapped_source_id(
                 path: path.clone(),
                 origin: origin.clone(),
             })
+        }
+        Some(PreprocSourceMapping::VirtualDisplay { path, origin }) => {
+            Ok(MappedPreprocSource::VirtualDisplay { path: path.clone(), origin: origin.clone() })
         }
         Some(PreprocSourceMapping::Unmapped(reason)) => {
             Err(PreprocError::SourceMap(PreprocSourceMapError::UnmappedSource {
@@ -1896,9 +1915,10 @@ fn map_macro_definition(
                 .collect::<PreprocResult<Vec<_>>>()
         })
         .transpose()?;
+    let file_id = require_file_backed_source(&source)?;
     Ok(MacroDefinition {
         id: definition.id.into(),
-        file_id: source.file_id(),
+        file_id,
         source,
         capability: capability_status(&mapped.model.capabilities().definition_name_ranges),
         name: definition.name.clone(),
@@ -1924,11 +1944,12 @@ fn map_macro_param_definition(
     };
     let macro_definition = map_macro_definition(mapped, definition)?;
     let (source, range) = map_mapped_source_range(mapped, name_source_range)?;
-    if source.file_id() != macro_definition.file_id {
+    let name_file_id = require_file_backed_source(&source)?;
+    if name_file_id != macro_definition.file_id {
         return Err(PreprocError::MismatchedDefinitionRangeFiles {
             event_id: definition.event_id.raw(),
             directive_file_id: macro_definition.file_id,
-            name_file_id: source.file_id(),
+            name_file_id,
         });
     }
     let param_range = param
@@ -1954,7 +1975,7 @@ fn map_macro_param_reference(
 ) -> PreprocResult<MacroParamReference> {
     let macro_definition = map_macro_definition(mapped, definition)?;
     let (source, range) = map_mapped_source_range(mapped, token_range)?;
-    let file_id = source.file_id();
+    let file_id = require_file_backed_source(&source)?;
     let name = definition
         .params
         .as_ref()
@@ -1999,9 +2020,10 @@ fn map_macro_reference(
     reference: &SourceMacroReferenceFact,
 ) -> PreprocResult<MacroReference> {
     let (source, directive_range, name_range) = map_reference_ranges(mapped, reference)?;
+    let file_id = require_file_backed_source(&source)?;
     Ok(MacroReference {
         id: reference.id.into(),
-        file_id: source.file_id(),
+        file_id,
         source,
         capability: capability_status(&mapped.model.capabilities().macro_reference_resolution),
         name: reference.name.clone(),
@@ -2021,10 +2043,11 @@ fn map_macro_call(
         .iter()
         .map(|argument| map_macro_argument(mapped, argument))
         .collect::<PreprocResult<Vec<_>>>()?;
+    let file_id = require_file_backed_source(&source)?;
     Ok(MacroCall {
         id: call.id.into(),
         reference_id: call.reference.into(),
-        file_id: source.file_id(),
+        file_id,
         source,
         capability: macro_call_availability(&call.status),
         arguments,
@@ -2096,6 +2119,9 @@ fn map_expansion_virtual_source(
         PreprocSourceMapping::VirtualFile { file_id, path, origin } => {
             Ok(MappedPreprocSource::VirtualFile { file_id, path, origin })
         }
+        PreprocSourceMapping::VirtualDisplay { path, origin } => {
+            Ok(MappedPreprocSource::VirtualDisplay { path, origin })
+        }
         PreprocSourceMapping::RealFile(file_id) => Ok(MappedPreprocSource::RealFile { file_id }),
         PreprocSourceMapping::Unmapped(reason) => {
             Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) })
@@ -2112,7 +2138,7 @@ fn source_macro_call_at(
         let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
             return false;
         };
-        source.file_id() == file_id && range.contains(offset)
+        source.file_id() == Some(file_id) && range.contains(offset)
     })
 }
 
@@ -2125,7 +2151,7 @@ fn source_macro_call_intersecting_range(
         let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
             return false;
         };
-        source.file_id() == file_id && range.intersect(source_range).is_some()
+        source.file_id() == Some(file_id) && range.intersect(source_range).is_some()
     })
 }
 
@@ -2226,13 +2252,13 @@ fn diagnostic_provenance_for_call(
     call_fact: &SourceMacroCallFact,
 ) -> PreprocResult<DiagnosticProvenance> {
     match mapped.model.immediate_macro_expansion(call_fact.id) {
-        SourceMacroExpansionQueryFact::Available(_) => {
-            let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? else {
+        SourceMacroExpansionQueryFact::Available(expansion_id) => {
+            let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
                 return Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
                     SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
                 )));
             };
-            Ok(diagnostic_target_for_expansion(&provenance))
+            diagnostic_target_for_source_expansion(mapped, expansion)
         }
         SourceMacroExpansionQueryFact::Unavailable(reason) => {
             Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(reason)))
@@ -2338,43 +2364,53 @@ fn mapped_macro_call(
     map_macro_call(mapped, call)
 }
 
-fn diagnostic_target_for_expansion(provenance: &MacroExpansionProvenance) -> DiagnosticProvenance {
+fn diagnostic_target_for_source_expansion(
+    mapped: &MappedSourcePreprocModel,
+    expansion: &SourceMacroExpansionFact,
+) -> PreprocResult<DiagnosticProvenance> {
+    let virtual_source = map_expansion_virtual_source(mapped, expansion.id)?;
+    let virtual_range = mapped
+        .source_map
+        .emitted_token_range(expansion.id, expansion.emitted_token_range)
+        .map_err(PreprocError::SourceMap)?;
     let mut saw_unavailable = None;
-    for token in &provenance.tokens {
-        match &token.provenance {
+    for token_id in emitted_token_ids(expansion.emitted_token_range) {
+        let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
+            return Err(PreprocError::SourceMap(PreprocSourceMapError::MissingEmittedToken {
+                token: token_id,
+            }));
+        };
+        let Some(provenance) = mapped.model.token_provenance().get(token.provenance) else {
+            return Err(unavailable_error(
+                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
+            ));
+        };
+        match map_token_provenance(mapped, provenance)? {
             TokenProvenance::SourceToken { source, range } => {
-                return DiagnosticProvenance::SourceToken { source: source.clone(), range: *range };
+                return Ok(DiagnosticProvenance::SourceToken { source, range });
             }
             TokenProvenance::MacroBody { call, definition_id, source, range } => {
-                return DiagnosticProvenance::MacroBody {
-                    call: call.clone(),
-                    definition_id: *definition_id,
-                    source: source.clone(),
-                    range: *range,
-                };
+                return Ok(DiagnosticProvenance::MacroBody { call, definition_id, source, range });
             }
             TokenProvenance::MacroArgument { call, argument_index, source, range } => {
-                return DiagnosticProvenance::MacroArgument {
-                    call: call.clone(),
-                    argument_index: *argument_index,
-                    source: source.clone(),
-                    range: *range,
-                };
+                return Ok(DiagnosticProvenance::MacroArgument {
+                    call,
+                    argument_index,
+                    source,
+                    range,
+                });
             }
             TokenProvenance::Unavailable(reason) => {
-                saw_unavailable = Some(reason.clone());
+                saw_unavailable = Some(reason);
             }
             TokenProvenance::Predefine { .. } | TokenProvenance::Builtin { .. } => {}
         }
     }
 
-    saw_unavailable.map_or_else(
-        || DiagnosticProvenance::VirtualExpansion {
-            source: provenance.expansion.virtual_source.clone(),
-            range: provenance.expansion.virtual_range,
-        },
+    Ok(saw_unavailable.map_or_else(
+        || DiagnosticProvenance::VirtualExpansion { source: virtual_source, range: virtual_range },
         DiagnosticProvenance::Unavailable,
-    )
+    ))
 }
 
 fn map_macro_resolution(
@@ -2415,10 +2451,12 @@ fn map_reference_ranges(
         map_mapped_source_range(mapped, reference.directive_range)?;
     let (name_source, name_range) = map_mapped_source_range(mapped, reference.name_range)?;
     if directive_source != name_source {
+        let directive_file_id = require_file_backed_source(&directive_source)?;
+        let name_file_id = require_file_backed_source(&name_source)?;
         return Err(PreprocError::MismatchedReferenceRangeFiles {
             event_id: reference.event_id.raw(),
-            directive_file_id: directive_source.file_id(),
-            name_file_id: name_source.file_id(),
+            directive_file_id,
+            name_file_id,
         });
     }
     Ok((directive_source, directive_range, name_range))
@@ -2497,10 +2535,12 @@ fn map_definition_ranges(
         map_mapped_source_range(mapped, directive_source_range)?;
     let (name_source, name_range) = map_mapped_source_range(mapped, name_source_range)?;
     if directive_source != name_source {
+        let directive_file_id = require_file_backed_source(&directive_source)?;
+        let name_file_id = require_file_backed_source(&name_source)?;
         return Err(PreprocError::MismatchedDefinitionRangeFiles {
             event_id,
-            directive_file_id: directive_source.file_id(),
-            name_file_id: name_source.file_id(),
+            directive_file_id,
+            name_file_id,
         });
     }
     Ok((directive_source, directive_range, name_range))
@@ -3009,7 +3049,7 @@ endmodule
     }
 
     #[test]
-    fn preproc_macro_expansion_materializes_virtual_source_and_token_provenance() {
+    fn preproc_macro_expansion_exposes_display_virtual_source_and_token_provenance() {
         let root_text = r#"`define MAKE_DECL(name) logic name;
 module top;
 `MAKE_DECL(generated)
@@ -3020,10 +3060,10 @@ endmodule
         let provenance = macro_expansion_provenance_at(&db, TOP, offset(root_text, "`MAKE_DECL"))
             .unwrap()
             .unwrap();
-        let MappedPreprocSource::VirtualFile { path, origin, .. } =
+        let MappedPreprocSource::VirtualDisplay { path, origin } =
             &provenance.expansion.virtual_source
         else {
-            panic!("macro expansion should expose a virtual expansion source");
+            panic!("macro expansion should expose a display-only virtual expansion source");
         };
         assert_eq!(
             path,
@@ -3048,7 +3088,7 @@ endmodule
         let TokenProvenance::MacroBody { source, range, .. } = &logic.provenance else {
             panic!("logic should come from the macro body: {logic:?}");
         };
-        assert_eq!(source.file_id(), TOP);
+        assert_eq!(source.file_id(), Some(TOP));
         assert_eq!(text_at_range(root_text, *range), "logic");
         assert_eq!(logic.virtual_range, TextRange::new(0.into(), 5.into()));
 
@@ -3063,7 +3103,7 @@ endmodule
             panic!("generated should come from the macro argument: {generated:?}");
         };
         assert_eq!(*argument_index, 0);
-        assert_eq!(source.file_id(), TOP);
+        assert_eq!(source.file_id(), Some(TOP));
         assert_eq!(text_at_range(root_text, *range), "generated");
         assert_eq!(generated.virtual_range, TextRange::new(6.into(), 15.into()));
     }
@@ -3120,6 +3160,40 @@ endmodule
         assert!(matches!(
             provenance,
             DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(_))
+        ));
+    }
+
+    #[test]
+    fn diagnostic_provenance_for_unbacked_predefine_expansion_is_structured_unavailable() {
+        let root_text = r#"module top;
+`MAKE_CHILD
+endmodule
+"#;
+        let db = db_with_entries_and_predefines(
+            &[(TOP, "rtl/top.v", root_text)],
+            vec!["MAKE_CHILD=child u();".to_owned()],
+        );
+        let (hir_file, _) = db.hir_file_with_source_map(TOP.into());
+        let (local_module_id, _) = hir_file.modules.iter().next().unwrap();
+        let module_id: ModuleId = InFile::new(TOP.into(), local_module_id);
+        let (module, module_src_map) = db.module_with_source_map(module_id);
+        let (instantiation_id, _) = module
+            .instantiations
+            .iter()
+            .next()
+            .expect("predefine expansion should lower to a module instantiation");
+        let instantiation_src = module_src_map
+            .get(instantiation_id)
+            .expect("generated instantiation should keep a source-map range");
+
+        let provenance =
+            diagnostic_provenance_for_range(&db, TOP, instantiation_src.range()).unwrap().unwrap();
+
+        assert!(matches!(
+            provenance,
+            DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
+                SourcePreprocUnavailable::ExpansionAuthorityUnavailable
+            ))
         ));
     }
 
@@ -3305,7 +3379,7 @@ localparam int ENABLED = `HEADER_FLAG;
             .unwrap()
             .unwrap();
 
-        assert_eq!(definition.source.file_id(), HEADER);
+        assert_eq!(definition.source.file_id(), Some(HEADER));
         assert!(matches!(definition.capability, PreprocAvailability::Complete));
 
         let refs = macro_references(&db, HEADER, &definition).unwrap().references;

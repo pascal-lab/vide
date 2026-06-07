@@ -86,7 +86,7 @@ fn source_token_range_for_offset(
         | TokenProvenance::Builtin { .. }
         | TokenProvenance::Unavailable(_) => return None,
     };
-    (source.file_id() == file_id && range.contains(offset)).then_some(range)
+    (source.file_id() == Some(file_id) && range.contains(offset)).then_some(range)
 }
 
 fn tokens_with_exact_ranges<'tree>(

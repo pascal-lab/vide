@@ -1,8 +1,3 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
-
 use preproc::source::{
     PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroExpansionId,
     SourcePosition, SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
@@ -155,12 +150,13 @@ pub struct PreprocSourceMap {
 pub enum PreprocSourceMapping {
     RealFile(FileId),
     VirtualFile { file_id: FileId, path: VfsPath, origin: PreprocVirtualOrigin },
+    VirtualDisplay { path: VfsPath, origin: PreprocVirtualOrigin },
     Unmapped(SourcePreprocUnavailable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocExpansionMapping {
-    pub file_id: FileId,
+    pub file_id: Option<FileId>,
     pub path: VfsPath,
     pub origin: PreprocVirtualOrigin,
     pub text: String,
@@ -210,6 +206,10 @@ pub enum PreprocSourceMapError {
     MissingEmittedTokenRange {
         range: SourceEmittedTokenRange,
     },
+    DisplayOnlyVirtualSource {
+        path: VfsPath,
+        origin: PreprocVirtualOrigin,
+    },
 }
 
 impl PreprocSourceMap {
@@ -223,7 +223,7 @@ impl PreprocSourceMap {
     pub fn insert_virtual_file(
         &mut self,
         source: PreprocSourceId,
-        file_id: FileId,
+        file_id: Option<FileId>,
         path: VfsPath,
         origin: PreprocVirtualOrigin,
         text_len: usize,
@@ -234,13 +234,17 @@ impl PreprocSourceMap {
     fn insert_virtual_file_with_offset(
         &mut self,
         source: PreprocSourceId,
-        file_id: FileId,
+        file_id: Option<FileId>,
         path: VfsPath,
         origin: PreprocVirtualOrigin,
         text_len: usize,
         range_offset: usize,
     ) {
-        self.entries.insert(source, PreprocSourceMapping::VirtualFile { file_id, path, origin });
+        let mapping = match file_id {
+            Some(file_id) => PreprocSourceMapping::VirtualFile { file_id, path, origin },
+            None => PreprocSourceMapping::VirtualDisplay { path, origin },
+        };
+        self.entries.insert(source, mapping);
         self.predefine_sources.remove(&source);
         self.text_lengths.insert(source, text_len);
         self.range_offsets.insert(source, range_offset);
@@ -275,7 +279,7 @@ impl PreprocSourceMap {
     pub fn insert_expansion_virtual_file(
         &mut self,
         expansion: SourceMacroExpansionId,
-        file_id: FileId,
+        file_id: Option<FileId>,
         path: VfsPath,
         text: String,
         emitted_range: SourceEmittedTokenRange,
@@ -305,10 +309,16 @@ impl PreprocSourceMap {
         let entry = self
             .expansion(expansion)
             .ok_or(PreprocSourceMapError::MissingExpansionVirtualFile { expansion })?;
-        Ok(PreprocSourceMapping::VirtualFile {
-            file_id: entry.file_id,
-            path: entry.path.clone(),
-            origin: entry.origin.clone(),
+        Ok(match entry.file_id {
+            Some(file_id) => PreprocSourceMapping::VirtualFile {
+                file_id,
+                path: entry.path.clone(),
+                origin: entry.origin.clone(),
+            },
+            None => PreprocSourceMapping::VirtualDisplay {
+                path: entry.path.clone(),
+                origin: entry.origin.clone(),
+            },
         })
     }
 
@@ -343,6 +353,12 @@ impl PreprocSourceMap {
         match self.get(source) {
             Some(PreprocSourceMapping::RealFile(file_id)) => Ok(*file_id),
             Some(PreprocSourceMapping::VirtualFile { file_id, .. }) => Ok(*file_id),
+            Some(PreprocSourceMapping::VirtualDisplay { path, origin }) => {
+                Err(PreprocSourceMapError::DisplayOnlyVirtualSource {
+                    path: path.clone(),
+                    origin: origin.clone(),
+                })
+            }
             Some(PreprocSourceMapping::Unmapped(reason)) => {
                 Err(PreprocSourceMapError::UnmappedSource { source, reason: reason.clone() })
             }
@@ -364,6 +380,7 @@ impl PreprocSourceMap {
                     | PreprocSourceMapping::VirtualFile { file_id: mapped_file_id, .. } => {
                         *mapped_file_id
                     }
+                    PreprocSourceMapping::VirtualDisplay { .. } => return None,
                     PreprocSourceMapping::Unmapped(_) => return None,
                 };
                 if mapped_file_id != file_id {
@@ -384,7 +401,8 @@ impl PreprocSourceMap {
     pub fn map_range(&self, source_range: SourceRange) -> Result<TextRange, PreprocSourceMapError> {
         match self.get(source_range.source) {
             Some(PreprocSourceMapping::RealFile(_))
-            | Some(PreprocSourceMapping::VirtualFile { .. }) => {}
+            | Some(PreprocSourceMapping::VirtualFile { .. })
+            | Some(PreprocSourceMapping::VirtualDisplay { .. }) => {}
             Some(PreprocSourceMapping::Unmapped(reason)) => {
                 return Err(PreprocSourceMapError::UnmappedSource {
                     source: source_range.source,
@@ -507,7 +525,7 @@ fn source_preproc_file_ids(
                 if let Some(text) = include_buffer_texts.get(&source.path) {
                     let path =
                         preproc_virtual_include_buffer_path(profile_id, source_id, &source.path);
-                    let file_id = preproc_virtual_file_id(db, &path);
+                    let file_id = materialized_preproc_virtual_file_id(db, &path);
                     source_map.insert_virtual_file(
                         source_id,
                         file_id,
@@ -650,7 +668,7 @@ struct PredefineVirtualMapping {
 }
 
 struct PredefineVirtualEntry {
-    file_id: FileId,
+    file_id: Option<FileId>,
     path: VfsPath,
     text_len: usize,
     range_offset: usize,
@@ -675,7 +693,7 @@ impl PredefineVirtualMapping {
             .collect::<Vec<_>>();
         let text_len = texts.iter().map(String::len).sum();
         let path = preproc_virtual_predefines_path(profile_id);
-        let file_id = preproc_virtual_file_id(db, &path);
+        let file_id = materialized_preproc_virtual_file_id(db, &path);
         let mut range_offset = 0usize;
         let mut entries = FxHashMap::default();
         for (index, (source, text)) in sources.into_iter().zip(texts).enumerate() {
@@ -711,8 +729,8 @@ impl PredefineVirtualEntry {
     }
 }
 
-fn preproc_virtual_file_id(db: &dyn SourceRootDb, path: &VfsPath) -> FileId {
-    file_id_for_vfs_path(db, path).unwrap_or_else(|| synthetic_virtual_file_id(path))
+fn materialized_preproc_virtual_file_id(db: &dyn SourceRootDb, path: &VfsPath) -> Option<FileId> {
+    file_id_for_vfs_path(db, path)
 }
 
 fn file_id_for_vfs_path(db: &dyn SourceRootDb, path: &VfsPath) -> Option<FileId> {
@@ -724,12 +742,6 @@ fn file_id_for_vfs_path(db: &dyn SourceRootDb, path: &VfsPath) -> Option<FileId>
         }
     }
     None
-}
-
-fn synthetic_virtual_file_id(path: &VfsPath) -> FileId {
-    let mut hasher = DefaultHasher::new();
-    path.hash(&mut hasher);
-    FileId(0x8000_0000 | ((hasher.finish() as u32) & 0x3fff_ffff))
 }
 
 fn shift_text_range(range: TextRange, offset: usize) -> Option<TextRange> {
@@ -774,7 +786,7 @@ fn materialize_expansion_virtual_files(
             continue;
         };
         let path = preproc_virtual_expansion_path(profile_id, expansion.id);
-        let file_id = preproc_virtual_file_id(db, &path);
+        let file_id = materialized_preproc_virtual_file_id(db, &path);
         source_map.insert_expansion_virtual_file(
             expansion.id,
             file_id,
@@ -1428,7 +1440,7 @@ mod tests {
     }
 
     #[test]
-    fn source_preproc_mapping_materializes_predefines_as_virtual_file() {
+    fn source_preproc_mapping_records_predefines_as_display_virtual_source_without_backing() {
         let db = db_with_root_file();
         let trace = PreprocessorTrace {
             root_buffer_id: 1,
@@ -1467,22 +1479,24 @@ mod tests {
         let expected_path = preproc_virtual_predefines_path(None);
         let first_text = materialized_predefine_text("FIRST=1");
 
-        let Some(PreprocSourceMapping::VirtualFile { file_id, path, origin }) =
-            source_map.get(first)
+        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(first)
         else {
-            panic!("first predefine should map to virtual file");
+            panic!("first predefine should map to display-only virtual source");
         };
         assert_eq!(path, &expected_path);
         assert_eq!(origin, &PreprocVirtualOrigin::Predefines { profile: None });
 
         assert_eq!(
             source_map.get(second),
-            Some(&PreprocSourceMapping::VirtualFile {
-                file_id: *file_id,
+            Some(&PreprocSourceMapping::VirtualDisplay {
                 path: expected_path,
                 origin: PreprocVirtualOrigin::Predefines { profile: None },
             })
         );
+        assert!(matches!(
+            source_map.file_id(first),
+            Err(PreprocSourceMapError::DisplayOnlyVirtualSource { .. })
+        ));
 
         let second_range = SourceRange {
             source: second,
@@ -1498,7 +1512,7 @@ mod tests {
     }
 
     #[test]
-    fn source_preproc_mapping_materializes_external_include_buffer_with_text() {
+    fn source_preproc_mapping_records_external_include_buffer_as_display_virtual_source() {
         let db = db_with_root_file();
         let external_path = "/external/generated_defs.vh".to_owned();
         let trace = PreprocessorTrace {
@@ -1538,9 +1552,9 @@ mod tests {
         )
         .unwrap();
         let source = PreprocSourceId::from(4);
-        let Some(PreprocSourceMapping::VirtualFile { path, origin, .. }) = source_map.get(source)
+        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(source)
         else {
-            panic!("external include buffer should map to virtual file");
+            panic!("external include buffer should map to display-only virtual source");
         };
 
         assert_eq!(

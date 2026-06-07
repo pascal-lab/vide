@@ -298,13 +298,15 @@ fn macro_definition_source_label(db: &RootDb, definition: &MacroDefinition) -> O
                     .map(|path| path.to_string())
             })
         }
-        hir::preproc::MappedPreprocSource::VirtualFile { .. } => None,
+        hir::preproc::MappedPreprocSource::VirtualFile { .. }
+        | hir::preproc::MappedPreprocSource::VirtualDisplay { .. } => None,
     }
 }
 
 fn argument_text(db: &RootDb, argument: &MacroArgument) -> String {
     if let (Some(source), Some(range)) = (&argument.source, argument.range)
-        && let Some(text) = text_at_file_range(db, source.file_id(), range)
+        && let Some(file_id) = source.file_id()
+        && let Some(text) = text_at_file_range(db, file_id, range)
     {
         return text.trim().to_owned();
     }
