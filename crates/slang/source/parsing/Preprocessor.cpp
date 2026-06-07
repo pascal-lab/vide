@@ -24,15 +24,17 @@ using LF = LexerFacts;
 
 Preprocessor::Preprocessor(SourceManager& sourceManager, BumpAllocator& alloc,
                            Diagnostics& diagnostics, const Bag& options_,
-                           std::span<const DefineDirectiveSyntax* const> inheritedMacros) :
+                           std::span<const DefineDirectiveSyntax* const> inheritedMacros,
+                           PreprocessorTraceRecorder* traceRecorder) :
     sourceManager(sourceManager), alloc(alloc), diagnostics(diagnostics),
     options(options_.getOrDefault<PreprocessorOptions>()),
     lexerOptions(options_.getOrDefault<LexerOptions>()),
-    numberParser(diagnostics, alloc, options.languageVersion) {
+    numberParser(diagnostics, alloc, options.languageVersion), traceRecorder(traceRecorder) {
 
     keywordVersionStack.push_back(LF::getDefaultKeywordVersion(options.languageVersion));
     resetAllDirectives();
     undefineAll();
+    recordTracePredefines();
 
     // Add in any inherited macros that aren't already set in our map.
     for (auto define : inheritedMacros) {
@@ -238,7 +240,50 @@ uint32_t Preprocessor::allocateMacroCallId() {
 }
 
 Token Preprocessor::next() {
-    return consume();
+    auto token = consume();
+    recordTraceToken(token);
+    return token;
+}
+
+void Preprocessor::recordTracePredefines() {
+    if (!traceRecorder)
+        return;
+
+    std::vector<MacroDef> defines;
+    for (auto& [name, def] : macros) {
+        if (def.commandLine && def.syntax)
+            defines.push_back(def);
+    }
+
+    std::ranges::sort(defines, [](const MacroDef& left, const MacroDef& right) {
+        return left.syntax->name.valueText() < right.syntax->name.valueText();
+    });
+
+    for (const auto& def : defines)
+        traceRecorder->recordDirective(*def.syntax, def.definitionId);
+}
+
+void Preprocessor::recordTraceToken(Token token) {
+    if (!traceRecorder)
+        return;
+
+    for (auto trivia : token.trivia()) {
+        if (trivia.kind != TriviaKind::Directive)
+            continue;
+
+        auto* syntax = trivia.syntax();
+        if (!syntax || syntax->kind == SyntaxKind::MacroUsage)
+            continue;
+
+        uint32_t definitionId = 0;
+        if (auto* define = syntax->as_if<DefineDirectiveSyntax>())
+            definitionId = getMacroDefinitionId(*define);
+        traceRecorder->recordDirective(*syntax, definitionId);
+    }
+
+    traceRecorder->flushMacroUsageRecords(getMacroUsageTraceRecords());
+    if (token.kind != TokenKind::EndOfFile)
+        traceRecorder->recordEmittedToken(token);
 }
 
 Token Preprocessor::nextProcessed() {

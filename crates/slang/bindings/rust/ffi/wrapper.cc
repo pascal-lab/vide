@@ -777,7 +777,7 @@ rust::Vec<::RawPreprocessorTraceActualArgument> to_rust_trace_actual_arguments(
 }
 
 ::RawPreprocessorTraceEvent to_rust_preprocessor_trace_macro_usage_record(
-    const slang::parsing::Preprocessor::MacroUsageTraceRecord& record,
+    const slang::parsing::MacroUsageTraceRecord& record,
     uint32_t eventId,
     const slang::SourceManager& sourceManager) {
   ::RawPreprocessorTraceEvent directive;
