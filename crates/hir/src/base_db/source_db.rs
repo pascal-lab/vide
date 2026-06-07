@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
-    Compilation, ParserExpectedSyntax, SyntaxDiagnostic, SyntaxTree, SyntaxTreeBuffer,
-    SyntaxTreeBufferIds,
+    Compilation, ParserExpectedSyntax, PreprocessorTrace, SyntaxDiagnostic, SyntaxTree,
+    SyntaxTreeBuffer, SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -139,6 +139,12 @@ pub struct CompilationDiagnostic {
     pub diagnostic: SyntaxDiagnostic,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCompilationUnit {
+    pub syntax_tree: SyntaxTree,
+    pub preprocessor_trace: Option<PreprocessorTrace>,
+}
+
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
     let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
     let name = if path.is_empty() { "source".to_owned() } else { path.clone() };
@@ -203,7 +209,7 @@ fn syntax_tree_options_for_profile(
     }
 }
 
-fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
+fn parsed_compilation_unit(db: &dyn SourceRootDb, file_id: FileId) -> ParsedCompilationUnit {
     let _span = tracing::info_span!("slang.parse_for_compilation", ?file_id).entered();
     let text = {
         let _span =
@@ -223,13 +229,30 @@ fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTr
                 include_buffer_count
             )
             .entered();
-            SyntaxTree::from_text_with_options(&text, &identity.name, &identity.path, &options)
+            let parsed = SyntaxTree::from_text_with_options_and_trace(
+                &text,
+                &identity.name,
+                &identity.path,
+                &options,
+            );
+            ParsedCompilationUnit {
+                syntax_tree: parsed.tree,
+                preprocessor_trace: parsed.preprocessor_trace,
+            }
         }
-        SourceFileKind::LibraryMap => {
-            SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path)
-        }
-        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+        SourceFileKind::LibraryMap => ParsedCompilationUnit {
+            syntax_tree: SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path),
+            preprocessor_trace: None,
+        },
+        SourceFileKind::ProjectManifest => ParsedCompilationUnit {
+            syntax_tree: SyntaxTree::from_text("", "", ""),
+            preprocessor_trace: None,
+        },
     }
+}
+
+fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
+    db.parsed_compilation_unit(file_id).syntax_tree.clone()
 }
 
 fn parser_expected_syntax(
@@ -349,6 +372,7 @@ pub trait SourceRootDb: SourceDb {
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<crate::preproc::MacroReferenceIndex>;
+    fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
