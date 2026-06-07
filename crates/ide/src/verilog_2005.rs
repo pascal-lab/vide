@@ -1316,8 +1316,8 @@ endmodule
         .hover(position, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro hover expected");
-    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
     assert!(hover.info.as_str().contains("WIDTH"), "hover should mention macro name");
+    assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
 }
 
 #[test]
@@ -1433,11 +1433,9 @@ endmodule
         hover.info.as_str()
     );
     assert!(
-        hover.info.as_str().contains("Macro expansion")
-            && hover.info.as_str().contains("payload_i + 1")
-            && hover.info.as_str().contains("Expanded result")
-            && hover.info.as_str().contains("Expansion steps"),
-        "macro argument hover should show macro expansion: {}",
+        !hover.info.as_str().contains("`define `NEXT(value)")
+            && !hover.info.as_str().contains("--------------------"),
+        "macro argument hover should not show macro expansion away from the macro name: {}",
         hover.info.as_str()
     );
 
@@ -1491,17 +1489,16 @@ endmodule
         .expect("macro call hover expected");
     let info = hover.info.as_str();
     assert!(
-        info.contains("Macro")
-            && info.contains("MAKE_DECL")
-            && info.contains("Macro expansion")
-            && info.contains("Signature")
-            && info.contains("`` `MAKE_DECL(name) ``")
-            && info.contains("Arguments")
-            && info.contains("`name` = `generated`")
-            && info.contains("Expanded result")
-            && info.contains("Expansion steps")
-            && info.contains("1. `` `MAKE_DECL(generated) `` from `` `MAKE_DECL(name) ``")
+        info.contains("```systemverilog")
+            && info.contains("`define `MAKE_DECL(name) logic name ;")
+            && info.contains("Expands to")
+            && info.contains("--------------------")
             && info.contains("logic generated ;")
+            && info.contains("From [feature.v]")
+            && !info.contains("Context ")
+            && !info.contains("Signature")
+            && !info.contains("Arguments")
+            && !info.contains("Expansion steps")
             && !info.contains("Virtual expansion source")
             && !info.contains("Token provenance"),
         "macro call hover should include the expanded macro text: {info}"
@@ -1513,13 +1510,15 @@ endmodule
         .expect("macro argument hover expected");
     let arg_info = arg_hover.info.as_str();
     assert!(
-        arg_info.contains("Macro expansion") && arg_info.contains("logic generated ;"),
-        "macro argument hover should include expanded macro text: {arg_info}"
+        arg_info.contains("generated")
+            && !arg_info.contains("`define `MAKE_DECL(name)")
+            && !arg_info.contains("--------------------"),
+        "macro argument hover should stay on the source token away from the macro name: {arg_info}"
     );
 }
 
 #[test]
-fn preproc_macro_hover_shows_nested_expansion_steps() {
+fn preproc_macro_hover_shows_nested_compact_expansion() {
     let text = r#"
 `define MATH_ONE 12'd1
 `define DEMO_NEXT(value) ((value) + `MATH_ONE)
@@ -1536,16 +1535,19 @@ endmodule
         .expect("nested macro call hover expected");
     let info = hover.info.as_str();
     assert!(
-        info.contains("`` `DEMO_NEXT(value) ``")
-            && info.contains("`value` = `payload_i`")
-            && info.contains("Expanded result")
+        info.contains("```systemverilog")
+            && info.contains("`define `DEMO_NEXT(value)")
+            && info.contains("`MATH_ONE")
+            && info.contains("Expands to")
+            && info.contains("--------------------")
+            && info.contains("( ( payload_i ) + 12 'd 1 )")
             && info.contains("payload_i")
             && info.contains("12")
             && info.contains("'d")
-            && info.contains("Expansion steps")
-            && info.contains("1. `` `DEMO_NEXT(payload_i) `` from `` `DEMO_NEXT(value) ``")
-            && info.contains("2. `` `MATH_ONE `` from `` `MATH_ONE ``"),
-        "nested macro hover should show signature, arguments, result, and steps: {info}"
+            && info.contains("From [feature.v]")
+            && !info.contains("Context ")
+            && !info.contains("Expansion steps"),
+        "nested macro hover should show compact signature, result, and source: {info}"
     );
 }
 
@@ -1568,14 +1570,18 @@ endmodule
         .expect("outer macro call hover expected");
     let call_info = call_hover.info.as_str();
     assert!(
-        call_info.contains("`` `DEMO_NEXT(value) ``")
-            && call_info.contains("`value` = `` `PAYL ``")
-            && call_info.contains("Expanded result")
+        call_info.contains("```systemverilog")
+            && call_info.contains("`define `DEMO_NEXT(value)")
+            && call_info.contains("`MATH_ONE")
+            && call_info.contains("Expands to")
+            && call_info.contains("--------------------")
+            && call_info.contains("( ( payload_i ) + 12 'd 1 )")
             && call_info.contains("payload_i")
             && call_info.contains("12")
-            && call_info.contains("Expansion steps")
-            && call_info.contains("1. `` `DEMO_NEXT(`PAYL) `` from `` `DEMO_NEXT(value) ``"),
-        "outer macro hover should keep expansion and written argument spelling: {call_info}"
+            && call_info.contains("From [feature.v]")
+            && !call_info.contains("Context ")
+            && !call_info.contains("Expansion steps"),
+        "outer macro hover should keep compact expansion facts: {call_info}"
     );
 
     let payl_position = position(file_id, &markers, "payl");
@@ -1597,13 +1603,16 @@ endmodule
         .expect("nested actual-argument macro hover expected");
     let payl_info = payl_hover.info.as_str();
     assert!(
-        payl_info.contains("Macro") && payl_info.contains("PAYL"),
-        "PAYL hover should identify the nested macro reference: {payl_info}"
+        payl_info.contains("```systemverilog")
+            && payl_info.contains("`define `PAYL payload_i")
+            && payl_info.contains("From [feature.v]")
+            && !payl_info.contains("unavailable"),
+        "PAYL hover should show the macro definition display without unavailable text: {payl_info}"
     );
 }
 
 #[test]
-fn preproc_macro_hover_reports_unavailable_expansion() {
+fn preproc_macro_hover_falls_back_to_definition_body_for_unsupported_expansion() {
     let text = r#"
 `define JOIN(a,b) a``b
 module top;
@@ -1619,9 +1628,11 @@ endmodule
         .expect("macro call hover expected");
     let info = hover.info.as_str();
     assert!(
-        info.contains("Macro expansion")
-            && info.contains("`` `JOIN(foo,bar) `` expansion unavailable."),
-        "unsupported expansion should be explicit in hover: {info}"
+        info.contains("```systemverilog")
+            && info.contains("`define `JOIN(a, b) a `` b")
+            && info.contains("From [feature.v]")
+            && !info.contains("unavailable"),
+        "unsupported expansion hover should show the macro definition display: {info}"
     );
 }
 
@@ -1657,8 +1668,11 @@ endmodule
         .hover(definition, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro definition hover expected");
-    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
-    assert!(hover.info.as_str().contains("LOCAL_WIDTH"), "hover should mention macro name");
+    assert!(
+        hover.info.as_str().contains("`define `LOCAL_WIDTH 8"),
+        "hover should show macro definition"
+    );
+    assert!(hover.info.as_str().contains("From [feature.v]"), "hover should show macro source");
 
     let conditional_nav = analysis
         .goto_definition(position(file_id, &markers, "conditional"))
@@ -1781,8 +1795,17 @@ endmodule
         .hover(usage, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("included macro hover expected");
-    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
     assert!(hover.info.as_str().contains("HEADER_WIDTH"), "hover should mention macro name");
+    assert!(
+        hover.info.as_str().contains("`define `HEADER_WIDTH 8"),
+        "hover should show macro definition"
+    );
+    assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
+    assert!(
+        hover.info.as_str().contains("From [include/defs.vh]"),
+        "hover should show project-relative macro source path: {}",
+        hover.info.as_str()
+    );
 
     let completion_items = analysis
         .completions_with_trigger(
