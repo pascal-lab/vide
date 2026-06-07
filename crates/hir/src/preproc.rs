@@ -1165,28 +1165,24 @@ pub fn immediate_macro_expansion_at(
     offset: TextSize,
 ) -> PreprocResult<Option<MacroExpansionQuery>> {
     let mut queries = macro_expansion_queries_at(db, file_id, offset)?;
-    let available = queries
-        .iter()
-        .filter_map(|query| match query {
-            MacroExpansionQuery::Available(expansion) => Some(expansion.as_ref().clone()),
-            MacroExpansionQuery::Ambiguous(expansions) => Some(expansions.first()?.clone()),
-            MacroExpansionQuery::Unavailable(_) => None,
-        })
-        .collect::<Vec<_>>();
-    if available.len() > 1 {
-        return Ok(Some(MacroExpansionQuery::Ambiguous(available)));
-    }
-    if available.len() == 1 {
-        return Ok(Some(MacroExpansionQuery::Available(Box::new(
-            available.into_iter().next().unwrap(),
-        ))));
-    }
     match queries.len() {
         0 => Ok(None),
         1 => Ok(queries.pop()),
-        contexts => Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
-        }),
+        contexts => {
+            let available = queries
+                .iter()
+                .filter_map(|query| match query {
+                    MacroExpansionQuery::Available(expansion) => Some(expansion.as_ref().clone()),
+                    MacroExpansionQuery::Ambiguous(_) | MacroExpansionQuery::Unavailable(_) => None,
+                })
+                .collect::<Vec<_>>();
+            if available.len() == contexts {
+                return Ok(Some(MacroExpansionQuery::Ambiguous(available)));
+            }
+            Err(PreprocError::Unavailable {
+                reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
+            })
+        }
     }
 }
 
@@ -1208,11 +1204,10 @@ pub fn macro_expansion_queries_at(
                 continue;
             }
         };
-        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-            continue;
-        };
-        let query = immediate_macro_expansion_for_call(mapped, call_fact)?;
-        push_unique_macro_expansion_query(&mut queries, query);
+        for call_fact in source_macro_calls_at(mapped, file_id, offset) {
+            let query = immediate_macro_expansion_for_call(mapped, call_fact)?;
+            push_unique_macro_expansion_query(&mut queries, query);
+        }
     }
 
     if !queries.is_empty() {
@@ -1256,11 +1251,10 @@ pub fn recursive_macro_expansions_at(
                 continue;
             }
         };
-        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-            continue;
-        };
-        let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
-        push_unique_recursive_macro_expansion(&mut expansions, recursive);
+        for call_fact in source_macro_calls_at(mapped, file_id, offset) {
+            let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
+            push_unique_recursive_macro_expansion(&mut expansions, recursive);
+        }
     }
 
     if !expansions.is_empty() {
@@ -1289,11 +1283,10 @@ pub fn recursive_macro_expansion_provenances_at(
                 continue;
             }
         };
-        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-            continue;
-        };
-        let recursive = recursive_macro_expansion_provenance_for_call(mapped, call_fact)?;
-        push_unique_recursive_macro_expansion_provenance(&mut expansions, recursive);
+        for call_fact in source_macro_calls_at(mapped, file_id, offset) {
+            let recursive = recursive_macro_expansion_provenance_for_call(mapped, call_fact)?;
+            push_unique_recursive_macro_expansion_provenance(&mut expansions, recursive);
+        }
     }
 
     if !expansions.is_empty() {
@@ -1325,6 +1318,7 @@ pub fn macro_expansion_provenances_at(
     offset: TextSize,
 ) -> PreprocResult<Vec<MacroExpansionProvenance>> {
     let mut provenances = Vec::new();
+    let mut unavailable = Vec::new();
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
     for model_file_id in contexts.model_file_ids.iter().copied() {
@@ -1336,14 +1330,19 @@ pub fn macro_expansion_provenances_at(
                 continue;
             }
         };
-        let Some(call_fact) = source_macro_call_at(mapped, file_id, offset) else {
-            continue;
-        };
-        if let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? {
-            push_unique_macro_expansion_provenance(&mut provenances, provenance);
+        for call_fact in source_macro_calls_at(mapped, file_id, offset) {
+            match macro_expansion_provenance_for_call(mapped, call_fact)? {
+                MacroExpansionProvenanceForCall::Available(provenance) => {
+                    push_unique_macro_expansion_provenance(&mut provenances, provenance);
+                }
+                MacroExpansionProvenanceForCall::Unavailable(reason) => unavailable.push(reason),
+            }
         }
     }
 
+    if !unavailable.is_empty() {
+        return unavailable_or_ambiguous_macro_expansion_provenance(provenances.len(), unavailable);
+    }
     if !provenances.is_empty() {
         return Ok(provenances);
     }
@@ -1373,6 +1372,7 @@ pub fn macro_expansion_provenances_for_range(
     range: TextRange,
 ) -> PreprocResult<Vec<MacroExpansionProvenance>> {
     let mut provenances = Vec::new();
+    let mut unavailable = Vec::new();
     let mut ambiguous_contexts = 0;
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
@@ -1388,11 +1388,12 @@ pub fn macro_expansion_provenances_for_range(
         let call_facts = source_macro_calls_intersecting_range(mapped, file_id, range);
         match call_facts.as_slice() {
             [] => continue,
-            [call_fact] => {
-                if let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? {
+            [call_fact] => match macro_expansion_provenance_for_call(mapped, call_fact)? {
+                MacroExpansionProvenanceForCall::Available(provenance) => {
                     push_unique_macro_expansion_provenance(&mut provenances, provenance);
                 }
-            }
+                MacroExpansionProvenanceForCall::Unavailable(reason) => unavailable.push(reason),
+            },
             call_facts => {
                 ambiguous_contexts += call_facts.len();
             }
@@ -1402,9 +1403,12 @@ pub fn macro_expansion_provenances_for_range(
     if ambiguous_contexts > 0 {
         return Err(PreprocError::Unavailable {
             reason: PreprocUnavailable::AmbiguousMacroExpansionContexts {
-                contexts: ambiguous_contexts + provenances.len(),
+                contexts: ambiguous_contexts + provenances.len() + unavailable.len(),
             },
         });
+    }
+    if !unavailable.is_empty() {
+        return unavailable_or_ambiguous_macro_expansion_provenance(provenances.len(), unavailable);
     }
     if !provenances.is_empty() {
         return Ok(provenances);
@@ -1412,6 +1416,19 @@ pub fn macro_expansion_provenances_for_range(
     finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
+}
+
+fn unavailable_or_ambiguous_macro_expansion_provenance(
+    available_contexts: usize,
+    mut unavailable: Vec<PreprocUnavailable>,
+) -> PreprocResult<Vec<MacroExpansionProvenance>> {
+    let contexts = available_contexts + unavailable.len();
+    if contexts == 1 {
+        return Err(PreprocError::Unavailable { reason: unavailable.pop().unwrap() });
+    }
+    Err(PreprocError::Unavailable {
+        reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
+    })
 }
 
 pub fn diagnostic_provenance_for_range(
@@ -2228,17 +2245,22 @@ fn display_only_virtual_expansion_unavailable(source: &MappedPreprocSource) -> P
     }
 }
 
-fn source_macro_call_at(
+fn source_macro_calls_at(
     mapped: &MappedSourcePreprocModel,
     file_id: FileId,
     offset: TextSize,
-) -> Option<&SourceMacroCallFact> {
-    mapped.model.macro_calls().iter().find(|call| {
-        let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
-            return false;
-        };
-        source.file_id() == Some(file_id) && range.contains(offset)
-    })
+) -> Vec<&SourceMacroCallFact> {
+    mapped
+        .model
+        .macro_calls()
+        .iter()
+        .filter(|call| {
+            let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
+                return false;
+            };
+            source.file_id() == Some(file_id) && range.contains(offset)
+        })
+        .collect()
 }
 
 fn source_macro_calls_intersecting_range(
@@ -2373,19 +2395,32 @@ fn diagnostic_provenance_for_call(
     }
 }
 
+enum MacroExpansionProvenanceForCall {
+    Available(MacroExpansionProvenance),
+    Unavailable(PreprocUnavailable),
+}
+
 fn macro_expansion_provenance_for_call(
     mapped: &MappedSourcePreprocModel,
     call_fact: &SourceMacroCallFact,
-) -> PreprocResult<Option<MacroExpansionProvenance>> {
-    let SourceMacroExpansionQueryFact::Available(expansion_id) =
-        mapped.model.immediate_macro_expansion(call_fact.id)
-    else {
-        return Ok(None);
-    };
-    let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
-        return Ok(None);
-    };
-    Ok(Some(macro_expansion_provenance_for_expansion(mapped, expansion)?))
+) -> PreprocResult<MacroExpansionProvenanceForCall> {
+    Ok(match mapped.model.immediate_macro_expansion(call_fact.id) {
+        SourceMacroExpansionQueryFact::Available(expansion_id) => {
+            let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
+                return Ok(MacroExpansionProvenanceForCall::Unavailable(
+                    PreprocUnavailable::Source(SourcePreprocUnavailable::MissingMacroExpansion {
+                        call: call_fact.id,
+                    }),
+                ));
+            };
+            MacroExpansionProvenanceForCall::Available(macro_expansion_provenance_for_expansion(
+                mapped, expansion,
+            )?)
+        }
+        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+            MacroExpansionProvenanceForCall::Unavailable(PreprocUnavailable::Source(reason))
+        }
+    })
 }
 
 fn macro_expansion_provenance_for_expansion(
@@ -3260,6 +3295,27 @@ endmodule
                 SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
             ))
         ));
+
+        let payl_offset = offset(root_text, "`PAYL");
+        let queries = macro_expansion_queries_at(&db, TOP, payl_offset).unwrap();
+        assert!(queries.iter().any(|query| matches!(
+            query,
+            MacroExpansionQuery::Available(expansion)
+                if expansion.definition.name.as_str() == "NEXT"
+        )));
+        assert!(queries.iter().any(|query| matches!(query, MacroExpansionQuery::Unavailable(_))));
+        assert!(matches!(
+            immediate_macro_expansion_at(&db, TOP, payl_offset),
+            Err(PreprocError::Unavailable {
+                reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts: 2 }
+            })
+        ));
+        assert!(matches!(
+            macro_expansion_provenance_at(&db, TOP, payl_offset),
+            Err(PreprocError::Unavailable {
+                reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts: 2 }
+            })
+        ));
     }
 
     #[test]
@@ -3450,6 +3506,7 @@ endmodule
                 DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
                     SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
                         | SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
+                        | SourcePreprocUnavailable::ExpansionAuthorityUnavailable
                 ))
             ),
             "stringification should be unsupported or unavailable, got {provenance:?}"
@@ -3486,6 +3543,7 @@ endmodule
             provenance,
             DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
                 SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
+                    | SourcePreprocUnavailable::ExpansionAuthorityUnavailable
             ))
         ));
     }
