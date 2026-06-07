@@ -1,8 +1,8 @@
 use hir::{
     file::HirFileId,
     preproc::{
-        MacroDefinition, MacroParamDefinition, macro_definition_at, macro_param_definition_at,
-        macro_param_reference_definitions_at, macro_param_references,
+        MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_definition_at,
+        macro_param_definition_at, macro_param_reference_definitions_at, macro_param_references,
         macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
@@ -62,6 +62,31 @@ impl ReferencesConfig {
 pub struct References {
     pub def: Option<Vec<NavTarget>>,
     pub refs: IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>,
+    pub status: ReferencesStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferencesStatus {
+    Complete,
+    Partial { reason: ReferencesPartialReason, issue_count: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferencesPartialReason {
+    PreprocMacroIndex,
+}
+
+impl ReferencesStatus {
+    pub fn is_partial(self) -> bool {
+        matches!(self, ReferencesStatus::Partial { .. })
+    }
+
+    pub fn issue_count(self) -> usize {
+        match self {
+            ReferencesStatus::Complete => 0,
+            ReferencesStatus::Partial { issue_count, .. } => issue_count,
+        }
+    }
 }
 
 pub(crate) fn references(
@@ -185,7 +210,11 @@ fn macro_param_references_for_definition(
             )
         })
         .collect();
-    Some(References { def: Some(vec![macro_param_nav_target(definition)]), refs })
+    Some(References {
+        def: Some(vec![macro_param_nav_target(definition)]),
+        refs,
+        status: ReferencesStatus::Complete,
+    })
 }
 
 fn macro_references_for_definition(
@@ -194,8 +223,9 @@ fn macro_references_for_definition(
     definition: MacroDefinition,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let refs = macro_references(db, file_id, &definition)
-        .ok()?
+    let references = macro_references(db, file_id, &definition).ok()?;
+    let status = references_status_from_macro_index(references.status);
+    let refs = references
         .references
         .into_iter()
         .filter(|usage| {
@@ -217,7 +247,17 @@ fn macro_references_for_definition(
             )
         })
         .collect();
-    Some(References { def: Some(vec![macro_nav_target(definition)]), refs })
+    Some(References { def: Some(vec![macro_nav_target(definition)]), refs, status })
+}
+
+fn references_status_from_macro_index(status: MacroReferenceIndexStatus) -> ReferencesStatus {
+    match status {
+        MacroReferenceIndexStatus::Complete => ReferencesStatus::Complete,
+        MacroReferenceIndexStatus::Partial { issues } => ReferencesStatus::Partial {
+            reason: ReferencesPartialReason::PreprocMacroIndex,
+            issue_count: issues.len(),
+        },
+    }
 }
 
 fn macro_param_nav_target(definition: MacroParamDefinition) -> NavTarget {
@@ -267,7 +307,11 @@ pub(crate) fn handle_ctrl_flow_kw(
         _ => return None,
     }
 
-    Some(vec![References { def: None, refs: IntMap::from_iter([(file_id.file_id(), refs)]) }])
+    Some(vec![References {
+        def: None,
+        refs: IntMap::from_iter([(file_id.file_id(), refs)]),
+        status: ReferencesStatus::Complete,
+    }])
 }
 
 fn search_refs<'a>(
@@ -284,7 +328,7 @@ fn search_refs<'a>(
         })
         .collect();
     let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
-    References { def, refs }
+    References { def, refs, status: ReferencesStatus::Complete }
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
@@ -292,5 +336,37 @@ fn token_precedence(kind: TokenKind) -> usize {
         _ if kind.name_like() => 4,
         _ if kind.is_pair_token() => 4,
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hir::preproc::{MacroReferenceIndexIssue, PreprocError};
+
+    use super::*;
+
+    #[test]
+    fn macro_reference_index_status_maps_to_reference_status() {
+        assert_eq!(
+            references_status_from_macro_index(MacroReferenceIndexStatus::Complete),
+            ReferencesStatus::Complete
+        );
+
+        let status = references_status_from_macro_index(MacroReferenceIndexStatus::Partial {
+            issues: vec![MacroReferenceIndexIssue::SkippedModel {
+                file_id: FileId(0),
+                error: PreprocError::MissingRootSource,
+            }],
+        });
+
+        assert_eq!(
+            status,
+            ReferencesStatus::Partial {
+                reason: ReferencesPartialReason::PreprocMacroIndex,
+                issue_count: 1,
+            }
+        );
+        assert!(status.is_partial());
+        assert_eq!(status.issue_count(), 1);
     }
 }
