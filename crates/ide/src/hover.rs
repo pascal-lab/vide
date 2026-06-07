@@ -24,8 +24,12 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
+    FilePosition, RangeInfo,
+    db::root_db::RootDb,
+    definitions::DefinitionClass,
+    markup::Markup,
     render,
+    source_tokens::{PreprocTokenSelection, SourceTokenSelection},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,13 +67,46 @@ pub(crate) fn hover(
         offset,
         token_precedence,
     )?;
-    let markups = selection
-        .tokens
+    let hover = match selection {
+        SourceTokenSelection::NormalSyntax(selection) => {
+            hover_for_token_selection(&sema, hir_file_id, selection.range, selection.tokens)
+        }
+        SourceTokenSelection::Preproc(selection) => {
+            hover_for_preproc_selection(&sema, hir_file_id, selection)
+        }
+        SourceTokenSelection::Unavailable(unavailable) => {
+            let _ = unavailable.range;
+            None
+        }
+        SourceTokenSelection::Ambiguous(ambiguous) => {
+            let _ = (ambiguous.range, ambiguous.hits.len());
+            None
+        }
+    }?;
+    Some(with_expanded_macro_hover(db, file_id, offset, hover))
+}
+
+fn hover_for_preproc_selection(
+    sema: &Semantics<RootDb>,
+    hir_file_id: HirFileId,
+    selection: PreprocTokenSelection<'_>,
+) -> Option<RangeInfo<Markup>> {
+    let _ = selection.hits.len();
+    hover_for_token_selection(sema, hir_file_id, selection.range, selection.tokens)
+}
+
+fn hover_for_token_selection(
+    sema: &Semantics<RootDb>,
+    hir_file_id: HirFileId,
+    range: TextRange,
+    tokens: Vec<SyntaxTokenWithParent<'_>>,
+) -> Option<RangeInfo<Markup>> {
+    let markups = tokens
         .into_iter()
-        .filter_map(|token| hover_for_token(&sema, hir_file_id, token))
+        .filter_map(|token| hover_for_token(sema, hir_file_id, token))
         .collect::<Vec<_>>();
     let res = merge_hover_results(markups)?;
-    Some(with_expanded_macro_hover(db, file_id, offset, RangeInfo::new(selection.range, res)))
+    Some(RangeInfo::new(range, res))
 }
 
 pub(crate) fn token_precedence(kind: TokenKind) -> usize {

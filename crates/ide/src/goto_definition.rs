@@ -22,6 +22,7 @@ use crate::{
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
+    source_tokens::SourceTokenSelection,
 };
 
 pub(crate) fn goto_definition(
@@ -47,8 +48,22 @@ pub(crate) fn goto_definition(
         offset,
         token_precedence,
     )?;
-    let navs = selection
-        .tokens
+    let (range, tokens) = match selection {
+        SourceTokenSelection::NormalSyntax(selection) => (selection.range, selection.tokens),
+        SourceTokenSelection::Preproc(selection) => {
+            let _ = selection.hits.len();
+            (selection.range, selection.tokens)
+        }
+        SourceTokenSelection::Unavailable(unavailable) => {
+            let _ = unavailable.range;
+            return None;
+        }
+        SourceTokenSelection::Ambiguous(ambiguous) => {
+            let _ = (ambiguous.range, ambiguous.hits.len());
+            return None;
+        }
+    };
+    let navs = tokens
         .into_iter()
         .filter_map(|token| nav_targets_for_token(db, &sema, hir_file_id, token))
         .flatten()
@@ -58,7 +73,7 @@ pub(crate) fn goto_definition(
         return None;
     }
 
-    Some(RangeInfo::new(selection.range, navs))
+    Some(RangeInfo::new(range, navs))
 }
 
 fn nav_targets_for_token(
