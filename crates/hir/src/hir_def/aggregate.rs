@@ -75,6 +75,7 @@ pub(crate) fn lower_struct_def(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StructSrc {
     pub node: SyntaxNodePtr,
+    pub name: Option<SyntaxTokenPtr>,
 }
 
 impl IsSrc for StructSrc {
@@ -86,6 +87,18 @@ impl IsSrc for StructSrc {
     #[inline]
     fn range(&self) -> TextRange {
         self.node.range()
+    }
+}
+
+impl IsNamedSrc for StructSrc {
+    #[inline]
+    fn name_kind(&self) -> Option<TokenKind> {
+        self.name.map(|name| name.kind())
+    }
+
+    #[inline]
+    fn name_range(&self) -> Option<TextRange> {
+        self.name.map(|name| name.range())
     }
 }
 
@@ -101,14 +114,26 @@ impl<'a> ToAstNode<'a, ast::StructUnionType<'a>> for StructSrc {
 
 impl From<ast::StructUnionType<'_>> for StructSrc {
     fn from(node: ast::StructUnionType<'_>) -> Self {
-        StructSrc { node: AstNodeExt::to_ptr(&node) }
+        let syntax = node.syntax();
+        let name = struct_name_token(node).map(|name| SyntaxTokenPtr::from_token_in(syntax, name));
+        StructSrc { node: AstNodeExt::to_ptr(&node), name }
     }
 }
 
 impl<'a> FromSourceAst<'a, ast::StructUnionType<'a>> for StructSrc {
     fn from_source_ast(node: SourceAst<ast::StructUnionType<'a>>) -> Self {
-        StructSrc { node: AstNodeExt::to_ptr(&node.into_inner()) }
+        let node = node.into_inner();
+        let syntax = node.syntax();
+        let name = struct_name_token(node)
+            .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
+        StructSrc { node: AstNodeExt::to_ptr(&node), name }
     }
+}
+
+fn struct_name_token(node: ast::StructUnionType<'_>) -> Option<syntax::SyntaxToken<'_>> {
+    let data_type = ast::DataType::StructUnionType(node);
+    let typedef = data_type.syntax().parent().and_then(ast::TypedefDeclaration::cast)?;
+    typedef.name()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
