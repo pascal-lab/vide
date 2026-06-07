@@ -746,6 +746,7 @@ pub(crate) fn semantic_tokens(
             SemaTokenTag::Port(SemaTokenPort::Rst) => sema_token_types::RST_PORT,
             SemaTokenTag::Port(SemaTokenPort::Others) => sema_token_types::OTHERS_PORT,
             SemaTokenTag::Instance => sema_token_types::INSTANCE,
+            SemaTokenTag::Macro => sema_token_types::MACRO,
             SemaTokenTag::Type => sema_token_types::TYPE_ALIAS,
             SemaTokenTag::None => sema_token_types::GENERIC,
         };
