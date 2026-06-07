@@ -1372,6 +1372,7 @@ pub fn macro_expansion_provenances_for_range(
     range: TextRange,
 ) -> PreprocResult<Vec<MacroExpansionProvenance>> {
     let mut provenances = Vec::new();
+    let mut ambiguous_contexts = 0;
     let mut first_error = None;
     for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
         let mapped = db.source_preproc_model(model_file_id);
@@ -1382,14 +1383,27 @@ pub fn macro_expansion_provenances_for_range(
                 continue;
             }
         };
-        let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
-            continue;
-        };
-        if let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? {
-            push_unique_macro_expansion_provenance(&mut provenances, provenance);
+        let call_facts = source_macro_calls_intersecting_range(mapped, file_id, range);
+        match call_facts.as_slice() {
+            [] => continue,
+            [call_fact] => {
+                if let Some(provenance) = macro_expansion_provenance_for_call(mapped, call_fact)? {
+                    push_unique_macro_expansion_provenance(&mut provenances, provenance);
+                }
+            }
+            call_facts => {
+                ambiguous_contexts += call_facts.len();
+            }
         }
     }
 
+    if ambiguous_contexts > 0 {
+        return Err(PreprocError::Unavailable {
+            reason: PreprocUnavailable::AmbiguousMacroExpansionContexts {
+                contexts: ambiguous_contexts + provenances.len(),
+            },
+        });
+    }
     if !provenances.is_empty() {
         return Ok(provenances);
     }
@@ -1406,6 +1420,7 @@ pub fn diagnostic_provenance_for_range(
     range: TextRange,
 ) -> PreprocResult<Option<DiagnosticProvenance>> {
     let mut provenances = Vec::new();
+    let mut ambiguous_targets = 0;
     let mut first_error = None;
 
     for model_file_id in source_preproc_query_model_file_ids(db, file_id) {
@@ -1417,11 +1432,17 @@ pub fn diagnostic_provenance_for_range(
                 continue;
             }
         };
-        let Some(call_fact) = source_macro_call_intersecting_range(mapped, file_id, range) else {
-            continue;
-        };
-        let provenance = diagnostic_provenance_for_call(mapped, call_fact)?;
-        push_unique_diagnostic_provenance(&mut provenances, provenance);
+        let call_facts = source_macro_calls_intersecting_range(mapped, file_id, range);
+        match call_facts.as_slice() {
+            [] => continue,
+            [call_fact] => {
+                let provenance = diagnostic_provenance_for_call(mapped, call_fact)?;
+                push_unique_diagnostic_provenance(&mut provenances, provenance);
+            }
+            call_facts => {
+                ambiguous_targets += call_facts.len();
+            }
+        }
     }
 
     let precise = provenances
@@ -1429,6 +1450,13 @@ pub fn diagnostic_provenance_for_range(
         .filter(|provenance| !matches!(provenance, DiagnosticProvenance::Unavailable(_)))
         .cloned()
         .collect::<Vec<_>>();
+    if ambiguous_targets > 0 {
+        return Ok(Some(DiagnosticProvenance::Unavailable(
+            PreprocUnavailable::AmbiguousDiagnosticProvenance {
+                targets: ambiguous_targets + precise.len(),
+            },
+        )));
+    }
     if precise.len() == 1 {
         return Ok(Some(precise.into_iter().next().unwrap()));
     }
@@ -2142,17 +2170,25 @@ fn source_macro_call_at(
     })
 }
 
-fn source_macro_call_intersecting_range(
+fn source_macro_calls_intersecting_range(
     mapped: &MappedSourcePreprocModel,
     file_id: FileId,
     source_range: TextRange,
-) -> Option<&SourceMacroCallFact> {
-    mapped.model.macro_calls().iter().find(|call| {
-        let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
-            return false;
-        };
-        source.file_id() == Some(file_id) && range.intersect(source_range).is_some()
-    })
+) -> Vec<&SourceMacroCallFact> {
+    mapped
+        .model
+        .macro_calls()
+        .iter()
+        .filter(|call| {
+            let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
+                return false;
+            };
+            source.file_id() == Some(file_id)
+                && range
+                    .intersect(source_range)
+                    .is_some_and(|intersection| !intersection.is_empty())
+        })
+        .collect()
 }
 
 fn immediate_macro_expansion_for_call(
@@ -3155,6 +3191,80 @@ endmodule
                 .iter()
                 .any(|token| matches!(token.provenance, TokenProvenance::MacroArgument { .. }))
         );
+    }
+
+    #[test]
+    fn diagnostic_provenance_for_range_spanning_two_macro_calls_is_ambiguous() {
+        let root_text = r#"`define A 1
+`define B 2
+module top;
+localparam int W = `A + `B;
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+        let range = TextRange::new(offset(root_text, "`A"), offset_after(root_text, "`B"));
+
+        let provenance = diagnostic_provenance_for_range(&db, TOP, range).unwrap().unwrap();
+
+        assert!(matches!(
+            provenance,
+            DiagnosticProvenance::Unavailable(PreprocUnavailable::AmbiguousDiagnosticProvenance {
+                targets: 2
+            })
+        ));
+        let expansion_error = macro_expansion_provenances_for_range(&db, TOP, range).unwrap_err();
+        assert!(matches!(
+            expansion_error,
+            PreprocError::Unavailable {
+                reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts: 2 }
+            }
+        ));
+    }
+
+    #[test]
+    fn diagnostic_provenance_for_adjacent_macro_calls_only_hits_intersecting_call() {
+        let root_text = r#"`define ID(x) x
+module top;
+localparam int W = `ID(1)`ID(2);
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+        let two_range =
+            TextRange::new(offset(root_text, "`ID(2)"), offset_after(root_text, "`ID(2)"));
+
+        let provenance = diagnostic_provenance_for_range(&db, TOP, two_range).unwrap().unwrap();
+
+        let DiagnosticProvenance::MacroArgument { call, argument_index, source, range } =
+            provenance
+        else {
+            panic!("adjacent single-call range should resolve precisely: {provenance:?}");
+        };
+        assert_eq!(text_at_range(root_text, call.range), "`ID(2)");
+        assert_eq!(argument_index, 0);
+        assert_eq!(source.file_id(), Some(TOP));
+        assert_eq!(text_at_range(root_text, range), "2");
+    }
+
+    #[test]
+    fn diagnostic_provenance_for_nested_macro_call_range_is_precise() {
+        let root_text = r#"`define LEAF 3
+`define WRAP `LEAF
+module top;
+localparam int W = `WRAP;
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+        let leaf_range =
+            TextRange::new(offset(root_text, "`LEAF"), offset_after(root_text, "`LEAF"));
+
+        let provenance = diagnostic_provenance_for_range(&db, TOP, leaf_range).unwrap().unwrap();
+
+        let DiagnosticProvenance::MacroBody { call, source, range, .. } = provenance else {
+            panic!("nested macro call range should resolve precisely");
+        };
+        assert_eq!(text_at_range(root_text, call.range), "`LEAF");
+        assert_eq!(source.file_id(), Some(TOP));
+        assert_eq!(text_at_range(root_text, range), "3");
     }
 
     #[test]
