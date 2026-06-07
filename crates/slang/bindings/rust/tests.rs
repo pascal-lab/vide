@@ -1356,6 +1356,105 @@ endmodule
     assert!(payl.macro_call_id.is_some());
     assert!(payl.macro_expansion_id.is_some());
     assert_eq!(&source[payl.range.as_ref().unwrap().range.clone()], "`PAYL");
+
+    let payload = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| {
+            matches!(
+                &token.provenance,
+                PreprocessorTraceTokenProvenance::MacroBody { macro_name, .. }
+                    if macro_name == "PAYL"
+            )
+        })
+        .expect("nested PAYL expansion should attribute payload_i to PAYL");
+    assert_eq!(payload.raw_text, "payload_i");
+    let PreprocessorTraceTokenProvenance::MacroBody {
+        macro_name,
+        identity,
+        call_range,
+        body_token_range,
+    } = &payload.provenance
+    else {
+        panic!("expected PAYL macro body provenance for nested argument token: {payload:?}");
+    };
+    assert_eq!(macro_name, "PAYL");
+    assert_eq!(identity.call_id, payl.macro_call_id.unwrap());
+    assert_eq!(identity.definition_id, payl.macro_definition_id.unwrap());
+    assert_eq!(identity.expansion_id, payl.macro_expansion_id.unwrap());
+    assert_eq!(identity.parent_expansion_id, next.macro_expansion_id);
+    assert_eq!(identity.body_token_index, 0);
+    assert_eq!(&source[call_range.range.clone()], "`PAYL");
+    assert_eq!(&source[body_token_range.range.clone()], "payload_i");
+}
+
+#[test]
+fn preprocessor_trace_preserves_parent_chain_for_nested_actual_argument_macros() {
+    let source = r#"`define LEAF payload_i
+`define WRAP `LEAF
+`define NEXT(x) ((x) + 12'd1)
+module m(input logic [3:0] payload_i, output logic [3:0] y);
+assign y = `NEXT(`WRAP);
+endmodule
+"#;
+    let trace = SyntaxTree::preprocessor_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    )
+    .expect("trace should include macro usage events");
+
+    let next = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.raw_text == "`NEXT")
+        })
+        .expect("outer NEXT usage should be traced");
+    let wrap = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.raw_text == "`WRAP")
+        })
+        .expect("actual-argument WRAP usage should be traced");
+    let leaf = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.raw_text == "`LEAF")
+        })
+        .expect("nested LEAF usage should be traced");
+
+    assert_eq!(next.parent_macro_expansion_id, None);
+    assert_eq!(wrap.parent_macro_expansion_id, next.macro_expansion_id);
+    assert_eq!(leaf.parent_macro_expansion_id, wrap.macro_expansion_id);
+
+    let payload = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| {
+            token.raw_text == "payload_i"
+                && matches!(
+                    &token.provenance,
+                    PreprocessorTraceTokenProvenance::MacroBody { macro_name, .. }
+                        if macro_name == "LEAF"
+                )
+        })
+        .expect("final payload token should keep LEAF provenance");
+    let PreprocessorTraceTokenProvenance::MacroBody { identity, call_range, .. } =
+        &payload.provenance
+    else {
+        panic!("expected LEAF macro body provenance for payload token: {payload:?}");
+    };
+    assert_eq!(identity.call_id, leaf.macro_call_id.unwrap());
+    assert_eq!(identity.expansion_id, leaf.macro_expansion_id.unwrap());
+    assert_eq!(identity.parent_expansion_id, wrap.macro_expansion_id);
+    assert_eq!(&source[call_range.range.clone()], "`LEAF");
 }
 
 #[test]

@@ -324,6 +324,72 @@ void apply_direct_macro_token_provenance(
       provenance.argumentTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
 }
 
+bool apply_original_macro_loc_provenance_for_nested_argument(
+    ::RawPreprocessorTraceEmittedToken& result,
+    slang::parsing::Token token,
+    const slang::SourceManager& sourceManager,
+    slang::SourceLocation location) {
+  if (!sourceManager.isMacroArgLoc(location))
+    return false;
+
+  auto originalLocation = sourceManager.getOriginalLoc(location);
+  if (!originalLocation.valid() || !sourceManager.isMacroLoc(originalLocation))
+    return false;
+
+  switch (sourceManager.getMacroExpansionKind(originalLocation)) {
+    case slang::SourceManager::MacroExpansionKind::TokenPaste:
+    case slang::SourceManager::MacroExpansionKind::Stringification:
+      return false;
+    case slang::SourceManager::MacroExpansionKind::Body:
+    case slang::SourceManager::MacroExpansionKind::Argument:
+      break;
+  }
+
+  auto originalProvenance = sourceManager.getMacroTokenProvenance(originalLocation);
+  if (!has_direct_macro_token_provenance(originalProvenance))
+    return false;
+
+  auto originalTokenRange =
+      slang::SourceRange(originalLocation, originalLocation + token.rawText().length());
+  result.macro_name = rust::String(std::string(sourceManager.getMacroName(originalLocation)));
+
+  if (sourceManager.isMacroArgLoc(originalLocation)) {
+    result.argument_token_range =
+        to_rust_original_macro_loc_range(sourceManager, originalTokenRange);
+
+    auto formalRange = sourceManager.getExpansionRange(originalLocation);
+    result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
+    result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
+
+    if (originalProvenance->bodyTokenIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        originalProvenance->argumentIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        originalProvenance->argumentTokenIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        result.call_range.has_range && result.body_token_range.has_range &&
+        result.argument_token_range.has_range) {
+      apply_direct_macro_token_provenance(result, *originalProvenance);
+      result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT;
+      return true;
+    }
+    return false;
+  }
+
+  result.call_range =
+      to_rust_macro_callsite_range_from_macro_loc(sourceManager, originalLocation);
+  result.body_token_range = to_rust_original_macro_loc_range(sourceManager, originalTokenRange);
+  if (originalProvenance->bodyTokenIndex !=
+          slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+      result.call_range.has_range && result.body_token_range.has_range) {
+    apply_direct_macro_token_provenance(result, *originalProvenance);
+    result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
+    return true;
+  }
+
+  return false;
+}
+
 ::RawPreprocessorTraceToken empty_preprocessor_trace_token() {
   ::RawPreprocessorTraceToken token;
   token.raw_text = rust::String();
@@ -436,6 +502,10 @@ template<typename TTokens>
     auto macroName = std::string(sourceManager.getMacroName(location));
     result.macro_name = rust::String(macroName);
     auto directProvenance = sourceManager.getMacroTokenProvenance(location);
+
+    if (apply_original_macro_loc_provenance_for_nested_argument(
+            result, token, sourceManager, location))
+      return result;
 
     if (sourceManager.isMacroArgLoc(location)) {
       auto tokenRange = token.range();

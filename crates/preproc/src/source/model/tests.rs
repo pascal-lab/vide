@@ -534,7 +534,112 @@ endmodule
         panic!("PAYL usage should resolve through its runtime definition identity");
     };
     assert_eq!(model.macro_definitions().get(*definition).unwrap().name.as_str(), "PAYL");
-    assert!(model.macro_calls().iter().any(|call| call.reference == payl_reference.id));
+    let payl_call = model
+        .macro_calls()
+        .iter()
+        .find(|call| call.reference == payl_reference.id)
+        .expect("nested PAYL usage should create a call");
+    assert_eq!(payl_call.parent_expansion_identity, next_call.expansion_identity);
+
+    let SourceMacroExpansionQuery::Available(payl_expansion_id) =
+        model.immediate_macro_expansion(payl_call.id)
+    else {
+        panic!("nested PAYL usage should have its own immediate expansion");
+    };
+    let payl_expansion = model.macro_expansions().get(payl_expansion_id).unwrap();
+    assert_eq!(payl_expansion.call, payl_call.id);
+
+    let (payload, payload_identity, payload_body_range) = model
+        .emitted_tokens()
+        .iter()
+        .find_map(|token| {
+            let SourceTokenProvenance::MacroBody { identity, call, body_token_range, .. } =
+                model.token_provenance().get(token.provenance)?
+            else {
+                return None;
+            };
+            (*call == payl_call.id).then_some((token, *identity, *body_token_range))
+        })
+        .expect("PAYL emitted token should keep direct macro body provenance");
+    assert_eq!(payload.text.as_str(), "payload_i");
+    assert_eq!(text_at_range(root_text, payload_body_range.range), "payload_i");
+    assert_eq!(Some(payload_identity.call), payl_call.identity);
+    assert_eq!(Some(payload_identity.expansion), payl_call.expansion_identity);
+    assert_eq!(payload_identity.parent_expansion, next_call.expansion_identity);
+    assert_eq!(payl_expansion.emitted_token_range.start, payload.id);
+    assert_eq!(payl_expansion.emitted_token_range.len, 1);
+
+    let recursive = model.recursive_macro_expansion(next_call.id);
+    assert!(recursive.expansions.contains(&payl_expansion_id));
+    assert!(recursive.unavailable.is_empty());
+}
+
+#[test]
+fn source_model_preserves_nested_actual_argument_macro_parent_chain() {
+    let root_text = r#"`define LEAF payload_i
+`define WRAP `LEAF
+`define NEXT(x) ((x) + 12'd1)
+module m(input logic [3:0] payload_i, output logic [3:0] y);
+assign y = `NEXT(`WRAP);
+endmodule
+"#;
+    let (model, _root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+    let call_by_name = |name: &str| {
+        model
+            .macro_calls()
+            .iter()
+            .find(|call| {
+                let reference = model.macro_references().get(call.reference).unwrap();
+                reference.name.as_str() == name
+                    && matches!(reference.site, SourceMacroReferenceSite::Usage { .. })
+            })
+            .unwrap_or_else(|| panic!("{name} usage should create a call"))
+    };
+
+    let next_call = call_by_name("NEXT");
+    let wrap_call = call_by_name("WRAP");
+    let leaf_call = call_by_name("LEAF");
+    assert_eq!(wrap_call.parent_expansion_identity, next_call.expansion_identity);
+    assert_eq!(leaf_call.parent_expansion_identity, wrap_call.expansion_identity);
+
+    let SourceMacroExpansionQuery::Available(next_expansion_id) =
+        model.immediate_macro_expansion(next_call.id)
+    else {
+        panic!("NEXT should have an immediate expansion");
+    };
+    let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
+        model.immediate_macro_expansion(wrap_call.id)
+    else {
+        panic!("WRAP should have an immediate expansion");
+    };
+    let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
+        model.immediate_macro_expansion(leaf_call.id)
+    else {
+        panic!("LEAF should have an immediate expansion");
+    };
+
+    let next_recursive = model.recursive_macro_expansion(next_call.id);
+    assert!(next_recursive.expansions.contains(&next_expansion_id));
+    assert!(next_recursive.expansions.contains(&wrap_expansion_id));
+    assert!(next_recursive.expansions.contains(&leaf_expansion_id));
+    assert!(next_recursive.unavailable.is_empty());
+
+    let (payload, identity, body_token_range) = model
+        .emitted_tokens()
+        .iter()
+        .find_map(|token| {
+            let SourceTokenProvenance::MacroBody { call, identity, body_token_range, .. } =
+                model.token_provenance().get(token.provenance)?
+            else {
+                return None;
+            };
+            (*call == leaf_call.id).then_some((token, *identity, *body_token_range))
+        })
+        .expect("final payload token should keep LEAF body provenance");
+    assert_eq!(payload.text.as_str(), "payload_i");
+    assert_eq!(identity.parent_expansion, wrap_call.expansion_identity);
+    assert_eq!(text_at_range(root_text, body_token_range.range), "payload_i");
 }
 
 #[test]
