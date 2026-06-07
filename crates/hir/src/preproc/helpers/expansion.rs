@@ -94,15 +94,9 @@ pub(in crate::preproc) fn source_macro_calls_at(
     offset: TextSize,
 ) -> Vec<&SourceMacroCallFact> {
     mapped
-        .model
-        .macro_calls()
-        .iter()
-        .filter(|call| {
-            let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
-                return false;
-            };
-            source.file_id() == Some(file_id) && range.contains(offset)
-        })
+        .macro_call_ids_at(file_id, offset)
+        .into_iter()
+        .filter_map(|call| mapped.model.macro_calls().get(call))
         .collect()
 }
 
@@ -112,18 +106,9 @@ pub(in crate::preproc) fn source_macro_calls_intersecting_range(
     source_range: TextRange,
 ) -> Vec<&SourceMacroCallFact> {
     mapped
-        .model
-        .macro_calls()
-        .iter()
-        .filter(|call| {
-            let Ok((source, range)) = map_mapped_source_range(mapped, call.call_range) else {
-                return false;
-            };
-            source.file_id() == Some(file_id)
-                && range
-                    .intersect(source_range)
-                    .is_some_and(|intersection| !intersection.is_empty())
-        })
+        .macro_call_ids_intersecting_range(file_id, source_range)
+        .into_iter()
+        .filter_map(|call| mapped.model.macro_calls().get(call))
         .collect()
 }
 
