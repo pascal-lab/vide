@@ -13,6 +13,7 @@
 #include "slang/parsing/NumberParser.h"
 #include "slang/parsing/Token.h"
 #include "slang/syntax/SyntaxNode.h"
+#include "slang/text/SourceManager.h"
 #include "slang/text/SourceLocation.h"
 #include "slang/util/Bag.h"
 #include "slang/util/SmallVector.h"
@@ -25,6 +26,7 @@ struct MacroActualArgumentListSyntax;
 struct MacroFormalArgumentListSyntax;
 struct MacroActualArgumentSyntax;
 struct MacroFormalArgumentSyntax;
+struct MacroUsageSyntax;
 struct PragmaDirectiveSyntax;
 struct PragmaExpressionSyntax;
 
@@ -150,6 +152,12 @@ public:
     /// Gets all macros that have been defined thus far in the preprocessor.
     std::vector<const syntax::DefineDirectiveSyntax*> getDefinedMacros() const;
 
+    /// Gets the frontend identity assigned to a macro definition syntax node.
+    uint32_t getMacroDefinitionId(const syntax::DefineDirectiveSyntax& syntax) const;
+
+    /// Gets the frontend identity assigned to a macro usage syntax node.
+    uint32_t getMacroCallId(const syntax::MacroUsageSyntax& syntax) const;
+
 private:
     Preprocessor(const Preprocessor& other);
     Preprocessor& operator=(const Preprocessor& other) = delete;
@@ -257,6 +265,7 @@ private:
         MacroIntrinsic intrinsic = MacroIntrinsic::None;
         bool builtIn = false;
         bool commandLine = false;
+        uint32_t definitionId = 0;
 
         MacroDef() = default;
         MacroDef(const syntax::DefineDirectiveSyntax* syntax) : syntax(syntax) {}
@@ -271,18 +280,26 @@ private:
     class MacroExpansion {
     public:
         MacroExpansion(SourceManager& sourceManager, BumpAllocator& alloc,
-                       SmallVectorBase<Token>& dest, Token usageSite, bool isTopLevel) :
+                       SmallVectorBase<Token>& dest, Token usageSite, bool isTopLevel,
+                       SourceManager::MacroExpansionMetadata metadata) :
             sourceManager(sourceManager), alloc(alloc), dest(dest), usageSite(usageSite),
-            isTopLevel(isTopLevel) {}
+            isTopLevel(isTopLevel), metadata(metadata) {}
 
         SourceRange getRange() const;
+        const SourceManager::MacroExpansionMetadata& getMetadata() const { return metadata; }
+        SourceManager::MacroTokenProvenance tokenProvenance(
+            uint32_t bodyTokenIndex,
+            uint32_t argumentIndex = SourceManager::MacroTokenProvenance::InvalidIndex,
+            uint32_t argumentTokenIndex = SourceManager::MacroTokenProvenance::InvalidIndex) const;
 
         SourceLocation adjustLoc(Token token, SourceLocation& macroLoc, SourceLocation& firstLoc,
                                  SourceRange expansionRange) const;
 
-        void append(Token token, SourceLocation location, bool allowLineContinuation = false);
+        void append(Token token, SourceLocation location, bool allowLineContinuation = false,
+                    SourceManager::MacroTokenProvenance provenance = {});
         void append(Token token, SourceLocation& macroLoc, SourceLocation& firstLoc,
-                    SourceRange expansionRange, bool allowLineContinuation = false);
+                    SourceRange expansionRange, bool allowLineContinuation = false,
+                    SourceManager::MacroTokenProvenance provenance = {});
 
     private:
         SourceManager& sourceManager;
@@ -291,11 +308,13 @@ private:
         Token usageSite;
         bool any = false;
         bool isTopLevel = false;
+        SourceManager::MacroExpansionMetadata metadata;
     };
 
     // Macro handling methods
     MacroDef findMacro(Token directive);
-    std::pair<syntax::MacroActualArgumentListSyntax*, Trivia> handleTopLevelMacro(Token directive);
+    std::pair<syntax::MacroActualArgumentListSyntax*, Trivia> handleTopLevelMacro(
+        Token directive, uint32_t* callId = nullptr);
     bool expandMacro(MacroDef macro, MacroExpansion& expansion,
                      syntax::MacroActualArgumentListSyntax* actualArgs);
     bool expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& expansion);
@@ -308,6 +327,8 @@ private:
 
     static bool isSameMacro(const syntax::DefineDirectiveSyntax& left,
                             const syntax::DefineDirectiveSyntax& right);
+    uint32_t allocateMacroDefinitionId(const syntax::DefineDirectiveSyntax* syntax);
+    uint32_t allocateMacroCallId();
 
     // functions to advance the underlying token stream
     Token peek();
@@ -392,6 +413,10 @@ private:
 
     // map from macro name to macro definition
     flat_hash_map<std::string_view, MacroDef> macros;
+    flat_hash_map<const syntax::DefineDirectiveSyntax*, uint32_t> macroDefinitionIds;
+    flat_hash_map<const syntax::MacroUsageSyntax*, uint32_t> macroCallIds;
+    uint32_t nextMacroDefinitionId = 1;
+    uint32_t nextMacroCallId = 1;
 
     // list of expanded macro tokens to drain before continuing with active lexer
     SmallVector<Token> expandedTokens;

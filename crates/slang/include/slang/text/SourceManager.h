@@ -10,6 +10,7 @@
 #include <atomic>
 #include <expected.hpp>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -47,6 +48,26 @@ public:
         Argument,
         TokenPaste,
         Stringification,
+    };
+
+    struct MacroExpansionMetadata {
+        uint32_t callId = 0;
+        uint32_t definitionId = 0;
+        uint32_t parentExpansionId = 0;
+    };
+
+    struct MacroTokenProvenance {
+        static constexpr uint32_t InvalidIndex = std::numeric_limits<uint32_t>::max();
+
+        uint32_t expansionId = 0;
+        uint32_t callId = 0;
+        uint32_t definitionId = 0;
+        uint32_t parentExpansionId = 0;
+        uint32_t bodyTokenIndex = InvalidIndex;
+        uint32_t argumentIndex = InvalidIndex;
+        uint32_t argumentTokenIndex = InvalidIndex;
+
+        bool valid() const { return expansionId != 0 && callId != 0; }
     };
 
     /// Default constructor.
@@ -132,6 +153,9 @@ public:
     /// Gets the original source location of a given macro location.
     SourceLocation getOriginalLoc(SourceLocation location) const;
 
+    /// Gets directly recorded macro provenance for a token emitted from a macro expansion.
+    std::optional<MacroTokenProvenance> getMacroTokenProvenance(SourceLocation location) const;
+
     /// Gets the actual original location where source is written, given a location
     /// inside a macro. Otherwise just returns the location itself.
     SourceLocation getFullyOriginalLoc(SourceLocation location) const;
@@ -161,6 +185,19 @@ public:
     /// Creates a macro expansion location; used by the preprocessor.
     SourceLocation createExpansionLoc(SourceLocation originalLoc, SourceRange expansionRange,
                                       MacroExpansionKind kind);
+
+    /// Creates a macro expansion location with provenance metadata; used by the preprocessor.
+    SourceLocation createExpansionLoc(SourceLocation originalLoc, SourceRange expansionRange,
+                                      std::string_view macroName,
+                                      MacroExpansionMetadata metadata);
+
+    /// Creates a macro expansion location with provenance metadata; used by the preprocessor.
+    SourceLocation createExpansionLoc(SourceLocation originalLoc, SourceRange expansionRange,
+                                      MacroExpansionKind kind,
+                                      MacroExpansionMetadata metadata);
+
+    /// Records directly observed provenance metadata for an emitted macro token.
+    void setMacroTokenProvenance(SourceLocation location, MacroTokenProvenance provenance);
 
     /// Instead of loading source from a file, copy it from text already in memory.
     SourceBuffer assignText(std::string_view text, SourceLocation includedFrom = SourceLocation(),
@@ -299,6 +336,7 @@ private:
         MacroExpansionKind kind = MacroExpansionKind::Body;
 
         std::string_view macroName;
+        MacroExpansionMetadata metadata;
 
         ExpansionInfo() {}
         ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange, bool isMacroArg) :
@@ -312,6 +350,16 @@ private:
         ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange,
                       MacroExpansionKind kind) :
             originalLoc(originalLoc), expansionRange(expansionRange), kind(kind) {}
+
+        ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange,
+                      std::string_view macroName, MacroExpansionMetadata metadata) :
+            originalLoc(originalLoc), expansionRange(expansionRange), macroName(macroName),
+            metadata(metadata) {}
+
+        ExpansionInfo(SourceLocation originalLoc, SourceRange expansionRange,
+                      MacroExpansionKind kind, MacroExpansionMetadata metadata) :
+            originalLoc(originalLoc), expansionRange(expansionRange), kind(kind),
+            metadata(metadata) {}
     };
 
     // This mutex protects pretty much everything in this class.
@@ -336,6 +384,9 @@ private:
 
     // map from buffer to diagnostic directive lists
     flat_hash_map<BufferID, std::vector<DiagnosticDirectiveInfo>> diagDirectives;
+
+    // Direct token provenance recorded by the preprocessor while macro tokens are emitted.
+    flat_hash_map<SourceLocation, MacroTokenProvenance> macroTokenProvenance;
 
     std::atomic<uint32_t> unnamedBufferCount = 0;
     bool disableProximatePaths = false;

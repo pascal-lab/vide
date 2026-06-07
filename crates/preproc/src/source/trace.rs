@@ -248,6 +248,7 @@ fn emitted_token_provenance_from_trace(
         }
         PreprocessorTraceTokenProvenance::MacroBody {
             macro_name,
+            identity: _,
             call_range,
             body_token_range,
         } => {
@@ -265,6 +266,7 @@ fn emitted_token_provenance_from_trace(
         }
         PreprocessorTraceTokenProvenance::MacroArgument {
             macro_name,
+            identity: _,
             call_range,
             body_token_range,
             argument_token_range,

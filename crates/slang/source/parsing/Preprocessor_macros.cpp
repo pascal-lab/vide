@@ -51,13 +51,17 @@ void Preprocessor::createBuiltInMacro(std::string_view name, int value, std::str
     def.syntax = alloc.emplace<DefineDirectiveSyntax>(directive, nameTok, nullptr,
                                                       body.copy(alloc));
     def.builtIn = true;
+    def.definitionId = allocateMacroDefinitionId(def.syntax);
     macros[name] = def;
 
 #undef NL
 }
 
 std::pair<MacroActualArgumentListSyntax*, Trivia> Preprocessor::handleTopLevelMacro(
-    Token directive) {
+    Token directive, uint32_t* callId) {
+    if (callId)
+        *callId = 0;
+
     auto macro = findMacro(directive);
     if (!macro.valid()) {
         if (options.ignoreDirectives.find(directive.valueText().substr(1)) !=
@@ -93,7 +97,15 @@ std::pair<MacroActualArgumentListSyntax*, Trivia> Preprocessor::handleTopLevelMa
 
     // Expand out the macro
     SmallVector<Token, 32> buffer;
-    MacroExpansion expansion{sourceManager, alloc, buffer, directive, true};
+    SourceManager::MacroExpansionMetadata metadata;
+    metadata.callId = allocateMacroCallId();
+    metadata.definitionId = macro.definitionId;
+    if (sourceManager.isMacroLoc(directive.location()))
+        metadata.parentExpansionId = directive.location().buffer().getId();
+    if (callId)
+        *callId = metadata.callId;
+
+    MacroExpansion expansion{sourceManager, alloc, buffer, directive, true, metadata};
     if (!expandMacro(macro, expansion, actualArgs))
         return {actualArgs, Trivia()};
 
@@ -402,11 +414,16 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         // each macro expansion gets its own location entry
         SourceLocation start = body[0].location();
         SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansion.getRange(),
-                                                                       macroName);
+                                                                       macroName,
+                                                                       expansion.getMetadata());
 
         // simple macro; just take body tokens
-        for (auto token : body)
-            expansion.append(token, expansionLoc, start, expansion.getRange());
+        uint32_t bodyTokenIndex = 0;
+        for (auto token : body) {
+            expansion.append(token, expansionLoc, start, expansion.getRange(), false,
+                             expansion.tokenProvenance(bodyTokenIndex));
+            bodyTokenIndex++;
+        }
 
         return true;
     }
@@ -423,7 +440,12 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
     struct ArgTokens : public std::span<const Token> {
         using std::span<const Token>::span;
         using std::span<const Token>::operator=;
+
+        ArgTokens(std::span<const Token> tokens, uint32_t formalIndex) :
+            std::span<const Token>(tokens), formalIndex(formalIndex) {}
+
         bool isExpanded = false;
+        uint32_t formalIndex = SourceManager::MacroTokenProvenance::InvalidIndex;
     };
     SmallMap<std::string_view, ArgTokens, 8> argumentMap;
 
@@ -448,7 +470,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
 
         auto name = formal->name.valueText();
         if (!name.empty())
-            argumentMap.emplace(name, ArgTokens(*tokenList));
+            argumentMap.emplace(name, ArgTokens(*tokenList, uint32_t(i)));
     }
 
     Token endOfArgs = actualArgs->getLastToken();
@@ -457,23 +479,25 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
 
     SourceLocation start = body[0].location();
     SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansionRange,
-                                                                   macroName);
+                                                                   macroName,
+                                                                   expansion.getMetadata());
 
-    auto append = [&](Token token) {
-        expansion.append(token, expansionLoc, start, expansionRange);
+    auto append = [&](Token token, uint32_t bodyTokenIndex) {
+        expansion.append(token, expansionLoc, start, expansionRange, false,
+                         expansion.tokenProvenance(bodyTokenIndex));
         return true;
     };
 
     bool inDefineDirective = false;
 
-    auto handleToken = [&](Token token) {
+    auto handleToken = [&](Token token, uint32_t bodyTokenIndex) {
         if (inDefineDirective && !token.isOnSameLine())
             inDefineDirective = false;
 
         if (token.kind != TokenKind::Identifier && !LF::isKeyword(token.kind) &&
             token.kind != TokenKind::Directive) {
             // Non-identifier, can't be argument substituted.
-            return append(token);
+            return append(token, bodyTokenIndex);
         }
 
         std::string_view text = token.valueText();
@@ -483,7 +507,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
                 // during argument expansion we will insert line continuations.
                 if (token.directiveKind() == SyntaxKind::DefineDirective)
                     inDefineDirective = true;
-                return append(token);
+                return append(token, bodyTokenIndex);
             }
 
             // Other tools allow arguments to replace matching directive names, e.g.:
@@ -496,7 +520,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         // check for formal param
         auto it = argumentMap.find(text);
         if (it == argumentMap.end())
-            return append(token);
+            return append(token, bodyTokenIndex);
 
         // Fully expand out arguments before substitution to make sure we can detect whether
         // a usage of a macro in a replacement list is valid or an illegal recursion.
@@ -517,7 +541,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
             // here to ensure that the trivia of the formal parameter is passed on.
             Token empty(alloc, TokenKind::EmptyMacroArgument, token.trivia(), ""sv,
                         token.location());
-            return append(empty);
+            return append(empty, bodyTokenIndex);
         }
 
         // We need to ensure that we get correct spacing for the leading token here;
@@ -531,7 +555,10 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         // points into the macro body where the formal argument was used.
         SourceLocation tokenLoc = expansion.adjustLoc(token, expansionLoc, start, expansionRange);
         SourceRange argRange(tokenLoc, tokenLoc + token.rawText().length());
-        SourceLocation argLoc = sourceManager.createExpansionLoc(firstLoc, argRange, true);
+        auto argumentMetadata = expansion.getMetadata();
+        argumentMetadata.parentExpansionId = tokenLoc.buffer().getId();
+        SourceLocation argLoc = sourceManager.createExpansionLoc(
+            firstLoc, argRange, SourceManager::MacroExpansionKind::Argument, argumentMetadata);
 
         // See note above about weird macro usage being argument replaced.
         // In that case we want to fabricate the correct directive token here.
@@ -550,16 +577,20 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         if (inDefineDirective) {
             // Inside a define directive we need to insert line continuations
             // any time an expanded token will end up on a new line.
+            uint32_t argumentTokenIndex = 0;
             auto appendBody = [&](Token token) {
+                auto provenance = expansion.tokenProvenance(
+                    bodyTokenIndex, it->second.formalIndex, argumentTokenIndex);
                 if (!token.isOnSameLine()) {
                     Token lc(alloc, TokenKind::LineContinuation, token.trivia(), "\\"sv,
                              token.location());
                     expansion.append(lc, argLoc, firstLoc, argRange,
-                                     /* allowLineContinuation */ true);
+                                     /* allowLineContinuation */ true, provenance);
 
                     token = token.withTrivia(alloc, {});
                 }
-                expansion.append(token, argLoc, firstLoc, argRange);
+                expansion.append(token, argLoc, firstLoc, argRange, false, provenance);
+                argumentTokenIndex++;
             };
 
             appendBody(first);
@@ -567,16 +598,27 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
                 appendBody(*begin);
         }
         else {
-            expansion.append(first, argLoc, firstLoc, argRange);
+            uint32_t argumentTokenIndex = 0;
+            auto appendArgument = [&](Token token) {
+                expansion.append(token, argLoc, firstLoc, argRange, false,
+                                 expansion.tokenProvenance(bodyTokenIndex,
+                                                           it->second.formalIndex,
+                                                           argumentTokenIndex));
+                argumentTokenIndex++;
+            };
+
+            appendArgument(first);
             for (++begin; begin != end; begin++)
-                expansion.append(*begin, argLoc, firstLoc, argRange);
+                appendArgument(*begin);
         }
 
         return true;
     };
 
     // Now add each body token, substituting arguments as necessary.
-    for (auto token : body) {
+    for (size_t index = 0; index < body.size(); index++) {
+        auto token = body[index];
+        auto bodyTokenIndex = uint32_t(index);
         if (token.kind == TokenKind::Identifier && !token.rawText().empty() &&
             token.rawText()[0] == '\\') {
             // Escaped identifier, might need to break apart and substitute
@@ -584,13 +626,13 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
             size_t index = token.rawText().find("``");
             if (index != std::string_view::npos) {
                 Token first = token.withRawText(alloc, token.rawText().substr(0, index));
-                if (!handleToken(first))
+                if (!handleToken(first, bodyTokenIndex))
                     return false;
 
                 SmallVector<Token, 8> splits;
                 splitTokens(token, index, splits);
                 for (auto t : splits) {
-                    if (!handleToken(t))
+                    if (!handleToken(t, bodyTokenIndex))
                         return false;
                 }
 
@@ -604,7 +646,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
                     Token empty(alloc, TokenKind::EmptyMacroArgument, triviaBuf.copy(alloc), ""sv,
                                 loc);
 
-                    if (!handleToken(empty))
+                    if (!handleToken(empty, bodyTokenIndex))
                         return false;
                 }
 
@@ -612,7 +654,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
             }
         }
 
-        if (!handleToken(token))
+        if (!handleToken(token, bodyTokenIndex))
             return false;
     }
 
@@ -623,6 +665,17 @@ SourceRange Preprocessor::MacroExpansion::getRange() const {
     return {usageSite.location(), usageSite.location() + usageSite.rawText().length()};
 }
 
+SourceManager::MacroTokenProvenance Preprocessor::MacroExpansion::tokenProvenance(
+    uint32_t bodyTokenIndex, uint32_t argumentIndex, uint32_t argumentTokenIndex) const {
+    SourceManager::MacroTokenProvenance provenance;
+    provenance.callId = metadata.callId;
+    provenance.definitionId = metadata.definitionId;
+    provenance.bodyTokenIndex = bodyTokenIndex;
+    provenance.argumentIndex = argumentIndex;
+    provenance.argumentTokenIndex = argumentTokenIndex;
+    return provenance;
+}
+
 SourceLocation Preprocessor::MacroExpansion::adjustLoc(Token token, SourceLocation& macroLoc,
                                                        SourceLocation& firstLoc,
                                                        SourceRange expansionRange) const {
@@ -631,7 +684,8 @@ SourceLocation Preprocessor::MacroExpansion::adjustLoc(Token token, SourceLocati
     // the new buffer as its original location.
     if (token.location().buffer() != firstLoc.buffer()) {
         firstLoc = token.location();
-        macroLoc = sourceManager.createExpansionLoc(firstLoc, expansionRange, true);
+        macroLoc = sourceManager.createExpansionLoc(
+            firstLoc, expansionRange, SourceManager::MacroExpansionKind::Argument, metadata);
     }
 
     return macroLoc + (token.location() - firstLoc);
@@ -639,13 +693,15 @@ SourceLocation Preprocessor::MacroExpansion::adjustLoc(Token token, SourceLocati
 
 void Preprocessor::MacroExpansion::append(Token token, SourceLocation& macroLoc,
                                           SourceLocation& firstLoc, SourceRange expansionRange,
-                                          bool allowLineContinuation) {
+                                          bool allowLineContinuation,
+                                          SourceManager::MacroTokenProvenance provenance) {
     SourceLocation location = adjustLoc(token, macroLoc, firstLoc, expansionRange);
-    append(token, location, allowLineContinuation);
+    append(token, location, allowLineContinuation, provenance);
 }
 
 void Preprocessor::MacroExpansion::append(Token token, SourceLocation location,
-                                          bool allowLineContinuation) {
+                                          bool allowLineContinuation,
+                                          SourceManager::MacroTokenProvenance provenance) {
     if (!any) {
         if (!isTopLevel)
             token = token.withTrivia(alloc, usageSite.trivia());
@@ -664,6 +720,7 @@ void Preprocessor::MacroExpansion::append(Token token, SourceLocation location,
             Token(alloc, TokenKind::EmptyMacroArgument, newTrivia.copy(alloc), "", location));
     }
     else {
+        sourceManager.setMacroTokenProvenance(location, provenance);
         dest.push_back(token.withLocation(alloc, location));
     }
 }
@@ -709,7 +766,13 @@ bool Preprocessor::expandReplacementList(
         }
 
         expansionBuffer.clear();
-        MacroExpansion expansion{sourceManager, alloc, expansionBuffer, token, false};
+        SourceManager::MacroExpansionMetadata metadata;
+        metadata.callId = allocateMacroCallId();
+        metadata.definitionId = macro.definitionId;
+        if (sourceManager.isMacroLoc(token.location()))
+            metadata.parentExpansionId = token.location().buffer().getId();
+
+        MacroExpansion expansion{sourceManager, alloc, expansionBuffer, token, false, metadata};
         if (!expandMacro(macro, expansion, actualArgs))
             return false;
 
@@ -733,6 +796,9 @@ bool Preprocessor::expandReplacementList(
 
 bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& expansion) {
     auto loc = expansion.getRange().start();
+    auto macroLoc = sourceManager.createExpansionLoc(
+        loc, expansion.getRange(), SourceManager::MacroExpansionKind::Body,
+        expansion.getMetadata());
     SmallVector<char> text;
     switch (intrinsic) {
         case MacroIntrinsic::File: {
@@ -743,7 +809,7 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
 
             std::string_view rawText = toStringView(text.copy(alloc));
             Token token(alloc, TokenKind::StringLiteral, {}, rawText, loc, fileName);
-            expansion.append(token, loc);
+            expansion.append(token, macroLoc);
             break;
         }
         case MacroIntrinsic::Line: {
@@ -752,7 +818,7 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
 
             std::string_view rawText = toStringView(text.copy(alloc));
             Token token(alloc, TokenKind::IntegerLiteral, {}, rawText, loc, lineNum);
-            expansion.append(token, loc);
+            expansion.append(token, macroLoc);
             break;
         }
         case MacroIntrinsic::None:

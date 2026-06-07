@@ -165,7 +165,6 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_UNAVAILABLE = 0;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_SOURCE = 1;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_BODY = 2;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT = 3;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
 
 ::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
   ::RawPreprocessorTraceEmittedToken token;
@@ -174,6 +173,20 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
   token.token_kind = static_cast<uint16_t>(slang::parsing::TokenKind::Unknown);
   token.provenance_kind = TRACE_TOKEN_PROVENANCE_UNAVAILABLE;
   token.macro_name = rust::String();
+  token.macro_call_id = 0;
+  token.has_macro_call_id = false;
+  token.macro_definition_id = 0;
+  token.has_macro_definition_id = false;
+  token.macro_expansion_id = 0;
+  token.has_macro_expansion_id = false;
+  token.parent_macro_expansion_id = 0;
+  token.has_parent_macro_expansion_id = false;
+  token.body_token_index = 0;
+  token.has_body_token_index = false;
+  token.argument_index = 0;
+  token.has_argument_index = false;
+  token.argument_token_index = 0;
+  token.has_argument_token_index = false;
   token.token_range = empty_source_buffer_range();
   token.call_range = empty_source_buffer_range();
   token.body_token_range = empty_source_buffer_range();
@@ -282,8 +295,32 @@ std::optional<TraceSourceLocationKey> trace_source_location_key(slang::SourceLoc
   };
 }
 
-bool is_intrinsic_builtin_macro(std::string_view name) {
-  return name == "__FILE__" || name == "__LINE__";
+bool has_direct_macro_token_provenance(
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
+  return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
+         provenance->definitionId != 0;
+}
+
+void apply_direct_macro_token_provenance(
+    ::RawPreprocessorTraceEmittedToken& token,
+    const slang::SourceManager::MacroTokenProvenance& provenance) {
+  token.macro_call_id = provenance.callId;
+  token.has_macro_call_id = provenance.callId != 0;
+  token.macro_definition_id = provenance.definitionId;
+  token.has_macro_definition_id = provenance.definitionId != 0;
+  token.macro_expansion_id = provenance.expansionId;
+  token.has_macro_expansion_id = provenance.expansionId != 0;
+  token.parent_macro_expansion_id = provenance.parentExpansionId;
+  token.has_parent_macro_expansion_id = provenance.parentExpansionId != 0;
+  token.body_token_index = provenance.bodyTokenIndex;
+  token.has_body_token_index =
+      provenance.bodyTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+  token.argument_index = provenance.argumentIndex;
+  token.has_argument_index =
+      provenance.argumentIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+  token.argument_token_index = provenance.argumentTokenIndex;
+  token.has_argument_token_index =
+      provenance.argumentTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
 }
 
 ::RawPreprocessorTraceToken empty_preprocessor_trace_token() {
@@ -320,9 +357,7 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
 
 ::RawPreprocessorTraceEmittedToken to_rust_preprocessor_trace_emitted_token(
     slang::parsing::Token token,
-    const slang::SourceManager& sourceManager,
-    const std::unordered_map<TraceSourceLocationKey, std::string, TraceSourceLocationKeyHash>&
-        macroUsageNamesByLocation) {
+    const slang::SourceManager& sourceManager) {
   auto result = empty_preprocessor_trace_emitted_token();
   if (!token)
     return result;
@@ -347,6 +382,7 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
 
     auto macroName = std::string(sourceManager.getMacroName(location));
     result.macro_name = rust::String(macroName);
+    auto directProvenance = sourceManager.getMacroTokenProvenance(location);
 
     if (sourceManager.isMacroArgLoc(location)) {
       auto tokenRange = token.range();
@@ -356,8 +392,16 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
       result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
       result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
 
-      if (result.call_range.has_range && result.body_token_range.has_range &&
+      if (has_direct_macro_token_provenance(directProvenance) &&
+          directProvenance->bodyTokenIndex !=
+              slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+          directProvenance->argumentIndex !=
+              slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+          directProvenance->argumentTokenIndex !=
+              slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+          result.call_range.has_range && result.body_token_range.has_range &&
           result.argument_token_range.has_range) {
+        apply_direct_macro_token_provenance(result, *directProvenance);
         result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT;
       }
       return result;
@@ -365,23 +409,14 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
 
     result.call_range = to_rust_macro_callsite_range_from_macro_loc(sourceManager, location);
     result.body_token_range = to_rust_original_macro_loc_range(sourceManager, token.range());
-    if (result.call_range.has_range && result.body_token_range.has_range) {
+    if (has_direct_macro_token_provenance(directProvenance) &&
+        directProvenance->bodyTokenIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        result.call_range.has_range && result.body_token_range.has_range) {
+      apply_direct_macro_token_provenance(result, *directProvenance);
       result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
     }
-    else if (!macroName.empty()) {
-      // Slang built-in object-like macros have no source body location.
-      result.provenance_kind = TRACE_TOKEN_PROVENANCE_BUILTIN;
-    }
     return result;
-  }
-
-  if (auto key = trace_source_location_key(location)) {
-    auto it = macroUsageNamesByLocation.find(*key);
-    if (it != macroUsageNamesByLocation.end() && is_intrinsic_builtin_macro(it->second)) {
-      result.macro_name = rust::String(it->second);
-      result.provenance_kind = TRACE_TOKEN_PROVENANCE_BUILTIN;
-      return result;
-    }
   }
 
   result.token_range = to_rust_source_buffer_range(token.range());
@@ -523,11 +558,16 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
 
 ::RawPreprocessorTraceEvent to_rust_preprocessor_trace_event(
     const slang::syntax::SyntaxNode& syntax,
-    uint32_t eventId) {
+    uint32_t eventId,
+    const slang::parsing::Preprocessor& preprocessor) {
   ::RawPreprocessorTraceEvent directive;
   directive.event_id = eventId;
   directive.kind = static_cast<uint16_t>(syntax.kind);
   directive.range = to_rust_source_buffer_range(trace_event_source_range(syntax));
+  directive.macro_definition_id = 0;
+  directive.has_macro_definition_id = false;
+  directive.macro_call_id = 0;
+  directive.has_macro_call_id = false;
   directive.directive = empty_preprocessor_trace_token();
   directive.name = empty_preprocessor_trace_token();
   directive.include_file_name = empty_preprocessor_trace_token();
@@ -542,6 +582,9 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
   switch (syntax.kind) {
     case slang::syntax::SyntaxKind::DefineDirective: {
       const auto& define = syntax.as<slang::syntax::DefineDirectiveSyntax>();
+      auto definitionId = preprocessor.getMacroDefinitionId(define);
+      directive.macro_definition_id = definitionId;
+      directive.has_macro_definition_id = definitionId != 0;
       directive.name = to_rust_preprocessor_trace_token(define.name);
       if (define.formalArguments) {
         for (auto* param : define.formalArguments->args)
@@ -576,6 +619,9 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
     }
     case slang::syntax::SyntaxKind::MacroUsage: {
       const auto& usage = syntax.as<slang::syntax::MacroUsageSyntax>();
+      auto callId = preprocessor.getMacroCallId(usage);
+      directive.macro_call_id = callId;
+      directive.has_macro_call_id = callId != 0;
       directive.name = to_rust_preprocessor_trace_token(usage.directive);
       break;
     }
@@ -1071,8 +1117,6 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
   preprocessor.pushSource(rootBuffer);
   std::unordered_map<TraceSourceLocationKey, uint32_t, TraceSourceLocationKeyHash>
       includeEventIdsByLocation;
-  std::unordered_map<TraceSourceLocationKey, std::string, TraceSourceLocationKeyHash>
-      macroUsageNamesByLocation;
 
   while (true) {
     auto token = preprocessor.next();
@@ -1087,16 +1131,7 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
           if (auto key = trace_source_location_key(include.directive.location()))
             includeEventIdsByLocation.emplace(*key, eventId);
         }
-        else if (syntax->kind == slang::syntax::SyntaxKind::MacroUsage) {
-          const auto& usage = syntax->as<slang::syntax::MacroUsageSyntax>();
-          if (auto key = trace_source_location_key(usage.directive.location())) {
-            auto name = std::string(usage.directive.valueText());
-            if (!name.empty() && name[0] == '`')
-              name.erase(name.begin());
-            macroUsageNamesByLocation.emplace(*key, std::move(name));
-          }
-        }
-        result.events.emplace_back(to_rust_preprocessor_trace_event(*syntax, eventId));
+        result.events.emplace_back(to_rust_preprocessor_trace_event(*syntax, eventId, preprocessor));
       }
     }
 
@@ -1104,7 +1139,7 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
       break;
 
     result.emitted_tokens.emplace_back(
-        to_rust_preprocessor_trace_emitted_token(token, sourceManager, macroUsageNamesByLocation));
+        to_rust_preprocessor_trace_emitted_token(token, sourceManager));
   }
 
   for (auto buffer : sourceManager.getAllBuffers()) {
