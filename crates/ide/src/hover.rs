@@ -8,8 +8,8 @@ use hir::{
     hir_def::expr::Expr,
     preproc::{
         EmittedTokenProvenance, IncludeTarget, MacroDefinition, MacroParamDefinition,
-        RecursiveMacroExpansionProvenance, include_directives_at, macro_definition_at,
-        macro_param_definition_at, macro_param_reference_definitions_at,
+        MacroReferenceDefinitions, RecursiveMacroExpansionProvenance, include_directives_at,
+        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
         macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
@@ -41,6 +41,11 @@ struct MacroSourceLink {
     target: String,
 }
 
+struct PreprocMacroHover {
+    hover: RangeInfo<Markup>,
+    reference_definitions: Option<MacroReferenceDefinitions>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoverFormat {
     Markdown,
@@ -58,7 +63,10 @@ pub(crate) fn hover(
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
     if let Some(macro_hover) = handle_preproc_macro(db, file_id, offset) {
-        return Some(expanded_macro_hover(db, file_id, offset).unwrap_or(macro_hover));
+        return Some(
+            expanded_macro_hover(db, file_id, offset, macro_hover.reference_definitions.as_ref())
+                .unwrap_or(macro_hover.hover),
+        );
     }
 
     if let Some(include) = handle_preproc_include(db, file_id, offset) {
@@ -162,7 +170,7 @@ fn with_expanded_macro_hover(
     offset: TextSize,
     mut hover: RangeInfo<Markup>,
 ) -> RangeInfo<Markup> {
-    let Some(expanded) = expanded_macro_hover(db, file_id, offset) else {
+    let Some(expanded) = expanded_macro_hover(db, file_id, offset, None) else {
         return hover;
     };
     if let Some(range) = covering_range(&[hover.range, expanded.range]) {
@@ -177,14 +185,19 @@ fn expanded_macro_hover(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
+    reference_definitions: Option<&MacroReferenceDefinitions>,
 ) -> Option<RangeInfo<Markup>> {
-    let reference_ids = macro_reference_definitions_at(db, file_id, offset)
-        .ok()
-        .flatten()?
-        .references
-        .into_iter()
-        .map(|reference| reference.id)
-        .collect::<Vec<_>>();
+    let reference_ids = if let Some(reference_definitions) = reference_definitions {
+        reference_definitions.references.iter().map(|reference| reference.id).collect::<Vec<_>>()
+    } else {
+        macro_reference_definitions_at(db, file_id, offset)
+            .ok()
+            .flatten()?
+            .references
+            .into_iter()
+            .map(|reference| reference.id)
+            .collect::<Vec<_>>()
+    };
     if reference_ids.is_empty() {
         return None;
     }
@@ -379,36 +392,46 @@ fn handle_preproc_macro(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<RangeInfo<Markup>> {
+) -> Option<PreprocMacroHover> {
     if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
-        return Some(RangeInfo::new(definition.range, macro_param_definition_markup(&definition)));
+        return Some(PreprocMacroHover {
+            hover: RangeInfo::new(definition.range, macro_param_definition_markup(&definition)),
+            reference_definitions: None,
+        });
     }
 
     if let Ok(Some(param_resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
         if param_resolution.definitions.is_empty() {
             return None;
         }
-        return Some(RangeInfo::new(
-            param_resolution.range,
-            macro_param_definitions_markup(&param_resolution.definitions),
-        ));
+        return Some(PreprocMacroHover {
+            hover: RangeInfo::new(
+                param_resolution.range,
+                macro_param_definitions_markup(&param_resolution.definitions),
+            ),
+            reference_definitions: None,
+        });
     }
 
     if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
-        return Some(RangeInfo::new(
-            definition.name_range,
-            macro_definition_markup(db, file_id, &definition),
-        ));
+        return Some(PreprocMacroHover {
+            hover: RangeInfo::new(
+                definition.name_range,
+                macro_definition_markup(db, file_id, &definition),
+            ),
+            reference_definitions: None,
+        });
     }
 
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
         if resolution.definitions.is_empty() {
             return None;
         }
-        return Some(RangeInfo::new(
+        let hover = RangeInfo::new(
             resolution.range,
             macro_definitions_markup(db, file_id, &resolution.definitions),
-        ));
+        );
+        return Some(PreprocMacroHover { hover, reference_definitions: Some(resolution) });
     }
 
     None
