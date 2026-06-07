@@ -29,10 +29,12 @@ pub(in crate::preproc) fn source_preproc_single_query_contexts(
 ) -> SourcePreprocQueryContexts {
     let relevant = db.source_preproc_contexts_for_file(file_id);
     let mut file_ids = UniqVec::<FileId, FileId>::default();
-    if matches!(
-        db.file_kind(file_id),
-        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
-    ) {
+    let include_self = match db.file_kind(file_id) {
+        SourceFileKind::SystemVerilog => true,
+        SourceFileKind::IncludeHeader => relevant.model_file_ids.is_empty(),
+        _ => false,
+    };
+    if include_self {
         file_ids.push_unique(file_id);
     }
     for model_file_id in relevant.model_file_ids.iter().copied() {
