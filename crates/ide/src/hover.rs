@@ -230,18 +230,15 @@ fn render_recursive_expansion(
     if !markup.is_empty() {
         markup.newline();
     }
-    markup.push_with_code_fence(&macro_definition_line(&root.expansion.definition));
+    render_macro_expansion_header(markup, &root.expansion.definition);
     render_macro_expansion_separator(markup);
-    render_macro_expansion_label(markup);
     markup.push_with_code_fence(&expanded_text_from_tokens(&root.tokens));
     render_macro_expansion_separator(markup);
     render_macro_source_link(db, markup, &root.expansion.definition, root.expansion.call.file_id);
 }
 
-fn render_macro_expansion_label(markup: &mut Markup) {
-    markup.newline();
-    markup.print("Expands to");
-    markup.newline();
+fn render_macro_expansion_header(markup: &mut Markup, definition: &MacroDefinition) {
+    markup.push_with_code_fence(&macro_signature(definition));
 }
 
 fn render_macro_expansion_separator(markup: &mut Markup) {
@@ -493,7 +490,8 @@ fn render_macro_source_link(
     let Some(source) = macro_definition_source_link(db, definition, anchor_file_id) else {
         return;
     };
-    markup.print("From [");
+    markup.print_with_strong("Macro");
+    markup.print(" from [");
     markup.print(&markdown_link_label(&source.label));
     markup.print("](<");
     markup.print(&markdown_link_destination(&source.target));
