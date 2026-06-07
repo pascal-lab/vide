@@ -673,9 +673,18 @@ fn goto_definition_response_uris(response: GotoDefinitionResponse) -> Vec<Url> {
 
 fn position_of(text: &str, needle: &str) -> Position {
     let offset = text.find(needle).unwrap_or_else(|| panic!("missing {needle:?}"));
+    position_at_offset(text, offset)
+}
+
+fn position_at_offset(text: &str, offset: usize) -> Position {
     let line = text[..offset].bytes().filter(|byte| *byte == b'\n').count() as u32;
     let line_start = text[..offset].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
     Position { line, character: (offset - line_start) as u32 }
+}
+
+fn range_of(text: &str, needle: &str) -> Range {
+    let start = text.find(needle).unwrap_or_else(|| panic!("missing {needle:?}"));
+    Range::new(position_at_offset(text, start), position_at_offset(text, start + needle.len()))
 }
 
 fn code_action_client_caps() -> ClientCapabilities {
@@ -688,6 +697,7 @@ fn code_action_client_caps() -> ClientCapabilities {
                             CodeActionKind::EMPTY,
                             CodeActionKind::QUICKFIX,
                             CodeActionKind::REFACTOR,
+                            CodeActionKind::REFACTOR_EXTRACT,
                             CodeActionKind::REFACTOR_REWRITE,
                         ]
                         .into_iter()
@@ -728,6 +738,48 @@ fn request_code_actions(
                 CodeActionParams {
                     text_document: TextDocumentIdentifier { uri: uri.clone() },
                     range: Range::new(position, position),
+                    context: context.clone(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: Default::default(),
+                },
+            )))
+            .unwrap();
+
+        let response = recv_raw_response(client, request_id, "codeAction");
+        if response.error.is_none() {
+            return serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
+                .unwrap_or_else(|err| panic!("failed to decode codeAction response: {err}"));
+        }
+
+        if is_content_modified(&response) && attempt < CONTENT_MODIFIED_RETRIES {
+            continue;
+        }
+
+        panic!("codeAction returned error: {:?}", response.error);
+    }
+
+    unreachable!("codeAction retries should either return or panic")
+}
+
+fn request_code_actions_with_range(
+    client: &Connection,
+    uri: Url,
+    range: Range,
+    context: CodeActionContext,
+    request_id: i32,
+) -> Vec<CodeActionOrCommand> {
+    const CONTENT_MODIFIED_RETRIES: i32 = 5;
+
+    for attempt in 0..=CONTENT_MODIFIED_RETRIES {
+        let request_id = lsp_server::RequestId::from(request_id + attempt);
+        client
+            .sender
+            .send(Message::Request(Request::new(
+                request_id.clone(),
+                CodeActionRequest::METHOD.to_string(),
+                CodeActionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    range,
                     context: context.clone(),
                     work_done_progress_params: WorkDoneProgressParams::default(),
                     partial_result_params: Default::default(),
@@ -1153,6 +1205,77 @@ endmodule
     assert!(
         titles.iter().any(|title| title == "Convert ordered port connections to named connections"),
         "expected ordered port conversion refactor, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn code_action_request_returns_extract_variable_for_selected_expression() {
+    let text = "\
+module top;
+  always_comb begin
+    y = a + b;
+  end
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+
+    let actions = request_code_actions_with_range(
+        &client,
+        uri,
+        range_of(text, "a + b"),
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_EXTRACT]),
+            trigger_kind: None,
+        },
+        201,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "Extract into variable"),
+        "expected extract variable refactor, got {titles:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
+fn code_action_request_returns_extract_variable_for_selected_continuous_assign_rhs() {
+    let text = "\
+module top (
+    c,
+    led0
+);
+    input wire c;
+    output led0;
+    reg led0;
+
+    assign led0 = c * 2 + c;
+endmodule
+";
+    let (_temp_dir, client, server_thread, uri) =
+        setup_diagnostics_test(code_action_client_caps(), UserConfig::default(), text);
+
+    let actions = request_code_actions_with_range(
+        &client,
+        uri,
+        range_of(text, "c * 2 + c"),
+        CodeActionContext {
+            diagnostics: Vec::new(),
+            only: Some(vec![CodeActionKind::REFACTOR_EXTRACT]),
+            trigger_kind: None,
+        },
+        202,
+    );
+    let titles = code_action_titles(&actions);
+
+    assert!(
+        titles.iter().any(|title| title == "Extract into variable"),
+        "expected extract variable refactor, got {titles:?}"
     );
 
     shutdown_test_server(&client, server_thread);

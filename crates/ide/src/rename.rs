@@ -1,6 +1,4 @@
-use hir::{
-    base_db::source_db::SourceDb, container::InFile, hir_def::lower_ident, semantics::Semantics,
-};
+use hir::{base_db::source_db::SourceDb, container::InFile, semantics::Semantics};
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
@@ -427,7 +425,7 @@ fn check_same_name_conn(
         DefinitionClass::PortConnShorthand { port, .. } => port,
         DefinitionClass::Ambiguous(_) => return None,
     };
-    let port_name = lower_ident(Some(name_token))?;
+    let port_name = name_token.value_text().to_string();
     let expr = conn.expr()?.as_simple_property_expr()?.expr().as_simple_sequence_expr()?.expr();
     let actual_token = match expr {
         Expression::Name(Name::IdentifierName(ident)) => ident.identifier()?,
@@ -438,7 +436,7 @@ fn check_same_name_conn(
         }
         _ => return None,
     };
-    if lower_ident(Some(actual_token))?.as_str() != port_name.as_str() {
+    if actual_token.value_text().to_string() != port_name {
         return None;
     }
     let actual_token = SyntaxTokenWithParent { parent: expr.syntax(), tok: actual_token };
@@ -548,7 +546,7 @@ fn edits_from_refs(
                 && conn_data_range(port_conn).is_some_and(|r| r == range)
                 && let Some(port_name) = port_conn
                     .name()
-                    .filter(|n| lower_ident(Some(*n)).is_some_and(|name| name == new_name)) {
+                    .filter(|n| n.value_text().to_string() == new_name) {
                     // .new(data) => .new
                     let Some(start) =
                         port_name.text_range_in(port_conn.syntax()).map(|range| range.start()) else {
