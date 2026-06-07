@@ -946,8 +946,25 @@ fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
         "sort_named_port_connections" => keys::CODE_ACTION_SORT_NAMED_PORT_CONNECTIONS,
         "add_default_case_item" => keys::CODE_ACTION_ADD_DEFAULT_CASE_ITEM,
         "invert_if_else" => keys::CODE_ACTION_INVERT_IF_ELSE,
+        "extract_variable" => keys::CODE_ACTION_EXTRACT_VARIABLE,
+        "remove_parentheses" => keys::CODE_ACTION_REMOVE_REDUNDANT_PARENTHESES,
         "unwrap_single_statement_block" => keys::CODE_ACTION_UNWRAP_SINGLE_STATEMENT_BLOCK,
         "wrap_statement_in_begin_end" => keys::CODE_ACTION_WRAP_STATEMENT_IN_BEGIN_END,
+        "expand_named_port_connection_shorthand" => {
+            keys::CODE_ACTION_EXPAND_NAMED_PORT_CONNECTION_SHORTHAND
+        }
+        "collapse_named_port_connection_shorthand" => {
+            keys::CODE_ACTION_COLLAPSE_NAMED_PORT_CONNECTION_SHORTHAND
+        }
+        "convert_ansi_ports_to_non_ansi" => keys::CODE_ACTION_CONVERT_ANSI_PORTS_TO_NON_ANSI,
+        "convert_non_ansi_ports_to_ansi" => keys::CODE_ACTION_CONVERT_NON_ANSI_PORTS_TO_ANSI,
+        "convert_always_to_always_comb" => keys::CODE_ACTION_CONVERT_ALWAYS_TO_ALWAYS_COMB,
+        "convert_always_to_always_ff" => keys::CODE_ACTION_CONVERT_ALWAYS_TO_ALWAYS_FF,
+        "convert_always_comb_to_always" => keys::CODE_ACTION_CONVERT_ALWAYS_COMB_TO_ALWAYS,
+        "convert_always_ff_to_always" => keys::CODE_ACTION_CONVERT_ALWAYS_FF_TO_ALWAYS,
+        "merge_nested_if" => keys::CODE_ACTION_MERGE_NESTED_IF,
+        "pull_assignment_up" => keys::CODE_ACTION_PULL_ASSIGNMENT_UP,
+        "pull_assignment_down" => keys::CODE_ACTION_PULL_ASSIGNMENT_DOWN,
         "expand_postfix_inc_dec" => keys::CODE_ACTION_EXPAND_POSTFIX_INC_DEC,
         "expand_prefix_inc_dec" => keys::CODE_ACTION_EXPAND_PREFIX_INC_DEC,
         "convert_postfix_to_prefix_inc_dec" => keys::CODE_ACTION_CONVERT_POSTFIX_TO_PREFIX_INC_DEC,
@@ -974,6 +991,9 @@ fn code_action_title_key(id: &str, label: &str) -> Option<&'static str> {
         "collapse_compound_assignment" => keys::CODE_ACTION_COLLAPSE_COMPOUND_ASSIGNMENT,
         "apply_de_morgan" => keys::CODE_ACTION_APPLY_DE_MORGAN,
         "factor_de_morgan" => keys::CODE_ACTION_FACTOR_DE_MORGAN,
+        "reformat_number_literal" if label == "Remove digit separators" => {
+            keys::CODE_ACTION_REMOVE_DIGIT_SEPARATORS
+        }
         "convert_literal_base" => match label {
             "Convert literal to binary" => keys::CODE_ACTION_CONVERT_LITERAL_TO_BINARY,
             "Convert literal to octal" => keys::CODE_ACTION_CONVERT_LITERAL_TO_OCTAL,
