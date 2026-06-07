@@ -176,6 +176,7 @@ pub enum SourceIncludeStatus {
 pub struct SourceMacroStateTimeline {
     states: Vec<SourceMacroState>,
     checkpoints: Vec<SourceMacroStateCheckpoint>,
+    source_order_scopes: BTreeMap<PreprocSourceId, SourceMacroStateSourceScope>,
     source_order_boundaries: BTreeMap<PreprocSourceId, Vec<SourceMacroStatePositionBoundary>>,
     final_source_order: usize,
 }
@@ -197,6 +198,11 @@ pub struct SourceMacroStateCheckpoint {
 struct SourceMacroStatePositionBoundary {
     source_order: usize,
     boundary: SourcePosition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SourceMacroStateSourceScope {
+    end_order: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -468,15 +474,17 @@ impl SourceMacroStateTimeline {
     }
 
     fn source_order_at_position(&self, position: SourcePosition) -> usize {
+        let source_end_order = self
+            .source_order_scopes
+            .get(&position.source)
+            .map(|scope| scope.end_order)
+            .unwrap_or(self.final_source_order);
         let Some(boundaries) = self.source_order_boundaries.get(&position.source) else {
-            return self.final_source_order;
+            return source_end_order;
         };
         let index =
             boundaries.partition_point(|boundary| boundary.boundary.offset <= position.offset);
-        boundaries
-            .get(index)
-            .map(|boundary| boundary.source_order)
-            .unwrap_or(self.final_source_order)
+        boundaries.get(index).map(|boundary| boundary.source_order).unwrap_or(source_end_order)
     }
 
     fn state_at_source_order(&self, source_order: usize) -> Option<&SourceMacroState> {

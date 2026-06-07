@@ -40,22 +40,9 @@ fn source_model(
     };
     let trace = preprocessor_trace(root_text, "source", ROOT_PATH, &options);
     let root_source = PreprocSourceId::from(trace.root_buffer_id);
-    let header_source = first_non_root_source(&trace, root_source);
     let model = SourcePreprocModel::from_trace(trace).unwrap();
+    let header_source = source_by_path_suffix(&model, "defs.vh");
     (model, root_source, header_source)
-}
-
-fn first_non_root_source(
-    trace: &PreprocessorTrace,
-    root_source: PreprocSourceId,
-) -> PreprocSourceId {
-    trace
-        .events
-        .iter()
-        .filter_map(|directive| directive.range.as_ref())
-        .map(|range| PreprocSourceId::from(range.buffer_id))
-        .find(|source| *source != root_source)
-        .expect("included source directive should be traced")
 }
 
 fn source_by_path_suffix(model: &SourcePreprocModel, suffix: &str) -> PreprocSourceId {
@@ -293,6 +280,37 @@ fn visible_macro_query_reads_timeline_without_event_records() {
         visible_macro_names(&model, root_source, offset_after(root_text, "`define B 2\n")),
         names_after_second_define
     );
+}
+
+#[test]
+fn included_plain_source_uses_include_scope_macro_state() {
+    let root_text = r#"`define BEFORE 1
+`include "defs.vh"
+`define AFTER 1
+"#;
+    let header_text = "wire x;\n";
+    let (model, _, header_source) = source_model(root_text, header_text);
+
+    let names = visible_macro_names(&model, header_source, offset_after(header_text, "wire x"));
+
+    assert!(names.iter().any(|name| name == "BEFORE"), "{names:?}");
+    assert!(!names.iter().any(|name| name == "AFTER"), "{names:?}");
+}
+
+#[test]
+fn included_source_after_last_directive_uses_include_scope_macro_state() {
+    let root_text = r#"`define BEFORE 1
+`include "defs.vh"
+`define AFTER 1
+"#;
+    let header_text = "`define FROM_HEADER 1\nwire x;\n";
+    let (model, _, header_source) = source_model(root_text, header_text);
+
+    let names = visible_macro_names(&model, header_source, offset_after(header_text, "wire x"));
+
+    assert!(names.iter().any(|name| name == "BEFORE"), "{names:?}");
+    assert!(names.iter().any(|name| name == "FROM_HEADER"), "{names:?}");
+    assert!(!names.iter().any(|name| name == "AFTER"), "{names:?}");
 }
 
 #[test]
