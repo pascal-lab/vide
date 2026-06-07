@@ -78,8 +78,7 @@ fn in_if_head(if_stmt: ast::ConditionalStatement<'_>, range: TextRange) -> bool 
 fn outermost_mergeable_if<'a>(
     mut if_stmt: ast::ConditionalStatement<'a>,
 ) -> ast::ConditionalStatement<'a> {
-    loop {
-        let Some(parent_if) = parent_conditional_statement(if_stmt) else { break };
+    while let Some(parent_if) = parent_conditional_statement(if_stmt) {
         if parent_if.else_clause().is_some() {
             break;
         }
@@ -112,10 +111,7 @@ fn nested_if_chain<'a>(
 ) -> Vec<ast::ConditionalStatement<'a>> {
     let mut chain = vec![outer_if];
     let mut current_if = outer_if;
-    loop {
-        let Some(body) = single_statement_body(current_if.statement()) else {
-            break;
-        };
+    while let Some(body) = single_statement_body(current_if.statement()) {
         let Some(nested_if) = body.as_conditional_statement() else {
             break;
         };
