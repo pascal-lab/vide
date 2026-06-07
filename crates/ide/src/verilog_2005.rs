@@ -2091,3 +2091,39 @@ fn verilog_2005_lsp_snapshots() {
 
     assert_snapshot!("verilog_2005_lsp_snapshots", report);
 }
+
+#[test]
+fn document_symbols_include_typedef_structs_and_nested_generate_structs() {
+    let text = r#"
+module top;
+  typedef struct packed {
+    logic ready;
+  } packet_t;
+
+  generate
+    if (1) begin : g
+      typedef union packed {
+        logic [7:0] raw;
+        logic flag;
+      } state_t;
+    end
+  endgenerate
+endmodule
+"#;
+    let (host, file_id) = setup(text);
+    let analysis = host.make_analysis();
+
+    let symbols = analysis.document_symbol(file_id).unwrap();
+    let mut lines = Vec::new();
+    collect_symbol_lines(&symbols, 0, &mut lines);
+    let dump = lines.join("\n");
+
+    assert!(
+        dump.contains("packet_t Struct"),
+        "typedef struct should surface as a struct symbol: {dump}"
+    );
+    assert!(
+        dump.contains("state_t Struct"),
+        "nested generate typedef union should surface as a struct symbol: {dump}"
+    );
+}

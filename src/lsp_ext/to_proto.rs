@@ -266,6 +266,7 @@ fn symbol_kind(symbol_kind: SymbolKind) -> lsp_types::SymbolKind {
         SymbolKind::Genvar => LspSymbolKind::VARIABLE,
         SymbolKind::Specparam => LspSymbolKind::TYPE_PARAMETER,
         SymbolKind::Typedef => LspSymbolKind::TYPE_PARAMETER,
+        SymbolKind::Struct => LspSymbolKind::STRUCT,
         SymbolKind::Instance => LspSymbolKind::OBJECT,
         SymbolKind::Block => LspSymbolKind::NAMESPACE,
         SymbolKind::Stmt => LspSymbolKind::NAMESPACE,
