@@ -699,12 +699,14 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         let child_calls_by_parent = self.child_calls_by_parent();
         let call_ids = self.tables.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
         let mut expansion_tokens_by_call = BTreeMap::new();
+        let mut recursive_tokens_by_call = BTreeMap::new();
         for call in &call_ids {
             let mut visiting = Vec::new();
             let tokens = self.recursive_emitted_tokens_for_call(
                 *call,
                 &direct_tokens_by_call,
                 &child_calls_by_parent,
+                &mut recursive_tokens_by_call,
                 &mut visiting,
             );
             expansion_tokens_by_call.insert(*call, tokens);
@@ -863,8 +865,12 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         call: SourceMacroCallId,
         direct_tokens_by_call: &BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>>,
         child_calls_by_parent: &BTreeMap<SourceMacroCallId, Vec<SourceMacroCallId>>,
+        recursive_tokens_by_call: &mut BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>>,
         visiting: &mut Vec<SourceMacroCallId>,
     ) -> Vec<SourceEmittedTokenId> {
+        if let Some(tokens) = recursive_tokens_by_call.get(&call) {
+            return tokens.clone();
+        }
         if visiting.contains(&call) {
             self.expansions_partial = true;
             return Vec::new();
@@ -878,6 +884,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                     *child,
                     direct_tokens_by_call,
                     child_calls_by_parent,
+                    recursive_tokens_by_call,
                     visiting,
                 ));
             }
@@ -885,6 +892,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         visiting.pop();
         tokens.sort_by_key(|token| token.raw());
         tokens.dedup();
+        recursive_tokens_by_call.insert(call, tokens.clone());
         tokens
     }
 
