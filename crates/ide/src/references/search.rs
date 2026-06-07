@@ -27,6 +27,7 @@ use crate::{
     ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
+    source_tokens::SourceTokenSelection,
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -276,8 +277,23 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             return Vec::new();
         };
 
-        selection
-            .tokens
+        let tokens = match selection {
+            SourceTokenSelection::NormalSyntax(selection) => selection.tokens,
+            SourceTokenSelection::Preproc(selection) => {
+                let _ = selection.hits.len();
+                selection.tokens
+            }
+            SourceTokenSelection::Unavailable(unavailable) => {
+                let _ = unavailable.range;
+                return Vec::new();
+            }
+            SourceTokenSelection::Ambiguous(ambiguous) => {
+                let _ = (ambiguous.range, ambiguous.hits.len());
+                return Vec::new();
+            }
+        };
+
+        tokens
             .into_iter()
             .filter(|tok| tok.kind().name_like())
             .filter(|tok| {

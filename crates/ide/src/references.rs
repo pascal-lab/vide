@@ -23,6 +23,7 @@ use crate::{
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
+    source_tokens::SourceTokenSelection,
 };
 
 pub(crate) mod search;
@@ -84,8 +85,22 @@ pub(crate) fn references(
         offset,
         token_precedence,
     )?;
-    let references = selection
-        .tokens
+    let tokens = match selection {
+        SourceTokenSelection::NormalSyntax(selection) => selection.tokens,
+        SourceTokenSelection::Preproc(selection) => {
+            let _ = selection.hits.len();
+            selection.tokens
+        }
+        SourceTokenSelection::Unavailable(unavailable) => {
+            let _ = unavailable.range;
+            return None;
+        }
+        SourceTokenSelection::Ambiguous(ambiguous) => {
+            let _ = (ambiguous.range, ambiguous.hits.len());
+            return None;
+        }
+    };
+    let references = tokens
         .into_iter()
         .filter_map(|token| references_for_token(&sema, hir_file_id, token, config.clone()))
         .flatten()
