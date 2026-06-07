@@ -18,7 +18,8 @@ const FACTOR_LABEL: &str = "Factor De Morgan's law";
 
 // Assist: apply_de_morgan
 //
-// This applies or factors De Morgan's law for boolean expressions and if conditions.
+// This applies or factors De Morgan's law for boolean expressions and if
+// conditions.
 //
 // ```
 // assign y = $0!(a && b);

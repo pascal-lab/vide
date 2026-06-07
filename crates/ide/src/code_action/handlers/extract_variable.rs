@@ -25,7 +25,8 @@ const ID: CodeActionId =
 
 // Assist: extract_variable
 //
-// This extracts a selected expression into a new local variable or continuous net declaration.
+// This extracts a selected expression into a new local variable or continuous
+// net declaration.
 //
 // ```
 // always_comb begin y = $0a + b$0; end
@@ -91,7 +92,8 @@ fn extract_target(text: &str, expr: ast::Expression<'_>) -> Option<ExtractTarget
         });
     }
 
-    let assign = SyntaxAncestors::start_from(expr.syntax()).find_map(ast::ContinuousAssign::cast)?;
+    let assign =
+        SyntaxAncestors::start_from(expr.syntax()).find_map(ast::ContinuousAssign::cast)?;
     expression_is_assignment_rhs(expr)?;
     let assign_range = assign.syntax().text_range()?;
     Some(ExtractTarget {
@@ -103,7 +105,9 @@ fn extract_target(text: &str, expr: ast::Expression<'_>) -> Option<ExtractTarget
 
 fn expression_is_assignment_rhs(expr: ast::Expression<'_>) -> Option<()> {
     assignment_expression_containing_rhs(expr)
-        .filter(|binary| binary.operator_token().is_some_and(|token| token.kind() == TokenKind::EQUALS))
+        .filter(|binary| {
+            binary.operator_token().is_some_and(|token| token.kind() == TokenKind::EQUALS)
+        })
         .map(|_| ())
 }
 
@@ -173,9 +177,8 @@ fn trim_range(text: &str, range: TextRange) -> Option<TextRange> {
 
 fn extracted_variable_type(ctx: &CodeActionCtx<'_>, expr: ast::Expression<'_>) -> Option<String> {
     let ty = type_of_expr(ctx.sema().db, ctx.sema().resolve_expr(ctx.file_id().into(), expr)?).ty;
-    render_ty(ctx, &ty).or_else(|| {
-        expected_type_for_assignment_rhs(ctx, expr).and_then(|ty| render_ty(ctx, &ty))
-    })
+    render_ty(ctx, &ty)
+        .or_else(|| expected_type_for_assignment_rhs(ctx, expr).and_then(|ty| render_ty(ctx, &ty)))
 }
 
 fn expected_type_for_assignment_rhs(

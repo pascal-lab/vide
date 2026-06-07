@@ -16,7 +16,8 @@ const LABEL: &str = "Add explicit empty port connection";
 
 // Assist: add_implicit_named_port_parens
 //
-// This makes an implicit named port connection explicit by adding empty parentheses.
+// This makes an implicit named port connection explicit by adding empty
+// parentheses.
 //
 // ```
 // child u(.ready$0);

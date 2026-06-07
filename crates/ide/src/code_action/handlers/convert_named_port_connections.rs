@@ -22,7 +22,8 @@ const COLLAPSE_LABEL: &str = "Collapse named port to shorthand";
 
 // Assist: convert_named_port_connection_shorthand
 //
-// This expands named port connection shorthand, or collapses same-name connections to shorthand.
+// This expands named port connection shorthand, or collapses same-name
+// connections to shorthand.
 //
 // ```
 // child u(.ready$0);

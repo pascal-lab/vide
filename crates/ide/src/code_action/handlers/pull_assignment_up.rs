@@ -22,7 +22,8 @@ const DOWN_ID: CodeActionId = CodeActionId {
 
 // Assist: pull_assignment_up
 //
-// This pulls matching assignments out of an if/else chain into a single ternary assignment.
+// This pulls matching assignments out of an if/else chain into a single ternary
+// assignment.
 //
 // ```
 // always_comb if$0 (a) y = 1; else y = 0;

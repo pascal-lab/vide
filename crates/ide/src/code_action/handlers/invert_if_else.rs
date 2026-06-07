@@ -14,7 +14,8 @@ const LABEL: &str = "Invert if/else";
 
 // Assist: invert_if_else
 //
-// This swaps the then and else branches of an if statement and negates the condition.
+// This swaps the then and else branches of an if statement and negates the
+// condition.
 //
 // ```
 // always_comb if$0 (ready) y = a; else y = b;

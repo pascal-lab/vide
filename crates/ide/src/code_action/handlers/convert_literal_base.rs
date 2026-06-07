@@ -15,7 +15,8 @@ const ACTION_ID: CodeActionId = CodeActionId {
 
 // Assist: convert_literal_base
 //
-// This converts an integer literal between binary, octal, decimal, and hexadecimal notation.
+// This converts an integer literal between binary, octal, decimal, and
+// hexadecimal notation.
 //
 // ```
 // localparam int value = 8'h0f$0;

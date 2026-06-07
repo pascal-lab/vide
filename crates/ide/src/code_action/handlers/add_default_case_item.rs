@@ -14,7 +14,8 @@ const LABEL: &str = "Add default case item";
 
 // Assist: add_default_case_item
 //
-// This adds a `default` item to a case statement that does not already have one.
+// This adds a `default` item to a case statement that does not already have
+// one.
 //
 // ```
 // module top; always_comb case$0 (sel) 1'b0: y = a; endcase endmodule

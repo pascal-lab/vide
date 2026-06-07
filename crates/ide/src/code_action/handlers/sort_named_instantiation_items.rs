@@ -27,7 +27,8 @@ const SORT_NAMED_PARAMETER_ASSIGNMENTS_LABEL: &str = "Sort named parameter assig
 
 // Assist: sort_named_parameter_assignments
 //
-// This sorts named parameter assignments to match the target module's parameter declaration order.
+// This sorts named parameter assignments to match the target module's parameter
+// declaration order.
 //
 // ```
 // child #(.B(2), $0.A(1)) u();
@@ -82,7 +83,8 @@ const SORT_NAMED_PORT_CONNECTIONS_LABEL: &str = "Sort named port connections";
 
 // Assist: sort_named_port_connections
 //
-// This sorts named port connections to match the target module's port declaration order.
+// This sorts named port connections to match the target module's port
+// declaration order.
 //
 // ```
 // child u(.b(b), $0.a(a));
