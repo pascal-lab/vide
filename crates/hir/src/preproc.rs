@@ -22,7 +22,7 @@ use utils::{
     line_index::{TextRange, TextSize},
     uniq_vec::UniqVec,
 };
-use vfs::FileId;
+use vfs::{FileId, VfsPath};
 
 use crate::base_db::{
     project::{CompilationProfileId, Predefine},
@@ -71,6 +71,7 @@ pub enum PreprocUnavailable {
     AmbiguousDiagnosticProvenance { targets: usize },
     AmbiguousIncludeTargets { targets: usize },
     PartialPreprocContextIndex { skipped_models: usize },
+    DisplayOnlyVirtualExpansion { path: VfsPath, origin: PreprocVirtualOrigin },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -302,8 +303,8 @@ pub struct MacroExpansion {
     pub definition_id: MacroDefinitionId,
     pub definition: MacroDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
-    pub virtual_source: MappedPreprocSource,
-    pub virtual_range: TextRange,
+    pub display_source: MappedPreprocSource,
+    pub display_range: TextRange,
     pub child_calls: Vec<MacroCallId>,
     pub capability: PreprocAvailability,
 }
@@ -318,7 +319,7 @@ pub struct MacroExpansionProvenance {
 pub struct EmittedTokenProvenance {
     pub token: SourceEmittedTokenId,
     pub text: SmolStr,
-    pub virtual_range: TextRange,
+    pub display_range: TextRange,
     pub provenance: TokenProvenance,
 }
 
@@ -2167,21 +2168,21 @@ fn map_macro_expansion(
         definition_id: expansion.definition.into(),
         definition: map_macro_definition(mapped, definition)?,
         emitted_token_range: expansion.emitted_token_range,
-        virtual_source: map_expansion_virtual_source(mapped, expansion.id)?,
-        virtual_range: mapped
+        display_source: map_expansion_display_source(mapped, expansion.id)?,
+        display_range: mapped
             .source_map
-            .emitted_token_range(expansion.id, expansion.emitted_token_range)
+            .emitted_display_range(expansion.id, expansion.emitted_token_range)
             .map_err(PreprocError::SourceMap)?,
         child_calls: expansion.child_calls.iter().copied().map(Into::into).collect(),
         capability: macro_expansion_availability(&expansion.status),
     })
 }
 
-fn map_expansion_virtual_source(
+fn map_expansion_display_source(
     mapped: &MappedSourcePreprocModel,
     expansion: SourceMacroExpansionId,
 ) -> PreprocResult<MappedPreprocSource> {
-    match mapped.source_map.expansion_source(expansion).map_err(PreprocError::SourceMap)? {
+    match mapped.source_map.expansion_display_source(expansion).map_err(PreprocError::SourceMap)? {
         PreprocSourceMapping::VirtualFile { file_id, path, origin } => {
             Ok(MappedPreprocSource::VirtualFile { file_id, path, origin })
         }
@@ -2191,6 +2192,38 @@ fn map_expansion_virtual_source(
         PreprocSourceMapping::RealFile(file_id) => Ok(MappedPreprocSource::RealFile { file_id }),
         PreprocSourceMapping::Unmapped(reason) => {
             Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) })
+        }
+    }
+}
+
+fn map_expansion_source_buffer(
+    mapped: &MappedSourcePreprocModel,
+    expansion: SourceMacroExpansionId,
+) -> PreprocResult<MappedPreprocSource> {
+    match mapped.source_map.expansion_source_buffer(expansion).map_err(PreprocError::SourceMap)? {
+        PreprocSourceMapping::VirtualFile { file_id, path, origin } => {
+            Ok(MappedPreprocSource::VirtualFile { file_id, path, origin })
+        }
+        PreprocSourceMapping::VirtualDisplay { path, origin } => {
+            Ok(MappedPreprocSource::VirtualDisplay { path, origin })
+        }
+        PreprocSourceMapping::RealFile(file_id) => Ok(MappedPreprocSource::RealFile { file_id }),
+        PreprocSourceMapping::Unmapped(reason) => {
+            Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) })
+        }
+    }
+}
+
+fn display_only_virtual_expansion_unavailable(source: &MappedPreprocSource) -> PreprocUnavailable {
+    match source {
+        MappedPreprocSource::VirtualDisplay { path, origin } => {
+            PreprocUnavailable::DisplayOnlyVirtualExpansion {
+                path: path.clone(),
+                origin: origin.clone(),
+            }
+        }
+        MappedPreprocSource::RealFile { .. } | MappedPreprocSource::VirtualFile { .. } => {
+            PreprocUnavailable::Source(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
         }
     }
 }
@@ -2376,9 +2409,9 @@ fn macro_expansion_provenance_for_expansion(
         tokens.push(EmittedTokenProvenance {
             token: token_id,
             text: token.text.clone(),
-            virtual_range: mapped
+            display_range: mapped
                 .source_map
-                .emitted_token_text_range(expansion_id, token_id)
+                .emitted_token_display_range(expansion_id, token_id)
                 .map_err(PreprocError::SourceMap)?,
             provenance: map_token_provenance(mapped, provenance)?,
         });
@@ -2447,11 +2480,6 @@ fn diagnostic_target_for_source_expansion(
     mapped: &MappedSourcePreprocModel,
     expansion: &SourceMacroExpansionFact,
 ) -> PreprocResult<DiagnosticProvenance> {
-    let virtual_source = map_expansion_virtual_source(mapped, expansion.id)?;
-    let virtual_range = mapped
-        .source_map
-        .emitted_token_range(expansion.id, expansion.emitted_token_range)
-        .map_err(PreprocError::SourceMap)?;
     let mut saw_unavailable = None;
     for token_id in emitted_token_ids(expansion.emitted_token_range) {
         let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
@@ -2486,10 +2514,24 @@ fn diagnostic_target_for_source_expansion(
         }
     }
 
-    Ok(saw_unavailable.map_or_else(
-        || DiagnosticProvenance::VirtualExpansion { source: virtual_source, range: virtual_range },
-        DiagnosticProvenance::Unavailable,
-    ))
+    if let Some(reason) = saw_unavailable {
+        return Ok(DiagnosticProvenance::Unavailable(reason));
+    }
+
+    let source_buffer_source = map_expansion_source_buffer(mapped, expansion.id)?;
+    let MappedPreprocSource::VirtualFile { .. } = &source_buffer_source else {
+        return Ok(DiagnosticProvenance::Unavailable(display_only_virtual_expansion_unavailable(
+            &source_buffer_source,
+        )));
+    };
+    let source_buffer_range = mapped
+        .source_map
+        .emitted_source_buffer_range(expansion.id, expansion.emitted_token_range)
+        .map_err(PreprocError::SourceMap)?;
+    Ok(DiagnosticProvenance::VirtualExpansion {
+        source: source_buffer_source,
+        range: source_buffer_range,
+    })
 }
 
 fn map_macro_resolution(
@@ -2865,8 +2907,8 @@ mod tests {
             },
             salsa::{self, Durability},
             source_db::{
-                FileLoader, PreprocVirtualOrigin, SourceDb, SourceDbStorage, SourceFileKind,
-                SourceRootDb, SourceRootDbStorage,
+                FileLoader, PreprocExpansionSourceBuffer, PreprocVirtualOrigin, SourceDb,
+                SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
             },
             source_root::{SourceRoot, SourceRootId},
         },
@@ -3019,6 +3061,24 @@ mod tests {
         &text[usize::from(range.start())..usize::from(range.end())]
     }
 
+    fn assert_expansion_is_display_only_source_buffer(
+        mapped: &MappedSourcePreprocModel,
+        expansion: &MacroExpansion,
+    ) {
+        let expansion_id = SourceMacroExpansionId::new(expansion.id.raw());
+        let entry = mapped
+            .source_map
+            .expansion(expansion_id)
+            .expect("expansion should have a display entry");
+        assert!(matches!(&entry.source_buffer, PreprocExpansionSourceBuffer::DisplayOnly { .. }));
+        assert!(matches!(
+            mapped
+                .source_map
+                .emitted_source_buffer_range(expansion_id, expansion.emitted_token_range),
+            Err(PreprocSourceMapError::DisplayOnlyVirtualSource { .. })
+        ));
+    }
+
     #[test]
     fn preproc_include_usage_resolves_to_header_define() {
         let root_text = r#"`include "defs.vh"
@@ -3099,7 +3159,7 @@ endmodule
             .unwrap()
             .unwrap();
         let MappedPreprocSource::VirtualDisplay { path, origin } =
-            &provenance.expansion.virtual_source
+            &provenance.expansion.display_source
         else {
             panic!("macro expansion should expose a display-only virtual expansion source");
         };
@@ -3114,9 +3174,10 @@ endmodule
 
         let mapped = db.source_preproc_model(TOP);
         let mapped = mapped.as_ref().as_ref().unwrap();
-        let virtual_file = mapped.source_map.expansion(SourceMacroExpansionId::new(0)).unwrap();
-        assert_eq!(virtual_file.text, "logic generated ;");
-        assert_eq!(provenance.expansion.virtual_range, TextRange::new(0.into(), 17.into()));
+        let expansion_display =
+            mapped.source_map.expansion_display_text(SourceMacroExpansionId::new(0)).unwrap();
+        assert_eq!(expansion_display, "logic generated ;");
+        assert_eq!(provenance.expansion.display_range, TextRange::new(0.into(), 17.into()));
 
         let logic = provenance
             .tokens
@@ -3128,7 +3189,7 @@ endmodule
         };
         assert_eq!(source.file_id(), Some(TOP));
         assert_eq!(text_at_range(root_text, *range), "logic");
-        assert_eq!(logic.virtual_range, TextRange::new(0.into(), 5.into()));
+        assert_eq!(logic.display_range, TextRange::new(0.into(), 5.into()));
 
         let generated = provenance
             .tokens
@@ -3143,7 +3204,55 @@ endmodule
         assert_eq!(*argument_index, 0);
         assert_eq!(source.file_id(), Some(TOP));
         assert_eq!(text_at_range(root_text, *range), "generated");
-        assert_eq!(generated.virtual_range, TextRange::new(6.into(), 15.into()));
+        assert_eq!(generated.display_range, TextRange::new(6.into(), 15.into()));
+    }
+
+    #[test]
+    fn preproc_numeric_literal_expansion_display_is_not_source_buffer() {
+        let root_text = r#"`define ONE 12'd1
+module top;
+localparam int W = `ONE;
+endmodule
+"#;
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        let provenance =
+            macro_expansion_provenance_at(&db, TOP, offset(root_text, "`ONE")).unwrap().unwrap();
+        let mapped = db.source_preproc_model(TOP);
+        let mapped = mapped.as_ref().as_ref().unwrap();
+        assert_expansion_is_display_only_source_buffer(mapped, &provenance.expansion);
+
+        let display_text = mapped
+            .source_map
+            .expansion_display_text(SourceMacroExpansionId::new(provenance.expansion.id.raw()))
+            .unwrap();
+        assert!(display_text.contains("12"));
+        assert!(display_text.contains("'d"));
+        assert!(display_text.contains("1"));
+    }
+
+    #[test]
+    fn preproc_escaped_identifier_expansion_display_is_not_source_buffer() {
+        let root_text = concat!(
+            "`define ESCAPED \\escaped.name \n",
+            "module top;\n",
+            "wire `ESCAPED;\n",
+            "endmodule\n",
+        );
+        let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+        let provenance = macro_expansion_provenance_at(&db, TOP, offset(root_text, "`ESCAPED"))
+            .unwrap()
+            .unwrap();
+        let mapped = db.source_preproc_model(TOP);
+        let mapped = mapped.as_ref().as_ref().unwrap();
+        assert_expansion_is_display_only_source_buffer(mapped, &provenance.expansion);
+
+        let display_text = mapped
+            .source_map
+            .expansion_display_text(SourceMacroExpansionId::new(provenance.expansion.id.raw()))
+            .unwrap();
+        assert!(display_text.contains("\\escaped.name"));
     }
 
     #[test]
@@ -3260,8 +3369,10 @@ endmodule
     #[test]
     fn diagnostic_provenance_returns_unavailable_for_unsupported_expansion_mapping() {
         let root_text = r#"`define JOIN(a,b) a``b
+`define STR(x) `"x`"
 module top;
 wire `JOIN(foo,bar);
+string s = `STR(foo);
 endmodule
 "#;
         let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
@@ -3273,6 +3384,21 @@ endmodule
             provenance,
             DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(_))
         ));
+
+        let stringification_range =
+            TextRange::new(offset(root_text, "`STR"), offset_after(root_text, "`STR(foo)"));
+        let provenance =
+            diagnostic_provenance_for_range(&db, TOP, stringification_range).unwrap().unwrap();
+        assert!(
+            matches!(
+                &provenance,
+                DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
+                        | SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
+                ))
+            ),
+            "stringification should be unsupported or unavailable, got {provenance:?}"
+        );
     }
 
     #[test]
