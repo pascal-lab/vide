@@ -5,7 +5,7 @@ use ::preproc::source::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
-use syntax::{PreprocessorTrace, SourceBufferOrigin, SyntaxTree, SyntaxTreeOptions};
+use syntax::{PreprocessorTrace, SourceBufferOrigin, SyntaxTreeOptions};
 use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},
@@ -14,9 +14,7 @@ use utils::{
 };
 use vfs::{FileId, VfsPath};
 
-use super::{
-    SourceFileKind, SourceRootDb, path_file_ids, source_file_identity, syntax_tree_options_for_file,
-};
+use super::{SourceFileKind, SourceRootDb, path_file_ids, syntax_tree_options_for_file};
 use crate::base_db::project::CompilationProfileId;
 
 mod source_mapping;
@@ -673,14 +671,10 @@ pub(super) fn source_preproc_model(
         return Arc::new(Err(SourcePreprocQueryError::UnsupportedFileKind(file_kind)));
     }
 
-    let text = db.file_text(file_id);
-    let identity = source_file_identity(db, file_id);
     let profile_id = db.file_compilation_profile(file_id);
     let preprocess = db.file_preprocess_config(file_id);
     let options = syntax_tree_options_for_file(db, file_id);
-    let Some(trace) =
-        SyntaxTree::preprocessor_trace(&text, &identity.name, &identity.path, &options)
-    else {
+    let Some(trace) = db.parsed_compilation_unit(file_id).preprocessor_trace.clone() else {
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
     };
 
