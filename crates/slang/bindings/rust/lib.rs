@@ -63,6 +63,12 @@ pub struct SyntaxTree {
     _ptr: SharedPtr<ffi::SyntaxTree>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SyntaxTreeWithPreprocessorTrace {
+    pub tree: SyntaxTree,
+    pub preprocessor_trace: Option<PreprocessorTrace>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxTreeOptions {
     pub predefines: Vec<String>,
@@ -1515,6 +1521,14 @@ impl PreprocessorTraceActualArgument {
     }
 }
 
+fn raw_include_buffers(options: &SyntaxTreeOptions) -> Vec<ffi::RawSourceBuffer> {
+    options
+        .include_buffers
+        .iter()
+        .map(|buffer| ffi::RawSourceBuffer { path: buffer.path.clone(), text: buffer.text.clone() })
+        .collect()
+}
+
 impl SyntaxTree {
     #[inline]
     pub fn from_text(text: &str, name: &str, path: &str) -> SyntaxTree {
@@ -1537,17 +1551,33 @@ impl SyntaxTree {
                 CxxSV::new(path),
                 options.predefines.clone(),
                 options.include_paths.clone(),
-                options
-                    .include_buffers
-                    .iter()
-                    .map(|buffer| ffi::RawSourceBuffer {
-                        path: buffer.path.clone(),
-                        text: buffer.text.clone(),
-                    })
-                    .collect(),
+                raw_include_buffers(options),
                 options.expand_includes,
             ),
         }
+    }
+
+    #[inline]
+    pub fn from_text_with_options_and_trace(
+        text: &str,
+        name: &str,
+        path: &str,
+        options: &SyntaxTreeOptions,
+    ) -> SyntaxTreeWithPreprocessorTrace {
+        let tree = SyntaxTree {
+            _ptr: ffi::SyntaxTree::fromTextWithOptionsAndTrace(
+                CxxSV::new(text),
+                CxxSV::new(name),
+                CxxSV::new(path),
+                options.predefines.clone(),
+                options.include_paths.clone(),
+                raw_include_buffers(options),
+                options.expand_includes,
+            ),
+        };
+        let preprocessor_trace =
+            PreprocessorTrace::from_raw(tree._ptr.preprocessorTraceFromParsed());
+        SyntaxTreeWithPreprocessorTrace { tree, preprocessor_trace }
     }
 
     #[inline]
@@ -1607,14 +1637,7 @@ impl SyntaxTree {
             offset,
             options.predefines.clone(),
             options.include_paths.clone(),
-            options
-                .include_buffers
-                .iter()
-                .map(|buffer| ffi::RawSourceBuffer {
-                    path: buffer.path.clone(),
-                    text: buffer.text.clone(),
-                })
-                .collect(),
+            raw_include_buffers(options),
             options.expand_includes,
         )
         .into_iter()
@@ -1679,14 +1702,7 @@ impl SyntaxTree {
             CxxSV::new(path),
             options.predefines.clone(),
             options.include_paths.clone(),
-            options
-                .include_buffers
-                .iter()
-                .map(|buffer| ffi::RawSourceBuffer {
-                    path: buffer.path.clone(),
-                    text: buffer.text.clone(),
-                })
-                .collect(),
+            raw_include_buffers(options),
             options.expand_includes,
         ))
     }

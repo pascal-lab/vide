@@ -24,12 +24,15 @@ struct SourceBuffer;
 
 namespace slang::parsing {
 struct ParserMetadata;
+struct PreprocessorTraceSnapshot;
 }
 
 namespace slang::syntax {
 
 class SyntaxNode;
 struct DefineDirectiveSyntax;
+
+enum class PreprocessorTraceMode { Disabled, Enabled };
 
 /// The SyntaxTree is the easiest way to interface with the lexer / preprocessor /
 /// parser stack. Give it some source text and it produces a parse tree.
@@ -111,7 +114,9 @@ public:
     static std::shared_ptr<SyntaxTree> fromText(std::string_view text, SourceManager& sourceManager,
                                                 std::string_view name = "source"sv,
                                                 std::string_view path = "", const Bag& options = {},
-                                                const SourceLibrary* library = nullptr);
+                                                const SourceLibrary* library = nullptr,
+                                                PreprocessorTraceMode traceMode =
+                                                    PreprocessorTraceMode::Disabled);
 
     /// Creates a syntax tree from a full compilation unit already in memory.
     /// @a text is the actual source code text.
@@ -135,7 +140,9 @@ public:
     static std::shared_ptr<SyntaxTree> fromBuffer(const SourceBuffer& buffer,
                                                   SourceManager& sourceManager,
                                                   const Bag& options = {},
-                                                  MacroList inheritedMacros = {});
+                                                  MacroList inheritedMacros = {},
+                                                  PreprocessorTraceMode traceMode =
+                                                      PreprocessorTraceMode::Disabled);
 
     /// Creates a syntax tree by concatenating several loaded source buffers.
     /// @a buffers is the list of buffers that should be concatenated to form
@@ -147,7 +154,9 @@ public:
     static std::shared_ptr<SyntaxTree> fromBuffers(std::span<const SourceBuffer> buffers,
                                                    SourceManager& sourceManager,
                                                    const Bag& options = {},
-                                                   MacroList inheritedMacros = {});
+                                                   MacroList inheritedMacros = {},
+                                                   PreprocessorTraceMode traceMode =
+                                                       PreprocessorTraceMode::Disabled);
 
     /// Creates a syntax tree from a library map file.
     /// @a path is the path to the source file on disk.
@@ -207,6 +216,11 @@ public:
     /// Gets various bits of metadata collected during parsing.
     const parsing::ParserMetadata& getMetadata() const { return *metadata; }
 
+    /// Gets the preprocessor trace recorded while parsing, if requested.
+    const parsing::PreprocessorTraceSnapshot* getPreprocessorTrace() const {
+        return preprocessorTrace.get();
+    }
+
     /// Gets the list of macros that were defined at the end of the loaded source file.
     MacroList getDefinedMacros() const { return macros; }
 
@@ -219,12 +233,15 @@ public:
 private:
     SyntaxTree(SyntaxNode* root, const SourceLibrary* library, SourceManager& sourceManager,
                BumpAllocator&& alloc, Diagnostics&& diagnostics, parsing::ParserMetadata&& metadata,
-               std::vector<const DefineDirectiveSyntax*>&& macros, Bag options);
+               std::vector<const DefineDirectiveSyntax*>&& macros, Bag options,
+               std::unique_ptr<parsing::PreprocessorTraceSnapshot>&& preprocessorTrace = nullptr);
 
     static std::shared_ptr<SyntaxTree> create(SourceManager& sourceManager,
                                               std::span<const SourceBuffer> source,
                                               const Bag& options, MacroList inheritedMacros,
-                                              bool guess);
+                                              bool guess,
+                                              PreprocessorTraceMode traceMode =
+                                                  PreprocessorTraceMode::Disabled);
 
     SyntaxNode* rootNode;
     const SourceLibrary* library;
@@ -234,6 +251,7 @@ private:
     Bag options_;
     std::unique_ptr<parsing::ParserMetadata> metadata;
     std::vector<const DefineDirectiveSyntax*> macros;
+    std::unique_ptr<parsing::PreprocessorTraceSnapshot> preprocessorTrace;
 };
 
 } // namespace slang::syntax

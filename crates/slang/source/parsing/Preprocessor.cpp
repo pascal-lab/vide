@@ -260,7 +260,7 @@ void Preprocessor::recordTracePredefines() {
     });
 
     for (const auto& def : defines)
-        traceRecorder->recordDirective(*def.syntax, def.definitionId);
+        traceRecorder->recordDirective(*def.syntax, def.definitionId, true);
 }
 
 void Preprocessor::recordTraceToken(Token token) {

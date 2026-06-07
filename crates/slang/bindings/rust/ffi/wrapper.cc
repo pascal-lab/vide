@@ -2,6 +2,7 @@
 
 #include "slang/parsing/ExpectedSyntax.h"
 #include "slang/parsing/ParserMetadata.h"
+#include "slang/parsing/PreprocessorTrace.h"
 #include "slang/syntax/AllSyntax.h"
 
 #include <algorithm>
@@ -706,7 +707,7 @@ rust::Vec<::RawPreprocessorTraceActualArgument> to_rust_trace_actual_arguments(
 ::RawPreprocessorTraceEvent to_rust_preprocessor_trace_event(
     const slang::syntax::SyntaxNode& syntax,
     uint32_t eventId,
-    const slang::parsing::Preprocessor& preprocessor) {
+    uint32_t macroDefinitionId) {
   ::RawPreprocessorTraceEvent directive;
   directive.event_id = eventId;
   directive.kind = static_cast<uint16_t>(syntax.kind);
@@ -734,9 +735,8 @@ rust::Vec<::RawPreprocessorTraceActualArgument> to_rust_trace_actual_arguments(
   switch (syntax.kind) {
     case slang::syntax::SyntaxKind::DefineDirective: {
       const auto& define = syntax.as<slang::syntax::DefineDirectiveSyntax>();
-      auto definitionId = preprocessor.getMacroDefinitionId(define);
-      directive.macro_definition_id = definitionId;
-      directive.has_macro_definition_id = definitionId != 0;
+      directive.macro_definition_id = macroDefinitionId;
+      directive.has_macro_definition_id = macroDefinitionId != 0;
       directive.name = to_rust_preprocessor_trace_token(define.name);
       if (define.formalArguments) {
         for (auto* param : define.formalArguments->args)
@@ -801,6 +801,108 @@ rust::Vec<::RawPreprocessorTraceActualArgument> to_rust_trace_actual_arguments(
   directive.expr_tokens = rust::Vec<::RawPreprocessorTraceToken>();
   directive.disabled_ranges = rust::Vec<::RawSourceBufferRange>();
   return directive;
+}
+
+rust::Vec<::RawSourceBufferId> collectSourceBufferIds(
+    const slang::SourceManager& sourceManager,
+    const std::unordered_set<uint32_t>& predefineBufferIds);
+
+::RawPreprocessorTrace empty_preprocessor_trace() {
+  ::RawPreprocessorTrace result;
+  result.root_buffer_id = 0;
+  result.has_root_buffer_id = false;
+  result.source_buffers = rust::Vec<::RawSourceBufferId>();
+  result.events = rust::Vec<::RawPreprocessorTraceEvent>();
+  result.include_edges = rust::Vec<::RawPreprocessorTraceIncludeEdge>();
+  result.emitted_tokens = rust::Vec<::RawPreprocessorTraceEmittedToken>();
+  return result;
+}
+
+uint32_t trace_macro_definition_id(
+    const slang::syntax::SyntaxNode& syntax,
+    const slang::parsing::Preprocessor& preprocessor) {
+  if (auto* define = syntax.as_if<slang::syntax::DefineDirectiveSyntax>())
+    return preprocessor.getMacroDefinitionId(*define);
+  return 0;
+}
+
+std::unordered_set<uint32_t> predefine_buffer_ids(
+    const slang::parsing::PreprocessorTraceSnapshot& trace) {
+  std::unordered_set<uint32_t> bufferIds;
+  for (const auto& event : trace.events) {
+    if (event.kind != slang::parsing::PreprocessorTraceEvent::Kind::Directive ||
+        !event.directive.isPredefine || !event.directive.syntax) {
+      continue;
+    }
+
+    auto* directive = event.directive.syntax->as_if<slang::syntax::DirectiveSyntax>();
+    if (!directive)
+      continue;
+    auto location = directive->directive.location();
+    if (location.valid())
+      bufferIds.insert(location.buffer().getId());
+  }
+  return bufferIds;
+}
+
+::RawPreprocessorTrace to_rust_preprocessor_trace_snapshot(
+    const slang::parsing::PreprocessorTraceSnapshot& trace,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace();
+  if (!trace.rootBufferId)
+    return result;
+
+  result.root_buffer_id = *trace.rootBufferId;
+  result.has_root_buffer_id = true;
+
+  std::unordered_map<TraceSourceLocationKey, uint32_t, TraceSourceLocationKeyHash>
+      includeEventIdsByLocation;
+  for (const auto& event : trace.events) {
+    switch (event.kind) {
+      case slang::parsing::PreprocessorTraceEvent::Kind::Directive: {
+        if (!event.directive.syntax)
+          continue;
+
+        if (event.directive.syntax->kind == slang::syntax::SyntaxKind::IncludeDirective) {
+          const auto& include =
+              event.directive.syntax->as<slang::syntax::IncludeDirectiveSyntax>();
+          if (auto key = trace_source_location_key(include.directive.location()))
+            includeEventIdsByLocation.emplace(*key, event.eventId);
+        }
+
+        result.events.emplace_back(to_rust_preprocessor_trace_event(
+            *event.directive.syntax, event.eventId, event.directive.macroDefinitionId));
+        break;
+      }
+      case slang::parsing::PreprocessorTraceEvent::Kind::MacroUsage:
+        result.events.emplace_back(to_rust_preprocessor_trace_macro_usage_record(
+            event.macroUsage, event.eventId, sourceManager));
+        break;
+    }
+  }
+
+  for (auto token : trace.emittedTokens)
+    result.emitted_tokens.emplace_back(
+        to_rust_preprocessor_trace_emitted_token(token, sourceManager));
+
+  for (auto buffer : sourceManager.getAllBuffers()) {
+    auto includedFrom = sourceManager.getIncludedFrom(buffer);
+    auto key = trace_source_location_key(includedFrom);
+    if (!key)
+      continue;
+
+    auto includeIt = includeEventIdsByLocation.find(*key);
+    if (includeIt == includeEventIdsByLocation.end())
+      continue;
+
+    ::RawPreprocessorTraceIncludeEdge edge;
+    edge.include_event_id = includeIt->second;
+    edge.included_buffer_id = buffer.getId();
+    result.include_edges.emplace_back(edge);
+  }
+
+  result.source_buffers = collectSourceBufferIds(sourceManager, predefine_buffer_ids(trace));
+  return result;
 }
 
 std::optional<slang::SourceRange> mapSourceRangeToContext(
@@ -1027,7 +1129,8 @@ std::shared_ptr<SyntaxTree> SourceSession::parseText(
     rust::Vec<rust::String> include_paths,
     rust::Vec<::RawSourceBuffer> include_buffers,
     std::optional<size_t> expectedSyntaxCursor,
-    bool expandIncludes) {
+    bool expandIncludes,
+    bool collectPreprocessorTrace) {
   slang::Bag options;
   auto& ppOptions = options.insertOrGet<slang::parsing::PreprocessorOptions>();
   for (const auto& predefine : predefines)
@@ -1046,15 +1149,20 @@ std::shared_ptr<SyntaxTree> SourceSession::parseText(
     assignSourceBuffer(std::string(buffer.path), std::string(buffer.text));
   }
 
+  auto traceMode = collectPreprocessorTrace
+                       ? slang::syntax::PreprocessorTraceMode::Enabled
+                       : slang::syntax::PreprocessorTraceMode::Disabled;
   std::shared_ptr<::slang::syntax::SyntaxTree> tree;
   if (path.empty()) {
-    tree = ::slang::syntax::SyntaxTree::fromText(text, *sourceManager, name, path, options);
+    tree = ::slang::syntax::SyntaxTree::fromText(
+        text, *sourceManager, name, path, options, nullptr, traceMode);
   }
   else {
     auto buffer = assignSourceBuffer(path, text);
     if (!name.empty())
       sourceManager->addLineDirective(slang::SourceLocation(buffer.id, 0), 2, name, 0);
-    tree = ::slang::syntax::SyntaxTree::fromBuffer(buffer, *sourceManager, options);
+    tree = ::slang::syntax::SyntaxTree::fromBuffer(buffer, *sourceManager, options, {},
+                                                   traceMode);
   }
 
   return std::make_shared<SyntaxTree>(std::move(tree), shared_from_this());
@@ -1112,6 +1220,27 @@ std::shared_ptr<SyntaxTree> SyntaxTree_fromTextWithOptions(
       std::move(include_buffers),
       std::nullopt,
       expandIncludes);
+}
+
+std::shared_ptr<SyntaxTree> SyntaxTree_fromTextWithOptionsAndTrace(
+    std::string_view text,
+    std::string_view name,
+    std::string_view path,
+    rust::Vec<rust::String> predefines,
+    rust::Vec<rust::String> include_paths,
+    rust::Vec<::RawSourceBuffer> include_buffers,
+    bool expandIncludes) {
+  auto session = std::make_shared<SourceSession>();
+  return session->parseText(
+      text,
+      name,
+      path,
+      std::move(predefines),
+      std::move(include_paths),
+      std::move(include_buffers),
+      std::nullopt,
+      expandIncludes,
+      true);
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree_fromLibraryMapText(
@@ -1238,13 +1367,7 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
     rust::Vec<rust::String> includePaths,
     rust::Vec<::RawSourceBuffer> includeBuffers,
     bool expandIncludes) {
-  ::RawPreprocessorTrace result;
-  result.root_buffer_id = 0;
-  result.has_root_buffer_id = false;
-  result.source_buffers = rust::Vec<::RawSourceBufferId>();
-  result.events = rust::Vec<::RawPreprocessorTraceEvent>();
-  result.include_edges = rust::Vec<::RawPreprocessorTraceIncludeEdge>();
-  result.emitted_tokens = rust::Vec<::RawPreprocessorTraceEmittedToken>();
+  auto result = empty_preprocessor_trace();
 
   slang::SourceManager sourceManager;
   std::unordered_map<std::string, slang::SourceBuffer> assignedBuffers;
@@ -1306,7 +1429,8 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
       continue;
 
     auto eventId = static_cast<uint32_t>(result.events.size());
-    result.events.emplace_back(to_rust_preprocessor_trace_event(*define, eventId, preprocessor));
+    result.events.emplace_back(to_rust_preprocessor_trace_event(
+        *define, eventId, preprocessor.getMacroDefinitionId(*define)));
   }
 
   preprocessor.pushSource(rootBuffer);
@@ -1338,7 +1462,8 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
           if (auto key = trace_source_location_key(include.directive.location()))
             includeEventIdsByLocation.emplace(*key, eventId);
         }
-        auto event = to_rust_preprocessor_trace_event(*syntax, eventId, preprocessor);
+        auto event = to_rust_preprocessor_trace_event(
+            *syntax, eventId, trace_macro_definition_id(*syntax, preprocessor));
         result.events.emplace_back(std::move(event));
       }
     }
@@ -1369,6 +1494,14 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
 
   result.source_buffers = collectSourceBufferIds(sourceManager, predefineBufferIds);
   return result;
+}
+
+::RawPreprocessorTrace SyntaxTree_preprocessorTraceFromParsed(const SyntaxTree& tree) {
+  auto* trace = tree.inner().getPreprocessorTrace();
+  if (!trace)
+    return empty_preprocessor_trace();
+
+  return to_rust_preprocessor_trace_snapshot(*trace, tree.inner().sourceManager());
 }
 
 std::unique_ptr<SourceRange> SyntaxNode_range(const SyntaxNode& node) {

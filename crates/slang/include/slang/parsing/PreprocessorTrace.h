@@ -40,6 +40,7 @@ struct MacroUsageTraceRecord {
 struct PreprocessorTraceDirectiveEvent {
     const syntax::SyntaxNode* syntax = nullptr;
     uint32_t macroDefinitionId = 0;
+    bool isPredefine = false;
 };
 
 struct PreprocessorTraceEvent {
@@ -61,7 +62,8 @@ class PreprocessorTraceRecorder {
 public:
     void setRootBuffer(SourceBuffer buffer);
 
-    void recordDirective(const syntax::SyntaxNode& syntax, uint32_t macroDefinitionId = 0);
+    void recordDirective(const syntax::SyntaxNode& syntax, uint32_t macroDefinitionId = 0,
+                         bool isPredefine = false);
     void recordEmittedToken(Token token);
     void flushMacroUsageRecords(std::span<const MacroUsageTraceRecord> records);
 
