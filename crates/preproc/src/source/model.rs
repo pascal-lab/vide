@@ -937,6 +937,8 @@ endmodule
                         buffer_id: 1,
                         range: define_start..define_end,
                     }),
+                    macro_definition_id: None,
+                    macro_call_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "A".to_owned(),
@@ -962,6 +964,8 @@ endmodule
                         buffer_id: 1,
                         range: usage_start..usage_start + 2,
                     }),
+                    macro_definition_id: None,
+                    macro_call_id: None,
                     directive: None,
                     name: Some(PreprocessorTraceToken {
                         raw_text: "`A".to_owned(),
@@ -1179,6 +1183,8 @@ logic [`LEAF_WIDTH-1:0] data;
                 event_id: PreprocessorTraceEventId(0),
                 kind: SyntaxKind::DEFINE_DIRECTIVE,
                 range: None,
+                macro_definition_id: None,
+                macro_call_id: None,
                 directive: None,
                 name: Some(PreprocessorTraceToken {
                     raw_text: "WIDTH".to_owned(),

@@ -37,8 +37,11 @@ Preprocessor::Preprocessor(SourceManager& sourceManager, BumpAllocator& alloc,
     // Add in any inherited macros that aren't already set in our map.
     for (auto define : inheritedMacros) {
         auto name = define->name.valueText();
-        if (!name.empty())
-            macros.emplace(name, define);
+        if (!name.empty()) {
+            MacroDef def(define);
+            def.definitionId = allocateMacroDefinitionId(define);
+            macros.emplace(name, def);
+        }
     }
 
     // clang-format off
@@ -121,8 +124,10 @@ void Preprocessor::predefine(const std::string& definition, std::string_view nam
     // be copied over to our own map.
     for (auto& pair : pp.macros) {
         if (!pair.second.isIntrinsic()) {
-            pair.second.commandLine = true;
-            macros.insert(pair);
+            MacroDef def = pair.second;
+            def.commandLine = true;
+            def.definitionId = allocateMacroDefinitionId(def.syntax);
+            macros.insert({pair.first, def});
         }
     }
 }
@@ -208,6 +213,33 @@ std::vector<const DefineDirectiveSyntax*> Preprocessor::getDefinedMacros() const
         return a->name.valueText() < b->name.valueText();
     });
     return results;
+}
+
+uint32_t Preprocessor::getMacroDefinitionId(const DefineDirectiveSyntax& syntax) const {
+    auto it = macroDefinitionIds.find(&syntax);
+    return it == macroDefinitionIds.end() ? 0 : it->second;
+}
+
+uint32_t Preprocessor::getMacroCallId(const MacroUsageSyntax& syntax) const {
+    auto it = macroCallIds.find(&syntax);
+    return it == macroCallIds.end() ? 0 : it->second;
+}
+
+uint32_t Preprocessor::allocateMacroDefinitionId(const DefineDirectiveSyntax* syntax) {
+    if (!syntax)
+        return 0;
+
+    auto it = macroDefinitionIds.find(syntax);
+    if (it != macroDefinitionIds.end())
+        return it->second;
+
+    auto id = nextMacroDefinitionId++;
+    macroDefinitionIds.emplace(syntax, id);
+    return id;
+}
+
+uint32_t Preprocessor::allocateMacroCallId() {
+    return nextMacroCallId++;
 }
 
 Token Preprocessor::next() {
@@ -677,18 +709,24 @@ Trivia Preprocessor::handleDefineDirective(Token directive) {
         }
     }
 
-    if (!bad)
-        macros[name.valueText()] = result;
+    if (!bad) {
+        MacroDef def(result);
+        def.definitionId = allocateMacroDefinitionId(result);
+        macros[name.valueText()] = def;
+    }
     return Trivia(TriviaKind::Directive, result);
 }
 
 std::pair<Trivia, Trivia> Preprocessor::handleMacroUsage(Token directive) {
     // delegate to a nested function to simplify the error handling paths
     inMacroBody = true;
-    auto [actualArgs, extraTrivia] = handleTopLevelMacro(directive);
+    uint32_t callId = 0;
+    auto [actualArgs, extraTrivia] = handleTopLevelMacro(directive, &callId);
     inMacroBody = false;
 
     auto syntax = alloc.emplace<MacroUsageSyntax>(directive, actualArgs);
+    if (callId != 0)
+        macroCallIds.emplace(syntax, callId);
     return std::make_pair(Trivia(TriviaKind::Directive, syntax), extraTrivia);
 }
 
