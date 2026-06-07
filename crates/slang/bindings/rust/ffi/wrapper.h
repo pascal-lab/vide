@@ -569,15 +569,6 @@ namespace wrapper {
         std::string_view name,
         std::string_view path,
         size_t offset);
-    ::RawPreprocessorTrace SyntaxTree_preprocessorTrace(
-        std::string_view text,
-        std::string_view name,
-        std::string_view path,
-        rust::Vec<rust::String> predefines,
-        rust::Vec<rust::String> includePaths,
-        rust::Vec<::RawSourceBuffer> includeBuffers,
-        bool expandIncludes);
-
     ::RawPreprocessorTrace SyntaxTree_preprocessorTraceFromParsed(const SyntaxTree& tree);
   }
 

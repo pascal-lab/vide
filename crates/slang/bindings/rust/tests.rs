@@ -19,6 +19,17 @@ fn get_multi_module_tree() -> SyntaxTree {
     SyntaxTree::from_text("module A; endmodule; module B; endmodule;", "source", "")
 }
 
+fn preprocessor_trace(
+    source: &str,
+    name: &str,
+    path: &str,
+    options: &SyntaxTreeOptions,
+) -> PreprocessorTrace {
+    SyntaxTree::from_text_with_options_and_trace(source, name, path, options)
+        .preprocessor_trace
+        .expect("parse-derived trace should be present when requested")
+}
+
 fn get_tree_with_trivia() -> SyntaxTree {
     SyntaxTree::from_text(
         r#"
@@ -918,8 +929,7 @@ wire disabled_by_header;
         expand_includes: true,
     };
 
-    let trace = SyntaxTree::preprocessor_trace(source, "source", &source_path, &options)
-        .expect("root source buffer should be available");
+    let trace = preprocessor_trace(source, "source", &source_path, &options);
     let normalized_path_for_buffer_id = |buffer_id: u32| {
         trace
             .source_buffers
@@ -1048,13 +1058,12 @@ wire disabled_by_header;
         root_header_branch.disabled_ranges.iter().any(|range| range.buffer_id == root_buffer_id)
     );
 
-    let unexpanded_trace = SyntaxTree::preprocessor_trace(
+    let unexpanded_trace = preprocessor_trace(
         source,
         "source",
         &source_path,
         &SyntaxTreeOptions { expand_includes: false, ..options.clone() },
-    )
-    .expect("root source buffer should be available");
+    );
     assert!(unexpanded_trace.events.iter().all(|event| {
         event.kind != SyntaxKind::DEFINE_DIRECTIVE
             || event.name.as_ref().map(|name| name.value_text.as_str()) != Some("HEADER_FLAG")
@@ -1062,7 +1071,7 @@ wire disabled_by_header;
 }
 
 #[test]
-fn preprocessor_trace_from_parsed_tree_matches_static_trace() {
+fn preprocessor_trace_from_parsed_tree_reports_macro_include_facts() {
     let dir = TestDir::new("slang-parse-preprocessor-trace");
     let rtl_dir = dir.create_dir_all("rtl");
     let include_dir = dir.create_dir_all("include");
@@ -1090,10 +1099,17 @@ endmodule
     assert_eq!(parsed.tree.diagnostics(), Vec::new());
     let parsed_trace =
         parsed.preprocessor_trace.expect("parse-derived trace should be present when requested");
-    let static_trace = SyntaxTree::preprocessor_trace(source, "source", &source_path, &options)
-        .expect("static trace should be present for comparison");
-
-    assert_eq!(parsed_trace, static_trace);
+    assert!(parsed_trace.events.iter().any(|event| event.kind == SyntaxKind::INCLUDE_DIRECTIVE));
+    assert!(parsed_trace.events.iter().any(|event| {
+        event.kind == SyntaxKind::DEFINE_DIRECTIVE
+            && event.name.as_ref().is_some_and(|name| name.value_text == "FROM_API")
+    }));
+    assert!(parsed_trace.events.iter().any(|event| {
+        event.kind == SyntaxKind::MACRO_USAGE
+            && event.name.as_ref().is_some_and(|name| name.raw_text == "`ID")
+    }));
+    assert!(parsed_trace.emitted_tokens.iter().any(|token| token.raw_text == "11"));
+    assert!(parsed_trace.emitted_tokens.iter().any(|token| token.raw_text == "7"));
 }
 
 #[test]
@@ -1105,13 +1121,8 @@ localparam int A = `OBJ;
 localparam int B = `ID(7);
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include emitted tokens");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     assert!(
         trace.emitted_tokens.iter().any(|token| {
@@ -1217,13 +1228,8 @@ module m;
 localparam int W = `WRAP;
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include emitted tokens");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     let leaf = trace
         .emitted_tokens
@@ -1257,13 +1263,8 @@ module m(input logic [3:0] payload_i, output logic [3:0] y);
 assign y = `NEXT(payload_i[3:0]);
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include emitted tokens");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     let payload = trace
         .emitted_tokens
@@ -1351,13 +1352,8 @@ module m(input logic [3:0] payload_i, output logic [3:0] y);
 assign y = `NEXT(`PAYL);
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include macro usage events");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     let next = trace
         .events
@@ -1432,13 +1428,8 @@ module m(input logic [3:0] payload_i, output logic [3:0] y);
 assign y = `NEXT(`WRAP);
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include macro usage events");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     let next = trace
         .events
@@ -1501,13 +1492,8 @@ fn preprocessor_trace_reports_escaped_identifier_macro_body_identity() {
         "wire `ESC;\n",
         "endmodule\n"
     );
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include emitted tokens");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     let escaped = trace
         .emitted_tokens
@@ -1541,13 +1527,8 @@ wire `JOIN(foo,bar);
 string s = `STR(foo);
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
-        source,
-        "source",
-        "sample/rtl/top.sv",
-        &SyntaxTreeOptions::default(),
-    )
-    .expect("trace should include emitted tokens");
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
 
     let pasted = trace
         .emitted_tokens
@@ -1571,7 +1552,7 @@ localparam int P = `FROM_API;
 localparam int L = `__LINE__;
 endmodule
 "#;
-    let trace = SyntaxTree::preprocessor_trace(
+    let trace = preprocessor_trace(
         source,
         "source",
         "sample/rtl/top.sv",
@@ -1579,8 +1560,7 @@ endmodule
             predefines: vec!["FROM_API=11".to_owned()],
             ..SyntaxTreeOptions::default()
         },
-    )
-    .expect("trace should include emitted tokens");
+    );
 
     let predefine_source = trace
         .source_buffers
@@ -1661,8 +1641,7 @@ fn preprocessor_trace_records_nested_include_edges() {
         ..SyntaxTreeOptions::default()
     };
 
-    let trace = SyntaxTree::preprocessor_trace(source, "source", &source_path, &options)
-        .expect("root source buffer should be available");
+    let trace = preprocessor_trace(source, "source", &source_path, &options);
     assert!(
         trace
             .events

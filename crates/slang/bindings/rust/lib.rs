@@ -1690,23 +1690,6 @@ impl SyntaxTree {
         ))
     }
 
-    pub fn preprocessor_trace(
-        text: &str,
-        name: &str,
-        path: &str,
-        options: &SyntaxTreeOptions,
-    ) -> Option<PreprocessorTrace> {
-        PreprocessorTrace::from_raw(ffi::SyntaxTree::preprocessorTrace(
-            CxxSV::new(text),
-            CxxSV::new(name),
-            CxxSV::new(path),
-            options.predefines.clone(),
-            options.include_paths.clone(),
-            raw_include_buffers(options),
-            options.expand_includes,
-        ))
-    }
-
     pub fn buffer_id(&self) -> u32 {
         self._ptr.buffer_id()
     }
