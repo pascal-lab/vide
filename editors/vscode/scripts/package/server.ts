@@ -78,7 +78,7 @@ export function cargoXtaskEnvForTarget(
     return env;
   }
 
-  let updated = env;
+  let updated = envWithoutCargoBuildTarget(env);
   const linkerEnvKey = cargoTargetLinkerEnvKey(cargoTarget);
   if (!optionalEnv(updated, linkerEnvKey)) {
     updated = {
@@ -88,6 +88,11 @@ export function cargoXtaskEnvForTarget(
   }
 
   return appendRustFlags(updated, ['-C', 'link-arg=-lc']);
+}
+
+function envWithoutCargoBuildTarget(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const { CARGO_BUILD_TARGET: _cargoBuildTarget, ...updated } = env;
+  return updated;
 }
 
 function cargoTargetLinkerEnvKey(cargoTarget: string): string {

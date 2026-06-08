@@ -107,14 +107,17 @@ describe('package staging', () => {
 });
 
 describe('package server preparation', () => {
-  it('injects Alpine cargo env before cargo xtask is built', () => {
-    const env = cargoXtaskEnvForTarget(nativeTargetSpec('alpine-x64'), {});
+  it('removes inherited Cargo build targets before cargo xtask is built', () => {
+    const baseEnv = { CARGO_BUILD_TARGET: 'x86_64-unknown-linux-musl' };
+    const env = cargoXtaskEnvForTarget(nativeTargetSpec('alpine-x64'), baseEnv);
 
+    assert.equal(env.CARGO_BUILD_TARGET, undefined);
     assert.equal(
       env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER,
       'x86_64-unknown-linux-musl-g++',
     );
     assert.equal(env.RUSTFLAGS, '-C link-arg=-lc');
+    assert.equal(baseEnv.CARGO_BUILD_TARGET, 'x86_64-unknown-linux-musl');
   });
 
   it('appends Alpine cargo flags to encoded rust flags', () => {
