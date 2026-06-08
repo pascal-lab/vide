@@ -258,6 +258,44 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_call_resolutions_in_range_map_formal_params() {
+    let root_text = "\
+`define MAKE(width, expr) logic [width-1:0] expr
+module top; `MAKE(8, data_q) endmodule
+";
+    let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+    let start = offset(root_text, "`MAKE");
+    let end = offset_after(root_text, "data_q");
+
+    let resolutions =
+        macro_call_resolutions_in_range(&db, TOP, TextRange::new(start, end)).unwrap();
+
+    assert_eq!(resolutions.len(), 1);
+    let resolution = &resolutions[0];
+    assert_eq!(text_at_range(root_text, resolution.call.range), "`MAKE(8, data_q)");
+    assert_eq!(
+        resolution
+            .definition
+            .params
+            .as_ref()
+            .unwrap()
+            .iter()
+            .filter_map(|param| param.name.as_deref())
+            .collect::<Vec<_>>(),
+        vec!["width", "expr"]
+    );
+    assert_eq!(
+        resolution
+            .call
+            .arguments
+            .iter()
+            .filter_map(|argument| argument.range.map(|range| text_at_range(root_text, range)))
+            .collect::<Vec<_>>(),
+        vec!["8", "data_q"]
+    );
+}
+
+#[test]
 fn preproc_builtin_intrinsic_expansion_uses_structured_provenance() {
     let root_text = r#"module m;
 localparam int L = `__LINE__;

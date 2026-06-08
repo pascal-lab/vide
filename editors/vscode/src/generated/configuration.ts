@@ -165,6 +165,15 @@ export const USER_CONFIG_SETTINGS = [
 		defaultValue: true,
 	},
 	{
+		path: ["inlayHints","macro","argument","enable"],
+		vscodeKey: "vide.inlayHints.macro.argument.enable",
+		vscodeSection: "inlayHints.macro.argument.enable",
+		docsGroup: "Annotations",
+		descriptionKey: "configuration.inlayHints.macro.argument.enable.description",
+		markdownDescriptionKey: null,
+		defaultValue: true,
+	},
+	{
 		path: ["inlayHints","end","structure","enable"],
 		vscodeKey: "vide.inlayHints.end.structure.enable",
 		vscodeSection: "inlayHints.end.structure.enable",

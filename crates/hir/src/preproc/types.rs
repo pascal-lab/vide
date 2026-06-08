@@ -274,6 +274,12 @@ pub struct MacroCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroCallResolution {
+    pub call: MacroCall,
+    pub definition: MacroDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroArgument {
     pub argument_index: usize,
     pub source: Option<MappedPreprocSource>,

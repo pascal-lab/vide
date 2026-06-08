@@ -602,7 +602,9 @@ pub(crate) fn inlay_hint(
 
     let position = self::position(line_info, position);
     let kind = match kind {
-        InlayKind::ParamAssign | InlayKind::Port => Some(lsp_types::InlayHintKind::PARAMETER),
+        InlayKind::ParamAssign | InlayKind::Port | InlayKind::MacroArgument => {
+            Some(lsp_types::InlayHintKind::PARAMETER)
+        }
         InlayKind::EndStructure => None,
     };
 
