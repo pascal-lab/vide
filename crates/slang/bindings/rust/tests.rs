@@ -1345,6 +1345,29 @@ endmodule
 }
 
 #[test]
+fn preprocessor_trace_emitted_tokens_keep_display_trivia() {
+    let source = r#"`define BLOCK(name) \
+  always_ff @(posedge clk) begin \
+    name <= 1; \
+  end
+module m;
+  `BLOCK(q)
+endmodule
+"#;
+    let trace =
+        preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
+    let display =
+        trace.emitted_tokens.iter().map(|token| token.display_text.as_str()).collect::<String>();
+
+    assert!(
+        display.contains("\n  always_ff")
+            && display.contains("\n    q <= 1;")
+            && display.contains("\n  end"),
+        "emitted token display text should preserve Slang token trivia: {display:?}"
+    );
+}
+
+#[test]
 fn preprocessor_trace_reports_nested_macro_usage_in_actual_argument() {
     let source = r#"`define PAYL payload_i
 `define NEXT(x) ((x) + 12'd1)

@@ -11,6 +11,8 @@ pub struct SourcePreprocModelBuilder<'a> {
     definition_ids_by_identity: BTreeMap<SourceMacroDefinitionKey, SourceMacroDefinitionId>,
     call_ids_by_identity: BTreeMap<SourceMacroCallKey, SourceMacroCallId>,
     call_ids_by_expansion_identity: BTreeMap<SourceMacroExpansionKey, SourceMacroCallId>,
+    // Expansion ownership comes from trace identities, not from source provenance.
+    emitted_token_owners: BTreeMap<SourceEmittedTokenId, SourceMacroCallId>,
     current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
     definition_ranges_partial: bool,
     include_edges_partial: bool,
@@ -35,6 +37,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             definition_ids_by_identity: BTreeMap::new(),
             call_ids_by_identity: BTreeMap::new(),
             call_ids_by_expansion_identity: BTreeMap::new(),
+            emitted_token_owners: BTreeMap::new(),
             current_state: BTreeMap::new(),
             definition_ranges_partial: false,
             include_edges_partial: false,
@@ -432,6 +435,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             self.tables.emitted_tokens.push(SourceEmittedToken {
                 id: token_id,
                 text: token.raw,
+                display: token.display,
                 kind: token.kind,
                 emitted_range: SourceEmittedTokenRange { start: token_id, len: 1 },
                 provenance: provenance_id,
@@ -461,16 +465,13 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 *body_token_range,
             ),
             SourceTokenProvenanceFact::MacroArgument {
-                macro_name,
                 identity,
-                call_range,
                 body_token_range,
                 argument_token_range,
+                ..
             } => self.resolve_macro_argument_token_provenance(
                 token_id,
-                macro_name.clone(),
                 *identity,
-                *call_range,
                 *body_token_range,
                 *argument_token_range,
             ),
@@ -479,11 +480,13 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             }
             SourceTokenProvenanceFact::TokenPaste { identity } => self
                 .resolve_macro_operation_token_provenance(
+                    token_id,
                     *identity,
                     MacroOperationProvenanceKind::TokenPaste,
                 ),
             SourceTokenProvenanceFact::Stringification { identity } => self
                 .resolve_macro_operation_token_provenance(
+                    token_id,
                     *identity,
                     MacroOperationProvenanceKind::Stringification,
                 ),
@@ -503,10 +506,6 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         call_range: SourceRange,
         body_token_range: SourceRange,
     ) -> SourceTokenProvenance {
-        if self.source_is_predefine(body_token_range.source) {
-            return SourceTokenProvenance::Predefine { source: body_token_range.source };
-        }
-
         let Some(identity) = identity else {
             return self.unavailable_token_provenance(
                 SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
@@ -541,15 +540,17 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             );
         }
 
+        self.record_emitted_token_owner(token_id, call);
+        if self.source_is_predefine(body_token_range.source) {
+            return SourceTokenProvenance::Predefine { source: body_token_range.source };
+        }
         SourceTokenProvenance::MacroBody { identity, definition, body_token_range, call }
     }
 
     fn resolve_macro_argument_token_provenance(
         &mut self,
         token_id: SourceEmittedTokenId,
-        macro_name: SmolStr,
         identity: Option<SourceMacroArgumentIdentity>,
-        call_range: SourceRange,
         body_token_range: SourceRange,
         argument_token_range: SourceRange,
     ) -> SourceTokenProvenance {
@@ -565,16 +566,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 },
             );
         };
-        let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
-        let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
-            token_id,
-            macro_name,
-            call_identity: identity.call,
-            definition,
-            call_range,
-            expansion_identity: call_expansion_identity,
-            parent_expansion_identity: None,
-        }) else {
+        let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
             return self.unavailable_token_provenance(
                 SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
                     identity: identity.call,
@@ -592,6 +584,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             );
         };
         self.record_macro_argument(call, identity.argument_index, argument_token_range);
+        self.record_emitted_token_owner(token_id, call);
 
         SourceTokenProvenance::MacroArgument {
             identity,
@@ -604,7 +597,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
     fn resolve_builtin_token_provenance(
         &mut self,
-        _token_id: SourceEmittedTokenId,
+        token_id: SourceEmittedTokenId,
         name: SmolStr,
         identity: Option<SourceMacroBuiltinIdentity>,
     ) -> SourceTokenProvenance {
@@ -626,11 +619,13 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         {
             return self.unavailable_token_provenance(reason);
         }
+        self.record_emitted_token_owner(token_id, call);
         SourceTokenProvenance::Builtin { name, identity, call }
     }
 
     fn resolve_macro_operation_token_provenance(
         &mut self,
+        token_id: SourceEmittedTokenId,
         identity: Option<SourceMacroOperationIdentity>,
         kind: MacroOperationProvenanceKind,
     ) -> SourceTokenProvenance {
@@ -659,6 +654,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         {
             return self.unavailable_token_provenance(reason);
         }
+        self.record_emitted_token_owner(token_id, call);
         match kind {
             MacroOperationProvenanceKind::TokenPaste => {
                 SourceTokenProvenance::TokenPaste { identity, call }
@@ -839,7 +835,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             return;
         }
 
-        let direct_tokens_by_call = self.direct_emitted_tokens_by_call();
+        let direct_tokens_by_call = self.direct_owned_emitted_tokens_by_call();
         let child_calls_by_parent = self.child_calls_by_parent();
         let call_ids = self.tables.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
         let mut expansion_tokens_by_call = BTreeMap::new();
@@ -956,25 +952,12 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         })
     }
 
-    fn direct_emitted_tokens_by_call(
+    fn direct_owned_emitted_tokens_by_call(
         &self,
     ) -> BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>> {
         let mut tokens_by_call = BTreeMap::<SourceMacroCallId, Vec<SourceEmittedTokenId>>::new();
-        for token in self.tables.emitted_tokens.iter() {
-            let Some(provenance) = self.tables.token_provenance.get(token.provenance) else {
-                continue;
-            };
-            let call = match provenance {
-                SourceTokenProvenance::MacroBody { call, .. }
-                | SourceTokenProvenance::MacroArgument { call, .. }
-                | SourceTokenProvenance::TokenPaste { call, .. }
-                | SourceTokenProvenance::Stringification { call, .. }
-                | SourceTokenProvenance::Builtin { call, .. } => *call,
-                SourceTokenProvenance::Source { .. }
-                | SourceTokenProvenance::Predefine { .. }
-                | SourceTokenProvenance::Unavailable(_) => continue,
-            };
-            tokens_by_call.entry(call).or_default().push(token.id);
+        for (token, call) in &self.emitted_token_owners {
+            tokens_by_call.entry(*call).or_default().push(*token);
         }
         tokens_by_call
     }
@@ -1073,6 +1056,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             call.expansion = None;
             call.status = SourceMacroCallStatus::ExpansionUnavailable(reason);
         }
+    }
+
+    fn record_emitted_token_owner(&mut self, token: SourceEmittedTokenId, call: SourceMacroCallId) {
+        self.emitted_token_owners.insert(token, call);
     }
 
     fn source_is_predefine(&self, source: PreprocSourceId) -> bool {
