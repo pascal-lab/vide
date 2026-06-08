@@ -57,16 +57,18 @@ pub(super) fn configured_predefine_definitions_at(
         let profile_id = db.file_compilation_profile(context_file_id);
         let project_preprocess = db.project_config().preprocess_for_profile(profile_id);
         for predefine in &project_preprocess.predefines {
-            if let Some(definition) =
+            if let Some(mut definition) =
                 configured_predefine_definition_at(db, predefine, file_id, offset)
             {
+                definition.capability = context_query_capability(&contexts, definition.capability);
                 definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
             }
         }
         for predefine in &db.file_preprocess_config(context_file_id).predefines {
-            if let Some(definition) =
+            if let Some(mut definition) =
                 configured_predefine_definition_at(db, predefine, file_id, offset)
             {
+                definition.capability = context_query_capability(&contexts, definition.capability);
                 definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
             }
         }

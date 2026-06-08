@@ -30,12 +30,11 @@ pub fn inactive_branches(
                 continue;
             };
             if branch_file_id == file_id {
-                let branch = InactiveBranch {
-                    source,
-                    capability: capability_status(&mapped.model.capabilities().inactive_ranges),
-                    file_id: branch_file_id,
-                    range,
-                };
+                let capability = context_query_capability(
+                    &contexts,
+                    capability_status(&mapped.model.capabilities().inactive_ranges),
+                );
+                let branch = InactiveBranch { source, capability, file_id: branch_file_id, range };
                 branches.push_keyed(branch, InactiveBranchKey::from_branch);
             }
         }

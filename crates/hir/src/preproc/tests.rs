@@ -759,6 +759,23 @@ fn preproc_partial_context_index_is_structured_unavailable() {
 }
 
 #[test]
+fn preproc_partial_context_index_marks_nonempty_results_partial() {
+    let contexts = SourcePreprocQueryContexts {
+        model_file_ids: vec![TOP],
+        status: SourcePreprocContextStatus::Partial { skipped_models: 2 },
+    };
+
+    assert_eq!(
+        context_query_capability(&contexts, PreprocAvailability::Complete),
+        PreprocAvailability::Partial
+    );
+    assert_eq!(
+        context_query_capability(&contexts, PreprocAvailability::Partial),
+        PreprocAvailability::Partial
+    );
+}
+
+#[test]
 fn preproc_manifest_predefine_definition_uses_manifest_provenance() {
     let root_text = r#"`ifdef Z_FROM_MANIFEST
 module top;
