@@ -167,6 +167,7 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_UNAVAILABLE = 0;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_SOURCE = 1;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_BODY = 2;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT = 3;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
 
 ::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
   ::RawPreprocessorTraceEmittedToken token;
@@ -301,6 +302,12 @@ bool has_direct_macro_token_provenance(
     const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
   return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
          provenance->definitionId != 0;
+}
+
+bool has_builtin_macro_token_provenance(
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
+  return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
+         !provenance->builtinName.empty();
 }
 
 void apply_direct_macro_token_provenance(
@@ -503,6 +510,11 @@ template<typename TTokens>
     auto macroName = std::string(sourceManager.getMacroName(location));
     result.macro_name = rust::String(macroName);
     auto directProvenance = sourceManager.getMacroTokenProvenance(location);
+    if (has_builtin_macro_token_provenance(directProvenance)) {
+      result.macro_name = rust::String(directProvenance->builtinName);
+      result.provenance_kind = TRACE_TOKEN_PROVENANCE_BUILTIN;
+      return result;
+    }
 
     if (apply_original_macro_loc_provenance_for_nested_argument(
             result, token, sourceManager, location))

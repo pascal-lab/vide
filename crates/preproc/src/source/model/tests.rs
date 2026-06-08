@@ -1208,7 +1208,7 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
 }
 
 #[test]
-fn source_model_maps_predefine_and_marks_intrinsic_unavailable() {
+fn source_model_maps_predefine_and_intrinsic_provenance() {
     let root_text = r#"module m;
 localparam int P = `FROM_API;
 localparam int L = `__LINE__;
@@ -1243,9 +1243,7 @@ endmodule
         .expect("intrinsic macro token should stay in emitted stream");
     assert!(matches!(
         model.token_provenance().get(intrinsic.provenance).unwrap(),
-        SourceTokenProvenance::Unavailable(
-            SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
-        )
+        SourceTokenProvenance::Builtin { name } if name.as_str() == "__LINE__"
     ));
 }
 

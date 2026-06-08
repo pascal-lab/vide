@@ -1613,7 +1613,10 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "3")
         .expect("intrinsic macro token should stay in emitted stream");
-    assert!(matches!(intrinsic.provenance, PreprocessorTraceTokenProvenance::Unavailable));
+    assert!(matches!(
+        &intrinsic.provenance,
+        PreprocessorTraceTokenProvenance::Builtin { name } if name == "__LINE__"
+    ));
 }
 
 #[test]

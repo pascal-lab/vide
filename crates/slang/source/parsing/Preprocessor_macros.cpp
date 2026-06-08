@@ -807,6 +807,18 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
         loc, expansion.getRange(), SourceManager::MacroExpansionKind::Body,
         expansion.getMetadata());
     expansion.setExpansionLoc(macroLoc);
+    auto provenance =
+        expansion.tokenProvenance(SourceManager::MacroTokenProvenance::InvalidIndex);
+    switch (intrinsic) {
+        case MacroIntrinsic::File:
+            provenance.builtinName = "__FILE__";
+            break;
+        case MacroIntrinsic::Line:
+            provenance.builtinName = "__LINE__";
+            break;
+        case MacroIntrinsic::None:
+            SLANG_UNREACHABLE;
+    }
     SmallVector<char> text;
     switch (intrinsic) {
         case MacroIntrinsic::File: {
@@ -817,7 +829,7 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
 
             std::string_view rawText = toStringView(text.copy(alloc));
             Token token(alloc, TokenKind::StringLiteral, {}, rawText, loc, fileName);
-            expansion.append(token, macroLoc);
+            expansion.append(token, macroLoc, false, provenance);
             break;
         }
         case MacroIntrinsic::Line: {
@@ -826,7 +838,7 @@ bool Preprocessor::expandIntrinsic(MacroIntrinsic intrinsic, MacroExpansion& exp
 
             std::string_view rawText = toStringView(text.copy(alloc));
             Token token(alloc, TokenKind::IntegerLiteral, {}, rawText, loc, lineNum);
-            expansion.append(token, macroLoc);
+            expansion.append(token, macroLoc, false, provenance);
             break;
         }
         case MacroIntrinsic::None:

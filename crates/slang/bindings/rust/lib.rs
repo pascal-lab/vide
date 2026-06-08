@@ -208,6 +208,9 @@ pub enum PreprocessorTraceTokenProvenance {
         body_token_range: SourceBufferRange,
         argument_token_range: SourceBufferRange,
     },
+    Builtin {
+        name: String,
+    },
     Unavailable,
 }
 
@@ -541,6 +544,7 @@ struct RawPreprocessorTraceMacroIdentity {
 }
 
 impl PreprocessorTraceTokenProvenance {
+    const BUILTIN: u8 = 4;
     const MACRO_ARGUMENT: u8 = 3;
     const MACRO_BODY: u8 = 2;
     const SOURCE: u8 = 1;
@@ -597,6 +601,7 @@ impl PreprocessorTraceTokenProvenance {
                     argument_token_range,
                 }
             }
+            Self::BUILTIN if !raw.macro_name.is_empty() => Self::Builtin { name: raw.macro_name },
             Self::UNAVAILABLE => Self::Unavailable,
             _ => Self::Unavailable,
         }
