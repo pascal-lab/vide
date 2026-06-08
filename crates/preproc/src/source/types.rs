@@ -95,6 +95,14 @@ pub struct SourceMacroBuiltinIdentity {
     pub parent_expansion: Option<SourceMacroExpansionKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroOperationIdentity {
+    pub call: SourceMacroCallKey,
+    pub definition: SourceMacroDefinitionKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocSource {
     pub id: PreprocSourceId,
@@ -251,6 +259,12 @@ pub enum SourceTokenProvenanceFact {
     Builtin {
         name: SmolStr,
         identity: Option<SourceMacroBuiltinIdentity>,
+    },
+    TokenPaste {
+        identity: Option<SourceMacroOperationIdentity>,
+    },
+    Stringification {
+        identity: Option<SourceMacroOperationIdentity>,
     },
     Unavailable,
 }

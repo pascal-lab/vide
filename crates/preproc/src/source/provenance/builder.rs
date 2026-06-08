@@ -20,6 +20,12 @@ pub struct SourcePreprocModelBuilder<'a> {
     expansions_partial: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MacroOperationProvenanceKind {
+    TokenPaste,
+    Stringification,
+}
+
 impl<'a> SourcePreprocModelBuilder<'a> {
     pub fn new(index: &'a SourcePreprocIndex) -> Self {
         Self {
@@ -471,6 +477,16 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             SourceTokenProvenanceFact::Builtin { name, identity } if !name.is_empty() => {
                 self.resolve_builtin_token_provenance(token_id, name.clone(), *identity)
             }
+            SourceTokenProvenanceFact::TokenPaste { identity } => self
+                .resolve_macro_operation_token_provenance(
+                    *identity,
+                    MacroOperationProvenanceKind::TokenPaste,
+                ),
+            SourceTokenProvenanceFact::Stringification { identity } => self
+                .resolve_macro_operation_token_provenance(
+                    *identity,
+                    MacroOperationProvenanceKind::Stringification,
+                ),
             SourceTokenProvenanceFact::Builtin { .. } | SourceTokenProvenanceFact::Unavailable => {
                 self.unavailable_token_provenance(
                     SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
@@ -604,12 +620,53 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 },
             );
         };
+        let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
         if let Err(reason) =
-            self.record_call_expansion_identity(call, identity.expansion, identity.parent_expansion)
+            self.record_call_expansion_identity(call, call_expansion_identity, None)
         {
             return self.unavailable_token_provenance(reason);
         }
         SourceTokenProvenance::Builtin { name, identity, call }
+    }
+
+    fn resolve_macro_operation_token_provenance(
+        &mut self,
+        identity: Option<SourceMacroOperationIdentity>,
+        kind: MacroOperationProvenanceKind,
+    ) -> SourceTokenProvenance {
+        let Some(identity) = identity else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
+            );
+        };
+        if self.definition_for_identity(identity.definition).is_err() {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::UnknownEmittedTokenMacroDefinitionIdentity {
+                    identity: identity.definition,
+                },
+            );
+        };
+        let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
+                    identity: identity.call,
+                },
+            );
+        };
+        let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
+        if let Err(reason) =
+            self.record_call_expansion_identity(call, call_expansion_identity, None)
+        {
+            return self.unavailable_token_provenance(reason);
+        }
+        match kind {
+            MacroOperationProvenanceKind::TokenPaste => {
+                SourceTokenProvenance::TokenPaste { identity, call }
+            }
+            MacroOperationProvenanceKind::Stringification => {
+                SourceTokenProvenance::Stringification { identity, call }
+            }
+        }
     }
 
     fn call_for_emitted_token(

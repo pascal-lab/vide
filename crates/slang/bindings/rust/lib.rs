@@ -212,6 +212,12 @@ pub enum PreprocessorTraceTokenProvenance {
         name: String,
         identity: PreprocessorTraceMacroBuiltinIdentity,
     },
+    TokenPaste {
+        identity: PreprocessorTraceMacroOperationIdentity,
+    },
+    Stringification {
+        identity: PreprocessorTraceMacroOperationIdentity,
+    },
     Unavailable,
 }
 
@@ -238,6 +244,14 @@ pub struct PreprocessorTraceMacroArgumentIdentity {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocessorTraceMacroBuiltinIdentity {
     pub call_id: PreprocessorTraceMacroCallId,
+    pub expansion_id: PreprocessorTraceMacroExpansionId,
+    pub parent_expansion_id: Option<PreprocessorTraceMacroExpansionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceMacroOperationIdentity {
+    pub call_id: PreprocessorTraceMacroCallId,
+    pub definition_id: PreprocessorTraceMacroDefinitionId,
     pub expansion_id: PreprocessorTraceMacroExpansionId,
     pub parent_expansion_id: Option<PreprocessorTraceMacroExpansionId>,
 }
@@ -556,6 +570,8 @@ impl PreprocessorTraceTokenProvenance {
     const MACRO_ARGUMENT: u8 = 3;
     const MACRO_BODY: u8 = 2;
     const SOURCE: u8 = 1;
+    const STRINGIFICATION: u8 = 6;
+    const TOKEN_PASTE: u8 = 5;
     const UNAVAILABLE: u8 = 0;
 
     #[inline]
@@ -616,6 +632,22 @@ impl PreprocessorTraceTokenProvenance {
                 };
                 Self::Builtin { name: raw.macro_name, identity }
             }
+            Self::TOKEN_PASTE => {
+                let Some(identity) =
+                    PreprocessorTraceMacroOperationIdentity::from_raw(&raw.identity)
+                else {
+                    return Self::Unavailable;
+                };
+                Self::TokenPaste { identity }
+            }
+            Self::STRINGIFICATION => {
+                let Some(identity) =
+                    PreprocessorTraceMacroOperationIdentity::from_raw(&raw.identity)
+                else {
+                    return Self::Unavailable;
+                };
+                Self::Stringification { identity }
+            }
             Self::UNAVAILABLE => Self::Unavailable,
             _ => Self::Unavailable,
         }
@@ -669,6 +701,24 @@ impl PreprocessorTraceMacroBuiltinIdentity {
     fn from_raw(raw: &RawPreprocessorTraceMacroIdentity) -> Option<Self> {
         Some(Self {
             call_id: raw.has_call_id.then_some(PreprocessorTraceMacroCallId(raw.call_id))?,
+            expansion_id: raw
+                .has_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.expansion_id))?,
+            parent_expansion_id: raw
+                .has_parent_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.parent_expansion_id)),
+        })
+    }
+}
+
+impl PreprocessorTraceMacroOperationIdentity {
+    #[inline]
+    fn from_raw(raw: &RawPreprocessorTraceMacroIdentity) -> Option<Self> {
+        Some(Self {
+            call_id: raw.has_call_id.then_some(PreprocessorTraceMacroCallId(raw.call_id))?,
+            definition_id: raw
+                .has_definition_id
+                .then_some(PreprocessorTraceMacroDefinitionId(raw.definition_id))?,
             expansion_id: raw
                 .has_expansion_id
                 .then_some(PreprocessorTraceMacroExpansionId(raw.expansion_id))?,

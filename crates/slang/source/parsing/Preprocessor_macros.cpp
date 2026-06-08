@@ -155,6 +155,7 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
             return opToken;
 
         auto loc = opToken.location();
+        auto provenance = sourceManager.getMacroTokenProvenance(loc);
         auto originalLoc = loc;
         auto expansionRange = opToken.range();
         if (sourceManager.isMacroLoc(loc)) {
@@ -162,7 +163,17 @@ bool Preprocessor::applyMacroOps(std::span<Token const> tokens, SmallVectorBase<
             expansionRange = sourceManager.getExpansionRange(loc);
         }
 
-        auto opLoc = sourceManager.createExpansionLoc(originalLoc, expansionRange, kind);
+        SourceManager::MacroExpansionMetadata metadata;
+        if (provenance) {
+            metadata.callId = provenance->callId;
+            metadata.definitionId = provenance->definitionId;
+            metadata.parentExpansionId = provenance->parentExpansionId != 0
+                                             ? provenance->parentExpansionId
+                                             : provenance->expansionId;
+        }
+        auto opLoc = sourceManager.createExpansionLoc(originalLoc, expansionRange, kind, metadata);
+        if (provenance)
+            sourceManager.setMacroTokenProvenance(opLoc, *provenance);
         return opToken.withLocation(alloc, opLoc);
     };
 
@@ -779,10 +790,21 @@ bool Preprocessor::expandReplacementList(
         SourceManager::MacroExpansionMetadata metadata;
         metadata.callId = allocateMacroCallId();
         metadata.definitionId = macro.definitionId;
-        if (sourceManager.isMacroLoc(token.location()))
-            metadata.parentExpansionId = token.location().buffer().getId();
-        else
+        if (sourceManager.isMacroLoc(token.location())) {
+            auto provenance = sourceManager.getMacroTokenProvenance(token.location());
+            auto expansionKind = sourceManager.getMacroExpansionKind(token.location());
+            if ((expansionKind == SourceManager::MacroExpansionKind::TokenPaste ||
+                 expansionKind == SourceManager::MacroExpansionKind::Stringification) &&
+                provenance && provenance->parentExpansionId != 0) {
+                metadata.parentExpansionId = provenance->parentExpansionId;
+            }
+            else {
+                metadata.parentExpansionId = token.location().buffer().getId();
+            }
+        }
+        else {
             metadata.parentExpansionId = parentExpansionId;
+        }
 
         MacroExpansion expansion{sourceManager, alloc, expansionBuffer, token, false, metadata};
         if (!expandMacro(macro, expansion, actualArgs))

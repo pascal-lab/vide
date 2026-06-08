@@ -1653,7 +1653,7 @@ endmodule
 }
 
 #[test]
-fn preproc_macro_hover_falls_back_to_definition_body_for_unsupported_expansion() {
+fn preproc_macro_hover_shows_token_paste_expansion() {
     let text = r#"
 `define JOIN(a,b) a``b
 module top;
@@ -1670,10 +1670,11 @@ endmodule
     let info = hover.info.as_str();
     assert!(
         info.contains("```systemverilog")
-            && info.contains("`define `JOIN(a, b) a `` b")
+            && info.contains("`JOIN(a, b)")
+            && info.contains("foobar")
             && info.contains("from [feature.v]")
             && !info.contains("unavailable"),
-        "unsupported expansion hover should show the macro definition display: {info}"
+        "token paste expansion hover should show the expanded display text: {info}"
     );
 }
 

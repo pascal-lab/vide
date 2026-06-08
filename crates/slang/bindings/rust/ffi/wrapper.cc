@@ -168,6 +168,8 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_SOURCE = 1;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_BODY = 2;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT = 3;
 constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_TOKEN_PASTE = 5;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_STRINGIFICATION = 6;
 
 ::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
   ::RawPreprocessorTraceEmittedToken token;
@@ -330,6 +332,18 @@ void apply_direct_macro_token_provenance(
   token.argument_token_index = provenance.argumentTokenIndex;
   token.has_argument_token_index =
       provenance.argumentTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+}
+
+bool apply_macro_operation_token_provenance(
+    ::RawPreprocessorTraceEmittedToken& result,
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance,
+    uint8_t provenanceKind) {
+  if (!has_direct_macro_token_provenance(provenance))
+    return false;
+
+  apply_direct_macro_token_provenance(result, *provenance);
+  result.provenance_kind = provenanceKind;
+  return true;
 }
 
 bool apply_original_macro_loc_provenance_for_nested_argument(
@@ -500,7 +514,14 @@ template<typename TTokens>
   if (sourceManager.isMacroLoc(location)) {
     switch (sourceManager.getMacroExpansionKind(location)) {
       case slang::SourceManager::MacroExpansionKind::TokenPaste:
+        apply_macro_operation_token_provenance(
+            result, sourceManager.getMacroTokenProvenance(location),
+            TRACE_TOKEN_PROVENANCE_TOKEN_PASTE);
+        return result;
       case slang::SourceManager::MacroExpansionKind::Stringification:
+        apply_macro_operation_token_provenance(
+            result, sourceManager.getMacroTokenProvenance(location),
+            TRACE_TOKEN_PROVENANCE_STRINGIFICATION);
         return result;
       case slang::SourceManager::MacroExpansionKind::Body:
       case slang::SourceManager::MacroExpansionKind::Argument:

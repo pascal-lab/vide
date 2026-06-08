@@ -1519,7 +1519,7 @@ fn preprocessor_trace_reports_escaped_identifier_macro_body_identity() {
 }
 
 #[test]
-fn preprocessor_trace_keeps_unsupported_macro_ops_as_unavailable_tokens() {
+fn preprocessor_trace_reports_macro_operation_token_provenance() {
     let source = r#"`define JOIN(a,b) a``b
 `define STR(x) `"x`"
 module m;
@@ -1529,20 +1529,54 @@ endmodule
 "#;
     let trace =
         preprocessor_trace(source, "source", "sample/rtl/top.sv", &SyntaxTreeOptions::default());
+    let join_expansion_id = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.value_text == "`JOIN")
+        })
+        .and_then(|event| event.macro_expansion_id)
+        .expect("JOIN usage should carry an expansion identity");
+    let str_expansion_id = trace
+        .events
+        .iter()
+        .find(|event| {
+            event.kind == SyntaxKind::MACRO_USAGE
+                && event.name.as_ref().is_some_and(|name| name.value_text == "`STR")
+        })
+        .and_then(|event| event.macro_expansion_id)
+        .expect("STR usage should carry an expansion identity");
 
     let pasted = trace
         .emitted_tokens
         .iter()
         .find(|token| token.raw_text == "foobar")
         .expect("token paste result should stay in emitted stream");
-    assert!(matches!(pasted.provenance, PreprocessorTraceTokenProvenance::Unavailable));
+    let PreprocessorTraceTokenProvenance::TokenPaste { identity: pasted_identity } =
+        &pasted.provenance
+    else {
+        panic!("token paste should carry macro operation provenance: {pasted:?}");
+    };
+    assert!(pasted_identity.call_id.0 != 0);
+    assert!(pasted_identity.definition_id.0 != 0);
+    assert!(pasted_identity.expansion_id.0 != 0);
+    assert_eq!(pasted_identity.parent_expansion_id, Some(join_expansion_id));
 
     let stringified = trace
         .emitted_tokens
         .iter()
         .find(|token| token.raw_text == "\"foo\"")
         .expect("stringification result should stay in emitted stream");
-    assert!(matches!(stringified.provenance, PreprocessorTraceTokenProvenance::Unavailable));
+    let PreprocessorTraceTokenProvenance::Stringification { identity: stringified_identity } =
+        &stringified.provenance
+    else {
+        panic!("stringification should carry macro operation provenance: {stringified:?}");
+    };
+    assert!(stringified_identity.call_id.0 != 0);
+    assert!(stringified_identity.definition_id.0 != 0);
+    assert!(stringified_identity.expansion_id.0 != 0);
+    assert_eq!(stringified_identity.parent_expansion_id, Some(str_expansion_id));
 }
 
 #[test]
