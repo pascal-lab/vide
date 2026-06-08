@@ -27,10 +27,8 @@ export interface NativeTargetSpec {
   kind: 'native';
   target: PlatformFolder;
   binaryFile: string;
-  cargoTarget?: string;
   isWindows: boolean;
   removeBrowserEntry: true;
-  requiresAlpineLinker: boolean;
 }
 
 export type TargetSpec = WebTargetSpec | NativeTargetSpec;
@@ -42,11 +40,6 @@ export interface PackagePlan {
   targetSpec: TargetSpec;
   vsixFile: string;
 }
-
-const cargoTargets: Partial<Record<PlatformFolder, string>> = {
-  'alpine-arm64': 'aarch64-unknown-linux-musl',
-  'alpine-x64': 'x86_64-unknown-linux-musl',
-};
 
 export function createPackagePlan(options: PackageOptions): PackagePlan {
   const target = resolvePackageTarget(options.target);
@@ -113,10 +106,8 @@ function targetSpecFor(target: PackageTarget): TargetSpec {
     kind: 'native',
     target,
     binaryFile: binaryFileForTarget(target),
-    cargoTarget: cargoTargets[target],
     isWindows: target.startsWith('win32-'),
     removeBrowserEntry: true,
-    requiresAlpineLinker: target.startsWith('alpine-'),
   };
 }
 

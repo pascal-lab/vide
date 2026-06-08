@@ -27,7 +27,7 @@ vfs.workspace = true
 
 always-assert.workspace = true
 anyhow.workspace = true
-clap = { version = "4.4.6", features = ["derive"] }
+clap.workspace = true
 const_format.workspace = true
 crossbeam-channel.workspace = true
 dunce.workspace = true
@@ -68,6 +68,7 @@ always-assert = "0.1.3"
 anyhow = "1.0.75"
 bitflags = "2.9.0"
 camino = "1.1.6"
+clap = { version = "4.4.6", features = ["derive"] }
 const_format = "0.2.31"
 crossbeam-channel = "0.5.8"
 dunce = "1.0.5"
