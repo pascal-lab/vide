@@ -71,35 +71,35 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<ProfileTraceGuard>> {
     {
         let _ = opt;
         subscriber.init();
-        return Ok(None);
+        Ok(None)
     }
 
     #[cfg(feature = "profile-trace")]
-    let profile_guard = if let Some(path) = profile_trace_path(opt) {
-        let profile_filter_text = env::var("VIDE_PROFILE_TRACE_FILTER")
-            .unwrap_or_else(|_| DEFAULT_PROFILE_TRACE_FILTER.to_owned());
-        let profile_filter =
-            profile_filter_text.parse::<Targets>().context("invalid profile trace filter")?;
-        let file = create_profile_trace_file(&path)?;
-        let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
-            .writer(file)
-            .include_args(true)
-            .include_locations(false)
-            .build();
-        subscriber.with(chrome_layer.with_filter(profile_filter)).init();
-        tracing::info!(
-            path = %path.display(),
-            filter = %profile_filter_text,
-            "profile trace enabled"
-        );
-        Some(guard)
-    } else {
-        subscriber.init();
-        None
-    };
-
-    #[cfg(feature = "profile-trace")]
-    Ok(profile_guard)
+    {
+        let profile_guard = if let Some(path) = profile_trace_path(opt) {
+            let profile_filter_text = env::var("VIDE_PROFILE_TRACE_FILTER")
+                .unwrap_or_else(|_| DEFAULT_PROFILE_TRACE_FILTER.to_owned());
+            let profile_filter =
+                profile_filter_text.parse::<Targets>().context("invalid profile trace filter")?;
+            let file = create_profile_trace_file(&path)?;
+            let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+                .writer(file)
+                .include_args(true)
+                .include_locations(false)
+                .build();
+            subscriber.with(chrome_layer.with_filter(profile_filter)).init();
+            tracing::info!(
+                path = %path.display(),
+                filter = %profile_filter_text,
+                "profile trace enabled"
+            );
+            Some(guard)
+        } else {
+            subscriber.init();
+            None
+        };
+        Ok(profile_guard)
+    }
 }
 
 fn main() -> anyhow::Result<()> {
