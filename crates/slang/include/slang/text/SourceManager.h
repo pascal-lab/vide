@@ -16,6 +16,7 @@
 #include <set>
 #include <shared_mutex>
 #include <span>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -66,8 +67,10 @@ public:
         uint32_t bodyTokenIndex = InvalidIndex;
         uint32_t argumentIndex = InvalidIndex;
         uint32_t argumentTokenIndex = InvalidIndex;
+        std::string builtinName;
 
-        bool valid() const { return expansionId != 0 && callId != 0; }
+        bool valid() const { return expansionId != 0 && callId != 0 &&
+                                    (definitionId != 0 || !builtinName.empty()); }
     };
 
     /// Default constructor.

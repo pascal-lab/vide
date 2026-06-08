@@ -326,6 +326,10 @@ fn emitted_token_provenance_from_trace(
                 argument_token_range,
             }
         }
+        PreprocessorTraceTokenProvenance::Builtin { name } if !name.is_empty() => {
+            SourceTokenProvenanceFact::Builtin { name: name.to_smolstr() }
+        }
+        PreprocessorTraceTokenProvenance::Builtin { .. } => SourceTokenProvenanceFact::Unavailable,
         PreprocessorTraceTokenProvenance::Unavailable => SourceTokenProvenanceFact::Unavailable,
     }
 }
