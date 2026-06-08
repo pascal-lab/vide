@@ -1,0 +1,25 @@
+---
+title: 1.2.1
+description: Vide 1.2.1 release notes.
+---
+
+Vide 1.2.1 fixes macro expansion hover output for configured predefines and nested macro arguments, and updates the 1.2.0 code action notes.
+
+## Fixes
+
+### Macro Expansion Hover
+
+- Macro hover now keeps showing the complete expansion when the output passes through predefines configured in `vide.toml`. ([#245](https://github.com/pascal-lab/vide/pull/245) by [@hongjr03](https://github.com/hongjr03))
+- Expansion output now preserves line breaks and indentation from the preprocessor trace, so the hover's `Expands to` code block more closely matches the expanded code. ([#245](https://github.com/pascal-lab/vide/pull/245) by [@hongjr03](https://github.com/hongjr03))
+
+## Documentation
+
+- Updated the 1.2.0 release note wording for automatic refactoring code actions so the listed scope is more accurate. ([#244](https://github.com/pascal-lab/vide/pull/244) by [@hongjr03](https://github.com/hongjr03))
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+- [@hongjr03](https://github.com/hongjr03)
+
+**Full Changelog**: [v1.2.0...v1.2.1](https://github.com/pascal-lab/vide/compare/v1.2.0...v1.2.1)
