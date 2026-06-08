@@ -854,12 +854,13 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 };
                 let resolution =
                     self.resolve_visible_reference_at_position(name.as_str(), call_position);
-                if self.macro_reference_exists(name.as_str(), name_range, &resolution) {
+                let site = SourceMacroReferenceSite::MacroBodyToken { call: call.id, token_index };
+                if self.macro_reference_exists(name.as_str(), name_range, &site, &resolution) {
                     continue;
                 }
                 self.push_reference(
                     definition.event_id,
-                    SourceMacroReferenceSite::MacroBodyToken { call: call.id, token_index },
+                    site,
                     name,
                     name_range,
                     definition.directive_range,
@@ -873,11 +874,13 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &self,
         name: &str,
         name_range: SourceRange,
+        site: &SourceMacroReferenceSite,
         resolution: &SourceMacroResolution,
     ) -> bool {
         self.tables.macro_references.iter().any(|reference| {
             reference.name.as_str() == name
                 && reference.name_range == name_range
+                && &reference.site == site
                 && &reference.resolution == resolution
         })
     }
