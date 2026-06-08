@@ -1,13 +1,13 @@
 use hir::{
     base_db::source_db::SourceDb, container::InModule, db::HirDb,
-    hir_def::module::instantiation::PortConn,
+    hir_def::module::instantiation::PortConn, source_map::IsSrc,
 };
 use rustc_hash::FxHashSet;
 use syntax::{
     ast::{self, AstNode},
-    has_text_range::{HasTextRange, HasTextRangeIn},
+    has_text_range::HasTextRangeIn,
 };
-use utils::get::GetRef;
+use utils::get::{Get, GetRef};
 
 use crate::{
     code_action::{
@@ -15,7 +15,7 @@ use crate::{
         apply_missing_list_edit, missing_member_entry_text, port_names,
         remaining_ordered_port_names,
     },
-    module_resolution::resolve_instantiation_target,
+    module_resolution::resolve_hir_instantiation_target,
 };
 
 const ID: CodeActionId = CodeActionId {
@@ -25,6 +25,18 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Fill connections";
 
+// Assist: add_missing_connections
+//
+// This fills the missing port connections for an instance from the target
+// module definition.
+//
+// ```
+// child u($0.a(a));
+// ```
+// ->
+// ```
+// child u(.a(a), .b('0));
+// ```
 pub(super) fn add_missing_connections(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
@@ -36,14 +48,13 @@ pub(super) fn add_missing_connections(
     let ast_instance = ctx.find_node_at_offset::<ast::HierarchicalInstance>()?;
     let InModule { value: instance_id, module_id } =
         sema.resolve_instance(file_id, ast_instance)?;
-    let module = db.module(module_id);
+    let (module, module_src_map) = db.module_with_source_map(module_id);
     let instance = module.get(instance_id);
     let open_paren = ast_instance.open_paren()?.text_range_in(ast_instance.syntax())?;
     let close_paren = ast_instance.close_paren()?.text_range_in(ast_instance.syntax())?;
 
-    let instantiation = ast::HierarchyInstantiation::cast(ast_instance.syntax().parent()?)?;
-    let target_module_id =
-        resolve_instantiation_target(db, ctx.file_id(), instantiation).unique()?;
+    let instantiation = module.get(instance.parent);
+    let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
     let target_module = db.module(target_module_id);
 
     let is_ordered = instance
@@ -83,8 +94,8 @@ pub(super) fn add_missing_connections(
             .collect();
 
         let text = sema.db.file_text(ctx.file_id());
-        let item_ranges = ast_instance.connections().children().filter_map(|conn| {
-            let range = conn.syntax().text_range()?;
+        let item_ranges = instance.connections.iter().filter_map(|conn_id| {
+            let range = module_src_map.get(*conn_id)?.range();
             (!range.is_empty()).then_some(range)
         });
         apply_missing_list_edit(builder, &text, open_paren, close_paren, item_ranges, entries);

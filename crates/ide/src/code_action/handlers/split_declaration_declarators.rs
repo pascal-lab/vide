@@ -19,6 +19,19 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Split declaration";
 
+// Assist: split_declaration_declarators
+//
+// This splits a declaration with multiple declarators into one declaration per
+// declarator.
+//
+// ```
+// logic $0a, b;
+// ```
+// ->
+// ```
+// logic a;
+// logic b;
+// ```
 pub(super) fn split_declaration_declarators(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

@@ -106,9 +106,6 @@ impl HirDisplay for InContainer<DataTy> {
         match self.value {
             DataTy::Builtin(ty_id) => match ty_id.lookup(f.db) {
                 BuiltinDataTy::Int { kind, signing } => {
-                    if signing {
-                        f.write_str("signed ")?;
-                    }
                     match kind {
                         IntKind::Byte => f.write_str("byte"),
                         IntKind::ShortInt => f.write_str("shortint"),
@@ -116,27 +113,45 @@ impl HirDisplay for InContainer<DataTy> {
                         IntKind::LongInt => f.write_str("longint"),
                         IntKind::Integer => f.write_str("integer"),
                         IntKind::Time => f.write_str("time"),
+                    }?;
+                    if signing {
+                        f.write_str(" signed")?;
                     }
+                    Ok(())
                 }
                 BuiltinDataTy::Vector { kind, signing, dimensions } => {
-                    if signing {
-                        f.write_str("signed ")?;
-                    }
+                    let mut wrote_head = false;
                     match kind {
                         VecKind::Bit => {
                             if !f.simplified_ty {
-                                f.write_str("bit")?
+                                f.write_str("bit")?;
+                                wrote_head = true;
                             }
                         }
                         VecKind::Logic => {
                             if !f.simplified_ty {
-                                f.write_str("logic")?
+                                f.write_str("logic")?;
+                                wrote_head = true;
                             }
                         }
-                        VecKind::Reg => f.write_str("reg")?,
+                        VecKind::Reg => {
+                            f.write_str("reg")?;
+                            wrote_head = true;
+                        }
+                    }
+                    if signing {
+                        if wrote_head {
+                            f.write_str(" ")?;
+                        }
+                        f.write_str("signed")?;
+                        wrote_head = true;
                     }
                     for dim in dimensions.iter().flatten() {
+                        if wrote_head {
+                            f.write_str(" ")?;
+                        }
                         self.with_value(*dim).hir_fmt(f)?;
+                        wrote_head = true;
                     }
                     Ok(())
                 }

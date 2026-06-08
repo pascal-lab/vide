@@ -7,6 +7,7 @@ use hir::{
     file::HirFileId,
     hir_def::{
         DEFAULT_NAME,
+        aggregate::{StructDef, StructId, StructKind, StructSrc},
         block::{BlockId, BlockInfo, BlockItem, BlockSrc, LocalBlockId},
         declaration::{Declaration, DeclarationId, DeclarationSrc},
         expr::declarator::{DeclId, Declarator, DeclaratorSrc, DeclsRange},
@@ -224,9 +225,7 @@ pub(crate) fn document_symbols(db: &dyn HirDb, file_id: FileId) -> Vec<DocumentS
             FileItem::SubroutineId(subroutine_id) => {
                 build_subroutine(&mut collector, subroutine_id, file, src_map)
             }
-            FileItem::StructId(_) => {
-                // TODO: implement document symbols for these items
-            }
+            FileItem::StructId(struct_id) => build_struct(&mut collector, struct_id, file, src_map),
             FileItem::ConfigDeclId(config_id) => {
                 build_config_decl(&mut collector, config_id, file, src_map)
             }
@@ -328,9 +327,7 @@ fn collect_module_items(
             ModuleItem::SubroutineId(subroutine_id) => {
                 build_subroutine(collector, subroutine_id, module, src_map)
             }
-            ModuleItem::StructId(_) => {
-                // TODO: implement document symbols for these items
-            }
+            ModuleItem::StructId(struct_id) => build_struct(collector, struct_id, module, src_map),
         }
     }
     collector.pop();
@@ -365,9 +362,7 @@ fn collect_block_items(
             BlockItem::TypedefId(typedef_id) => {
                 build_typedef(collector, typedef_id, block, src_map)
             }
-            BlockItem::StructId(_) => {
-                // TODO: implement document symbols for these items
-            }
+            BlockItem::StructId(struct_id) => build_struct(collector, struct_id, block, src_map),
         }
     }
     collector.pop();
@@ -489,6 +484,7 @@ fn build_generate_region<Arn, SrcMap>(
         + GetRef<LocalSubroutineId, Output = Subroutine>
         + GetRef<ProcId, Output = Proc>
         + GetRef<StmtId, Output = Stmt>
+        + GetRef<StructId, Output = StructDef>
         + GetRef<TypedefId, Output = Typedef>,
     SrcMap: Get<GenerateRegionId, Output = Option<GenerateRegionSrc>>
         + Get<DeclarationId, Output = Option<DeclarationSrc>>
@@ -497,6 +493,7 @@ fn build_generate_region<Arn, SrcMap>(
         + Get<LocalBlockId, Output = Option<BlockSrc>>
         + Get<LocalSubroutineId, Output = Option<SubroutineSrc>>
         + Get<StmtId, Output = Option<StmtSrc>>
+        + Get<StructId, Output = Option<StructSrc>>
         + Get<TypedefId, Output = Option<TypedefSrc>>,
 {
     let hir = arena.get(generate_region_id);
@@ -527,7 +524,9 @@ fn build_generate_region<Arn, SrcMap>(
                 let proc = arena.get(proc_id);
                 build_stmt(db, collector, proc.stmt, arena, src_map);
             }
-            GenerateItem::StructId(_) => {}
+            GenerateItem::StructId(struct_id) => {
+                build_struct(collector, struct_id, arena, src_map);
+            }
             GenerateItem::SubroutineId(subroutine_id) => {
                 build_subroutine(collector, subroutine_id, arena, src_map);
             }
@@ -578,12 +577,41 @@ fn build_generate_block(
                     }
                 }
             }
-            GenerateBlockItem::ContAssignId(_)
-            | GenerateBlockItem::DefParamId(_)
-            | GenerateBlockItem::StructId(_) => {}
+            GenerateBlockItem::ContAssignId(_) | GenerateBlockItem::DefParamId(_) => {}
+            GenerateBlockItem::StructId(struct_id) => {
+                build_struct(collector, struct_id, generate_block, src_map);
+            }
         }
     }
     collector.pop();
+}
+
+#[inline]
+fn build_struct<Arn, SrcMap>(
+    collector: &mut SymbolCollecter,
+    struct_id: Idx<StructDef>,
+    arena: &Arn,
+    src_map: &SrcMap,
+) where
+    Arn: GetRef<StructId, Output = StructDef>,
+    SrcMap: Get<StructId, Output = Option<StructSrc>>,
+{
+    let hir = arena.get(struct_id);
+    let Some(src) = src_map.get(struct_id) else {
+        return;
+    };
+
+    let name = hir.name.clone().or_else(|| Some(struct_kind_name(hir.kind)));
+    collector.push_symbol_with_kind(&name, src, SymbolKind::Struct);
+    collector.pop();
+}
+
+#[inline]
+fn struct_kind_name(kind: StructKind) -> SmolStr {
+    match kind {
+        StructKind::Struct => SmolStr::new_static("struct"),
+        StructKind::Union => SmolStr::new_static("union"),
+    }
 }
 
 #[inline]
@@ -666,7 +694,11 @@ fn build_typedef<Arn, SrcMap>(
     let Some(src) = src_map.get(typedef_id) else {
         return;
     };
-    collector.push_symbol_with_kind(&hir.name, src, SymbolKind::Typedef);
+    let kind = match hir.ty {
+        Some(hir::hir_def::expr::data_ty::DataTy::Struct(_)) => SymbolKind::Struct,
+        _ => SymbolKind::Typedef,
+    };
+    collector.push_symbol_with_kind(&hir.name, src, kind);
     collector.pop();
 }
 

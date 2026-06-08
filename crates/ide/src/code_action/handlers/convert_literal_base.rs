@@ -13,6 +13,18 @@ const ACTION_ID: CodeActionId = CodeActionId {
     repair: None,
 };
 
+// Assist: convert_literal_base
+//
+// This converts an integer literal between binary, octal, decimal, and
+// hexadecimal notation.
+//
+// ```
+// localparam int value = 8'h0f$0;
+// ```
+// ->
+// ```
+// localparam int value = 8'b1111;
+// ```
 pub(super) fn convert_literal_base(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
