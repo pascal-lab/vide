@@ -44,9 +44,14 @@ pub(in crate::preproc) fn source_preproc_single_query_contexts(
 ) -> SourcePreprocQueryContexts {
     let relevant = db.source_preproc_contexts_for_file(file_id);
     let mut file_ids = UniqVec::<FileId, FileId>::default();
+    let profile_id = db.file_compilation_profile(file_id);
+    let plan = db.compilation_plan_for_profile(profile_id);
+    let is_include_only = plan.include_only.contains(&file_id);
     let include_self = match db.file_kind(file_id) {
-        SourceFileKind::SystemVerilog => true,
-        SourceFileKind::IncludeHeader => relevant.model_file_ids.is_empty(),
+        SourceFileKind::SystemVerilog if !is_include_only => true,
+        SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader => {
+            relevant.model_file_ids.is_empty()
+        }
         _ => false,
     };
     if include_self {
