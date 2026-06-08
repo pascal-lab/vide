@@ -472,8 +472,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 *body_token_range,
                 *argument_token_range,
             ),
-            SourceTokenProvenanceFact::Builtin { name } if !name.is_empty() => {
-                SourceTokenProvenance::Builtin { name: name.clone() }
+            SourceTokenProvenanceFact::Builtin { name, identity } if !name.is_empty() => {
+                self.resolve_builtin_token_provenance(token_id, name.clone(), *identity)
             }
             SourceTokenProvenanceFact::Builtin { .. } | SourceTokenProvenanceFact::Unavailable => {
                 self.unavailable_token_provenance(
@@ -588,6 +588,32 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             body_token_range,
             argument_token_range,
         }
+    }
+
+    fn resolve_builtin_token_provenance(
+        &mut self,
+        _token_id: SourceEmittedTokenId,
+        name: SmolStr,
+        identity: Option<SourceMacroBuiltinIdentity>,
+    ) -> SourceTokenProvenance {
+        let Some(identity) = identity else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
+            );
+        };
+        let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
+            return self.unavailable_token_provenance(
+                SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
+                    identity: identity.call,
+                },
+            );
+        };
+        if let Err(reason) =
+            self.record_call_expansion_identity(call, identity.expansion, identity.parent_expansion)
+        {
+            return self.unavailable_token_provenance(reason);
+        }
+        SourceTokenProvenance::Builtin { name, identity, call }
     }
 
     fn call_for_emitted_token(
@@ -806,7 +832,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 );
                 continue;
             };
-            let Ok(definition) = self.definition_for_call(call) else {
+            let Some(definition) = self.expansion_definition_for_call(call, &direct_tokens_by_call)
+            else {
                 self.mark_call_unavailable(
                     call,
                     SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition { call },
@@ -897,15 +924,40 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 SourceTokenProvenance::MacroBody { call, .. }
                 | SourceTokenProvenance::MacroArgument { call, .. }
                 | SourceTokenProvenance::TokenPaste { call, .. }
-                | SourceTokenProvenance::Stringification { call, .. } => *call,
+                | SourceTokenProvenance::Stringification { call, .. }
+                | SourceTokenProvenance::Builtin { call, .. } => *call,
                 SourceTokenProvenance::Source { .. }
                 | SourceTokenProvenance::Predefine { .. }
-                | SourceTokenProvenance::Builtin { .. }
                 | SourceTokenProvenance::Unavailable(_) => continue,
             };
             tokens_by_call.entry(call).or_default().push(token.id);
         }
         tokens_by_call
+    }
+
+    fn expansion_definition_for_call(
+        &self,
+        call: SourceMacroCallId,
+        direct_tokens_by_call: &BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>>,
+    ) -> Option<SourceMacroExpansionDefinition> {
+        if let Ok(definition) = self.definition_for_call(call) {
+            return Some(SourceMacroExpansionDefinition::Source(definition));
+        }
+
+        let mut builtin_name = None;
+        for token_id in direct_tokens_by_call.get(&call)? {
+            let token = self.tables.emitted_tokens.get(*token_id)?;
+            let provenance = self.tables.token_provenance.get(token.provenance)?;
+            let SourceTokenProvenance::Builtin { name, .. } = provenance else {
+                continue;
+            };
+            match &builtin_name {
+                Some(existing) if existing != name => return None,
+                Some(_) => {}
+                None => builtin_name = Some(name.clone()),
+            }
+        }
+        builtin_name.map(|name| SourceMacroExpansionDefinition::Builtin { name })
     }
 
     fn child_calls_by_parent(&mut self) -> BTreeMap<SourceMacroCallId, Vec<SourceMacroCallId>> {

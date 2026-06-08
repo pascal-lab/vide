@@ -237,10 +237,16 @@ pub struct SourceMacroExpansion {
     pub id: SourceMacroExpansionId,
     pub identity: Option<SourceMacroExpansionKey>,
     pub call: SourceMacroCallId,
-    pub definition: SourceMacroDefinitionId,
+    pub definition: SourceMacroExpansionDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
     pub child_calls: Vec<SourceMacroCallId>,
     pub status: SourceMacroExpansionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceMacroExpansionDefinition {
+    Source(SourceMacroDefinitionId),
+    Builtin { name: SmolStr },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,6 +320,8 @@ pub enum SourceTokenProvenance {
     },
     Builtin {
         name: SmolStr,
+        identity: SourceMacroBuiltinIdentity,
+        call: SourceMacroCallId,
     },
     Unavailable(SourcePreprocUnavailable),
 }

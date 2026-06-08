@@ -245,16 +245,70 @@ endmodule
     let wrap_expansion = recursive
         .expansions
         .iter()
-        .find(|expansion| expansion.definition.name.as_str() == "WRAP")
+        .find(|expansion| expansion.definition.name().as_str() == "WRAP")
         .expect("outer expansion should be mapped");
     let leaf_expansion = recursive
         .expansions
         .iter()
-        .find(|expansion| expansion.definition.name.as_str() == "LEAF")
+        .find(|expansion| expansion.definition.name().as_str() == "LEAF")
         .expect("nested expansion should be mapped");
     assert_eq!(text_at_range(root_text, wrap_expansion.call.range), "`WRAP");
     assert_eq!(text_at_range(root_text, leaf_expansion.call.range), "`LEAF");
     assert_eq!(wrap_expansion.child_calls, vec![leaf_expansion.call.id]);
+}
+
+#[test]
+fn preproc_builtin_intrinsic_expansion_uses_structured_provenance() {
+    let root_text = r#"module m;
+localparam int L = `__LINE__;
+localparam string F = `__FILE__;
+endmodule
+"#;
+    let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+    let line_offset = offset(root_text, "`__LINE__");
+    let file_offset = offset(root_text, "`__FILE__");
+    for (offset, expected_name) in [(line_offset, "__LINE__"), (file_offset, "__FILE__")] {
+        let immediate =
+            immediate_macro_expansion_at(&db, TOP, offset).unwrap().expect("builtin call expected");
+        let MacroExpansionQuery::Available(immediate) = immediate else {
+            panic!("builtin macro expansion should be available");
+        };
+        assert_eq!(immediate.definition.name().as_str(), expected_name);
+        assert!(matches!(
+            immediate.definition,
+            MacroExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
+        ));
+
+        let recursive =
+            recursive_macro_expansion_at(&db, TOP, offset).unwrap().expect("recursive expected");
+        assert!(recursive.unavailable.is_empty());
+        assert!(recursive.expansions.iter().any(|expansion| {
+            matches!(
+                &expansion.definition,
+                MacroExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
+            )
+        }));
+
+        let provenance =
+            macro_expansion_provenance_at(&db, TOP, offset).unwrap().expect("provenance expected");
+        assert!(provenance.tokens.iter().any(|token| {
+            matches!(
+                &token.provenance,
+                TokenProvenance::Builtin { name, call }
+                    if name.as_str() == expected_name && call.range == provenance.expansion.call.range
+            )
+        }));
+
+        let diagnostic = diagnostic_provenance_for_range(&db, TOP, provenance.expansion.call.range)
+            .unwrap()
+            .expect("diagnostic provenance expected");
+        assert!(matches!(
+            diagnostic,
+            DiagnosticProvenance::Builtin { name, call }
+                if name.as_str() == expected_name && call.range == provenance.expansion.call.range
+        ));
+    }
 }
 
 #[test]
@@ -366,20 +420,20 @@ endmodule
     assert!(queries.iter().any(|query| matches!(
         query,
         MacroExpansionQuery::Available(expansion)
-            if expansion.definition.name.as_str() == "NEXT"
+            if expansion.definition.name().as_str() == "NEXT"
     )));
     assert!(queries.iter().any(|query| matches!(
         query,
         MacroExpansionQuery::Available(expansion)
-            if expansion.definition.name.as_str() == "PAYL"
+            if expansion.definition.name().as_str() == "PAYL"
     )));
     assert!(!queries.iter().any(|query| matches!(query, MacroExpansionQuery::Unavailable(_))));
     assert!(matches!(
         immediate_macro_expansion_at(&db, TOP, payl_offset),
         Ok(Some(MacroExpansionQuery::Ambiguous(expansions)))
             if expansions.len() == 2
-                && expansions.iter().any(|expansion| expansion.definition.name.as_str() == "NEXT")
-                && expansions.iter().any(|expansion| expansion.definition.name.as_str() == "PAYL")
+                && expansions.iter().any(|expansion| expansion.definition.name().as_str() == "NEXT")
+                && expansions.iter().any(|expansion| expansion.definition.name().as_str() == "PAYL")
     ));
     assert!(matches!(
         macro_expansion_provenance_at(&db, TOP, payl_offset),

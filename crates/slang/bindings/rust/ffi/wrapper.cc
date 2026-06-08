@@ -512,6 +512,7 @@ template<typename TTokens>
     auto directProvenance = sourceManager.getMacroTokenProvenance(location);
     if (has_builtin_macro_token_provenance(directProvenance)) {
       result.macro_name = rust::String(directProvenance->builtinName);
+      apply_direct_macro_token_provenance(result, *directProvenance);
       result.provenance_kind = TRACE_TOKEN_PROVENANCE_BUILTIN;
       return result;
     }

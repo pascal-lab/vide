@@ -7,10 +7,11 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        EmittedTokenProvenance, IncludeTarget, MacroDefinition, MacroParamDefinition,
-        MacroReferenceDefinitions, RecursiveMacroExpansionProvenance, include_directives_at,
-        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
-        macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
+        EmittedTokenProvenance, IncludeTarget, MacroDefinition, MacroExpansionDefinition,
+        MacroParamDefinition, MacroReferenceDefinitions, RecursiveMacroExpansionProvenance,
+        include_directives_at, macro_definition_at, macro_param_definition_at,
+        macro_param_reference_definitions_at, macro_reference_definitions_at,
+        recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
 };
@@ -247,11 +248,20 @@ fn render_recursive_expansion(
     render_macro_expansion_separator(markup);
     markup.push_with_code_fence(&expanded_text_from_tokens(&root.tokens));
     render_macro_expansion_separator(markup);
-    render_macro_source_link(db, markup, &root.expansion.definition, root.expansion.call.file_id);
+    if let MacroExpansionDefinition::Source(definition) = &root.expansion.definition {
+        render_macro_source_link(db, markup, definition, root.expansion.call.file_id);
+    }
 }
 
-fn render_macro_expansion_header(markup: &mut Markup, definition: &MacroDefinition) {
-    markup.push_with_code_fence(&macro_signature(definition));
+fn render_macro_expansion_header(markup: &mut Markup, definition: &MacroExpansionDefinition) {
+    match definition {
+        MacroExpansionDefinition::Source(definition) => {
+            markup.push_with_code_fence(&macro_signature(definition));
+        }
+        MacroExpansionDefinition::Builtin { name, .. } => {
+            markup.push_with_code_fence(&format!("`{name}"));
+        }
+    }
 }
 
 fn render_macro_expansion_separator(markup: &mut Markup) {
@@ -425,6 +435,9 @@ fn handle_preproc_macro(
 
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
         if resolution.definitions.is_empty() {
+            if let Some(hover) = expanded_macro_hover(db, file_id, offset, Some(&resolution)) {
+                return Some(PreprocMacroHover { hover, reference_definitions: Some(resolution) });
+            }
             return None;
         }
         let hover = RangeInfo::new(
