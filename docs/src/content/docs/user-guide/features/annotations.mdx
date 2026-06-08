@@ -1,6 +1,6 @@
 ---
 title: 代码注解
-description: 在实例连接、结构结尾和模块声明处显示端口、参数、结构名称和实例数量注解。
+description: 在实例连接、宏调用、结构结尾和模块声明处显示端口、参数、结构名称和实例数量注解。
 ---
 
 import FeatureExample from '../../../../components/FeatureExample.astro';
@@ -12,11 +12,12 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
 
 代码注解会把辅助信息直接显示在相关代码旁边，这样不用跳转也能看见当前连接、参数或结构对应的目标。
 
-目前主要有三类代码注解：
+目前主要有四类代码注解：
 
 1. 实例连接注解：在端口连接旁显示目标端口名和方向箭头，`input` 显示 `←`，`output` 显示 `→`，`inout` 显示 `↔`，`ref` 显示 `&`。如果端口名已经写在代码里，Vide 只显示方向箭头，避免重复。
-2. 参数和结构注解：在有序参数赋值旁显示目标参数名，在 `endmodule` 等结构结尾处显示对应结构名。
-3. 实例数量注解：在模块声明上方显示当前模块被实例化的次数。
+2. 参数和宏实参注解：在有序参数赋值旁显示目标参数名，在宏调用实参旁显示对应宏形参名。
+3. 结构注解：在 `endmodule` 等结构结尾处显示对应结构名。
+4. 实例数量注解：在模块声明上方显示当前模块被实例化的次数。
 
 ## 演示
 
@@ -43,11 +44,11 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
 
 ### 没有完整配置时
 
-当前文件内能解析到的端口、参数和结构结尾可以显示注解。跨文件实例连接和实例数量统计依赖 Vide 扫描到的文件，可能不完整。
+当前文件内能解析到的端口、参数、宏实参和结构结尾可以显示注解。跨文件实例连接、include 链里的宏和实例数量统计依赖 Vide 扫描到的文件，可能不完整。
 
 ### 有完整配置时
 
-写好 `vide.toml` 后，注解会按工程范围解析模块、include 和宏分支。跨文件端口、参数和实例数量统计会更完整。
+写好 `vide.toml` 后，注解会按工程范围解析模块、include 和宏分支。跨文件端口、参数、宏实参和实例数量统计会更完整。
 
 ## 调整显示
 
@@ -57,6 +58,7 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
 {
   "vide.inlayHints.port.connection.enable": true,
   "vide.inlayHints.parameter.assignment.enable": true,
+  "vide.inlayHints.macro.argument.enable": true,
   "vide.inlayHints.end.structure.enable": true,
   "vide.lens.instantiations.enable": true
 }
@@ -64,6 +66,7 @@ import { inlayHintFiles } from '../../../../examples/dailyUse';
 
 - `vide.inlayHints.port.connection.enable`：显示或隐藏实例端口连接旁的端口名和方向箭头。
 - `vide.inlayHints.parameter.assignment.enable`：显示或隐藏有序参数赋值旁的参数名。
+- `vide.inlayHints.macro.argument.enable`：显示或隐藏宏调用实参旁的形参名。
 - `vide.inlayHints.end.structure.enable`：显示或隐藏 `endmodule` 等结构结尾处的结构名。
 - `vide.lens.instantiations.enable`：显示或隐藏模块声明上方的实例数量注解。
 

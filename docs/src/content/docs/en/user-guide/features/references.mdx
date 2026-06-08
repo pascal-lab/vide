@@ -10,7 +10,7 @@ import { usageFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Find References answers “where is this symbol used?” In RTL projects, it is useful for tracing module instances, port connections, parameters, and signals, and for checking whether connections are complete.
+Find References answers “where is this symbol used?” In RTL projects, it is useful for tracing module instances, port connections, parameters, signals, and preprocessor macros, and for checking whether connections are complete.
 
 Run VS Code's `Find All References` or `Peek References` on a symbol. Vide searches for its usage locations, deduplicates them, and shows them in the references view.
 
@@ -44,6 +44,8 @@ Vide searches references in all Verilog/SystemVerilog files scanned from the wor
 ### With Complete Configuration
 
 After `vide.toml` is configured, reference search follows the project scope described by `sources` and `libraries`, and uses include directories and macro definitions to decide which files participate in analysis.
+
+When a macro comes from `defines` in `vide.toml`, and the manifest source range is available, reference results also include the definition location in the manifest.
 
 ## Result Display
 

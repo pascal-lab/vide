@@ -10,7 +10,7 @@ import { hoverFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Hover is a lightweight explanation shown near the cursor. Place the mouse over a module name, instance name, port, parameter, task/function, or number literal to check what it means without leaving the current file.
+Hover is a lightweight explanation shown near the cursor. Place the mouse over a module name, instance name, port, parameter, task/function, macro call, or number literal to check what it means without leaving the current file.
 
 ## Demo
 
@@ -37,8 +37,12 @@ Hover is a lightweight explanation shown near the cursor. Place the mouse over a
 
 ### Without Complete Configuration
 
-Modules, ports, and parameters declared in the current file, as well as number literals, can be shown directly. Cross-file targets only show complete information when Vide has scanned the target file and can determine a unique target.
+Modules, ports, parameters, macros, and number literals declared in the current file can be shown directly. Cross-file targets only show complete information when Vide has scanned the target file and can determine a unique target.
 
 ### With Complete Configuration
 
 After `vide.toml` is configured, hover uses the project structure to resolve include paths, macro branches, and libraries. Target modules, port directions, and parameter declarations for instances become more complete.
+
+## Macro Hover
+
+For macro calls, Vide tries to show the macro signature, argument bindings, final expanded result, and nested expansion steps. Macros from include files or `defines` in `vide.toml` use the same preprocessor source information. Because the available preprocessor information can be limited, expansion sources may sometimes be imprecise; in that case, Vide only shows the parts it can confirm.
