@@ -118,12 +118,12 @@ describe('package server preparation', () => {
   });
 
   it('appends Alpine cargo flags to encoded rust flags', () => {
-    const env = cargoXtaskEnvForTarget(nativeTargetSpec('alpine-arm64'), {
+    const env = cargoXtaskEnvForTarget(nativeTargetSpec('alpine-x64'), {
       CARGO_ENCODED_RUSTFLAGS: '-C\x1ftarget-feature=+crt-static',
-      CXX_aarch64_unknown_linux_musl: 'custom-aarch64-g++',
+      CXX_x86_64_unknown_linux_musl: 'custom-x86_64-g++',
     });
 
-    assert.equal(env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER, 'custom-aarch64-g++');
+    assert.equal(env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER, 'custom-x86_64-g++');
     assert.equal(
       env.CARGO_ENCODED_RUSTFLAGS,
       '-C\x1ftarget-feature=+crt-static\x1f-C\x1flink-arg=-lc',

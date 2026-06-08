@@ -1,7 +1,6 @@
 import * as path from 'node:path';
 
 export const SUPPORTED_PLATFORM_FOLDERS = [
-  'alpine-arm64',
   'alpine-x64',
   'darwin-arm64',
   'linux-arm64',
