@@ -99,6 +99,7 @@ test('contributes settings for the complete Vide user configuration surface', ()
     'vide.formatting.indent.width',
     'vide.inlayHints.port.connection.enable',
     'vide.inlayHints.parameter.assignment.enable',
+    'vide.inlayHints.macro.argument.enable',
     'vide.inlayHints.end.structure.enable',
     'vide.lens.instantiations.enable',
     'vide.semantic.tokens.port.clk.rst.enable',
