@@ -24,7 +24,7 @@ use super::{
         impl_lower_expr,
         timing_control::{EventExpr, EventExprSrc},
     },
-    lower_ident, lower_ident_opt,
+    lower_ident_opt,
     module::{ModuleId, generate::GenerateBlockId},
     stmt::{LowerStmt, Stmt, StmtId, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
@@ -236,10 +236,10 @@ where
 
 fn lower_name(name: ast::Name) -> Option<Ident> {
     if let Some(id) = name.as_identifier_name().and_then(|n| n.identifier()) {
-        return lower_ident(Some(id));
+        return lower_ident_opt(Some(id));
     }
     if let Some(select) = name.as_identifier_select_name() {
-        return select.identifier().and_then(|tok| lower_ident(Some(tok)));
+        return select.identifier().and_then(|tok| lower_ident_opt(Some(tok)));
     }
     if let Some(scoped) = name.as_scoped_name() {
         return lower_name(scoped.right());

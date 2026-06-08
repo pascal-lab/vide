@@ -140,8 +140,7 @@ impl LowerExprCtx<'_> {
             LogicType(_) => Either::Right(VecKind::Logic),
         };
 
-        let signing = Self::lower_signing(ty.signing())
-            .unwrap_or(matches!(kind, Either::Left(IntKind::Time) | Either::Right(_)));
+        let signing = Self::lower_signing(ty.signing()).unwrap_or(matches!(kind, Either::Left(_)));
 
         let dimensions = ty.dimensions().children().map(|dim| self.lower_dimension(dim)).collect();
         match kind {

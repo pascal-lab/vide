@@ -51,6 +51,15 @@ impl<'a, T: AstNode<'a>> SyntaxList<'a, T> {
     pub fn children(&self) -> impl Iterator<Item = T> + 'a {
         SyntaxChildren::new(self.syntax).map(|elem| T::cast(elem.as_node().unwrap()).unwrap())
     }
+
+    pub fn only_children(&self) -> Option<T> {
+        let mut children = SyntaxChildren::new(self.syntax);
+        let first = children.next()?;
+        if children.next().is_some() {
+            return None;
+        }
+        T::cast(first.as_node().unwrap())
+    }
 }
 
 impl<'a, T: AstNode<'a>> AstNode<'a> for SyntaxList<'a, T> {
@@ -78,6 +87,15 @@ impl<'a, T: AstNode<'a>> SeparatedList<'a, T> {
         SyntaxChildren::new(self.syntax)
             .step_by(2)
             .map(|elem| T::cast(elem.as_node().unwrap()).unwrap())
+    }
+
+    pub fn only_children(&self) -> Option<T> {
+        let mut children = SyntaxChildren::new(self.syntax);
+        let first = children.next()?;
+        if children.next().is_some() {
+            return None;
+        }
+        T::cast(first.as_node().unwrap())
     }
 }
 

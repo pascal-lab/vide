@@ -14,6 +14,18 @@ const ID: CodeActionId = CodeActionId {
 };
 const LABEL: &str = "Add explicit empty port connection";
 
+// Assist: add_implicit_named_port_parens
+//
+// This makes an implicit named port connection explicit by adding empty
+// parentheses.
+//
+// ```
+// child u(.ready$0);
+// ```
+// ->
+// ```
+// child u(.ready());
+// ```
 pub(super) fn add_implicit_named_port_parens(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

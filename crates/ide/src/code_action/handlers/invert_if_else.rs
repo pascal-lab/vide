@@ -12,6 +12,18 @@ const ID: CodeActionId =
     CodeActionId { name: "invert_if_else", kind: CodeActionKind::RefactorRewrite, repair: None };
 const LABEL: &str = "Invert if/else";
 
+// Assist: invert_if_else
+//
+// This swaps the then and else branches of an if statement and negates the
+// condition.
+//
+// ```
+// always_comb if$0 (ready) y = a; else y = b;
+// ```
+// ->
+// ```
+// always_comb if (!(ready)) y = b; else y = a;
+// ```
 pub(super) fn invert_if_else(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,

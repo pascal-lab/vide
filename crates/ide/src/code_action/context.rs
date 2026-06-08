@@ -26,6 +26,7 @@ impl<'a> CodeActionCtx<'a> {
     ) -> Option<Self> {
         let parsed_file = sema.parse_file(file_id);
         parsed_file.compilation_unit()?;
+
         Some(Self { sema, file_id, range, diagnostics, parsed_file })
     }
 

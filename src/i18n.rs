@@ -95,10 +95,32 @@ pub(crate) mod keys {
         "code_action.sort_named_port_connections";
     pub(crate) const CODE_ACTION_ADD_DEFAULT_CASE_ITEM: &str = "code_action.add_default_case_item";
     pub(crate) const CODE_ACTION_INVERT_IF_ELSE: &str = "code_action.invert_if_else";
+    pub(crate) const CODE_ACTION_EXTRACT_VARIABLE: &str = "code_action.extract_variable";
+    pub(crate) const CODE_ACTION_REMOVE_REDUNDANT_PARENTHESES: &str =
+        "code_action.remove_redundant_parentheses";
     pub(crate) const CODE_ACTION_UNWRAP_SINGLE_STATEMENT_BLOCK: &str =
         "code_action.unwrap_single_statement_block";
     pub(crate) const CODE_ACTION_WRAP_STATEMENT_IN_BEGIN_END: &str =
         "code_action.wrap_statement_in_begin_end";
+    pub(crate) const CODE_ACTION_EXPAND_NAMED_PORT_CONNECTION_SHORTHAND: &str =
+        "code_action.expand_named_port_connection_shorthand";
+    pub(crate) const CODE_ACTION_COLLAPSE_NAMED_PORT_CONNECTION_SHORTHAND: &str =
+        "code_action.collapse_named_port_connection_shorthand";
+    pub(crate) const CODE_ACTION_CONVERT_ANSI_PORTS_TO_NON_ANSI: &str =
+        "code_action.convert_ansi_ports_to_non_ansi";
+    pub(crate) const CODE_ACTION_CONVERT_NON_ANSI_PORTS_TO_ANSI: &str =
+        "code_action.convert_non_ansi_ports_to_ansi";
+    pub(crate) const CODE_ACTION_CONVERT_ALWAYS_TO_ALWAYS_COMB: &str =
+        "code_action.convert_always_to_always_comb";
+    pub(crate) const CODE_ACTION_CONVERT_ALWAYS_TO_ALWAYS_FF: &str =
+        "code_action.convert_always_to_always_ff";
+    pub(crate) const CODE_ACTION_CONVERT_ALWAYS_COMB_TO_ALWAYS: &str =
+        "code_action.convert_always_comb_to_always";
+    pub(crate) const CODE_ACTION_CONVERT_ALWAYS_FF_TO_ALWAYS: &str =
+        "code_action.convert_always_ff_to_always";
+    pub(crate) const CODE_ACTION_MERGE_NESTED_IF: &str = "code_action.merge_nested_if";
+    pub(crate) const CODE_ACTION_PULL_ASSIGNMENT_UP: &str = "code_action.pull_assignment_up";
+    pub(crate) const CODE_ACTION_PULL_ASSIGNMENT_DOWN: &str = "code_action.pull_assignment_down";
     pub(crate) const CODE_ACTION_EXPAND_POSTFIX_INC_DEC: &str =
         "code_action.expand_postfix_inc_dec";
     pub(crate) const CODE_ACTION_EXPAND_PREFIX_INC_DEC: &str = "code_action.expand_prefix_inc_dec";
@@ -124,6 +146,8 @@ pub(crate) mod keys {
         "code_action.collapse_compound_assignment";
     pub(crate) const CODE_ACTION_APPLY_DE_MORGAN: &str = "code_action.apply_de_morgan";
     pub(crate) const CODE_ACTION_FACTOR_DE_MORGAN: &str = "code_action.factor_de_morgan";
+    pub(crate) const CODE_ACTION_REMOVE_DIGIT_SEPARATORS: &str =
+        "code_action.remove_digit_separators";
     pub(crate) const CODE_ACTION_INSERT_MISSING_TOKEN: &str = "code_action.insert_missing_token";
     pub(crate) const CODE_ACTION_CONVERT_LITERAL_TO_BINARY: &str =
         "code_action.convert_literal_to_binary";

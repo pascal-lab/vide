@@ -59,6 +59,7 @@ pub enum SymbolKind {
     Genvar,
     Specparam,
     Typedef,
+    Struct,
     Instance,
     Block,
     Stmt,

@@ -78,6 +78,18 @@ const ASSIGNMENT_TO_PREFIX_ID: CodeActionId = CodeActionId {
 };
 const ASSIGNMENT_TO_PREFIX_LABEL: &str = "Convert assignment to prefix expression";
 
+// Assist: expand_postfix_inc_dec
+//
+// This converts between postfix, prefix, compound assignment, and expanded
+// assignment forms of increment/decrement expressions.
+//
+// ```
+// always_ff @(posedge clk) count$0++;
+// ```
+// ->
+// ```
+// always_ff @(posedge clk) count = count + 1;
+// ```
 pub(super) fn expand_postfix_inc_dec(
     collector: &mut CodeActionCollector,
     ctx: &CodeActionCtx,
