@@ -54,7 +54,8 @@ pub struct Opt {
     /// This can also be set with VIDE_PROFILE_TRACE. The captured targets
     /// default to project crates and can be overridden with
     /// VIDE_PROFILE_TRACE_FILTER.
-    #[clap(long = "profile_trace", default_value = None)]
+    #[cfg_attr(feature = "profile-trace", clap(long = "profile_trace", default_value = None))]
+    #[cfg_attr(not(feature = "profile-trace"), clap(skip))]
     pub profile_trace: Option<PathBuf>,
 }
 

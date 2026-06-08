@@ -9,6 +9,7 @@ import {
 export function parsePackageCliArgs(args: string[]): PackageOptions {
   let profile: BuildProfile = 'release';
   let serverMode: ServerMode = 'build';
+  let profileTrace = false;
   let target: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -17,6 +18,8 @@ export function parsePackageCliArgs(args: string[]): PackageOptions {
       profile = 'debug';
     } else if (arg === '--release') {
       profile = 'release';
+    } else if (arg === '--profile-trace') {
+      profileTrace = true;
     } else if (arg === '--target') {
       target = readFlagValue(args, ++index, arg);
     } else if (arg.startsWith('--target=')) {
@@ -36,7 +39,7 @@ export function parsePackageCliArgs(args: string[]): PackageOptions {
     }
   }
 
-  return { target, profile, serverMode };
+  return { target, profile, serverMode, profileTrace };
 }
 
 function readFlagValue(args: string[], index: number, flag: string): string {

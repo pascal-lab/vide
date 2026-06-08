@@ -15,6 +15,7 @@ export interface PackageOptions {
   target?: string;
   profile: BuildProfile;
   serverMode: ServerMode;
+  profileTrace?: boolean;
 }
 
 export interface WebTargetSpec {
@@ -37,6 +38,7 @@ export interface PackagePlan {
   target: PackageTarget;
   profile: BuildProfile;
   serverMode: ServerMode;
+  profileTrace: boolean;
   targetSpec: TargetSpec;
   vsixFile: string;
 }
@@ -50,6 +52,7 @@ export function createPackagePlan(options: PackageOptions): PackagePlan {
     target,
     profile: options.profile,
     serverMode: options.serverMode,
+    profileTrace: options.profileTrace ?? false,
     targetSpec,
     vsixFile: `vide-vscode-${target}${debugSuffix}.vsix`,
   };

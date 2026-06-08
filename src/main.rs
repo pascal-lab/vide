@@ -1,7 +1,6 @@
-use std::{
-    env, fs, io,
-    path::{Path, PathBuf},
-};
+#[cfg(feature = "profile-trace")]
+use std::path::{Path, PathBuf};
+use std::{env, fs, io};
 
 use anyhow::Context;
 use clap::Parser;
@@ -11,6 +10,12 @@ use tracing_subscriber::{
 };
 use vide::{Opt, run_server};
 
+#[cfg(feature = "profile-trace")]
+type ProfileTraceGuard = tracing_chrome::FlushGuard;
+#[cfg(not(feature = "profile-trace"))]
+type ProfileTraceGuard = ();
+
+#[cfg(feature = "profile-trace")]
 const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "vide=trace,",
     "hir::base_db=trace,",
@@ -23,10 +28,12 @@ const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
     "vfs::notify=trace"
 );
 
+#[cfg(feature = "profile-trace")]
 fn profile_trace_path(opt: &Opt) -> Option<PathBuf> {
     opt.profile_trace.clone().or_else(|| env::var_os("VIDE_PROFILE_TRACE").map(PathBuf::from))
 }
 
+#[cfg(feature = "profile-trace")]
 fn create_profile_trace_file(path: &Path) -> anyhow::Result<fs::File> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| {
@@ -37,7 +44,7 @@ fn create_profile_trace_file(path: &Path) -> anyhow::Result<fs::File> {
         .with_context(|| format!("could not create profile trace file: {}", path.display()))
 }
 
-fn setup_logging(opt: &Opt) -> anyhow::Result<Option<tracing_chrome::FlushGuard>> {
+fn setup_logging(opt: &Opt) -> anyhow::Result<Option<ProfileTraceGuard>> {
     let target: Targets =
         opt.log.parse().with_context(|| format!("invalid log filter: `{}`", opt.log))?;
 
@@ -59,6 +66,15 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<tracing_chrome::FlushGuard>
         tracing_subscriber::fmt::layer().with_ansi(false).with_writer(writer).with_filter(target);
 
     let subscriber = Registry::default().with(fmt_layer);
+
+    #[cfg(not(feature = "profile-trace"))]
+    {
+        let _ = opt;
+        subscriber.init();
+        return Ok(None);
+    }
+
+    #[cfg(feature = "profile-trace")]
     let profile_guard = if let Some(path) = profile_trace_path(opt) {
         let profile_filter_text = env::var("VIDE_PROFILE_TRACE_FILTER")
             .unwrap_or_else(|_| DEFAULT_PROFILE_TRACE_FILTER.to_owned());
@@ -82,6 +98,7 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<tracing_chrome::FlushGuard>
         None
     };
 
+    #[cfg(feature = "profile-trace")]
     Ok(profile_guard)
 }
 

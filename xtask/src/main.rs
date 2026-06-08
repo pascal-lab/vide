@@ -73,6 +73,8 @@ struct ServerBuildArgs {
     cargo_target: Option<String>,
     #[arg(long)]
     alpine_linker: bool,
+    #[arg(long)]
+    profile_trace: bool,
 }
 
 #[derive(Debug, Args)]
@@ -94,6 +96,8 @@ struct VscodePrepareServerArgs {
     profile: ExtensionBuildProfile,
     #[arg(long, value_enum, default_value = "build")]
     server: ExtensionServerMode,
+    #[arg(long)]
+    profile_trace: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -169,8 +173,13 @@ fn run_server_command(workspace_root: &Path, args: ServerArgs) -> Result<()> {
 }
 
 fn prepare_vscode_server(workspace_root: &Path, args: VscodePrepareServerArgs) -> Result<()> {
-    let server_path =
-        ensure_vscode_server_binary(workspace_root, args.target, args.profile, args.server)?;
+    let server_path = ensure_vscode_server_binary(
+        workspace_root,
+        args.target,
+        args.profile,
+        args.server,
+        args.profile_trace,
+    )?;
     println!("{}", server_path.display());
     Ok(())
 }
@@ -180,6 +189,7 @@ fn ensure_vscode_server_binary(
     target: VscodeServerTarget,
     profile: ExtensionBuildProfile,
     server_mode: ExtensionServerMode,
+    profile_trace: bool,
 ) -> Result<PathBuf> {
     let server_path = vscode_target_server_path(workspace_root, target);
     if server_mode == ExtensionServerMode::Prebuilt {
@@ -200,7 +210,7 @@ fn ensure_vscode_server_binary(
         );
     }
 
-    let build_args = server_build_args_for_vscode_target(target, profile);
+    let build_args = server_build_args_for_vscode_target(target, profile, profile_trace);
     let source_path = build_server(workspace_root, &build_args)?;
     let parent = server_path.parent().context("VS Code server output path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
@@ -253,11 +263,13 @@ fn vscode_target_server_path(workspace_root: &Path, target: VscodeServerTarget) 
 fn server_build_args_for_vscode_target(
     target: VscodeServerTarget,
     profile: ExtensionBuildProfile,
+    profile_trace: bool,
 ) -> ServerBuildArgs {
     ServerBuildArgs {
         profile,
         cargo_target: target.cargo_target().map(str::to_owned),
         alpine_linker: target.requires_alpine_linker(),
+        profile_trace,
     }
 }
 
@@ -269,6 +281,10 @@ fn cargo_build_args(args: &ServerBuildArgs) -> Vec<String> {
     if let Some(cargo_target) = &args.cargo_target {
         command_args.push("--target".to_owned());
         command_args.push(cargo_target.clone());
+    }
+    if args.profile_trace {
+        command_args.push("--features".to_owned());
+        command_args.push("profile-trace".to_owned());
     }
     command_args
 }
@@ -634,6 +650,7 @@ mod tests {
                 target: VscodeServerTarget::LinuxX64,
                 profile: ExtensionBuildProfile::Release,
                 server: ExtensionServerMode::Prebuilt,
+                profile_trace: false,
             }
         );
     }
@@ -643,6 +660,7 @@ mod tests {
         let args = server_build_args_for_vscode_target(
             VscodeServerTarget::AlpineX64,
             ExtensionBuildProfile::Release,
+            true,
         );
 
         assert_eq!(
@@ -651,11 +669,20 @@ mod tests {
                 profile: ExtensionBuildProfile::Release,
                 cargo_target: Some("x86_64-unknown-linux-musl".to_owned()),
                 alpine_linker: true,
+                profile_trace: true,
             }
         );
         assert_eq!(
             cargo_build_args(&args),
-            ["build", "--release", "--target", "x86_64-unknown-linux-musl"].map(str::to_owned)
+            [
+                "build",
+                "--release",
+                "--target",
+                "x86_64-unknown-linux-musl",
+                "--features",
+                "profile-trace",
+            ]
+            .map(str::to_owned)
         );
         assert_eq!(server_binary_file(&args), "vide");
     }

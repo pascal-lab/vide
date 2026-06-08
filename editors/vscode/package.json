@@ -413,7 +413,7 @@
     }
   },
   "scripts": {
-    "bundle:node": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js && npm run copy-speedscope",
+    "bundle:node": "esbuild src/extension.ts --bundle --platform=node --target=node22 --format=cjs --external:vscode --outfile=dist/extension.js",
     "bundle:browser:extension": "esbuild src/browser/extension.ts --bundle --platform=browser --target=es2022 --format=cjs --external:vscode --outfile=dist/browser/extension.js",
     "bundle:browser:worker": "esbuild src/browser/worker.ts --bundle --platform=browser --target=es2022 --format=iife --outfile=dist/browser/vide-lsp.worker.js",
     "bundle:browser": "npm run bundle:browser:extension && npm run bundle:browser:worker && npm run copy-web-assets",
@@ -423,11 +423,12 @@
     "copy-web-assets": "tsx scripts/copy-web-assets.ts",
     "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.browser.json --noEmit && tsc -p tsconfig.test-web.json --noEmit",
     "compile": "npm run clean && npm run typecheck && npm run bundle:node",
+    "compile:profile-trace": "npm run clean && npm run typecheck && npm run bundle:node && npm run copy-speedscope",
     "compile:web": "npm run clean && npm run typecheck && npm run bundle:node && npm run bundle:browser",
     "test": "npm run compile && node --import tsx --test \"test/**/*.test.ts\"",
     "test:web": "npm run bundle:browser && npm run bundle:test-web && npm --prefix test-web test",
     "package:vsix": "npm run compile && tsx scripts/package.ts",
-    "package:vsix:debug": "npm run compile && tsx scripts/package.ts --profile debug",
+    "package:vsix:debug": "npm run compile:profile-trace && tsx scripts/package.ts --profile debug --profile-trace",
     "package:vsix:web": "npm run compile:web && tsx scripts/package.ts --target web",
     "install-extension": "tsx scripts/install-extension.ts"
   },

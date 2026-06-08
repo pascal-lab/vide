@@ -33,6 +33,7 @@ interface ExtensionBuildInfo {
   kind?: string;
   commitHash?: string;
   buildDate?: string;
+  profileTrace?: boolean;
 }
 
 let client: VideBrowserClient | undefined;
@@ -285,10 +286,14 @@ export async function activate(
 ): Promise<void> {
   outputChannel = vscode.window.createOutputChannel(languageServerOutputChannelName);
   context.subscriptions.push(outputChannel);
+  const buildInfo = await extensionBuildInfo(context);
+  const profileTraceEnabled = buildInfo?.profileTrace === true;
 
   videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
-    profileDiagnostics: () => showUnavailableInBrowser("Diagnostics profiling"),
+    profileDiagnostics: profileTraceEnabled
+      ? () => showUnavailableInBrowser("Diagnostics profiling")
+      : undefined,
     reloadProject: () => queueRestart(context, "reload project"),
     restartServer: () => queueRestart(context, "restart command"),
     showOutput,
@@ -321,10 +326,14 @@ export async function activate(
     vscode.commands.registerCommand(generateQiheOptionsCommand, async () => {
       await showUnavailableInBrowser("Qihe options generation");
     }),
-    vscode.commands.registerCommand(profileDiagnosticsCommand, async () => {
-      await showUnavailableInBrowser("Diagnostics profiling");
-    }),
   );
+  if (profileTraceEnabled) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(profileDiagnosticsCommand, async () => {
+        await showUnavailableInBrowser("Diagnostics profiling");
+      }),
+    );
+  }
 
   registerDiagnosticActions(context);
   registerWorkspaceWatchers(context);

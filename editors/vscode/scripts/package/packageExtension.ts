@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { type PackageContext, createPackageContext } from './context';
 import {
   restorePackageJson,
+  stageProfileTraceAssets,
   stagePackageJsonForTarget,
   syncReadmeFromRepoRoot,
   writeBuildInfo,
@@ -20,6 +21,7 @@ export function packageExtension(
 
   syncReadmeFromRepoRoot(context);
   writeBuildInfo(context, plan);
+  stageProfileTraceAssets(context, plan);
 
   if (plan.targetSpec.kind === 'web') {
     cleanRuntimeServerFiles(context);
@@ -32,6 +34,7 @@ export function packageExtension(
     plan.targetSpec,
     plan.profile,
     plan.serverMode,
+    plan.profileTrace,
   );
   cleanRuntimeServerFiles(context);
   const runtimeServerPath = stageRuntimeServer(context, targetServerPath, plan.targetSpec);

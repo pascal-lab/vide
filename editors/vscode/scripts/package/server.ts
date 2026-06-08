@@ -10,23 +10,25 @@ export function ensureTargetServerBinary(
   spec: NativeTargetSpec,
   profile: BuildProfile,
   serverMode: ServerMode,
+  profileTrace: boolean,
 ): string {
+  const args = [
+    'xtask',
+    'vscode',
+    'prepare-server',
+    '--target',
+    spec.target,
+    '--profile',
+    profile,
+    '--server',
+    serverMode,
+  ];
+  if (profileTrace) {
+    args.push('--profile-trace');
+  }
+
   const serverPath = targetServerPath(context, spec);
-  run(
-    'cargo',
-    [
-      'xtask',
-      'vscode',
-      'prepare-server',
-      '--target',
-      spec.target,
-      '--profile',
-      profile,
-      '--server',
-      serverMode,
-    ],
-    context.repoRoot,
-  );
+  run('cargo', args, context.repoRoot);
 
   if (!fs.existsSync(serverPath)) {
     throw new Error(`prepared server binary was not found: ${serverPath}`);

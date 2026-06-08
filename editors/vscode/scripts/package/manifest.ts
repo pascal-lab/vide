@@ -17,6 +17,7 @@ export function writeBuildInfo(context: PackageContext, plan: PackagePlan): void
     version: readExtensionVersion(context),
     target: plan.target,
     profile: plan.profile,
+    profileTrace: plan.profileTrace,
     kind: optionalEnv('VIDE_EXTENSION_BUILD_KIND') ?? 'local',
     commitHash: optionalEnv('VIDE_EXTENSION_COMMIT_HASH'),
     buildDate: optionalEnv('VIDE_EXTENSION_BUILD_DATE'),
@@ -31,16 +32,42 @@ export function stagePackageJsonForTarget(
   context: PackageContext,
   plan: PackagePlan,
 ): string | undefined {
-  if (!plan.targetSpec.removeBrowserEntry) {
+  if (!plan.targetSpec.removeBrowserEntry && plan.profileTrace) {
     return undefined;
   }
 
   const packagePath = packageJsonPath(context);
   const originalPackageJson = fs.readFileSync(packagePath, 'utf8');
-  const packageJson = JSON.parse(originalPackageJson) as { browser?: unknown };
-  delete packageJson.browser;
+  const packageJson = JSON.parse(originalPackageJson) as {
+    browser?: unknown;
+    contributes?: { commands?: Array<{ command?: unknown }> };
+  };
+  if (plan.targetSpec.removeBrowserEntry) {
+    delete packageJson.browser;
+  }
+  if (!plan.profileTrace) {
+    packageJson.contributes = packageJson.contributes ?? {};
+    packageJson.contributes.commands = (packageJson.contributes.commands ?? []).filter(
+      (command) => command.command !== 'vide.profileDiagnostics',
+    );
+  }
   fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
   return originalPackageJson;
+}
+
+export function stageProfileTraceAssets(context: PackageContext, plan: PackagePlan): void {
+  const speedscopeDir = path.join(context.vscodeDir, 'dist', 'speedscope');
+  if (!plan.profileTrace) {
+    fs.rmSync(speedscopeDir, { recursive: true, force: true });
+    return;
+  }
+
+  const indexPath = path.join(speedscopeDir, 'index.html');
+  if (!fs.existsSync(indexPath)) {
+    throw new Error(
+      `profile trace assets not found at ${speedscopeDir}; run npm run compile:profile-trace first`,
+    );
+  }
 }
 
 export function restorePackageJson(
