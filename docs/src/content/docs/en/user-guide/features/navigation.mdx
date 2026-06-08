@@ -10,7 +10,7 @@ import { navigationFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Go to Definition takes you from a symbol use to the declaration or definition it points at. The common cases are jumping from a module instance to the module definition, from a port connection to the target port, or from a signal use to its declaration.
+Go to Definition takes you from a symbol use to the declaration or definition it points at. The common cases are jumping from a module instance to the module definition, from a port connection to the target port, from a signal use to its declaration, or from a macro call to its macro definition.
 
 You can use this feature through VS Code's `Go to Definition`, `Peek Definition`, `Go to Declaration`, and `Go to Type Definition`. `Go to Declaration` prefers declaration locations; when there is no separate declaration location, it uses the definition result.
 
@@ -46,3 +46,5 @@ For example, if one instance name can match multiple modules with the same name,
 ### With Complete Configuration
 
 After `vide.toml` is configured, Vide resolves targets from the project structure described by `sources`, `libraries`, `include_dirs`, `defines`, and `top_modules`. Cross-file jumps, targets inside macro branches, and duplicate module boundaries become more accurate.
+
+Predefined macros configured in `vide.toml` can also jump back to the manifest when an authoritative source range is available.

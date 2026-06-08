@@ -115,7 +115,6 @@ enum ExtensionServerMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 enum VscodeServerTarget {
-    AlpineArm64,
     AlpineX64,
     DarwinArm64,
     LinuxArm64,
@@ -126,7 +125,6 @@ enum VscodeServerTarget {
 impl VscodeServerTarget {
     fn folder(self) -> &'static str {
         match self {
-            VscodeServerTarget::AlpineArm64 => "alpine-arm64",
             VscodeServerTarget::AlpineX64 => "alpine-x64",
             VscodeServerTarget::DarwinArm64 => "darwin-arm64",
             VscodeServerTarget::LinuxArm64 => "linux-arm64",
@@ -141,7 +139,6 @@ impl VscodeServerTarget {
 
     fn cargo_target(self) -> Option<&'static str> {
         match self {
-            VscodeServerTarget::AlpineArm64 => Some("aarch64-unknown-linux-musl"),
             VscodeServerTarget::AlpineX64 => Some("x86_64-unknown-linux-musl"),
             _ => None,
         }
@@ -152,7 +149,7 @@ impl VscodeServerTarget {
     }
 
     fn requires_alpine_linker(self) -> bool {
-        matches!(self, VscodeServerTarget::AlpineArm64 | VscodeServerTarget::AlpineX64)
+        matches!(self, VscodeServerTarget::AlpineX64)
     }
 }
 
@@ -417,7 +414,7 @@ fn run_command(
     cwd: &Path,
     env_updates: &[(String, String)],
 ) -> Result<()> {
-    let mut child = ProcessCommand::new(command_for_host(command));
+    let mut child = ProcessCommand::new(command);
     child.args(args).current_dir(cwd);
     for (key, value) in env_updates {
         child.env(key, value);
@@ -432,10 +429,6 @@ fn run_command(
     }
 
     Ok(())
-}
-
-fn command_for_host(command: &str) -> String {
-    if cfg!(windows) { format!("{command}.cmd") } else { command.to_owned() }
 }
 
 fn workspace_root() -> Result<PathBuf> {

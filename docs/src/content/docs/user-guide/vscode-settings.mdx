@@ -123,7 +123,7 @@ Neovim、Emacs 等编辑器通常通过 LSP 启动 Vide。LSP 是编辑器和语
 
 ## Inlay Hints
 
-行内提示会直接显示在编辑器里，适合日常阅读端口和参数连接。
+行内提示会直接显示在编辑器里，适合日常阅读端口、参数和宏调用。
 
 相关功能：[代码注解](../features/annotations/)。
 
@@ -132,6 +132,7 @@ Neovim、Emacs 等编辑器通常通过 LSP 启动 Vide。LSP 是编辑器和语
   settings={[
     'inlayHints.port.connection.enable',
     'inlayHints.parameter.assignment.enable',
+    'inlayHints.macro.argument.enable',
     'inlayHints.end.structure.enable',
   ]}
 />

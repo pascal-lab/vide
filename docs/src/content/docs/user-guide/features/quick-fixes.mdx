@@ -1,6 +1,6 @@
 ---
 title: 自动重构
-description: 使用代码操作补齐端口参数、转换连接写法、清理空连接和转换数字进制。
+description: 使用代码操作补齐端口参数、转换连接写法、整理过程块、改写表达式和修复常见语法问题。
 ---
 
 import Codicon from '../../../../components/Codicon.astro';
@@ -11,7 +11,7 @@ import { missingPortFiles } from '../../../../examples/dailyUse';
 
 ## 什么是自动重构
 
-自动重构用于处理端口连接、参数赋值和数字字面量进制转换这类重复但容易出错的编辑工作。在 VS Code 中，你可以通过 <Codicon name="lightbulb" label="灯泡菜单图标" color="#facc15" /> 灯泡菜单触发这些操作，这个入口也叫 Code Actions。
+自动重构用于处理端口连接、参数赋值、过程块、控制流和表达式改写这类重复但容易出错的编辑工作。在 VS Code 中，你可以通过 <Codicon name="lightbulb" label="灯泡菜单图标" color="#facc15" /> 灯泡菜单触发这些操作，这个入口也叫 Code Actions。
 
 ## 演示
 
@@ -36,7 +36,9 @@ import { missingPortFiles } from '../../../../examples/dailyUse';
 
 ## 支持的操作
 
-把光标放到对应实例、数字 literal 或诊断附近，打开灯泡菜单。Vide 目前支持这些常见操作：
+把光标放到对应实例、端口列表、过程块、表达式、数字 literal 或诊断附近，打开灯泡菜单。Vide 目前支持这些常见操作：
+
+### 实例、端口和参数
 
 - `Fill connections`：补齐缺失端口连接。
 - `Fill parameters`：补齐缺失参数赋值。
@@ -45,7 +47,30 @@ import { missingPortFiles } from '../../../../examples/dailyUse';
 - `Remove empty port connections`：清理多余空端口连接。
 - `Add explicit empty port connection`：把 `.port` 改成显式 `.port()`。
 - `Add empty instance port list`：给没有端口列表的实例补上空端口列表。
-- `Convert literal to binary/octal/decimal/hexadecimal`：转换整数 literal 进制。
+- `Expand named port shorthand` / `Collapse named port to shorthand`：在 `.ready` 和 `.ready(ready)` 之间转换。
+- `Convert ANSI port declarations to non-ANSI` / `Convert non-ANSI port declarations to ANSI`：在模块头端口声明和模块体端口声明之间转换。
+- `Split declaration`、`Sort named parameter assignments`、`Sort named port connections`：拆分多声明项，并按目标模块顺序整理命名参数或端口连接。
+
+### 过程块和控制流
+
+- `Convert to always_comb`、`Convert to always_ff`、`Convert to always @(*)`、`Convert to always @(...)`：在兼容的 `always`、`always_comb` 和 `always_ff` 写法之间转换。
+- `Add default case item`：给缺少 `default` 的 `case` 补上默认分支。
+- `Invert if/else`、`Merge nested if`：反转分支，或把嵌套 `if` 合并成一个条件。
+- `Wrap statement in begin/end` / `Unwrap single-statement begin/end`：给控制流语句包上或移除单语句 `begin/end`。
+- `Pull assignment up` / `Pull assignment down`：在 `if/else` 赋值链和三目赋值之间转换。
+
+### 表达式和数字 literal
+
+- `Extract into variable`：把选中的表达式提取成临时变量。
+- `Apply De Morgan's law` / `Factor De Morgan's law`：应用或提取德摩根律。
+- `Remove redundant parentheses`：移除不会改变优先级的多余括号。
+- `Expand compound assignment` / `Collapse compound assignment`：在 `a += b` 和 `a = a + b` 之间转换。
+- 自增、自减、复合赋值和展开赋值可以互相转换，例如在 `count++`、`++count`、`count += 1` 和 `count = count + 1` 之间切换。
+- `Convert literal to binary/octal/decimal/hexadecimal`、`Remove digit separators`：转换整数 literal 进制或清理数字分隔符。
+
+### 诊断快速修复
+
+- `Insert missing '{token}'`：当解析诊断能识别缺失的括号、分号等 token 时，直接插入缺失 token。
 
 ## 项目配置影响
 

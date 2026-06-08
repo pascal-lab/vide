@@ -1,0 +1,61 @@
+---
+title: 1.2.0
+description: Vide 1.2.0 更新日志。
+---
+
+Vide 1.2.0 主要改善宏相关的跳转、悬停、引用搜索和代码动作，同时补齐 Qihe 选项生成和发布包流程。
+
+## 重点更新
+
+### 宏阅读和条件编译
+
+- 阅读宏调用时，现在可以直接在悬停信息里看到宏签名、实参对应关系、最终展开结果，以及嵌套宏每一步是怎么展开的。([#237](https://github.com/pascal-lab/vide/pull/237) by [@hongjr03](https://github.com/hongjr03))
+
+  ![宏悬停和宏实备注解示例](../../assets/changelog/1.2.0/macro-hover-inlay.gif)
+
+- 宏不再只局限于当前文件：定义在 include 头文件里的宏，可以参与跳转定义、引用搜索、悬停、补全和诊断定位。([#228](https://github.com/pascal-lab/vide/pull/228) by [@hongjr03](https://github.com/hongjr03), [#235](https://github.com/pascal-lab/vide/pull/235) by [@hongjr03](https://github.com/hongjr03))
+- `vide.toml` 里配置的预定义宏，在能定位到配置项时，也可以作为跳转和引用目标。([#238](https://github.com/pascal-lab/vide/pull/238) by [@hongjr03](https://github.com/hongjr03))
+- 对同一段 `ifdef` / `ifndef` 条件编译代码，诊断、导航、语义高亮、当前位置高亮和引用搜索现在会采用更一致的分支判断。([#234](https://github.com/pascal-lab/vide/pull/234) by [@hongjr03](https://github.com/hongjr03), [#241](https://github.com/pascal-lab/vide/pull/241) by [@hongjr03](https://github.com/hongjr03))
+
+### 自动重构和符号大纲
+
+- 新增更多 Code Actions：`always` / `always_comb` / `always_ff` 转换、ANSI / non-ANSI 端口声明转换、命名端口简写展开/折叠、去除多余括号、合并嵌套 `if`、提取变量、条件赋值上拉/下拉、数字字面量重排等。([#239](https://github.com/pascal-lab/vide/pull/239) by [@roife](https://github.com/roife))
+
+  ![转换 always 块示例](../../assets/changelog/1.2.0/conv-to-always-comb.gif)
+
+  ![ANSI 和 non-ANSI 端口声明转换示例](../../assets/changelog/1.2.0/ansi-non-ansi.gif)
+
+  ![命名端口简写展开和折叠示例](../../assets/changelog/1.2.0/named-port-shorthand-expansion-collapse.gif)
+
+  ![提取变量示例](../../assets/changelog/1.2.0/extract-var.gif)
+
+- 符号大纲现在会显示 `typedef struct` / `typedef union`，包括嵌套 generate 或 block 作用域里的结构类型。([#239](https://github.com/pascal-lab/vide/pull/239) by [@roife](https://github.com/roife))
+
+  ![struct 符号大纲示例](../../assets/changelog/1.2.0/struct-outline.png)
+
+### Qihe 集成
+
+- VS Code 扩展现在可以检测 `qihe-options.toml`，并在运行 Qihe 时自动加入 `--options ./qihe-options.toml`；配置文件里的 `storage.root` 会被保留。([#226](https://github.com/pascal-lab/vide/pull/226) by [@edragain2nd](https://github.com/edragain2nd))
+- 新增从 VS Code 生成 `qihe-options.toml` 的命令，复用当前 Qihe 命令设置，并补充中英文文档说明。([#230](https://github.com/pascal-lab/vide/pull/230) by [@hongjr03](https://github.com/hongjr03))
+
+### 稳定性、CI 和发布包
+
+- 修复文件改名或新增文件后，部分工作区请求可能崩溃的问题。([#229](https://github.com/pascal-lab/vide/pull/229) by [@hongjr03](https://github.com/hongjr03))
+- 修复 Alpine 发布包里的 C++ / musl 链接问题。([#232](https://github.com/pascal-lab/vide/pull/232) by [@hongjr03](https://github.com/hongjr03))
+- VS Code Web Smoke 测试依赖拆到独立包，避免普通扩展安装和发布包流程触发浏览器下载脚本。([#231](https://github.com/pascal-lab/vide/pull/231) by [@hongjr03](https://github.com/hongjr03))
+- VS Code 扩展打包流程经过整理，发布包体积更小；性能分析相关内容只保留在调试包和性能分析包里。([#240](https://github.com/pascal-lab/vide/pull/240) by [@roife](https://github.com/roife))
+- 预处理器相关代码被整理到独立模块，后续维护和扩展更清晰。([#227](https://github.com/pascal-lab/vide/pull/227) by [@hongjr03](https://github.com/hongjr03))
+
+## 贡献者
+
+感谢本次发布的所有贡献者：
+
+- [@edragain2nd](https://github.com/edragain2nd)
+- [@hongjr03](https://github.com/hongjr03)
+- [@roife](https://github.com/roife)
+
+## 新贡献者
+
+- [@edragain2nd](https://github.com/edragain2nd) 在 [#226](https://github.com/pascal-lab/vide/pull/226) 中完成了首次贡献。
+
+**完整更新列表**: [v1.1.0...v1.2.0](https://github.com/pascal-lab/vide/compare/v1.1.0...v1.2.0)
