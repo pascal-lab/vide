@@ -1358,6 +1358,111 @@ endmodule
 }
 
 #[test]
+fn source_model_keeps_macro_expansion_contiguous_across_predefine_tokens() {
+    let root_text = r#"`define DECL_PIPE(name, width) logic [(width)-1:0] name``_q
+module m;
+  `DECL_PIPE(sample, `LANE_WIDTH);
+endmodule
+"#;
+    let (model, _root_source) = source_model_from_root(
+        root_text,
+        SyntaxTreeOptions {
+            predefines: vec!["LANE_WIDTH=12".to_owned()],
+            ..SyntaxTreeOptions::default()
+        },
+    );
+
+    let decl_call = model
+        .macro_calls()
+        .iter()
+        .find(|call| {
+            model
+                .macro_references()
+                .get(call.reference)
+                .is_some_and(|reference| reference.name.as_str() == "DECL_PIPE")
+        })
+        .expect("DECL_PIPE call should be traced");
+    assert_eq!(decl_call.status, SourceMacroCallStatus::ExpansionAvailable);
+
+    let SourceMacroExpansionQuery::Available(expansion_id) =
+        model.immediate_macro_expansion(decl_call.id)
+    else {
+        panic!("DECL_PIPE call should have a complete expansion");
+    };
+    let expansion = model.macro_expansions().get(expansion_id).unwrap();
+    let start = expansion.emitted_token_range.start.raw();
+    let end = start + expansion.emitted_token_range.len;
+    let expanded = (start..end)
+        .filter_map(|raw| model.emitted_tokens().get(SourceEmittedTokenId::new(raw)))
+        .map(|token| token.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(
+        expanded.contains("logic [ ( 12 ) - 1 : 0 ] sample_q"),
+        "predefine token should stay inside the parent expansion stream: {expanded}"
+    );
+    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
+    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
+}
+
+#[test]
+fn source_model_keeps_macro_actual_argument_expansion_contiguous_across_predefine_tokens() {
+    let root_text = r#"`define PIPE_ASSIGN(name, next_value) \
+  always_ff @(posedge clk_i or negedge rst_ni) begin \
+    if (!rst_ni) begin \
+      name``_q <= '0; \
+    end else begin \
+      name``_q <= (next_value); \
+    end \
+  end
+module m;
+  `PIPE_ASSIGN(trace, sample_q ^ {{(`LANE_WIDTH-1){1'b0}}, 1'b1});
+endmodule
+"#;
+    let (model, _root_source) = source_model_from_root(
+        root_text,
+        SyntaxTreeOptions {
+            predefines: vec!["LANE_WIDTH=12".to_owned()],
+            ..SyntaxTreeOptions::default()
+        },
+    );
+
+    let pipe_call = model
+        .macro_calls()
+        .iter()
+        .find(|call| {
+            model
+                .macro_references()
+                .get(call.reference)
+                .is_some_and(|reference| reference.name.as_str() == "PIPE_ASSIGN")
+        })
+        .expect("PIPE_ASSIGN call should be traced");
+    assert_eq!(pipe_call.status, SourceMacroCallStatus::ExpansionAvailable);
+
+    let SourceMacroExpansionQuery::Available(expansion_id) =
+        model.immediate_macro_expansion(pipe_call.id)
+    else {
+        panic!("PIPE_ASSIGN call should have a complete expansion");
+    };
+    let expansion = model.macro_expansions().get(expansion_id).unwrap();
+    let start = expansion.emitted_token_range.start.raw();
+    let end = start + expansion.emitted_token_range.len;
+    let expanded = (start..end)
+        .filter_map(|raw| model.emitted_tokens().get(SourceEmittedTokenId::new(raw)))
+        .map(|token| token.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(
+        expanded.contains("trace_q <= ( sample_q ^ { { ( 12 - 1 ) { 1 'b 0 } } , 1 'b 1 } )"),
+        "predefine token and following argument tokens should stay inside the parent expansion stream: {expanded}"
+    );
+    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
+    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
+}
+
+#[test]
 fn source_model_resolves_conditional_tokens_to_visible_defines() {
     let root_text = r#"`include "defs.vh"
 `ifdef HEADER_FLAG

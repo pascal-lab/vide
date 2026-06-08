@@ -1679,6 +1679,104 @@ endmodule
 }
 
 #[test]
+fn preproc_macro_hover_expands_through_configured_predefine_argument() {
+    let dir = TestDir::new("manifest-predefine-macro-hover");
+    let top_path = dir.path().join("top.sv");
+    let manifest_path = dir.path().join("vide.toml");
+    let marked_top_text = normalize_fixture_text(
+        r#"
+`define DECL_PIPE(name, width) logic [(width)-1:0] name``_q
+`define PIPE_ASSIGN(name, next_value) \
+  always_ff @(posedge clk_i or negedge rst_ni) begin \
+    if (!rst_ni) begin \
+      name``_q <= '0; \
+    end else begin \
+      name``_q <= (next_value); \
+    end \
+  end
+module top;
+  `/*marker:decl_call*/DECL_PIPE(sample, `LANE_WIDTH);
+  `/*marker:assign_call*/PIPE_ASSIGN(trace, sample_q ^ {{(`LANE_WIDTH-1){1'b0}}, 1'b1});
+endmodule
+"#,
+    );
+    let marked_manifest_text =
+        normalize_fixture_text(r#"defines = [/*marker:def*/"LANE_WIDTH=12"]"#);
+    let (top_text, top_markers) = strip_markers(marked_top_text);
+    let (manifest_text, manifest_markers) = strip_markers(marked_manifest_text);
+    let manifest_range = marked_range(&manifest_markers, "def", TextSize::of("\"LANE_WIDTH=12\""));
+
+    let top_file_id = FileId(0);
+    let manifest_file_id = FileId(1);
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top_file_id])]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig {
+                predefines: vec![Predefine::with_source(
+                    "LANE_WIDTH=12",
+                    PredefineSource { path: manifest_path, range: manifest_range },
+                )],
+                include_dirs: Vec::new(),
+            },
+        }],
+    )));
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: manifest_file_id,
+        change_kind: ChangeKind::Create(Arc::from(manifest_text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let analysis = host.make_analysis();
+
+    let decl_hover = analysis
+        .hover(
+            position(top_file_id, &top_markers, "decl_call"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("DECL_PIPE macro call hover expected");
+    let decl_info = decl_hover.info.as_str();
+    assert!(
+        decl_info.contains("```systemverilog")
+            && decl_info.contains("`DECL_PIPE(name, width)")
+            && !decl_info.contains("`define `DECL_PIPE(name, width)")
+            && decl_info.contains("logic [ ( 12 ) - 1 : 0 ] sample_q")
+            && !decl_info.contains("unavailable"),
+        "DECL_PIPE hover should show expansion through configured predefine: {decl_info}"
+    );
+
+    let assign_hover = analysis
+        .hover(
+            position(top_file_id, &top_markers, "assign_call"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("PIPE_ASSIGN macro call hover expected");
+    let assign_info = assign_hover.info.as_str();
+    assert!(
+        assign_info.contains("`PIPE_ASSIGN(name, next_value)")
+            && !assign_info.contains("`define `PIPE_ASSIGN(name, next_value)")
+            && assign_info
+                .contains("trace_q <= ( sample_q ^ { { ( 12 - 1 ) { 1 'b 0 } } , 1 'b 1 } )")
+            && !assign_info.contains("unavailable"),
+        "PIPE_ASSIGN hover should show actual-argument expansion through configured predefine: {assign_info}"
+    );
+}
+
+#[test]
 fn preproc_macro_definition_supports_navigation_and_hover() {
     let text = r#"
 `define /*marker:definition*/LOCAL_WIDTH 8
