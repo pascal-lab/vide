@@ -6,7 +6,6 @@ import { run } from './process';
 import type { BuildProfile, NativeTargetSpec, ServerMode } from './targets';
 
 const ALPINE_CARGO_TARGETS: Partial<Record<NativeTargetSpec['target'], string>> = {
-  'alpine-arm64': 'aarch64-unknown-linux-musl',
   'alpine-x64': 'x86_64-unknown-linux-musl',
 };
 

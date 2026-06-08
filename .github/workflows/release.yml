@@ -284,9 +284,6 @@ jobs:
           - target: alpine-x64
             image: ghcr.io/blackdex/rust-musl:x86_64-musl-nightly
             rust-target: x86_64-unknown-linux-musl
-          - target: alpine-arm64
-            image: ghcr.io/blackdex/rust-musl:aarch64-musl-nightly
-            rust-target: aarch64-unknown-linux-musl
     steps:
       - name: Install build dependencies
         run: |
@@ -647,7 +644,6 @@ jobs:
           - win32-x64
           - darwin-arm64
           - alpine-x64
-          - alpine-arm64
           - web
     steps:
       - name: Download VSIX artifacts
