@@ -431,7 +431,7 @@ logic [`HEADER_WIDTH-1:0] data;
     assert_eq!(call.expansion, Some(expansion_id));
     let expansion = model.macro_expansions().get(expansion_id).unwrap();
     assert_eq!(expansion.call, call.id);
-    assert_eq!(*resolved_definition, expansion.definition);
+    assert_eq!(expansion.definition, SourceMacroExpansionDefinition::Source(*resolved_definition));
     assert!(expansion.child_calls.is_empty());
     assert_eq!(expansion.status, SourceMacroExpansionStatus::Complete);
 
@@ -1241,10 +1241,26 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "3")
         .expect("intrinsic macro token should stay in emitted stream");
-    assert!(matches!(
-        model.token_provenance().get(intrinsic.provenance).unwrap(),
-        SourceTokenProvenance::Builtin { name } if name.as_str() == "__LINE__"
-    ));
+    let SourceTokenProvenance::Builtin { name, call, identity } =
+        model.token_provenance().get(intrinsic.provenance).unwrap()
+    else {
+        panic!("intrinsic macro token should have builtin provenance");
+    };
+    assert_eq!(name.as_str(), "__LINE__");
+    assert_ne!(identity.call.raw(), 0);
+    assert_ne!(identity.expansion.raw(), 0);
+
+    let call = model.macro_calls().get(*call).expect("builtin provenance should map to a call");
+    let SourceMacroExpansionQuery::Available(expansion_id) =
+        model.immediate_macro_expansion(call.id)
+    else {
+        panic!("builtin macro call should have an immediate expansion");
+    };
+    let expansion = model.macro_expansions().get(expansion_id).unwrap();
+    assert_eq!(
+        expansion.definition,
+        SourceMacroExpansionDefinition::Builtin { name: "__LINE__".into() }
+    );
 }
 
 #[test]

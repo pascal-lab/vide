@@ -1520,6 +1520,36 @@ endmodule
 }
 
 #[test]
+fn preproc_builtin_macro_hover_shows_expanded_text() {
+    let text = r#"
+module top;
+  localparam int L = `/*marker:line*/__LINE__;
+  localparam string F = `/*marker:file*/__FILE__;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    for (marker, name) in [("line", "__LINE__"), ("file", "__FILE__")] {
+        let hover = analysis
+            .hover(
+                position(file_id, &markers, marker),
+                HoverConfig { format: HoverFormat::PlainText },
+            )
+            .unwrap()
+            .expect("builtin macro hover expected");
+        let info = hover.info.as_str();
+        assert!(
+            info.contains("```systemverilog")
+                && info.contains(&format!("`{name}"))
+                && info.contains("--------------------")
+                && !info.contains("unavailable"),
+            "builtin macro hover should show structured expansion: {info}"
+        );
+    }
+}
+
+#[test]
 fn preproc_macro_hover_shows_nested_compact_expansion() {
     let text = r#"
 `define MATH_ONE 12'd1

@@ -210,6 +210,7 @@ pub enum PreprocessorTraceTokenProvenance {
     },
     Builtin {
         name: String,
+        identity: PreprocessorTraceMacroBuiltinIdentity,
     },
     Unavailable,
 }
@@ -232,6 +233,13 @@ pub struct PreprocessorTraceMacroArgumentIdentity {
     pub body_token_index: u32,
     pub argument_index: u32,
     pub argument_token_index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreprocessorTraceMacroBuiltinIdentity {
+    pub call_id: PreprocessorTraceMacroCallId,
+    pub expansion_id: PreprocessorTraceMacroExpansionId,
+    pub parent_expansion_id: Option<PreprocessorTraceMacroExpansionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -601,7 +609,13 @@ impl PreprocessorTraceTokenProvenance {
                     argument_token_range,
                 }
             }
-            Self::BUILTIN if !raw.macro_name.is_empty() => Self::Builtin { name: raw.macro_name },
+            Self::BUILTIN if !raw.macro_name.is_empty() => {
+                let Some(identity) = PreprocessorTraceMacroBuiltinIdentity::from_raw(&raw.identity)
+                else {
+                    return Self::Unavailable;
+                };
+                Self::Builtin { name: raw.macro_name, identity }
+            }
             Self::UNAVAILABLE => Self::Unavailable,
             _ => Self::Unavailable,
         }
@@ -646,6 +660,21 @@ impl PreprocessorTraceMacroArgumentIdentity {
             argument_token_index: raw
                 .has_argument_token_index
                 .then_some(raw.argument_token_index)?,
+        })
+    }
+}
+
+impl PreprocessorTraceMacroBuiltinIdentity {
+    #[inline]
+    fn from_raw(raw: &RawPreprocessorTraceMacroIdentity) -> Option<Self> {
+        Some(Self {
+            call_id: raw.has_call_id.then_some(PreprocessorTraceMacroCallId(raw.call_id))?,
+            expansion_id: raw
+                .has_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.expansion_id))?,
+            parent_expansion_id: raw
+                .has_parent_expansion_id
+                .then_some(PreprocessorTraceMacroExpansionId(raw.parent_expansion_id)),
         })
     }
 }

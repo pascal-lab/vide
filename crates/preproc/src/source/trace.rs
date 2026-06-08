@@ -4,10 +4,10 @@ use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     PreprocessorTrace, PreprocessorTraceActualArgument, PreprocessorTraceEmittedToken,
     PreprocessorTraceEvent, PreprocessorTraceEventId, PreprocessorTraceMacroArgumentIdentity,
-    PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroCallId,
-    PreprocessorTraceMacroDefinitionId, PreprocessorTraceMacroExpansionId,
-    PreprocessorTraceMacroParam, PreprocessorTraceToken, PreprocessorTraceTokenProvenance,
-    SourceBufferOrigin, SourceBufferRange, SyntaxKind,
+    PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroBuiltinIdentity,
+    PreprocessorTraceMacroCallId, PreprocessorTraceMacroDefinitionId,
+    PreprocessorTraceMacroExpansionId, PreprocessorTraceMacroParam, PreprocessorTraceToken,
+    PreprocessorTraceTokenProvenance, SourceBufferOrigin, SourceBufferRange, SyntaxKind,
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -59,6 +59,16 @@ impl From<PreprocessorTraceMacroArgumentIdentity> for SourceMacroArgumentIdentit
             body_token_index: value.body_token_index as usize,
             argument_index: value.argument_index as usize,
             argument_token_index: value.argument_token_index as usize,
+        }
+    }
+}
+
+impl From<PreprocessorTraceMacroBuiltinIdentity> for SourceMacroBuiltinIdentity {
+    fn from(value: PreprocessorTraceMacroBuiltinIdentity) -> Self {
+        Self {
+            call: SourceMacroCallKey::from(value.call_id),
+            expansion: SourceMacroExpansionKey::from(value.expansion_id),
+            parent_expansion: value.parent_expansion_id.map(SourceMacroExpansionKey::from),
         }
     }
 }
@@ -326,8 +336,11 @@ fn emitted_token_provenance_from_trace(
                 argument_token_range,
             }
         }
-        PreprocessorTraceTokenProvenance::Builtin { name } if !name.is_empty() => {
-            SourceTokenProvenanceFact::Builtin { name: name.to_smolstr() }
+        PreprocessorTraceTokenProvenance::Builtin { name, identity } if !name.is_empty() => {
+            SourceTokenProvenanceFact::Builtin {
+                name: name.to_smolstr(),
+                identity: Some(SourceMacroBuiltinIdentity::from(identity)),
+            }
         }
         PreprocessorTraceTokenProvenance::Builtin { .. } => SourceTokenProvenanceFact::Unavailable,
         PreprocessorTraceTokenProvenance::Unavailable => SourceTokenProvenanceFact::Unavailable,

@@ -285,13 +285,42 @@ pub struct MacroArgument {
 pub struct MacroExpansion {
     pub id: MacroExpansionId,
     pub call: MacroCall,
-    pub definition_id: MacroDefinitionId,
-    pub definition: MacroDefinition,
+    pub definition_id: Option<MacroDefinitionId>,
+    pub definition: MacroExpansionDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
     pub display_source: MappedPreprocSource,
     pub display_range: TextRange,
     pub child_calls: Vec<MacroCallId>,
     pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroExpansionDefinition {
+    Source(MacroDefinition),
+    Builtin { name: SmolStr, capability: PreprocAvailability },
+}
+
+impl MacroExpansionDefinition {
+    pub fn name(&self) -> &SmolStr {
+        match self {
+            Self::Source(definition) => &definition.name,
+            Self::Builtin { name, .. } => name,
+        }
+    }
+
+    pub fn capability(&self) -> &PreprocAvailability {
+        match self {
+            Self::Source(definition) => &definition.capability,
+            Self::Builtin { capability, .. } => capability,
+        }
+    }
+
+    pub fn capability_mut(&mut self) -> &mut PreprocAvailability {
+        match self {
+            Self::Source(definition) => &mut definition.capability,
+            Self::Builtin { capability, .. } => capability,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -331,6 +360,7 @@ pub enum TokenProvenance {
     },
     Builtin {
         name: SmolStr,
+        call: MacroCall,
     },
     Unavailable(PreprocUnavailable),
 }
@@ -356,6 +386,10 @@ pub enum DiagnosticProvenance {
     VirtualExpansion {
         source: MappedPreprocSource,
         range: TextRange,
+    },
+    Builtin {
+        call: MacroCall,
+        name: SmolStr,
     },
     Unavailable(PreprocUnavailable),
 }

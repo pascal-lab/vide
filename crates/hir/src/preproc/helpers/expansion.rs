@@ -11,20 +11,12 @@ pub(in crate::preproc) fn map_macro_expansion(
             }),
         });
     };
-    let Some(definition) = mapped.model.macro_definitions().get(expansion.definition) else {
-        return Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::Source(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition {
-                    call: expansion.call,
-                },
-            ),
-        });
-    };
+    let (definition_id, definition) = map_macro_expansion_definition(mapped, expansion)?;
     Ok(MacroExpansion {
         id: expansion.id.into(),
         call: map_macro_call(mapped, call)?,
-        definition_id: expansion.definition.into(),
-        definition: map_macro_definition(mapped, definition)?,
+        definition_id,
+        definition,
         emitted_token_range: expansion.emitted_token_range,
         display_source: map_expansion_display_source(mapped, expansion.id)?,
         display_range: mapped
@@ -34,6 +26,36 @@ pub(in crate::preproc) fn map_macro_expansion(
         child_calls: expansion.child_calls.iter().copied().map(Into::into).collect(),
         capability: macro_expansion_availability(&expansion.status),
     })
+}
+
+fn map_macro_expansion_definition(
+    mapped: &MappedSourcePreprocModel,
+    expansion: &SourceMacroExpansionFact,
+) -> PreprocResult<(Option<MacroDefinitionId>, MacroExpansionDefinition)> {
+    match &expansion.definition {
+        SourceMacroExpansionDefinitionFact::Source(definition_id) => {
+            let Some(definition) = mapped.model.macro_definitions().get(*definition_id) else {
+                return Err(PreprocError::Unavailable {
+                    reason: PreprocUnavailable::Source(
+                        SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition {
+                            call: expansion.call,
+                        },
+                    ),
+                });
+            };
+            Ok((
+                Some((*definition_id).into()),
+                MacroExpansionDefinition::Source(map_macro_definition(mapped, definition)?),
+            ))
+        }
+        SourceMacroExpansionDefinitionFact::Builtin { name } => Ok((
+            None,
+            MacroExpansionDefinition::Builtin {
+                name: name.clone(),
+                capability: macro_expansion_availability(&expansion.status),
+            },
+        )),
+    }
 }
 
 pub(in crate::preproc) fn map_expansion_display_source(
@@ -326,8 +348,8 @@ pub(in crate::preproc) fn map_token_provenance(
         SourceTokenProvenanceFact::Predefine { source } => {
             TokenProvenance::Predefine { source: map_mapped_source_id(mapped, *source)? }
         }
-        SourceTokenProvenanceFact::Builtin { name } => {
-            TokenProvenance::Builtin { name: name.clone() }
+        SourceTokenProvenanceFact::Builtin { name, call, .. } => {
+            TokenProvenance::Builtin { name: name.clone(), call: mapped_macro_call(mapped, *call)? }
         }
         SourceTokenProvenanceFact::Unavailable(reason) => {
             TokenProvenance::Unavailable(PreprocUnavailable::Source(reason.clone()))
@@ -379,7 +401,13 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
             TokenProvenance::Unavailable(reason) => {
                 saw_unavailable = Some(reason);
             }
-            TokenProvenance::Predefine { .. } | TokenProvenance::Builtin { .. } => {}
+            TokenProvenance::Predefine { .. } => {}
+            TokenProvenance::Builtin { call, name } => {
+                return Ok(DiagnosticProvenance::Builtin {
+                    call: call.clone(),
+                    name: name.clone(),
+                });
+            }
         }
     }
 

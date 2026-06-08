@@ -1615,7 +1615,8 @@ endmodule
         .expect("intrinsic macro token should stay in emitted stream");
     assert!(matches!(
         &intrinsic.provenance,
-        PreprocessorTraceTokenProvenance::Builtin { name } if name == "__LINE__"
+        PreprocessorTraceTokenProvenance::Builtin { name, identity }
+            if name == "__LINE__" && identity.call_id.0 != 0 && identity.expansion_id.0 != 0
     ));
 }
 

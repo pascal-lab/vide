@@ -285,8 +285,9 @@ fn apply_context_capability_to_macro_expansion(
     expansion: &mut MacroExpansion,
 ) {
     apply_context_capability_to_macro_call(contexts, &mut expansion.call);
-    expansion.definition.capability =
-        context_query_capability(contexts, expansion.definition.capability.clone());
+    let definition_capability =
+        context_query_capability(contexts, expansion.definition.capability().clone());
+    *expansion.definition.capability_mut() = definition_capability;
     expansion.capability = context_query_capability(contexts, expansion.capability.clone());
 }
 
@@ -350,12 +351,12 @@ fn apply_context_capability_to_macro_expansion_provenance(
     for token in &mut provenance.tokens {
         match &mut token.provenance {
             TokenProvenance::MacroBody { call, .. }
-            | TokenProvenance::MacroArgument { call, .. } => {
+            | TokenProvenance::MacroArgument { call, .. }
+            | TokenProvenance::Builtin { call, .. } => {
                 apply_context_capability_to_macro_call(contexts, call);
             }
             TokenProvenance::SourceToken { .. }
             | TokenProvenance::Predefine { .. }
-            | TokenProvenance::Builtin { .. }
             | TokenProvenance::Unavailable(_) => {}
         }
     }

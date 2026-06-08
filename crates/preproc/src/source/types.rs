@@ -88,6 +88,13 @@ pub struct SourceMacroArgumentIdentity {
     pub argument_token_index: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroBuiltinIdentity {
+    pub call: SourceMacroCallKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocSource {
     pub id: PreprocSourceId,
@@ -243,6 +250,7 @@ pub enum SourceTokenProvenanceFact {
     },
     Builtin {
         name: SmolStr,
+        identity: Option<SourceMacroBuiltinIdentity>,
     },
     Unavailable,
 }

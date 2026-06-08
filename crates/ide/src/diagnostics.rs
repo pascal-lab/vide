@@ -390,6 +390,9 @@ fn diagnostic_preproc_target_file_range(
         | hir::preproc::DiagnosticProvenance::VirtualExpansion { source, range } => {
             Some((source.file_id()?, *range))
         }
+        hir::preproc::DiagnosticProvenance::Builtin { call, .. } => {
+            Some((call.file_id, call.range))
+        }
         hir::preproc::DiagnosticProvenance::Unavailable(_) => None,
     }
 }
