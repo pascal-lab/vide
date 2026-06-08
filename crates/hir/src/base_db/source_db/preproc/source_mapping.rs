@@ -465,12 +465,11 @@ fn expansion_display_text_and_ranges(
     {
         let token_id = SourceEmittedTokenId::new(raw);
         let token = model.emitted_tokens().get(token_id)?;
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        let start = text.len();
-        text.push_str(token.text.as_str());
-        let end = text.len();
+        let display = token.display.as_str();
+        let token_start_in_display = display.strip_suffix(token.text.as_str())?.len();
+        let start = text.len().checked_add(token_start_in_display)?;
+        let end = start.checked_add(token.text.len())?;
+        text.push_str(display);
         token_ranges.insert(
             token_id,
             TextRange::new(

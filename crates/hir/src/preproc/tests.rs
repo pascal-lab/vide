@@ -412,8 +412,9 @@ endmodule
     let mapped = mapped.as_ref().as_ref().unwrap();
     let expansion_display =
         mapped.source_map.expansion_display_text(SourceMacroExpansionId::new(0)).unwrap();
-    assert_eq!(expansion_display, "logic generated ;");
-    assert_eq!(provenance.expansion.display_range, TextRange::new(0.into(), 17.into()));
+    assert_eq!(expansion_display, "\nlogic generated;");
+    assert_eq!(provenance.expansion.display_text, expansion_display);
+    assert_eq!(provenance.expansion.display_range, TextRange::new(1.into(), 17.into()));
 
     let logic = provenance
         .tokens
@@ -425,7 +426,7 @@ endmodule
     };
     assert_eq!(source.file_id(), Some(TOP));
     assert_eq!(text_at_range(root_text, *range), "logic");
-    assert_eq!(logic.display_range, TextRange::new(0.into(), 5.into()));
+    assert_eq!(logic.display_range, TextRange::new(1.into(), 6.into()));
 
     let generated = provenance
         .tokens
@@ -440,7 +441,37 @@ endmodule
     assert_eq!(*argument_index, 0);
     assert_eq!(source.file_id(), Some(TOP));
     assert_eq!(text_at_range(root_text, *range), "generated");
-    assert_eq!(generated.display_range, TextRange::new(6.into(), 15.into()));
+    assert_eq!(generated.display_range, TextRange::new(7.into(), 16.into()));
+}
+
+#[test]
+fn preproc_macro_expansion_display_keeps_emitted_token_trivia() {
+    let root_text = r#"`define BLOCK(name) \
+  always_ff @(posedge clk) begin \
+    name <= 1; \
+  end
+module top;
+  `BLOCK(q)
+endmodule
+"#;
+    let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+    let provenance =
+        macro_expansion_provenance_at(&db, TOP, offset(root_text, "`BLOCK")).unwrap().unwrap();
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().unwrap();
+    let display_text = mapped
+        .source_map
+        .expansion_display_text(SourceMacroExpansionId::new(provenance.expansion.id.raw()))
+        .unwrap();
+
+    assert_eq!(provenance.expansion.display_text, display_text);
+    assert!(
+        display_text.contains("\n  always_ff")
+            && display_text.contains("\n    q <= 1;")
+            && display_text.contains("\n  end"),
+        "expansion display text should preserve emitted token trivia: {display_text:?}"
+    );
 }
 
 #[test]

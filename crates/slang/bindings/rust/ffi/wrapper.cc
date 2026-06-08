@@ -4,6 +4,7 @@
 #include "slang/parsing/ParserMetadata.h"
 #include "slang/parsing/PreprocessorTrace.h"
 #include "slang/syntax/AllSyntax.h"
+#include "slang/syntax/SyntaxPrinter.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -175,6 +176,7 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_STRINGIFICATION = 6;
   ::RawPreprocessorTraceEmittedToken token;
   token.raw_text = rust::String();
   token.value_text = rust::String();
+  token.display_text = rust::String();
   token.token_kind = static_cast<uint16_t>(slang::parsing::TokenKind::Unknown);
   token.provenance_kind = TRACE_TOKEN_PROVENANCE_UNAVAILABLE;
   token.macro_name = rust::String();
@@ -197,6 +199,13 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_STRINGIFICATION = 6;
   token.body_token_range = empty_source_buffer_range();
   token.argument_token_range = empty_source_buffer_range();
   return token;
+}
+
+std::string emitted_token_display_text(slang::parsing::Token token) {
+  return slang::syntax::SyntaxPrinter()
+      .setSquashNewlines(false)
+      .print(token)
+      .str();
 }
 
 bool is_single_buffer_range(slang::SourceRange range) {
@@ -505,6 +514,7 @@ template<typename TTokens>
 
   result.raw_text = rust::String(std::string(token.rawText()));
   result.value_text = rust::String(std::string(token.valueText()));
+  result.display_text = rust::String(emitted_token_display_text(token));
   result.token_kind = static_cast<uint16_t>(token.kind);
 
   auto location = token.location();

@@ -7,11 +7,10 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        EmittedTokenProvenance, IncludeTarget, MacroDefinition, MacroExpansionDefinition,
-        MacroParamDefinition, MacroReferenceDefinitions, RecursiveMacroExpansionProvenance,
-        include_directives_at, macro_definition_at, macro_param_definition_at,
-        macro_param_reference_definitions_at, macro_reference_definitions_at,
-        recursive_macro_expansion_provenances_at,
+        IncludeTarget, MacroDefinition, MacroExpansionDefinition, MacroParamDefinition,
+        MacroReferenceDefinitions, RecursiveMacroExpansionProvenance, include_directives_at,
+        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
+        macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
 };
@@ -235,7 +234,9 @@ fn render_recursive_expansion(
     }
     render_macro_expansion_header(markup, &root.expansion.definition);
     render_macro_expansion_separator(markup);
-    markup.push_with_code_fence(&expanded_text_from_tokens(&root.tokens));
+    markup.print("Expands to");
+    markup.newline();
+    markup.push_with_code_fence(&macro_expansion_hover_text(root.expansion.display_text.as_str()));
     render_macro_expansion_separator(markup);
     if let MacroExpansionDefinition::Source(definition) = &root.expansion.definition {
         render_macro_source_link(db, markup, definition, root.expansion.call.file_id);
@@ -370,15 +371,47 @@ fn file_link_target(path: &str) -> String {
     if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") }
 }
 
-fn expanded_text_from_tokens(tokens: &[EmittedTokenProvenance]) -> String {
-    let mut text = String::new();
-    for (index, token) in tokens.iter().enumerate() {
-        if index > 0 {
-            text.push(' ');
-        }
-        text.push_str(token.text.as_str());
-    }
-    text
+fn macro_expansion_hover_text(text: &str) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    let start = lines.iter().position(|line| !line.trim().is_empty()).unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .map(|index| index + 1)
+        .unwrap_or(start);
+    let lines = &lines[start..end];
+
+    let common_indent = lines
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| leading_indent(line))
+        .reduce(common_whitespace_prefix)
+        .unwrap_or_default();
+
+    lines
+        .iter()
+        .map(|line| {
+            if line.trim().is_empty() {
+                ""
+            } else {
+                line.strip_prefix(common_indent).unwrap_or(line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn leading_indent(line: &str) -> &str {
+    let end = line
+        .char_indices()
+        .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t')).then_some(index))
+        .unwrap_or(line.len());
+    &line[..end]
+}
+
+fn common_whitespace_prefix<'a>(left: &'a str, right: &'a str) -> &'a str {
+    let end = left.bytes().zip(right.bytes()).take_while(|(left, right)| left == right).count();
+    &left[..end]
 }
 
 fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
@@ -593,4 +626,24 @@ fn handle_definition(
     }
 
     Some(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macro_expansion_hover_text_dedents_common_indentation() {
+        let text = "\n    always_ff @(posedge clk) begin\n      q <= 1;\n    end\n";
+
+        assert_eq!(
+            macro_expansion_hover_text(text),
+            "always_ff @(posedge clk) begin\n  q <= 1;\nend"
+        );
+    }
+
+    #[test]
+    fn macro_expansion_hover_text_removes_single_line_callsite_indent() {
+        assert_eq!(macro_expansion_hover_text("  logic generated;"), "logic generated;");
+    }
 }
