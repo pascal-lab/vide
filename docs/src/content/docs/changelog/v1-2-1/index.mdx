@@ -1,0 +1,25 @@
+---
+title: 1.2.1
+description: Vide 1.2.1 更新日志。
+---
+
+Vide 1.2.1 修复宏展开悬停在配置预定义宏和嵌套宏实参场景下的显示问题，并调整 1.2.0 更新日志里的自动重构说明。
+
+## 修复
+
+### 宏展开悬停
+
+- 宏展开经过 `vide.toml` 中配置的预定义宏时，悬停信息现在会继续显示完整展开结果，不再丢失展开内容。([#245](https://github.com/pascal-lab/vide/pull/245) by [@hongjr03](https://github.com/hongjr03))
+- 展开结果现在保留预处理 trace 中的换行和缩进，悬停里的 `Expands to` 代码块更接近实际展开后的代码形态。([#245](https://github.com/pascal-lab/vide/pull/245) by [@hongjr03](https://github.com/hongjr03))
+
+## 文档
+
+- 调整 1.2.0 更新日志里的自动重构说明，让新增代码动作的范围更准确。([#244](https://github.com/pascal-lab/vide/pull/244) by [@hongjr03](https://github.com/hongjr03))
+
+## 贡献者
+
+感谢本次发布的所有贡献者：
+
+- [@hongjr03](https://github.com/hongjr03)
+
+**完整更新列表**: [v1.2.0...v1.2.1](https://github.com/pascal-lab/vide/compare/v1.2.0...v1.2.1)
