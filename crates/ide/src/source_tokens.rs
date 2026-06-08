@@ -325,6 +325,8 @@ fn preproc_hit_for_token(
         ),
         TokenProvenance::Predefine { .. }
         | TokenProvenance::Builtin { .. }
+        | TokenProvenance::TokenPaste { .. }
+        | TokenProvenance::Stringification { .. }
         | TokenProvenance::Unavailable(_) => return None,
     };
 

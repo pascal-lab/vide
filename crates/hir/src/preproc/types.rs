@@ -362,6 +362,12 @@ pub enum TokenProvenance {
         name: SmolStr,
         call: MacroCall,
     },
+    TokenPaste {
+        call: MacroCall,
+    },
+    Stringification {
+        call: MacroCall,
+    },
     Unavailable(PreprocUnavailable),
 }
 

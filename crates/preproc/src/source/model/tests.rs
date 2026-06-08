@@ -1073,7 +1073,7 @@ endmodule
 }
 
 #[test]
-fn source_model_marks_unsupported_macro_ops_unavailable_without_dropping_tokens() {
+fn source_model_records_macro_operation_tokens_without_dropping_tokens() {
     let root_text = r#"`define JOIN(a,b) a``b
 `define STR(x) `"x`"
 module m;
@@ -1088,33 +1088,95 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "foobar")
         .expect("token paste result should not be dropped");
-    assert!(matches!(
-        model.token_provenance().get(pasted.provenance).unwrap(),
-        SourceTokenProvenance::Unavailable(
-            SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
-        )
-    ));
+    let SourceTokenProvenance::TokenPaste { call: paste_call, identity: paste_identity } =
+        model.token_provenance().get(pasted.provenance).unwrap()
+    else {
+        panic!(
+            "token paste should carry macro operation provenance: {:?}",
+            model.token_provenance().get(pasted.provenance).unwrap()
+        );
+    };
+    assert_eq!(
+        Some(paste_identity.call),
+        model.macro_calls().get(*paste_call).and_then(|call| call.identity)
+    );
 
     let stringified = model
         .emitted_tokens()
         .iter()
         .find(|token| token.text.as_str() == "\"foo\"")
         .expect("stringification result should not be dropped");
-    assert!(matches!(
-        model.token_provenance().get(stringified.provenance).unwrap(),
-        SourceTokenProvenance::Unavailable(
-            SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
-        )
-    ));
+    let SourceTokenProvenance::Stringification {
+        call: stringification_call,
+        identity: stringification_identity,
+    } = model.token_provenance().get(stringified.provenance).unwrap()
+    else {
+        panic!("stringification should carry macro operation provenance");
+    };
+    assert_eq!(
+        Some(stringification_identity.call),
+        model.macro_calls().get(*stringification_call).and_then(|call| call.identity)
+    );
+    assert_ne!(paste_call, stringification_call);
     assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Partial);
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Partial);
-    for call in model.macro_calls().iter() {
-        assert!(matches!(
-            model.immediate_macro_expansion(call.id),
-            SourceMacroExpansionQuery::Unavailable(_)
-        ));
+    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
+    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
+    for call in [*paste_call, *stringification_call] {
+        let SourceMacroExpansionQuery::Available(expansion) = model.immediate_macro_expansion(call)
+        else {
+            panic!("macro operation call should have an available expansion");
+        };
+        assert_ne!(model.macro_expansions().get(expansion).unwrap().emitted_token_range.len, 0);
     }
+}
+
+#[test]
+fn source_model_links_pasted_macro_usage_to_parent_call() {
+    let root_text = r#"`define FOOBAR 9
+`define CALL(a,b) `a``b
+module m;
+localparam int W = `CALL(FOO,BAR);
+endmodule
+"#;
+    let (model, _root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+    let parent_call = model
+        .macro_calls()
+        .iter()
+        .find(|call| {
+            model
+                .macro_references()
+                .get(call.reference)
+                .is_some_and(|reference| reference.name.as_str() == "CALL")
+        })
+        .expect("CALL invocation should be recorded");
+    let child_call = model
+        .macro_calls()
+        .iter()
+        .find(|call| {
+            model
+                .macro_references()
+                .get(call.reference)
+                .is_some_and(|reference| reference.name.as_str() == "FOOBAR")
+        })
+        .expect("pasted macro usage should be expanded as a child call");
+    assert_eq!(child_call.parent_expansion_identity, parent_call.expansion_identity);
+
+    let SourceMacroExpansionQuery::Available(parent_expansion) =
+        model.immediate_macro_expansion(parent_call.id)
+    else {
+        panic!("CALL invocation should have an immediate expansion");
+    };
+    let SourceMacroExpansionQuery::Available(child_expansion) =
+        model.immediate_macro_expansion(child_call.id)
+    else {
+        panic!("pasted macro usage should have an immediate expansion");
+    };
+
+    let recursive = model.recursive_macro_expansion(parent_call.id);
+    assert!(recursive.unavailable.is_empty());
+    assert_eq!(recursive.expansions, vec![parent_expansion, child_expansion]);
+    assert!(model.emitted_tokens().iter().any(|token| token.text.as_str() == "9"));
 }
 
 #[test]

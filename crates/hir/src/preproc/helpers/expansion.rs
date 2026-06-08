@@ -341,10 +341,12 @@ pub(in crate::preproc) fn map_token_provenance(
             };
             TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
         }
-        SourceTokenProvenanceFact::TokenPaste { .. }
-        | SourceTokenProvenanceFact::Stringification { .. } => TokenProvenance::Unavailable(
-            PreprocUnavailable::Source(SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance),
-        ),
+        SourceTokenProvenanceFact::TokenPaste { call, .. } => {
+            TokenProvenance::TokenPaste { call: mapped_macro_call(mapped, *call)? }
+        }
+        SourceTokenProvenanceFact::Stringification { call, .. } => {
+            TokenProvenance::Stringification { call: mapped_macro_call(mapped, *call)? }
+        }
         SourceTokenProvenanceFact::Predefine { source } => {
             TokenProvenance::Predefine { source: map_mapped_source_id(mapped, *source)? }
         }
@@ -400,6 +402,11 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
             }
             TokenProvenance::Unavailable(reason) => {
                 saw_unavailable = Some(reason);
+            }
+            TokenProvenance::TokenPaste { .. } | TokenProvenance::Stringification { .. } => {
+                saw_unavailable = Some(PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
+                ));
             }
             TokenProvenance::Predefine { .. } => {}
             TokenProvenance::Builtin { call, name } => {
