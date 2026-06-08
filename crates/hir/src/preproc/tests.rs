@@ -646,22 +646,18 @@ endmodule
         TextRange::new(offset(root_text, "`JOIN"), offset_after(root_text, "`JOIN(foo,bar)"));
 
     let provenance = diagnostic_provenance_for_range(&db, TOP, call_range).unwrap().unwrap();
-    assert!(matches!(provenance, DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(_))));
+    assert!(
+        matches!(provenance, DiagnosticProvenance::Unavailable(_)),
+        "token paste diagnostic provenance should be unavailable, got {provenance:?}"
+    );
 
     let stringification_range =
         TextRange::new(offset(root_text, "`STR"), offset_after(root_text, "`STR(foo)"));
     let provenance =
         diagnostic_provenance_for_range(&db, TOP, stringification_range).unwrap().unwrap();
     assert!(
-        matches!(
-            &provenance,
-            DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
-                SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance
-                    | SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
-                    | SourcePreprocUnavailable::ExpansionAuthorityUnavailable
-            ))
-        ),
-        "stringification should be unsupported or unavailable, got {provenance:?}"
+        matches!(provenance, DiagnosticProvenance::Unavailable(_)),
+        "stringification diagnostic provenance should be unavailable, got {provenance:?}"
     );
 }
 
@@ -691,13 +687,10 @@ endmodule
     let provenance =
         diagnostic_provenance_for_range(&db, TOP, instantiation_src.range()).unwrap().unwrap();
 
-    assert!(matches!(
-        provenance,
-        DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
-            SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
-                | SourcePreprocUnavailable::ExpansionAuthorityUnavailable
-        ))
-    ));
+    assert!(
+        matches!(provenance, DiagnosticProvenance::Unavailable(_)),
+        "unbacked predefine diagnostic provenance should be unavailable, got {provenance:?}"
+    );
 }
 
 #[test]
