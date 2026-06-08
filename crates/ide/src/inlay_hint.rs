@@ -15,6 +15,7 @@ use hir::{
             port::{NonAnsiPortId, PortDeclId, PortDirection, Ports},
         },
     },
+    preproc::{MacroCallResolution, macro_call_resolutions_in_range},
     scope::{AnsiPortEntry, ModuleEntry, ModuleScope, NonAnsiPortEntry},
     source_map::{IsNamedSrc, IsSrc},
 };
@@ -32,6 +33,7 @@ use crate::{db::root_db::RootDb, markup::Markup, module_resolution::resolve_modu
 pub struct InlayHintConfig {
     pub port_connection: bool,
     pub parameter_assignment: bool,
+    pub macro_argument: bool,
     pub end_structure: bool,
 }
 
@@ -45,6 +47,7 @@ impl InlayHintConfig {
 pub enum InlayKind {
     ParamAssign,
     Port,
+    MacroArgument,
     EndStructure,
 }
 
@@ -103,6 +106,16 @@ impl HintAnchor {
             padding_right: false,
         }
     }
+
+    fn macro_argument(range: TextRange) -> Self {
+        Self {
+            range,
+            position: range.start(),
+            kind: InlayKind::MacroArgument,
+            padding_left: false,
+            padding_right: true,
+        }
+    }
 }
 
 struct InlayHintCollector {
@@ -159,6 +172,29 @@ impl InlayHintCollector {
         }
     }
 
+    fn collect_range_hint(
+        &mut self,
+        anchor: HintAnchor,
+        target_location: Option<InFile<TextRange>>,
+        label: String,
+    ) {
+        if !self.intersect(anchor.range) {
+            return;
+        }
+
+        let tooltip = target_location.as_ref().map(|_| Markup::new());
+        self.hints.push(InlayHint {
+            label,
+            tooltip,
+            target_location,
+            padding_left: anchor.padding_left,
+            padding_right: anchor.padding_right,
+            position: anchor.position,
+            kind: anchor.kind,
+            text_edit: None,
+        });
+    }
+
     fn collect_module_end_hint(&mut self, module_src: ModuleSrc, name: &str) {
         if let Some(end_range) = module_src.end_range() {
             self.collect_hint(
@@ -191,6 +227,10 @@ pub(crate) fn inlay_hint(
 
     let mut collector = InlayHintCollector::new(range, config);
 
+    if collector.config.macro_argument {
+        collect_macro_argument_hints(db, file_id.file_id(), range, &mut collector);
+    }
+
     for &item in src_map.items.iter() {
         #[allow(clippy::single_match)]
         match item {
@@ -209,6 +249,49 @@ pub(crate) fn inlay_hint(
     }
 
     collector.into_hints()
+}
+
+fn collect_macro_argument_hints(
+    db: &RootDb,
+    file_id: FileId,
+    range: TextRange,
+    collector: &mut InlayHintCollector,
+) {
+    let Ok(resolutions) = macro_call_resolutions_in_range(db, file_id, range) else {
+        return;
+    };
+
+    for resolution in resolutions {
+        collect_macro_argument_hints_for_call(resolution, collector);
+    }
+}
+
+fn collect_macro_argument_hints_for_call(
+    resolution: MacroCallResolution,
+    collector: &mut InlayHintCollector,
+) -> Option<()> {
+    let params = resolution.definition.params.as_ref()?;
+    for argument in &resolution.call.arguments {
+        let Some(argument_range) = argument.range else {
+            continue;
+        };
+        let Some(param) = params.get(argument.argument_index) else {
+            continue;
+        };
+        let Some(param_name) = &param.name else {
+            continue;
+        };
+        let Some(param_range) = param.range else {
+            continue;
+        };
+        collector.collect_range_hint(
+            HintAnchor::macro_argument(argument_range),
+            Some(InFile::new(HirFileId(resolution.definition.file_id), param_range)),
+            format!("{param_name}:"),
+        );
+    }
+
+    Some(())
 }
 
 fn collect_module_items(
@@ -507,15 +590,39 @@ mod tests {
     }
 
     fn port_config() -> InlayHintConfig {
-        InlayHintConfig { port_connection: true, parameter_assignment: false, end_structure: false }
+        InlayHintConfig {
+            port_connection: true,
+            parameter_assignment: false,
+            macro_argument: false,
+            end_structure: false,
+        }
     }
 
     fn parameter_config() -> InlayHintConfig {
-        InlayHintConfig { port_connection: false, parameter_assignment: true, end_structure: false }
+        InlayHintConfig {
+            port_connection: false,
+            parameter_assignment: true,
+            macro_argument: false,
+            end_structure: false,
+        }
+    }
+
+    fn macro_argument_config() -> InlayHintConfig {
+        InlayHintConfig {
+            port_connection: false,
+            parameter_assignment: false,
+            macro_argument: true,
+            end_structure: false,
+        }
     }
 
     fn end_structure_config() -> InlayHintConfig {
-        InlayHintConfig { port_connection: false, parameter_assignment: false, end_structure: true }
+        InlayHintConfig {
+            port_connection: false,
+            parameter_assignment: false,
+            macro_argument: false,
+            end_structure: true,
+        }
     }
 
     fn port_hint_labels(text: &str) -> Vec<String> {
@@ -553,6 +660,34 @@ mod tests {
             .into_iter()
             .filter(|hint| matches!(hint.kind, InlayKind::ParamAssign))
             .map(|hint| hint.label)
+            .collect()
+    }
+
+    fn macro_argument_hint_labels(text: &str) -> Vec<String> {
+        let (db, file_id) = db_with_file(text);
+        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
+        inlay_hint(&db, file_id, range, macro_argument_config())
+            .into_iter()
+            .filter(|hint| matches!(hint.kind, InlayKind::MacroArgument))
+            .map(|hint| hint.label)
+            .collect()
+    }
+
+    fn macro_argument_hint_labels_in_range(text: &str, range: TextRange) -> Vec<String> {
+        let (db, file_id) = db_with_file(text);
+        inlay_hint(&db, file_id, range, macro_argument_config())
+            .into_iter()
+            .filter(|hint| matches!(hint.kind, InlayKind::MacroArgument))
+            .map(|hint| hint.label)
+            .collect()
+    }
+
+    fn macro_argument_hints(text: &str) -> Vec<super::InlayHint> {
+        let (db, file_id) = db_with_file(text);
+        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
+        inlay_hint(&db, file_id, range, macro_argument_config())
+            .into_iter()
+            .filter(|hint| matches!(hint.kind, InlayKind::MacroArgument))
             .collect()
     }
 
@@ -733,5 +868,49 @@ endmodule
         let text = "module child #(parameter P = 1) (); endmodule\nmodule top; child #(1, 2) u(); endmodule\n";
 
         assert_eq!(param_hint_labels(text), vec!["P:"]);
+    }
+
+    #[test]
+    fn macro_argument_hints_show_function_like_macro_params() {
+        let text = "`define MAKE(width, expr) logic [width-1:0] expr\n\
+            module top; `MAKE(8, data_q) endmodule\n";
+
+        assert_eq!(macro_argument_hint_labels(text), vec!["width:", "expr:"]);
+    }
+
+    #[test]
+    fn macro_argument_hint_range_skips_previous_arguments() {
+        let text = "`define MAKE(width, expr) logic [width-1:0] expr\n\
+            module top; `MAKE(8, data_q) endmodule\n";
+        let start = TextSize::from(text.find("data_q").expect("second argument") as u32);
+        let end = start + TextSize::of("data_q");
+
+        assert_eq!(
+            macro_argument_hint_labels_in_range(text, TextRange::new(start, end)),
+            vec!["expr:"]
+        );
+    }
+
+    #[test]
+    fn macro_argument_hint_targets_formal_parameter() {
+        let text = "`define MAKE(width, expr) logic [width-1:0] expr\n\
+            module top; `MAKE(8, data_q) endmodule\n";
+
+        let hints = macro_argument_hints(text);
+
+        assert_eq!(
+            hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(),
+            vec!["width:", "expr:"]
+        );
+        assert_eq!(
+            hints[0].target_location.as_ref().map(|target| target.value),
+            Some(TextRange::new(
+                TextSize::from(text.find("width").expect("formal parameter") as u32),
+                TextSize::from(
+                    (text.find("width").expect("formal parameter") + "width".len()) as u32
+                ),
+            ))
+        );
+        assert!(hints.iter().all(|hint| hint.text_edit.is_none()));
     }
 }
