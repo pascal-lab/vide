@@ -21,13 +21,16 @@ pub use self::preproc::{
     MappedSourcePreprocModel, PreprocExpansionDisplay, PreprocExpansionMapping,
     PreprocExpansionSourceBuffer, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
     PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
-    SourcePreprocContextStatus, SourcePreprocQueryError, SourcePreprocRelevantContexts,
-    preproc_virtual_builtin_path, preproc_virtual_expansion_path, preproc_virtual_predefines_path,
-    preproc_virtual_speculative_path,
+    SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
+    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_expansion_path,
+    preproc_virtual_predefines_path, preproc_virtual_speculative_path,
 };
 #[cfg(test)]
 use self::preproc::{materialized_predefine_text, source_preproc_file_ids};
-use self::preproc::{source_preproc_contexts_for_file, source_preproc_model};
+use self::preproc::{
+    source_preproc_context_index_for_profile, source_preproc_contexts_for_file,
+    source_preproc_model,
+};
 
 pub trait FileLoader {
     fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId>;
@@ -363,6 +366,10 @@ pub trait SourceRootDb: SourceDb {
         &self,
         file_id: FileId,
     ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
+    fn source_preproc_context_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<SourcePreprocContextIndex>;
     fn source_preproc_contexts_for_file(
         &self,
         file_id: FileId,
