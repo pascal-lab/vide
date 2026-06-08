@@ -4156,6 +4156,80 @@ endmodule
 }
 
 #[test]
+fn manifest_defined_macro_powers_lsp_ide_features() {
+    let temp_dir = TempDir::new("manifest-macro-lsp-features");
+    let rtl_dir = temp_dir.path().join("rtl");
+    fs::create_dir_all(&rtl_dir).unwrap();
+
+    let top_text = r#"`ifdef FROM_MANIFEST
+module top;
+  localparam int W = `FROM_MANIFEST;
+endmodule
+`endif
+"#;
+    let manifest_text =
+        "top_modules = [\"top\"]\nsources = [\"rtl/*.sv\"]\ndefines = [\"FROM_MANIFEST=1\"]\n";
+
+    let top_path = rtl_dir.join("top.sv");
+    let manifest_path = temp_dir.path().join("vide.toml");
+    fs::write(&top_path, top_text).unwrap();
+    fs::write(&manifest_path, manifest_text).unwrap();
+
+    let (client, server_thread) = spawn_test_workspace(
+        temp_dir.path().to_path_buf(),
+        ClientCapabilities::default(),
+        UserConfig::default(),
+    );
+    let top_uri = to_proto::url_from_abs_path(top_path.as_path()).unwrap();
+    let manifest_uri = to_proto::url_from_abs_path(manifest_path.as_path()).unwrap();
+    open_test_document(&client, top_uri.clone(), top_text);
+
+    let (_result_id, diagnostics) = request_document_diagnostics(&client, top_uri.clone(), 1);
+    assert!(
+        diagnostics.iter().all(|diag| !diag.message.contains("unknown macro")),
+        "manifest define should feed preprocessor diagnostics: {diagnostics:?}"
+    );
+
+    let definition_uris =
+        request_goto_definition_uris(&client, top_uri.clone(), top_text, "FROM_MANIFEST;", 2);
+    assert!(
+        definition_uris.contains(&manifest_uri),
+        "manifest macro goto should reach vide.toml define: {definition_uris:?}"
+    );
+
+    let hover = request_hover(&client, top_uri.clone(), top_text, "FROM_MANIFEST;", 3)
+        .expect("manifest macro hover expected from source use");
+    let hover_text = format!("{:?}", hover.contents);
+    assert!(
+        hover_text.contains("FROM_MANIFEST"),
+        "manifest macro hover should mention macro name: {hover_text}"
+    );
+
+    let manifest_hover =
+        request_hover(&client, manifest_uri.clone(), manifest_text, "FROM_MANIFEST=1", 4)
+            .expect("manifest macro hover expected from manifest define");
+    let manifest_hover_text = format!("{:?}", manifest_hover.contents);
+    assert!(
+        manifest_hover_text.contains("FROM_MANIFEST"),
+        "manifest define hover should mention macro name: {manifest_hover_text}"
+    );
+
+    let manifest_definition_uris = request_goto_definition_uris(
+        &client,
+        manifest_uri.clone(),
+        manifest_text,
+        "FROM_MANIFEST=1",
+        5,
+    );
+    assert!(
+        manifest_definition_uris.contains(&manifest_uri),
+        "manifest define should be linkable to itself: {manifest_definition_uris:?}"
+    );
+
+    shutdown_test_server(&client, server_thread);
+}
+
+#[test]
 fn references_request_respects_include_declaration() {
     let temp_dir = TempDir::new("references-include-declaration");
     let rtl_dir = temp_dir.path().join("rtl");

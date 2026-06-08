@@ -1,4 +1,4 @@
-use preproc::source::{MacroIncludeTarget, SourcePreprocModel};
+use preproc::source::{MacroIncludeTarget, SourcePreprocError, SourcePreprocModel};
 use rustc_hash::FxHashSet;
 use syntax::{SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions};
 use utils::{
@@ -24,6 +24,19 @@ pub struct CompilationPlan {
     pub include_dirs: Vec<AbsPathBuf>,
     pub top_modules: Vec<String>,
     pub predefines: Vec<String>,
+    pub include_scan_issues: Vec<IncludeScanIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeScanIssue {
+    pub file_id: FileId,
+    pub reason: IncludeScanIssueReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IncludeScanIssueReason {
+    TraceUnavailable,
+    Model(SourcePreprocError),
 }
 
 impl CompilationPlan {
@@ -59,10 +72,18 @@ impl CompilationPlan {
         include_dirs: Vec<AbsPathBuf>,
         predefines: Vec<String>,
     ) -> Self {
-        let include_only =
+        let (include_only, include_scan_issues) =
             include_targets_for_source_roots(db, &source_roots, &include_dirs, &predefines);
         let roots = compile_roots_for_source_roots(db, &source_roots, &include_only);
-        CompilationPlan { source_roots, roots, include_only, include_dirs, top_modules, predefines }
+        CompilationPlan {
+            source_roots,
+            roots,
+            include_only,
+            include_dirs,
+            top_modules,
+            predefines,
+            include_scan_issues,
+        }
     }
 }
 
@@ -140,17 +161,13 @@ fn profile_inputs(
             profile.source_roots.clone(),
             profile.top_modules.clone(),
             profile.preprocess.include_dirs.clone(),
-            profile.preprocess.predefines.clone(),
+            profile.preprocess.predefine_strings(),
         );
     }
 
     let preprocess = project_config.preprocess_for_profile(profile_id);
-    (
-        root_scoped_source_root.into_iter().collect(),
-        Vec::new(),
-        preprocess.include_dirs,
-        preprocess.predefines,
-    )
+    let predefines = preprocess.predefine_strings();
+    (root_scoped_source_root.into_iter().collect(), Vec::new(), preprocess.include_dirs, predefines)
 }
 
 fn all_non_ignored_roots(db: &dyn SourceRootDb) -> Vec<SourceRootId> {
@@ -216,9 +233,10 @@ fn include_targets_for_source_roots(
     roots: &[SourceRootId],
     include_dirs: &[AbsPathBuf],
     predefines: &[String],
-) -> FxHashSet<FileId> {
+) -> (FxHashSet<FileId>, Vec<IncludeScanIssue>) {
     let path_file_ids = path_file_ids(db);
     let mut included = FxHashSet::default();
+    let mut issues = Vec::new();
     let mut scanned = FxHashSet::default();
     let mut pending = Vec::new();
     for root_id in roots {
@@ -243,7 +261,14 @@ fn include_targets_for_source_roots(
             continue;
         };
 
-        for include in literal_include_targets(db, file_id, predefines) {
+        let include_targets = match literal_include_targets(db, file_id, predefines) {
+            Ok(targets) => targets,
+            Err(issue) => {
+                issues.push(issue);
+                continue;
+            }
+        };
+        for include in include_targets {
             let MacroIncludeTarget::Literal { path, .. } = &include.target else {
                 continue;
             };
@@ -256,19 +281,19 @@ fn include_targets_for_source_roots(
         }
     }
 
-    included
+    (included, issues)
 }
 
 fn literal_include_targets(
     db: &dyn SourceRootDb,
     file_id: FileId,
     predefines: &[String],
-) -> Vec<preproc::source::SourceMacroInclude> {
+) -> Result<Vec<preproc::source::SourceMacroInclude>, IncludeScanIssue> {
     if !matches!(
         db.file_kind(file_id),
         SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader
     ) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let path = db.file_path(file_id).map(|path| path.to_string()).unwrap_or_default();
@@ -277,15 +302,18 @@ fn literal_include_targets(
         predefines: predefines.to_vec(),
         ..SyntaxTreeOptions::without_include_expansion()
     };
-    let Some(trace) =
-        SyntaxTree::preprocessor_trace(&db.file_text(file_id), &name, &path, &options)
-    else {
-        return Vec::new();
+    let parsed = SyntaxTree::from_text_with_options_and_trace(
+        &db.file_text(file_id),
+        &name,
+        &path,
+        &options,
+    );
+    let Some(trace) = parsed.preprocessor_trace else {
+        return Err(IncludeScanIssue { file_id, reason: IncludeScanIssueReason::TraceUnavailable });
     };
-    let Ok(model) = SourcePreprocModel::from_trace(trace) else {
-        return Vec::new();
-    };
-    model.includes().to_vec()
+    let model = SourcePreprocModel::from_trace(trace)
+        .map_err(|err| IncludeScanIssue { file_id, reason: IncludeScanIssueReason::Model(err) })?;
+    Ok(model.includes().to_vec())
 }
 
 fn resolve_include_target(

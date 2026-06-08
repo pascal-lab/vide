@@ -26,6 +26,7 @@
   "configuration.formatting.indent.width.description": "编辑器格式化选项不可用时使用的后备缩进宽度。",
   "configuration.inlayHints.port.connection.enable.description": "显示端口连接的内联提示。",
   "configuration.inlayHints.parameter.assignment.enable.description": "显示参数赋值的内联提示。",
+  "configuration.inlayHints.macro.argument.enable.description": "显示宏实参的内联提示。",
   "configuration.inlayHints.end.structure.enable.description": "显示结束结构名称的内联提示。",
   "configuration.lens.instantiations.enable.description": "显示模块实例化的 Code Lens。",
   "configuration.semantic.tokens.port.clk.rst.enable.description": "使用专用语义标记修饰符高亮时钟和复位端口。",

@@ -334,10 +334,24 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             let Some(module_name) = instantiation.module_name.as_ref() else {
                 continue;
             };
-            let range = src_map
-                .get(instantiation_id)
-                .map(|src| src.range())
-                .unwrap_or_else(|| TextRange::empty(TextSize::new(0)));
+            let Some(src) = src_map.get(instantiation_id) else {
+                continue;
+            };
+            let mut diag_file_id = file_id;
+            let mut range = src.range();
+            match hir::preproc::diagnostic_provenance_for_range(db, file_id, range) {
+                Ok(Some(provenance)) => {
+                    let Some((target_file_id, target_range)) =
+                        diagnostic_preproc_target_file_range(&provenance)
+                    else {
+                        continue;
+                    };
+                    diag_file_id = target_file_id;
+                    range = target_range;
+                }
+                Ok(None) => {}
+                Err(_) => continue,
+            }
 
             match resolve_module_name(db, file_id, module_name) {
                 ModuleResolution::Ambiguous { candidates, kind } => {
@@ -348,7 +362,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                             kind,
                         );
                     diagnostics.push(AMBIGUOUS_MODULE_INSTANTIATION.diagnostic(
-                        file_id,
+                        diag_file_id,
                         range,
                         severity,
                         message,
@@ -364,6 +378,23 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
     }
 
     diagnostics
+}
+
+fn diagnostic_preproc_target_file_range(
+    provenance: &hir::preproc::DiagnosticProvenance,
+) -> Option<(FileId, TextRange)> {
+    match provenance {
+        hir::preproc::DiagnosticProvenance::SourceToken { source, range }
+        | hir::preproc::DiagnosticProvenance::MacroBody { source, range, .. }
+        | hir::preproc::DiagnosticProvenance::MacroArgument { source, range, .. }
+        | hir::preproc::DiagnosticProvenance::VirtualExpansion { source, range } => {
+            Some((source.file_id()?, *range))
+        }
+        hir::preproc::DiagnosticProvenance::Builtin { call, .. } => {
+            Some((call.file_id, call.range))
+        }
+        hir::preproc::DiagnosticProvenance::Unavailable(_) => None,
+    }
 }
 
 fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -442,7 +473,7 @@ mod tests {
         diagnostics_config::DiagnosticsConfig,
         project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
         salsa::Durability,
-        source_db::{SourceDb, SourceRootDb},
+        source_db::{PreprocVirtualOrigin, SourceDb, SourceRootDb},
         source_root::{SourceRoot, SourceRootId, SourceRootRole},
     };
     use triomphe::Arc;
@@ -456,7 +487,8 @@ mod tests {
 
     use super::{
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
-        DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, diagnostics, source_root_diagnostics,
+        DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, diagnostic_preproc_target_file_range,
+        diagnostics, source_root_diagnostics,
     };
     use crate::db::root_db::RootDb;
 
@@ -469,7 +501,7 @@ mod tests {
             files,
             SourceRootRole::Local,
             true,
-            PreprocessConfig { predefines, ..PreprocessConfig::default() },
+            PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
         )
     }
 
@@ -478,6 +510,12 @@ mod tests {
             Arc::new(DiagnosticsConfig { enabled: false, ..DiagnosticsConfig::default() }),
             Durability::HIGH,
         );
+    }
+
+    fn disable_semantic_diagnostics(db: &mut RootDb) {
+        let mut config = DiagnosticsConfig::default();
+        config.semantic.enabled = false;
+        db.set_diagnostics_config_with_durability(Arc::new(config), Durability::HIGH);
     }
 
     fn db_with_files_in_role(
@@ -595,6 +633,95 @@ mod tests {
             }),
             "expected strict ambiguity warning: {diagnostics:?}"
         );
+    }
+
+    #[test]
+    fn preproc_macro_generated_instantiation_diagnostic_uses_macro_body_provenance() {
+        let top = "`define MAKE child u();\nmodule top;\n  `MAKE\nendmodule\n";
+        let db = db_with_files(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+                ("/project/top.sv", top),
+            ],
+            false,
+        );
+
+        let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diag| {
+                diag.source == DiagnosticSource::Vide
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+            })
+            .unwrap_or_else(|| {
+                panic!("expected generated instantiation diagnostic: {diagnostics:?}")
+            });
+
+        assert_eq!(diagnostic.file_id, FileId(2));
+        assert_eq!(diagnostic.range, range_of(top, "child"));
+        assert_ne!(diagnostic.range, range_of(top, "`MAKE"));
+    }
+
+    #[test]
+    fn preproc_display_only_virtual_expansion_diagnostic_is_not_published() {
+        let top = "module top;\n  `MAKE\nendmodule\n";
+        let mut db = db_with_predefines(
+            &[
+                ("/project/a/child.sv", "module child; endmodule\n"),
+                ("/project/b/child.sv", "module child; endmodule\n"),
+                ("/project/top.sv", top),
+            ],
+            vec!["MAKE=child u();".to_owned()],
+        );
+        disable_semantic_diagnostics(&mut db);
+
+        let diagnostics = diagnostics(&db, FileId(2));
+
+        assert!(
+            diagnostics.iter().all(|diag| {
+                diag.source != DiagnosticSource::Vide
+                    || diag.name != AMBIGUOUS_MODULE_INSTANTIATION.name
+            }),
+            "display-only virtual expansion must not publish ambiguous module diagnostics: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|diag| diag.file_id.0 < 3),
+            "diagnostics must not target synthetic virtual FileIds: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn diagnostic_target_rejects_display_only_virtual_expansion() {
+        let provenance = hir::preproc::DiagnosticProvenance::VirtualExpansion {
+            source: hir::preproc::MappedPreprocSource::VirtualDisplay {
+                path: VfsPath::new_virtual_path(
+                    "/__vide/preproc/profile-0/expansion/0.sv".to_owned(),
+                ),
+                origin: PreprocVirtualOrigin::Builtin { name: "display-only".into() },
+            },
+            range: TextRange::new(TextSize::from(0), TextSize::from(5)),
+        };
+
+        assert_eq!(diagnostic_preproc_target_file_range(&provenance), None);
+    }
+
+    #[test]
+    fn diagnostic_target_accepts_materialized_virtual_expansion() {
+        let file_id = FileId(7);
+        let range = TextRange::new(TextSize::from(0), TextSize::from(5));
+        let provenance = hir::preproc::DiagnosticProvenance::VirtualExpansion {
+            source: hir::preproc::MappedPreprocSource::VirtualFile {
+                file_id,
+                path: VfsPath::new_virtual_path(
+                    "/__vide/preproc/profile-0/expansion/0.sv".to_owned(),
+                ),
+                origin: PreprocVirtualOrigin::Builtin { name: "materialized".into() },
+            },
+            range,
+        };
+
+        assert_eq!(diagnostic_preproc_target_file_range(&provenance), Some((file_id, range)));
     }
 
     #[test]
@@ -725,6 +852,54 @@ mod tests {
     }
 
     #[test]
+    fn syntax_only_manifest_does_not_disable_open_file_syntax_diagnostics() {
+        let manifest_id = FileId(0);
+        let open_file_id = FileId(1);
+        let mut manifest_files = FileSet::default();
+        manifest_files.insert(manifest_id, VfsPath::new_virtual_path("/project/vide.toml".into()));
+        let mut open_files = FileSet::default();
+        open_files.insert(open_file_id, VfsPath::new_virtual_path("/scratch/open.sv".into()));
+
+        let mut change = Change::new();
+        change.set_roots(vec![
+            SourceRoot::new_local(manifest_files),
+            SourceRoot::new_ignored(open_files),
+        ]);
+        change.set_project_config(Arc::new(ProjectConfig::new(vec![None, None], Vec::new())));
+        change.add_changed_file(ChangedFile {
+            file_id: manifest_id,
+            change_kind: ChangeKind::Create(Arc::from(""), LineEnding::Unix),
+        });
+        change.add_changed_file(ChangedFile {
+            file_id: open_file_id,
+            change_kind: ChangeKind::Create(
+                Arc::from("module open(;\nendmodule\n"),
+                LineEnding::Unix,
+            ),
+        });
+
+        let mut db = RootDb::new(None);
+        db.apply_change(change);
+
+        assert!(!db.project_config().has_compilation_profiles());
+        assert_eq!(db.project_config().profile_for_root(SourceRootId(0)), None);
+        assert_eq!(db.project_config().profile_for_root(SourceRootId(1)), None);
+        assert!(diagnostics(&db, manifest_id).is_empty());
+
+        let diagnostics = diagnostics(&db, open_file_id);
+        assert!(
+            diagnostics.iter().any(|diag| diag.source == DiagnosticSource::SlangParse),
+            "profile-less open files should keep syntax diagnostics: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics.iter().all(|diag| {
+                diag.file_id == open_file_id && diag.source != DiagnosticSource::SlangSemantic
+            }),
+            "syntax-only manifest must not create semantic diagnostic ownership: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn best_effort_index_root_does_not_produce_fallback_compilation_plan() {
         let mut db = RootDb::new(None);
         let file_id = FileId(0);
@@ -779,7 +954,10 @@ mod tests {
             vec![CompilationProfile {
                 source_roots: vec![SourceRootId(0)],
                 top_modules: Vec::new(),
-                preprocess: PreprocessConfig { predefines: Vec::new(), include_dirs: vec![root] },
+                preprocess: PreprocessConfig {
+                    include_dirs: vec![root],
+                    ..PreprocessConfig::default()
+                },
             }],
         )));
         db.apply_change(change);
@@ -896,8 +1074,8 @@ mod tests {
                 source_roots: vec![SourceRootId(0)],
                 top_modules: Vec::new(),
                 preprocess: PreprocessConfig {
-                    predefines: Vec::new(),
                     include_dirs: vec![include_root],
+                    ..PreprocessConfig::default()
                 },
             }],
         )));

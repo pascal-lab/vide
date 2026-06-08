@@ -1,7 +1,9 @@
 use hir::{
     file::HirFileId,
     preproc::{
-        MacroDefinition, macro_definition_at, macro_reference_definitions_at, macro_references,
+        MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_definition_at,
+        macro_param_definition_at, macro_param_reference_definitions_at, macro_param_references,
+        macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
 };
@@ -9,7 +11,7 @@ use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use syntax::{
-    SyntaxNodeExt, SyntaxTokenWithParent, TokenKind,
+    SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
@@ -60,6 +62,31 @@ impl ReferencesConfig {
 pub struct References {
     pub def: Option<Vec<NavTarget>>,
     pub refs: IntMap<FileId, Vec<(TextRange, ReferenceCategory)>>,
+    pub status: ReferencesStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferencesStatus {
+    Complete,
+    Partial { reason: ReferencesPartialReason, issue_count: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferencesPartialReason {
+    PreprocMacroIndex,
+}
+
+impl ReferencesStatus {
+    pub fn is_partial(self) -> bool {
+        matches!(self, ReferencesStatus::Partial { .. })
+    }
+
+    pub fn issue_count(self) -> usize {
+        match self {
+            ReferencesStatus::Complete => 0,
+            ReferencesStatus::Partial { issue_count, .. } => issue_count,
+        }
+    }
 }
 
 pub(crate) fn references(
@@ -75,15 +102,35 @@ pub(crate) fn references(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let token = root.token_at_offset(offset).pick_bext_token(token_precedence)?;
+    let selection = crate::source_tokens::token_candidates_at_offset(
+        db,
+        file_id,
+        root,
+        offset,
+        token_precedence,
+    )?;
+    let tokens = selection.tokens()?;
+    let references = tokens
+        .into_iter()
+        .filter_map(|token| references_for_token(&sema, hir_file_id, token, config.clone()))
+        .flatten()
+        .collect_vec();
+    (!references.is_empty()).then_some(references)
+}
 
-    handle_ctrl_flow_kw(&sema, hir_file_id, token).or_else(|| {
-        let def = match DefinitionClass::resolve(&sema, hir_file_id, token)? {
+fn references_for_token(
+    sema: &Semantics<RootDb>,
+    hir_file_id: HirFileId,
+    token: SyntaxTokenWithParent,
+    config: ReferencesConfig,
+) -> Option<Vec<References>> {
+    handle_ctrl_flow_kw(sema, hir_file_id, token).or_else(|| {
+        let def = match DefinitionClass::resolve(sema, hir_file_id, token)? {
             DefinitionClass::Definition(def) => def,
             DefinitionClass::PortConnShorthand { local, .. } => local,
             DefinitionClass::Ambiguous(_) => return None,
         };
-        Some(vec![search_refs(&sema, def, config)])
+        Some(vec![search_refs(sema, def, config)])
     })
 }
 
@@ -93,11 +140,18 @@ fn handle_preproc_macro(
     offset: TextSize,
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
+    if let Some(param_refs) = handle_preproc_macro_param(db, file_id, offset, config) {
+        return Some(param_refs);
+    }
+
     let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
         vec![definition]
     } else {
         macro_reference_definitions_at(db, file_id, offset).ok()??.definitions
     };
+    if definitions.is_empty() {
+        return None;
+    }
 
     definitions
         .into_iter()
@@ -105,14 +159,37 @@ fn handle_preproc_macro(
         .collect()
 }
 
-fn macro_references_for_definition(
+fn handle_preproc_macro_param(
     db: &RootDb,
     file_id: FileId,
-    definition: MacroDefinition,
+    offset: TextSize,
+    config: &ReferencesConfig,
+) -> Option<Vec<References>> {
+    let definitions =
+        if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
+            vec![definition]
+        } else {
+            macro_param_reference_definitions_at(db, file_id, offset).ok()??.definitions
+        };
+    if definitions.is_empty() {
+        return None;
+    }
+
+    definitions
+        .into_iter()
+        .map(|definition| macro_param_references_for_definition(db, file_id, definition, config))
+        .collect()
+}
+
+fn macro_param_references_for_definition(
+    db: &RootDb,
+    file_id: FileId,
+    definition: MacroParamDefinition,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let refs = macro_references(db, file_id, &definition)
+    let refs = macro_param_references(db, file_id, &definition)
         .ok()?
+        .references
         .into_iter()
         .filter(|usage| {
             config.search_scope.as_ref().is_none_or(|scope| {
@@ -133,14 +210,73 @@ fn macro_references_for_definition(
             )
         })
         .collect();
-    Some(References { def: Some(vec![macro_nav_target(definition)]), refs })
+    Some(References {
+        def: Some(vec![macro_param_nav_target(definition)]),
+        refs,
+        status: ReferencesStatus::Complete,
+    })
+}
+
+fn macro_references_for_definition(
+    db: &RootDb,
+    file_id: FileId,
+    definition: MacroDefinition,
+    config: &ReferencesConfig,
+) -> Option<References> {
+    let references = macro_references(db, file_id, &definition).ok()?;
+    let status = references_status_from_macro_index(references.status);
+    let refs = references
+        .references
+        .into_iter()
+        .filter(|usage| {
+            config.search_scope.as_ref().is_none_or(|scope| {
+                scope.range_for_file(usage.file_id).is_some_and(|range| {
+                    range.is_none_or(|range| range.intersect(usage.range).is_some())
+                })
+            })
+        })
+        .into_group_map_by(|usage| usage.file_id)
+        .into_iter()
+        .map(|(file_id, usages)| {
+            (
+                file_id,
+                usages
+                    .into_iter()
+                    .map(|usage| (usage.range, ReferenceCategory::empty()))
+                    .collect_vec(),
+            )
+        })
+        .collect();
+    Some(References { def: Some(vec![macro_nav_target(definition)]), refs, status })
+}
+
+fn references_status_from_macro_index(status: MacroReferenceIndexStatus) -> ReferencesStatus {
+    match status {
+        MacroReferenceIndexStatus::Complete => ReferencesStatus::Complete,
+        MacroReferenceIndexStatus::Partial { issues } => ReferencesStatus::Partial {
+            reason: ReferencesPartialReason::PreprocMacroIndex,
+            issue_count: issues.len(),
+        },
+    }
+}
+
+fn macro_param_nav_target(definition: MacroParamDefinition) -> NavTarget {
+    NavTarget {
+        file_id: definition.macro_definition.file_id,
+        full_range: definition.range,
+        focus_range: Some(definition.range),
+        name: Some(definition.name),
+        kind: None,
+        container_name: Some(definition.macro_definition.name),
+        description: Some("macro parameter".to_owned()),
+    }
 }
 
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
     NavTarget {
         file_id: definition.file_id,
-        full_range: definition.range,
-        focus_range: Some(definition.range),
+        full_range: definition.name_range,
+        focus_range: Some(definition.name_range),
         name: Some(definition.name),
         kind: None,
         container_name: None,
@@ -171,7 +307,11 @@ pub(crate) fn handle_ctrl_flow_kw(
         _ => return None,
     }
 
-    Some(vec![References { def: None, refs: IntMap::from_iter([(file_id.file_id(), refs)]) }])
+    Some(vec![References {
+        def: None,
+        refs: IntMap::from_iter([(file_id.file_id(), refs)]),
+        status: ReferencesStatus::Complete,
+    }])
 }
 
 fn search_refs<'a>(
@@ -188,7 +328,7 @@ fn search_refs<'a>(
         })
         .collect();
     let def = def.origins().into_iter().filter_map(|def| def.to_nav(sema.db)).collect_vec().into();
-    References { def, refs }
+    References { def, refs, status: ReferencesStatus::Complete }
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
@@ -196,5 +336,37 @@ fn token_precedence(kind: TokenKind) -> usize {
         _ if kind.name_like() => 4,
         _ if kind.is_pair_token() => 4,
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hir::preproc::{MacroReferenceIndexIssue, PreprocError};
+
+    use super::*;
+
+    #[test]
+    fn macro_reference_index_status_maps_to_reference_status() {
+        assert_eq!(
+            references_status_from_macro_index(MacroReferenceIndexStatus::Complete),
+            ReferencesStatus::Complete
+        );
+
+        let status = references_status_from_macro_index(MacroReferenceIndexStatus::Partial {
+            issues: vec![MacroReferenceIndexIssue::SkippedModel {
+                file_id: FileId(0),
+                error: PreprocError::MissingRootSource,
+            }],
+        });
+
+        assert_eq!(
+            status,
+            ReferencesStatus::Partial {
+                reason: ReferencesPartialReason::PreprocMacroIndex,
+                issue_count: 1,
+            }
+        );
+        assert!(status.is_partial());
+        assert_eq!(status.issue_count(), 1);
     }
 }

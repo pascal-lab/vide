@@ -26,6 +26,7 @@
   "configuration.formatting.indent.width.description": "Fallback indentation width used when editor formatting options are unavailable.",
   "configuration.inlayHints.port.connection.enable.description": "Show inlay hints for port connections.",
   "configuration.inlayHints.parameter.assignment.enable.description": "Show inlay hints for parameter assignments.",
+  "configuration.inlayHints.macro.argument.enable.description": "Show inlay hints for macro arguments.",
   "configuration.inlayHints.end.structure.enable.description": "Show inlay hints for ending structure names.",
   "configuration.lens.instantiations.enable.description": "Show code lenses for module instantiations.",
   "configuration.semantic.tokens.port.clk.rst.enable.description": "Highlight clock and reset ports with dedicated semantic token modifiers.",

@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
-
 use smol_str::SmolStr;
+use syntax::TokenKind;
 use utils::line_index::{TextRange, TextSize};
+
+use super::provenance::SourcePreprocTables;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PreprocSourceId(u32);
@@ -46,6 +47,62 @@ pub struct SourceRange {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourcePreprocEventId(pub(super) u32);
 
+macro_rules! source_identity_key {
+    ($name:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(u32);
+
+        impl $name {
+            pub fn new(raw: u32) -> Self {
+                Self(raw)
+            }
+
+            pub fn raw(self) -> u32 {
+                self.0
+            }
+        }
+    };
+}
+
+source_identity_key!(SourceMacroDefinitionKey);
+source_identity_key!(SourceMacroCallKey);
+source_identity_key!(SourceMacroExpansionKey);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroBodyIdentity {
+    pub call: SourceMacroCallKey,
+    pub definition: SourceMacroDefinitionKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+    pub body_token_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroArgumentIdentity {
+    pub call: SourceMacroCallKey,
+    pub definition: SourceMacroDefinitionKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+    pub body_token_index: usize,
+    pub argument_index: usize,
+    pub argument_token_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroBuiltinIdentity {
+    pub call: SourceMacroCallKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceMacroOperationIdentity {
+    pub call: SourceMacroCallKey,
+    pub definition: SourceMacroDefinitionKey,
+    pub expansion: SourceMacroExpansionKey,
+    pub parent_expansion: Option<SourceMacroExpansionKey>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocSource {
     pub id: PreprocSourceId,
@@ -80,6 +137,7 @@ pub struct SourcePreprocIndex {
     pub sources: Vec<PreprocSource>,
     pub include_edges: Vec<SourceIncludeEdge>,
     pub event_records: Vec<SourcePreprocEventRecord>,
+    pub emitted_tokens: Vec<SourceEmittedTokenFact>,
     pub defines: Vec<SourceMacroDefine>,
     pub undefs: Vec<SourceMacroUndef>,
     pub includes: Vec<SourceMacroInclude>,
@@ -99,6 +157,7 @@ pub struct SourcePreprocEventRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroDefine {
     pub event_id: SourcePreprocEventId,
+    pub identity: Option<SourceMacroDefinitionKey>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub params: Option<Vec<SourceMacroParam>>,
@@ -141,9 +200,21 @@ pub struct SourceMacroConditional {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroUsage {
     pub event_id: SourcePreprocEventId,
+    pub identity: Option<SourceMacroCallKey>,
+    pub definition_identity: Option<SourceMacroDefinitionKey>,
+    pub expansion_identity: Option<SourceMacroExpansionKey>,
+    pub parent_expansion_identity: Option<SourceMacroExpansionKey>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
+    pub arguments: Vec<SourceMacroActualArgument>,
     pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceMacroActualArgument {
+    pub argument_index: usize,
+    pub argument_range: Option<SourceRange>,
+    pub tokens: Vec<SourceMacroToken>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,31 +224,55 @@ pub struct SourceMacroToken {
     pub range: Option<SourceRange>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceTokenKind {
+    Unknown,
+    Syntax(TokenKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceEmittedTokenFact {
+    pub raw: SmolStr,
+    pub value: SmolStr,
+    pub kind: SourceTokenKind,
+    pub provenance: SourceTokenProvenanceFact,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceTokenProvenanceFact {
+    Source {
+        token_range: SourceRange,
+    },
+    MacroBody {
+        macro_name: SmolStr,
+        identity: Option<SourceMacroBodyIdentity>,
+        call_range: SourceRange,
+        body_token_range: SourceRange,
+    },
+    MacroArgument {
+        macro_name: SmolStr,
+        identity: Option<SourceMacroArgumentIdentity>,
+        call_range: SourceRange,
+        body_token_range: SourceRange,
+        argument_token_range: SourceRange,
+    },
+    Builtin {
+        name: SmolStr,
+        identity: Option<SourceMacroBuiltinIdentity>,
+    },
+    TokenPaste {
+        identity: Option<SourceMacroOperationIdentity>,
+    },
+    Stringification {
+        identity: Option<SourceMacroOperationIdentity>,
+    },
+    Unavailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocModel {
     pub(super) index: SourcePreprocIndex,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SourceMacroEnvironment {
-    pub(super) definitions: BTreeMap<SmolStr, usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroBinding<'a> {
-    pub name: SmolStr,
-    pub event_id: SourcePreprocEventId,
-    pub define_index: usize,
-    pub define: &'a SourceMacroDefine,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroResolution<'a> {
-    pub usage_index: usize,
-    pub usage: &'a SourceMacroUsage,
-    pub definition: SourceMacroBinding<'a>,
-    pub definition_provenance: SourcePreprocProvenance,
-    pub definition_include_chain: Vec<SourceIncludeChainEntry>,
+    pub(super) tables: SourcePreprocTables,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,11 +338,6 @@ pub enum SourcePreprocError {
     MissingRootSource,
     MissingEventRange { source_order: usize, kind: MacroEventKind },
     MissingEvent { event_id: u32 },
-    MissingIncludedSource { include_event_id: u32, source: u32 },
-    MissingIncludeEvent { include_event_id: u32 },
-    IncludeEdgeNotInclude { include_event_id: u32 },
-    MissingIncludeEdge { source: u32 },
-    IncludeCycle { source: u32 },
 }
 
 impl PreprocSourceId {
@@ -269,32 +359,6 @@ impl SourcePreprocEventId {
 impl From<u32> for PreprocSourceId {
     fn from(value: u32) -> Self {
         Self::new(value)
-    }
-}
-
-impl SourceMacroEnvironment {
-    pub fn define_index(&self, name: &str) -> Option<usize> {
-        self.definitions.get(name).copied()
-    }
-
-    pub fn contains(&self, name: &str) -> bool {
-        self.definitions.contains_key(name)
-    }
-
-    pub fn len(&self) -> usize {
-        self.definitions.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.definitions.is_empty()
-    }
-
-    pub fn names(&self) -> impl Iterator<Item = &SmolStr> {
-        self.definitions.keys()
-    }
-
-    pub fn definitions(&self) -> &BTreeMap<SmolStr, usize> {
-        &self.definitions
     }
 }
 

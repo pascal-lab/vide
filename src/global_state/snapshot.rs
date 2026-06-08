@@ -140,6 +140,10 @@ impl GlobalStateSnapshot {
             return Ok(Vec::new());
         }
 
+        if self.open_file_syntax_diagnostics_for_disabled_root(file_id) {
+            return self.analysis.parse_diagnostics(file_id);
+        }
+
         self.analysis.diagnostics(file_id)
     }
 
@@ -251,7 +255,8 @@ impl GlobalStateSnapshot {
                 // the diagnostic model. A workspace with no compilation
                 // profiles still allows open-file syntax diagnostics.
                 if matches!(scope, DiagnosticRequestScope::Document)
-                    && !self.analysis.has_compilation_profiles().ok()?
+                    && (!self.analysis.has_compilation_profiles().ok()?
+                        || self.open_file_syntax_diagnostics_for_disabled_root(file_id))
                 {
                     return Some(DiagnosticOwner::File(file_id));
                 }
@@ -279,6 +284,49 @@ impl GlobalStateSnapshot {
 
     fn document_diagnostics_enabled(&self, file_id: FileId) -> bool {
         self.diagnostic_owner(file_id, DiagnosticRequestScope::Document).is_some()
+    }
+
+    fn open_file_syntax_diagnostics_for_disabled_root(&self, file_id: FileId) -> bool {
+        self.mem_docs.contains_file_id(file_id)
+            && self.file_is_in_syntax_only_workspace(file_id)
+            && !self.file_is_manifest_excluded(file_id)
+    }
+
+    fn file_is_in_syntax_only_workspace(&self, file_id: FileId) -> bool {
+        let Some(path) = self.file_path(file_id) else {
+            return false;
+        };
+
+        self.workspaces.iter().any(|workspace| {
+            if workspace.is_lib() || !path.starts_with(workspace.root()) {
+                return false;
+            }
+
+            let roots = workspace.roots();
+            !roots.is_empty()
+                && roots.iter().any(|root| matches!(root.role, SourceRootRole::Local))
+                && roots.iter().all(|root| {
+                    root.source.is_empty()
+                        && root.source_directories.is_empty()
+                        && root.source_files.is_empty()
+                        && root.include_dirs.is_empty()
+                })
+        })
+    }
+
+    fn file_is_manifest_excluded(&self, file_id: FileId) -> bool {
+        let Some(path) = self.file_path(file_id) else {
+            return false;
+        };
+
+        self.workspaces.iter().any(|workspace| {
+            path.starts_with(workspace.root())
+                && workspace.roots().iter().any(|root| {
+                    root.exclude_globs
+                        .as_ref()
+                        .is_some_and(|exclude| exclude.is_match(path.as_path()))
+                })
+        })
     }
 
     fn diagnostic_owner_file_ids(

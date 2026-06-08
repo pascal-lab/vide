@@ -2,10 +2,13 @@
 
 #include "slang/parsing/ExpectedSyntax.h"
 #include "slang/parsing/ParserMetadata.h"
+#include "slang/parsing/PreprocessorTrace.h"
 #include "slang/syntax/AllSyntax.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace wrapper {
@@ -160,6 +163,116 @@ LexedTokenAtOffset lexTokenAtOffset(std::string_view text,
   return result;
 }
 
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_UNAVAILABLE = 0;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_SOURCE = 1;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_BODY = 2;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT = 3;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_TOKEN_PASTE = 5;
+constexpr uint8_t TRACE_TOKEN_PROVENANCE_STRINGIFICATION = 6;
+
+::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
+  ::RawPreprocessorTraceEmittedToken token;
+  token.raw_text = rust::String();
+  token.value_text = rust::String();
+  token.token_kind = static_cast<uint16_t>(slang::parsing::TokenKind::Unknown);
+  token.provenance_kind = TRACE_TOKEN_PROVENANCE_UNAVAILABLE;
+  token.macro_name = rust::String();
+  token.macro_call_id = 0;
+  token.has_macro_call_id = false;
+  token.macro_definition_id = 0;
+  token.has_macro_definition_id = false;
+  token.macro_expansion_id = 0;
+  token.has_macro_expansion_id = false;
+  token.parent_macro_expansion_id = 0;
+  token.has_parent_macro_expansion_id = false;
+  token.body_token_index = 0;
+  token.has_body_token_index = false;
+  token.argument_index = 0;
+  token.has_argument_index = false;
+  token.argument_token_index = 0;
+  token.has_argument_token_index = false;
+  token.token_range = empty_source_buffer_range();
+  token.call_range = empty_source_buffer_range();
+  token.body_token_range = empty_source_buffer_range();
+  token.argument_token_range = empty_source_buffer_range();
+  return token;
+}
+
+bool is_single_buffer_range(slang::SourceRange range) {
+  return range != slang::SourceRange::NoLocation && range.start().valid() &&
+         range.end().valid() && range.start().buffer() == range.end().buffer();
+}
+
+::RawSourceBufferRange to_rust_original_macro_loc_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange range) {
+  if (!is_single_buffer_range(range) || !sourceManager.isMacroLoc(range.start()) ||
+      !sourceManager.isMacroLoc(range.end())) {
+    return empty_source_buffer_range();
+  }
+  auto start = sourceManager.getOriginalLoc(range.start());
+  auto end = sourceManager.getOriginalLoc(range.end());
+  return to_rust_source_buffer_range(slang::SourceRange(start, end));
+}
+
+enum class TraceExpansionRangeSpace {
+  FileBackedSource,
+  MacroExpansion,
+  InvalidOrMixed,
+};
+
+TraceExpansionRangeSpace classify_expansion_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange range) {
+  if (!is_single_buffer_range(range))
+    return TraceExpansionRangeSpace::InvalidOrMixed;
+
+  const bool startIsFile = sourceManager.isFileLoc(range.start());
+  const bool endIsFile = sourceManager.isFileLoc(range.end());
+  const bool startIsMacro = sourceManager.isMacroLoc(range.start());
+  const bool endIsMacro = sourceManager.isMacroLoc(range.end());
+  if (startIsFile && endIsFile)
+    return TraceExpansionRangeSpace::FileBackedSource;
+  if (startIsMacro && endIsMacro)
+    return TraceExpansionRangeSpace::MacroExpansion;
+  return TraceExpansionRangeSpace::InvalidOrMixed;
+}
+
+::RawSourceBufferRange to_rust_written_source_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange range) {
+  switch (classify_expansion_range(sourceManager, range)) {
+    case TraceExpansionRangeSpace::FileBackedSource:
+      return to_rust_source_buffer_range(range);
+    case TraceExpansionRangeSpace::MacroExpansion:
+      return to_rust_original_macro_loc_range(sourceManager, range);
+    case TraceExpansionRangeSpace::InvalidOrMixed:
+      return empty_source_buffer_range();
+  }
+  SLANG_UNREACHABLE;
+}
+
+::RawSourceBufferRange to_rust_macro_callsite_range_from_macro_loc(
+    const slang::SourceManager& sourceManager,
+    slang::SourceLocation macroLocation) {
+  if (!macroLocation.valid() || !sourceManager.isMacroLoc(macroLocation))
+    return empty_source_buffer_range();
+
+  return to_rust_written_source_range(sourceManager, sourceManager.getExpansionRange(macroLocation));
+}
+
+::RawSourceBufferRange to_rust_macro_argument_callsite_range(
+    const slang::SourceManager& sourceManager,
+    slang::SourceRange formalRange) {
+  if (classify_expansion_range(sourceManager, formalRange) !=
+      TraceExpansionRangeSpace::MacroExpansion) {
+    return empty_source_buffer_range();
+  }
+
+  return to_rust_macro_callsite_range_from_macro_loc(sourceManager, formalRange.start());
+}
+
 struct TraceSourceLocationKey {
   uint32_t buffer_id = 0;
   size_t offset = 0;
@@ -187,10 +300,123 @@ std::optional<TraceSourceLocationKey> trace_source_location_key(slang::SourceLoc
   };
 }
 
+bool has_direct_macro_token_provenance(
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
+  return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
+         provenance->definitionId != 0;
+}
+
+bool has_builtin_macro_token_provenance(
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
+  return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
+         !provenance->builtinName.empty();
+}
+
+void apply_direct_macro_token_provenance(
+    ::RawPreprocessorTraceEmittedToken& token,
+    const slang::SourceManager::MacroTokenProvenance& provenance) {
+  token.macro_call_id = provenance.callId;
+  token.has_macro_call_id = provenance.callId != 0;
+  token.macro_definition_id = provenance.definitionId;
+  token.has_macro_definition_id = provenance.definitionId != 0;
+  token.macro_expansion_id = provenance.expansionId;
+  token.has_macro_expansion_id = provenance.expansionId != 0;
+  token.parent_macro_expansion_id = provenance.parentExpansionId;
+  token.has_parent_macro_expansion_id = provenance.parentExpansionId != 0;
+  token.body_token_index = provenance.bodyTokenIndex;
+  token.has_body_token_index =
+      provenance.bodyTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+  token.argument_index = provenance.argumentIndex;
+  token.has_argument_index =
+      provenance.argumentIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+  token.argument_token_index = provenance.argumentTokenIndex;
+  token.has_argument_token_index =
+      provenance.argumentTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+}
+
+bool apply_macro_operation_token_provenance(
+    ::RawPreprocessorTraceEmittedToken& result,
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance,
+    uint8_t provenanceKind) {
+  if (!has_direct_macro_token_provenance(provenance))
+    return false;
+
+  apply_direct_macro_token_provenance(result, *provenance);
+  result.provenance_kind = provenanceKind;
+  return true;
+}
+
+bool apply_original_macro_loc_provenance_for_nested_argument(
+    ::RawPreprocessorTraceEmittedToken& result,
+    slang::parsing::Token token,
+    const slang::SourceManager& sourceManager,
+    slang::SourceLocation location) {
+  if (!sourceManager.isMacroArgLoc(location))
+    return false;
+
+  auto originalLocation = sourceManager.getOriginalLoc(location);
+  if (!originalLocation.valid() || !sourceManager.isMacroLoc(originalLocation))
+    return false;
+
+  switch (sourceManager.getMacroExpansionKind(originalLocation)) {
+    case slang::SourceManager::MacroExpansionKind::TokenPaste:
+    case slang::SourceManager::MacroExpansionKind::Stringification:
+      return false;
+    case slang::SourceManager::MacroExpansionKind::Body:
+    case slang::SourceManager::MacroExpansionKind::Argument:
+      break;
+  }
+
+  auto originalProvenance = sourceManager.getMacroTokenProvenance(originalLocation);
+  if (!has_direct_macro_token_provenance(originalProvenance))
+    return false;
+
+  auto originalTokenRange =
+      slang::SourceRange(originalLocation, originalLocation + token.rawText().length());
+  result.macro_name = rust::String(std::string(sourceManager.getMacroName(originalLocation)));
+
+  if (sourceManager.isMacroArgLoc(originalLocation)) {
+    result.argument_token_range =
+        to_rust_original_macro_loc_range(sourceManager, originalTokenRange);
+
+    auto formalRange = sourceManager.getExpansionRange(originalLocation);
+    result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
+    result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
+
+    if (originalProvenance->bodyTokenIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        originalProvenance->argumentIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        originalProvenance->argumentTokenIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        result.call_range.has_range && result.body_token_range.has_range &&
+        result.argument_token_range.has_range) {
+      apply_direct_macro_token_provenance(result, *originalProvenance);
+      result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT;
+      return true;
+    }
+    return false;
+  }
+
+  result.call_range =
+      to_rust_macro_callsite_range_from_macro_loc(sourceManager, originalLocation);
+  result.body_token_range = to_rust_original_macro_loc_range(sourceManager, originalTokenRange);
+  if (originalProvenance->bodyTokenIndex !=
+          slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+      result.call_range.has_range && result.body_token_range.has_range) {
+    apply_direct_macro_token_provenance(result, *originalProvenance);
+    result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
+    return true;
+  }
+
+  return false;
+}
+
 ::RawPreprocessorTraceToken empty_preprocessor_trace_token() {
   ::RawPreprocessorTraceToken token;
   token.raw_text = rust::String();
   token.value_text = rust::String();
+  token.token_kind = static_cast<uint16_t>(slang::parsing::TokenKind::Unknown);
   token.range = empty_source_buffer_range();
   token.has_token = false;
   return token;
@@ -203,7 +429,23 @@ std::optional<TraceSourceLocationKey> trace_source_location_key(slang::SourceLoc
 
   result.raw_text = rust::String(std::string(token.rawText()));
   result.value_text = rust::String(std::string(token.valueText()));
+  result.token_kind = static_cast<uint16_t>(token.kind);
   result.range = to_rust_source_buffer_range(token.range());
+  result.has_token = true;
+  return result;
+}
+
+::RawPreprocessorTraceToken to_rust_preprocessor_trace_written_token(
+    slang::parsing::Token token,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace_token();
+  if (!token)
+    return result;
+
+  result.raw_text = rust::String(std::string(token.rawText()));
+  result.value_text = rust::String(std::string(token.valueText()));
+  result.token_kind = static_cast<uint16_t>(token.kind);
+  result.range = to_rust_written_source_range(sourceManager, token.range());
   result.has_token = true;
   return result;
 }
@@ -214,6 +456,130 @@ rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_tokens(
   rust::Vec<::RawPreprocessorTraceToken> result;
   for (auto token : tokens)
     result.emplace_back(to_rust_preprocessor_trace_token(token));
+  return result;
+}
+
+template<typename TTokens>
+rust::Vec<::RawPreprocessorTraceToken> to_rust_preprocessor_trace_written_tokens(
+    const TTokens& tokens,
+    const slang::SourceManager& sourceManager) {
+  rust::Vec<::RawPreprocessorTraceToken> result;
+  for (auto token : tokens)
+    result.emplace_back(to_rust_preprocessor_trace_written_token(token, sourceManager));
+  return result;
+}
+
+template<typename TTokens>
+::RawSourceBufferRange to_rust_written_token_range(
+    const TTokens& tokens,
+    const slang::SourceManager& sourceManager) {
+  std::optional<::RawSourceBufferRange> merged;
+  for (auto token : tokens) {
+    auto range = to_rust_written_source_range(sourceManager, token.range());
+    if (!range.has_range)
+      continue;
+
+    if (!merged) {
+      merged = range;
+      continue;
+    }
+
+    if (merged->buffer_id != range.buffer_id)
+      return empty_source_buffer_range();
+
+    merged->range_start = std::min(merged->range_start, range.range_start);
+    merged->range_end = std::max(merged->range_end, range.range_end);
+  }
+
+  if (merged && merged->range_start < merged->range_end)
+    return *merged;
+  return empty_source_buffer_range();
+}
+
+::RawPreprocessorTraceEmittedToken to_rust_preprocessor_trace_emitted_token(
+    slang::parsing::Token token,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace_emitted_token();
+  if (!token)
+    return result;
+
+  result.raw_text = rust::String(std::string(token.rawText()));
+  result.value_text = rust::String(std::string(token.valueText()));
+  result.token_kind = static_cast<uint16_t>(token.kind);
+
+  auto location = token.location();
+  if (!location.valid())
+    return result;
+
+  if (sourceManager.isMacroLoc(location)) {
+    switch (sourceManager.getMacroExpansionKind(location)) {
+      case slang::SourceManager::MacroExpansionKind::TokenPaste:
+        apply_macro_operation_token_provenance(
+            result, sourceManager.getMacroTokenProvenance(location),
+            TRACE_TOKEN_PROVENANCE_TOKEN_PASTE);
+        return result;
+      case slang::SourceManager::MacroExpansionKind::Stringification:
+        apply_macro_operation_token_provenance(
+            result, sourceManager.getMacroTokenProvenance(location),
+            TRACE_TOKEN_PROVENANCE_STRINGIFICATION);
+        return result;
+      case slang::SourceManager::MacroExpansionKind::Body:
+      case slang::SourceManager::MacroExpansionKind::Argument:
+        break;
+    }
+
+    auto macroName = std::string(sourceManager.getMacroName(location));
+    result.macro_name = rust::String(macroName);
+    auto directProvenance = sourceManager.getMacroTokenProvenance(location);
+    if (has_builtin_macro_token_provenance(directProvenance)) {
+      result.macro_name = rust::String(directProvenance->builtinName);
+      apply_direct_macro_token_provenance(result, *directProvenance);
+      result.provenance_kind = TRACE_TOKEN_PROVENANCE_BUILTIN;
+      return result;
+    }
+
+    if (apply_original_macro_loc_provenance_for_nested_argument(
+            result, token, sourceManager, location))
+      return result;
+
+    if (sourceManager.isMacroArgLoc(location)) {
+      auto tokenRange = token.range();
+      result.argument_token_range = to_rust_original_macro_loc_range(sourceManager, tokenRange);
+
+      auto formalRange = sourceManager.getExpansionRange(location);
+      result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
+      result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
+
+      if (has_direct_macro_token_provenance(directProvenance) &&
+          directProvenance->bodyTokenIndex !=
+              slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+          directProvenance->argumentIndex !=
+              slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+          directProvenance->argumentTokenIndex !=
+              slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+          result.call_range.has_range && result.body_token_range.has_range &&
+          result.argument_token_range.has_range) {
+        apply_direct_macro_token_provenance(result, *directProvenance);
+        result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT;
+      }
+      return result;
+    }
+
+    result.call_range = to_rust_macro_callsite_range_from_macro_loc(sourceManager, location);
+    result.body_token_range = to_rust_original_macro_loc_range(sourceManager, token.range());
+    if (has_direct_macro_token_provenance(directProvenance) &&
+        directProvenance->bodyTokenIndex !=
+            slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
+        result.call_range.has_range && result.body_token_range.has_range) {
+      apply_direct_macro_token_provenance(result, *directProvenance);
+      result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
+    }
+    return result;
+  }
+
+  result.token_range = to_rust_source_buffer_range(token.range());
+  if (result.token_range.has_range)
+    result.provenance_kind = TRACE_TOKEN_PROVENANCE_SOURCE;
   return result;
 }
 
@@ -262,10 +628,9 @@ rust::Vec<::RawSourceBufferRange> to_rust_trace_disabled_ranges(const TTokens& t
 }
 
 // Directive syntax node ranges are payload ranges, not trace event ranges. For example,
-// generated MacroUsageSyntax ignores the inherited directive token and is NoLocation when
-// there are no actual args; EndIf/Else ranges are based on disabledTokens and can also be
-// empty. The trace contract needs the event's own source span, so anchor every directive
-// event at DirectiveSyntax::directive and extend only through that event's semantic payload.
+// EndIf/Else ranges are based on disabledTokens and can also be empty. The trace contract
+// needs the event's own source span, so anchor every directive event at
+// DirectiveSyntax::directive and extend only through that event's semantic payload.
 slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syntax) {
   auto* directiveSyntax = syntax.as_if<slang::syntax::DirectiveSyntax>();
   if (!directiveSyntax)
@@ -320,12 +685,6 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
     case slang::syntax::SyntaxKind::ElseDirective:
     case slang::syntax::SyntaxKind::EndIfDirective:
       break;
-    case slang::syntax::SyntaxKind::MacroUsage: {
-      const auto& usage = syntax.as<slang::syntax::MacroUsageSyntax>();
-      if (usage.args)
-        extend(usage.args->sourceRange());
-      break;
-    }
     default:
       extend(syntax.sourceRange());
       break;
@@ -348,17 +707,58 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
   return result;
 }
 
+::RawPreprocessorTraceActualArgument empty_preprocessor_trace_actual_argument() {
+  ::RawPreprocessorTraceActualArgument result;
+  result.tokens = rust::Vec<::RawPreprocessorTraceToken>();
+  result.range = empty_source_buffer_range();
+  return result;
+}
+
+::RawPreprocessorTraceActualArgument to_rust_trace_actual_argument(
+    const slang::syntax::MacroActualArgumentSyntax& argument,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace_actual_argument();
+  result.tokens = to_rust_preprocessor_trace_written_tokens(argument.tokens, sourceManager);
+  result.range = to_rust_written_token_range(argument.tokens, sourceManager);
+  return result;
+}
+
+rust::Vec<::RawPreprocessorTraceActualArgument> to_rust_trace_actual_arguments(
+    const slang::syntax::MacroActualArgumentListSyntax* arguments,
+    const slang::SourceManager& sourceManager) {
+  rust::Vec<::RawPreprocessorTraceActualArgument> result;
+  if (!arguments)
+    return result;
+
+  for (const auto* argument : arguments->args) {
+    if (!argument)
+      continue;
+    result.emplace_back(to_rust_trace_actual_argument(*argument, sourceManager));
+  }
+  return result;
+}
+
 ::RawPreprocessorTraceEvent to_rust_preprocessor_trace_event(
     const slang::syntax::SyntaxNode& syntax,
-    uint32_t eventId) {
+    uint32_t eventId,
+    uint32_t macroDefinitionId) {
   ::RawPreprocessorTraceEvent directive;
   directive.event_id = eventId;
   directive.kind = static_cast<uint16_t>(syntax.kind);
   directive.range = to_rust_source_buffer_range(trace_event_source_range(syntax));
+  directive.macro_definition_id = 0;
+  directive.has_macro_definition_id = false;
+  directive.macro_call_id = 0;
+  directive.has_macro_call_id = false;
+  directive.macro_expansion_id = 0;
+  directive.has_macro_expansion_id = false;
+  directive.parent_macro_expansion_id = 0;
+  directive.has_parent_macro_expansion_id = false;
   directive.directive = empty_preprocessor_trace_token();
   directive.name = empty_preprocessor_trace_token();
   directive.include_file_name = empty_preprocessor_trace_token();
   directive.params = rust::Vec<::RawPreprocessorTraceMacroParam>();
+  directive.arguments = rust::Vec<::RawPreprocessorTraceActualArgument>();
   directive.body_tokens = rust::Vec<::RawPreprocessorTraceToken>();
   directive.expr_tokens = rust::Vec<::RawPreprocessorTraceToken>();
   directive.disabled_ranges = rust::Vec<::RawSourceBufferRange>();
@@ -369,6 +769,8 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
   switch (syntax.kind) {
     case slang::syntax::SyntaxKind::DefineDirective: {
       const auto& define = syntax.as<slang::syntax::DefineDirectiveSyntax>();
+      directive.macro_definition_id = macroDefinitionId;
+      directive.has_macro_definition_id = macroDefinitionId != 0;
       directive.name = to_rust_preprocessor_trace_token(define.name);
       if (define.formalArguments) {
         for (auto* param : define.formalArguments->args)
@@ -401,16 +803,132 @@ slang::SourceRange trace_event_source_range(const slang::syntax::SyntaxNode& syn
       directive.disabled_ranges = to_rust_trace_disabled_ranges(branch.disabledTokens);
       break;
     }
-    case slang::syntax::SyntaxKind::MacroUsage: {
-      const auto& usage = syntax.as<slang::syntax::MacroUsageSyntax>();
-      directive.name = to_rust_preprocessor_trace_token(usage.directive);
-      break;
-    }
     default:
       break;
   }
 
   return directive;
+}
+
+::RawPreprocessorTraceEvent to_rust_preprocessor_trace_macro_usage_record(
+    const slang::parsing::MacroUsageTraceRecord& record,
+    uint32_t eventId,
+    const slang::SourceManager& sourceManager) {
+  ::RawPreprocessorTraceEvent directive;
+  directive.event_id = eventId;
+  directive.kind = static_cast<uint16_t>(slang::syntax::SyntaxKind::MacroUsage);
+  directive.range = to_rust_written_source_range(sourceManager, record.range);
+  directive.macro_definition_id = record.definitionId;
+  directive.has_macro_definition_id = record.definitionId != 0;
+  directive.macro_call_id = record.callId;
+  directive.has_macro_call_id = record.callId != 0;
+  directive.macro_expansion_id = record.expansionId;
+  directive.has_macro_expansion_id = record.expansionId != 0;
+  directive.parent_macro_expansion_id = record.parentExpansionId;
+  directive.has_parent_macro_expansion_id = record.parentExpansionId != 0;
+  directive.directive = to_rust_preprocessor_trace_written_token(record.directive, sourceManager);
+  directive.name = directive.directive;
+  directive.include_file_name = empty_preprocessor_trace_token();
+  directive.params = rust::Vec<::RawPreprocessorTraceMacroParam>();
+  directive.arguments = to_rust_trace_actual_arguments(record.actualArgs, sourceManager);
+  directive.body_tokens = rust::Vec<::RawPreprocessorTraceToken>();
+  directive.expr_tokens = rust::Vec<::RawPreprocessorTraceToken>();
+  directive.disabled_ranges = rust::Vec<::RawSourceBufferRange>();
+  return directive;
+}
+
+rust::Vec<::RawSourceBufferId> collectSourceBufferIds(
+    const slang::SourceManager& sourceManager,
+    const std::unordered_set<uint32_t>& predefineBufferIds);
+
+::RawPreprocessorTrace empty_preprocessor_trace() {
+  ::RawPreprocessorTrace result;
+  result.root_buffer_id = 0;
+  result.has_root_buffer_id = false;
+  result.source_buffers = rust::Vec<::RawSourceBufferId>();
+  result.events = rust::Vec<::RawPreprocessorTraceEvent>();
+  result.include_edges = rust::Vec<::RawPreprocessorTraceIncludeEdge>();
+  result.emitted_tokens = rust::Vec<::RawPreprocessorTraceEmittedToken>();
+  return result;
+}
+
+std::unordered_set<uint32_t> predefine_buffer_ids(
+    const slang::parsing::PreprocessorTraceSnapshot& trace) {
+  std::unordered_set<uint32_t> bufferIds;
+  for (const auto& event : trace.events) {
+    if (event.kind != slang::parsing::PreprocessorTraceEvent::Kind::Directive ||
+        !event.directive.isPredefine || !event.directive.syntax) {
+      continue;
+    }
+
+    auto* directive = event.directive.syntax->as_if<slang::syntax::DirectiveSyntax>();
+    if (!directive)
+      continue;
+    auto location = directive->directive.location();
+    if (location.valid())
+      bufferIds.insert(location.buffer().getId());
+  }
+  return bufferIds;
+}
+
+::RawPreprocessorTrace to_rust_preprocessor_trace_snapshot(
+    const slang::parsing::PreprocessorTraceSnapshot& trace,
+    const slang::SourceManager& sourceManager) {
+  auto result = empty_preprocessor_trace();
+  if (!trace.rootBufferId)
+    return result;
+
+  result.root_buffer_id = *trace.rootBufferId;
+  result.has_root_buffer_id = true;
+
+  std::unordered_map<TraceSourceLocationKey, uint32_t, TraceSourceLocationKeyHash>
+      includeEventIdsByLocation;
+  for (const auto& event : trace.events) {
+    switch (event.kind) {
+      case slang::parsing::PreprocessorTraceEvent::Kind::Directive: {
+        if (!event.directive.syntax)
+          continue;
+
+        if (event.directive.syntax->kind == slang::syntax::SyntaxKind::IncludeDirective) {
+          const auto& include =
+              event.directive.syntax->as<slang::syntax::IncludeDirectiveSyntax>();
+          if (auto key = trace_source_location_key(include.directive.location()))
+            includeEventIdsByLocation.emplace(*key, event.eventId);
+        }
+
+        result.events.emplace_back(to_rust_preprocessor_trace_event(
+            *event.directive.syntax, event.eventId, event.directive.macroDefinitionId));
+        break;
+      }
+      case slang::parsing::PreprocessorTraceEvent::Kind::MacroUsage:
+        result.events.emplace_back(to_rust_preprocessor_trace_macro_usage_record(
+            event.macroUsage, event.eventId, sourceManager));
+        break;
+    }
+  }
+
+  for (auto token : trace.emittedTokens)
+    result.emitted_tokens.emplace_back(
+        to_rust_preprocessor_trace_emitted_token(token, sourceManager));
+
+  for (auto buffer : sourceManager.getAllBuffers()) {
+    auto includedFrom = sourceManager.getIncludedFrom(buffer);
+    auto key = trace_source_location_key(includedFrom);
+    if (!key)
+      continue;
+
+    auto includeIt = includeEventIdsByLocation.find(*key);
+    if (includeIt == includeEventIdsByLocation.end())
+      continue;
+
+    ::RawPreprocessorTraceIncludeEdge edge;
+    edge.include_event_id = includeIt->second;
+    edge.included_buffer_id = buffer.getId();
+    result.include_edges.emplace_back(edge);
+  }
+
+  result.source_buffers = collectSourceBufferIds(sourceManager, predefine_buffer_ids(trace));
+  return result;
 }
 
 std::optional<slang::SourceRange> mapSourceRangeToContext(
@@ -439,8 +957,20 @@ rust::Vec<::RawSourceBufferId> collectSourceBufferIds(
 
     ::RawSourceBufferId sourceBuffer;
     sourceBuffer.path = rust::String(fullPath.string());
+    sourceBuffer.text = rust::String();
+    sourceBuffer.has_text = false;
     sourceBuffer.buffer_id = buffer.getId();
-    sourceBuffer.origin = predefineBufferIds.contains(buffer.getId()) ? 1 : 0;
+    if (predefineBufferIds.contains(buffer.getId())) {
+      auto text = sourceManager.getSourceText(buffer);
+      if (!text.empty() && text.back() == '\0')
+        text.remove_suffix(1);
+      sourceBuffer.text = rust::String(std::string(text));
+      sourceBuffer.has_text = true;
+      sourceBuffer.origin = 1;
+    }
+    else {
+      sourceBuffer.origin = 0;
+    }
     sourceBuffers.emplace_back(std::move(sourceBuffer));
   }
 
@@ -625,7 +1155,8 @@ std::shared_ptr<SyntaxTree> SourceSession::parseText(
     rust::Vec<rust::String> include_paths,
     rust::Vec<::RawSourceBuffer> include_buffers,
     std::optional<size_t> expectedSyntaxCursor,
-    bool expandIncludes) {
+    bool expandIncludes,
+    bool collectPreprocessorTrace) {
   slang::Bag options;
   auto& ppOptions = options.insertOrGet<slang::parsing::PreprocessorOptions>();
   for (const auto& predefine : predefines)
@@ -644,15 +1175,20 @@ std::shared_ptr<SyntaxTree> SourceSession::parseText(
     assignSourceBuffer(std::string(buffer.path), std::string(buffer.text));
   }
 
+  auto traceMode = collectPreprocessorTrace
+                       ? slang::syntax::PreprocessorTraceMode::Enabled
+                       : slang::syntax::PreprocessorTraceMode::Disabled;
   std::shared_ptr<::slang::syntax::SyntaxTree> tree;
   if (path.empty()) {
-    tree = ::slang::syntax::SyntaxTree::fromText(text, *sourceManager, name, path, options);
+    tree = ::slang::syntax::SyntaxTree::fromText(
+        text, *sourceManager, name, path, options, nullptr, traceMode);
   }
   else {
     auto buffer = assignSourceBuffer(path, text);
     if (!name.empty())
       sourceManager->addLineDirective(slang::SourceLocation(buffer.id, 0), 2, name, 0);
-    tree = ::slang::syntax::SyntaxTree::fromBuffer(buffer, *sourceManager, options);
+    tree = ::slang::syntax::SyntaxTree::fromBuffer(buffer, *sourceManager, options, {},
+                                                   traceMode);
   }
 
   return std::make_shared<SyntaxTree>(std::move(tree), shared_from_this());
@@ -710,6 +1246,27 @@ std::shared_ptr<SyntaxTree> SyntaxTree_fromTextWithOptions(
       std::move(include_buffers),
       std::nullopt,
       expandIncludes);
+}
+
+std::shared_ptr<SyntaxTree> SyntaxTree_fromTextWithOptionsAndTrace(
+    std::string_view text,
+    std::string_view name,
+    std::string_view path,
+    rust::Vec<rust::String> predefines,
+    rust::Vec<rust::String> include_paths,
+    rust::Vec<::RawSourceBuffer> include_buffers,
+    bool expandIncludes) {
+  auto session = std::make_shared<SourceSession>();
+  return session->parseText(
+      text,
+      name,
+      path,
+      std::move(predefines),
+      std::move(include_paths),
+      std::move(include_buffers),
+      std::nullopt,
+      expandIncludes,
+      true);
 }
 
 std::shared_ptr<SyntaxTree> SyntaxTree_fromLibraryMapText(
@@ -828,115 +1385,12 @@ rust::Vec<::RawExpectedSyntax> SyntaxTree_libraryMapExpectedSyntaxAtOffset(
   return result;
 }
 
-::RawPreprocessorTrace SyntaxTree_preprocessorTrace(
-    std::string_view text,
-    std::string_view name,
-    std::string_view path,
-    rust::Vec<rust::String> predefines,
-    rust::Vec<rust::String> includePaths,
-    rust::Vec<::RawSourceBuffer> includeBuffers,
-    bool expandIncludes) {
-  ::RawPreprocessorTrace result;
-  result.root_buffer_id = 0;
-  result.has_root_buffer_id = false;
-  result.source_buffers = rust::Vec<::RawSourceBufferId>();
-  result.events = rust::Vec<::RawPreprocessorTraceEvent>();
-  result.include_edges = rust::Vec<::RawPreprocessorTraceIncludeEdge>();
+::RawPreprocessorTrace SyntaxTree_preprocessorTraceFromParsed(const SyntaxTree& tree) {
+  auto* trace = tree.inner().getPreprocessorTrace();
+  if (!trace)
+    return empty_preprocessor_trace();
 
-  slang::SourceManager sourceManager;
-  std::unordered_map<std::string, slang::SourceBuffer> assignedBuffers;
-  std::unordered_set<uint32_t> sourceBufferIds;
-  auto assignSourceBuffer = [&](std::string_view bufferPath,
-                                std::string_view bufferText) -> slang::SourceBuffer {
-    if (bufferPath.empty())
-      return {};
-
-    auto key = source_manager_path_key(bufferPath);
-    auto it = assignedBuffers.find(key);
-    if (it != assignedBuffers.end())
-      return it->second;
-
-    std::string ownedText(bufferText);
-    auto buffer = sourceManager.assignText(key, ownedText);
-    assignedBuffers.emplace(std::move(key), buffer);
-    sourceBufferIds.insert(buffer.id.getId());
-    return buffer;
-  };
-
-  for (const auto& includeBuffer : includeBuffers)
-    assignSourceBuffer(std::string(includeBuffer.path), std::string(includeBuffer.text));
-
-  auto bufferPath = path.empty() ? (name.empty() ? std::string_view("source") : name) : path;
-  auto rootBuffer = assignSourceBuffer(bufferPath, text);
-  if (!rootBuffer)
-    return result;
-
-  if (!path.empty() && !name.empty())
-    sourceManager.addLineDirective(slang::SourceLocation(rootBuffer.id, 0), 2, name, 0);
-
-  result.root_buffer_id = rootBuffer.id.getId();
-  result.has_root_buffer_id = true;
-
-  slang::Bag options;
-  auto& ppOptions = options.insertOrGet<slang::parsing::PreprocessorOptions>();
-  for (const auto& predefine : predefines)
-    ppOptions.predefines.emplace_back(std::string(predefine));
-  for (const auto& includePath : includePaths)
-    ppOptions.additionalIncludePaths.emplace_back(std::string(includePath));
-  ppOptions.expandIncludes = expandIncludes;
-
-  slang::BumpAllocator alloc;
-  slang::Diagnostics diagnostics;
-  slang::parsing::Preprocessor preprocessor(sourceManager, alloc, diagnostics, options);
-  std::unordered_set<uint32_t> predefineBufferIds;
-  for (auto buffer : sourceManager.getAllBuffers()) {
-    auto bufferId = buffer.getId();
-    if (!sourceBufferIds.contains(bufferId))
-      predefineBufferIds.insert(bufferId);
-  }
-  preprocessor.pushSource(rootBuffer);
-  std::unordered_map<TraceSourceLocationKey, uint32_t, TraceSourceLocationKeyHash>
-      includeEventIdsByLocation;
-
-  while (true) {
-    auto token = preprocessor.next();
-    for (auto trivia : token.trivia()) {
-      if (trivia.kind != slang::parsing::TriviaKind::Directive)
-        continue;
-
-      if (auto* syntax = trivia.syntax()) {
-        auto eventId = static_cast<uint32_t>(result.events.size());
-        if (syntax->kind == slang::syntax::SyntaxKind::IncludeDirective) {
-          const auto& include = syntax->as<slang::syntax::IncludeDirectiveSyntax>();
-          if (auto key = trace_source_location_key(include.directive.location()))
-            includeEventIdsByLocation.emplace(*key, eventId);
-        }
-        result.events.emplace_back(to_rust_preprocessor_trace_event(*syntax, eventId));
-      }
-    }
-
-    if (token.kind == slang::parsing::TokenKind::EndOfFile)
-      break;
-  }
-
-  for (auto buffer : sourceManager.getAllBuffers()) {
-    auto includedFrom = sourceManager.getIncludedFrom(buffer);
-    auto key = trace_source_location_key(includedFrom);
-    if (!key)
-      continue;
-
-    auto includeIt = includeEventIdsByLocation.find(*key);
-    if (includeIt == includeEventIdsByLocation.end())
-      continue;
-
-    ::RawPreprocessorTraceIncludeEdge edge;
-    edge.include_event_id = includeIt->second;
-    edge.included_buffer_id = buffer.getId();
-    result.include_edges.emplace_back(edge);
-  }
-
-  result.source_buffers = collectSourceBufferIds(sourceManager, predefineBufferIds);
-  return result;
+  return to_rust_preprocessor_trace_snapshot(*trace, tree.inner().sourceManager());
 }
 
 std::unique_ptr<SourceRange> SyntaxNode_range(const SyntaxNode& node) {

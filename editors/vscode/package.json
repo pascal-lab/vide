@@ -260,6 +260,11 @@
           "default": true,
           "description": "%configuration.inlayHints.parameter.assignment.enable.description%"
         },
+        "vide.inlayHints.macro.argument.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.inlayHints.macro.argument.enable.description%"
+        },
         "vide.inlayHints.end.structure.enable": {
           "type": "boolean",
           "default": true,

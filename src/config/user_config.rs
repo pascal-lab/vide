@@ -360,6 +360,7 @@ impl Default for FormattingIndentUserConfig {
 pub(crate) struct InlayHintsUserConfig {
     pub(crate) port: InlayHintsPortUserConfig,
     pub(crate) parameter: InlayHintsParameterUserConfig,
+    pub(crate) r#macro: InlayHintsMacroUserConfig,
     pub(crate) end: InlayHintsEndUserConfig,
 }
 
@@ -377,6 +378,14 @@ pub(crate) struct InlayHintsPortUserConfig {
 #[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
 pub(crate) struct InlayHintsParameterUserConfig {
     pub(crate) assignment: EnableUserConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "user-config-schema", derive(schemars::JsonSchema))]
+#[serde(default, deny_unknown_fields)]
+#[cfg_attr(feature = "user-config-schema", schemars(deny_unknown_fields))]
+pub(crate) struct InlayHintsMacroUserConfig {
+    pub(crate) argument: EnableUserConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
@@ -1012,6 +1021,17 @@ const USER_CONFIG_SETTINGS: &[ConfigSettingMeta] = &[
         schema: ConfigSettingSchema::Boolean,
     },
     ConfigSettingMeta {
+        path: &["inlayHints", "macro", "argument", "enable"],
+        vscode_key: "vide.inlayHints.macro.argument.enable",
+        docs_group: "Annotations",
+        description_key: "configuration.inlayHints.macro.argument.enable.description",
+        markdown_description_key: None,
+        enum_descriptions: &[],
+        exposed_in_vscode: true,
+        default: ConfigSettingDefault::Bool(true),
+        schema: ConfigSettingSchema::Boolean,
+    },
+    ConfigSettingMeta {
         path: &["inlayHints", "end", "structure", "enable"],
         vscode_key: "vide.inlayHints.end.structure.enable",
         docs_group: "Annotations",
@@ -1218,6 +1238,7 @@ const USER_CONFIG_KNOWN_PATHS: &[&[&str]] = &[
     &["formatting", "indent", "width"],
     &["formatting", "on", "enter"],
     &["inlayHints", "end", "structure", "enable"],
+    &["inlayHints", "macro", "argument", "enable"],
     &["inlayHints", "parameter", "assignment", "enable"],
     &["inlayHints", "port", "connection", "enable"],
     &["lens", "instantiations", "enable"],
@@ -1371,6 +1392,9 @@ fn apply_user_config_fields(
     field!(&["formatting", "on", "enter"], bool, |cfg, value| { cfg.formatting.on.enter = value });
     field!(&["inlayHints", "end", "structure", "enable"], bool, |cfg, value| {
         cfg.inlay_hints.end.structure.enable = value
+    });
+    field!(&["inlayHints", "macro", "argument", "enable"], bool, |cfg, value| {
+        cfg.inlay_hints.r#macro.argument.enable = value
     });
     field!(&["inlayHints", "parameter", "assignment", "enable"], bool, |cfg, value| {
         cfg.inlay_hints.parameter.assignment.enable = value
@@ -1543,6 +1567,7 @@ impl Config {
         InlayHintConfig {
             port_connection: self.user_config.inlay_hints.port.connection.enable,
             parameter_assignment: self.user_config.inlay_hints.parameter.assignment.enable,
+            macro_argument: self.user_config.inlay_hints.r#macro.argument.enable,
             end_structure: self.user_config.inlay_hints.end.structure.enable,
         }
     }

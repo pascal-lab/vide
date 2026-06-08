@@ -24,21 +24,26 @@ using LF = LexerFacts;
 
 Preprocessor::Preprocessor(SourceManager& sourceManager, BumpAllocator& alloc,
                            Diagnostics& diagnostics, const Bag& options_,
-                           std::span<const DefineDirectiveSyntax* const> inheritedMacros) :
+                           std::span<const DefineDirectiveSyntax* const> inheritedMacros,
+                           PreprocessorTraceRecorder* traceRecorder) :
     sourceManager(sourceManager), alloc(alloc), diagnostics(diagnostics),
     options(options_.getOrDefault<PreprocessorOptions>()),
     lexerOptions(options_.getOrDefault<LexerOptions>()),
-    numberParser(diagnostics, alloc, options.languageVersion) {
+    numberParser(diagnostics, alloc, options.languageVersion), traceRecorder(traceRecorder) {
 
     keywordVersionStack.push_back(LF::getDefaultKeywordVersion(options.languageVersion));
     resetAllDirectives();
     undefineAll();
+    recordTracePredefines();
 
     // Add in any inherited macros that aren't already set in our map.
     for (auto define : inheritedMacros) {
         auto name = define->name.valueText();
-        if (!name.empty())
-            macros.emplace(name, define);
+        if (!name.empty()) {
+            MacroDef def(define);
+            def.definitionId = allocateMacroDefinitionId(define);
+            macros.emplace(name, def);
+        }
     }
 
     // clang-format off
@@ -121,8 +126,10 @@ void Preprocessor::predefine(const std::string& definition, std::string_view nam
     // be copied over to our own map.
     for (auto& pair : pp.macros) {
         if (!pair.second.isIntrinsic()) {
-            pair.second.commandLine = true;
-            macros.insert(pair);
+            MacroDef def = pair.second;
+            def.commandLine = true;
+            def.definitionId = allocateMacroDefinitionId(def.syntax);
+            macros.insert({pair.first, def});
         }
     }
 }
@@ -210,8 +217,73 @@ std::vector<const DefineDirectiveSyntax*> Preprocessor::getDefinedMacros() const
     return results;
 }
 
+uint32_t Preprocessor::getMacroDefinitionId(const DefineDirectiveSyntax& syntax) const {
+    auto it = macroDefinitionIds.find(&syntax);
+    return it == macroDefinitionIds.end() ? 0 : it->second;
+}
+
+uint32_t Preprocessor::allocateMacroDefinitionId(const DefineDirectiveSyntax* syntax) {
+    if (!syntax)
+        return 0;
+
+    auto it = macroDefinitionIds.find(syntax);
+    if (it != macroDefinitionIds.end())
+        return it->second;
+
+    auto id = nextMacroDefinitionId++;
+    macroDefinitionIds.emplace(syntax, id);
+    return id;
+}
+
+uint32_t Preprocessor::allocateMacroCallId() {
+    return nextMacroCallId++;
+}
+
 Token Preprocessor::next() {
-    return consume();
+    auto token = consume();
+    recordTraceToken(token);
+    return token;
+}
+
+void Preprocessor::recordTracePredefines() {
+    if (!traceRecorder)
+        return;
+
+    std::vector<MacroDef> defines;
+    for (auto& [name, def] : macros) {
+        if (def.commandLine && def.syntax)
+            defines.push_back(def);
+    }
+
+    std::ranges::sort(defines, [](const MacroDef& left, const MacroDef& right) {
+        return left.syntax->name.valueText() < right.syntax->name.valueText();
+    });
+
+    for (const auto& def : defines)
+        traceRecorder->recordDirective(*def.syntax, def.definitionId, true);
+}
+
+void Preprocessor::recordTraceToken(Token token) {
+    if (!traceRecorder)
+        return;
+
+    for (auto trivia : token.trivia()) {
+        if (trivia.kind != TriviaKind::Directive)
+            continue;
+
+        auto* syntax = trivia.syntax();
+        if (!syntax || syntax->kind == SyntaxKind::MacroUsage)
+            continue;
+
+        uint32_t definitionId = 0;
+        if (auto* define = syntax->as_if<DefineDirectiveSyntax>())
+            definitionId = getMacroDefinitionId(*define);
+        traceRecorder->recordDirective(*syntax, definitionId);
+    }
+
+    traceRecorder->flushMacroUsageRecords(getMacroUsageTraceRecords());
+    if (token.kind != TokenKind::EndOfFile)
+        traceRecorder->recordEmittedToken(token);
 }
 
 Token Preprocessor::nextProcessed() {
@@ -677,8 +749,11 @@ Trivia Preprocessor::handleDefineDirective(Token directive) {
         }
     }
 
-    if (!bad)
-        macros[name.valueText()] = result;
+    if (!bad) {
+        MacroDef def(result);
+        def.definitionId = allocateMacroDefinitionId(result);
+        macros[name.valueText()] = def;
+    }
     return Trivia(TriviaKind::Directive, result);
 }
 

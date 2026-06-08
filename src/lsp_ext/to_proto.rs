@@ -602,7 +602,9 @@ pub(crate) fn inlay_hint(
 
     let position = self::position(line_info, position);
     let kind = match kind {
-        InlayKind::ParamAssign | InlayKind::Port => Some(lsp_types::InlayHintKind::PARAMETER),
+        InlayKind::ParamAssign | InlayKind::Port | InlayKind::MacroArgument => {
+            Some(lsp_types::InlayHintKind::PARAMETER)
+        }
         InlayKind::EndStructure => None,
     };
 
@@ -746,6 +748,7 @@ pub(crate) fn semantic_tokens(
             SemaTokenTag::Port(SemaTokenPort::Rst) => sema_token_types::RST_PORT,
             SemaTokenTag::Port(SemaTokenPort::Others) => sema_token_types::OTHERS_PORT,
             SemaTokenTag::Instance => sema_token_types::INSTANCE,
+            SemaTokenTag::Macro => sema_token_types::MACRO,
             SemaTokenTag::Type => sema_token_types::TYPE_ALIAS,
             SemaTokenTag::None => sema_token_types::GENERIC,
         };

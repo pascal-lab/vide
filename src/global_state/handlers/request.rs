@@ -446,10 +446,15 @@ pub(crate) fn handle_references(
     let Some(refs) = snap.analysis.references(position, config)? else {
         return Ok(None);
     };
+    let partial_issue_count: usize =
+        refs.iter().map(|references| references.status.issue_count()).sum();
+    if partial_issue_count > 0 {
+        tracing::debug!(partial_issue_count, "references result is partial");
+    }
 
     let locations = refs
         .into_iter()
-        .flat_map(|References { def, refs }| {
+        .flat_map(|References { def, refs, .. }| {
             let decl = if include_declaration { def.unwrap_or_default() } else { Vec::new() }
                 .into_iter()
                 .map(|nav| FileRange { file_id: nav.file_id, range: nav.focus_or_full_range() });

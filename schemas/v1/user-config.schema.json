@@ -68,6 +68,11 @@
             "enable": true
           }
         },
+        "macro": {
+          "argument": {
+            "enable": true
+          }
+        },
         "end": {
           "structure": {
             "enable": true
@@ -345,6 +350,14 @@
             }
           }
         },
+        "macro": {
+          "$ref": "#/$defs/InlayHintsMacroUserConfig",
+          "default": {
+            "argument": {
+              "enable": true
+            }
+          }
+        },
         "end": {
           "$ref": "#/$defs/InlayHintsEndUserConfig",
           "default": {
@@ -382,6 +395,18 @@
       "type": "object",
       "properties": {
         "assignment": {
+          "$ref": "#/$defs/EnableUserConfig",
+          "default": {
+            "enable": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "InlayHintsMacroUserConfig": {
+      "type": "object",
+      "properties": {
+        "argument": {
           "$ref": "#/$defs/EnableUserConfig",
           "default": {
             "enable": true
