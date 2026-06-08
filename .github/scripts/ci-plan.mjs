@@ -21,14 +21,6 @@ const DEV_ALPINE_TARGETS = new Map([
       "rust-target": "x86_64-unknown-linux-musl",
     },
   ],
-  [
-    "alpine-arm64",
-    {
-      target: "alpine-arm64",
-      image: "ghcr.io/blackdex/rust-musl:aarch64-musl-nightly",
-      "rust-target": "aarch64-unknown-linux-musl",
-    },
-  ],
 ]);
 
 export async function planCi({ github, context, core, filters }) {
