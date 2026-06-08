@@ -106,10 +106,9 @@ npm run package:vsix -- --target linux-arm64
 npm run package:vsix -- --target win32-x64
 npm run package:vsix -- --target darwin-arm64
 npm run package:vsix -- --target alpine-x64
-npm run package:vsix -- --target alpine-arm64
 ```
 
-这些脚本会先编译扩展，然后准备目标平台的 release 版语言服务器，再生成 `vide-vscode-<target>.vsix`。release 包默认不启用 profile trace，也不包含 Speedscope 静态资源或 profiling 命令。当前 release workflow 只覆盖上面这些目标：glibc Linux、Windows x64、macOS arm64，以及 Alpine/musl x64 和 arm64。
+这些脚本会先编译扩展，然后准备目标平台的 release 版语言服务器，再生成 `vide-vscode-<target>.vsix`。release 包默认不启用 profile trace，也不包含 Speedscope 静态资源或 profiling 命令。当前 release workflow 只覆盖上面这些目标：glibc Linux、Windows x64、macOS arm64，以及 Alpine/musl x64。
 这几项也是当前 CI 会实际构建的 VSIX 目标。其他平台不是当前支持的打包目标。
 
 上面的打包命令都需要先准备目标平台的语言服务器二进制；`editors/vscode/scripts/package.ts` 会调用 `cargo xtask vscode prepare-server`，而通用的 server 构建规则由 `cargo xtask server build` 承载：
@@ -158,7 +157,6 @@ code --install-extension ./vide-vscode-win32-x64-debug.vsix
 
 VSIX 是按平台打包的。当前正式发布和 CI 产物覆盖这些目标：
 
-- `alpine-arm64`
 - `alpine-x64`
 - `darwin-arm64`
 - `linux-arm64`

@@ -120,10 +120,9 @@ npm run package:vsix -- --target linux-arm64
 npm run package:vsix -- --target win32-x64
 npm run package:vsix -- --target darwin-arm64
 npm run package:vsix -- --target alpine-x64
-npm run package:vsix -- --target alpine-arm64
 ```
 
-These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. Release packages do not enable profile trace, and they do not include Speedscope static assets or the profiling command by default. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64 and arm64.
+These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. Release packages do not enable profile trace, and they do not include Speedscope static assets or the profiling command by default. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64.
 Those are also the VSIX targets currently built by CI. Other platforms are not current packaging targets.
 
 All packaging commands above need to prepare the language server binary for the target platform first. `editors/vscode/scripts/package.ts` calls `cargo xtask vscode prepare-server`, and the reusable server build rules live under `cargo xtask server build`:
@@ -172,7 +171,6 @@ You can download a `.vsix` file and install it manually. Choose the source based
 
 VSIX packages are platform-specific. Current release and CI artifacts cover these targets:
 
-- `alpine-arm64`
 - `alpine-x64`
 - `darwin-arm64`
 - `linux-arm64`

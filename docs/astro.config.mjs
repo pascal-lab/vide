@@ -134,7 +134,7 @@ export default defineConfig({
         {
           label: 'Changelog',
           translations: { en: 'Changelog' },
-          items: ['changelog', 'changelog/v1-1-0'],
+          items: ['changelog', 'changelog/v1-2-0', 'changelog/v1-1-0'],
         },
         {
           label: 'Playground',

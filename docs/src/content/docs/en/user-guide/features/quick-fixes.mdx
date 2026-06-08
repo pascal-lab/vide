@@ -1,6 +1,6 @@
 ---
 title: Automatic Refactoring
-description: Fill ports and parameters, convert connection styles, remove empty connections, and convert numeric literal bases.
+description: Fill ports and parameters, convert connection styles, clean up procedural blocks, rewrite expressions, and fix common syntax issues.
 ---
 
 import Codicon from '../../../../../components/Codicon.astro';
@@ -11,7 +11,7 @@ import { missingPortFiles } from '../../../../../examples/dailyUse';
 
 ## What It Is
 
-Automatic refactoring handles repetitive, error-prone edits such as port connections, parameter assignments, and integer literal base conversion. In VS Code, you trigger these operations from the <Codicon name="lightbulb" label="Lightbulb menu icon" color="#facc15" /> lightbulb menu, also called Code Actions.
+Automatic refactoring handles repetitive, error-prone edits such as port connections, parameter assignments, procedural blocks, control flow, and expression rewrites. In VS Code, you trigger these operations from the <Codicon name="lightbulb" label="Lightbulb menu icon" color="#facc15" /> lightbulb menu, also called Code Actions.
 
 ## Demo
 
@@ -36,7 +36,9 @@ Automatic refactoring handles repetitive, error-prone edits such as port connect
 
 ## Supported Actions
 
-Place the cursor near an instance, integer literal, or diagnostic, then open the lightbulb menu. Vide currently supports:
+Place the cursor near an instance, port list, procedural block, expression, integer literal, or diagnostic, then open the lightbulb menu. Vide currently supports:
+
+### Instances, Ports, and Parameters
 
 - `Fill connections`
 - `Fill parameters`
@@ -45,7 +47,30 @@ Place the cursor near an instance, integer literal, or diagnostic, then open the
 - `Remove empty port connections`
 - `Add explicit empty port connection`
 - `Add empty instance port list`
-- `Convert literal to binary/octal/decimal/hexadecimal`
+- `Expand named port shorthand` / `Collapse named port to shorthand`
+- `Convert ANSI port declarations to non-ANSI` / `Convert non-ANSI port declarations to ANSI`
+- `Split declaration`, `Sort named parameter assignments`, and `Sort named port connections`
+
+### Procedural Blocks and Control Flow
+
+- `Convert to always_comb`, `Convert to always_ff`, `Convert to always @(*)`, and `Convert to always @(...)`
+- `Add default case item`
+- `Invert if/else` and `Merge nested if`
+- `Wrap statement in begin/end` / `Unwrap single-statement begin/end`
+- `Pull assignment up` / `Pull assignment down`
+
+### Expressions and Number Literals
+
+- `Extract into variable`
+- `Apply De Morgan's law` / `Factor De Morgan's law`
+- `Remove redundant parentheses`
+- `Expand compound assignment` / `Collapse compound assignment`
+- Increment, decrement, compound-assignment, and expanded-assignment forms can be converted into each other, for example between `count++`, `++count`, `count += 1`, and `count = count + 1`.
+- `Convert literal to binary/octal/decimal/hexadecimal` and `Remove digit separators`
+
+### Diagnostic Quick Fixes
+
+- `Insert missing '{token}'` when a parse diagnostic identifies a missing bracket, semicolon, or similar syntax token.
 
 ## Project Configuration
 
