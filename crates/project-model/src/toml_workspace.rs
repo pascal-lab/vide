@@ -6,9 +6,13 @@ use regex::Regex;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use smol_str::SmolStr;
-use utils::paths::{AbsPathBuf, Utf8PathBuf};
+use toml::Spanned;
+use utils::{
+    line_index::{TextRange, TextSize},
+    paths::{AbsPathBuf, Utf8PathBuf},
+};
 
-use crate::macro_def::{MacroAtom, MacroDef};
+use crate::macro_def::{MacroAtom, MacroDef, MacroDefSource};
 #[cfg(feature = "manifest-schema")]
 use crate::project_manifest::MANIFEST_FILE_NAME;
 
@@ -144,54 +148,59 @@ fn de_macros<'de, D>(deserializer: D) -> Result<MacroDef, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let res = Vec::<SmolStr>::deserialize(deserializer)?;
+    let res = Vec::<Spanned<SmolStr>>::deserialize(deserializer)?;
     let ident_re = IDENT_RE.as_ref().map_err(|err| {
         serde::de::Error::custom(format!("invalid macro identifier regex: {err}"))
     })?;
     let kv_re = KV_RE
         .as_ref()
         .map_err(|err| serde::de::Error::custom(format!("invalid macro key-value regex: {err}")))?;
-    let macros = res
-        .into_iter()
-        .map(|macr: SmolStr| {
-            if ident_re.is_match(&macr) {
-                Ok(MacroAtom::Flag(macr))
-            } else if let Some(caps) = kv_re.captures(&macr) {
-                let Some(key_match) = caps.get(1) else {
+    let mut macros = FxHashSet::default();
+    let mut sources = Vec::new();
+    for macr in res {
+        let range = spanned_text_range(macr.span()).map_err(serde::de::Error::custom)?;
+        let macr = macr.into_inner();
+        let atom = if ident_re.is_match(&macr) {
+            Ok(MacroAtom::Flag(macr))
+        } else if let Some(caps) = kv_re.captures(&macr) {
+            let Some(key_match) = caps.get(1) else {
+                return Err(serde::de::Error::custom(format!("Invalid macro definition: {macr}")));
+            };
+            let Some(value_match) = caps.get(2) else {
+                return Err(serde::de::Error::custom(format!("Invalid macro definition: {macr}")));
+            };
+            let mut key: SmolStr = key_match.as_str().into();
+            let value = value_match.as_str().into();
+            if key.starts_with('\\') {
+                let Some(stripped) = key.strip_prefix('\\').and_then(|key| key.strip_suffix(' '))
+                else {
                     return Err(serde::de::Error::custom(format!(
-                        "Invalid macro definition: {macr}"
+                        "Invalid escaped macro name: {macr}"
                     )));
                 };
-                let Some(value_match) = caps.get(2) else {
-                    return Err(serde::de::Error::custom(format!(
-                        "Invalid macro definition: {macr}"
-                    )));
-                };
-                let mut key: SmolStr = key_match.as_str().into();
-                let value = value_match.as_str().into();
-                if key.starts_with('\\') {
-                    let Some(stripped) =
-                        key.strip_prefix('\\').and_then(|key| key.strip_suffix(' '))
-                    else {
-                        return Err(serde::de::Error::custom(format!(
-                            "Invalid escaped macro name: {macr}"
-                        )));
-                    };
-                    key = stripped.into();
-                }
-                Ok(MacroAtom::KeyValue { key, value })
-            } else {
-                Err(serde::de::Error::custom(format!("Invalid macro definition: {macr}")))
+                key = stripped.into();
             }
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .collect::<FxHashSet<_>>();
-    Ok(MacroDef { macros })
+            Ok(MacroAtom::KeyValue { key, value })
+        } else {
+            Err(serde::de::Error::custom(format!("Invalid macro definition: {macr}")))
+        }?;
+        macros.insert(atom.clone());
+        sources.push(MacroDefSource { atom, range });
+    }
+    Ok(MacroDef { macros, sources })
+}
+
+fn spanned_text_range(span: std::ops::Range<usize>) -> Result<TextRange, String> {
+    let start = u32::try_from(span.start)
+        .map_err(|_| format!("manifest range start is too large: {}", span.start))?;
+    let end = u32::try_from(span.end)
+        .map_err(|_| format!("manifest range end is too large: {}", span.end))?;
+    Ok(TextRange::new(TextSize::from(start), TextSize::from(end)))
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TomlWorkspace {
+    pub manifest_path: AbsPathBuf,
     pub top_modules: Vec<String>,
     pub workspace_root: AbsPathBuf,
     pub macro_defs: MacroDef,
@@ -228,6 +237,7 @@ impl TomlWorkspace {
         let exclude_patterns = toml_schema.exclude;
 
         Ok(TomlWorkspace {
+            manifest_path: toml.clone(),
             top_modules,
             workspace_root,
             macro_defs,
@@ -267,7 +277,22 @@ defines = [
         macros.insert(MacroAtom::KeyValue { key: "BAR".into(), value: "foo".into() });
         macros.insert(MacroAtom::KeyValue { key: "BAZ".into(), value: "foo bar".into() });
         macros.insert(MacroAtom::KeyValue { key: "eqwe".into(), value: "123".into() });
-        assert_eq!(toml_schema.defines, MacroDef { macros });
+        assert_eq!(toml_schema.defines.macros, macros);
+        assert_eq!(toml_schema.defines.sources.len(), 6);
+        assert_eq!(
+            toml_schema.defines.sources[0],
+            MacroDefSource {
+                atom: MacroAtom::Flag("foo".into()),
+                range: range_of(toml, "\"foo\"")
+            }
+        );
+        assert_eq!(
+            toml_schema.defines.sources[2],
+            MacroDefSource {
+                atom: MacroAtom::KeyValue { key: "FOO".into(), value: "bar".into() },
+                range: range_of(toml, "\"FOO=bar\"")
+            }
+        );
     }
 
     #[test]
@@ -280,6 +305,29 @@ defines = [
         "#;
         let toml_schema: TomlManifestSchema = toml::from_str(toml).unwrap();
         assert_eq!(toml_schema.defines.to_predefine_strings(), ["BAR=foo", "FOO"]);
+    }
+
+    #[test]
+    fn macro_predefines_keep_manifest_source_ranges() {
+        let root = TestDir::new("manifest-predefine-ranges");
+        let manifest_text = r#"
+defines = [
+    "BAR=foo",
+    "FOO",
+]
+"#;
+        let manifest = root.write("vide.toml", manifest_text);
+
+        let workspace = TomlWorkspace::load_from_file(&manifest).unwrap();
+        let predefines = workspace.macro_defs.to_predefines(Some(&workspace.manifest_path));
+
+        let foo = predefines
+            .iter()
+            .find(|predefine| predefine.definition == "FOO")
+            .expect("FOO predefine expected");
+        let source = foo.source.as_ref().expect("FOO should carry manifest source");
+        assert_eq!(source.path, manifest);
+        assert_eq!(source.range, range_of(manifest_text, "\"FOO\""));
     }
 
     #[test]
@@ -345,5 +393,13 @@ libraries = ["../pkg"]
 
         assert_eq!(workspace.include_dirs, Some(vec![root.join("include")]));
         assert_eq!(workspace.libraries, [root.join("../pkg")]);
+    }
+
+    fn range_of(text: &str, needle: &str) -> TextRange {
+        let start = text.find(needle).expect("needle should exist in fixture");
+        TextRange::new(
+            TextSize::from(u32::try_from(start).unwrap()),
+            TextSize::from(u32::try_from(start + needle.len()).unwrap()),
+        )
     }
 }

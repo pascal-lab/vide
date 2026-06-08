@@ -14,6 +14,7 @@ use hir::{
         },
         stmt::StmtKind,
     },
+    preproc::macro_references_in_range,
     scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
@@ -62,6 +63,7 @@ pub struct SemaToken {
 pub enum SemaTokenTag {
     Port(SemaTokenPort),
     Instance,
+    Macro,
     Type,
     None,
 }
@@ -147,8 +149,31 @@ pub(crate) fn semantic_tokens(
 
     let mut collector = SemaTokenCollector::new(config, range);
     collect_file(&sema, file_id, &mut collector);
+    collect_preproc_macro_references(db, file_id.file_id(), range, &mut collector);
 
     collector.finish()
+}
+
+fn collect_preproc_macro_references(
+    db: &RootDb,
+    file_id: FileId,
+    range: TextRange,
+    collector: &mut SemaTokenCollector,
+) {
+    let Ok(references) = macro_references_in_range(db, file_id, range) else {
+        return;
+    };
+
+    for reference in references {
+        if reference.range.intersect(collector.range).is_none() {
+            continue;
+        }
+        collector.tokens.add(SemaToken {
+            range: reference.range,
+            tag: SemaTokenTag::Macro,
+            mods: SemaTokenModifier::REF,
+        });
+    }
 }
 
 fn collect_file(
@@ -554,6 +579,52 @@ mod tests {
                 .unwrap();
             assert_debug_snapshot!(name, tokens);
         }
+    }
+
+    #[test]
+    fn conditional_macro_references_use_macro_semantic_tokens_when_undefined() {
+        let text = r#"
+`define KNOWN 1
+`ifdef UNKNOWN
+`endif
+`ifndef KNOWN
+`endif
+module top;
+endmodule
+"#;
+        let (host, file_id) = setup(text);
+        let tokens = host
+            .make_analysis()
+            .semantic_tokens(
+                file_id,
+                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } },
+                Some(TextRange::up_to(TextSize::of(text))),
+            )
+            .unwrap();
+
+        let token_at = |start: usize, len: usize| {
+            let range =
+                TextRange::new(TextSize::from(start as u32), TextSize::from((start + len) as u32));
+            tokens
+                .iter()
+                .find(|token| !token.is_empty() && token.range == range)
+                .copied()
+                .unwrap_or_else(|| panic!("expected semantic token at {range:?}: {tokens:?}"))
+        };
+        let unknown_start = text.find("UNKNOWN").expect("UNKNOWN conditional should exist");
+        let known_start = text.rfind("KNOWN").expect("KNOWN conditional should exist");
+
+        assert_eq!(
+            (
+                token_at(unknown_start, "UNKNOWN".len()).tag,
+                token_at(unknown_start, "UNKNOWN".len()).mods
+            ),
+            (SemaTokenTag::Macro, SemaTokenModifier::REF)
+        );
+        assert_eq!(
+            (token_at(known_start, "KNOWN".len()).tag, token_at(known_start, "KNOWN".len()).mods),
+            (SemaTokenTag::Macro, SemaTokenModifier::REF)
+        );
     }
 
     #[test]

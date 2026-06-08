@@ -7,7 +7,10 @@ use std::{
 use hir::{
     base_db::{
         change::Change,
-        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        project::{
+            CompilationProfile, CompilationProfileId, Predefine, PredefineSource, PreprocessConfig,
+            ProjectConfig,
+        },
         salsa::Durability,
         source_db::SourceDb,
         source_root::{SourceRoot, SourceRootId},
@@ -202,7 +205,7 @@ fn setup_marked_with_predefines(
         vec![CompilationProfile {
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
-            preprocess: PreprocessConfig { predefines, include_dirs: Vec::new() },
+            preprocess: PreprocessConfig::with_predefine_strings(predefines, Vec::new()),
         }],
     )));
     change.add_changed_file(ChangedFile {
@@ -259,8 +262,8 @@ fn setup_include_macro_project(
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
             preprocess: PreprocessConfig {
-                predefines: Vec::new(),
                 include_dirs: vec![include_dir],
+                ..PreprocessConfig::default()
             },
         }],
     )));
@@ -918,6 +921,85 @@ endmodule
 }
 
 #[test]
+fn manifest_predefine_usage_navigates_to_vide_toml_define() {
+    let dir = TestDir::new("manifest-predefine-navigation");
+    let top_path = dir.path().join("top.sv");
+    let manifest_path = dir.path().join("vide.toml");
+    let marked_top_text = normalize_fixture_text(
+        r#"
+`ifdef FROM_MANIFEST
+module top;
+localparam int W = `/*marker:usage*/FROM_MANIFEST;
+endmodule
+`endif
+"#,
+    );
+    let marked_manifest_text =
+        normalize_fixture_text(r#"defines = [/*marker:def*/"FROM_MANIFEST=1"]"#);
+    let (top_text, top_markers) = strip_markers(marked_top_text);
+    let (manifest_text, manifest_markers) = strip_markers(marked_manifest_text);
+    let manifest_range =
+        marked_range(&manifest_markers, "def", TextSize::of("\"FROM_MANIFEST=1\""));
+
+    let top_file_id = FileId(0);
+    let manifest_file_id = FileId(1);
+    let mut file_set = FileSet::default();
+    file_set.insert(top_file_id, VfsPath::from(top_path));
+    file_set.insert(manifest_file_id, VfsPath::from(manifest_path.clone()));
+
+    let mut change = Change::new();
+    change.set_roots(vec![SourceRoot::new_local_with_source_files(file_set, vec![top_file_id])]);
+    change.set_project_config(Arc::new(ProjectConfig::new(
+        vec![Some(CompilationProfileId(0))],
+        vec![CompilationProfile {
+            source_roots: vec![SourceRootId(0)],
+            top_modules: Vec::new(),
+            preprocess: PreprocessConfig {
+                predefines: vec![Predefine::with_source(
+                    "FROM_MANIFEST=1",
+                    PredefineSource { path: manifest_path, range: manifest_range },
+                )],
+                include_dirs: Vec::new(),
+            },
+        }],
+    )));
+    change.add_changed_file(ChangedFile {
+        file_id: top_file_id,
+        change_kind: ChangeKind::Create(Arc::from(top_text.as_str()), LineEnding::Unix),
+    });
+    change.add_changed_file(ChangedFile {
+        file_id: manifest_file_id,
+        change_kind: ChangeKind::Create(Arc::from(manifest_text.as_str()), LineEnding::Unix),
+    });
+
+    let mut host = AnalysisHost::default();
+    host.apply_change(change);
+    let analysis = host.make_analysis();
+
+    let nav = analysis
+        .goto_definition(position(top_file_id, &top_markers, "usage"))
+        .unwrap()
+        .expect("manifest predefine navigation expected");
+    assert!(
+        nav.info.iter().any(|target| {
+            target.file_id == manifest_file_id && target.focus_range == Some(manifest_range)
+        }),
+        "predefine usage should navigate to vide.toml define: {nav:?}"
+    );
+
+    let manifest_nav = analysis
+        .goto_definition(position(manifest_file_id, &manifest_markers, "def"))
+        .unwrap()
+        .expect("manifest predefine definition should be linkable");
+    assert!(
+        manifest_nav.info.iter().any(|target| {
+            target.file_id == manifest_file_id && target.focus_range == Some(manifest_range)
+        }),
+        "manifest define should resolve to its own authoritative range: {manifest_nav:?}"
+    );
+}
+
+#[test]
 fn file_preprocess_config_selects_same_ifdef_branch_for_diagnostics_and_navigation() {
     let text = r#"
 module ifdef_nav(
@@ -1029,8 +1111,8 @@ endmodule
             source_roots: vec![SourceRootId(0)],
             top_modules: Vec::new(),
             preprocess: PreprocessConfig {
-                predefines: Vec::new(),
                 include_dirs: vec![src_dir.clone()],
+                ..PreprocessConfig::default()
             },
         }],
     )));
@@ -1234,8 +1316,366 @@ endmodule
         .hover(position, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro hover expected");
-    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
     assert!(hover.info.as_str().contains("WIDTH"), "hover should mention macro name");
+    assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
+}
+
+#[test]
+fn preproc_macro_param_supports_navigation_hover_and_references() {
+    let text = r#"
+`define SHIFT(/*marker:param_def*/value, amount) ((/*marker:param_ref*/value) << amount)
+module top;
+  localparam int W = `SHIFT(4, 1);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let param_def = position(file_id, &markers, "param_def");
+    let param_ref = position(file_id, &markers, "param_ref");
+    let param_def_range = marked_range(&markers, "param_def", TextSize::of("value"));
+    let param_ref_range = marked_range(&markers, "param_ref", TextSize::of("value"));
+
+    let nav = analysis
+        .goto_definition(param_ref)
+        .unwrap()
+        .expect("macro parameter reference navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(param_def_range)),
+        "macro parameter body reference should navigate to formal: {nav:?}"
+    );
+
+    let definition_nav = analysis
+        .goto_definition(param_def)
+        .unwrap()
+        .expect("macro parameter definition navigation expected");
+    assert!(
+        definition_nav.info.iter().any(|target| target.focus_range == Some(param_def_range)),
+        "macro parameter definition should be linkable: {definition_nav:?}"
+    );
+
+    let hover = analysis
+        .hover(param_ref, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro parameter hover expected");
+    assert!(
+        hover.info.as_str().contains("Macro parameter")
+            && hover.info.as_str().contains("value")
+            && hover.info.as_str().contains("SHIFT"),
+        "hover should identify macro parameter: {}",
+        hover.info.as_str()
+    );
+
+    let refs = analysis
+        .references(param_def, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("macro parameter references expected");
+    assert!(
+        refs.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(param_def_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == param_ref_range))
+        }),
+        "references should connect formal and body parameter use: {refs:?}"
+    );
+
+    let refs_from_ref = analysis
+        .references(param_ref, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("macro parameter references from body use expected");
+    assert!(
+        refs_from_ref.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(param_def_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == param_ref_range))
+        }),
+        "references from body use should include the formal and use: {refs_from_ref:?}"
+    );
+}
+
+#[test]
+fn preproc_macro_argument_source_token_resolves_to_hir_definition() {
+    let text = r#"
+`define NEXT(value) (value + 1)
+module top(input logic /*marker:def*/payload_i);
+  logic active_data;
+  assign active_data = `NEXT(/*marker:arg*/payload_i);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let definition_range = marked_range(&markers, "def", TextSize::of("payload_i"));
+    let arg_range = marked_range(&markers, "arg", TextSize::of("payload_i"));
+    let def = position(file_id, &markers, "def");
+    let arg = position(file_id, &markers, "arg");
+
+    let nav = analysis
+        .goto_definition(arg)
+        .unwrap()
+        .expect("macro argument source token navigation expected");
+    assert!(
+        nav.info.iter().any(|target| target.focus_range == Some(definition_range)),
+        "macro argument should navigate through expanded HIR to payload_i definition: {nav:?}"
+    );
+
+    let hover = analysis
+        .hover(arg, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro argument source token hover expected");
+    assert!(
+        hover.info.as_str().contains("payload_i"),
+        "macro argument hover should render the HIR definition: {}",
+        hover.info.as_str()
+    );
+    assert!(
+        !hover.info.as_str().contains("`define `NEXT(value)")
+            && !hover.info.as_str().contains("--------------------"),
+        "macro argument hover should not show macro expansion away from the macro name: {}",
+        hover.info.as_str()
+    );
+
+    let refs = analysis
+        .references(arg, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("macro argument source token references expected");
+    assert!(
+        refs.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(definition_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == arg_range))
+        }),
+        "macro argument references should include the source argument token: {refs:?}"
+    );
+
+    let refs_from_def = analysis
+        .references(def, ReferencesConfig::new(ScopeVisibility::Public, None))
+        .unwrap()
+        .expect("payload_i definition references expected");
+    assert!(
+        refs_from_def.iter().any(|refs| {
+            refs.def.as_ref().is_some_and(|defs| {
+                defs.iter().any(|target| target.focus_range == Some(definition_range))
+            }) && refs
+                .refs
+                .get(&file_id)
+                .is_some_and(|ranges| ranges.iter().any(|(range, _)| *range == arg_range))
+        }),
+        "references from payload_i definition should include macro argument source token: {refs_from_def:?}"
+    );
+}
+
+#[test]
+fn preproc_macro_call_hover_shows_expanded_text() {
+    let text = r#"
+`define MAKE_DECL(name) logic name;
+module top;
+  `/*marker:call*/MAKE_DECL(/*marker:arg*/generated)
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro call hover expected");
+    let info = hover.info.as_str();
+    assert!(
+        info.contains("```systemverilog")
+            && info.contains("Macro")
+            && info.contains("`MAKE_DECL(name)")
+            && !info.contains("`define `MAKE_DECL(name)")
+            && !info.contains("Expands to")
+            && info.contains("--------------------")
+            && info.contains("logic generated ;")
+            && info.contains("from [feature.v]")
+            && !info.contains("Context ")
+            && !info.contains("Signature")
+            && !info.contains("Arguments")
+            && !info.contains("Expansion steps")
+            && !info.contains("Virtual expansion source")
+            && !info.contains("Token provenance"),
+        "macro call hover should include the expanded macro text: {info}"
+    );
+
+    let arg_hover = analysis
+        .hover(position(file_id, &markers, "arg"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro argument hover expected");
+    let arg_info = arg_hover.info.as_str();
+    assert!(
+        arg_info.contains("generated")
+            && !arg_info.contains("`define `MAKE_DECL(name)")
+            && !arg_info.contains("--------------------"),
+        "macro argument hover should stay on the source token away from the macro name: {arg_info}"
+    );
+}
+
+#[test]
+fn preproc_builtin_macro_hover_shows_expanded_text() {
+    let text = r#"
+module top;
+  localparam int L = `/*marker:line*/__LINE__;
+  localparam string F = `/*marker:file*/__FILE__;
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    for (marker, name) in [("line", "__LINE__"), ("file", "__FILE__")] {
+        let hover = analysis
+            .hover(
+                position(file_id, &markers, marker),
+                HoverConfig { format: HoverFormat::PlainText },
+            )
+            .unwrap()
+            .expect("builtin macro hover expected");
+        let info = hover.info.as_str();
+        assert!(
+            info.contains("```systemverilog")
+                && info.contains(&format!("`{name}"))
+                && info.contains("--------------------")
+                && !info.contains("unavailable"),
+            "builtin macro hover should show structured expansion: {info}"
+        );
+    }
+}
+
+#[test]
+fn preproc_macro_hover_shows_nested_compact_expansion() {
+    let text = r#"
+`define MATH_ONE 12'd1
+`define DEMO_NEXT(value) ((value) + `MATH_ONE)
+module top(input logic payload_i);
+  assign active_data = `/*marker:call*/DEMO_NEXT(payload_i);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("nested macro call hover expected");
+    let info = hover.info.as_str();
+    assert!(
+        info.contains("```systemverilog")
+            && info.contains("Macro")
+            && info.contains("`DEMO_NEXT(value)")
+            && !info.contains("`define `DEMO_NEXT(value)")
+            && !info.contains("`MATH_ONE")
+            && !info.contains("Expands to")
+            && info.contains("--------------------")
+            && info.contains("( ( payload_i ) + 12 'd 1 )")
+            && info.contains("payload_i")
+            && info.contains("12")
+            && info.contains("'d")
+            && info.contains("from [feature.v]")
+            && !info.contains("Context ")
+            && !info.contains("Expansion steps"),
+        "nested macro hover should show compact signature, result, and source: {info}"
+    );
+}
+
+#[test]
+fn preproc_macro_hover_keeps_nested_actual_argument_macro_reference() {
+    let text = r#"
+`define /*marker:payl_def*/PAYL payload_i
+`define MATH_ONE 12'd1
+`define DEMO_NEXT(value) ((value) + `MATH_ONE)
+module top(input logic payload_i);
+  assign active_data = `/*marker:call*/DEMO_NEXT(`/*marker:payl*/PAYL);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let call_hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("outer macro call hover expected");
+    let call_info = call_hover.info.as_str();
+    assert!(
+        call_info.contains("```systemverilog")
+            && call_info.contains("Macro")
+            && call_info.contains("`DEMO_NEXT(value)")
+            && !call_info.contains("`define `DEMO_NEXT(value)")
+            && !call_info.contains("`MATH_ONE")
+            && !call_info.contains("Expands to")
+            && call_info.contains("--------------------")
+            && call_info.contains("( ( payload_i ) + 12 'd 1 )")
+            && call_info.contains("payload_i")
+            && call_info.contains("12")
+            && call_info.contains("from [feature.v]")
+            && !call_info.contains("Context ")
+            && !call_info.contains("Expansion steps"),
+        "outer macro hover should keep compact expansion facts: {call_info}"
+    );
+
+    let payl_position = position(file_id, &markers, "payl");
+    let payl_def_range = marked_range(&markers, "payl_def", TextSize::of("PAYL"));
+    let nav = analysis
+        .goto_definition(payl_position)
+        .unwrap()
+        .expect("nested actual-argument macro navigation expected");
+    assert!(
+        nav.info.iter().any(|target| {
+            target.name.as_deref() == Some("PAYL") && target.focus_range == Some(payl_def_range)
+        }),
+        "PAYL should navigate to its macro definition: {nav:?}"
+    );
+
+    let payl_hover = analysis
+        .hover(payl_position, HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("nested actual-argument macro hover expected");
+    let payl_info = payl_hover.info.as_str();
+    assert!(
+        payl_info.contains("```systemverilog")
+            && payl_info.contains("Macro")
+            && payl_info.contains("`PAYL")
+            && !payl_info.contains("`define `PAYL payload_i")
+            && !payl_info.contains("Expands to")
+            && payl_info.contains("--------------------")
+            && payl_info.contains("payload_i")
+            && payl_info.contains("from [feature.v]")
+            && !payl_info.contains("unavailable"),
+        "PAYL hover should show the nested macro expansion without unavailable text: {payl_info}"
+    );
+}
+
+#[test]
+fn preproc_macro_hover_shows_token_paste_expansion() {
+    let text = r#"
+`define JOIN(a,b) a``b
+module top;
+  wire `/*marker:call*/JOIN(foo,bar);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+
+    let hover = analysis
+        .hover(position(file_id, &markers, "call"), HoverConfig { format: HoverFormat::PlainText })
+        .unwrap()
+        .expect("macro call hover expected");
+    let info = hover.info.as_str();
+    assert!(
+        info.contains("```systemverilog")
+            && info.contains("`JOIN(a, b)")
+            && info.contains("foobar")
+            && info.contains("from [feature.v]")
+            && !info.contains("unavailable"),
+        "token paste expansion hover should show the expanded display text: {info}"
+    );
 }
 
 #[test]
@@ -1270,8 +1710,11 @@ endmodule
         .hover(definition, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("macro definition hover expected");
-    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
-    assert!(hover.info.as_str().contains("LOCAL_WIDTH"), "hover should mention macro name");
+    assert!(
+        hover.info.as_str().contains("`define `LOCAL_WIDTH 8"),
+        "hover should show macro definition"
+    );
+    assert!(hover.info.as_str().contains("from [feature.v]"), "hover should show macro source");
 
     let conditional_nav = analysis
         .goto_definition(position(file_id, &markers, "conditional"))
@@ -1394,8 +1837,19 @@ endmodule
         .hover(usage, HoverConfig { format: HoverFormat::PlainText })
         .unwrap()
         .expect("included macro hover expected");
-    assert!(hover.info.as_str().contains("Macro"), "hover should identify macro");
     assert!(hover.info.as_str().contains("HEADER_WIDTH"), "hover should mention macro name");
+    assert!(
+        hover.info.as_str().contains("macro")
+            && hover.info.as_str().contains("`HEADER_WIDTH")
+            && !hover.info.as_str().contains("`define `HEADER_WIDTH"),
+        "hover should show macro expansion header"
+    );
+    assert!(hover.info.as_str().contains("8"), "hover should show macro expansion");
+    assert!(
+        hover.info.as_str().contains("from [include/defs.vh]"),
+        "hover should show project-relative macro source path: {}",
+        hover.info.as_str()
+    );
 
     let completion_items = analysis
         .completions_with_trigger(

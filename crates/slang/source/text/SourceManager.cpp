@@ -169,6 +169,20 @@ bool SourceManager::isMacroArgLoc(SourceLocation location) const {
     return isMacroArgLocImpl(location, lock);
 }
 
+SourceManager::MacroExpansionKind SourceManager::getMacroExpansionKind(
+    SourceLocation location) const {
+    std::shared_lock lock(mutex);
+    auto buffer = location.buffer();
+    if (!buffer || buffer.getId() >= bufferEntries.size())
+        return MacroExpansionKind::Body;
+
+    auto info = std::get_if<ExpansionInfo>(&bufferEntries[buffer.getId()]);
+    if (!info)
+        return MacroExpansionKind::Body;
+
+    return info->kind;
+}
+
 bool SourceManager::isIncludedFileLoc(SourceLocation location) const {
     return getIncludedFrom(location.buffer()).valid();
 }
@@ -233,6 +247,15 @@ SourceLocation SourceManager::getOriginalLoc(SourceLocation location) const {
     return getOriginalLocImpl(location, lock);
 }
 
+std::optional<SourceManager::MacroTokenProvenance> SourceManager::getMacroTokenProvenance(
+    SourceLocation location) const {
+    std::shared_lock lock(mutex);
+    auto it = macroTokenProvenance.find(location);
+    if (it == macroTokenProvenance.end())
+        return std::nullopt;
+    return it->second;
+}
+
 SourceLocation SourceManager::getFullyOriginalLoc(SourceLocation location) const {
     std::shared_lock lock(mutex);
     while (isMacroLocImpl(location, lock))
@@ -272,19 +295,65 @@ uint64_t SourceManager::getSortKey(BufferID buffer) const {
 
 SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
                                                  SourceRange expansionRange, bool isMacroArg) {
-    std::unique_lock lock(mutex);
-
-    bufferEntries.emplace_back(ExpansionInfo(originalLoc, expansionRange, isMacroArg));
-    return SourceLocation(BufferID((uint32_t)(bufferEntries.size() - 1), ""sv), 0);
+    return createExpansionLoc(originalLoc, expansionRange,
+                              isMacroArg ? MacroExpansionKind::Argument
+                                         : MacroExpansionKind::Body,
+                              {});
 }
 
 SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
                                                  SourceRange expansionRange,
                                                  std::string_view macroName) {
+    return createExpansionLoc(originalLoc, expansionRange, macroName, {});
+}
+
+SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
+                                                 SourceRange expansionRange,
+                                                 MacroExpansionKind kind) {
+    return createExpansionLoc(originalLoc, expansionRange, kind, {});
+}
+
+SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
+                                                 SourceRange expansionRange,
+                                                 std::string_view macroName,
+                                                 MacroExpansionMetadata metadata) {
     std::unique_lock lock(mutex);
 
-    bufferEntries.emplace_back(ExpansionInfo(originalLoc, expansionRange, macroName));
+    bufferEntries.emplace_back(ExpansionInfo(originalLoc, expansionRange, macroName, metadata));
     return SourceLocation(BufferID((uint32_t)(bufferEntries.size() - 1), macroName), 0);
+}
+
+SourceLocation SourceManager::createExpansionLoc(SourceLocation originalLoc,
+                                                 SourceRange expansionRange,
+                                                 MacroExpansionKind kind,
+                                                 MacroExpansionMetadata metadata) {
+    std::unique_lock lock(mutex);
+
+    bufferEntries.emplace_back(ExpansionInfo(originalLoc, expansionRange, kind, metadata));
+    return SourceLocation(BufferID((uint32_t)(bufferEntries.size() - 1), ""sv), 0);
+}
+
+void SourceManager::setMacroTokenProvenance(SourceLocation location,
+                                            MacroTokenProvenance provenance) {
+    if (!location.valid())
+        return;
+
+    std::unique_lock lock(mutex);
+    auto buffer = location.buffer();
+    if (!buffer || buffer.getId() >= bufferEntries.size())
+        return;
+
+    provenance.expansionId = buffer.getId();
+    if (auto info = std::get_if<ExpansionInfo>(&bufferEntries[buffer.getId()])) {
+        if (provenance.callId == 0)
+            provenance.callId = info->metadata.callId;
+        if (provenance.definitionId == 0)
+            provenance.definitionId = info->metadata.definitionId;
+        provenance.parentExpansionId = info->metadata.parentExpansionId;
+    }
+
+    if (provenance.valid())
+        macroTokenProvenance[location] = provenance;
 }
 
 SourceBuffer SourceManager::assignText(std::string_view text, SourceLocation includedFrom,
@@ -654,7 +723,7 @@ bool SourceManager::isMacroArgLocImpl(SourceLocation location, TLock&) const {
 
     SLANG_ASSERT(buffer.getId() < bufferEntries.size());
     auto info = std::get_if<ExpansionInfo>(&bufferEntries[buffer.getId()]);
-    return info && info->isMacroArg;
+    return info && info->kind == MacroExpansionKind::Argument;
 }
 
 template<IsLock TLock>

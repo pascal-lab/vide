@@ -41,6 +41,8 @@ mod slang_ffi {
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawSourceBufferId {
         path: String,
+        text: String,
+        has_text: bool,
         buffer_id: u32,
         origin: u8,
     }
@@ -86,6 +88,7 @@ mod slang_ffi {
     struct RawPreprocessorTraceToken {
         raw_text: String,
         value_text: String,
+        token_kind: u16,
         range: RawSourceBufferRange,
         has_token: bool,
     }
@@ -99,17 +102,59 @@ mod slang_ffi {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceActualArgument {
+        tokens: Vec<RawPreprocessorTraceToken>,
+        range: RawSourceBufferRange,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RawPreprocessorTraceEvent {
         event_id: u32,
         kind: u16,
         range: RawSourceBufferRange,
+        macro_definition_id: u32,
+        has_macro_definition_id: bool,
+        macro_call_id: u32,
+        has_macro_call_id: bool,
+        macro_expansion_id: u32,
+        has_macro_expansion_id: bool,
+        parent_macro_expansion_id: u32,
+        has_parent_macro_expansion_id: bool,
         directive: RawPreprocessorTraceToken,
         name: RawPreprocessorTraceToken,
         include_file_name: RawPreprocessorTraceToken,
         params: Vec<RawPreprocessorTraceMacroParam>,
+        arguments: Vec<RawPreprocessorTraceActualArgument>,
         body_tokens: Vec<RawPreprocessorTraceToken>,
         expr_tokens: Vec<RawPreprocessorTraceToken>,
         disabled_ranges: Vec<RawSourceBufferRange>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RawPreprocessorTraceEmittedToken {
+        raw_text: String,
+        value_text: String,
+        token_kind: u16,
+        provenance_kind: u8,
+        macro_name: String,
+        macro_call_id: u32,
+        has_macro_call_id: bool,
+        macro_definition_id: u32,
+        has_macro_definition_id: bool,
+        macro_expansion_id: u32,
+        has_macro_expansion_id: bool,
+        parent_macro_expansion_id: u32,
+        has_parent_macro_expansion_id: bool,
+        body_token_index: u32,
+        has_body_token_index: bool,
+        argument_index: u32,
+        has_argument_index: bool,
+        argument_token_index: u32,
+        has_argument_token_index: bool,
+        token_range: RawSourceBufferRange,
+        call_range: RawSourceBufferRange,
+        body_token_range: RawSourceBufferRange,
+        argument_token_range: RawSourceBufferRange,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +170,7 @@ mod slang_ffi {
         source_buffers: Vec<RawSourceBufferId>,
         events: Vec<RawPreprocessorTraceEvent>,
         include_edges: Vec<RawPreprocessorTraceIncludeEdge>,
+        emitted_tokens: Vec<RawPreprocessorTraceEmittedToken>,
     }
 
     #[namespace = "slang"]
@@ -420,6 +466,17 @@ mod slang_ffi {
         ) -> SharedPtr<SyntaxTree>;
 
         #[namespace = "wrapper::syntax"]
+        fn SyntaxTree_fromTextWithOptionsAndTrace(
+            text: CxxSV,
+            name: CxxSV,
+            path: CxxSV,
+            predefines: Vec<String>,
+            include_paths: Vec<String>,
+            include_buffers: Vec<RawSourceBuffer>,
+            expand_includes: bool,
+        ) -> SharedPtr<SyntaxTree>;
+
+        #[namespace = "wrapper::syntax"]
         fn SyntaxTree_fromLibraryMapText(
             text: CxxSV,
             name: CxxSV,
@@ -475,15 +532,7 @@ mod slang_ffi {
         ) -> RawLexedTokenAtOffset;
 
         #[namespace = "wrapper::syntax"]
-        fn SyntaxTree_preprocessorTrace(
-            text: CxxSV,
-            name: CxxSV,
-            path: CxxSV,
-            predefines: Vec<String>,
-            include_paths: Vec<String>,
-            include_buffers: Vec<RawSourceBuffer>,
-            expand_includes: bool,
-        ) -> RawPreprocessorTrace;
+        fn SyntaxTree_preprocessorTraceFromParsed(tree: &SyntaxTree) -> RawPreprocessorTrace;
 
         #[namespace = "wrapper::syntax"]
         fn SyntaxTree_buffer_id(tree: &SyntaxTree) -> u32;
@@ -606,6 +655,7 @@ impl_functions! {
     impl SyntaxTree {
         fn fromText(text: CxxSV, name: CxxSV, path: CxxSV) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromText;
         fn fromTextWithOptions(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromTextWithOptions;
+        fn fromTextWithOptionsAndTrace(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromTextWithOptionsAndTrace;
         fn fromLibraryMapText(text: CxxSV, name: CxxSV, path: CxxSV) -> SharedPtr<SyntaxTree> |> SyntaxTree_fromLibraryMapText;
         fn root(&self) -> *const SyntaxNode |> SyntaxTree_root;
         fn diagnostics(&self) -> Vec<RawSyntaxDiagnostic> |> SyntaxTree_diagnostics;
@@ -614,7 +664,7 @@ impl_functions! {
         fn libraryMapExpectedSyntaxAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> Vec<RawExpectedSyntax> |> SyntaxTree_libraryMapExpectedSyntaxAtOffset;
         fn directiveAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_directiveAtOffset;
         fn tokenWordAtOffset(text: CxxSV, name: CxxSV, path: CxxSV, offset: usize) -> RawLexedTokenAtOffset |> SyntaxTree_tokenWordAtOffset;
-        fn preprocessorTrace(text: CxxSV, name: CxxSV, path: CxxSV, predefines: Vec<String>, include_paths: Vec<String>, include_buffers: Vec<RawSourceBuffer>, expand_includes: bool) -> RawPreprocessorTrace |> SyntaxTree_preprocessorTrace;
+        fn preprocessorTraceFromParsed(&self) -> RawPreprocessorTrace |> SyntaxTree_preprocessorTraceFromParsed;
         fn buffer_id(&self) -> u32 |> SyntaxTree_buffer_id;
     }
 }

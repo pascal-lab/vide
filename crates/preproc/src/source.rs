@@ -1,7 +1,7 @@
 mod model;
-mod references;
+mod provenance;
 mod trace;
 mod types;
 
-pub use references::{SourceMacroReferenceResolution, SourceMacroReferenceSite};
+pub use provenance::*;
 pub use types::*;

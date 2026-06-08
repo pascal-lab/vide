@@ -12,8 +12,8 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use syntax::{
-    SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent, has_text_range::HasTextRange,
-    ptr::SyntaxTokenPtr, token::TokenKindExt,
+    SyntaxNode, SyntaxTokenWithParent, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
+    token::TokenKindExt,
 };
 use triomphe::Arc;
 use utils::{
@@ -27,6 +27,7 @@ use crate::{
     ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
+    source_tokens::SourceTokenRequestCache,
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -204,13 +205,24 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             self.def.origins().into_iter().filter_map(|def| def.name_range(db)).collect();
 
         let finder = &Finder::new(&name);
+        let mut source_token_cache = SourceTokenRequestCache::default();
         for (text, file_id, range) in self.scope_files() {
             self.sema.db.unwind_if_cancelled();
 
             let parsed_file = LazyCell::new(|| sema.parse_file(file_id));
             Self::match_text(&text, finder, range)
-                .filter_map(|offset| {
-                    Self::filter_token((*parsed_file).root()?, file_id, &def_ranges, offset)
+                .flat_map(|offset| {
+                    let Some(root) = (*parsed_file).root() else {
+                        return Vec::new();
+                    };
+                    Self::filter_tokens(
+                        sema.db,
+                        root,
+                        file_id,
+                        &def_ranges,
+                        offset,
+                        &mut source_token_cache,
+                    )
                 })
                 .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
                 .for_each(|token| {
@@ -256,23 +268,42 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         })
     }
 
-    fn filter_token<'tree>(
+    fn filter_tokens<'tree>(
+        db: &RootDb,
         node: SyntaxNode<'tree>,
         file_id: FileId,
         names: &[InFile<TextRange>],
         offset: TextSize,
-    ) -> Option<SyntaxTokenWithParent<'tree>> {
-        let tok = node.token_at_offset(offset).find(|tok| tok.kind().name_like())?;
-        let tok_range = tok.text_range()?;
+        source_token_cache: &mut SourceTokenRequestCache,
+    ) -> Vec<SyntaxTokenWithParent<'tree>> {
+        let Some(selection) = crate::source_tokens::token_candidates_at_offset_with_cache(
+            db,
+            file_id,
+            node,
+            offset,
+            super::token_precedence,
+            source_token_cache,
+        ) else {
+            return Vec::new();
+        };
 
-        // filter out definitions
-        if names.iter().any(|InFile { value: range, file_id: name_file_id }| {
-            &tok_range == range && *name_file_id == file_id.into()
-        }) {
-            None
-        } else {
-            Some(tok)
-        }
+        let Some(tokens) = selection.tokens() else {
+            return Vec::new();
+        };
+
+        tokens
+            .into_iter()
+            .filter(|tok| tok.kind().name_like())
+            .filter(|tok| {
+                let Some(tok_range) = tok.text_range() else {
+                    return false;
+                };
+
+                !names.iter().any(|InFile { value: range, file_id: name_file_id }| {
+                    tok_range == *range && *name_file_id == file_id.into()
+                })
+            })
+            .collect()
     }
 
     fn classify_and_filter<'tree>(

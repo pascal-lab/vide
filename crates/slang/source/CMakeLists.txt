@@ -80,6 +80,7 @@ add_library(
   parsing/Preprocessor.cpp
   parsing/Preprocessor_macros.cpp
   parsing/Preprocessor_pragmas.cpp
+  parsing/PreprocessorTrace.cpp
   parsing/Token.cpp
   syntax/SyntaxFacts.cpp
   syntax/SyntaxNode.cpp

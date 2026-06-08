@@ -1,8 +1,7 @@
-use preproc::source::{PreprocSourceId, SourcePreprocError, SourcePreprocModel};
 use rustc_hash::{FxHashMap, FxHashSet};
 use syntax::{
-    Compilation, ParserExpectedSyntax, PreprocessorTrace, SourceBufferOrigin, SyntaxDiagnostic,
-    SyntaxTree, SyntaxTreeBuffer, SyntaxTreeBufferIds,
+    Compilation, ParserExpectedSyntax, PreprocessorTrace, SyntaxDiagnostic, SyntaxTree,
+    SyntaxTreeBuffer, SyntaxTreeBufferIds,
 };
 use triomphe::Arc;
 use utils::{line_index::TextSize, path_identity::PathIdentityIndex};
@@ -13,6 +12,24 @@ use crate::base_db::{
     diagnostics_config::{DiagnosticSource, DiagnosticsConfig},
     project::{CompilationProfileId, PreprocessConfig, ProjectConfig},
     source_root::{SourceRoot, SourceRootId},
+};
+
+mod preproc;
+
+pub(crate) use self::preproc::workspace_preproc_model_file_ids;
+pub use self::preproc::{
+    MappedSourcePreprocModel, PreprocExpansionDisplay, PreprocExpansionMapping,
+    PreprocExpansionSourceBuffer, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
+    PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
+    SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
+    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_expansion_path,
+    preproc_virtual_predefines_path, preproc_virtual_speculative_path,
+};
+#[cfg(test)]
+use self::preproc::{materialized_predefine_text, source_preproc_file_ids};
+use self::preproc::{
+    source_preproc_context_index_for_profile, source_preproc_contexts_for_file,
+    source_preproc_model,
 };
 
 pub trait FileLoader {
@@ -92,7 +109,7 @@ fn parse_src(db: &dyn SourceDb, file_id: FileId) -> SyntaxTree {
             let preprocess = db.file_preprocess_config(file_id);
             let include_paths = preprocess.include_dir_strings();
             let options = syntax::SyntaxTreeOptions {
-                predefines: preprocess.predefines.clone(),
+                predefines: preprocess.predefine_strings(),
                 include_paths,
                 ..syntax::SyntaxTreeOptions::without_include_expansion()
             };
@@ -125,17 +142,9 @@ pub struct CompilationDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MappedSourcePreprocModel {
-    pub model: SourcePreprocModel,
-    pub source_file_ids: FxHashMap<PreprocSourceId, FileId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourcePreprocQueryError {
-    UnsupportedFileKind(SourceFileKind),
-    TraceUnavailable,
-    Model(SourcePreprocError),
-    UnmappedSource { buffer_id: u32, path: String },
+pub struct ParsedCompilationUnit {
+    pub syntax_tree: SyntaxTree,
+    pub preprocessor_trace: Option<PreprocessorTrace>,
 }
 
 fn source_file_identity(db: &dyn SourceDb, file_id: FileId) -> SourceFileIdentity {
@@ -171,39 +180,6 @@ fn insert_buffer_file_ids(
     }
 }
 
-fn source_preproc_file_ids(
-    db: &dyn SourceRootDb,
-    file_id: FileId,
-    trace: &PreprocessorTrace,
-) -> Result<FxHashMap<PreprocSourceId, FileId>, SourcePreprocQueryError> {
-    let mut source_file_ids = FxHashMap::default();
-    let path_file_ids = path_file_ids(db);
-    source_file_ids.insert(PreprocSourceId::from(trace.root_buffer_id), file_id);
-
-    for source in &trace.source_buffers {
-        let source_id = PreprocSourceId::from(source.buffer_id);
-        if source_id == PreprocSourceId::from(trace.root_buffer_id) {
-            source_file_ids.insert(source_id, file_id);
-            continue;
-        }
-
-        match source.origin {
-            SourceBufferOrigin::Source => {
-                let Some(mapped_file_id) = path_file_ids.get(&source.path) else {
-                    return Err(SourcePreprocQueryError::UnmappedSource {
-                        buffer_id: source.buffer_id,
-                        path: source.path.clone(),
-                    });
-                };
-                source_file_ids.insert(source_id, mapped_file_id);
-            }
-            SourceBufferOrigin::Predefine => {}
-        }
-    }
-
-    Ok(source_file_ids)
-}
-
 fn syntax_tree_options_for_file(
     db: &dyn SourceRootDb,
     file_id: FileId,
@@ -213,7 +189,7 @@ fn syntax_tree_options_for_file(
     let profile_id = db.file_compilation_profile(file_id);
     let include_buffers = db.include_buffers_for_profile(profile_id).as_ref().clone();
     syntax::SyntaxTreeOptions {
-        predefines: preprocess.predefines.clone(),
+        predefines: preprocess.predefine_strings(),
         include_paths: preprocess.include_dir_strings(),
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
@@ -228,14 +204,14 @@ fn syntax_tree_options_for_profile(
     let preprocess = project_config.preprocess_for_profile(profile_id);
     let include_paths = preprocess.include_dir_strings();
     syntax::SyntaxTreeOptions {
-        predefines: preprocess.predefines,
+        predefines: preprocess.predefine_strings(),
         include_paths,
         include_buffers,
         ..syntax::SyntaxTreeOptions::default()
     }
 }
 
-fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
+fn parsed_compilation_unit(db: &dyn SourceRootDb, file_id: FileId) -> ParsedCompilationUnit {
     let _span = tracing::info_span!("slang.parse_for_compilation", ?file_id).entered();
     let text = {
         let _span =
@@ -255,13 +231,30 @@ fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTr
                 include_buffer_count
             )
             .entered();
-            SyntaxTree::from_text_with_options(&text, &identity.name, &identity.path, &options)
+            let parsed = SyntaxTree::from_text_with_options_and_trace(
+                &text,
+                &identity.name,
+                &identity.path,
+                &options,
+            );
+            ParsedCompilationUnit {
+                syntax_tree: parsed.tree,
+                preprocessor_trace: parsed.preprocessor_trace,
+            }
         }
-        SourceFileKind::LibraryMap => {
-            SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path)
-        }
-        SourceFileKind::ProjectManifest => SyntaxTree::from_text("", "", ""),
+        SourceFileKind::LibraryMap => ParsedCompilationUnit {
+            syntax_tree: SyntaxTree::from_library_map_text(&text, &identity.name, &identity.path),
+            preprocessor_trace: None,
+        },
+        SourceFileKind::ProjectManifest => ParsedCompilationUnit {
+            syntax_tree: SyntaxTree::from_text("", "", ""),
+            preprocessor_trace: None,
+        },
     }
+}
+
+fn parse_src_for_compilation(db: &dyn SourceRootDb, file_id: FileId) -> SyntaxTree {
+    db.parsed_compilation_unit(file_id).syntax_tree.clone()
 }
 
 fn parser_expected_syntax(
@@ -373,10 +366,19 @@ pub trait SourceRootDb: SourceDb {
         &self,
         file_id: FileId,
     ) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>>;
+    fn source_preproc_context_index_for_profile(
+        &self,
+        profile_id: Option<CompilationProfileId>,
+    ) -> Arc<SourcePreprocContextIndex>;
+    fn source_preproc_contexts_for_file(
+        &self,
+        file_id: FileId,
+    ) -> Arc<SourcePreprocRelevantContexts>;
     fn macro_reference_index_for_profile(
         &self,
         profile_id: Option<CompilationProfileId>,
     ) -> Arc<crate::preproc::MacroReferenceIndex>;
+    fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
         &self,
@@ -437,36 +439,6 @@ fn include_buffers_for_profile(
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
-}
-
-fn source_preproc_model(
-    db: &dyn SourceRootDb,
-    file_id: FileId,
-) -> Arc<Result<MappedSourcePreprocModel, SourcePreprocQueryError>> {
-    let file_kind = db.file_kind(file_id);
-    if !matches!(file_kind, SourceFileKind::SystemVerilog | SourceFileKind::IncludeHeader) {
-        return Arc::new(Err(SourcePreprocQueryError::UnsupportedFileKind(file_kind)));
-    }
-
-    let text = db.file_text(file_id);
-    let identity = source_file_identity(db, file_id);
-    let options = syntax_tree_options_for_file(db, file_id);
-    let Some(trace) =
-        SyntaxTree::preprocessor_trace(&text, &identity.name, &identity.path, &options)
-    else {
-        return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
-    };
-
-    let source_file_ids = match source_preproc_file_ids(db, file_id, &trace) {
-        Ok(source_file_ids) => source_file_ids,
-        Err(err) => return Arc::new(Err(err)),
-    };
-    let model = match SourcePreprocModel::from_trace(trace) {
-        Ok(model) => model,
-        Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
-    };
-
-    Arc::new(Ok(MappedSourcePreprocModel { model, source_file_ids }))
 }
 
 fn macro_reference_index_for_profile(
@@ -689,15 +661,25 @@ fn source_root_semantic_diagnostics(
 mod tests {
     use std::fmt;
 
+    use ::preproc::source::{
+        PreprocSourceId, SourceMacroExpansionId, SourcePreprocUnavailable, SourceRange,
+    };
     use rustc_hash::FxHashSet;
-    use syntax::{SourceBufferId, SourceBufferOrigin};
-    use utils::paths::{AbsPathBuf, Utf8PathBuf};
+    use syntax::{PreprocessorTrace, SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions};
+    use utils::{
+        line_index::TextRange,
+        paths::{AbsPathBuf, Utf8PathBuf},
+    };
     use vfs::{FileSet, VfsPath};
 
     use super::*;
-    use crate::base_db::salsa::{self, Durability};
+    use crate::base_db::{
+        project::{CompilationProfile, Predefine, PredefineSource},
+        salsa::{self, Durability},
+    };
 
     const TOP: FileId = FileId(0);
+    const MANIFEST: FileId = FileId(1);
     const ROOT: SourceRootId = SourceRootId(0);
 
     #[salsa::database(SourceDbStorage, SourceRootDbStorage)]
@@ -731,15 +713,63 @@ mod tests {
 
         let mut db = TestDb::default();
         db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
         db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
         db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
         db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
+        db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
+        db.set_file_text_with_durability(
+            TOP,
+            Arc::from("module top; endmodule\n"),
+            Durability::LOW,
+        );
+        db
+    }
+
+    fn db_with_root_and_manifest(manifest_text: &str) -> TestDb {
+        let top_path = abs_path("rtl/top.v");
+        let manifest_path = abs_path("vide.toml");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        file_set.insert(MANIFEST, VfsPath::from(manifest_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        files.insert(MANIFEST);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        for (file_id, path, kind, text) in [
+            (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
+            (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, manifest_text),
+        ] {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
+            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+        }
         db
     }
 
     fn abs_path(path: &str) -> AbsPathBuf {
         let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
         AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+    }
+
+    fn offset(text: &str, needle: &str) -> TextSize {
+        TextSize::try_from(text.find(needle).expect("needle must exist")).unwrap()
+    }
+
+    fn offset_after(text: &str, needle: &str) -> TextSize {
+        offset(text, needle) + TextSize::try_from(needle.len()).unwrap()
     }
 
     #[test]
@@ -768,6 +798,63 @@ mod tests {
     }
 
     #[test]
+    fn project_manifests_are_loadable_but_not_semantic_or_preproc_inputs() {
+        let top_path = abs_path("rtl/top.sv");
+        let manifest_path = abs_path("vide.toml");
+        let mut file_set = FileSet::default();
+        file_set.insert(TOP, VfsPath::from(top_path.clone()));
+        file_set.insert(MANIFEST, VfsPath::from(manifest_path.clone()));
+        let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+
+        let mut files = FxHashSet::default();
+        files.insert(TOP);
+        files.insert(MANIFEST);
+
+        let mut db = TestDb::default();
+        db.set_files_with_durability(Box::new(files), Durability::HIGH);
+        db.set_diagnostics_config_with_durability(
+            Arc::new(DiagnosticsConfig::default()),
+            Durability::LOW,
+        );
+        db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+        for (file_id, path, kind, text) in [
+            (TOP, top_path, SourceFileKind::SystemVerilog, "module top; endmodule\n"),
+            (MANIFEST, manifest_path, SourceFileKind::ProjectManifest, "defines = [\"M=1\"]\n"),
+        ] {
+            db.set_source_root_id_with_durability(file_id, ROOT, Durability::LOW);
+            db.set_file_path_with_durability(file_id, Some(path), Durability::LOW);
+            db.set_file_kind_with_durability(file_id, kind, Durability::LOW);
+            db.set_file_text_with_durability(file_id, Arc::from(text), Durability::LOW);
+        }
+        db.set_project_config_with_durability(
+            Arc::new(ProjectConfig::new(
+                vec![Some(CompilationProfileId(0))],
+                vec![CompilationProfile {
+                    source_roots: vec![ROOT],
+                    top_modules: Vec::new(),
+                    preprocess: PreprocessConfig::default(),
+                }],
+            )),
+            Durability::LOW,
+        );
+
+        assert_eq!(db.file_kind(MANIFEST), SourceFileKind::ProjectManifest);
+        assert!(db.parse_diagnostics(MANIFEST).is_empty());
+
+        let plan = db.compilation_plan_for_root(ROOT);
+        assert_eq!(plan.roots, vec![TOP]);
+        assert!(!plan.include_only.contains(&MANIFEST));
+
+        let preproc_model_files =
+            workspace_preproc_model_file_ids(&db, Some(CompilationProfileId(0)));
+        assert_eq!(preproc_model_files, vec![TOP]);
+        assert_eq!(
+            db.source_preproc_model(MANIFEST).as_ref(),
+            &Err(SourcePreprocQueryError::UnsupportedFileKind(SourceFileKind::ProjectManifest))
+        );
+    }
+
+    #[test]
     fn source_preproc_mapping_reports_unmapped_included_source() {
         let db = db_with_root_file();
         let trace = PreprocessorTrace {
@@ -775,25 +862,407 @@ mod tests {
             source_buffers: vec![
                 SourceBufferId {
                     path: abs_path("rtl/top.v").to_string(),
+                    text: None,
                     buffer_id: 1,
                     origin: SourceBufferOrigin::Source,
                 },
                 SourceBufferId {
                     path: abs_path("include/missing.vh").to_string(),
+                    text: None,
                     buffer_id: 2,
                     origin: SourceBufferOrigin::Source,
                 },
             ],
             events: Vec::new(),
             include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions::default();
+        let preprocess = PreprocessConfig::default();
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+
+        assert_eq!(
+            source_map.get(PreprocSourceId::from(2)),
+            Some(&PreprocSourceMapping::Unmapped(SourcePreprocUnavailable::DetachedSource {
+                source: PreprocSourceId::from(2),
+            }))
+        );
+        assert!(matches!(
+            source_map.file_id(PreprocSourceId::from(2)),
+            Err(PreprocSourceMapError::UnmappedSource { .. })
+        ));
+    }
+
+    #[test]
+    fn source_preproc_mapping_records_predefines_by_verified_source_text() {
+        let db = db_with_root_file();
+        let first_text = materialized_predefine_text("FIRST=1");
+        let second_text = materialized_predefine_text("SECOND");
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(second_text.clone()),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(first_text.clone()),
+                    buffer_id: 9,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(materialized_predefine_text("EXTRA=9")),
+                    buffer_id: 4,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["FIRST=1".to_owned(), "SECOND".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess =
+            PreprocessConfig::with_predefine_strings(["FIRST=1", "SECOND"], Vec::new());
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let first = PreprocSourceId::from(9);
+        let second = PreprocSourceId::from(2);
+        let extra = PreprocSourceId::from(4);
+        let expected_path = preproc_virtual_predefines_path(None);
+
+        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(first)
+        else {
+            panic!("first predefine should map to display-only virtual source");
+        };
+        assert_eq!(path, &expected_path);
+        assert_eq!(origin, &PreprocVirtualOrigin::Predefines { profile: None });
+
+        assert_eq!(
+            source_map.get(second),
+            Some(&PreprocSourceMapping::VirtualDisplay {
+                path: expected_path,
+                origin: PreprocVirtualOrigin::Predefines { profile: None },
+            })
+        );
+        assert_eq!(
+            source_map.get(extra),
+            Some(&PreprocSourceMapping::Unmapped(
+                SourcePreprocUnavailable::UnverifiedPredefineSource { source: extra }
+            ))
+        );
+        assert!(matches!(
+            source_map.file_id(first),
+            Err(PreprocSourceMapError::DisplayOnlyVirtualSource { .. })
+        ));
+
+        let second_range = SourceRange {
+            source: second,
+            range: TextRange::new(TextSize::from(0), TextSize::from(7)),
+        };
+        assert_eq!(
+            source_map.map_range(second_range).unwrap(),
+            TextRange::new(
+                TextSize::from(u32::try_from(first_text.len()).unwrap()),
+                TextSize::from(u32::try_from(first_text.len() + 7).unwrap()),
+            )
+        );
+    }
+
+    #[test]
+    fn source_preproc_mapping_records_duplicate_predefine_occurrences() {
+        let manifest_text = "defines = [\"FOO\", \"FOO=1\"]\n";
+        let first_start = manifest_text.find("\"FOO\"").unwrap();
+        let second_start = manifest_text.find("\"FOO=1\"").unwrap();
+        let first_range = TextRange::new(
+            TextSize::from(u32::try_from(first_start).unwrap()),
+            TextSize::from(u32::try_from(first_start + "\"FOO\"".len()).unwrap()),
+        );
+        let second_range = TextRange::new(
+            TextSize::from(u32::try_from(second_start).unwrap()),
+            TextSize::from(u32::try_from(second_start + "\"FOO=1\"".len()).unwrap()),
+        );
+        let db = db_with_root_and_manifest(manifest_text);
+        let predefine_text = materialized_predefine_text("FOO");
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(predefine_text.clone()),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(predefine_text.clone()),
+                    buffer_id: 3,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["FOO".to_owned(), "FOO=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess = PreprocessConfig {
+            predefines: vec![
+                Predefine::with_source(
+                    "FOO",
+                    PredefineSource { path: abs_path("vide.toml"), range: first_range },
+                ),
+                Predefine::with_source(
+                    "FOO=1",
+                    PredefineSource { path: abs_path("vide.toml"), range: second_range },
+                ),
+            ],
+            include_dirs: Vec::new(),
+        };
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let first = PreprocSourceId::from(2);
+        let second = PreprocSourceId::from(3);
+
+        assert!(matches!(source_map.get(first), Some(PreprocSourceMapping::VirtualDisplay { .. })));
+        assert!(matches!(
+            source_map.get(second),
+            Some(PreprocSourceMapping::VirtualDisplay { .. })
+        ));
+        assert_eq!(source_map.predefine_manifest_source(first).unwrap().range, first_range);
+        assert_eq!(source_map.predefine_manifest_source(second).unwrap().range, second_range);
+        assert_eq!(
+            source_map.map_range(SourceRange {
+                source: first,
+                range: TextRange::new(TextSize::from(0), TextSize::from(1)),
+            }),
+            Ok(TextRange::new(TextSize::from(0), TextSize::from(1)))
+        );
+        assert_eq!(
+            source_map.map_range(SourceRange {
+                source: second,
+                range: TextRange::new(TextSize::from(0), TextSize::from(1)),
+            }),
+            Ok(TextRange::new(
+                TextSize::from(u32::try_from(predefine_text.len()).unwrap()),
+                TextSize::from(u32::try_from(predefine_text.len() + 1).unwrap()),
+            ))
+        );
+    }
+
+    #[test]
+    fn source_preproc_mapping_rejects_predefine_source_text_mismatch() {
+        let db = db_with_root_file();
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(materialized_predefine_text("SECOND=2")),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["FIRST=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess = PreprocessConfig::with_predefine_strings(["FIRST=1"], Vec::new());
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let source = PreprocSourceId::from(2);
+
+        assert_eq!(
+            source_map.get(source),
+            Some(&PreprocSourceMapping::Unmapped(
+                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+            ))
+        );
+        assert!(matches!(
+            source_map.map_range(SourceRange {
+                source,
+                range: TextRange::new(TextSize::from(0), TextSize::from(1)),
+            }),
+            Err(PreprocSourceMapError::UnmappedSource { .. })
+        ));
+    }
+
+    #[test]
+    fn source_preproc_mapping_rejects_manifest_range_mismatch() {
+        let manifest_text = "defines = [\"RIGHT=1\", \"WRONG=2\"]\n";
+        let db = db_with_root_and_manifest(manifest_text);
+        let wrong_range = TextRange::new(
+            offset(manifest_text, "\"WRONG=2\""),
+            offset_after(manifest_text, "\"WRONG=2\""),
+        );
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(materialized_predefine_text("RIGHT=1")),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["RIGHT=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess = PreprocessConfig {
+            predefines: vec![Predefine::with_source(
+                "RIGHT=1",
+                PredefineSource { path: abs_path("vide.toml"), range: wrong_range },
+            )],
+            include_dirs: Vec::new(),
+        };
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let source = PreprocSourceId::from(2);
+
+        assert_eq!(
+            source_map.get(source),
+            Some(&PreprocSourceMapping::Unmapped(
+                SourcePreprocUnavailable::UnverifiedPredefineSource { source }
+            ))
+        );
+    }
+
+    #[test]
+    fn source_preproc_mapping_records_external_include_buffer_as_display_virtual_source() {
+        let db = db_with_root_file();
+        let external_path = "/external/generated_defs.vh".to_owned();
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: external_path.clone(),
+                    text: None,
+                    buffer_id: 4,
+                    origin: SourceBufferOrigin::Source,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            include_buffers: vec![SyntaxTreeBuffer {
+                path: external_path,
+                text: "`define FROM_BUFFER 1\n".to_owned(),
+            }],
+            ..SyntaxTreeOptions::default()
+        };
+
+        let preprocess = PreprocessConfig::default();
+        let source_map = source_preproc_file_ids(
+            &db,
+            TOP,
+            Some(CompilationProfileId(7)),
+            &trace,
+            &options,
+            &preprocess,
+        )
+        .unwrap();
+        let source = PreprocSourceId::from(4);
+        let Some(PreprocSourceMapping::VirtualDisplay { path, origin }) = source_map.get(source)
+        else {
+            panic!("external include buffer should map to display-only virtual source");
         };
 
         assert_eq!(
-            source_preproc_file_ids(&db, TOP, &trace),
-            Err(SourcePreprocQueryError::UnmappedSource {
-                buffer_id: 2,
-                path: abs_path("include/missing.vh").to_string(),
-            })
+            path,
+            &VfsPath::new_virtual_path(
+                "/__vide/preproc/profile-7/include-buffer/4/generated_defs.svh".to_owned()
+            )
+        );
+        assert_eq!(origin, &PreprocVirtualOrigin::ExternalIncludeBuffer { source });
+        assert!(matches!(
+            source_map.map_range(SourceRange {
+                source,
+                range: TextRange::new(TextSize::from(0), TextSize::from(128)),
+            }),
+            Err(PreprocSourceMapError::RangeOutOfBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn preproc_virtual_paths_use_reserved_namespace() {
+        assert_eq!(
+            preproc_virtual_predefines_path(None),
+            VfsPath::new_virtual_path("/__vide/preproc/default/predefines.sv".to_owned())
+        );
+        assert_eq!(
+            preproc_virtual_builtin_path(Some(CompilationProfileId(3)), "bad/name"),
+            VfsPath::new_virtual_path("/__vide/preproc/profile-3/builtin/bad_name.sv".to_owned())
+        );
+        assert_eq!(
+            preproc_virtual_expansion_path(
+                Some(CompilationProfileId(3)),
+                SourceMacroExpansionId::new(9),
+            ),
+            VfsPath::new_virtual_path("/__vide/preproc/profile-3/expansion/9.sv".to_owned())
+        );
+        assert_eq!(
+            preproc_virtual_speculative_path(
+                Some(CompilationProfileId(3)),
+                PreprocSpeculativeUniverseId(11),
+                "root/top",
+            ),
+            VfsPath::new_virtual_path(
+                "/__vide/preproc/profile-3/speculative/11/root_top.sv".to_owned()
+            )
         );
     }
 }
