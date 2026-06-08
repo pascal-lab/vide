@@ -236,24 +236,21 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: editors/vscode/server/${{ matrix.target }}/${{ env.SERVER_BIN }}
-          key: bundled-server-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          key: bundled-server-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
       - name: Install Rust
-        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
       - name: Setup sccache
-        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
       - name: Rust Cache
-        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
       - name: Setup Node
@@ -274,7 +271,7 @@ jobs:
           echo "VIDE_EXTENSION_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
           echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
-        run: npm run package:debug -- ${{ matrix.target }} ${{ steps.bundled-server-cache.outputs.cache-hit == 'true' && '--server=prebuilt' || '--server=build' }}
+        run: npm run package:vsix:debug -- --target ${{ matrix.target }} ${{ steps.bundled-server-cache.outputs.cache-hit == 'true' && '--server=prebuilt' || '--server=build' }}
       - name: Save bundled server cache
         if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -394,7 +391,7 @@ jobs:
           echo "VIDE_EXTENSION_COMMIT_HASH=${commit_hash}" >> "$GITHUB_ENV"
           echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
       - name: Package extension
-        run: npm run package:web
+        run: npm run package:vsix:web
       - name: Upload dev VSIX
         uses: actions/upload-artifact@v4
         with:
@@ -437,28 +434,25 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: editors/vscode/server/${{ matrix.target }}/${{ env.SERVER_BIN }}
-          key: bundled-server-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          key: bundled-server-${{ matrix.target }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
 
       - name: Install Rust
-        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-rust
         with:
           components: rustfmt
           targets: ${{ matrix.rust-target }}
 
       - name: Setup sccache
-        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-sccache
         with:
           cmake-launcher: "true"
 
       - name: Rust Cache
-        if: steps.bundled-server-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}-${{ matrix.target }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -484,7 +478,7 @@ jobs:
           echo "VIDE_EXTENSION_BUILD_DATE=$(date -u +'%Y%m%dT%H%M%SZ')" >> "$GITHUB_ENV"
 
       - name: Package extension
-        run: npm run package:debug -- ${{ matrix.target }} ${{ steps.bundled-server-cache.outputs.cache-hit == 'true' && '--server=prebuilt' || '--server=build' }}
+        run: npm run package:vsix:debug -- --target ${{ matrix.target }} ${{ steps.bundled-server-cache.outputs.cache-hit == 'true' && '--server=prebuilt' || '--server=build' }}
 
       - name: Save bundled server cache
         if: steps.bundled-server-cache.outputs.cache-hit != 'true'

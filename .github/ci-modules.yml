@@ -40,6 +40,7 @@ package:
   - "editors/vscode/scripts/**"
   - "editors/vscode/src/**"
   - "editors/vscode/syntaxes/**"
+  - "xtask/**"
   - "packages/vide-extension-shared/**"
   - "playground/package.json"
   - "playground/package-lock.json"

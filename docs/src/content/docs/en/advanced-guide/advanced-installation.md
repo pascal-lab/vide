@@ -92,42 +92,43 @@ npm run compile
 
 1. Removes `out` and `dist`, then runs the TypeScript typecheck.
 2. Bundles `src/extension.ts` into `dist/extension.js` with esbuild.
-3. Copies the speedscope static assets required by the diagnostics profiling view into `dist/speedscope`.
+3. Does not copy the Speedscope static assets used by diagnostics profiling by default.
 
 ### Package the VS Code Extension as a VSIX
 
 If you want a local debug build or a VSIX with debug binaries, run this under `editors/vscode`:
 
 ```powershell
-npm run package:debug
+npm run package:vsix:debug
 ```
 
 This command:
 
 1. Compiles the extension, so it is fine if you did not run `npm run compile` manually first.
-2. Runs `cargo build` for the current host platform.
-3. Copies `target/debug/vide` or `vide.exe` into the extension's `server/<target>` directory.
-4. Temporarily stages the server binary in the runtime `server` directory.
-5. Calls `vsce package --target <target>` to generate `vide-vscode-<target>-debug.vsix`.
-6. Cleans up the temporary runtime binary after packaging.
+2. Copies the Speedscope static assets required by diagnostics profiling and enables the `profile-trace` server feature.
+3. Uses `cargo xtask vscode prepare-server` to prepare a debug server for the current host platform.
+4. Copies `target/debug/vide` or `vide.exe` into the extension's `server/<target>` directory.
+5. Temporarily stages the server binary in the runtime `server` directory.
+6. Calls `vsce package --target <target>` to generate `vide-vscode-<target>-debug.vsix`.
+7. Cleans up the temporary runtime binary after packaging.
 
 If you want a release VSIX for a specific platform, run one or more of these commands:
 
 ```powershell
-npm run package:linux-x64
-npm run package:linux-arm64
-npm run package:win32-x64
-npm run package:darwin-arm64
-npm run package:alpine-x64
-npm run package:alpine-arm64
+npm run package:vsix -- --target linux-x64
+npm run package:vsix -- --target linux-arm64
+npm run package:vsix -- --target win32-x64
+npm run package:vsix -- --target darwin-arm64
+npm run package:vsix -- --target alpine-x64
+npm run package:vsix -- --target alpine-arm64
 ```
 
-These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64 and arm64.
-Those are also the VSIX targets currently built by CI. Even if `package.json` contains script entries for other platforms, that does not mean they can be packaged directly in a local environment or in the current workflows.
+These scripts compile the extension, prepare a release server binary for the target platform, and generate `vide-vscode-<target>.vsix`. Release packages do not enable profile trace, and they do not include Speedscope static assets or the profiling command by default. The current release workflow only covers those targets: glibc Linux, Windows x64, macOS arm64, and Alpine/musl x64 and arm64.
+Those are also the VSIX targets currently built by CI. Other platforms are not current packaging targets.
 
-All packaging commands above need to prepare the language server binary for the target platform first. The exact rules for that step are controlled by `editors/vscode/scripts/package.ts`:
+All packaging commands above need to prepare the language server binary for the target platform first. `editors/vscode/scripts/package.ts` calls `cargo xtask vscode prepare-server`, and the reusable server build rules live under `cargo xtask server build`:
 
-- When the target matches the current host platform, the script runs `cargo build --release` and copies the result.
+- When the target matches the current host platform, xtask runs `cargo build` for the selected profile and copies the result.
 - Alpine targets are built in musl containers in CI. The local script adds the matching Rust musl target, but still needs a working musl cross-compilation environment.
 - Other non-host targets are not automatically cross-compiled; the matching `vide` or `vide.exe` must already exist under `editors/vscode/server/<target>/`, or you should package on a matching native runner.
 
