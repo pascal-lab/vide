@@ -46,7 +46,7 @@ schemars = { version = "1.2.1", features = ["preserve_order"], optional = true }
 thiserror.workspace = true
 toml.workspace = true
 tracing-subscriber = { version = "0.3.17", default-features = false, features = ["registry", "fmt", "tracing-log",] }
-tracing-chrome = "0.7.2"
+tracing-chrome = { version = "0.7.2", optional = true }
 tracing.workspace = true
 triomphe.workspace = true
 
@@ -115,6 +115,8 @@ salsa.opt-level = 3
 incremental = true
 debug = 0
 strip = "symbols"
+lto = "thin"
+codegen-units = 1
 
 [profile.release-lto]
 inherits = "release"
@@ -127,4 +129,5 @@ winapi.workspace = true
 utils = { workspace = true, features = ["test-support"] }
 
 [features]
+profile-trace = ["dep:tracing-chrome"]
 user-config-schema = ["dep:schemars"]
