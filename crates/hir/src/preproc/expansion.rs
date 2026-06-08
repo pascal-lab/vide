@@ -46,7 +46,8 @@ pub fn macro_expansion_queries_at(
             }
         };
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let query = immediate_macro_expansion_for_call(mapped, call_fact)?;
+            let mut query = immediate_macro_expansion_for_call(mapped, call_fact)?;
+            apply_context_capability_to_macro_expansion_query(&contexts, &mut query);
             queries.push_unique_eq(query);
         }
     }
@@ -88,7 +89,8 @@ pub fn recursive_macro_expansions_at(
             }
         };
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
+            let mut recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
+            apply_context_capability_to_recursive_macro_expansion(&contexts, &mut recursive);
             expansions.push_unique_eq(recursive);
         }
     }
@@ -120,7 +122,11 @@ pub fn recursive_macro_expansion_provenances_at(
             }
         };
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let recursive = recursive_macro_expansion_provenance_for_call(mapped, call_fact)?;
+            let mut recursive = recursive_macro_expansion_provenance_for_call(mapped, call_fact)?;
+            apply_context_capability_to_recursive_macro_expansion_provenance(
+                &contexts,
+                &mut recursive,
+            );
             expansions.push_unique_eq(recursive);
         }
     }
@@ -164,7 +170,12 @@ pub fn macro_expansion_provenances_at(
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
             match macro_expansion_provenance_for_call(mapped, call_fact)? {
                 MacroExpansionProvenanceForCall::Available(provenance) => {
-                    provenances.push_unique_eq(*provenance);
+                    let mut provenance = *provenance;
+                    apply_context_capability_to_macro_expansion_provenance(
+                        &contexts,
+                        &mut provenance,
+                    );
+                    provenances.push_unique_eq(provenance);
                 }
                 MacroExpansionProvenanceForCall::Unavailable(reason) => unavailable.push(reason),
             }
@@ -216,7 +227,12 @@ pub fn macro_expansion_provenances_for_range(
             [] => continue,
             [call_fact] => match macro_expansion_provenance_for_call(mapped, call_fact)? {
                 MacroExpansionProvenanceForCall::Available(provenance) => {
-                    provenances.push_unique_eq(*provenance);
+                    let mut provenance = *provenance;
+                    apply_context_capability_to_macro_expansion_provenance(
+                        &contexts,
+                        &mut provenance,
+                    );
+                    provenances.push_unique_eq(provenance);
                 }
                 MacroExpansionProvenanceForCall::Unavailable(reason) => unavailable.push(reason),
             },
@@ -255,6 +271,94 @@ fn unavailable_or_ambiguous_macro_expansion_provenance(
     Err(PreprocError::Unavailable {
         reason: PreprocUnavailable::AmbiguousMacroExpansionContexts { contexts },
     })
+}
+
+fn apply_context_capability_to_macro_call(
+    contexts: &SourcePreprocQueryContexts,
+    call: &mut MacroCall,
+) {
+    call.capability = context_query_capability(contexts, call.capability.clone());
+}
+
+fn apply_context_capability_to_macro_expansion(
+    contexts: &SourcePreprocQueryContexts,
+    expansion: &mut MacroExpansion,
+) {
+    apply_context_capability_to_macro_call(contexts, &mut expansion.call);
+    expansion.definition.capability =
+        context_query_capability(contexts, expansion.definition.capability.clone());
+    expansion.capability = context_query_capability(contexts, expansion.capability.clone());
+}
+
+fn apply_context_capability_to_macro_expansion_unavailable(
+    contexts: &SourcePreprocQueryContexts,
+    unavailable: &mut MacroExpansionUnavailable,
+) {
+    apply_context_capability_to_macro_call(contexts, &mut unavailable.call);
+}
+
+fn apply_context_capability_to_macro_expansion_query(
+    contexts: &SourcePreprocQueryContexts,
+    query: &mut MacroExpansionQuery,
+) {
+    match query {
+        MacroExpansionQuery::Available(expansion) => {
+            apply_context_capability_to_macro_expansion(contexts, expansion);
+        }
+        MacroExpansionQuery::Ambiguous(expansions) => {
+            for expansion in expansions {
+                apply_context_capability_to_macro_expansion(contexts, expansion);
+            }
+        }
+        MacroExpansionQuery::Unavailable(unavailable) => {
+            apply_context_capability_to_macro_expansion_unavailable(contexts, unavailable);
+        }
+    }
+}
+
+fn apply_context_capability_to_recursive_macro_expansion(
+    contexts: &SourcePreprocQueryContexts,
+    recursive: &mut RecursiveMacroExpansion,
+) {
+    apply_context_capability_to_macro_call(contexts, &mut recursive.root_call);
+    for expansion in &mut recursive.expansions {
+        apply_context_capability_to_macro_expansion(contexts, expansion);
+    }
+    for unavailable in &mut recursive.unavailable {
+        apply_context_capability_to_macro_expansion_unavailable(contexts, unavailable);
+    }
+}
+
+fn apply_context_capability_to_recursive_macro_expansion_provenance(
+    contexts: &SourcePreprocQueryContexts,
+    recursive: &mut RecursiveMacroExpansionProvenance,
+) {
+    apply_context_capability_to_macro_call(contexts, &mut recursive.root_call);
+    for expansion in &mut recursive.expansions {
+        apply_context_capability_to_macro_expansion_provenance(contexts, expansion);
+    }
+    for unavailable in &mut recursive.unavailable {
+        apply_context_capability_to_macro_expansion_unavailable(contexts, unavailable);
+    }
+}
+
+fn apply_context_capability_to_macro_expansion_provenance(
+    contexts: &SourcePreprocQueryContexts,
+    provenance: &mut MacroExpansionProvenance,
+) {
+    apply_context_capability_to_macro_expansion(contexts, &mut provenance.expansion);
+    for token in &mut provenance.tokens {
+        match &mut token.provenance {
+            TokenProvenance::MacroBody { call, .. }
+            | TokenProvenance::MacroArgument { call, .. } => {
+                apply_context_capability_to_macro_call(contexts, call);
+            }
+            TokenProvenance::SourceToken { .. }
+            | TokenProvenance::Predefine { .. }
+            | TokenProvenance::Builtin { .. }
+            | TokenProvenance::Unavailable(_) => {}
+        }
+    }
 }
 
 pub fn diagnostic_provenance_for_range(

@@ -218,16 +218,13 @@ impl SourcePreprocContextIndex {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SourcePreprocContextStatus {
+    #[default]
     Complete,
-    Partial { skipped_models: usize },
-}
-
-impl Default for SourcePreprocContextStatus {
-    fn default() -> Self {
-        Self::Complete
-    }
+    Partial {
+        skipped_models: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

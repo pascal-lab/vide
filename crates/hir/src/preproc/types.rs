@@ -207,6 +207,7 @@ pub struct MacroUsage {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroUsageResolution {
+    pub capability: PreprocAvailability,
     pub usage: MacroUsage,
     pub definition: MacroDefinition,
     pub definition_provenance: MacroDefinitionProvenance,
