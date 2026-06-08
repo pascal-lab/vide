@@ -984,6 +984,96 @@ mod tests {
     }
 
     #[test]
+    fn source_preproc_mapping_records_duplicate_predefine_occurrences() {
+        let manifest_text = "defines = [\"FOO\", \"FOO=1\"]\n";
+        let first_start = manifest_text.find("\"FOO\"").unwrap();
+        let second_start = manifest_text.find("\"FOO=1\"").unwrap();
+        let first_range = TextRange::new(
+            TextSize::from(u32::try_from(first_start).unwrap()),
+            TextSize::from(u32::try_from(first_start + "\"FOO\"".len()).unwrap()),
+        );
+        let second_range = TextRange::new(
+            TextSize::from(u32::try_from(second_start).unwrap()),
+            TextSize::from(u32::try_from(second_start + "\"FOO=1\"".len()).unwrap()),
+        );
+        let db = db_with_root_and_manifest(manifest_text);
+        let predefine_text = materialized_predefine_text("FOO");
+        let trace = PreprocessorTrace {
+            root_buffer_id: 1,
+            source_buffers: vec![
+                SourceBufferId {
+                    path: abs_path("rtl/top.v").to_string(),
+                    text: None,
+                    buffer_id: 1,
+                    origin: SourceBufferOrigin::Source,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(predefine_text.clone()),
+                    buffer_id: 2,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+                SourceBufferId {
+                    path: "<api>".to_owned(),
+                    text: Some(predefine_text.clone()),
+                    buffer_id: 3,
+                    origin: SourceBufferOrigin::Predefine,
+                },
+            ],
+            events: Vec::new(),
+            include_edges: Vec::new(),
+            emitted_tokens: Vec::new(),
+        };
+        let options = SyntaxTreeOptions {
+            predefines: vec!["FOO".to_owned(), "FOO=1".to_owned()],
+            ..SyntaxTreeOptions::default()
+        };
+        let preprocess = PreprocessConfig {
+            predefines: vec![
+                Predefine::with_source(
+                    "FOO",
+                    PredefineSource { path: abs_path("vide.toml"), range: first_range },
+                ),
+                Predefine::with_source(
+                    "FOO=1",
+                    PredefineSource { path: abs_path("vide.toml"), range: second_range },
+                ),
+            ],
+            include_dirs: Vec::new(),
+        };
+
+        let source_map =
+            source_preproc_file_ids(&db, TOP, None, &trace, &options, &preprocess).unwrap();
+        let first = PreprocSourceId::from(2);
+        let second = PreprocSourceId::from(3);
+
+        assert!(matches!(source_map.get(first), Some(PreprocSourceMapping::VirtualDisplay { .. })));
+        assert!(matches!(
+            source_map.get(second),
+            Some(PreprocSourceMapping::VirtualDisplay { .. })
+        ));
+        assert_eq!(source_map.predefine_manifest_source(first).unwrap().range, first_range);
+        assert_eq!(source_map.predefine_manifest_source(second).unwrap().range, second_range);
+        assert_eq!(
+            source_map.map_range(SourceRange {
+                source: first,
+                range: TextRange::new(TextSize::from(0), TextSize::from(1)),
+            }),
+            Ok(TextRange::new(TextSize::from(0), TextSize::from(1)))
+        );
+        assert_eq!(
+            source_map.map_range(SourceRange {
+                source: second,
+                range: TextRange::new(TextSize::from(0), TextSize::from(1)),
+            }),
+            Ok(TextRange::new(
+                TextSize::from(u32::try_from(predefine_text.len()).unwrap()),
+                TextSize::from(u32::try_from(predefine_text.len() + 1).unwrap()),
+            ))
+        );
+    }
+
+    #[test]
     fn source_preproc_mapping_rejects_predefine_source_text_mismatch() {
         let db = db_with_root_file();
         let trace = PreprocessorTrace {

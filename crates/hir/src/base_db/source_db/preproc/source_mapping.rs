@@ -249,12 +249,9 @@ impl PredefineVirtualMapping {
             range_offset += text.len();
         }
 
-        let mut configs_by_text = FxHashMap::<String, Option<usize>>::default();
-        for (index, config) in configs.iter().enumerate() {
-            let slot = configs_by_text.entry(config.text.clone()).or_insert(Some(index));
-            if *slot != Some(index) {
-                *slot = None;
-            }
+        let mut config_indexes_by_text = FxHashMap::<String, Vec<usize>>::default();
+        for (index, config) in configs.iter().enumerate().rev() {
+            config_indexes_by_text.entry(config.text.clone()).or_default().push(index);
         }
 
         let mut entries = FxHashMap::default();
@@ -267,7 +264,7 @@ impl PredefineVirtualMapping {
                 );
                 continue;
             };
-            let Some(config_index) = configs_by_text.get(source_text).and_then(|index| *index)
+            let Some(config_index) = config_indexes_by_text.get_mut(source_text).and_then(Vec::pop)
             else {
                 unavailable.insert(
                     source.source,
