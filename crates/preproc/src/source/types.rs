@@ -234,6 +234,7 @@ pub enum SourceTokenKind {
 pub struct SourceEmittedTokenFact {
     pub raw: SmolStr,
     pub value: SmolStr,
+    pub display: SmolStr,
     pub kind: SourceTokenKind,
     pub provenance: SourceTokenProvenanceFact,
 }

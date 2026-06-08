@@ -18,6 +18,13 @@ pub(in crate::preproc) fn map_macro_expansion(
         definition_id,
         definition,
         emitted_token_range: expansion.emitted_token_range,
+        display_text: mapped
+            .source_map
+            .expansion_display_text(expansion.id)
+            .ok_or(PreprocError::SourceMap(PreprocSourceMapError::MissingExpansionVirtualFile {
+                expansion: expansion.id,
+            }))?
+            .to_owned(),
         display_source: map_expansion_display_source(mapped, expansion.id)?,
         display_range: mapped
             .source_map

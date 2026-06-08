@@ -186,6 +186,7 @@ pub struct PreprocessorTraceEvent {
 pub struct PreprocessorTraceEmittedToken {
     pub raw_text: String,
     pub value_text: String,
+    pub display_text: String,
     pub token_kind: TokenKind,
     pub provenance: PreprocessorTraceTokenProvenance,
 }
@@ -482,6 +483,7 @@ impl PreprocessorTraceEmittedToken {
         let ffi::RawPreprocessorTraceEmittedToken {
             raw_text,
             value_text,
+            display_text,
             token_kind,
             provenance_kind,
             macro_name,
@@ -507,6 +509,7 @@ impl PreprocessorTraceEmittedToken {
         Self {
             raw_text,
             value_text,
+            display_text,
             token_kind: TokenKind::from_id(token_kind),
             provenance: PreprocessorTraceTokenProvenance::from_raw(
                 RawPreprocessorTraceTokenProvenance {
