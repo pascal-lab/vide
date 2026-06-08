@@ -198,7 +198,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 (!source_is_descendant_or_same(directive.range.source, source, source_parents))
                     .then_some(source_order)
             })
-            .unwrap_or_else(|| self.index.event_records.len())
+            .unwrap_or(self.index.event_records.len())
     }
 
     fn build_include_graph(&mut self) {
