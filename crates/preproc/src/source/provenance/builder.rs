@@ -55,10 +55,6 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         self.record_macro_body_references_for_calls();
         let macro_expansions = if self.tables.macro_calls.is_empty() {
             CapabilityStatus::Complete
-        } else if self.index.emitted_tokens.is_empty() {
-            CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable,
-            )
         } else {
             partial_status(self.expansions_partial)
         };
@@ -786,13 +782,6 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             return;
         }
 
-        if self.index.emitted_tokens.is_empty() {
-            self.mark_all_calls_unavailable(
-                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable,
-            );
-            return;
-        }
-
         let direct_tokens_by_call = self.direct_emitted_tokens_by_call();
         let child_calls_by_parent = self.child_calls_by_parent();
         let call_ids = self.tables.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
@@ -821,14 +810,12 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 );
                 continue;
             };
-            let Some(emitted_token_range) = tokens.contiguous_emitted_range() else {
+            let Some(emitted_token_range) = tokens.contiguous_emitted_range(
+                SourceEmittedTokenId::new(self.tables.emitted_tokens.len()),
+            ) else {
                 self.mark_call_unavailable(
                     call,
-                    if tokens.is_empty() {
-                        SourcePreprocUnavailable::ExpansionAuthorityUnavailable
-                    } else {
-                        SourcePreprocUnavailable::NonContiguousEmittedTokenRange { call }
-                    },
+                    SourcePreprocUnavailable::NonContiguousEmittedTokenRange { call },
                 );
                 continue;
             };
@@ -1021,13 +1008,6 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         tokens.dedup();
         recursive_tokens_by_call.insert(call, tokens.clone());
         tokens
-    }
-
-    fn mark_all_calls_unavailable(&mut self, reason: SourcePreprocUnavailable) {
-        let call_ids = self.tables.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
-        for call in call_ids {
-            self.mark_call_unavailable(call, reason.clone());
-        }
     }
 
     fn mark_call_unavailable(&mut self, call: SourceMacroCallId, reason: SourcePreprocUnavailable) {
@@ -1276,12 +1256,20 @@ impl SourceMacroTokenExt for SourceMacroToken {
 }
 
 trait SourceEmittedTokenIdSliceExt {
-    fn contiguous_emitted_range(&self) -> Option<SourceEmittedTokenRange>;
+    fn contiguous_emitted_range(
+        &self,
+        empty_start: SourceEmittedTokenId,
+    ) -> Option<SourceEmittedTokenRange>;
 }
 
 impl SourceEmittedTokenIdSliceExt for [SourceEmittedTokenId] {
-    fn contiguous_emitted_range(&self) -> Option<SourceEmittedTokenRange> {
-        let first = *self.first()?;
+    fn contiguous_emitted_range(
+        &self,
+        empty_start: SourceEmittedTokenId,
+    ) -> Option<SourceEmittedTokenRange> {
+        let Some(first) = self.first().copied() else {
+            return Some(SourceEmittedTokenRange { start: empty_start, len: 0 });
+        };
         let last = *self.last()?;
         let len = last.raw().checked_sub(first.raw())? + 1;
         (len == self.len()).then_some(SourceEmittedTokenRange { start: first, len })

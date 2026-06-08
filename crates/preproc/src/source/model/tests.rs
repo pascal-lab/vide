@@ -1198,13 +1198,45 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
     assert!(matches!(
         model.immediate_macro_expansion(call.id),
         SourceMacroExpansionQuery::Unavailable(
-            SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable
+            SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
         )
     ));
-    assert!(matches!(
-        &model.capabilities().macro_expansions,
-        CapabilityStatus::Unavailable(SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable)
-    ));
+    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Partial);
+}
+
+#[test]
+fn source_model_keeps_zero_token_macro_expansion_available() {
+    let root_text = r#"`define EMPTY
+`define DROP(x)
+module top;
+`EMPTY
+`DROP(foo)
+endmodule
+"#;
+    let (model, _root_source) = source_model_from_root(root_text, SyntaxTreeOptions::default());
+
+    for name in ["EMPTY", "DROP"] {
+        let call = model
+            .macro_calls()
+            .iter()
+            .find(|call| {
+                model
+                    .macro_references()
+                    .get(call.reference)
+                    .is_some_and(|reference| reference.name.as_str() == name)
+            })
+            .unwrap_or_else(|| panic!("{name} call should be traced"));
+        let SourceMacroExpansionQuery::Available(expansion_id) =
+            model.immediate_macro_expansion(call.id)
+        else {
+            panic!("{name} zero-token expansion should be available: {call:?}");
+        };
+        let expansion = model.macro_expansions().get(expansion_id).unwrap();
+        assert_eq!(expansion.emitted_token_range.len, 0);
+        assert_eq!(expansion.call, call.id);
+        assert_eq!(expansion.status, SourceMacroExpansionStatus::Complete);
+    }
+    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
 }
 
 #[test]

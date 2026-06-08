@@ -312,6 +312,41 @@ endmodule
 }
 
 #[test]
+fn preproc_zero_token_macro_expansion_is_available() {
+    let root_text = r#"`define EMPTY
+`define DROP(x)
+module top;
+`EMPTY
+`DROP(foo)
+endmodule
+"#;
+    let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
+
+    for name in ["`EMPTY", "`DROP"] {
+        let immediate =
+            immediate_macro_expansion_at(&db, TOP, offset(root_text, name)).unwrap().unwrap();
+        let MacroExpansionQuery::Available(immediate) = immediate else {
+            panic!("{name} expansion should be available");
+        };
+        assert_eq!(immediate.emitted_token_range.len, 0);
+
+        let provenance =
+            macro_expansion_provenance_at(&db, TOP, offset(root_text, name)).unwrap().unwrap();
+        assert!(provenance.tokens.is_empty());
+        assert_eq!(provenance.expansion.emitted_token_range.len, 0);
+
+        let mapped = db.source_preproc_model(TOP);
+        let mapped = mapped.as_ref().as_ref().unwrap();
+        let display_text = mapped
+            .source_map
+            .expansion_display_text(SourceMacroExpansionId::new(provenance.expansion.id.raw()))
+            .unwrap();
+        assert_eq!(display_text, "");
+        assert_eq!(provenance.expansion.display_range, TextRange::empty(TextSize::from(0)));
+    }
+}
+
+#[test]
 fn preproc_macro_expansion_exposes_display_virtual_source_and_token_provenance() {
     let root_text = r#"`define MAKE_DECL(name) logic name;
 module top;

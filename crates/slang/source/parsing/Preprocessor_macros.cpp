@@ -399,17 +399,27 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
     const DefineDirectiveSyntax* directive = macro.syntax;
     SLANG_ASSERT(directive);
 
-    // ignore empty macro
-    const auto& body = directive->body;
-    if (body.empty())
-        return true;
-
     std::string_view macroName = directive->name.valueText();
+    SourceRange expansionRange = expansion.getRange();
+    if (actualArgs) {
+        Token endOfArgs = actualArgs->getLastToken();
+        expansionRange = SourceRange(expansion.getRange().start(),
+                                     endOfArgs.location() + endOfArgs.rawText().length());
+    }
+
+    // Empty macros emit no tokens, but still need an expansion identity for trace consumers.
+    const auto& body = directive->body;
+    if (body.empty()) {
+        SourceLocation expansionLoc = sourceManager.createExpansionLoc(
+            expansionRange.start(), expansionRange, macroName, expansion.getMetadata());
+        expansion.setExpansionLoc(expansionLoc);
+        return true;
+    }
 
     if (!directive->formalArguments) {
         // each macro expansion gets its own location entry
         SourceLocation start = body[0].location();
-        SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansion.getRange(),
+        SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansionRange,
                                                                        macroName,
                                                                        expansion.getMetadata());
         expansion.setExpansionLoc(expansionLoc);
@@ -417,7 +427,7 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         // simple macro; just take body tokens
         uint32_t bodyTokenIndex = 0;
         for (auto token : body) {
-            expansion.append(token, expansionLoc, start, expansion.getRange(), false,
+            expansion.append(token, expansionLoc, start, expansionRange, false,
                              expansion.tokenProvenance(bodyTokenIndex));
             bodyTokenIndex++;
         }
@@ -469,10 +479,6 @@ bool Preprocessor::expandMacro(MacroDef macro, MacroExpansion& expansion,
         if (!name.empty())
             argumentMap.emplace(name, ArgTokens(*tokenList, uint32_t(i)));
     }
-
-    Token endOfArgs = actualArgs->getLastToken();
-    SourceRange expansionRange(expansion.getRange().start(),
-                               endOfArgs.location() + endOfArgs.rawText().length());
 
     SourceLocation start = body[0].location();
     SourceLocation expansionLoc = sourceManager.createExpansionLoc(start, expansionRange,
