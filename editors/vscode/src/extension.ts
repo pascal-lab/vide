@@ -60,6 +60,7 @@ interface ExtensionBuildInfo {
   kind?: string;
   commitHash?: string;
   buildDate?: string;
+  profileTrace?: boolean;
 }
 
 const activeQiheTokens = new Set<string>();
@@ -120,6 +121,10 @@ function extensionBuildLabel(context: vscode.ExtensionContext): string {
     (part): part is string => typeof part === 'string' && part.length > 0,
   );
   return details.length > 0 ? `${version} (${details.join(', ')})` : version;
+}
+
+function isProfileTraceEnabled(context: vscode.ExtensionContext): boolean {
+  return extensionBuildInfo(context)?.profileTrace === true;
 }
 
 async function showLanguageServerErrorMessage(message: string): Promise<void> {
@@ -981,11 +986,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(outputChannel);
   qiheOutputChannel = vscode.window.createOutputChannel(qiheOutputChannelName);
   context.subscriptions.push(qiheOutputChannel);
+  const profileTraceEnabled = isProfileTraceEnabled(context);
   videStatusController = new VideStatusController({
     createManifest: (rootUris) => createProjectConfigsFromRootUris(context, rootUris),
-    profileDiagnostics: async () => {
-      await vscode.commands.executeCommand(profileDiagnosticsCommand);
-    },
+    profileDiagnostics: profileTraceEnabled
+      ? async () => {
+          await vscode.commands.executeCommand(profileDiagnosticsCommand);
+        }
+      : undefined,
     reloadProject: reloadWorkspace,
     restartServer: () => restartClient(context),
     showOutput,
@@ -1045,12 +1053,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  context.subscriptions.push(
-    registerProfilingCommand(context, {
-      resolveLaunch: () => resolveServerLaunch(context, readConfiguration()),
-      createEnv: createServerEnv,
-    }),
-  );
+  if (profileTraceEnabled) {
+    context.subscriptions.push(
+      registerProfilingCommand(context, {
+        resolveLaunch: () => resolveServerLaunch(context, readConfiguration()),
+        createEnv: createServerEnv,
+      }),
+    );
+  }
 
   const reloadWorkspaceRegistration = vscode.commands.registerCommand(
     reloadWorkspaceCommand,

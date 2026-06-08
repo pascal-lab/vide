@@ -42,7 +42,7 @@ Open the `Vide Language Server` output channel first. Focus on the last error, a
 Common branches are:
 
 - `Bundled Vide Language Server binary not found` or `Unsupported platform-architecture combination`:
-  first confirm that the installed VSIX matches the current platform. If you installed a locally packaged VSIX, confirm that it was built with `npm run package:*` or `npm run package:debug`. Those commands bundle the language server binary into the VSIX; `npm run compile` only builds the extension frontend, so the installed extension will not contain the server.
+  first confirm that the installed VSIX matches the current platform. If you installed a locally packaged VSIX, confirm that it was built with `npm run package:vsix` or `npm run package:vsix:debug`. Those commands bundle the language server binary into the VSIX; `npm run compile` only builds the extension frontend, so the installed extension will not contain the server.
 - `Failed to start language server`, missing custom command, or permission failure:
   continue with "The Extension or Custom Server Cannot Start" below.
 - The status bar only mentions `vide.toml`, `manifest`, or `failed to load workspace`:

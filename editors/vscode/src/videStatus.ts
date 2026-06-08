@@ -23,7 +23,7 @@ export const projectStatusNotification = 'vide/projectStatus';
 
 export interface VideStatusActions {
   createManifest: (rootUris: readonly string[]) => Promise<void>;
-  profileDiagnostics: () => Promise<void>;
+  profileDiagnostics?: () => Promise<void>;
   reloadProject: () => Promise<void>;
   restartServer: () => Promise<void>;
   showOutput: () => void;
@@ -104,7 +104,7 @@ export class VideStatusController implements vscode.Disposable {
         await this.actions.createManifest(status.unconfiguredRootUris);
         break;
       case 'profileDiagnostics':
-        await this.actions.profileDiagnostics();
+        await this.actions.profileDiagnostics?.();
         break;
       case 'reloadProject':
         await this.actions.reloadProject();
@@ -169,12 +169,15 @@ export class VideStatusController implements vscode.Disposable {
       });
     }
 
-    items.push(
-      {
+    if (this.actions.profileDiagnostics) {
+      items.push({
         label: vscode.l10n.t('$(pulse) Profile Diagnostics'),
         description: vscode.l10n.t('Measure current-file or workspace diagnostics performance'),
         action: 'profileDiagnostics',
-      },
+      });
+    }
+
+    items.push(
       {
         label: vscode.l10n.t('$(refresh) Reload Project'),
         description: vscode.l10n.t('Refresh project manifests without restarting the server'),
