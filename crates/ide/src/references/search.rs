@@ -276,22 +276,20 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         offset: TextSize,
         source_token_cache: &mut SourceTokenRequestCache,
     ) -> Vec<SyntaxTokenWithParent<'tree>> {
-        let Some(selection) = crate::source_tokens::token_candidates_at_offset_with_cache(
+        let Some(selection) = crate::source_tokens::source_token_resolution_at_offset_with_cache(
             db,
             file_id,
             node,
             offset,
             super::token_precedence,
             source_token_cache,
-        ) else {
+        )
+        .and_then(|resolution| resolution.resolved()) else {
             return Vec::new();
         };
 
-        let Some(tokens) = selection.tokens() else {
-            return Vec::new();
-        };
-
-        tokens
+        selection
+            .into_tokens()
             .into_iter()
             .filter(|tok| tok.kind().name_like())
             .filter(|tok| {

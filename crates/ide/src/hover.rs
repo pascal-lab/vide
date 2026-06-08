@@ -27,12 +27,8 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    FilePosition, RangeInfo,
-    db::root_db::RootDb,
-    definitions::DefinitionClass,
-    markup::Markup,
-    render,
-    source_tokens::{PreprocTokenSelection, SourceTokenSelection},
+    FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
+    render, source_tokens::SourceTokenSelection,
 };
 
 const MACRO_EXPANSION_SEPARATOR: &str = "--------------------";
@@ -78,31 +74,24 @@ pub(crate) fn hover(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let selection = crate::source_tokens::token_candidates_at_offset(
+    let selection = crate::source_tokens::source_token_resolution_at_offset(
         db,
         file_id,
         root,
         offset,
         token_precedence,
-    )?;
-    let hover = match selection {
-        SourceTokenSelection::NormalSyntax(selection) => {
-            hover_for_token_selection(&sema, hir_file_id, selection.range, selection.tokens)
-        }
-        SourceTokenSelection::Preproc(selection) => {
-            hover_for_preproc_selection(&sema, hir_file_id, selection)
-        }
-        SourceTokenSelection::Unavailable(_) | SourceTokenSelection::Ambiguous(_) => None,
-    }?;
+    )?
+    .resolved()?;
+    let hover = hover_for_source_token_selection(&sema, hir_file_id, selection)?;
     Some(with_expanded_macro_hover(db, file_id, offset, hover))
 }
 
-fn hover_for_preproc_selection(
+fn hover_for_source_token_selection(
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
-    selection: PreprocTokenSelection<'_>,
+    selection: SourceTokenSelection<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    let (range, tokens) = selection.range_and_tokens();
+    let (range, tokens) = selection.into_parts();
     hover_for_token_selection(sema, hir_file_id, range, tokens)
 }
 
