@@ -15,6 +15,7 @@ concurrency:
 
 env:
   EMSDK_VERSION: 5.0.2
+  CARGO_PROFILE_RELEASE_INCREMENTAL: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'false' || 'true' }}
 
 jobs:
   changelog:
@@ -206,6 +207,7 @@ jobs:
 
           docker run --rm \
             -e CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
+            -e CARGO_PROFILE_RELEASE_INCREMENTAL="${CARGO_PROFILE_RELEASE_INCREMENTAL}" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
             -v "${build_script}:/tmp/build-linux-x64-manylinux2014.sh:ro" \
             -w /workspace \

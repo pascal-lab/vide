@@ -116,6 +116,8 @@ salsa.opt-level = 3
 incremental = true
 debug = 0
 strip = "symbols"
+lto = "thin"
+codegen-units = 1
 
 [profile.release-lto]
 inherits = "release"

@@ -1,6 +1,6 @@
 #[cfg(feature = "profile-trace")]
-use std::path::{Path, PathBuf};
-use std::{env, fs, io};
+use std::path::Path;
+use std::{env, fs, io, path::PathBuf};
 
 use anyhow::Context;
 use clap::Parser;
@@ -9,11 +9,6 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 use vide::{Opt, run_server};
-
-#[cfg(feature = "profile-trace")]
-type ProfileTraceGuard = tracing_chrome::FlushGuard;
-#[cfg(not(feature = "profile-trace"))]
-type ProfileTraceGuard = ();
 
 #[cfg(feature = "profile-trace")]
 const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
@@ -29,6 +24,11 @@ const DEFAULT_PROFILE_TRACE_FILTER: &str = concat!(
 );
 
 #[cfg(feature = "profile-trace")]
+type ProfileTraceGuard = tracing_chrome::FlushGuard;
+
+#[cfg(not(feature = "profile-trace"))]
+type ProfileTraceGuard = ();
+
 fn profile_trace_path(opt: &Opt) -> Option<PathBuf> {
     opt.profile_trace.clone().or_else(|| env::var_os("VIDE_PROFILE_TRACE").map(PathBuf::from))
 }
@@ -67,16 +67,26 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<ProfileTraceGuard>> {
 
     let subscriber = Registry::default().with(fmt_layer);
 
+    let requested_profile_trace_path = profile_trace_path(opt);
+
     #[cfg(not(feature = "profile-trace"))]
     {
-        let _ = opt;
+        if let Some(path) = requested_profile_trace_path {
+            anyhow::bail!(
+                "profile tracing was requested for {}, but this binary was built without the \
+                 `profile-trace` feature; rebuild with `cargo build --release --features \
+                 profile-trace` to enable --profile_trace and VIDE_PROFILE_TRACE",
+                path.display()
+            );
+        }
+
         subscriber.init();
         Ok(None)
     }
 
     #[cfg(feature = "profile-trace")]
     {
-        let profile_guard = if let Some(path) = profile_trace_path(opt) {
+        if let Some(path) = requested_profile_trace_path {
             let profile_filter_text = env::var("VIDE_PROFILE_TRACE_FILTER")
                 .unwrap_or_else(|_| DEFAULT_PROFILE_TRACE_FILTER.to_owned());
             let profile_filter =
@@ -93,12 +103,11 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<Option<ProfileTraceGuard>> {
                 filter = %profile_filter_text,
                 "profile trace enabled"
             );
-            Some(guard)
+            Ok(Some(guard))
         } else {
             subscriber.init();
-            None
-        };
-        Ok(profile_guard)
+            Ok(None)
+        }
     }
 }
 
