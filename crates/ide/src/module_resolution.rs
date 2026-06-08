@@ -5,8 +5,11 @@ use hir::{
     container::InModule,
     db::HirDb,
     hir_def::{
-        Ident, declaration::Declaration, expr::declarator::DeclaratorParent, lower_ident_opt,
-        module::ModuleId,
+        Ident,
+        declaration::Declaration,
+        expr::declarator::DeclaratorParent,
+        lower_ident_opt,
+        module::{ModuleId, instantiation::Instantiation},
     },
     scope::{ModuleEntry, ScopeResolution},
     semantics::pathres::PathResolution,
@@ -53,6 +56,14 @@ pub(crate) fn resolve_instantiation_target(
         return ModuleResolution::Unresolved;
     };
     resolve_module_name(db, from_file, &name)
+}
+
+pub(crate) fn resolve_hir_instantiation_target(
+    db: &RootDb,
+    from_file: FileId,
+    instantiation: &Instantiation,
+) -> Option<ModuleId> {
+    resolve_module_name(db, from_file, instantiation.module_name.as_ref()?).unique()
 }
 
 pub(crate) fn resolve_module_name(
