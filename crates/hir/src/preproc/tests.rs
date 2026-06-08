@@ -705,6 +705,44 @@ endmodule
 }
 
 #[test]
+fn preproc_include_only_sv_query_uses_all_including_roots() {
+    let top_a_text = r#"`define WIDTH 8
+`include "shared.sv"
+"#;
+    let shared_text = "localparam int W = `WIDTH;\n";
+    let top_b_text = r#"`define WIDTH 16
+`include "shared.sv"
+"#;
+    let db = db_with_entries(&[
+        (TOP, "rtl/top_a.sv", top_a_text),
+        (HEADER, "include/shared.sv", shared_text),
+        (LEAF, "rtl/top_b.sv", top_b_text),
+    ]);
+
+    let plan = db.compilation_plan_for_profile(Some(PROFILE));
+    assert!(plan.include_only.contains(&HEADER), "{plan:?}");
+    assert!(plan.roots.contains(&TOP), "{plan:?}");
+    assert!(plan.roots.contains(&LEAF), "{plan:?}");
+    assert!(!plan.roots.contains(&HEADER), "{plan:?}");
+
+    let contexts = source_preproc_single_query_contexts(&db, HEADER);
+    assert!(contexts.model_file_ids.contains(&TOP), "{contexts:?}");
+    assert!(contexts.model_file_ids.contains(&LEAF), "{contexts:?}");
+    assert!(!contexts.model_file_ids.contains(&HEADER), "{contexts:?}");
+
+    let definitions =
+        macro_reference_definitions_at(&db, HEADER, offset(shared_text, "WIDTH")).unwrap().unwrap();
+
+    assert_eq!(definitions.definitions.len(), 2);
+    assert!(definitions.definitions.iter().any(|definition| {
+        definition.file_id == TOP && text_at_range(top_a_text, definition.name_range) == "WIDTH"
+    }));
+    assert!(definitions.definitions.iter().any(|definition| {
+        definition.file_id == LEAF && text_at_range(top_b_text, definition.name_range) == "WIDTH"
+    }));
+}
+
+#[test]
 fn preproc_header_query_uses_including_context_over_standalone_model() {
     let root_text = r#"`define FEATURE 1
 `include "defs.vh"
