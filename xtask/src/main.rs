@@ -417,7 +417,7 @@ fn run_command(
     cwd: &Path,
     env_updates: &[(String, String)],
 ) -> Result<()> {
-    let mut child = ProcessCommand::new(command_for_host(command));
+    let mut child = ProcessCommand::new(command);
     child.args(args).current_dir(cwd);
     for (key, value) in env_updates {
         child.env(key, value);
@@ -432,10 +432,6 @@ fn run_command(
     }
 
     Ok(())
-}
-
-fn command_for_host(command: &str) -> String {
-    if cfg!(windows) { format!("{command}.cmd") } else { command.to_owned() }
 }
 
 fn workspace_root() -> Result<PathBuf> {
