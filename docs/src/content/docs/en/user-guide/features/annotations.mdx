@@ -1,6 +1,6 @@
 ---
 title: Annotations
-description: Show port, parameter, structure-name, and instance-count annotations near the relevant code.
+description: Show port, parameter, macro-argument, structure-name, and instance-count annotations near the relevant code.
 ---
 
 import FeatureExample from '../../../../../components/FeatureExample.astro';
@@ -12,11 +12,12 @@ import { inlayHintFiles } from '../../../../../examples/dailyUse';
 
 Annotations show auxiliary information directly next to the relevant code, so you can see the target of a connection, parameter, or structure without jumping away.
 
-There are currently three main kinds of annotations:
+There are currently four main kinds of annotations:
 
 1. Instance connection annotations: show target port names and direction arrows next to port connections. `input` shows `←`, `output` shows `→`, `inout` shows `↔`, and `ref` shows `&`. If the port name is already written in code, Vide only shows the direction arrow to avoid repetition.
-2. Parameter and structure annotations: show target parameter names next to ordered parameter assignments, and structure names near endings such as `endmodule`.
-3. Instance-count annotations: show how many times the current module is instantiated above the module declaration.
+2. Parameter and macro-argument annotations: show target parameter names next to ordered parameter assignments, and macro parameter names next to macro call arguments.
+3. Structure annotations: show structure names near endings such as `endmodule`.
+4. Instance-count annotations: show how many times the current module is instantiated above the module declaration.
 
 ## Demo
 
@@ -43,11 +44,11 @@ There are currently three main kinds of annotations:
 
 ### Without Complete Configuration
 
-Annotations for ports, parameters, and structure endings that can be resolved in the current file are available. Cross-file instance connections and instance-count statistics depend on files scanned by Vide and can be incomplete.
+Annotations for ports, parameters, macro arguments, and structure endings that can be resolved in the current file are available. Cross-file instance connections, macros reached through include chains, and instance-count statistics depend on files scanned by Vide and can be incomplete.
 
 ### With Complete Configuration
 
-After `vide.toml` is configured, annotations resolve modules, include files, and macro branches from the project scope. Cross-file ports, parameters, and instance-count statistics become more complete.
+After `vide.toml` is configured, annotations resolve modules, include files, and macro branches from the project scope. Cross-file ports, parameters, macro arguments, and instance-count statistics become more complete.
 
 ## Settings
 
@@ -57,6 +58,7 @@ Search for `Vide Inlay Hints` or `Vide Lens` in VS Code Settings, or configure t
 {
   "vide.inlayHints.port.connection.enable": true,
   "vide.inlayHints.parameter.assignment.enable": true,
+  "vide.inlayHints.macro.argument.enable": true,
   "vide.inlayHints.end.structure.enable": true,
   "vide.lens.instantiations.enable": true
 }
@@ -64,6 +66,7 @@ Search for `Vide Inlay Hints` or `Vide Lens` in VS Code Settings, or configure t
 
 - `vide.inlayHints.port.connection.enable`: shows or hides port names and direction arrows next to instance port connections.
 - `vide.inlayHints.parameter.assignment.enable`: shows or hides parameter names next to ordered parameter assignments.
+- `vide.inlayHints.macro.argument.enable`: shows or hides macro parameter names next to macro call arguments.
 - `vide.inlayHints.end.structure.enable`: shows or hides structure names near endings such as `endmodule`.
 - `vide.lens.instantiations.enable`: shows or hides instance-count annotations above module declarations.
 
