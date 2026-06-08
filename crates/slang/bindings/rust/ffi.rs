@@ -134,6 +134,7 @@ mod slang_ffi {
     struct RawPreprocessorTraceEmittedToken {
         raw_text: String,
         value_text: String,
+        display_text: String,
         token_kind: u16,
         provenance_kind: u8,
         macro_name: String,

@@ -284,6 +284,7 @@ pub struct SourceEmittedTokenRange {
 pub struct SourceEmittedToken {
     pub id: SourceEmittedTokenId,
     pub text: SmolStr,
+    pub display: SmolStr,
     pub kind: SourceTokenKind,
     pub emitted_range: SourceEmittedTokenRange,
     pub provenance: SourceTokenProvenanceId,

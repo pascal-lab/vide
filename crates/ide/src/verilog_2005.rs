@@ -1493,9 +1493,9 @@ endmodule
             && info.contains("Macro")
             && info.contains("`MAKE_DECL(name)")
             && !info.contains("`define `MAKE_DECL(name)")
-            && !info.contains("Expands to")
+            && info.contains("Expands to")
             && info.contains("--------------------")
-            && info.contains("logic generated ;")
+            && info.contains("logic generated;")
             && info.contains("from [feature.v]")
             && !info.contains("Context ")
             && !info.contains("Signature")
@@ -1572,9 +1572,9 @@ endmodule
             && info.contains("`DEMO_NEXT(value)")
             && !info.contains("`define `DEMO_NEXT(value)")
             && !info.contains("`MATH_ONE")
-            && !info.contains("Expands to")
+            && info.contains("Expands to")
             && info.contains("--------------------")
-            && info.contains("( ( payload_i ) + 12 'd 1 )")
+            && info.contains("((payload_i) + 12'd1)")
             && info.contains("payload_i")
             && info.contains("12")
             && info.contains("'d")
@@ -1609,9 +1609,9 @@ endmodule
             && call_info.contains("`DEMO_NEXT(value)")
             && !call_info.contains("`define `DEMO_NEXT(value)")
             && !call_info.contains("`MATH_ONE")
-            && !call_info.contains("Expands to")
+            && call_info.contains("Expands to")
             && call_info.contains("--------------------")
-            && call_info.contains("( ( payload_i ) + 12 'd 1 )")
+            && call_info.contains("((payload_i) + 12'd1)")
             && call_info.contains("payload_i")
             && call_info.contains("12")
             && call_info.contains("from [feature.v]")
@@ -1643,7 +1643,7 @@ endmodule
             && payl_info.contains("Macro")
             && payl_info.contains("`PAYL")
             && !payl_info.contains("`define `PAYL payload_i")
-            && !payl_info.contains("Expands to")
+            && payl_info.contains("Expands to")
             && payl_info.contains("--------------------")
             && payl_info.contains("payload_i")
             && payl_info.contains("from [feature.v]")
@@ -1753,7 +1753,8 @@ endmodule
         decl_info.contains("```systemverilog")
             && decl_info.contains("`DECL_PIPE(name, width)")
             && !decl_info.contains("`define `DECL_PIPE(name, width)")
-            && decl_info.contains("logic [ ( 12 ) - 1 : 0 ] sample_q")
+            && decl_info.contains("Expands to")
+            && decl_info.contains("logic [(12)-1:0] sample_q")
             && !decl_info.contains("unavailable"),
         "DECL_PIPE hover should show expansion through configured predefine: {decl_info}"
     );
@@ -1769,8 +1770,8 @@ endmodule
     assert!(
         assign_info.contains("`PIPE_ASSIGN(name, next_value)")
             && !assign_info.contains("`define `PIPE_ASSIGN(name, next_value)")
-            && assign_info
-                .contains("trace_q <= ( sample_q ^ { { ( 12 - 1 ) { 1 'b 0 } } , 1 'b 1 } )")
+            && assign_info.contains("Expands to")
+            && assign_info.contains("trace_q <= (sample_q ^ {{(12-1){1'b0}}, 1'b1});")
             && !assign_info.contains("unavailable"),
         "PIPE_ASSIGN hover should show actual-argument expansion through configured predefine: {assign_info}"
     );

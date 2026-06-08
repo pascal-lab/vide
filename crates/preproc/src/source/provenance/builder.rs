@@ -435,6 +435,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             self.tables.emitted_tokens.push(SourceEmittedToken {
                 id: token_id,
                 text: token.raw,
+                display: token.display,
                 kind: token.kind,
                 emitted_range: SourceEmittedTokenRange { start: token_id, len: 1 },
                 provenance: provenance_id,

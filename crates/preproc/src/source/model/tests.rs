@@ -755,6 +755,7 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
         emitted_tokens: vec![syntax::PreprocessorTraceEmittedToken {
             raw_text: "2".to_owned(),
             value_text: "2".to_owned(),
+            display_text: "2".to_owned(),
             token_kind: TokenKind::INTEGER_LITERAL,
             provenance: PreprocessorTraceTokenProvenance::MacroBody {
                 macro_name: "B".to_owned(),
@@ -888,6 +889,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
         emitted_tokens: vec![SourceEmittedTokenFact {
             raw: SmolStr::new("1"),
             value: SmolStr::new("1"),
+            display: SmolStr::new("1"),
             kind: SourceTokenKind::Syntax(TokenKind::INTEGER_LITERAL),
             provenance: SourceTokenProvenanceFact::MacroBody {
                 macro_name: SmolStr::new("A"),
