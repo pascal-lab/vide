@@ -4,10 +4,8 @@ export const SUPPORTED_PLATFORM_FOLDERS = [
   'alpine-arm64',
   'alpine-x64',
   'darwin-arm64',
-  'darwin-x64',
   'linux-arm64',
   'linux-x64',
-  'win32-arm64',
   'win32-x64',
 ] as const;
 

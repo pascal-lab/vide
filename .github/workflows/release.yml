@@ -81,7 +81,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -91,6 +91,20 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: rust-${{ runner.os }}
+          key: package-linux-x64-prebuilt-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
+          cache-workspace-crates: true
+          cache-on-failure: true
 
       - name: Install JS dependencies
         working-directory: editors/vscode
@@ -109,7 +123,7 @@ jobs:
 
       - name: Build VSIX
         working-directory: editors/vscode
-        run: npm run package:${{ matrix.target }}
+        run: npm run package:vsix -- --target ${{ matrix.target }}
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
@@ -247,9 +261,7 @@ jobs:
 
       - name: Build VSIX
         working-directory: editors/vscode
-        run: |
-          npm run compile
-          ./node_modules/.bin/tsx scripts/package.ts linux-x64 --server=prebuilt
+        run: npm run package:vsix -- --target linux-x64 --server=prebuilt
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
@@ -302,7 +314,7 @@ jobs:
         continue-on-error: true
         with:
           shared-key: rust-${{ runner.os }}-${{ matrix.target }}
-          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**') }}
+          key: package-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'build.rs', 'rust-toolchain.toml', 'src/**', 'crates/**', 'xtask/**') }}
           cache-workspace-crates: true
           cache-on-failure: true
 
@@ -330,7 +342,7 @@ jobs:
 
       - name: Build VSIX
         working-directory: editors/vscode
-        run: npm run package:${{ matrix.target }}
+        run: npm run package:vsix -- --target ${{ matrix.target }}
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
@@ -450,7 +462,7 @@ jobs:
           fi
 
       - name: Build VSIX
-        run: npm run package:web
+        run: npm run package:vsix:web
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4

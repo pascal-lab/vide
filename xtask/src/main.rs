@@ -114,10 +114,8 @@ enum VscodeServerTarget {
     AlpineArm64,
     AlpineX64,
     DarwinArm64,
-    DarwinX64,
     LinuxArm64,
     LinuxX64,
-    Win32Arm64,
     Win32X64,
 }
 
@@ -127,10 +125,8 @@ impl VscodeServerTarget {
             VscodeServerTarget::AlpineArm64 => "alpine-arm64",
             VscodeServerTarget::AlpineX64 => "alpine-x64",
             VscodeServerTarget::DarwinArm64 => "darwin-arm64",
-            VscodeServerTarget::DarwinX64 => "darwin-x64",
             VscodeServerTarget::LinuxArm64 => "linux-arm64",
             VscodeServerTarget::LinuxX64 => "linux-x64",
-            VscodeServerTarget::Win32Arm64 => "win32-arm64",
             VscodeServerTarget::Win32X64 => "win32-x64",
         }
     }
@@ -148,7 +144,7 @@ impl VscodeServerTarget {
     }
 
     fn is_windows(self) -> bool {
-        matches!(self, VscodeServerTarget::Win32Arm64 | VscodeServerTarget::Win32X64)
+        matches!(self, VscodeServerTarget::Win32X64)
     }
 
     fn requires_alpine_linker(self) -> bool {
@@ -240,8 +236,6 @@ fn host_vscode_server_target() -> Result<VscodeServerTarget> {
         ("linux", "aarch64") => Ok(VscodeServerTarget::LinuxArm64),
         ("linux", "x86_64") => Ok(VscodeServerTarget::LinuxX64),
         ("macos", "aarch64") => Ok(VscodeServerTarget::DarwinArm64),
-        ("macos", "x86_64") => Ok(VscodeServerTarget::DarwinX64),
-        ("windows", "aarch64") => Ok(VscodeServerTarget::Win32Arm64),
         ("windows", "x86_64") => Ok(VscodeServerTarget::Win32X64),
         _ => bail!("unsupported host platform: {}-{}", env::consts::OS, env::consts::ARCH),
     }
