@@ -519,7 +519,10 @@ endmodule
         .expect("NEXT call should expose its written actual argument");
     assert_eq!(argument.source.as_ref().and_then(MappedPreprocSource::file_id), Some(TOP));
     assert_eq!(text_at_range(root_text, argument.range.unwrap()), "`PAYL");
-    assert_eq!(argument.tokens, vec![SmolStr::new("`PAYL")]);
+    assert_eq!(
+        argument.tokens.iter().map(|token| token.raw.as_str()).collect::<Vec<_>>(),
+        vec!["`PAYL"]
+    );
 
     let payload = provenance
         .tokens

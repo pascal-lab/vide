@@ -1,9 +1,10 @@
 use hir::{
     base_db::source_db::{SourceDb, SourcePreprocQueryError},
     preproc::{
-        EmittedTokenProvenance, MacroArgumentTokenIdentity, MacroBodyTokenIdentity,
-        MacroDefinitionId, MacroExpansionProvenance, MacroTokenIdentity, MappedPreprocSource,
-        PreprocError, TokenProvenance, macro_expansion_provenances_at,
+        EmittedTokenProvenance, MacroArgumentTokenIdentity, MacroBodyTokenIdentity, MacroCall,
+        MacroDefinitionId, MacroExpansionProvenance, MacroOperationTokenIdentity,
+        MacroTokenIdentity, MappedPreprocSource, PreprocError, TokenProvenance,
+        macro_expansion_provenances_at,
     },
 };
 use rustc_hash::FxHashMap;
@@ -167,6 +168,12 @@ pub(crate) enum PreprocTokenProvenance {
         identity: MacroArgumentTokenIdentity,
         call: usize,
         argument_index: usize,
+        source: MappedPreprocSource,
+        range: TextRange,
+    },
+    MacroOperation {
+        identity: MacroOperationTokenIdentity,
+        call: usize,
         source: MappedPreprocSource,
         range: TextRange,
     },
@@ -373,10 +380,24 @@ fn preproc_hit_for_token(
             PreprocSourceTarget::SourceToken { source: source.clone(), range: *range },
             call.id.raw(),
         ),
+        TokenProvenance::TokenPaste { identity, call }
+        | TokenProvenance::Stringification { identity, call } => {
+            let (source, range) = macro_operation_source_token(call, *identity)?;
+            (
+                source.clone(),
+                range,
+                PreprocTokenProvenance::MacroOperation {
+                    identity: *identity,
+                    call: call.id.raw(),
+                    source: source.clone(),
+                    range,
+                },
+                PreprocSourceTarget::SourceToken { source: source.clone(), range },
+                call.id.raw(),
+            )
+        }
         TokenProvenance::Predefine { .. }
         | TokenProvenance::Builtin { .. }
-        | TokenProvenance::TokenPaste { .. }
-        | TokenProvenance::Stringification { .. }
         | TokenProvenance::Unavailable(_) => return None,
     };
 
@@ -393,6 +414,22 @@ fn preproc_hit_for_token(
         provenance,
         target,
     })
+}
+
+fn macro_operation_source_token(
+    call: &MacroCall,
+    identity: MacroOperationTokenIdentity,
+) -> Option<(&MappedPreprocSource, TextRange)> {
+    let argument_index = identity.argument_index?;
+    let argument_token_index = identity.argument_token_index?;
+    let argument = call.arguments.get(argument_index)?;
+    if argument.argument_index != argument_index {
+        return None;
+    }
+    let token = argument.tokens.get(argument_token_index)?;
+    let source = token.source.as_ref()?;
+    let range = token.range?;
+    Some((source, range))
 }
 
 fn push_unique_preproc_hit(hits: &mut Vec<PreprocTokenHit>, hit: PreprocTokenHit) {
@@ -426,6 +463,9 @@ fn macro_token_identity_for_hit(hit: &PreprocTokenHit) -> Option<MacroTokenIdent
         }
         PreprocTokenProvenance::MacroArgument { identity, .. } => {
             Some(MacroTokenIdentity::Argument(identity))
+        }
+        PreprocTokenProvenance::MacroOperation { identity, .. } => {
+            Some(MacroTokenIdentity::Operation(identity))
         }
         PreprocTokenProvenance::SourceToken { .. } => None,
     }
