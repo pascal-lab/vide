@@ -85,7 +85,7 @@ impl IsSrc for StructSrc {
     }
 
     #[inline]
-    fn range(&self) -> TextRange {
+    fn expanded_range(&self) -> TextRange {
         self.node.range()
     }
 }
@@ -97,7 +97,7 @@ impl IsNamedSrc for StructSrc {
     }
 
     #[inline]
-    fn name_range(&self) -> Option<TextRange> {
+    fn expanded_name_range(&self) -> Option<TextRange> {
         self.name.map(|name| name.range())
     }
 }
@@ -173,7 +173,7 @@ impl IsSrc for ClassSrc {
     }
 
     #[inline]
-    fn range(&self) -> TextRange {
+    fn expanded_range(&self) -> TextRange {
         self.node.range()
     }
 }
@@ -185,7 +185,7 @@ impl IsNamedSrc for ClassSrc {
     }
 
     #[inline]
-    fn name_range(&self) -> Option<TextRange> {
+    fn expanded_name_range(&self) -> Option<TextRange> {
         self.name.map(|name| name.range())
     }
 }

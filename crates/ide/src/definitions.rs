@@ -153,35 +153,35 @@ impl DefinitionOrigin {
     pub fn name_range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefinitionOrigin::Library(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefinitionOrigin::Udp(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
-                let range = value.name_range()?;
+                let range = value.expanded_name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefinitionOrigin::GenerateBlockId(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
                     generate_block_id.lookup(db);
-                let range = value.name_range()?;
+                let range = value.expanded_name_range()?;
                 Some(InFile::new(file_id, range))
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
-                Some(InFile::new(src.file_id, src.value.name_or_full_range()))
+                Some(InFile::new(src.file_id, src.value.expanded_name_or_full_range()))
             }
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
@@ -201,23 +201,23 @@ impl DefinitionOrigin {
                 Some(InFile::new(src.file_id, range))
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = module_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
             DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = cont_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
             DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = cont_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = module_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(module_id.file_id, range))
             }
             DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.name_range()?;
+                let range = cont_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
                 Some(InFile::new(cont_id.file_id(db).into(), range))
             }
         }
@@ -226,35 +226,35 @@ impl DefinitionOrigin {
     pub fn range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         Some(match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Library(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::Udp(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.range();
+                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
-                let range = value.range();
+                let range = value.expanded_range();
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::GenerateBlockId(generate_block_id) => {
                 let GenerateBlockLoc { src: InFile { value, file_id }, .. } =
                     generate_block_id.lookup(db);
-                let range = value.range();
+                let range = value.expanded_range();
                 InFile::new(file_id, range)
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
-                let range = src.value.range();
+                let range = src.value.expanded_range();
                 InFile::new(src.file_id, range)
             }
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
@@ -271,23 +271,23 @@ impl DefinitionOrigin {
                 InFile::new(src.file_id, range)
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.range();
+                let range = module_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(module_id.file_id, range)
             }
             DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.range();
+                let range = cont_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
             DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.range();
+                let range = cont_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.range();
+                let range = module_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(module_id.file_id, range)
             }
             DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.range();
+                let range = cont_id.to_container_src_map(db).get(value)?.expanded_range();
                 InFile::new(cont_id.file_id(db).into(), range)
             }
         })

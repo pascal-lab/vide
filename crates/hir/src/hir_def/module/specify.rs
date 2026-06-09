@@ -28,7 +28,7 @@ impl IsNamedSrc for SpecifyBlockSrc {
         None
     }
 
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+    fn expanded_name_range(&self) -> Option<utils::text_edit::TextRange> {
         None
     }
 }

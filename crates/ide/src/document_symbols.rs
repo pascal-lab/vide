@@ -72,8 +72,8 @@ impl SymbolCollecter {
         let container_name = self.stack.last().map(|sym| sym.name.to_owned());
         let sym = DocumentSymbol {
             name: name.as_ref().unwrap_or(&DEFAULT_NAME).to_string(),
-            focus_range: src.name_or_full_range(),
-            full_range: src.range(),
+            focus_range: src.expanded_name_or_full_range(),
+            full_range: src.expanded_range(),
             kind: SymbolKind::from_syntax_kind(src.kind()),
             detail: None,
             container_name,
@@ -260,7 +260,7 @@ fn collect_module_items(
     if let Some(params) = &module.param_ports {
         for decl_id in params.clone() {
             if let Some(src) = src_map.get(decl_id) {
-                regions.add_region_symbol(src.range(), collector);
+                regions.add_region_symbol(src.expanded_range(), collector);
             }
             build_decl(collector, decl_id, SymbolKind::ParamDecl, module, src_map);
         }
@@ -270,7 +270,7 @@ fn collect_module_items(
         Ports::NonAnsi { ports, .. } => {
             for (port_id, port) in ports.iter() {
                 if let Some(src) = src_map.get(port_id) {
-                    regions.add_region_symbol(src.range(), collector);
+                    regions.add_region_symbol(src.expanded_range(), collector);
                     collector.push_symbol(&port.label, src);
                     collector.pop();
                 }
@@ -279,7 +279,7 @@ fn collect_module_items(
         Ports::Ansi(port_decls) => {
             for (port_id, port_decl) in port_decls.iter() {
                 if let Some(src) = src_map.get(port_id) {
-                    regions.add_region_symbol(src.range(), collector);
+                    regions.add_region_symbol(src.expanded_range(), collector);
                 }
                 build_decls(collector, &port_decl.decls, SymbolKind::PortDecl, module, src_map);
             }

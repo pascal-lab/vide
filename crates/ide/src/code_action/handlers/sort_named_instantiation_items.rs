@@ -72,7 +72,7 @@ pub(super) fn sort_named_parameter_assignments(
             return None;
         };
         let order = *parameter_order_map.get(name.as_str())?;
-        let range = module_src_map.get(*assign_id)?.range();
+        let range = module_src_map.get(*assign_id)?.expanded_range();
         items.push((order, text.get(Range::from(range))?, range));
     }
 
@@ -133,7 +133,7 @@ pub(super) fn sort_named_port_connections(
             return None;
         };
         let order = *port_order_map.get(name.as_str())?;
-        let range = module_src_map.get(*conn_id)?.range();
+        let range = module_src_map.get(*conn_id)?.expanded_range();
         items.push((order, text.get(Range::from(range))?, range));
     }
 

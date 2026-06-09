@@ -95,7 +95,7 @@ pub(super) fn add_missing_connections(
 
         let text = sema.db.file_text(ctx.file_id());
         let item_ranges = instance.connections.iter().filter_map(|conn_id| {
-            let range = module_src_map.get(*conn_id)?.range();
+            let range = module_src_map.get(*conn_id)?.expanded_range();
             (!range.is_empty()).then_some(range)
         });
         apply_missing_list_edit(builder, &text, open_paren, close_paren, item_ranges, entries);

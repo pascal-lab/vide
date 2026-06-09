@@ -70,8 +70,8 @@ pub(super) fn convert_ordered_ports(
                 return None;
             };
             let name = port_names.get(idx)?;
-            let expr = module_src_map.get(*expr_id)?.range();
-            let range = module_src_map.get(*conn_id)?.range();
+            let expr = module_src_map.get(*expr_id)?.expanded_range();
+            let range = module_src_map.get(*conn_id)?.expanded_range();
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();
@@ -126,8 +126,8 @@ pub(super) fn convert_ordered_params(
                 return None;
             };
             let name = param_names.get(idx)?;
-            let expr = module_src_map.get(*expr_id)?.range();
-            let range = module_src_map.get(*assign_id)?.range();
+            let expr = module_src_map.get(*expr_id)?.expanded_range();
+            let range = module_src_map.get(*assign_id)?.expanded_range();
             Some((range, format!(".{name}({})", text.get(Range::from(expr))?)))
         })
         .collect_vec();

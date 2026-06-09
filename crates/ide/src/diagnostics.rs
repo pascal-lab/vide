@@ -338,7 +338,7 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
                 continue;
             };
             let mut diag_file_id = file_id;
-            let mut range = src.range();
+            let mut range = src.expanded_range();
             match hir::preproc::diagnostic_provenance_for_range(db, file_id, range) {
                 Ok(Some(provenance)) => {
                     let Some((target_file_id, target_range)) =

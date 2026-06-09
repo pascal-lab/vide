@@ -26,25 +26,31 @@ pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
 
     fn kind(&self) -> SyntaxKind;
 
-    /// Returns the full syntactic extent of the mapped AST node.
+    /// Returns the full syntactic extent of the mapped expanded AST node.
     ///
     /// Use this for containment, folding, diagnostics, and operations that act
     /// on the whole construct rather than just its defining identifier.
-    fn range(&self) -> TextRange;
+    ///
+    /// This is a HIR/source-map coordinate. Editor-facing ranges must resolve a
+    /// presentation anchor instead of treating this range as original source.
+    fn expanded_range(&self) -> TextRange;
 }
 
 pub trait IsNamedSrc: IsSrc {
     fn name_kind(&self) -> Option<TokenKind>;
 
-    /// Returns the token range that names this source node, when it has one.
+    /// Returns the expanded token range that names this source node, when it
+    /// has one.
     ///
-    /// Use this for symbol focus ranges such as navigation targets, document
-    /// symbol selections, rename/reference origins, and semantic tokens.
-    fn name_range(&self) -> Option<TextRange>;
+    /// This is a HIR/source-map coordinate. Editor-facing focus ranges must
+    /// resolve a presentation anchor instead of treating this range as original
+    /// source.
+    fn expanded_name_range(&self) -> Option<TextRange>;
 
-    /// Returns the symbol focus range when present, otherwise the full range.
-    fn name_or_full_range(&self) -> TextRange {
-        self.name_range().unwrap_or_else(|| self.range())
+    /// Returns the expanded symbol focus range when present, otherwise the full
+    /// expanded range.
+    fn expanded_name_or_full_range(&self) -> TextRange {
+        self.expanded_name_range().unwrap_or_else(|| self.expanded_range())
     }
 }
 
@@ -178,7 +184,7 @@ macro_rules! define_src {
             }
 
             #[inline]
-            fn range(&self) -> utils::text_edit::TextRange {
+            fn expanded_range(&self) -> utils::text_edit::TextRange {
                 self.0.range()
             }
         }
@@ -232,7 +238,7 @@ macro_rules! define_src {
             }
 
             #[inline]
-            fn range(&self) -> utils::text_edit::TextRange {
+            fn expanded_range(&self) -> utils::text_edit::TextRange {
                 match self {
                     $(
                         $name::$ty(ptr) => ptr.range(),
@@ -283,7 +289,7 @@ macro_rules! define_src_with_name {
                 self.node.kind()
             }
 
-            fn range(&self) -> utils::text_edit::TextRange {
+            fn expanded_range(&self) -> utils::text_edit::TextRange {
                 self.node.range()
             }
         }
@@ -293,7 +299,7 @@ macro_rules! define_src_with_name {
                 self.name.map(|name| name.kind())
             }
 
-            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+            fn expanded_name_range(&self) -> Option<utils::text_edit::TextRange> {
                 self.name.map(|name| name.range())
             }
         }
@@ -367,7 +373,7 @@ macro_rules! define_src_with_name {
                 }
             }
 
-            fn range(&self) -> utils::text_edit::TextRange {
+            fn expanded_range(&self) -> utils::text_edit::TextRange {
                 match self {
                     $(
                         $name::$ty { node, .. } => node.range(),
@@ -385,7 +391,7 @@ macro_rules! define_src_with_name {
                 }
             }
 
-            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+            fn expanded_name_range(&self) -> Option<utils::text_edit::TextRange> {
                 match self {
                     $(
                         $name::$ty { name, .. } => name.map(|name| name.range()),
@@ -482,7 +488,7 @@ macro_rules! define_src_with_name_and_token {
                 self.node.kind()
             }
 
-            fn range(&self) -> utils::text_edit::TextRange {
+            fn expanded_range(&self) -> utils::text_edit::TextRange {
                 self.node.range()
             }
         }
@@ -492,7 +498,7 @@ macro_rules! define_src_with_name_and_token {
                 self.name.map(|name| name.kind())
             }
 
-            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+            fn expanded_name_range(&self) -> Option<utils::text_edit::TextRange> {
                 self.name.map(|name| name.range())
             }
         }

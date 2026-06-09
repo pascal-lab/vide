@@ -240,7 +240,7 @@ fn non_ansi_port_replacement(
     let PortDeclSrc::PortDeclaration(_) = port_src else {
         return None;
     };
-    let port_range = port_src.range();
+    let port_range = port_src.expanded_range();
 
     if let Some(data_decl) = data_decl {
         let data_range = data_decl_range_for_name(module, module_src_map, data_decl, name)?;
@@ -281,7 +281,9 @@ fn data_decl_range_for_name(
 
     let src = module_src_map.declaration_srcs.get(declaration_id)?;
     match src {
-        DeclarationSrc::DataDeclaration(_) | DeclarationSrc::NetDeclaration(_) => Some(src.range()),
+        DeclarationSrc::DataDeclaration(_) | DeclarationSrc::NetDeclaration(_) => {
+            Some(src.expanded_range())
+        }
         _ => None,
     }
 }
@@ -293,7 +295,7 @@ fn render_ansi_port_declaration(
     src: PortDeclSrc,
     text: &str,
 ) -> Option<String> {
-    let source = text.get(Range::from(src.range()))?;
+    let source = text.get(Range::from(src.expanded_range()))?;
     if source
         .split_ascii_whitespace()
         .next()

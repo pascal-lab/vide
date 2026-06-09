@@ -92,7 +92,7 @@ impl IsSrc for GenerateRegionSrc {
         self.ptr().kind()
     }
 
-    fn range(&self) -> utils::text_edit::TextRange {
+    fn expanded_range(&self) -> utils::text_edit::TextRange {
         self.ptr().range()
     }
 }
@@ -102,7 +102,7 @@ impl IsNamedSrc for GenerateRegionSrc {
         None
     }
 
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+    fn expanded_name_range(&self) -> Option<utils::text_edit::TextRange> {
         None
     }
 }
@@ -184,7 +184,7 @@ impl IsSrc for GenerateBlockSrc {
         self.node().kind()
     }
 
-    fn range(&self) -> utils::text_edit::TextRange {
+    fn expanded_range(&self) -> utils::text_edit::TextRange {
         self.node().range()
     }
 }
@@ -194,7 +194,7 @@ impl IsNamedSrc for GenerateBlockSrc {
         self.name().map(|name| name.kind())
     }
 
-    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+    fn expanded_name_range(&self) -> Option<utils::text_edit::TextRange> {
         self.name().map(|name| name.range())
     }
 }

@@ -75,7 +75,7 @@ struct HintAnchor {
 
 impl HintAnchor {
     fn from_src(src: impl IsSrc, position: Option<TextSize>) -> Option<Self> {
-        let range = src.range();
+        let range = src.expanded_range();
         let kind = match_ast_kind! { src.kind(),
             ast::ParamAssignment => InlayKind::ParamAssign,
             ast::OrderedPortConnection | ast::EmptyPortConnection | ast::NamedPortConnection => InlayKind::Port,
@@ -141,7 +141,7 @@ impl InlayHintCollector {
         }
 
         let (tooltip, target_location) = if let Some(InFile { value: src, file_id }) = target_src {
-            let location = InFile::new(file_id, src.range());
+            let location = InFile::new(file_id, src.expanded_range());
             (Some(Markup::new()), Some(location))
         } else {
             (None, None)
@@ -240,7 +240,7 @@ pub(crate) fn inlay_hint(
                     continue;
                 };
 
-                if collector.intersect(module_src.range()) {
+                if collector.intersect(module_src.expanded_range()) {
                     collect_module_items(db, module_id, module_src, &mut collector);
                 }
             }
@@ -308,7 +308,7 @@ fn collect_module_items(
             let Some(instantiation_src) = src_map.get(instantiation_id) else {
                 continue;
             };
-            if collector.intersect(instantiation_src.range()) {
+            if collector.intersect(instantiation_src.expanded_range()) {
                 process_instantiation(db, module_id, module, src_map, instantiation, collector);
             }
         }
@@ -347,7 +347,7 @@ fn process_instantiation(
                     continue;
                 };
                 let assign_src = src_map.get(assign_id)?;
-                check_or_throw!(collector.intersect(assign_src.range()));
+                check_or_throw!(collector.intersect(assign_src.expanded_range()));
 
                 let param_id = target_module.param_port_id_by_idx(id)?;
                 let param_name = target_module.get(param_id).name.as_ref()?;
@@ -371,7 +371,7 @@ fn process_instantiation(
             let Some(instance_src) = src_map.get(*instance_id) else {
                 continue;
             };
-            if !collector.intersect(instance_src.range()) {
+            if !collector.intersect(instance_src.expanded_range()) {
                 continue;
             }
 
@@ -379,7 +379,7 @@ fn process_instantiation(
                 try {
                     let conn = module.get(conn_id);
                     let conn_src = src_map.get(conn_id)?;
-                    check_or_throw!(collector.intersect(conn_src.range()));
+                    check_or_throw!(collector.intersect(conn_src.expanded_range()));
 
                     match &target_module.ports {
                         Ports::NonAnsi { .. } => {
@@ -428,7 +428,7 @@ fn collect_connection_hint(
         PortDirection::Ref => "&",
     };
 
-    let conn_start = conn_src.range().start();
+    let conn_start = conn_src.expanded_range().start();
     match conn {
         PortConn::Empty => {
             let label = format!("{name} {arrow}");
@@ -440,7 +440,8 @@ fn collect_connection_hint(
             let label = if same_name { arrow.to_string() } else { format!("{name} {arrow}") };
             let target_src = if same_name { None } else { Some(target_src) };
             let edit = if same_name { None } else { edits_for_conn(name, conn_src) };
-            let position = src_map.get(*expr).map_or_else(|| conn_start, |src| src.range().start());
+            let position =
+                src_map.get(*expr).map_or_else(|| conn_start, |src| src.expanded_range().start());
             collector.collect_src_hint(conn_src, target_src, Some(position), label, edit);
         }
         PortConn::Named(port_name, expr) => {
@@ -451,8 +452,8 @@ fn collect_connection_hint(
                     (arrow.to_string(), None)
                 };
             let position = expr
-                .and_then(|expr| src_map.get(expr).map(|src| src.range().start()))
-                .or_else(|| conn_src.name_range().map(|range| range.start()))
+                .and_then(|expr| src_map.get(expr).map(|src| src.expanded_range().start()))
+                .or_else(|| conn_src.expanded_name_range().map(|range| range.start()))
                 .unwrap_or(conn_start);
             collector.collect_src_hint(conn_src, target_src, Some(position), label, None);
         }
@@ -542,8 +543,8 @@ fn ansi_port_decl_id_for_conn(
 
 fn edits_for_conn(param: &str, conn_src: impl IsSrc) -> Option<TextEdit> {
     let mut builder = TextEdit::builder();
-    builder.insert(conn_src.range().start(), format!(".{}(", param));
-    builder.insert(conn_src.range().end(), String::from(")"));
+    builder.insert(conn_src.expanded_range().start(), format!(".{}(", param));
+    builder.insert(conn_src.expanded_range().end(), String::from(")"));
     Some(builder.finish())
 }
 

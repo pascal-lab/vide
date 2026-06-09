@@ -84,8 +84,10 @@ impl SearchScope {
         match cont {
             ContainerId::HirFileId(_) => Self::all(db),
             ContainerId::ModuleId(InFile { value: local_module_id, file_id }) => {
-                if let Some(range) =
-                    file_id.to_container_src_map(db).get(local_module_id).map(|src| src.range())
+                if let Some(range) = file_id
+                    .to_container_src_map(db)
+                    .get(local_module_id)
+                    .map(|src| src.expanded_range())
                 {
                     Self::single_range(file_id.file_id(), range)
                 } else {
@@ -93,16 +95,16 @@ impl SearchScope {
                 }
             }
             ContainerId::BlockId(block_id) => {
-                let range = block_id.lookup(db).src.value.range();
+                let range = block_id.lookup(db).src.value.expanded_range();
                 Self::single_range(block_id.file_id(db), range)
             }
             ContainerId::GenerateBlockId(generate_block_id) => {
                 let src = generate_block_id.lookup(db).src;
-                Self::single_range(src.file_id.file_id(), src.value.range())
+                Self::single_range(src.file_id.file_id(), src.value.expanded_range())
             }
             ContainerId::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
-                Self::single_range(src.file_id.file_id(), src.value.range())
+                Self::single_range(src.file_id.file_id(), src.value.expanded_range())
             }
         }
     }

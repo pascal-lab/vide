@@ -34,7 +34,7 @@ impl IsSrc for TypedefSrc {
     }
 
     #[inline]
-    fn range(&self) -> TextRange {
+    fn expanded_range(&self) -> TextRange {
         self.node.range()
     }
 }
@@ -46,7 +46,7 @@ impl IsNamedSrc for TypedefSrc {
     }
 
     #[inline]
-    fn name_range(&self) -> Option<TextRange> {
+    fn expanded_name_range(&self) -> Option<TextRange> {
         self.name.map(|name| name.range())
     }
 }

@@ -50,14 +50,14 @@ pub(super) fn collect_port(
                 let Some(port_src) = module_src_map.get(port_id) else {
                     continue;
                 };
-                check_range!(collector, port_src.range());
+                check_range!(collector, port_src.expanded_range());
                 let Some(refs) = refs.clone() else {
                     continue;
                 };
 
                 for ref_id in refs {
                     let _: Option<()> = try {
-                        let name_range = module_src_map.get(ref_id)?.name_range()?;
+                        let name_range = module_src_map.get(ref_id)?.expanded_name_range()?;
                         check_range!(collector, name_range);
 
                         let name = module.get(ref_id).ident.as_ref()?;
@@ -71,12 +71,12 @@ pub(super) fn collect_port(
                     let Some(port_decl_src) = module_src_map.get(port_decl_id) else {
                         continue;
                     };
-                    check_range!(collector, port_decl_src.range());
+                    check_range!(collector, port_decl_src.expanded_range());
 
                     for decl_id in port_decl.decls.clone() {
                         let _: Option<()> = try {
                             let decl = module.get(decl_id);
-                            let name_range = module_src_map.get(decl_id)?.name_range()?;
+                            let name_range = module_src_map.get(decl_id)?.expanded_name_range()?;
                             check_range!(collector, name_range);
 
                             let name = decl.name.as_ref()?;
@@ -93,12 +93,12 @@ pub(super) fn collect_port(
                 let Some(port_decl_src) = module_src_map.get(port_decl_id) else {
                     continue;
                 };
-                check_range!(collector, port_decl_src.range());
+                check_range!(collector, port_decl_src.expanded_range());
 
                 for decl_id in port_decl.decls.clone() {
                     let _: Option<()> = try {
                         let decl = module.get(decl_id);
-                        let name_range = module_src_map.get(decl_id)?.name_range()?;
+                        let name_range = module_src_map.get(decl_id)?.expanded_name_range()?;
                         check_range!(collector, name_range);
 
                         let name = decl.name.as_ref()?;

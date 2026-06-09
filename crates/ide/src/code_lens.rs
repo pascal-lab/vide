@@ -63,7 +63,7 @@ fn process_instantiations(
             continue;
         };
 
-        let Some(range) = src_map.get(local_module_id).map(|src| src.range()) else {
+        let Some(range) = src_map.get(local_module_id).map(|src| src.expanded_range()) else {
             continue;
         };
         let pos = FilePosition { file_id: file_id.file_id(), offset: range.start() };
@@ -80,7 +80,7 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
             let hir_file_id = HirFileId(file_id);
             let (_, src_map) = sema.db.hir_file_with_source_map(hir_file_id);
             let Some((local_module_id, _)) =
-                src_map.module_srcs.iter().find(|(_, src)| src.range().start() == offset)
+                src_map.module_srcs.iter().find(|(_, src)| src.expanded_range().start() == offset)
             else {
                 *data = Some(Vec::new());
                 return kind;

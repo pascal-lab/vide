@@ -83,7 +83,14 @@ impl ToNav for ModuleId {
         let name = self.to_container(db).name.clone();
 
         let file_id = file_id.file_id();
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Module, None))
+        Some(build(
+            file_id,
+            src.expanded_name_range(),
+            src.expanded_range(),
+            name,
+            SymbolKind::Module,
+            None,
+        ))
     }
 }
 
@@ -95,8 +102,8 @@ impl ToNav for InFile<ConfigDeclId> {
 
         Some(build(
             file_id.file_id(),
-            src.name_range(),
-            src.range(),
+            src.expanded_name_range(),
+            src.expanded_range(),
             name,
             SymbolKind::Config,
             None,
@@ -112,8 +119,8 @@ impl ToNav for InFile<LibraryDeclId> {
 
         Some(build(
             file_id.file_id(),
-            src.name_range(),
-            src.range(),
+            src.expanded_name_range(),
+            src.expanded_range(),
             name,
             SymbolKind::Library,
             None,
@@ -129,8 +136,8 @@ impl ToNav for InFile<UdpDeclId> {
 
         Some(build(
             file_id.file_id(),
-            src.name_range(),
-            src.range(),
+            src.expanded_name_range(),
+            src.expanded_range(),
             name,
             SymbolKind::Primitive,
             None,
@@ -145,7 +152,14 @@ impl ToNav for BlockId {
         let cont_name = cont_id.to_container(db).name().cloned();
 
         let file_id = file_id.file_id();
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Block, cont_name))
+        Some(build(
+            file_id,
+            src.expanded_name_range(),
+            src.expanded_range(),
+            name,
+            SymbolKind::Block,
+            cont_name,
+        ))
     }
 }
 
@@ -157,8 +171,8 @@ impl ToNav for GenerateBlockId {
 
         Some(build(
             file_id.file_id(),
-            src.name_range(),
-            src.range(),
+            src.expanded_name_range(),
+            src.expanded_range(),
             name,
             SymbolKind::Generate,
             cont_name,
@@ -172,10 +186,17 @@ impl ToNav for SubroutineId {
         let cont_id: ContainerId = loc.cont_id.into();
         let cont_name = cont_id.to_container(db).name().cloned();
         let name = db.subroutine(*self).name.clone();
-        let focus_range = loc.src.value.name_range();
+        let focus_range = loc.src.value.expanded_name_range();
 
         let file_id = loc.src.file_id.file_id();
-        Some(build(file_id, focus_range, loc.src.value.range(), name, SymbolKind::Fn, cont_name))
+        Some(build(
+            file_id,
+            focus_range,
+            loc.src.value.expanded_range(),
+            name,
+            SymbolKind::Fn,
+            cont_name,
+        ))
     }
 }
 
@@ -228,8 +249,8 @@ impl ToNav for InModule<NonAnsiPortId> {
         let file_id = file_id.file_id();
         Some(build(
             file_id,
-            src.name_range(),
-            src.range(),
+            src.expanded_name_range(),
+            src.expanded_range(),
             name,
             SymbolKind::NonAnsiPortLabel,
             cont_name,
@@ -262,7 +283,7 @@ impl ToNav for InContainer<DeclId> {
         let name = decl.name.clone();
         let cont_name = cont.name().cloned();
 
-        Some(build(file_id, src.name_range(), src.range(), name, kind, cont_name))
+        Some(build(file_id, src.expanded_name_range(), src.expanded_range(), name, kind, cont_name))
     }
 }
 
@@ -279,8 +300,8 @@ impl ToNav for InContainer<TypedefId> {
 
         Some(build(
             file_id,
-            src.name_range(),
-            src.range(),
+            src.expanded_name_range(),
+            src.expanded_range(),
             typedef.name.clone(),
             SymbolKind::Typedef,
             cont_name,
@@ -299,7 +320,14 @@ impl ToNav for InModule<InstanceId> {
         let name = module.get(instance_id).name.clone();
         let cont_name = module.name.clone();
 
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Instance, cont_name))
+        Some(build(
+            file_id,
+            src.expanded_name_range(),
+            src.expanded_range(),
+            name,
+            SymbolKind::Instance,
+            cont_name,
+        ))
     }
 }
 
@@ -314,7 +342,14 @@ impl ToNav for InContainer<StmtId> {
         let name = cont.get(stmt_id).label.clone();
         let cont_name = cont.name().cloned();
 
-        Some(build(file_id, src.name_range(), src.range(), name, SymbolKind::Stmt, cont_name))
+        Some(build(
+            file_id,
+            src.expanded_name_range(),
+            src.expanded_range(),
+            name,
+            SymbolKind::Stmt,
+            cont_name,
+        ))
     }
 }
 

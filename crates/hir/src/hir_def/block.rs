@@ -152,18 +152,18 @@ pub(crate) fn find_local_block_id(
     }
 
     let block_kind = block_src.kind();
-    let block_range = block_src.range();
-    let block_name_range = block_src.name_range();
+    let block_range = block_src.expanded_range();
+    let block_name_range = block_src.expanded_name_range();
     let (stmt_id, _) = stmt_srcs
         .iter()
         .find(|(_, stmt_src)| {
             stmt_src.kind() == block_kind
-                && stmt_src.range() == block_range
-                && stmt_src.name_range() == block_name_range
+                && stmt_src.expanded_range() == block_range
+                && stmt_src.expanded_name_range() == block_name_range
         })
         .or_else(|| {
             stmt_srcs.iter().find(|(_, stmt_src)| {
-                stmt_src.kind() == block_kind && stmt_src.range() == block_range
+                stmt_src.kind() == block_kind && stmt_src.expanded_range() == block_range
             })
         })?;
     Some(LocalBlockId(stmt_id))

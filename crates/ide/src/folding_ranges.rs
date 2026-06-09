@@ -96,13 +96,14 @@ impl FoldCollector for Vec<Fold> {
         line_index: &LineIndex,
     ) {
         self.extend(
-            srcs.iter().filter_map(|(_, src)| Fold::try_build(src.range(), kind, line_index)),
+            srcs.iter()
+                .filter_map(|(_, src)| Fold::try_build(src.expanded_range(), kind, line_index)),
         );
     }
 
     #[inline]
     fn collect_fold(&mut self, src: impl IsSrc, kind: FoldKind, line_index: &LineIndex) {
-        if let Some(fold) = Fold::try_build(src.range(), kind, line_index) {
+        if let Some(fold) = Fold::try_build(src.expanded_range(), kind, line_index) {
             self.push(fold);
         }
     }
@@ -285,18 +286,20 @@ fn collect_module(
     folds.collect_docs(&src_map.region_tree, line_index);
 
     if let Some(port_list_src) = src_map.port_srcs.port_list_src() {
-        let port_list_fold = Fold::try_build(port_list_src.range(), FoldKind::PortList, line_index);
+        let port_list_fold =
+            Fold::try_build(port_list_src.expanded_range(), FoldKind::PortList, line_index);
         let module_body_start = port_list_fold
             .as_ref()
             .and_then(|port_list| {
                 let line = line_index.try_line_col(port_list.range.end())?.line + 1;
                 line_index.range_for_line(line.min(line_index.lines_len().saturating_sub(1)))
             })
-            .unwrap_or(module_src.range());
+            .unwrap_or(module_src.expanded_range());
 
         folds.extend(port_list_fold);
 
-        let module_range = TextRange::new(module_body_start.start(), module_src.range().end());
+        let module_range =
+            TextRange::new(module_body_start.start(), module_src.expanded_range().end());
         folds.extend(Fold::try_build(module_range, FoldKind::Module, line_index));
     } else {
         folds.collect_fold(module_src, FoldKind::Module, line_index);
@@ -313,12 +316,12 @@ fn collect_module(
         let instantiation_id = module.get(instance_id).parent;
 
         if module.get(instantiation_id).instances.len() > 1 {
-            let range = src.range();
-            let start = src.name_range().map_or(range.start(), |r| r.end());
+            let range = src.expanded_range();
+            let start = src.expanded_name_range().map_or(range.start(), |r| r.end());
             Fold::try_build(TextRange::new(start, range.end()), FoldKind::Instance, line_index)
         } else {
             let instantiation_src = src_map.get(instantiation_id)?;
-            Fold::try_build(instantiation_src.range(), FoldKind::Instance, line_index)
+            Fold::try_build(instantiation_src.expanded_range(), FoldKind::Instance, line_index)
         }
     }));
 
