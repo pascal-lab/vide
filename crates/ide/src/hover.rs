@@ -43,7 +43,7 @@ struct MacroSourceLink {
 }
 
 enum HoverTarget<'tree> {
-    Macro(MacroHoverTarget),
+    Macro(Box<MacroHoverTarget>),
     Include(Vec<IncludeDirective>),
     Source(SourceTarget<'tree>),
 }
@@ -84,7 +84,7 @@ fn dispatch_hover_target<'tree>(
     root: Option<SyntaxNode<'tree>>,
 ) -> Option<HoverTarget<'tree>> {
     if let Some(macro_target) = dispatch_macro_hover_target(db, file_id, offset) {
-        return Some(HoverTarget::Macro(macro_target));
+        return Some(HoverTarget::Macro(Box::new(macro_target)));
     }
     if let Some(includes) = dispatch_include_hover_target(db, file_id, offset) {
         return Some(HoverTarget::Include(includes));
@@ -103,7 +103,7 @@ fn render_hover_target(
     target: HoverTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
     match target {
-        HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, target),
+        HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, *target),
         HoverTarget::Include(includes) => render_include_hover(db, includes),
         HoverTarget::Source(target) => {
             let hover = hover_for_source_target(sema, file_id.into(), target)?;

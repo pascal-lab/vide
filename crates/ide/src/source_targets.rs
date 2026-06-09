@@ -413,10 +413,10 @@ fn syntax_tokens_for_preproc_hit<'tree>(
         return syntax_tokens_for_macro_identities(root, &identities);
     }
 
-    return normal_syntax_source_target_at_offset(root, offset, precedence)
+    normal_syntax_source_target_at_offset(root, offset, precedence)
         .into_resolution()
         .and_then(SourceTargetResolution::resolved)
-        .map(SourceTarget::into_tokens);
+        .map(SourceTarget::into_tokens)
 }
 
 fn macro_token_identity_for_hit(hit: &PreprocTokenHit) -> Option<MacroTokenIdentity> {
