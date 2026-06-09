@@ -24,7 +24,7 @@ use utils::{
     text_edit::TextRange,
 };
 
-use super::{SemaTokenCollector, SemaTokenTag};
+use super::{SemaTokenCollector, SemaTokenTag, presentation_name_range};
 use crate::{
     db::root_db::RootDb,
     semantic_tokens::{SemaToken, SemaTokenModifier, SemaTokenPort, check_range},
@@ -57,8 +57,15 @@ pub(super) fn collect_port(
 
                 for ref_id in refs {
                     let _: Option<()> = try {
-                        let name_range = module_src_map.get(ref_id)?.expanded_name_range()?;
-                        check_range!(collector, name_range);
+                        let expanded_name_range =
+                            module_src_map.get(ref_id)?.expanded_name_range()?;
+                        check_range!(collector, expanded_name_range);
+                        let name_range = module_src_map
+                            .port_srcs
+                            .ref_presentation(ref_id)
+                            .and_then(|presentation| {
+                                presentation_name_range(db, module_id.file_id, presentation)
+                            })?;
 
                         let name = module.get(ref_id).ident.as_ref()?;
                         let entry = module_scope.get(name)?;
@@ -76,8 +83,15 @@ pub(super) fn collect_port(
                     for decl_id in port_decl.decls.clone() {
                         let _: Option<()> = try {
                             let decl = module.get(decl_id);
-                            let name_range = module_src_map.get(decl_id)?.expanded_name_range()?;
-                            check_range!(collector, name_range);
+                            let expanded_name_range =
+                                module_src_map.get(decl_id)?.expanded_name_range()?;
+                            check_range!(collector, expanded_name_range);
+                            let name_range = module_src_map
+                                .decl_srcs
+                                .hir_to_presentation(decl_id)
+                                .and_then(|presentation| {
+                                    presentation_name_range(db, module_id.file_id, presentation)
+                                })?;
 
                             let name = decl.name.as_ref()?;
                             let entry = module_scope.get(name)?;
@@ -98,8 +112,15 @@ pub(super) fn collect_port(
                 for decl_id in port_decl.decls.clone() {
                     let _: Option<()> = try {
                         let decl = module.get(decl_id);
-                        let name_range = module_src_map.get(decl_id)?.expanded_name_range()?;
-                        check_range!(collector, name_range);
+                        let expanded_name_range =
+                            module_src_map.get(decl_id)?.expanded_name_range()?;
+                        check_range!(collector, expanded_name_range);
+                        let name_range = module_src_map
+                            .decl_srcs
+                            .hir_to_presentation(decl_id)
+                            .and_then(|presentation| {
+                                presentation_name_range(db, module_id.file_id, presentation)
+                            })?;
 
                         let name = decl.name.as_ref()?;
                         let header = &port_decl.header;

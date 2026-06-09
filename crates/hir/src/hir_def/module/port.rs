@@ -20,7 +20,7 @@ use crate::{
         module::LowerModuleCtx,
         ty::{NetType, lower_net_kind},
     },
-    source_map::SourceMap,
+    source_map::{SourceMap, SourcePresentation},
 };
 
 // structure:
@@ -187,6 +187,13 @@ impl PortSrcs {
             PortSrcs::NonAnsi { port_list_src, .. } | PortSrcs::Ansi { port_list_src, .. } => {
                 port_list_src.as_ref()
             }
+        }
+    }
+
+    pub fn ref_presentation(&self, port_ref_id: PortRefId) -> Option<&SourcePresentation> {
+        match self {
+            PortSrcs::NonAnsi { refs, .. } => refs.hir_to_presentation(port_ref_id),
+            PortSrcs::Ansi { .. } => None,
         }
     }
 }

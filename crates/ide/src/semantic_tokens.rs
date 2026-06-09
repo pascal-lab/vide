@@ -14,10 +14,10 @@ use hir::{
         },
         stmt::StmtKind,
     },
-    preproc::macro_references_in_range,
+    preproc::{macro_references_in_range, resolve_source_presentation_anchor},
     scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
-    source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    source_map::{IsNamedSrc, IsSrc, SourcePresentation, ToAstNode},
 };
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
@@ -125,6 +125,32 @@ impl SemaToken {
     }
 }
 
+pub(super) fn presentation_full_range(
+    db: &RootDb,
+    file_id: HirFileId,
+    presentation: &SourcePresentation,
+) -> Option<TextRange> {
+    presentation_range(db, file_id, presentation.full)
+}
+
+pub(super) fn presentation_name_range(
+    db: &RootDb,
+    file_id: HirFileId,
+    presentation: &SourcePresentation,
+) -> Option<TextRange> {
+    presentation_range(db, file_id, presentation.name?)
+}
+
+fn presentation_range(
+    db: &RootDb,
+    file_id: HirFileId,
+    anchor: hir::source_map::SourcePresentationAnchor,
+) -> Option<TextRange> {
+    let target =
+        resolve_source_presentation_anchor(db, file_id.file_id(), anchor).ok()?.available()?;
+    (target.file_id == file_id.file_id()).then_some(target.range)
+}
+
 pub(crate) fn semantic_tokens(
     db: &RootDb,
     config: SemaTokenConfig,
@@ -201,10 +227,19 @@ fn collect_file(
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
-                let Some(range) = file_src_map.get(expr_id).map(|src| src.expanded_range()) else {
+                let Some(expanded_range) =
+                    file_src_map.get(expr_id).map(|src| src.expanded_range())
+                else {
                     continue;
                 };
-                check_range!(collector, range);
+                check_range!(collector, expanded_range);
+                let Some(range) =
+                    file_src_map.expr_srcs.hir_to_presentation(expr_id).and_then(|presentation| {
+                        presentation_full_range(sema.db, file_id, presentation)
+                    })
+                else {
+                    continue;
+                };
                 collect_ident_like(name, range, collector);
             }
             _ => {}
@@ -214,8 +249,12 @@ fn collect_file(
     for (decl_id, decl) in hir_file.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = file_src_map.get(decl_id)?.expanded_name_range()?;
-            check_range!(collector, range);
+            let expanded_range = file_src_map.get(decl_id)?.expanded_name_range()?;
+            check_range!(collector, expanded_range);
+            let range = file_src_map
+                .decl_srcs
+                .hir_to_presentation(decl_id)
+                .and_then(|presentation| presentation_name_range(sema.db, file_id, presentation))?;
             collect_ident_like(name, range, collector);
         };
     }
@@ -223,8 +262,12 @@ fn collect_file(
     for (typedef_id, typedef) in hir_file.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = file_src_map.get(typedef_id)?.expanded_name_range()?;
-            check_range!(collector, range);
+            let expanded_range = file_src_map.get(typedef_id)?.expanded_name_range()?;
+            check_range!(collector, expanded_range);
+            let range = file_src_map
+                .typedef_srcs
+                .hir_to_presentation(typedef_id)
+                .and_then(|presentation| presentation_name_range(sema.db, file_id, presentation))?;
             collector.tokens.add(SemaToken {
                 range,
                 tag: SemaTokenTag::Type,
@@ -261,10 +304,17 @@ fn collect_module(
         };
 
     for (instance_id, _) in module.instances.iter() {
-        if let Some(range) =
+        if let Some(expanded_range) =
             module_src_map.get(instance_id).and_then(|src| src.expanded_name_range())
         {
-            check_range!(collector, range);
+            check_range!(collector, expanded_range);
+            let Some(range) =
+                module_src_map.instance_srcs.hir_to_presentation(instance_id).and_then(
+                    |presentation| presentation_name_range(db, module_id.file_id, presentation),
+                )
+            else {
+                continue;
+            };
             let sema_token =
                 SemaToken { range, tag: SemaTokenTag::Instance, mods: SemaTokenModifier::empty() };
             collector.tokens.add(sema_token);
@@ -278,11 +328,17 @@ fn collect_module(
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
-                let Some(range) = module_src_map.get(expr_id).map(|src| src.expanded_range())
+                let Some(expanded_range) =
+                    module_src_map.get(expr_id).map(|src| src.expanded_range())
                 else {
                     continue;
                 };
-                check_range!(collector, range);
+                check_range!(collector, expanded_range);
+                let Some(range) = module_src_map.expr_srcs.hir_to_presentation(expr_id).and_then(
+                    |presentation| presentation_full_range(db, module_id.file_id, presentation),
+                ) else {
+                    continue;
+                };
                 collect_ident_like(name, range, collector);
             }
             _ => {}
@@ -292,8 +348,12 @@ fn collect_module(
     for (decl_id, decl) in module.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = module_src_map.get(decl_id)?.expanded_name_range()?;
-            check_range!(collector, range);
+            let expanded_range = module_src_map.get(decl_id)?.expanded_name_range()?;
+            check_range!(collector, expanded_range);
+            let range =
+                module_src_map.decl_srcs.hir_to_presentation(decl_id).and_then(|presentation| {
+                    presentation_name_range(db, module_id.file_id, presentation)
+                })?;
             collect_ident_like(name, range, collector);
         };
     }
@@ -301,8 +361,11 @@ fn collect_module(
     for (typedef_id, typedef) in module.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = module_src_map.get(typedef_id)?.expanded_name_range()?;
-            check_range!(collector, range);
+            let expanded_range = module_src_map.get(typedef_id)?.expanded_name_range()?;
+            check_range!(collector, expanded_range);
+            let range = module_src_map.typedef_srcs.hir_to_presentation(typedef_id).and_then(
+                |presentation| presentation_name_range(db, module_id.file_id, presentation),
+            )?;
             collector.tokens.add(SemaToken {
                 range,
                 tag: SemaTokenTag::Type,
@@ -341,10 +404,19 @@ fn collect_block(
         match expr {
             Expr::Field { .. } => {}
             Expr::Ident(name) => {
-                let Some(range) = block_src_map.get(expr_id).map(|src| src.expanded_range()) else {
+                let Some(expanded_range) =
+                    block_src_map.get(expr_id).map(|src| src.expanded_range())
+                else {
                     continue;
                 };
-                check_range!(collector, range);
+                check_range!(collector, expanded_range);
+                let Some(range) =
+                    block_src_map.expr_srcs.hir_to_presentation(expr_id).and_then(|presentation| {
+                        presentation_full_range(db, HirFileId(block_id.file_id(db)), presentation)
+                    })
+                else {
+                    continue;
+                };
                 collect_ident_like(name, range, collector);
             }
             _ => {}
@@ -354,8 +426,12 @@ fn collect_block(
     for (decl_id, decl) in block.decls.iter() {
         let _: Option<()> = try {
             let name = decl.name.as_ref()?;
-            let range = block_src_map.get(decl_id)?.expanded_name_range()?;
-            check_range!(collector, range);
+            let expanded_range = block_src_map.get(decl_id)?.expanded_name_range()?;
+            check_range!(collector, expanded_range);
+            let range =
+                block_src_map.decl_srcs.hir_to_presentation(decl_id).and_then(|presentation| {
+                    presentation_name_range(db, HirFileId(block_id.file_id(db)), presentation)
+                })?;
             collect_ident_like(name, range, collector);
         };
     }
@@ -363,8 +439,13 @@ fn collect_block(
     for (typedef_id, typedef) in block.typedefs.iter() {
         let _: Option<()> = try {
             let _name = typedef.name.as_ref()?;
-            let range = block_src_map.get(typedef_id)?.expanded_name_range()?;
-            check_range!(collector, range);
+            let expanded_range = block_src_map.get(typedef_id)?.expanded_name_range()?;
+            check_range!(collector, expanded_range);
+            let range = block_src_map.typedef_srcs.hir_to_presentation(typedef_id).and_then(
+                |presentation| {
+                    presentation_name_range(db, HirFileId(block_id.file_id(db)), presentation)
+                },
+            )?;
             collector.tokens.add(SemaToken {
                 range,
                 tag: SemaTokenTag::Type,
@@ -401,10 +482,17 @@ fn collect_named_port_connections(
         let Some(src) = module_src_map.get(conn_id) else {
             continue;
         };
-        let Some(range) = src.expanded_name_range() else {
+        let Some(expanded_range) = src.expanded_name_range() else {
             continue;
         };
-        check_range!(collector, range);
+        check_range!(collector, expanded_range);
+        let Some(range) = module_src_map
+            .inst_port_conn_srcs
+            .hir_to_presentation(conn_id)
+            .and_then(|presentation| presentation_name_range(db, module_id.file_id, presentation))
+        else {
+            continue;
+        };
 
         let Some(named) =
             src.to_node(&tree).and_then(ast::PortConnection::as_named_port_connection)
@@ -434,10 +522,17 @@ fn collect_named_param_assignments(
         let Some(src) = module_src_map.get(assign_id) else {
             continue;
         };
-        let Some(range) = src.expanded_name_range() else {
+        let Some(expanded_range) = src.expanded_name_range() else {
             continue;
         };
-        check_range!(collector, range);
+        check_range!(collector, expanded_range);
+        let Some(range) = module_src_map
+            .inst_param_assign_srcs
+            .hir_to_presentation(assign_id)
+            .and_then(|presentation| presentation_name_range(db, module_id.file_id, presentation))
+        else {
+            continue;
+        };
 
         let Some(named) =
             src.to_node(&tree).and_then(ast::ParamAssignment::as_named_param_assignment)
@@ -753,6 +848,71 @@ endmodule
                 .all(|token| token.range
                     != TextRange::new(named_port_range.start(), expr_range.end())),
             "named port connection must not produce a token spanning the whole connection"
+        );
+    }
+
+    #[test]
+    fn macro_argument_semantic_tokens_use_original_token_ranges() {
+        let text = "\
+`define PIPE_ASSIGN(name, expr) assign name``_q = expr
+
+module top(
+    input  logic sample_i,
+    output logic sample_q,
+    output logic trace_q
+);
+`PIPE_ASSIGN(sample, sample_i)
+`PIPE_ASSIGN(trace, sample_q ^ 1'b1)
+endmodule
+";
+        let (host, file_id) = setup(text);
+        let tokens = host
+            .make_analysis()
+            .semantic_tokens(
+                file_id,
+                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: true } },
+                Some(TextRange::up_to(TextSize::of(text))),
+            )
+            .unwrap();
+
+        let range_for = |needle: &str| {
+            let start = text.find(needle).unwrap_or_else(|| panic!("missing {needle}"));
+            TextRange::new(
+                TextSize::from(start as u32),
+                TextSize::from((start + needle.len()) as u32),
+            )
+        };
+        let arg_sample = range_for("sample, sample_i");
+        let arg_trace = range_for("trace, sample_q ^ 1'b1");
+        let sample =
+            TextRange::new(arg_sample.start(), arg_sample.start() + TextSize::of("sample"));
+        let sample_i =
+            TextRange::new(arg_sample.end() - TextSize::of("sample_i"), arg_sample.end());
+        let trace = TextRange::new(arg_trace.start(), arg_trace.start() + TextSize::of("trace"));
+
+        let token_at = |range: TextRange| {
+            tokens
+                .iter()
+                .find(|token| !token.is_empty() && token.range == range)
+                .copied()
+                .unwrap_or_else(|| panic!("expected semantic token at {range:?}: {tokens:?}"))
+        };
+
+        assert_eq!(
+            (token_at(sample).tag, token_at(sample).mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
+        );
+        assert_eq!(
+            (token_at(sample_i).tag, token_at(sample_i).mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::READ)
+        );
+        assert_eq!(
+            (token_at(trace).tag, token_at(trace).mods),
+            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
+        );
+        assert!(
+            tokens.iter().all(|token| token.range != arg_sample && token.range != arg_trace),
+            "macro argument semantic tokens must not cover full arguments: {tokens:?}"
         );
     }
 }
