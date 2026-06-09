@@ -3,7 +3,9 @@ use std::{fmt::Debug, hash::Hash};
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
 use syntax::{
-    SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
+    PreprocessorTraceMacroArgumentIdentity, PreprocessorTraceMacroBodyIdentity,
+    PreprocessorTraceMacroOperationIdentity, PreprocessorTraceTokenProvenance, SyntaxKind,
+    SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
     has_text_range::HasTextRange,
 };
 pub(crate) use utils::get::Get;
@@ -58,17 +60,29 @@ pub trait IsNamedSrc: IsSrc {
 pub struct SourceMap<Src: IsSrc, Hir> {
     src2hir: FxHashMap<Src, Idx<Hir>>,
     hir2src: ArenaMap<Idx<Hir>, Src>,
+    hir2presentation: ArenaMap<Idx<Hir>, SourcePresentation>,
 }
 
 impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     pub fn insert(&mut self, src: Src, idx: Idx<Hir>) {
+        self.insert_with_presentation(src, idx, SourcePresentation::direct(src.expanded_range()));
+    }
+
+    pub fn insert_with_presentation(
+        &mut self,
+        src: Src,
+        idx: Idx<Hir>,
+        presentation: SourcePresentation,
+    ) {
         self.src2hir.insert(src, idx);
         self.hir2src.insert(idx, src);
+        self.hir2presentation.insert(idx, presentation);
     }
 
     pub fn shrink_to_fit(&mut self) {
         self.src2hir.shrink_to_fit();
         self.hir2src.shrink_to_fit();
+        self.hir2presentation.shrink_to_fit();
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Idx<Hir>, &Src)> {
@@ -83,6 +97,11 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     #[inline]
     pub fn hir_to_src(&self, idx: Idx<Hir>) -> Option<Src> {
         self.hir2src.get(idx).copied()
+    }
+
+    #[inline]
+    pub fn hir_to_presentation(&self, idx: Idx<Hir>) -> Option<&SourcePresentation> {
+        self.hir2presentation.get(idx)
     }
 }
 
@@ -104,7 +123,64 @@ impl<Src: IsSrc, Hir> Get<Idx<Hir>> for SourceMap<Src, Hir> {
 
 impl<Src: IsSrc, Hir> Default for SourceMap<Src, Hir> {
     fn default() -> Self {
-        SourceMap { src2hir: FxHashMap::default(), hir2src: ArenaMap::default() }
+        SourceMap {
+            src2hir: FxHashMap::default(),
+            hir2src: ArenaMap::default(),
+            hir2presentation: ArenaMap::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourcePresentation {
+    pub full: SourcePresentationAnchor,
+    pub name: Option<SourcePresentationAnchor>,
+}
+
+impl SourcePresentation {
+    pub fn direct(range: TextRange) -> Self {
+        Self { full: SourcePresentationAnchor::Direct(range), name: None }
+    }
+
+    pub(crate) fn from_node_and_name(node: SyntaxNode<'_>, name: Option<SyntaxToken<'_>>) -> Self {
+        let full = node
+            .text_range()
+            .map(SourcePresentationAnchor::Direct)
+            .unwrap_or(SourcePresentationAnchor::Unavailable);
+        let name = name
+            .and_then(|name| root_token_in(node, name).map(SourcePresentationAnchor::from_token));
+        Self { full, name }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourcePresentationAnchor {
+    Direct(TextRange),
+    MacroBody(PreprocessorTraceMacroBodyIdentity),
+    MacroArgument(PreprocessorTraceMacroArgumentIdentity),
+    MacroOperation(PreprocessorTraceMacroOperationIdentity),
+    Unavailable,
+}
+
+impl SourcePresentationAnchor {
+    fn from_token(token: SyntaxTokenWithParent<'_>) -> Self {
+        match token.preprocessor_trace_provenance() {
+            PreprocessorTraceTokenProvenance::Source { .. } => {
+                token.text_range().map(Self::Direct).unwrap_or(Self::Unavailable)
+            }
+            PreprocessorTraceTokenProvenance::MacroBody { identity, .. } => {
+                Self::MacroBody(identity)
+            }
+            PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } => {
+                Self::MacroArgument(identity)
+            }
+            PreprocessorTraceTokenProvenance::TokenPaste { identity }
+            | PreprocessorTraceTokenProvenance::Stringification { identity } => {
+                Self::MacroOperation(identity)
+            }
+            PreprocessorTraceTokenProvenance::Builtin { .. }
+            | PreprocessorTraceTokenProvenance::Unavailable => Self::Unavailable,
+        }
     }
 }
 
@@ -123,7 +199,7 @@ pub trait ToAstNode<'a, Output: AstNode<'a>> {
 /// absent.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SourceAst<Ast> {
-    ast: Ast,
+    pub(crate) ast: Ast,
 }
 
 impl<'a, Ast> SourceAst<Ast>
@@ -153,6 +229,18 @@ where
 /// file.
 pub(crate) trait FromSourceAst<'a, Ast: AstNode<'a>> {
     fn from_source_ast(ast: SourceAst<Ast>) -> Self;
+
+    fn source_presentation(ast: &SourceAst<Ast>) -> SourcePresentation {
+        SourcePresentation::from_node_and_name(ast.ast.syntax(), None)
+    }
+
+    fn from_source_ast_with_presentation(ast: SourceAst<Ast>) -> (Self, SourcePresentation)
+    where
+        Self: Sized,
+    {
+        let presentation = Self::source_presentation(&ast);
+        (Self::from_source_ast(ast), presentation)
+    }
 }
 
 /// Attach a bare token returned by generated AST accessors to a root-buffer
@@ -338,6 +426,15 @@ macro_rules! define_src_with_name {
                         }),
                 }
             }
+
+            fn source_presentation(
+                node: &$crate::source_map::SourceAst<ast::$ty<'a>>,
+            ) -> $crate::source_map::SourcePresentation {
+                $crate::source_map::SourcePresentation::from_node_and_name(
+                    syntax::ast::AstNode::syntax(&node.ast),
+                    <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node.ast),
+                )
+            }
         }
 
         impl From<$name> for syntax::ptr::SyntaxNodePtr {
@@ -442,6 +539,15 @@ macro_rules! define_src_with_name {
                             }),
                     }
                 }
+
+                fn source_presentation(
+                    node: &$crate::source_map::SourceAst<ast::$ty<'a>>,
+                ) -> $crate::source_map::SourcePresentation {
+                    $crate::source_map::SourcePresentation::from_node_and_name(
+                        syntax::ast::AstNode::syntax(&node.ast),
+                        <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node.ast),
+                    )
+                }
             }
         )*
 
@@ -544,6 +650,15 @@ macro_rules! define_src_with_name_and_token {
                             .map(syntax::ptr::SyntaxTokenPtr::from_token)
                     }),
                 }
+            }
+
+            fn source_presentation(
+                node: &$crate::source_map::SourceAst<ast::$ty<'a>>,
+            ) -> $crate::source_map::SourcePresentation {
+                $crate::source_map::SourcePresentation::from_node_and_name(
+                    syntax::ast::AstNode::syntax(&node.ast),
+                    <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node.ast),
+                )
             }
         }
 

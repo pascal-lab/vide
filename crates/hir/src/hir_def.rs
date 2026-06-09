@@ -42,8 +42,9 @@ macro alloc_idx_and_src($hir:expr => $arena:expr, $ast:expr => $src_map:expr $(,
     // HIR lowering can consume include-expanded AST nodes, but source maps only
     // store locations that can be navigated in the parsed root file.
     if let Some(ast) = $crate::source_map::SourceAst::new($ast) {
-        let src = $crate::source_map::FromSourceAst::from_source_ast(ast);
-        $src_map.insert(src, idx);
+        let (src, presentation) =
+            $crate::source_map::FromSourceAst::from_source_ast_with_presentation(ast);
+        $src_map.insert_with_presentation(src, idx, presentation);
     }
     idx
 }}

@@ -11,7 +11,9 @@ use utils::text_edit::TextRange;
 use super::{Ident, expr::data_ty::DataTy, lower_ident_opt};
 use crate::{
     container::{ContainerId, InContainer},
-    source_map::{FromSourceAst, IsNamedSrc, IsSrc, SourceAst, ToAstNode, root_token_in},
+    source_map::{
+        FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourcePresentation, ToAstNode, root_token_in,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,6 +130,10 @@ impl<'a> FromSourceAst<'a, ast::StructUnionType<'a>> for StructSrc {
             .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
         StructSrc { node: AstNodeExt::to_ptr(&node), name }
     }
+
+    fn source_presentation(node: &SourceAst<ast::StructUnionType<'a>>) -> SourcePresentation {
+        SourcePresentation::from_node_and_name(node.ast.syntax(), struct_name_token(node.ast))
+    }
 }
 
 fn struct_name_token(node: ast::StructUnionType<'_>) -> Option<syntax::SyntaxToken<'_>> {
@@ -216,5 +222,9 @@ impl<'a> FromSourceAst<'a, ast::ClassDeclaration<'a>> for ClassSrc {
             .name()
             .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token));
         ClassSrc { node: AstNodeExt::to_ptr(&node), name }
+    }
+
+    fn source_presentation(node: &SourceAst<ast::ClassDeclaration<'a>>) -> SourcePresentation {
+        SourcePresentation::from_node_and_name(node.ast.syntax(), node.ast.name())
     }
 }
