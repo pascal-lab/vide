@@ -1,15 +1,22 @@
 use std::{fmt::Debug, hash::Hash};
 
+use ::preproc::source::{PreprocSourceId, SourceRange as PreprocSourceRange};
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
 use syntax::{
-    PreprocessorTraceMacroArgumentIdentity, PreprocessorTraceMacroBodyIdentity,
-    PreprocessorTraceMacroOperationIdentity, PreprocessorTraceTokenProvenance, SyntaxKind,
-    SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
+    PreprocessorTraceTokenProvenance, SourceBufferRange, SyntaxElement, SyntaxKind, SyntaxNode,
+    SyntaxToken, SyntaxTokenWithParent, TokenKind, WalkEvent, ast::AstNode,
     has_text_range::HasTextRange,
 };
 pub(crate) use utils::get::Get;
-use utils::{get::GetRef, text_edit::TextRange};
+use utils::{
+    get::GetRef,
+    text_edit::{TextRange, TextSize},
+};
+
+use crate::preproc::{
+    MacroArgumentTokenIdentity, MacroBodyTokenIdentity, MacroOperationTokenIdentity,
+};
 
 pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
     #[inline]
@@ -131,7 +138,7 @@ impl<Src: IsSrc, Hir> Default for SourceMap<Src, Hir> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourcePresentation {
     pub full: SourcePresentationAnchor,
     pub name: Option<SourcePresentationAnchor>,
@@ -143,45 +150,121 @@ impl SourcePresentation {
     }
 
     pub(crate) fn from_node_and_name(node: SyntaxNode<'_>, name: Option<SyntaxToken<'_>>) -> Self {
-        let full = node
-            .text_range()
-            .map(SourcePresentationAnchor::Direct)
-            .unwrap_or(SourcePresentationAnchor::Unavailable);
+        let full = SourcePresentationAnchor::from_node(node);
         let name = name
             .and_then(|name| root_token_in(node, name).map(SourcePresentationAnchor::from_token));
         Self { full, name }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourcePresentationAnchor {
     Direct(TextRange),
-    MacroBody(PreprocessorTraceMacroBodyIdentity),
-    MacroArgument(PreprocessorTraceMacroArgumentIdentity),
-    MacroOperation(PreprocessorTraceMacroOperationIdentity),
+    Source(PreprocSourceRange),
+    MacroBody(MacroBodyTokenIdentity),
+    MacroArgument(MacroArgumentTokenIdentity),
+    MacroOperation(MacroOperationTokenIdentity),
     Unavailable,
 }
 
 impl SourcePresentationAnchor {
+    fn from_node(node: SyntaxNode<'_>) -> Self {
+        let Some(direct_range) = node.text_range() else {
+            return Self::Unavailable;
+        };
+        let mut saw_token = false;
+        let mut direct = true;
+        let mut source_range = None;
+        let mut macro_anchor = None;
+
+        for event in node.elem_preorder() {
+            let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
+                continue;
+            };
+            saw_token = true;
+            let anchor = Self::from_token(token);
+            match anchor {
+                Self::Direct(_) => {
+                    if source_range.is_some() || macro_anchor.is_some() {
+                        return Self::Unavailable;
+                    }
+                }
+                Self::Source(range) => {
+                    direct = false;
+                    if macro_anchor.is_some() {
+                        return Self::Unavailable;
+                    }
+                    source_range = match source_range {
+                        Some(existing) => merge_source_ranges(existing, range),
+                        None => Some(range),
+                    };
+                    if source_range.is_none() {
+                        return Self::Unavailable;
+                    }
+                }
+                Self::MacroBody(_) | Self::MacroArgument(_) | Self::MacroOperation(_) => {
+                    direct = false;
+                    if source_range.is_some() {
+                        return Self::Unavailable;
+                    }
+                    macro_anchor = match macro_anchor {
+                        Some(existing) if existing == anchor => Some(existing),
+                        Some(_) => return Self::Unavailable,
+                        None => Some(anchor),
+                    };
+                }
+                Self::Unavailable => return Self::Unavailable,
+            }
+        }
+
+        if !saw_token || direct {
+            return Self::Direct(direct_range);
+        }
+        source_range.map(Self::Source).or(macro_anchor).unwrap_or(Self::Unavailable)
+    }
+
     fn from_token(token: SyntaxTokenWithParent<'_>) -> Self {
         match token.preprocessor_trace_provenance() {
-            PreprocessorTraceTokenProvenance::Source { .. } => {
-                token.text_range().map(Self::Direct).unwrap_or(Self::Unavailable)
+            PreprocessorTraceTokenProvenance::Source { token_range } => {
+                source_range_from_trace(token_range).map(Self::Source).unwrap_or(Self::Unavailable)
             }
             PreprocessorTraceTokenProvenance::MacroBody { identity, .. } => {
-                Self::MacroBody(identity)
+                Self::MacroBody(identity.into())
             }
             PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } => {
-                Self::MacroArgument(identity)
+                Self::MacroArgument(identity.into())
             }
             PreprocessorTraceTokenProvenance::TokenPaste { identity }
             | PreprocessorTraceTokenProvenance::Stringification { identity } => {
-                Self::MacroOperation(identity)
+                Self::MacroOperation(identity.into())
             }
             PreprocessorTraceTokenProvenance::Builtin { .. }
             | PreprocessorTraceTokenProvenance::Unavailable => Self::Unavailable,
         }
     }
+}
+
+fn source_range_from_trace(range: SourceBufferRange) -> Option<PreprocSourceRange> {
+    Some(PreprocSourceRange {
+        source: PreprocSourceId::from(range.buffer_id),
+        range: TextRange::new(
+            TextSize::from(u32::try_from(range.range.start).ok()?),
+            TextSize::from(u32::try_from(range.range.end).ok()?),
+        ),
+    })
+}
+
+fn merge_source_ranges(
+    left: PreprocSourceRange,
+    right: PreprocSourceRange,
+) -> Option<PreprocSourceRange> {
+    (left.source == right.source).then(|| PreprocSourceRange {
+        source: left.source,
+        range: TextRange::new(
+            left.range.start().min(right.range.start()),
+            left.range.end().max(right.range.end()),
+        ),
+    })
 }
 
 pub trait ToAstNode<'a, Output: AstNode<'a>> {
