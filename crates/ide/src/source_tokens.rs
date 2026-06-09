@@ -340,7 +340,7 @@ fn preproc_hit_for_token(
             PreprocSemanticTarget::SourceToken { source: source.clone(), range: *range },
             expansion.expansion.call.id.raw(),
         ),
-        TokenProvenance::MacroBody { call, definition_id, source, range } => (
+        TokenProvenance::MacroBody { call, definition_id, source, range, .. } => (
             source.clone(),
             *range,
             PreprocTokenProvenance::MacroBody {
@@ -356,7 +356,7 @@ fn preproc_hit_for_token(
             },
             call.id.raw(),
         ),
-        TokenProvenance::MacroArgument { call, argument_index, source, range } => (
+        TokenProvenance::MacroArgument { call, argument_index, source, range, .. } => (
             source.clone(),
             *range,
             PreprocTokenProvenance::MacroArgument {

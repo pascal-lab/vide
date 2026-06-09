@@ -329,15 +329,28 @@ pub(in crate::preproc) fn map_token_provenance(
             let (source, range) = map_mapped_source_range(mapped, *token_range)?;
             TokenProvenance::SourceToken { source, range }
         }
-        SourceTokenProvenanceFact::MacroBody { definition, body_token_range, call, .. } => {
+        SourceTokenProvenanceFact::MacroBody {
+            definition,
+            body_token_range,
+            call,
+            identity,
+            ..
+        } => {
             let call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
-            TokenProvenance::MacroBody { call, definition_id: (*definition).into(), source, range }
+            TokenProvenance::MacroBody {
+                identity: (*identity).into(),
+                call,
+                definition_id: (*definition).into(),
+                source,
+                range,
+            }
         }
         SourceTokenProvenanceFact::MacroArgument {
             call,
             argument_index,
             argument_token_range,
+            identity,
             ..
         } => {
             let call = mapped_macro_call(mapped, *call)?;
@@ -346,7 +359,13 @@ pub(in crate::preproc) fn map_token_provenance(
                     SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
                 )));
             };
-            TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
+            TokenProvenance::MacroArgument {
+                identity: (*identity).into(),
+                call,
+                argument_index: *argument_index,
+                source,
+                range,
+            }
         }
         SourceTokenProvenanceFact::TokenPaste { call, .. } => {
             TokenProvenance::TokenPaste { call: mapped_macro_call(mapped, *call)? }
@@ -396,10 +415,10 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
             TokenProvenance::SourceToken { source, range } => {
                 return Ok(DiagnosticProvenance::SourceToken { source, range });
             }
-            TokenProvenance::MacroBody { call, definition_id, source, range } => {
+            TokenProvenance::MacroBody { call, definition_id, source, range, .. } => {
                 return Ok(DiagnosticProvenance::MacroBody { call, definition_id, source, range });
             }
-            TokenProvenance::MacroArgument { call, argument_index, source, range } => {
+            TokenProvenance::MacroArgument { call, argument_index, source, range, .. } => {
                 return Ok(DiagnosticProvenance::MacroArgument {
                     call,
                     argument_index,

@@ -421,20 +421,32 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "logic")
         .expect("macro body token should be present");
-    let TokenProvenance::MacroBody { source, range, .. } = &logic.provenance else {
+    let TokenProvenance::MacroBody {
+        identity: logic_identity,
+        source,
+        range,
+        ..
+    } = &logic.provenance
+    else {
         panic!("logic should come from the macro body: {logic:?}");
     };
     assert_eq!(source.file_id(), Some(TOP));
     assert_eq!(text_at_range(root_text, *range), "logic");
     assert_eq!(logic.display_range, TextRange::new(1.into(), 6.into()));
+    assert_eq!(logic_identity.body_token_index, 0);
 
     let generated = provenance
         .tokens
         .iter()
         .find(|token| token.text.as_str() == "generated")
         .expect("macro argument token should be present");
-    let TokenProvenance::MacroArgument { source, range, argument_index, .. } =
-        &generated.provenance
+    let TokenProvenance::MacroArgument {
+        identity: generated_identity,
+        source,
+        range,
+        argument_index,
+        ..
+    } = &generated.provenance
     else {
         panic!("generated should come from the macro argument: {generated:?}");
     };
@@ -442,6 +454,12 @@ endmodule
     assert_eq!(source.file_id(), Some(TOP));
     assert_eq!(text_at_range(root_text, *range), "generated");
     assert_eq!(generated.display_range, TextRange::new(7.into(), 16.into()));
+    assert_eq!(generated_identity.call, logic_identity.call);
+    assert_eq!(generated_identity.definition, logic_identity.definition);
+    assert_eq!(generated_identity.parent_expansion, Some(logic_identity.expansion));
+    assert_eq!(generated_identity.body_token_index, 1);
+    assert_eq!(generated_identity.argument_index, 0);
+    assert_eq!(generated_identity.argument_token_index, 0);
 }
 
 #[test]
