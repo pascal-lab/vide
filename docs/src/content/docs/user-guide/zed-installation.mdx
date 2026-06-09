@@ -1,0 +1,86 @@
+---
+title: Zed 安装
+description: 安装 Vide Zed 扩展，并自动下载 Vide 语言服务器。
+---
+
+本页面面向使用 [Zed](https://zed.dev/) 编辑 Verilog/SystemVerilog 的用户。Vide 的 Zed 扩展会注册 SystemVerilog 语言支持，并在首次启动语言服务器时自动从 GitHub Release 下载当前平台的 `vide` 二进制文件。
+
+## 1. 安装扩展
+
+当前扩展源码位于仓库的 `editors/zed` 目录。发布到 Zed 扩展市场之前，可以通过 Zed 的开发扩展入口安装：
+
+1. 打开 Zed。
+2. 打开 Command Palette。
+3. 运行 `zed: install dev extension`。
+4. 选择仓库里的 `editors/zed` 目录。
+
+安装后，打开 `.v`、`.vh`、`.sv`、`.svh` 或 `.svi` 文件时，Zed 会使用扩展提供的 SystemVerilog 语言配置和 Vide 语言服务器。
+
+## 2. 自动下载语言服务器
+
+如果没有额外配置，扩展会按下面的顺序选择语言服务器：
+
+1. 使用 Zed 设置中的 `lsp.vide.binary.path`。
+2. 在当前工作区可见的 `PATH` 中查找 `vide`（Windows 为 `vide.exe`）。
+3. 从 [`pascal-lab/vide`](https://github.com/pascal-lab/vide/releases/latest) 最新 GitHub Release 下载当前平台的二进制文件。
+
+自动下载支持以下 Release 资产：
+
+| 平台 | Release 资产 |
+| --- | --- |
+| Linux x64 | `vide-linux-x64` |
+| Linux arm64 | `vide-linux-arm64` |
+| Windows x64 | `vide-win32-x64.exe` |
+| macOS arm64 | `vide-darwin-arm64` |
+
+## 3. 覆盖服务器路径
+
+如果你想使用自己编译的 `vide`，或者所在环境无法访问 GitHub，可以在 Zed settings 里指定本地二进制：
+
+```json
+{
+  "lsp": {
+    "vide": {
+      "binary": {
+        "path": "D:/tools/vide/vide.exe"
+      }
+    }
+  }
+}
+```
+
+Linux 或 macOS 示例：
+
+```json
+{
+  "lsp": {
+    "vide": {
+      "binary": {
+        "path": "/home/user/.local/bin/vide"
+      }
+    }
+  }
+}
+```
+
+## 4. 准备项目配置
+
+在项目根目录编写 `vide.toml`，让 Vide 知道要分析哪些源文件、include 目录和宏定义。第一次配置可以先看[配置第一个项目](../first-project/)。
+
+## 5. 用户配置
+
+Zed 会把 `lsp.vide.initialization_options` 发送给 Vide。要调整诊断、行内提示或其他语言服务器行为，请看 [LSP 编辑器的用户配置](../../advanced-guide/user-configuration/#zed)。
+
+## 6. 验证
+
+打开工程中的 `.v` 或 `.sv` 文件。如果首次启动需要下载语言服务器，Zed 会显示语言服务器安装状态。下载完成后，可以在代码中试试跳转定义、悬停、补全或诊断。
+
+如果语言服务器没有启动，优先检查三件事：
+
+- 当前平台是否有对应的 GitHub Release 资产。
+- Zed 是否能访问 GitHub Release 下载地址。
+- `lsp.vide.binary.path` 是否指向存在的可执行文件。
+
+## 下一步
+
+下一步可以阅读 [功能特性](../features/) 部分。尽管这些示例以 VS Code 为主，但大部分特性由 Vide 语言服务器提供，在 Zed 中也可以使用。

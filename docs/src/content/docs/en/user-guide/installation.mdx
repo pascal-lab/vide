@@ -5,7 +5,7 @@ description: Install Vide for your editor.
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Vide's core is a language server that implements the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/), so it can in principle be adapted to more LSP-capable editors and tools. We still recommend VS Code first: the extension gives you one-step installation of the Vide language server, along with the most complete and easiest setup. For Neovim and Emacs users, we also provide detailed guides that show how to download the Vide language server binary first and then configure the editor's LSP client to start it. We will continue to expand support for more editors based on user needs.
+Vide's core is a language server that implements the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/), so it can in principle be adapted to more LSP-capable editors and tools. We still recommend VS Code first: the extension gives you one-step installation of the Vide language server, along with the most complete and easiest setup. The Zed extension can download the language server from GitHub Releases on first start. For Neovim and Emacs users, we also provide detailed guides that show how to download the Vide language server binary first and then configure the editor's LSP client to start it. We will continue to expand support for more editors based on user needs.
 
 <CardGrid>
   <LinkCard
@@ -17,6 +17,11 @@ Vide's core is a language server that implements the [Language Server Protocol (
     title="Neovim Installation"
     href="../neovim-installation/"
     description="Download the Vide language server and configure Neovim's built-in LSP client."
+  />
+  <LinkCard
+    title="Zed Installation"
+    href="../zed-installation/"
+    description="Install the Zed extension and let it download the Vide language server automatically."
   />
   <LinkCard
     title="Emacs Installation"

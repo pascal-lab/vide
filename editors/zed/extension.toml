@@ -1,0 +1,15 @@
+id = "vide"
+name = "Vide"
+description = "Vide language server support for Verilog and SystemVerilog."
+version = "0.1.0"
+schema_version = 1
+authors = ["Pascal Lab"]
+repository = "https://github.com/pascal-lab/vide"
+
+[language_servers.vide]
+name = "Vide"
+languages = ["SystemVerilog"]
+
+[grammars.systemverilog]
+repository = "https://github.com/gmlarumbe/tree-sitter-systemverilog"
+commit = "e88937e66adc3ee7be0bfe40b7e937eafe4212bb"

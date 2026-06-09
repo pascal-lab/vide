@@ -1,0 +1,86 @@
+---
+title: Zed Installation
+description: Install the Vide Zed extension and download the Vide language server automatically.
+---
+
+This page is for users who edit Verilog/SystemVerilog in [Zed](https://zed.dev/). The Vide Zed extension registers SystemVerilog language support and downloads the platform-specific `vide` binary from GitHub Releases the first time the language server starts.
+
+## 1. Install the Extension
+
+The extension source currently lives in `editors/zed`. Before it is published to the Zed extension registry, install it as a development extension:
+
+1. Open Zed.
+2. Open the Command Palette.
+3. Run `zed: install dev extension`.
+4. Select the repository's `editors/zed` directory.
+
+After installation, Zed uses the extension's SystemVerilog language configuration and the Vide language server for `.v`, `.vh`, `.sv`, `.svh`, and `.svi` files.
+
+## 2. Automatic Language Server Download
+
+Without extra settings, the extension chooses the language server in this order:
+
+1. Use `lsp.vide.binary.path` from Zed settings.
+2. Look for `vide` (`vide.exe` on Windows) on the `PATH` visible to the current worktree.
+3. Download the current platform's binary from the latest [`pascal-lab/vide`](https://github.com/pascal-lab/vide/releases/latest) GitHub Release.
+
+Automatic download supports these release assets:
+
+| Platform | Release asset |
+| --- | --- |
+| Linux x64 | `vide-linux-x64` |
+| Linux arm64 | `vide-linux-arm64` |
+| Windows x64 | `vide-win32-x64.exe` |
+| macOS arm64 | `vide-darwin-arm64` |
+
+## 3. Override the Server Path
+
+If you want to use a locally built `vide`, or your environment cannot access GitHub, set a local binary path in Zed settings:
+
+```json
+{
+  "lsp": {
+    "vide": {
+      "binary": {
+        "path": "D:/tools/vide/vide.exe"
+      }
+    }
+  }
+}
+```
+
+Linux or macOS example:
+
+```json
+{
+  "lsp": {
+    "vide": {
+      "binary": {
+        "path": "/home/user/.local/bin/vide"
+      }
+    }
+  }
+}
+```
+
+## 4. Prepare Project Configuration
+
+Create `vide.toml` in the project root so Vide knows which source files, include directories, and macros to analyze. See [Configure the First Project](../first-project/) for the first setup.
+
+## 5. User Configuration
+
+Zed sends `lsp.vide.initialization_options` to Vide. To tune diagnostics, inlay hints, or other language-server behavior, see [User Configuration for LSP Editors](../../advanced-guide/user-configuration/#zed).
+
+## 6. Verify
+
+Open a `.v` or `.sv` file in your project. If the language server needs to be downloaded on first start, Zed shows the language server installation status. After it starts, try go-to-definition, hover, completion, or diagnostics in code.
+
+If the language server does not start, check these first:
+
+- The current platform has a matching GitHub Release asset.
+- Zed can access the GitHub Release download URL.
+- `lsp.vide.binary.path` points to an existing executable.
+
+## Next Step
+
+Continue with [Features](../features/). Although the examples there focus on VS Code, most of those capabilities are provided by the Vide language server, so you can still use them in Zed.

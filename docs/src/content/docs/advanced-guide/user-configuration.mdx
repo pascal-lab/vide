@@ -93,6 +93,33 @@ vim.lsp.enable('vide')
 
 如果你的 `"vide"` 已经写成可执行文件的绝对路径，保留原来的路径即可。`t` 会发送成 JSON 里的 `true`。
 
+## Zed
+
+如果你使用 [Zed 安装](../../user-guide/zed-installation/)，在 Zed settings 里把用户配置写到 `lsp.vide.initialization_options`：
+
+```json
+{
+  "lsp": {
+    "vide": {
+      "initialization_options": {
+        "diagnostics": {
+          "update": "onType"
+        },
+        "inlayHints": {
+          "port": {
+            "connection": {
+              "enable": true
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+如果你还需要指定本地 `vide` 二进制，可以在同一个 `lsp.vide` 下加入 `binary.path`。用户配置只需要放在 `initialization_options` 里。
+
 ## 其他 LSP 编辑器
 
 不同编辑器或插件的字段名可能叫 `initializationOptions`、`init_options` 或类似名字。它们的含义相同：启动语言服务器时，把一个 JSON 对象一起发给服务器。
@@ -130,7 +157,7 @@ https://vide.pascal-lab.net/schemas/v1/user-config.schema.json
 }
 ```
 
-直接写在 Neovim `init_options` 或 Emacs `:initializationOptions` 里时，通常不需要写 `$schema`。
+直接写在 Neovim `init_options`、Emacs `:initializationOptions` 或 Zed `initialization_options` 里时，通常不需要写 `$schema`。
 
 ## 修改后让配置生效
 
