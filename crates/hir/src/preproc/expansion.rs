@@ -424,8 +424,8 @@ fn apply_context_capability_to_macro_expansion_provenance(
             TokenProvenance::MacroBody { call, .. }
             | TokenProvenance::MacroArgument { call, .. }
             | TokenProvenance::Builtin { call, .. }
-            | TokenProvenance::TokenPaste { call }
-            | TokenProvenance::Stringification { call } => {
+            | TokenProvenance::TokenPaste { call, .. }
+            | TokenProvenance::Stringification { call, .. } => {
                 apply_context_capability_to_macro_call(contexts, call);
             }
             TokenProvenance::SourceToken { .. }

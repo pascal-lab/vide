@@ -255,6 +255,9 @@ pub struct PreprocessorTraceMacroOperationIdentity {
     pub definition_id: PreprocessorTraceMacroDefinitionId,
     pub expansion_id: PreprocessorTraceMacroExpansionId,
     pub parent_expansion_id: Option<PreprocessorTraceMacroExpansionId>,
+    pub body_token_index: u32,
+    pub argument_index: Option<u32>,
+    pub argument_token_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -728,6 +731,9 @@ impl PreprocessorTraceMacroOperationIdentity {
             parent_expansion_id: raw
                 .has_parent_expansion_id
                 .then_some(PreprocessorTraceMacroExpansionId(raw.parent_expansion_id)),
+            body_token_index: raw.has_body_token_index.then_some(raw.body_token_index)?,
+            argument_index: raw.has_argument_index.then_some(raw.argument_index),
+            argument_token_index: raw.has_argument_token_index.then_some(raw.argument_token_index),
         })
     }
 }
