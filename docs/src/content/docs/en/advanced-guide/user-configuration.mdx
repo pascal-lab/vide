@@ -93,6 +93,33 @@ If you use the Eglot setup from [Emacs Installation](../../user-guide/emacs-inst
 
 If your `"vide"` entry already uses an absolute executable path, keep that path. `t` is sent as JSON `true`.
 
+## Zed
+
+If you use [Zed Installation](../../user-guide/zed-installation/), put user configuration under `lsp.vide.initialization_options` in Zed settings:
+
+```json
+{
+  "lsp": {
+    "vide": {
+      "initialization_options": {
+        "diagnostics": {
+          "update": "onType"
+        },
+        "inlayHints": {
+          "port": {
+            "connection": {
+              "enable": true
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+If you also need to point Zed at a local `vide` binary, add `binary.path` under the same `lsp.vide` object. User configuration only needs to live under `initialization_options`.
+
 ## Other LSP Editors
 
 Different editors or plugins may call the field `initializationOptions`, `init_options`, or something similar. The meaning is the same: send a JSON object when the language server starts.
@@ -130,7 +157,7 @@ If you keep user configuration in a standalone JSON file, you can add `$schema` 
 }
 ```
 
-When writing options directly in Neovim `init_options` or Emacs `:initializationOptions`, you usually do not need `$schema`.
+When writing options directly in Neovim `init_options`, Emacs `:initializationOptions`, or Zed `initialization_options`, you usually do not need `$schema`.
 
 ## Apply Changes
 
