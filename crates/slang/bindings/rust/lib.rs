@@ -1816,6 +1816,16 @@ impl SyntaxTokenWithParent<'_> {
         let context = self.parent._ptr.as_ref().get_ref();
         SourceRange::from_unique_ptr(ffi::SyntaxToken::rangeWithContext(token, context))
     }
+
+    #[inline]
+    pub fn preprocessor_trace_provenance(&self) -> PreprocessorTraceTokenProvenance {
+        let token = self.tok._ptr.as_ref().get_ref();
+        let context = self.parent._ptr.as_ref().get_ref();
+        PreprocessorTraceEmittedToken::from_raw(
+            ffi::SyntaxToken::preprocessorTraceProvenanceWithContext(token, context),
+        )
+        .provenance
+    }
 }
 
 impl<'a> std::ops::Deref for SyntaxTokenWithParent<'a> {

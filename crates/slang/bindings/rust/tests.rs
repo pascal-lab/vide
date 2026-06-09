@@ -1221,6 +1221,56 @@ endmodule
 }
 
 #[test]
+fn syntax_token_reports_direct_macro_provenance_identity() {
+    let source = r#"`define ID(x) x
+module m;
+localparam int B = `ID(7);
+endmodule
+"#;
+    let parsed = SyntaxTree::from_text_with_options_and_trace(
+        source,
+        "source",
+        "sample/rtl/top.sv",
+        &SyntaxTreeOptions::default(),
+    );
+    let trace = parsed.preprocessor_trace.expect("trace should be collected");
+    let root = parsed.tree.root().expect("tree should have a root");
+    let tokens = root
+        .elem_preorder()
+        .filter_map(|event| match event {
+            WalkEvent::Enter(SyntaxElement::Token(token)) if token.raw_text().as_bytes() == b"7" => {
+                Some(token)
+            }
+            _ => None,
+        })
+        .collect_vec();
+    assert_eq!(tokens.len(), 1, "expanded source should contain exactly one parsed 7 token");
+    let token = tokens[0];
+
+    let PreprocessorTraceTokenProvenance::MacroArgument {
+        identity: token_identity,
+        ..
+    } = token.preprocessor_trace_provenance()
+    else {
+        panic!("parsed 7 token should expose direct macro argument provenance");
+    };
+    let emitted = trace
+        .emitted_tokens
+        .iter()
+        .find(|token| token.raw_text == "7")
+        .expect("trace should contain the emitted argument token");
+    let PreprocessorTraceTokenProvenance::MacroArgument {
+        identity: emitted_identity,
+        ..
+    } = &emitted.provenance
+    else {
+        panic!("emitted 7 token should have macro argument provenance: {emitted:?}");
+    };
+
+    assert_eq!(token_identity, *emitted_identity);
+}
+
+#[test]
 fn preprocessor_trace_reports_nested_macro_call_range_in_macro_body() {
     let source = r#"`define LEAF 3
 `define WRAP `LEAF

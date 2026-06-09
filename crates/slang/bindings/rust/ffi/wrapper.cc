@@ -1419,6 +1419,22 @@ std::unique_ptr<SourceRange> SyntaxToken_rangeWithContext(
   return mapRawSourceRangeWithContext(token.range(), context);
 }
 
+::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceProvenanceWithContext(
+    const wrapper::parsing::Token& token,
+    const SyntaxNode& context) {
+  const auto* root = findRoot(context);
+  SyntaxTreeSourceInfo sourceInfo;
+  {
+    std::lock_guard lock(syntaxTreeSourceInfoMutex);
+    auto it = syntaxTreeSourceInfo.find(root);
+    if (it == syntaxTreeSourceInfo.end())
+      return empty_preprocessor_trace_emitted_token();
+    sourceInfo = it->second;
+  }
+
+  return to_rust_preprocessor_trace_emitted_token(token, *sourceInfo.sourceManager);
+}
+
 } // namespace syntax
 
 namespace ast {
