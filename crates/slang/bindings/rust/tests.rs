@@ -1238,7 +1238,9 @@ endmodule
     let tokens = root
         .elem_preorder()
         .filter_map(|event| match event {
-            WalkEvent::Enter(SyntaxElement::Token(token)) if token.raw_text().as_bytes() == b"7" => {
+            WalkEvent::Enter(SyntaxElement::Token(token))
+                if token.raw_text().as_bytes() == b"7" =>
+            {
                 Some(token)
             }
             _ => None,
@@ -1247,10 +1249,8 @@ endmodule
     assert_eq!(tokens.len(), 1, "expanded source should contain exactly one parsed 7 token");
     let token = tokens[0];
 
-    let PreprocessorTraceTokenProvenance::MacroArgument {
-        identity: token_identity,
-        ..
-    } = token.preprocessor_trace_provenance()
+    let PreprocessorTraceTokenProvenance::MacroArgument { identity: token_identity, .. } =
+        token.preprocessor_trace_provenance()
     else {
         panic!("parsed 7 token should expose direct macro argument provenance");
     };
@@ -1259,10 +1259,8 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "7")
         .expect("trace should contain the emitted argument token");
-    let PreprocessorTraceTokenProvenance::MacroArgument {
-        identity: emitted_identity,
-        ..
-    } = &emitted.provenance
+    let PreprocessorTraceTokenProvenance::MacroArgument { identity: emitted_identity, .. } =
+        &emitted.provenance
     else {
         panic!("emitted 7 token should have macro argument provenance: {emitted:?}");
     };

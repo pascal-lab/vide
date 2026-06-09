@@ -421,12 +421,8 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "logic")
         .expect("macro body token should be present");
-    let TokenProvenance::MacroBody {
-        identity: logic_identity,
-        source,
-        range,
-        ..
-    } = &logic.provenance
+    let TokenProvenance::MacroBody { identity: logic_identity, source, range, .. } =
+        &logic.provenance
     else {
         panic!("logic should come from the macro body: {logic:?}");
     };

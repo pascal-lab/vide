@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId, SourceMacroCallId,
-    SourceMacroArgumentIdentity, SourceMacroBodyIdentity, SourceMacroCallKey,
+    SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId,
+    SourceMacroArgumentIdentity, SourceMacroBodyIdentity, SourceMacroCallId, SourceMacroCallKey,
     SourceMacroDefinitionId, SourceMacroDefinitionKey, SourceMacroExpansionId,
     SourceMacroExpansionKey, SourceMacroReferenceId, SourcePreprocError, SourcePreprocUnavailable,
 };
