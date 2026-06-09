@@ -367,11 +367,15 @@ pub(in crate::preproc) fn map_token_provenance(
                 range,
             }
         }
-        SourceTokenProvenanceFact::TokenPaste { call, .. } => {
-            TokenProvenance::TokenPaste { call: mapped_macro_call(mapped, *call)? }
-        }
-        SourceTokenProvenanceFact::Stringification { call, .. } => {
-            TokenProvenance::Stringification { call: mapped_macro_call(mapped, *call)? }
+        SourceTokenProvenanceFact::TokenPaste { call, identity } => TokenProvenance::TokenPaste {
+            identity: (*identity).into(),
+            call: mapped_macro_call(mapped, *call)?,
+        },
+        SourceTokenProvenanceFact::Stringification { call, identity } => {
+            TokenProvenance::Stringification {
+                identity: (*identity).into(),
+                call: mapped_macro_call(mapped, *call)?,
+            }
         }
         SourceTokenProvenanceFact::Predefine { source } => {
             TokenProvenance::Predefine { source: map_mapped_source_id(mapped, *source)? }

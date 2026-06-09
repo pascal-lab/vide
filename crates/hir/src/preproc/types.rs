@@ -4,7 +4,8 @@ use preproc::source::{
     SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId,
     SourceMacroArgumentIdentity, SourceMacroBodyIdentity, SourceMacroCallId, SourceMacroCallKey,
     SourceMacroDefinitionId, SourceMacroDefinitionKey, SourceMacroExpansionId,
-    SourceMacroExpansionKey, SourceMacroReferenceId, SourcePreprocError, SourcePreprocUnavailable,
+    SourceMacroExpansionKey, SourceMacroOperationIdentity, SourceMacroReferenceId,
+    SourcePreprocError, SourcePreprocUnavailable,
 };
 use smol_str::SmolStr;
 use utils::{
@@ -285,7 +286,14 @@ pub struct MacroArgument {
     pub argument_index: usize,
     pub source: Option<MappedPreprocSource>,
     pub range: Option<TextRange>,
-    pub tokens: Vec<SmolStr>,
+    pub tokens: Vec<MacroArgumentToken>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroArgumentToken {
+    pub raw: SmolStr,
+    pub source: Option<MappedPreprocSource>,
+    pub range: Option<TextRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -373,9 +381,11 @@ pub enum TokenProvenance {
         call: MacroCall,
     },
     TokenPaste {
+        identity: MacroOperationTokenIdentity,
         call: MacroCall,
     },
     Stringification {
+        identity: MacroOperationTokenIdentity,
         call: MacroCall,
     },
     Unavailable(PreprocUnavailable),
@@ -517,9 +527,49 @@ impl From<syntax::PreprocessorTraceMacroArgumentIdentity> for MacroArgumentToken
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MacroOperationTokenIdentity {
+    pub call: MacroCallIdentity,
+    pub definition: MacroDefinitionIdentity,
+    pub expansion: MacroExpansionIdentity,
+    pub parent_expansion: Option<MacroExpansionIdentity>,
+    pub body_token_index: usize,
+    pub argument_index: Option<usize>,
+    pub argument_token_index: Option<usize>,
+}
+
+impl From<SourceMacroOperationIdentity> for MacroOperationTokenIdentity {
+    fn from(value: SourceMacroOperationIdentity) -> Self {
+        Self {
+            call: value.call.into(),
+            definition: value.definition.into(),
+            expansion: value.expansion.into(),
+            parent_expansion: value.parent_expansion.map(Into::into),
+            body_token_index: value.body_token_index,
+            argument_index: value.argument_index,
+            argument_token_index: value.argument_token_index,
+        }
+    }
+}
+
+impl From<syntax::PreprocessorTraceMacroOperationIdentity> for MacroOperationTokenIdentity {
+    fn from(value: syntax::PreprocessorTraceMacroOperationIdentity) -> Self {
+        Self {
+            call: value.call_id.into(),
+            definition: value.definition_id.into(),
+            expansion: value.expansion_id.into(),
+            parent_expansion: value.parent_expansion_id.map(Into::into),
+            body_token_index: value.body_token_index as usize,
+            argument_index: value.argument_index.map(|index| index as usize),
+            argument_token_index: value.argument_token_index.map(|index| index as usize),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MacroTokenIdentity {
     Body(MacroBodyTokenIdentity),
     Argument(MacroArgumentTokenIdentity),
+    Operation(MacroOperationTokenIdentity),
 }
 
 impl MacroTokenIdentity {
@@ -533,10 +583,12 @@ impl MacroTokenIdentity {
             syntax::PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } => {
                 Some(Self::Argument(identity.into()))
             }
+            syntax::PreprocessorTraceTokenProvenance::TokenPaste { identity }
+            | syntax::PreprocessorTraceTokenProvenance::Stringification { identity } => {
+                Some(Self::Operation(identity.into()))
+            }
             syntax::PreprocessorTraceTokenProvenance::Source { .. }
             | syntax::PreprocessorTraceTokenProvenance::Builtin { .. }
-            | syntax::PreprocessorTraceTokenProvenance::TokenPaste { .. }
-            | syntax::PreprocessorTraceTokenProvenance::Stringification { .. }
             | syntax::PreprocessorTraceTokenProvenance::Unavailable => None,
         }
     }

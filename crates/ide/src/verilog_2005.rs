@@ -1696,11 +1696,13 @@ fn preproc_macro_hover_expands_through_configured_predefine_argument() {
   end
 module macro_hover_top(
   input wire logic clk_i,
-  input wire logic rst_ni
+  input wire logic rst_ni,
+  input wire logic [`LANE_WIDTH-1:0] sample_i
 );
   `DECL_PIPE(trace, `LANE_WIDTH);
   `/*marker:decl_call*/DECL_PIPE(sample, `LANE_WIDTH);
-  `/*marker:assign_call*/PIPE_ASSIGN(trace, /*marker:assign_arg*/sample_q ^ {{(`LANE_WIDTH-1){1'b0}}, 1'b1});
+  `PIPE_ASSIGN(/*marker:sample_name*/sample, /*marker:sample_input*/sample_i);
+  `/*marker:assign_call*/PIPE_ASSIGN(/*marker:trace_name*/trace, /*marker:assign_arg*/sample_q ^ {{(`LANE_WIDTH-1){1'b0}}, 1'b1});
 endmodule
 "#,
     );
@@ -1794,6 +1796,38 @@ endmodule
             && !argument_info.contains("rst_ni")
             && !argument_info.contains("trace_q"),
         "actual argument hover should stay on sample_q only: {argument_info}"
+    );
+
+    let sample_name_hover = analysis
+        .hover(
+            position(top_file_id, &top_markers, "sample_name"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("PIPE_ASSIGN pasted sample name hover expected");
+    let sample_name_info = sample_name_hover.info.as_str();
+    assert!(
+        sample_name_info.contains("sample_q")
+            && !sample_name_info.contains("clk_i")
+            && !sample_name_info.contains("rst_ni")
+            && !sample_name_info.contains("trace_q"),
+        "pasted sample name hover should resolve to sample_q only: {sample_name_info}"
+    );
+
+    let trace_name_hover = analysis
+        .hover(
+            position(top_file_id, &top_markers, "trace_name"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("PIPE_ASSIGN pasted trace name hover expected");
+    let trace_name_info = trace_name_hover.info.as_str();
+    assert!(
+        trace_name_info.contains("trace_q")
+            && !trace_name_info.contains("clk_i")
+            && !trace_name_info.contains("rst_ni")
+            && !trace_name_info.contains("sample_q"),
+        "pasted trace name hover should resolve to trace_q only: {trace_name_info}"
     );
 }
 

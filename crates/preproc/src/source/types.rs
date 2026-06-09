@@ -101,6 +101,9 @@ pub struct SourceMacroOperationIdentity {
     pub definition: SourceMacroDefinitionKey,
     pub expansion: SourceMacroExpansionKey,
     pub parent_expansion: Option<SourceMacroExpansionKey>,
+    pub body_token_index: usize,
+    pub argument_index: Option<usize>,
+    pub argument_token_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
