@@ -30,17 +30,17 @@ use syntax::{
     match_ast,
     token::TokenKindExt,
 };
-use utils::{
-    get::{Get, GetRef},
-    impl_from,
-    line_index::TextRange,
-};
+use utils::{get::GetRef, impl_from, line_index::TextRange};
 
 use crate::{
     db::root_db::RootDb,
     module_resolution::{
         ModuleResolution, resolve_instantiation_target, resolve_named_param_assignment,
         resolve_named_port_connection,
+    },
+    presentation::{
+        presentation_full_file_range, presentation_name_file_range,
+        presentation_name_or_full_file_range,
     },
 };
 
@@ -153,20 +153,36 @@ impl DefinitionOrigin {
     pub fn name_range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(file_id, range))
+                let src_map = file_id.to_container_src_map(db);
+                presentation_name_file_range(
+                    db,
+                    file_id,
+                    src_map.module_srcs.hir_to_presentation(value)?,
+                )
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(file_id, range))
+                let src_map = file_id.to_container_src_map(db);
+                presentation_name_file_range(
+                    db,
+                    file_id,
+                    src_map.config_decl_srcs.hir_to_presentation(value)?,
+                )
             }
             DefinitionOrigin::Library(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(file_id, range))
+                let src_map = file_id.to_container_src_map(db);
+                presentation_name_file_range(
+                    db,
+                    file_id,
+                    src_map.library_decl_srcs.hir_to_presentation(value)?,
+                )
             }
             DefinitionOrigin::Udp(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(file_id, range))
+                let src_map = file_id.to_container_src_map(db);
+                presentation_name_file_range(
+                    db,
+                    file_id,
+                    src_map.udp_decl_srcs.hir_to_presentation(value)?,
+                )
             }
             DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
@@ -181,7 +197,14 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
-                Some(InFile::new(src.file_id, src.value.expanded_name_or_full_range()))
+                let src_map = src.file_id.to_container_src_map(db);
+                presentation_name_or_full_file_range(
+                    db,
+                    src.file_id,
+                    src_map
+                        .subroutine_srcs
+                        .hir_to_presentation(subroutine_id.lookup(db).local_id)?,
+                )
             }
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
@@ -201,24 +224,35 @@ impl DefinitionOrigin {
                 Some(InFile::new(src.file_id, range))
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(module_id.file_id, range))
+                let src_map = module_id.to_container_src_map(db);
+                presentation_name_file_range(
+                    db,
+                    module_id.file_id,
+                    src_map.port_srcs.port_presentation(value)?,
+                )
             }
             DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(cont_id.file_id(db).into(), range))
+                let file_id = HirFileId(cont_id.file_id(db));
+                let src_map = cont_id.to_container_src_map(db);
+                presentation_name_file_range(db, file_id, src_map.decl_presentation(value)?)
             }
             DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(cont_id.file_id(db).into(), range))
+                let file_id = HirFileId(cont_id.file_id(db));
+                let src_map = cont_id.to_container_src_map(db);
+                presentation_name_file_range(db, file_id, src_map.typedef_presentation(value)?)
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(module_id.file_id, range))
+                let src_map = module_id.to_container_src_map(db);
+                presentation_name_file_range(
+                    db,
+                    module_id.file_id,
+                    src_map.instance_srcs.hir_to_presentation(value)?,
+                )
             }
             DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.expanded_name_range()?;
-                Some(InFile::new(cont_id.file_id(db).into(), range))
+                let file_id = HirFileId(cont_id.file_id(db));
+                let src_map = cont_id.to_container_src_map(db);
+                presentation_name_file_range(db, file_id, src_map.stmt_presentation(value)?)
             }
         }
     }
@@ -226,20 +260,36 @@ impl DefinitionOrigin {
     pub fn range(&self, db: &dyn HirDb) -> Option<InFile<TextRange>> {
         Some(match *self {
             DefinitionOrigin::ModuleId(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(file_id, range)
+                let src_map = file_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    file_id,
+                    src_map.module_srcs.hir_to_presentation(value)?,
+                )?
             }
             DefinitionOrigin::Config(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(file_id, range)
+                let src_map = file_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    file_id,
+                    src_map.config_decl_srcs.hir_to_presentation(value)?,
+                )?
             }
             DefinitionOrigin::Library(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(file_id, range)
+                let src_map = file_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    file_id,
+                    src_map.library_decl_srcs.hir_to_presentation(value)?,
+                )?
             }
             DefinitionOrigin::Udp(InFile { value, file_id }) => {
-                let range = file_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(file_id, range)
+                let src_map = file_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    file_id,
+                    src_map.udp_decl_srcs.hir_to_presentation(value)?,
+                )?
             }
             DefinitionOrigin::BlockId(block_id) => {
                 let BlockLoc { src: InFile { value, file_id }, .. } = block_id.lookup(db);
@@ -254,8 +304,14 @@ impl DefinitionOrigin {
             }
             DefinitionOrigin::SubroutineId(subroutine_id) => {
                 let src = subroutine_id.lookup(db).src;
-                let range = src.value.expanded_range();
-                InFile::new(src.file_id, range)
+                let src_map = src.file_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    src.file_id,
+                    src_map
+                        .subroutine_srcs
+                        .hir_to_presentation(subroutine_id.lookup(db).local_id)?,
+                )?
             }
             DefinitionOrigin::SubroutinePort(InSubroutine { subroutine, value }) => {
                 let src = subroutine.lookup(db).src;
@@ -271,24 +327,35 @@ impl DefinitionOrigin {
                 InFile::new(src.file_id, range)
             }
             DefinitionOrigin::NonAnsiPort(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(module_id.file_id, range)
+                let src_map = module_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    module_id.file_id,
+                    src_map.port_srcs.port_presentation(value)?,
+                )?
             }
             DefinitionOrigin::Decl(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(cont_id.file_id(db).into(), range)
+                let file_id = HirFileId(cont_id.file_id(db));
+                let src_map = cont_id.to_container_src_map(db);
+                presentation_full_file_range(db, file_id, src_map.decl_presentation(value)?)?
             }
             DefinitionOrigin::Typedef(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(cont_id.file_id(db).into(), range)
+                let file_id = HirFileId(cont_id.file_id(db));
+                let src_map = cont_id.to_container_src_map(db);
+                presentation_full_file_range(db, file_id, src_map.typedef_presentation(value)?)?
             }
             DefinitionOrigin::Instance(InModule { value, module_id }) => {
-                let range = module_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(module_id.file_id, range)
+                let src_map = module_id.to_container_src_map(db);
+                presentation_full_file_range(
+                    db,
+                    module_id.file_id,
+                    src_map.instance_srcs.hir_to_presentation(value)?,
+                )?
             }
             DefinitionOrigin::Stmt(InContainer { value, cont_id }) => {
-                let range = cont_id.to_container_src_map(db).get(value)?.expanded_range();
-                InFile::new(cont_id.file_id(db).into(), range)
+                let file_id = HirFileId(cont_id.file_id(db));
+                let src_map = cont_id.to_container_src_map(db);
+                presentation_full_file_range(db, file_id, src_map.stmt_presentation(value)?)?
             }
         })
     }

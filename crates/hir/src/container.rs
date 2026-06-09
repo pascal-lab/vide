@@ -27,6 +27,7 @@ use crate::{
         typedef::{Typedef, TypedefId, TypedefSrc},
     },
     region_tree::RegionTree,
+    source_map::SourcePresentation,
 };
 
 define_enum_deriving_from! {
@@ -275,6 +276,66 @@ impl ContainerSrcMap {
             }
             ContainerSrcMap::BlockSourceMap(block) => Some(&block.region_tree),
             ContainerSrcMap::SubroutineSourceMap(subroutine) => Some(&subroutine.region_tree),
+        }
+    }
+
+    pub fn decl_presentation(&self, decl_id: DeclId) -> Option<&SourcePresentation> {
+        match self {
+            ContainerSrcMap::FileSourceMap(src_map) => {
+                src_map.decl_srcs.hir_to_presentation(decl_id)
+            }
+            ContainerSrcMap::ModuleSourceMap(src_map) => {
+                src_map.decl_srcs.hir_to_presentation(decl_id)
+            }
+            ContainerSrcMap::GenerateBlockSourceMap(src_map) => {
+                src_map.decl_srcs.hir_to_presentation(decl_id)
+            }
+            ContainerSrcMap::BlockSourceMap(src_map) => {
+                src_map.decl_srcs.hir_to_presentation(decl_id)
+            }
+            ContainerSrcMap::SubroutineSourceMap(src_map) => {
+                src_map.decl_srcs.hir_to_presentation(decl_id)
+            }
+        }
+    }
+
+    pub fn typedef_presentation(&self, typedef_id: TypedefId) -> Option<&SourcePresentation> {
+        match self {
+            ContainerSrcMap::FileSourceMap(src_map) => {
+                src_map.typedef_srcs.hir_to_presentation(typedef_id)
+            }
+            ContainerSrcMap::ModuleSourceMap(src_map) => {
+                src_map.typedef_srcs.hir_to_presentation(typedef_id)
+            }
+            ContainerSrcMap::GenerateBlockSourceMap(src_map) => {
+                src_map.typedef_srcs.hir_to_presentation(typedef_id)
+            }
+            ContainerSrcMap::BlockSourceMap(src_map) => {
+                src_map.typedef_srcs.hir_to_presentation(typedef_id)
+            }
+            ContainerSrcMap::SubroutineSourceMap(src_map) => {
+                src_map.typedef_srcs.hir_to_presentation(typedef_id)
+            }
+        }
+    }
+
+    pub fn stmt_presentation(&self, stmt_id: StmtId) -> Option<&SourcePresentation> {
+        match self {
+            ContainerSrcMap::FileSourceMap(src_map) => {
+                src_map.stmt_srcs.hir_to_presentation(stmt_id)
+            }
+            ContainerSrcMap::ModuleSourceMap(src_map) => {
+                src_map.stmt_srcs.hir_to_presentation(stmt_id)
+            }
+            ContainerSrcMap::GenerateBlockSourceMap(src_map) => {
+                src_map.stmt_srcs.hir_to_presentation(stmt_id)
+            }
+            ContainerSrcMap::BlockSourceMap(src_map) => {
+                src_map.stmt_srcs.hir_to_presentation(stmt_id)
+            }
+            ContainerSrcMap::SubroutineSourceMap(src_map) => {
+                src_map.stmt_srcs.hir_to_presentation(stmt_id)
+            }
         }
     }
 }

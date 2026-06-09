@@ -196,6 +196,13 @@ impl PortSrcs {
             PortSrcs::Ansi { .. } => None,
         }
     }
+
+    pub fn port_presentation(&self, port_id: NonAnsiPortId) -> Option<&SourcePresentation> {
+        match self {
+            PortSrcs::NonAnsi { ports, .. } => ports.hir_to_presentation(port_id),
+            PortSrcs::Ansi { .. } => None,
+        }
+    }
 }
 
 define_src!(PortListSrc(ast::NonAnsiPortList, ast::AnsiPortList, ast::WildcardPortList));

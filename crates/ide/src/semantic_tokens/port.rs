@@ -24,9 +24,10 @@ use utils::{
     text_edit::TextRange,
 };
 
-use super::{SemaTokenCollector, SemaTokenTag, presentation_name_range};
+use super::{SemaTokenCollector, SemaTokenTag};
 use crate::{
     db::root_db::RootDb,
+    presentation::presentation_name_range,
     semantic_tokens::{SemaToken, SemaTokenModifier, SemaTokenPort, check_range},
 };
 

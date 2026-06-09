@@ -2,6 +2,7 @@ use hir::{
     base_db::intern::Lookup,
     container::{ContainerId, InContainer, InFile, InModule, InSubroutine},
     db::HirDb,
+    file::HirFileId,
     hir_def::{
         block::{BlockId, BlockLoc},
         declaration::Declaration,
@@ -25,13 +26,13 @@ use syntax::{
     ast::AstNode,
     has_text_range::{HasTextRange, HasTextRangeIn},
 };
-use utils::{
-    get::{Get, GetRef},
-    line_index::TextRange,
-};
+use utils::{get::GetRef, line_index::TextRange};
 use vfs::FileId;
 
-use crate::{SymbolKind, db::root_db::RootDb, definitions::DefinitionOrigin};
+use crate::{
+    SymbolKind, db::root_db::RootDb, definitions::DefinitionOrigin,
+    presentation::presentation_nav_range,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NavTarget {
@@ -79,14 +80,18 @@ impl ToNav for DefinitionOrigin {
 impl ToNav for ModuleId {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: local_module_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(local_module_id)?;
+        let src_map = file_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            file_id,
+            src_map.module_srcs.hir_to_presentation(local_module_id)?,
+        )?;
         let name = self.to_container(db).name.clone();
 
-        let file_id = file_id.file_id();
         Some(build(
-            file_id,
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Module,
             None,
@@ -97,13 +102,18 @@ impl ToNav for ModuleId {
 impl ToNav for InFile<ConfigDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: config_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(config_id)?;
+        let src_map = file_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            file_id,
+            src_map.config_decl_srcs.hir_to_presentation(config_id)?,
+        )?;
         let name = file_id.to_container(db).get(config_id).name.clone();
 
         Some(build(
-            file_id.file_id(),
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Config,
             None,
@@ -114,13 +124,18 @@ impl ToNav for InFile<ConfigDeclId> {
 impl ToNav for InFile<LibraryDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: library_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(library_id)?;
+        let src_map = file_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            file_id,
+            src_map.library_decl_srcs.hir_to_presentation(library_id)?,
+        )?;
         let name = file_id.to_container(db).get(library_id).name.clone();
 
         Some(build(
-            file_id.file_id(),
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Library,
             None,
@@ -131,13 +146,18 @@ impl ToNav for InFile<LibraryDeclId> {
 impl ToNav for InFile<UdpDeclId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InFile { value: udp_id, file_id } = *self;
-        let src = file_id.to_container_src_map(db).get(udp_id)?;
+        let src_map = file_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            file_id,
+            src_map.udp_decl_srcs.hir_to_presentation(udp_id)?,
+        )?;
         let name = file_id.to_container(db).get(udp_id).name.clone();
 
         Some(build(
-            file_id.file_id(),
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Primitive,
             None,
@@ -186,13 +206,17 @@ impl ToNav for SubroutineId {
         let cont_id: ContainerId = loc.cont_id.into();
         let cont_name = cont_id.to_container(db).name().cloned();
         let name = db.subroutine(*self).name.clone();
-        let focus_range = loc.src.value.expanded_name_range();
+        let src_map = loc.src.file_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            loc.src.file_id,
+            src_map.subroutine_srcs.hir_to_presentation(loc.local_id)?,
+        )?;
 
-        let file_id = loc.src.file_id.file_id();
         Some(build(
-            file_id,
-            focus_range,
-            loc.src.value.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Fn,
             cont_name,
@@ -239,18 +263,21 @@ impl ToNav for InModule<NonAnsiPortId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InModule { value: port_id, module_id } = *self;
 
-        let file_id = module_id.file_id;
-        let src = module_id.to_container_src_map(db).get(port_id)?;
+        let src_map = module_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            module_id.file_id,
+            src_map.port_srcs.port_presentation(port_id)?,
+        )?;
 
         let module = db.module(module_id);
         let name = module.get(port_id).label.clone();
         let cont_name = module.name.clone();
 
-        let file_id = file_id.file_id();
         Some(build(
-            file_id,
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::NonAnsiPortLabel,
             cont_name,
@@ -263,7 +290,9 @@ impl ToNav for InContainer<DeclId> {
         let InContainer { value: decl_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.to_container_src_map(db).get(decl_id)?;
+        let src_map = cont_id.to_container_src_map(db);
+        let ranges =
+            presentation_nav_range(db, HirFileId(file_id), src_map.decl_presentation(decl_id)?)?;
 
         let cont = cont_id.to_container(db);
         let decl = cont.get(decl_id);
@@ -283,7 +312,7 @@ impl ToNav for InContainer<DeclId> {
         let name = decl.name.clone();
         let cont_name = cont.name().cloned();
 
-        Some(build(file_id, src.expanded_name_range(), src.expanded_range(), name, kind, cont_name))
+        Some(build(ranges.file_id, ranges.focus_range, ranges.full_range, name, kind, cont_name))
     }
 }
 
@@ -292,16 +321,21 @@ impl ToNav for InContainer<TypedefId> {
         let InContainer { value: typedef_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.to_container_src_map(db).get(typedef_id)?;
+        let src_map = cont_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            HirFileId(file_id),
+            src_map.typedef_presentation(typedef_id)?,
+        )?;
 
         let cont = cont_id.to_container(db);
         let typedef = cont.get(typedef_id);
         let cont_name = cont.name().cloned();
 
         Some(build(
-            file_id,
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             typedef.name.clone(),
             SymbolKind::Typedef,
             cont_name,
@@ -313,17 +347,21 @@ impl ToNav for InModule<InstanceId> {
     fn to_nav(&self, db: &RootDb) -> Option<NavTarget> {
         let InModule { value: instance_id, module_id } = *self;
 
-        let file_id = module_id.file_id();
-        let src = module_id.to_container_src_map(db).get(instance_id)?;
+        let src_map = module_id.to_container_src_map(db);
+        let ranges = presentation_nav_range(
+            db,
+            module_id.file_id,
+            src_map.instance_srcs.hir_to_presentation(instance_id)?,
+        )?;
 
         let module = module_id.to_container(db);
         let name = module.get(instance_id).name.clone();
         let cont_name = module.name.clone();
 
         Some(build(
-            file_id,
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Instance,
             cont_name,
@@ -336,16 +374,18 @@ impl ToNav for InContainer<StmtId> {
         let InContainer { value: stmt_id, cont_id } = *self;
 
         let file_id = cont_id.file_id(db);
-        let src = cont_id.to_container_src_map(db).get(stmt_id)?;
+        let src_map = cont_id.to_container_src_map(db);
+        let ranges =
+            presentation_nav_range(db, HirFileId(file_id), src_map.stmt_presentation(stmt_id)?)?;
 
         let cont = cont_id.to_container(db);
         let name = cont.get(stmt_id).label.clone();
         let cont_name = cont.name().cloned();
 
         Some(build(
-            file_id,
-            src.expanded_name_range(),
-            src.expanded_range(),
+            ranges.file_id,
+            ranges.focus_range,
+            ranges.full_range,
             name,
             SymbolKind::Stmt,
             cont_name,

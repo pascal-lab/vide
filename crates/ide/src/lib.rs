@@ -18,6 +18,7 @@ pub mod definitions;
 pub mod markup;
 pub(crate) mod module_resolution;
 pub mod navigation_target;
+pub(crate) mod presentation;
 pub mod render;
 pub mod source_change;
 

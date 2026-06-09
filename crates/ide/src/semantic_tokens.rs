@@ -14,10 +14,10 @@ use hir::{
         },
         stmt::StmtKind,
     },
-    preproc::{macro_references_in_range, resolve_source_presentation_anchor},
+    preproc::macro_references_in_range,
     scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
-    source_map::{IsNamedSrc, IsSrc, SourcePresentation, ToAstNode},
+    source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use smol_str::SmolStr;
 use syntax::{ast, has_text_range::HasTextRange};
@@ -30,6 +30,7 @@ use vfs::FileId;
 use crate::{
     db::root_db::RootDb,
     module_resolution::{resolve_named_param_assignment, resolve_named_port_connection},
+    presentation::{presentation_full_range, presentation_name_range},
 };
 
 mod collector;
@@ -123,32 +124,6 @@ impl SemaToken {
     pub fn is_empty(&self) -> bool {
         self.range.is_empty() || (self.tag == SemaTokenTag::None && self.mods.is_empty())
     }
-}
-
-pub(super) fn presentation_full_range(
-    db: &RootDb,
-    file_id: HirFileId,
-    presentation: &SourcePresentation,
-) -> Option<TextRange> {
-    presentation_range(db, file_id, presentation.full)
-}
-
-pub(super) fn presentation_name_range(
-    db: &RootDb,
-    file_id: HirFileId,
-    presentation: &SourcePresentation,
-) -> Option<TextRange> {
-    presentation_range(db, file_id, presentation.name?)
-}
-
-fn presentation_range(
-    db: &RootDb,
-    file_id: HirFileId,
-    anchor: hir::source_map::SourcePresentationAnchor,
-) -> Option<TextRange> {
-    let target =
-        resolve_source_presentation_anchor(db, file_id.file_id(), anchor).ok()?.available()?;
-    (target.file_id == file_id.file_id()).then_some(target.range)
 }
 
 pub(crate) fn semantic_tokens(
