@@ -5,7 +5,7 @@ description: 根据你使用的编辑器安装 Vide。
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Vide 的核心是一个实现了 [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) 的语言服务器，因此理论上可以适配更多支持 LSP 的编辑器和工具。不过，我们仍然首推 VS Code：通过扩展即可一键安装并使用 Vide 语言服务器，体验最完整、上手也最便捷。对于 Neovim 和 Emacs 用户，我们同样提供了详细教程，指导你先下载 Vide 语言服务器二进制文件，再在对应编辑器的 LSP 客户端中配置启动命令。未来，我们也会根据用户需求，持续扩展对更多编辑器的支持。
+Vide 的核心是一个实现了 [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) 的语言服务器，因此理论上可以适配更多支持 LSP 的编辑器和工具。不过，我们仍然首推 VS Code：通过扩展即可一键安装并使用 Vide 语言服务器，体验最完整、上手也最便捷。Zed 扩展可以在首次启动时自动从 GitHub Release 下载语言服务器；对于 Neovim 和 Emacs 用户，我们同样提供了详细教程，指导你先下载 Vide 语言服务器二进制文件，再在对应编辑器的 LSP 客户端中配置启动命令。未来，我们也会根据用户需求，持续扩展对更多编辑器的支持。
 
 <CardGrid>
   <LinkCard
@@ -17,6 +17,11 @@ Vide 的核心是一个实现了 [Language Server Protocol (LSP)](https://micros
     title="Neovim 安装"
     href="../neovim-installation/"
     description="下载 Vide 语言服务器，并配置 Neovim 内置 LSP。"
+  />
+  <LinkCard
+    title="Zed 安装"
+    href="../zed-installation/"
+    description="安装 Zed 扩展，并让扩展自动下载 Vide 语言服务器。"
   />
   <LinkCard
     title="Emacs 安装"

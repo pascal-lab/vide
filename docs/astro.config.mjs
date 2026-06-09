@@ -69,6 +69,7 @@ export default defineConfig({
               items: [
                 'user-guide/installation',
                 'user-guide/vscode-installation',
+                'user-guide/zed-installation',
                 'user-guide/neovim-installation',
                 'user-guide/emacs-installation',
               ],
