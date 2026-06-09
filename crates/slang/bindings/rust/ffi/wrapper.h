@@ -38,6 +38,7 @@ struct RawSyntaxTreeBufferIds;
 struct RawExpectedSyntax;
 struct RawLexedTokenAtOffset;
 struct RawPreprocessorTrace;
+struct RawPreprocessorTraceEmittedToken;
 
 namespace wrapper {
   using Diagnostic = ::slang::Diagnostic;
@@ -491,6 +492,10 @@ namespace wrapper {
         const SyntaxNode& context);
 
     std::unique_ptr<SourceRange> SyntaxToken_rangeWithContext(
+        const wrapper::parsing::Token& token,
+        const SyntaxNode& context);
+
+    ::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceProvenanceWithContext(
         const wrapper::parsing::Token& token,
         const SyntaxNode& context);
 

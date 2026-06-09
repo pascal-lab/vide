@@ -415,6 +415,12 @@ mod slang_ffi {
             context: &SyntaxNode,
         ) -> UniquePtr<SourceRange>;
 
+        #[namespace = "wrapper::syntax"]
+        fn SyntaxToken_preprocessorTraceProvenanceWithContext(
+            token: &SyntaxToken,
+            context: &SyntaxNode,
+        ) -> RawPreprocessorTraceEmittedToken;
+
         fn childNode(self: &SyntaxNode, idx: usize) -> *const SyntaxNode;
 
         #[namespace = "wrapper::syntax"]
@@ -684,6 +690,7 @@ impl_functions! {
     impl SyntaxToken {
         fn range(&self) -> UniquePtr<SourceRange> |> SyntaxToken_range;
         fn rangeWithContext(token: &SyntaxToken, context: &SyntaxNode) -> UniquePtr<SourceRange> |> SyntaxToken_rangeWithContext;
+        fn preprocessorTraceProvenanceWithContext(token: &SyntaxToken, context: &SyntaxNode) -> RawPreprocessorTraceEmittedToken |> SyntaxToken_preprocessorTraceProvenanceWithContext;
     }
 }
 
