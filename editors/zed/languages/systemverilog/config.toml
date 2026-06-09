@@ -1,0 +1,12 @@
+name = "SystemVerilog"
+grammar = "systemverilog"
+path_suffixes = ["v", "vh", "sv", "svh", "svi"]
+brackets = [
+    { start = "{", end = "}", close = true, newline = false },
+    { start = "[", end = "]", close = true, newline = false },
+    { start = "(", end = ")", close = true, newline = false },
+    { start = "\"", end = "\"", close = true, newline = false },
+    { start = "begin", end = "end", close = true, newline = true },
+    { start = "/*", end = " */", close = true, newline = false },
+]
+line_comments = ["// "]
