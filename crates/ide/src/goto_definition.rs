@@ -27,16 +27,16 @@ use crate::{
 };
 
 enum DefinitionTarget<'tree> {
-    Preproc(PreprocDefinitionTarget),
+    Preproc(Box<PreprocDefinitionTarget>),
     Include(Vec<IncludeDirective>),
     Source(SourceTarget<'tree>),
 }
 
 enum PreprocDefinitionTarget {
-    MacroParamDefinition(MacroParamDefinition),
-    MacroParamReference(MacroParamReferenceDefinitions),
-    MacroDefinition(MacroDefinition),
-    MacroReference(MacroReferenceDefinitions),
+    ParamDefinition(MacroParamDefinition),
+    ParamReference(MacroParamReferenceDefinitions),
+    Definition(MacroDefinition),
+    Reference(MacroReferenceDefinitions),
 }
 
 pub(crate) fn goto_definition(
@@ -56,7 +56,7 @@ fn dispatch_definition_target<'tree>(
     root: Option<SyntaxNode<'tree>>,
 ) -> Option<DefinitionTarget<'tree>> {
     if let Some(target) = dispatch_preproc_definition_target(db, file_id, offset) {
-        return Some(DefinitionTarget::Preproc(target));
+        return Some(DefinitionTarget::Preproc(Box::new(target)));
     }
     if let Some(includes) = dispatch_include_definition_target(db, file_id, offset) {
         return Some(DefinitionTarget::Include(includes));
@@ -74,7 +74,7 @@ fn render_definition_target(
     target: DefinitionTarget<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     match target {
-        DefinitionTarget::Preproc(target) => render_preproc_definition_target(target),
+        DefinitionTarget::Preproc(target) => render_preproc_definition_target(*target),
         DefinitionTarget::Include(includes) => render_include_definition_target(db, includes),
         DefinitionTarget::Source(target) => {
             render_source_definition_target(db, file_id, sema, target)
@@ -92,7 +92,7 @@ fn render_source_definition_target(
     let (range, tokens) = target.into_parts();
     let navs = tokens
         .into_iter()
-        .filter_map(|token| nav_targets_for_token(db, &sema, hir_file_id, token))
+        .filter_map(|token| nav_targets_for_token(db, sema, hir_file_id, token))
         .flatten()
         .unique()
         .collect_vec();
@@ -126,19 +126,19 @@ fn dispatch_preproc_definition_target(
     offset: TextSize,
 ) -> Option<PreprocDefinitionTarget> {
     if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
-        return Some(PreprocDefinitionTarget::MacroParamDefinition(definition));
+        return Some(PreprocDefinitionTarget::ParamDefinition(definition));
     }
 
     if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
-        return Some(PreprocDefinitionTarget::MacroParamReference(resolution));
+        return Some(PreprocDefinitionTarget::ParamReference(resolution));
     }
 
     if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
-        return Some(PreprocDefinitionTarget::MacroDefinition(definition));
+        return Some(PreprocDefinitionTarget::Definition(definition));
     }
 
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
-        return Some(PreprocDefinitionTarget::MacroReference(resolution));
+        return Some(PreprocDefinitionTarget::Reference(resolution));
     }
 
     None
@@ -148,19 +148,19 @@ fn render_preproc_definition_target(
     target: PreprocDefinitionTarget,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     match target {
-        PreprocDefinitionTarget::MacroParamDefinition(definition) => {
+        PreprocDefinitionTarget::ParamDefinition(definition) => {
             Some(RangeInfo::new(definition.range, vec![macro_param_nav_target(definition)]))
         }
-        PreprocDefinitionTarget::MacroParamReference(resolution) => {
+        PreprocDefinitionTarget::ParamReference(resolution) => {
             let reference_range = resolution.range;
             let targets =
                 resolution.definitions.into_iter().map(macro_param_nav_target).collect_vec();
             (!targets.is_empty()).then_some(RangeInfo::new(reference_range, targets))
         }
-        PreprocDefinitionTarget::MacroDefinition(definition) => {
+        PreprocDefinitionTarget::Definition(definition) => {
             Some(RangeInfo::new(definition.name_range, vec![macro_nav_target(definition)]))
         }
-        PreprocDefinitionTarget::MacroReference(resolution) => {
+        PreprocDefinitionTarget::Reference(resolution) => {
             let reference_range = resolution.range;
             let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
             (!targets.is_empty()).then_some(RangeInfo::new(reference_range, targets))
