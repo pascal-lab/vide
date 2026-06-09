@@ -11,7 +11,7 @@ use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use syntax::{
-    SyntaxTokenWithParent, TokenKind,
+    SyntaxNode, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
     token::{TokenKindExt, pair_token},
 };
@@ -23,9 +23,20 @@ use crate::{
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
+    source_targets::{SourceTarget, source_target_at_offset},
 };
 
 pub(crate) mod search;
+
+enum ReferencesTarget<'tree> {
+    Preproc(PreprocReferencesTarget),
+    Source(SourceTarget<'tree>),
+}
+
+enum PreprocReferencesTarget {
+    MacroParams(Vec<MacroParamDefinition>),
+    Macros(Vec<MacroDefinition>),
+}
 
 bitflags::bitflags! {
     #[derive(Copy, Clone, Default, PartialEq, Eq, Hash, Debug)]
@@ -94,26 +105,55 @@ pub(crate) fn references(
     FilePosition { file_id, offset }: FilePosition,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
-    if let Some(macro_refs) = handle_preproc_macro(db, file_id, offset, &config) {
-        return Some(macro_refs);
-    }
-
     let sema = Semantics::new(db);
-    let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root()?;
-    let tokens = crate::source_targets::source_target_at_offset(
-        db,
-        file_id,
-        root,
-        offset,
-        token_precedence,
-    )?
-    .resolved()?
-    .into_tokens();
+    let target = dispatch_references_target(db, file_id, offset, parsed_file.root())?;
+    render_references_target(db, file_id, &sema, target, config)
+}
+
+fn dispatch_references_target<'tree>(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    root: Option<SyntaxNode<'tree>>,
+) -> Option<ReferencesTarget<'tree>> {
+    if let Some(target) = dispatch_preproc_references_target(db, file_id, offset) {
+        return Some(ReferencesTarget::Preproc(target));
+    }
+    let root = root?;
+    let target =
+        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
+    Some(ReferencesTarget::Source(target))
+}
+
+fn render_references_target(
+    db: &RootDb,
+    file_id: FileId,
+    sema: &Semantics<RootDb>,
+    target: ReferencesTarget<'_>,
+    config: ReferencesConfig,
+) -> Option<Vec<References>> {
+    match target {
+        ReferencesTarget::Preproc(target) => {
+            render_preproc_references_target(db, file_id, target, &config)
+        }
+        ReferencesTarget::Source(target) => {
+            render_source_references_target(sema, file_id, target, config)
+        }
+    }
+}
+
+fn render_source_references_target(
+    sema: &Semantics<RootDb>,
+    file_id: FileId,
+    target: SourceTarget<'_>,
+    config: ReferencesConfig,
+) -> Option<Vec<References>> {
+    let hir_file_id = file_id.into();
+    let tokens = target.into_tokens();
     let references = tokens
         .into_iter()
-        .filter_map(|token| references_for_token(&sema, hir_file_id, token, config.clone()))
+        .filter_map(|token| references_for_token(sema, hir_file_id, token, config.clone()))
         .flatten()
         .collect_vec();
     (!references.is_empty()).then_some(references)
@@ -135,14 +175,13 @@ fn references_for_token(
     })
 }
 
-fn handle_preproc_macro(
+fn dispatch_preproc_references_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-    config: &ReferencesConfig,
-) -> Option<Vec<References>> {
-    if let Some(param_refs) = handle_preproc_macro_param(db, file_id, offset, config) {
-        return Some(param_refs);
+) -> Option<PreprocReferencesTarget> {
+    if let Some(target) = dispatch_preproc_macro_param_references_target(db, file_id, offset) {
+        return Some(target);
     }
 
     let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
@@ -154,18 +193,14 @@ fn handle_preproc_macro(
         return None;
     }
 
-    definitions
-        .into_iter()
-        .map(|definition| macro_references_for_definition(db, file_id, definition, config))
-        .collect()
+    Some(PreprocReferencesTarget::Macros(definitions))
 }
 
-fn handle_preproc_macro_param(
+fn dispatch_preproc_macro_param_references_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-    config: &ReferencesConfig,
-) -> Option<Vec<References>> {
+) -> Option<PreprocReferencesTarget> {
     let definitions =
         if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
             vec![definition]
@@ -176,10 +211,27 @@ fn handle_preproc_macro_param(
         return None;
     }
 
-    definitions
-        .into_iter()
-        .map(|definition| macro_param_references_for_definition(db, file_id, definition, config))
-        .collect()
+    Some(PreprocReferencesTarget::MacroParams(definitions))
+}
+
+fn render_preproc_references_target(
+    db: &RootDb,
+    file_id: FileId,
+    target: PreprocReferencesTarget,
+    config: &ReferencesConfig,
+) -> Option<Vec<References>> {
+    match target {
+        PreprocReferencesTarget::MacroParams(definitions) => definitions
+            .into_iter()
+            .map(|definition| {
+                macro_param_references_for_definition(db, file_id, definition, config)
+            })
+            .collect(),
+        PreprocReferencesTarget::Macros(definitions) => definitions
+            .into_iter()
+            .map(|definition| macro_references_for_definition(db, file_id, definition, config))
+            .collect(),
+    }
 }
 
 fn macro_param_references_for_definition(
