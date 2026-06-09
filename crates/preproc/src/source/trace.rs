@@ -81,6 +81,9 @@ impl From<PreprocessorTraceMacroOperationIdentity> for SourceMacroOperationIdent
             definition: SourceMacroDefinitionKey::from(value.definition_id),
             expansion: SourceMacroExpansionKey::from(value.expansion_id),
             parent_expansion: value.parent_expansion_id.map(SourceMacroExpansionKey::from),
+            body_token_index: value.body_token_index as usize,
+            argument_index: value.argument_index.map(|index| index as usize),
+            argument_token_index: value.argument_token_index.map(|index| index as usize),
         }
     }
 }
