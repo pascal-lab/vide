@@ -27,7 +27,7 @@ use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
-    render, source_tokens::SourceTokenSelection,
+    render, source_targets::SourceTarget,
 };
 
 const MACRO_EXPANSION_SEPARATOR: &str = "--------------------";
@@ -73,7 +73,7 @@ pub(crate) fn hover(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let selection = crate::source_tokens::source_token_resolution_at_offset(
+    let target = crate::source_targets::source_target_at_offset(
         db,
         file_id,
         root,
@@ -81,16 +81,16 @@ pub(crate) fn hover(
         token_precedence,
     )?
     .resolved()?;
-    let hover = hover_for_source_token_selection(&sema, hir_file_id, selection)?;
+    let hover = hover_for_source_target(&sema, hir_file_id, target)?;
     Some(with_expanded_macro_hover(db, file_id, offset, hover))
 }
 
-fn hover_for_source_token_selection(
+fn hover_for_source_target(
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
-    selection: SourceTokenSelection<'_>,
+    target: SourceTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
-    let (range, tokens) = selection.into_parts();
+    let (range, tokens) = target.into_parts();
     hover_for_token_selection(sema, hir_file_id, range, tokens)
 }
 

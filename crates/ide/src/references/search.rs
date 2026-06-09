@@ -27,7 +27,7 @@ use crate::{
     ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
-    source_tokens::SourceTokenRequestCache,
+    source_targets::SourceTargetRequestCache,
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -205,7 +205,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             self.def.origins().into_iter().filter_map(|def| def.name_range(db)).collect();
 
         let finder = &Finder::new(&name);
-        let mut source_token_cache = SourceTokenRequestCache::default();
+        let mut source_target_cache = SourceTargetRequestCache::default();
         for (text, file_id, range) in self.scope_files() {
             self.sema.db.unwind_if_cancelled();
 
@@ -221,7 +221,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
                         file_id,
                         &def_ranges,
                         offset,
-                        &mut source_token_cache,
+                        &mut source_target_cache,
                     )
                 })
                 .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
@@ -274,21 +274,21 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         file_id: FileId,
         names: &[InFile<TextRange>],
         offset: TextSize,
-        source_token_cache: &mut SourceTokenRequestCache,
+        source_target_cache: &mut SourceTargetRequestCache,
     ) -> Vec<SyntaxTokenWithParent<'tree>> {
-        let Some(selection) = crate::source_tokens::source_token_resolution_at_offset_with_cache(
+        let Some(target) = crate::source_targets::source_target_at_offset_with_cache(
             db,
             file_id,
             node,
             offset,
             super::token_precedence,
-            source_token_cache,
+            source_target_cache,
         )
         .and_then(|resolution| resolution.resolved()) else {
             return Vec::new();
         };
 
-        selection
+        target
             .into_tokens()
             .into_iter()
             .filter(|tok| tok.kind().name_like())
