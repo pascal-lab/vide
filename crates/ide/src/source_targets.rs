@@ -1,7 +1,8 @@
 use hir::{
     base_db::source_db::{SourceDb, SourcePreprocQueryError},
     preproc::{
-        EmittedTokenProvenance, MacroDefinitionId, MacroExpansionProvenance, MappedPreprocSource,
+        EmittedTokenProvenance, MacroArgumentTokenIdentity, MacroBodyTokenIdentity,
+        MacroDefinitionId, MacroExpansionProvenance, MacroTokenIdentity, MappedPreprocSource,
         PreprocError, TokenProvenance, macro_expansion_provenances_at,
     },
 };
@@ -16,30 +17,30 @@ use vfs::FileId;
 use crate::db::root_db::RootDb;
 
 #[derive(Debug, Clone)]
-pub(crate) enum SourceTokenResolution<'tree> {
-    Resolved(SourceTokenSelection<'tree>),
-    Blocked(SourceTokenBlock),
+pub(crate) enum SourceTargetResolution<'tree> {
+    Resolved(SourceTarget<'tree>),
+    Blocked(SourceTargetBlock),
 }
 
-impl<'tree> SourceTokenResolution<'tree> {
-    pub(crate) fn resolved(self) -> Option<SourceTokenSelection<'tree>> {
+impl<'tree> SourceTargetResolution<'tree> {
+    pub(crate) fn resolved(self) -> Option<SourceTarget<'tree>> {
         match self {
             Self::Resolved(selection) => Some(selection),
-            Self::Blocked(SourceTokenBlock { .. }) => None,
+            Self::Blocked(SourceTargetBlock { .. }) => None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SourceTokenSelection<'tree> {
-    pub origin: SourceTokenOrigin,
+pub(crate) struct SourceTarget<'tree> {
+    pub origin: SourceTargetOrigin,
     pub range: TextRange,
     pub tokens: Vec<SyntaxTokenWithParent<'tree>>,
 }
 
-impl<'tree> SourceTokenSelection<'tree> {
+impl<'tree> SourceTarget<'tree> {
     fn normal_syntax(range: TextRange, tokens: Vec<SyntaxTokenWithParent<'tree>>) -> Self {
-        Self { origin: SourceTokenOrigin::NormalSyntax, range, tokens }
+        Self { origin: SourceTargetOrigin::NormalSyntax, range, tokens }
     }
 
     fn preproc(
@@ -47,14 +48,14 @@ impl<'tree> SourceTokenSelection<'tree> {
         hits: Vec<PreprocTokenHit>,
         tokens: Vec<SyntaxTokenWithParent<'tree>>,
     ) -> Self {
-        Self { origin: SourceTokenOrigin::Preproc { hits }, range, tokens }
+        Self { origin: SourceTargetOrigin::Preproc { hits }, range, tokens }
     }
 
     pub(crate) fn into_parts(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
         let Self { origin, range, tokens } = self;
         match origin {
-            SourceTokenOrigin::NormalSyntax => (range, tokens),
-            SourceTokenOrigin::Preproc { hits } => {
+            SourceTargetOrigin::NormalSyntax => (range, tokens),
+            SourceTargetOrigin::Preproc { hits } => {
                 let _hit_count = hits.len();
                 (range, tokens)
             }
@@ -67,54 +68,54 @@ impl<'tree> SourceTokenSelection<'tree> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SourceTokenOrigin {
+pub(crate) enum SourceTargetOrigin {
     NormalSyntax,
     Preproc { hits: Vec<PreprocTokenHit> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SourceTokenDomain {
+pub(crate) enum SourceTargetDomain {
     Preproc,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SourceTokenBlock {
-    pub domain: SourceTokenDomain,
+pub(crate) struct SourceTargetBlock {
+    pub domain: SourceTargetDomain,
     pub range: TextRange,
-    pub reason: SourceTokenBlockReason,
+    pub reason: SourceTargetBlockReason,
 }
 
-impl SourceTokenBlock {
+impl SourceTargetBlock {
     fn preproc_unavailable(range: TextRange) -> Self {
         Self {
-            domain: SourceTokenDomain::Preproc,
+            domain: SourceTargetDomain::Preproc,
             range,
-            reason: SourceTokenBlockReason::Unavailable,
+            reason: SourceTargetBlockReason::Unavailable,
         }
     }
 
     fn preproc_ambiguous(range: TextRange, hits: Vec<PreprocTokenHit>) -> Self {
         Self {
-            domain: SourceTokenDomain::Preproc,
+            domain: SourceTargetDomain::Preproc,
             range,
-            reason: SourceTokenBlockReason::Ambiguous { hits },
+            reason: SourceTargetBlockReason::Ambiguous { hits },
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SourceTokenBlockReason {
+pub(crate) enum SourceTargetBlockReason {
     Unavailable,
     Ambiguous { hits: Vec<PreprocTokenHit> },
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct SourceTokenRequestCache {
+pub(crate) struct SourceTargetRequestCache {
     provenance_by_offset:
         FxHashMap<(FileId, TextSize), Result<Vec<MacroExpansionProvenance>, PreprocError>>,
 }
 
-impl SourceTokenRequestCache {
+impl SourceTargetRequestCache {
     fn macro_expansion_provenances_at(
         &mut self,
         db: &RootDb,
@@ -146,7 +147,7 @@ pub(crate) struct PreprocTokenHit {
     pub display_range: TextRange,
     pub source_range: TextRange,
     pub provenance: PreprocTokenProvenance,
-    target: PreprocSemanticTarget,
+    target: PreprocSourceTarget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,12 +157,14 @@ pub(crate) enum PreprocTokenProvenance {
         range: TextRange,
     },
     MacroBody {
+        identity: MacroBodyTokenIdentity,
         call: usize,
         definition_id: MacroDefinitionId,
         source: MappedPreprocSource,
         range: TextRange,
     },
     MacroArgument {
+        identity: MacroArgumentTokenIdentity,
         call: usize,
         argument_index: usize,
         source: MappedPreprocSource,
@@ -170,116 +173,116 @@ pub(crate) enum PreprocTokenProvenance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum PreprocSemanticTarget {
+enum PreprocSourceTarget {
     SourceToken { source: MappedPreprocSource, range: TextRange },
     MacroBody { definition_id: MacroDefinitionId, source: MappedPreprocSource, range: TextRange },
 }
 
-pub(crate) fn source_token_resolution_at_offset<'tree, F>(
+pub(crate) fn source_target_at_offset<'tree, F>(
     db: &RootDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: F,
-) -> Option<SourceTokenResolution<'tree>>
+) -> Option<SourceTargetResolution<'tree>>
 where
     F: Fn(TokenKind) -> usize,
 {
-    let mut cache = SourceTokenRequestCache::default();
-    source_token_resolution_at_offset_with_cache(db, file_id, root, offset, precedence, &mut cache)
+    let mut cache = SourceTargetRequestCache::default();
+    source_target_at_offset_with_cache(db, file_id, root, offset, precedence, &mut cache)
 }
 
-pub(crate) fn source_token_resolution_at_offset_with_cache<'tree, F>(
+pub(crate) fn source_target_at_offset_with_cache<'tree, F>(
     db: &RootDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: F,
-    cache: &mut SourceTokenRequestCache,
-) -> Option<SourceTokenResolution<'tree>>
+    cache: &mut SourceTargetRequestCache,
+) -> Option<SourceTargetResolution<'tree>>
 where
     F: Fn(TokenKind) -> usize,
 {
-    match preproc_source_token_at_offset(db, file_id, root, offset, &precedence, cache) {
-        SourceTokenProviderResult::NotApplicable => {
-            normal_syntax_source_token_at_offset(root, offset, &precedence).into_resolution()
+    match preproc_source_target_at_offset(db, file_id, root, offset, &precedence, cache) {
+        SourceTargetProviderResult::NotApplicable => {
+            normal_syntax_source_target_at_offset(root, offset, &precedence).into_resolution()
         }
         result => result.into_resolution(),
     }
 }
 
-fn normal_syntax_source_token_at_offset<'tree>(
+fn normal_syntax_source_target_at_offset<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
-) -> SourceTokenProviderResult<'tree> {
+) -> SourceTargetProviderResult<'tree> {
     let Some(token) = root.token_at_offset(offset).pick_bext_token(precedence) else {
-        return SourceTokenProviderResult::NotApplicable;
+        return SourceTargetProviderResult::NotApplicable;
     };
     let Some(range) = token.text_range() else {
-        return SourceTokenProviderResult::NotApplicable;
+        return SourceTargetProviderResult::NotApplicable;
     };
-    SourceTokenProviderResult::Resolved(SourceTokenSelection::normal_syntax(range, vec![token]))
+    SourceTargetProviderResult::Resolved(SourceTarget::normal_syntax(range, vec![token]))
 }
 
-enum SourceTokenProviderResult<'tree> {
-    Resolved(SourceTokenSelection<'tree>),
-    Blocked(SourceTokenBlock),
+enum SourceTargetProviderResult<'tree> {
+    Resolved(SourceTarget<'tree>),
+    Blocked(SourceTargetBlock),
     NotApplicable,
 }
 
-impl<'tree> SourceTokenProviderResult<'tree> {
-    fn into_resolution(self) -> Option<SourceTokenResolution<'tree>> {
+impl<'tree> SourceTargetProviderResult<'tree> {
+    fn into_resolution(self) -> Option<SourceTargetResolution<'tree>> {
         match self {
-            Self::Resolved(selection) => Some(SourceTokenResolution::Resolved(selection)),
-            Self::Blocked(block) => Some(SourceTokenResolution::Blocked(block)),
+            Self::Resolved(selection) => Some(SourceTargetResolution::Resolved(selection)),
+            Self::Blocked(block) => Some(SourceTargetResolution::Blocked(block)),
             Self::NotApplicable => None,
         }
     }
 }
 
-fn preproc_source_token_at_offset<'tree>(
+fn preproc_source_target_at_offset<'tree>(
     db: &RootDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
-    cache: &mut SourceTokenRequestCache,
-) -> SourceTokenProviderResult<'tree> {
+    cache: &mut SourceTargetRequestCache,
+) -> SourceTargetProviderResult<'tree> {
     if !source_macro_invocation_may_cover_offset(db.file_text(file_id).as_ref(), offset) {
-        return SourceTokenProviderResult::NotApplicable;
+        return SourceTargetProviderResult::NotApplicable;
     }
 
     let provenances = match cache.macro_expansion_provenances_at(db, file_id, offset) {
         Ok(provenances) => provenances,
         Err(PreprocError::SourceQuery(SourcePreprocQueryError::UnsupportedFileKind(_))) => {
-            return SourceTokenProviderResult::NotApplicable;
+            return SourceTargetProviderResult::NotApplicable;
         }
         Err(_) => {
-            return SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_unavailable(
+            return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(
                 TextRange::empty(offset),
             ));
         }
     };
     if provenances.is_empty() {
-        return SourceTokenProviderResult::NotApplicable;
+        return SourceTargetProviderResult::NotApplicable;
     }
 
     match preproc_hits_at_offset(&provenances, file_id, offset) {
         PreprocHitLookup::Available { range, hits } => {
             let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
             else {
-                return SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_unavailable(
-                    range,
-                ));
+                return SourceTargetProviderResult::Blocked(
+                    SourceTargetBlock::preproc_unavailable(range),
+                );
             };
-            SourceTokenProviderResult::Resolved(SourceTokenSelection::preproc(range, hits, tokens))
+            SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, hits, tokens))
         }
         PreprocHitLookup::Unavailable { range } => {
-            SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_unavailable(range))
+            SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range))
         }
         PreprocHitLookup::Ambiguous { range, hits } => {
-            SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_ambiguous(range, hits))
+            SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(range, hits))
         }
     }
 }
@@ -337,35 +340,37 @@ fn preproc_hit_for_token(
             source.clone(),
             *range,
             PreprocTokenProvenance::SourceToken { source: source.clone(), range: *range },
-            PreprocSemanticTarget::SourceToken { source: source.clone(), range: *range },
+            PreprocSourceTarget::SourceToken { source: source.clone(), range: *range },
             expansion.expansion.call.id.raw(),
         ),
-        TokenProvenance::MacroBody { call, definition_id, source, range, .. } => (
+        TokenProvenance::MacroBody { identity, call, definition_id, source, range } => (
             source.clone(),
             *range,
             PreprocTokenProvenance::MacroBody {
+                identity: *identity,
                 call: call.id.raw(),
                 definition_id: *definition_id,
                 source: source.clone(),
                 range: *range,
             },
-            PreprocSemanticTarget::MacroBody {
+            PreprocSourceTarget::MacroBody {
                 definition_id: *definition_id,
                 source: source.clone(),
                 range: *range,
             },
             call.id.raw(),
         ),
-        TokenProvenance::MacroArgument { call, argument_index, source, range, .. } => (
+        TokenProvenance::MacroArgument { identity, call, argument_index, source, range } => (
             source.clone(),
             *range,
             PreprocTokenProvenance::MacroArgument {
+                identity: *identity,
                 call: call.id.raw(),
                 argument_index: *argument_index,
                 source: source.clone(),
                 range: *range,
             },
-            PreprocSemanticTarget::SourceToken { source: source.clone(), range: *range },
+            PreprocSourceTarget::SourceToken { source: source.clone(), range: *range },
             call.id.raw(),
         ),
         TokenProvenance::Predefine { .. }
@@ -403,27 +408,44 @@ fn syntax_tokens_for_preproc_hit<'tree>(
     precedence: &impl Fn(TokenKind) -> usize,
     hits: &[PreprocTokenHit],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
+    let identities = hits.iter().filter_map(macro_token_identity_for_hit).collect::<Vec<_>>();
+    if !identities.is_empty() {
+        return syntax_tokens_for_macro_identities(root, &identities);
+    }
+
+    return normal_syntax_source_target_at_offset(root, offset, precedence)
+        .into_resolution()
+        .and_then(SourceTargetResolution::resolved)
+        .map(SourceTarget::into_tokens);
+}
+
+fn macro_token_identity_for_hit(hit: &PreprocTokenHit) -> Option<MacroTokenIdentity> {
+    match hit.provenance {
+        PreprocTokenProvenance::MacroBody { identity, .. } => {
+            Some(MacroTokenIdentity::Body(identity))
+        }
+        PreprocTokenProvenance::MacroArgument { identity, .. } => {
+            Some(MacroTokenIdentity::Argument(identity))
+        }
+        PreprocTokenProvenance::SourceToken { .. } => None,
+    }
+}
+
+fn syntax_tokens_for_macro_identities<'tree>(
+    root: SyntaxNode<'tree>,
+    identities: &[MacroTokenIdentity],
+) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
     let mut tokens = Vec::new();
-    let mut best_precedence = 0;
     for event in root.elem_preorder() {
         let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
             continue;
         };
-        let Some(token_range) = token.text_range() else {
+        let Some(identity) =
+            MacroTokenIdentity::from_syntax_provenance(token.preprocessor_trace_provenance())
+        else {
             continue;
         };
-        if !token_range.contains(offset)
-            || !hits.iter().any(|hit| hit.source_range.intersect(token_range).is_some())
-        {
-            continue;
-        }
-
-        let token_precedence = precedence(token.kind());
-        if token_precedence > best_precedence {
-            tokens.clear();
-            best_precedence = token_precedence;
-        }
-        if token_precedence == best_precedence && !tokens.contains(&token) {
+        if identities.contains(&identity) && !tokens.contains(&token) {
             tokens.push(token);
         }
     }
@@ -537,12 +559,14 @@ fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{SyntaxTree, token::TokenKindExt};
+    use syntax::{
+        PreprocessorTraceTokenProvenance, SyntaxTree, SyntaxTreeOptions, token::TokenKindExt,
+    };
 
     use super::*;
 
     #[test]
-    fn source_tokens_provenance_source_range_hit_test_is_half_open() {
+    fn source_targets_provenance_source_range_hit_test_is_half_open() {
         let file_id = FileId(0);
         let range = TextRange::new(5.into(), 10.into());
         let provenance = TokenProvenance::SourceToken {
@@ -565,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn source_tokens_preproc_range_mismatch_still_selects_by_identity() {
+    fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
         let (root, offset, parser_range) =
             root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
         let file_id = FileId(0);
@@ -575,18 +599,18 @@ mod tests {
         );
         let hit = test_source_hit(file_id, provenance_range, 0);
 
-        let SourceTokenProviderResult::Resolved(selection) = preproc_provider_result_from_hits(
+        let SourceTargetProviderResult::Resolved(selection) = preproc_provider_result_from_hits(
             root,
             offset,
             &test_precedence,
             vec![hit],
             provenance_range,
         ) else {
-            panic!("preproc identity hit should select without exact parser range equality");
+            panic!("source-token hit should select by the original syntax token at the offset");
         };
 
         assert_eq!(selection.range, provenance_range);
-        let SourceTokenOrigin::Preproc { hits } = &selection.origin else {
+        let SourceTargetOrigin::Preproc { hits } = &selection.origin else {
             panic!("preproc provider should produce a preproc-origin selection");
         };
         assert_eq!(hits.len(), 1);
@@ -596,13 +620,80 @@ mod tests {
     }
 
     #[test]
-    fn source_tokens_preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
+    fn source_targets_macro_argument_selects_syntax_token_by_trace_identity() {
+        let source = r#"`define ID(x) x
+module m;
+  assign y = `ID(payload_i);
+endmodule
+"#;
+        let parsed = SyntaxTree::from_text_with_options_and_trace(
+            source,
+            "source",
+            "sample/rtl/top.sv",
+            &SyntaxTreeOptions::default(),
+        );
+        let root = parsed.tree.root().expect("test source should parse");
+        let token = root
+            .elem_preorder()
+            .filter_map(|event| match event {
+                WalkEvent::Enter(SyntaxElement::Token(token))
+                    if token.raw_text().as_bytes() == b"payload_i"
+                        && matches!(
+                            token.preprocessor_trace_provenance(),
+                            PreprocessorTraceTokenProvenance::MacroArgument { .. }
+                        ) =>
+                {
+                    Some(token)
+                }
+                _ => None,
+            })
+            .next()
+            .expect("expanded source should contain the macro argument token");
+        let PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } =
+            token.preprocessor_trace_provenance()
+        else {
+            panic!("payload_i should have macro argument provenance");
+        };
+        let expected_identity: MacroArgumentTokenIdentity = identity.into();
+        let file_id = FileId(0);
+        let source_range = source_range(source, "payload_i");
+        let source = MappedPreprocSource::RealFile { file_id };
+        let hit = PreprocTokenHit {
+            expansion: 0,
+            call: 0,
+            emitted_token: 0,
+            display_range: source_range,
+            source_range,
+            provenance: PreprocTokenProvenance::MacroArgument {
+                identity: expected_identity,
+                call: 0,
+                argument_index: 0,
+                source: source.clone(),
+                range: source_range,
+            },
+            target: PreprocSourceTarget::SourceToken { source, range: source_range },
+        };
+
+        let tokens =
+            syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &[hit])
+                .expect("macro argument identity should resolve to a parsed syntax token");
+
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].raw_text().as_bytes(), b"payload_i");
+        assert_eq!(
+            MacroTokenIdentity::from_syntax_provenance(tokens[0].preprocessor_trace_provenance()),
+            Some(MacroTokenIdentity::Argument(expected_identity))
+        );
+    }
+
+    #[test]
+    fn source_targets_preproc_owned_unresolved_does_not_use_normal_syntax_fallback() {
         let (root, offset, parser_range) =
             root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
         assert!(
             matches!(
-                normal_syntax_source_token_at_offset(root, offset, &test_precedence),
-                SourceTokenProviderResult::Resolved(_)
+                normal_syntax_source_target_at_offset(root, offset, &test_precedence),
+                SourceTargetProviderResult::Resolved(_)
             ),
             "test setup must have an ordinary syntax token that fallback could have selected"
         );
@@ -616,38 +707,38 @@ mod tests {
         );
         assert!(matches!(
             lookup,
-            SourceTokenProviderResult::Blocked(SourceTokenBlock {
-                domain: SourceTokenDomain::Preproc,
-                reason: SourceTokenBlockReason::Unavailable,
+            SourceTargetProviderResult::Blocked(SourceTargetBlock {
+                domain: SourceTargetDomain::Preproc,
+                reason: SourceTargetBlockReason::Unavailable,
                 ..
             })
         ));
     }
 
     #[test]
-    fn source_tokens_normal_syntax_path_still_selects_non_preproc_offsets() {
+    fn source_targets_normal_syntax_path_still_selects_non_preproc_offsets() {
         let (root, offset, parser_range) =
             root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
-        let SourceTokenProviderResult::Resolved(selection) =
-            normal_syntax_source_token_at_offset(root, offset, &test_precedence)
+        let SourceTargetProviderResult::Resolved(selection) =
+            normal_syntax_source_target_at_offset(root, offset, &test_precedence)
         else {
             panic!("normal syntax token expected");
         };
 
-        assert!(matches!(selection.origin, SourceTokenOrigin::NormalSyntax));
+        assert!(matches!(selection.origin, SourceTargetOrigin::NormalSyntax));
         assert_eq!(selection.range, parser_range);
         assert_eq!(selection.tokens.len(), 1);
     }
 
     #[test]
-    fn source_tokens_macro_provenance_gate_skips_plain_identifiers() {
+    fn source_targets_macro_provenance_gate_skips_plain_identifiers() {
         let text = "module m; wire payload_i; endmodule\n";
 
         assert!(!source_macro_invocation_may_cover_offset(text, offset(text, "payload_i")));
     }
 
     #[test]
-    fn source_tokens_macro_provenance_gate_keeps_macro_names_and_arguments() {
+    fn source_targets_macro_provenance_gate_keeps_macro_names_and_arguments() {
         let text = "module m; wire `MAKE_DECL(payload_i); endmodule\n";
 
         assert!(source_macro_invocation_may_cover_offset(text, offset(text, "`MAKE_DECL")));
@@ -655,14 +746,14 @@ mod tests {
     }
 
     #[test]
-    fn source_tokens_macro_provenance_gate_keeps_outer_arguments_after_nested_macros() {
+    fn source_targets_macro_provenance_gate_keeps_outer_arguments_after_nested_macros() {
         let text = "assign y = `OUTER(a, `INNER(b), payload_i);\n";
 
         assert!(source_macro_invocation_may_cover_offset(text, offset(text, "payload_i")));
     }
 
     #[test]
-    fn source_tokens_dedups_preproc_hits_for_same_semantic_target() {
+    fn source_targets_dedups_preproc_hits_for_same_semantic_target() {
         let (root, offset, parser_range) =
             root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 0);
         let file_id = FileId(0);
@@ -671,20 +762,20 @@ mod tests {
             test_source_hit(file_id, parser_range, 1),
         ];
 
-        let SourceTokenProviderResult::Resolved(selection) =
+        let SourceTargetProviderResult::Resolved(selection) =
             preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range)
         else {
             panic!("same semantic target should dedup to one available preproc hit");
         };
 
-        let SourceTokenOrigin::Preproc { hits } = selection.origin else {
+        let SourceTargetOrigin::Preproc { hits } = selection.origin else {
             panic!("preproc provider should produce a preproc-origin selection");
         };
         assert_eq!(hits.len(), 1);
     }
 
     #[test]
-    fn source_tokens_reports_ambiguous_preproc_hits_for_conflicting_targets() {
+    fn source_targets_reports_ambiguous_preproc_hits_for_conflicting_targets() {
         let (root, offset, parser_range) =
             root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
         let file_id = FileId(0);
@@ -692,8 +783,8 @@ mod tests {
         let second = TextRange::new(parser_range.start() + TextSize::from(1), parser_range.end());
         let hits = vec![test_source_hit(file_id, first, 0), test_source_hit(file_id, second, 1)];
 
-        let SourceTokenProviderResult::Blocked(SourceTokenBlock {
-            reason: SourceTokenBlockReason::Ambiguous { hits },
+        let SourceTargetProviderResult::Blocked(SourceTargetBlock {
+            reason: SourceTargetBlockReason::Ambiguous { hits },
             ..
         }) = preproc_provider_result_from_hits(root, offset, &test_precedence, hits, parser_range)
         else {
@@ -704,8 +795,8 @@ mod tests {
     }
 
     #[test]
-    fn source_token_request_cache_reuses_provenance_lookup_for_repeated_reference_hits() {
-        let mut cache = SourceTokenRequestCache::default();
+    fn source_target_request_cache_reuses_provenance_lookup_for_repeated_reference_hits() {
+        let mut cache = SourceTargetRequestCache::default();
         let mut lookups = 0usize;
         let file_id = FileId(0);
         let offset = TextSize::from(12);
@@ -750,6 +841,11 @@ mod tests {
         TextSize::from(u32::try_from(text.find(needle).expect("needle should exist")).unwrap())
     }
 
+    fn source_range(text: &str, needle: &str) -> TextRange {
+        let start = text.find(needle).expect("needle should exist");
+        TextRange::new(TextSize::from(start as u32), TextSize::from((start + needle.len()) as u32))
+    }
+
     fn test_source_hit(file_id: FileId, range: TextRange, emitted_token: usize) -> PreprocTokenHit {
         let source = MappedPreprocSource::RealFile { file_id };
         PreprocTokenHit {
@@ -759,7 +855,7 @@ mod tests {
             display_range: range,
             source_range: range,
             provenance: PreprocTokenProvenance::SourceToken { source: source.clone(), range },
-            target: PreprocSemanticTarget::SourceToken { source, range },
+            target: PreprocSourceTarget::SourceToken { source, range },
         }
     }
 
@@ -769,7 +865,7 @@ mod tests {
         precedence: &impl Fn(TokenKind) -> usize,
         hits: Vec<PreprocTokenHit>,
         fallback_range: TextRange,
-    ) -> SourceTokenProviderResult<'tree> {
+    ) -> SourceTargetProviderResult<'tree> {
         let mut unique_hits = Vec::new();
         for hit in hits {
             if hit.source_range.contains(offset) {
@@ -777,7 +873,7 @@ mod tests {
             }
         }
         if unique_hits.is_empty() {
-            return SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_unavailable(
+            return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(
                 fallback_range,
             ));
         }
@@ -785,22 +881,18 @@ mod tests {
             covering_range(&unique_hits.iter().map(|hit| hit.source_range).collect::<Vec<_>>())
                 .unwrap_or(fallback_range);
         if unique_hits.len() > 1 {
-            return SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_ambiguous(
+            return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_ambiguous(
                 range,
                 unique_hits,
             ));
         }
         let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &unique_hits)
         else {
-            return SourceTokenProviderResult::Blocked(SourceTokenBlock::preproc_unavailable(
+            return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(
                 range,
             ));
         };
-        SourceTokenProviderResult::Resolved(SourceTokenSelection::preproc(
-            range,
-            unique_hits,
-            tokens,
-        ))
+        SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, unique_hits, tokens))
     }
 
     fn preproc_hit_for_raw_provenance(

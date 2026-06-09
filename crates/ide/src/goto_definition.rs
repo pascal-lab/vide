@@ -40,7 +40,7 @@ pub(crate) fn goto_definition(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let selection = crate::source_tokens::source_token_resolution_at_offset(
+    let target = crate::source_targets::source_target_at_offset(
         db,
         file_id,
         root,
@@ -48,7 +48,7 @@ pub(crate) fn goto_definition(
         token_precedence,
     )?
     .resolved()?;
-    let (range, tokens) = selection.into_parts();
+    let (range, tokens) = target.into_parts();
     let navs = tokens
         .into_iter()
         .filter_map(|token| nav_targets_for_token(db, &sema, hir_file_id, token))

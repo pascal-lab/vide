@@ -1694,9 +1694,13 @@ fn preproc_macro_hover_expands_through_configured_predefine_argument() {
       name``_q <= (next_value); \
     end \
   end
-module top;
+module macro_hover_top(
+  input wire logic clk_i,
+  input wire logic rst_ni
+);
+  `DECL_PIPE(trace, `LANE_WIDTH);
   `/*marker:decl_call*/DECL_PIPE(sample, `LANE_WIDTH);
-  `/*marker:assign_call*/PIPE_ASSIGN(trace, sample_q ^ {{(`LANE_WIDTH-1){1'b0}}, 1'b1});
+  `/*marker:assign_call*/PIPE_ASSIGN(trace, /*marker:assign_arg*/sample_q ^ {{(`LANE_WIDTH-1){1'b0}}, 1'b1});
 endmodule
 "#,
     );
@@ -1774,6 +1778,22 @@ endmodule
             && assign_info.contains("trace_q <= (sample_q ^ {{(12-1){1'b0}}, 1'b1});")
             && !assign_info.contains("unavailable"),
         "PIPE_ASSIGN hover should show actual-argument expansion through configured predefine: {assign_info}"
+    );
+
+    let argument_hover = analysis
+        .hover(
+            position(top_file_id, &top_markers, "assign_arg"),
+            HoverConfig { format: HoverFormat::PlainText },
+        )
+        .unwrap()
+        .expect("PIPE_ASSIGN actual argument hover expected");
+    let argument_info = argument_hover.info.as_str();
+    assert!(
+        argument_info.contains("sample_q")
+            && !argument_info.contains("clk_i")
+            && !argument_info.contains("rst_ni")
+            && !argument_info.contains("trace_q"),
+        "actual argument hover should stay on sample_q only: {argument_info}"
     );
 }
 

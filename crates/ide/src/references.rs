@@ -102,7 +102,7 @@ pub(crate) fn references(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let tokens = crate::source_tokens::source_token_resolution_at_offset(
+    let tokens = crate::source_targets::source_target_at_offset(
         db,
         file_id,
         root,

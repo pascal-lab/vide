@@ -40,7 +40,7 @@ pub mod rename;
 pub mod selection_ranges;
 pub mod semantic_tokens;
 pub mod signature_help;
-pub(crate) mod source_tokens;
+pub(crate) mod source_targets;
 #[cfg(test)]
 mod test_utils;
 #[cfg(test)]
