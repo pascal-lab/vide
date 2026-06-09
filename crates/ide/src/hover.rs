@@ -7,15 +7,16 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        IncludeTarget, MacroDefinition, MacroExpansionDefinition, MacroParamDefinition,
-        MacroReferenceDefinitions, RecursiveMacroExpansionProvenance, include_directives_at,
-        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
+        IncludeDirective, IncludeTarget, MacroDefinition, MacroExpansionDefinition,
+        MacroParamDefinition, MacroParamReferenceDefinitions, MacroReferenceDefinitions,
+        RecursiveMacroExpansionProvenance, include_directives_at, macro_definition_at,
+        macro_param_definition_at, macro_param_reference_definitions_at,
         macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
 };
 use syntax::{
-    SyntaxTokenWithParent, TokenKind,
+    SyntaxNode, SyntaxTokenWithParent, TokenKind,
     ast::{self, AstNode},
     token::TokenKindExt,
 };
@@ -26,8 +27,12 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
-    render, source_targets::SourceTarget,
+    FilePosition, RangeInfo,
+    db::root_db::RootDb,
+    definitions::DefinitionClass,
+    markup::Markup,
+    render,
+    source_targets::{SourceTarget, source_target_at_offset},
 };
 
 const MACRO_EXPANSION_SEPARATOR: &str = "--------------------";
@@ -37,9 +42,17 @@ struct MacroSourceLink {
     target: String,
 }
 
-struct PreprocMacroHover {
-    hover: RangeInfo<Markup>,
-    reference_definitions: Option<MacroReferenceDefinitions>,
+enum HoverTarget<'tree> {
+    Macro(MacroHoverTarget),
+    Include(Vec<IncludeDirective>),
+    Source(SourceTarget<'tree>),
+}
+
+enum MacroHoverTarget {
+    ParamDefinition(MacroParamDefinition),
+    ParamReference(MacroParamReferenceDefinitions),
+    Definition(MacroDefinition),
+    Reference(MacroReferenceDefinitions),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,31 +71,45 @@ pub(crate) fn hover(
     FilePosition { file_id, offset }: FilePosition,
     _config: HoverConfig,
 ) -> Option<RangeInfo<Markup>> {
-    if let Some(macro_hover) = handle_preproc_macro(db, file_id, offset) {
-        return Some(
-            expanded_macro_hover(db, file_id, offset, macro_hover.reference_definitions.as_ref())
-                .unwrap_or(macro_hover.hover),
-        );
-    }
-
-    if let Some(include) = handle_preproc_include(db, file_id, offset) {
-        return Some(include);
-    }
-
     let sema = Semantics::new(db);
-    let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
-    let root = parsed_file.root()?;
-    let target = crate::source_targets::source_target_at_offset(
-        db,
-        file_id,
-        root,
-        offset,
-        token_precedence,
-    )?
-    .resolved()?;
-    let hover = hover_for_source_target(&sema, hir_file_id, target)?;
-    Some(with_expanded_macro_hover(db, file_id, offset, hover))
+    let target = dispatch_hover_target(db, file_id, offset, parsed_file.root())?;
+    render_hover_target(db, file_id, offset, &sema, target)
+}
+
+fn dispatch_hover_target<'tree>(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    root: Option<SyntaxNode<'tree>>,
+) -> Option<HoverTarget<'tree>> {
+    if let Some(macro_target) = dispatch_macro_hover_target(db, file_id, offset) {
+        return Some(HoverTarget::Macro(macro_target));
+    }
+    if let Some(includes) = dispatch_include_hover_target(db, file_id, offset) {
+        return Some(HoverTarget::Include(includes));
+    }
+    let root = root?;
+    let target =
+        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
+    Some(HoverTarget::Source(target))
+}
+
+fn render_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    sema: &Semantics<RootDb>,
+    target: HoverTarget<'_>,
+) -> Option<RangeInfo<Markup>> {
+    match target {
+        HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, target),
+        HoverTarget::Include(includes) => render_include_hover(db, includes),
+        HoverTarget::Source(target) => {
+            let hover = hover_for_source_target(sema, file_id.into(), target)?;
+            Some(with_expanded_macro_hover(db, file_id, offset, hover))
+        }
+    }
 }
 
 fn hover_for_source_target(
@@ -420,56 +447,63 @@ fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
     Some(TextRange::new(start, end))
 }
 
-fn handle_preproc_macro(
+fn dispatch_macro_hover_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<PreprocMacroHover> {
+) -> Option<MacroHoverTarget> {
     if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
-        return Some(PreprocMacroHover {
-            hover: RangeInfo::new(definition.range, macro_param_definition_markup(&definition)),
-            reference_definitions: None,
-        });
+        return Some(MacroHoverTarget::ParamDefinition(definition));
     }
 
     if let Ok(Some(param_resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
         if param_resolution.definitions.is_empty() {
             return None;
         }
-        return Some(PreprocMacroHover {
-            hover: RangeInfo::new(
-                param_resolution.range,
-                macro_param_definitions_markup(&param_resolution.definitions),
-            ),
-            reference_definitions: None,
-        });
+        return Some(MacroHoverTarget::ParamReference(param_resolution));
     }
 
     if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
-        return Some(PreprocMacroHover {
-            hover: RangeInfo::new(
-                definition.name_range,
-                macro_definition_markup(db, file_id, &definition),
-            ),
-            reference_definitions: None,
-        });
+        return Some(MacroHoverTarget::Definition(definition));
     }
 
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
-        if resolution.definitions.is_empty() {
-            if let Some(hover) = expanded_macro_hover(db, file_id, offset, Some(&resolution)) {
-                return Some(PreprocMacroHover { hover, reference_definitions: Some(resolution) });
-            }
-            return None;
-        }
-        let hover = RangeInfo::new(
-            resolution.range,
-            macro_definitions_markup(db, file_id, &resolution.definitions),
-        );
-        return Some(PreprocMacroHover { hover, reference_definitions: Some(resolution) });
+        return Some(MacroHoverTarget::Reference(resolution));
     }
 
     None
+}
+
+fn render_macro_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    target: MacroHoverTarget,
+) -> Option<RangeInfo<Markup>> {
+    match target {
+        MacroHoverTarget::ParamDefinition(definition) => {
+            Some(RangeInfo::new(definition.range, macro_param_definition_markup(&definition)))
+        }
+        MacroHoverTarget::ParamReference(param_resolution) => Some(RangeInfo::new(
+            param_resolution.range,
+            macro_param_definitions_markup(&param_resolution.definitions),
+        )),
+        MacroHoverTarget::Definition(definition) => Some(RangeInfo::new(
+            definition.name_range,
+            macro_definition_markup(db, file_id, &definition),
+        )),
+        MacroHoverTarget::Reference(resolution) => {
+            if resolution.definitions.is_empty() {
+                return expanded_macro_hover(db, file_id, offset, Some(&resolution));
+            }
+            expanded_macro_hover(db, file_id, offset, Some(&resolution)).or_else(|| {
+                Some(RangeInfo::new(
+                    resolution.range,
+                    macro_definitions_markup(db, file_id, &resolution.definitions),
+                ))
+            })
+        }
+    }
 }
 
 fn macro_param_definition_markup(definition: &MacroParamDefinition) -> Markup {
@@ -568,12 +602,16 @@ fn macro_definition_body_text(definition: &MacroDefinition) -> String {
     definition.body_tokens.iter().map(|token| token.as_str()).collect::<Vec<_>>().join(" ")
 }
 
-fn handle_preproc_include(
+fn dispatch_include_hover_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-) -> Option<RangeInfo<Markup>> {
+) -> Option<Vec<IncludeDirective>> {
     let includes = include_directives_at(db, file_id, offset).ok()?;
+    (!includes.is_empty()).then_some(includes)
+}
+
+fn render_include_hover(db: &RootDb, includes: Vec<IncludeDirective>) -> Option<RangeInfo<Markup>> {
     let range = includes.first()?.range;
     let mut markup = Markup::new();
     markup.print("Include");
