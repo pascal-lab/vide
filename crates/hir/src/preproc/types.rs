@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId, SourceMacroCallId,
-    SourceMacroDefinitionId, SourceMacroExpansionId, SourceMacroReferenceId, SourcePreprocError,
-    SourcePreprocUnavailable,
+    SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId,
+    SourceMacroArgumentIdentity, SourceMacroBodyIdentity, SourceMacroCallId, SourceMacroCallKey,
+    SourceMacroDefinitionId, SourceMacroDefinitionKey, SourceMacroExpansionId,
+    SourceMacroExpansionKey, SourceMacroReferenceId, SourcePreprocError, SourcePreprocUnavailable,
 };
 use smol_str::SmolStr;
 use utils::{
@@ -351,12 +352,14 @@ pub enum TokenProvenance {
         range: TextRange,
     },
     MacroBody {
+        identity: MacroBodyTokenIdentity,
         call: MacroCall,
         definition_id: MacroDefinitionId,
         source: MappedPreprocSource,
         range: TextRange,
     },
     MacroArgument {
+        identity: MacroArgumentTokenIdentity,
         call: MacroCall,
         argument_index: usize,
         source: MappedPreprocSource,
@@ -376,6 +379,167 @@ pub enum TokenProvenance {
         call: MacroCall,
     },
     Unavailable(PreprocUnavailable),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MacroCallIdentity(u32);
+
+impl MacroCallIdentity {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<SourceMacroCallKey> for MacroCallIdentity {
+    fn from(value: SourceMacroCallKey) -> Self {
+        Self(value.raw())
+    }
+}
+
+impl From<syntax::PreprocessorTraceMacroCallId> for MacroCallIdentity {
+    fn from(value: syntax::PreprocessorTraceMacroCallId) -> Self {
+        Self(value.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MacroDefinitionIdentity(u32);
+
+impl MacroDefinitionIdentity {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<SourceMacroDefinitionKey> for MacroDefinitionIdentity {
+    fn from(value: SourceMacroDefinitionKey) -> Self {
+        Self(value.raw())
+    }
+}
+
+impl From<syntax::PreprocessorTraceMacroDefinitionId> for MacroDefinitionIdentity {
+    fn from(value: syntax::PreprocessorTraceMacroDefinitionId) -> Self {
+        Self(value.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MacroExpansionIdentity(u32);
+
+impl MacroExpansionIdentity {
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<SourceMacroExpansionKey> for MacroExpansionIdentity {
+    fn from(value: SourceMacroExpansionKey) -> Self {
+        Self(value.raw())
+    }
+}
+
+impl From<syntax::PreprocessorTraceMacroExpansionId> for MacroExpansionIdentity {
+    fn from(value: syntax::PreprocessorTraceMacroExpansionId) -> Self {
+        Self(value.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MacroBodyTokenIdentity {
+    pub call: MacroCallIdentity,
+    pub definition: MacroDefinitionIdentity,
+    pub expansion: MacroExpansionIdentity,
+    pub parent_expansion: Option<MacroExpansionIdentity>,
+    pub body_token_index: usize,
+}
+
+impl From<SourceMacroBodyIdentity> for MacroBodyTokenIdentity {
+    fn from(value: SourceMacroBodyIdentity) -> Self {
+        Self {
+            call: value.call.into(),
+            definition: value.definition.into(),
+            expansion: value.expansion.into(),
+            parent_expansion: value.parent_expansion.map(Into::into),
+            body_token_index: value.body_token_index,
+        }
+    }
+}
+
+impl From<syntax::PreprocessorTraceMacroBodyIdentity> for MacroBodyTokenIdentity {
+    fn from(value: syntax::PreprocessorTraceMacroBodyIdentity) -> Self {
+        Self {
+            call: value.call_id.into(),
+            definition: value.definition_id.into(),
+            expansion: value.expansion_id.into(),
+            parent_expansion: value.parent_expansion_id.map(Into::into),
+            body_token_index: value.body_token_index as usize,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MacroArgumentTokenIdentity {
+    pub call: MacroCallIdentity,
+    pub definition: MacroDefinitionIdentity,
+    pub expansion: MacroExpansionIdentity,
+    pub parent_expansion: Option<MacroExpansionIdentity>,
+    pub body_token_index: usize,
+    pub argument_index: usize,
+    pub argument_token_index: usize,
+}
+
+impl From<SourceMacroArgumentIdentity> for MacroArgumentTokenIdentity {
+    fn from(value: SourceMacroArgumentIdentity) -> Self {
+        Self {
+            call: value.call.into(),
+            definition: value.definition.into(),
+            expansion: value.expansion.into(),
+            parent_expansion: value.parent_expansion.map(Into::into),
+            body_token_index: value.body_token_index,
+            argument_index: value.argument_index,
+            argument_token_index: value.argument_token_index,
+        }
+    }
+}
+
+impl From<syntax::PreprocessorTraceMacroArgumentIdentity> for MacroArgumentTokenIdentity {
+    fn from(value: syntax::PreprocessorTraceMacroArgumentIdentity) -> Self {
+        Self {
+            call: value.call_id.into(),
+            definition: value.definition_id.into(),
+            expansion: value.expansion_id.into(),
+            parent_expansion: value.parent_expansion_id.map(Into::into),
+            body_token_index: value.body_token_index as usize,
+            argument_index: value.argument_index as usize,
+            argument_token_index: value.argument_token_index as usize,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MacroTokenIdentity {
+    Body(MacroBodyTokenIdentity),
+    Argument(MacroArgumentTokenIdentity),
+}
+
+impl MacroTokenIdentity {
+    pub fn from_syntax_provenance(
+        provenance: syntax::PreprocessorTraceTokenProvenance,
+    ) -> Option<Self> {
+        match provenance {
+            syntax::PreprocessorTraceTokenProvenance::MacroBody { identity, .. } => {
+                Some(Self::Body(identity.into()))
+            }
+            syntax::PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } => {
+                Some(Self::Argument(identity.into()))
+            }
+            syntax::PreprocessorTraceTokenProvenance::Source { .. }
+            | syntax::PreprocessorTraceTokenProvenance::Builtin { .. }
+            | syntax::PreprocessorTraceTokenProvenance::TokenPaste { .. }
+            | syntax::PreprocessorTraceTokenProvenance::Stringification { .. }
+            | syntax::PreprocessorTraceTokenProvenance::Unavailable => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
