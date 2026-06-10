@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 use collector::SemaTokenCollectorTree;
 use hir::{
+    base_db::source_db::SourceRootDb,
     container::{InContainer, InModule},
     db::HirDb,
     file::HirFileId,
@@ -14,12 +15,12 @@ use hir::{
         },
         stmt::StmtKind,
     },
-    preproc::macro_references_in_range,
     scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
 };
 use smol_str::SmolStr;
+use source_model::{SourceEntity, SourcePurpose, SourceRangeResult};
 use syntax::{ast, has_text_range::HasTextRange};
 use utils::{
     get::{Get, GetRef},
@@ -160,16 +161,30 @@ fn collect_preproc_macro_references(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) {
-    let Ok(references) = macro_references_in_range(db, file_id, range) else {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let Ok(source_graph) = source_graph.as_ref() else {
         return;
     };
+    let graph = &source_graph.graph;
 
-    for reference in references {
-        if reference.range.intersect(collector.range).is_none() {
+    for hit in
+        graph.entities_intersecting_file_range(file_id, range, Some(source_graph.root_context))
+    {
+        let SourceEntity::MacroReference(_) = graph.entity(hit.entity) else {
             continue;
-        }
+        };
+        let selection = graph.selection(hit.selection);
+        let span = selection.focus.unwrap_or(hit.matched_span);
+        let SourceRangeResult::Mapped(file_range) =
+            graph.to_file_range(span, SourcePurpose::SemanticToken)
+        else {
+            continue;
+        };
+        if file_range.file_id != file_id || file_range.range.intersect(collector.range).is_none() {
+            continue;
+        };
         collector.tokens.add(SemaToken {
-            range: reference.range,
+            range: file_range.range,
             tag: SemaTokenTag::Macro,
             mods: SemaTokenModifier::REF,
         });

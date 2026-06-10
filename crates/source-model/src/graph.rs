@@ -217,6 +217,32 @@ impl SourceGraph {
         hits
     }
 
+    pub fn entities_intersecting_file_range(
+        &self,
+        file_id: vfs::FileId,
+        range: utils::line_index::TextRange,
+        _context: Option<SourceContextId>,
+    ) -> Vec<EntityHit> {
+        let mut hits = Vec::new();
+        for (raw, _) in self.entities.iter().enumerate() {
+            let entity = EntityId::new(raw as u32);
+            let Some(selection) = self.entity_selection(entity) else {
+                continue;
+            };
+            let selection_data = self.selection(selection);
+            for span in [selection_data.focus, Some(selection_data.full)].into_iter().flatten() {
+                let span_data = self.span(span);
+                if self.file_id_for_domain(span_data.domain) == Some(file_id)
+                    && span_data.range.intersect(range).is_some()
+                {
+                    hits.push(EntityHit { entity, selection, matched_span: span });
+                    break;
+                }
+            }
+        }
+        hits
+    }
+
     pub fn origins_for_span(&self, span: SpanId) -> Vec<OriginId> {
         self.origins
             .iter()
@@ -430,6 +456,26 @@ mod tests {
         assert_eq!(graph.entity_selection(entity), Some(selection));
         let hits = graph.entities_at_file_position(
             FilePosition { file_id: FileId(1), offset: TextSize::from(9) },
+            None,
+        );
+        assert_eq!(hits, vec![EntityHit { entity, selection, matched_span: focus }]);
+    }
+
+    #[test]
+    fn resolves_entity_selection_hits_file_range() {
+        let mut builder = SourceGraphBuilder::new();
+        let domain = builder.intern_domain(SourceDomain::RealFile { file_id: FileId(1) });
+        let full = builder.intern_span(domain, TextRange::new(8.into(), 20.into()));
+        let focus = builder.intern_span(domain, TextRange::new(10.into(), 14.into()));
+        let selection = builder.intern_selection(full, Some(focus));
+        let entity = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(0)));
+        builder.add_relation(SourceRelation::HasSelection { entity, selection });
+
+        let graph = builder.build();
+
+        let hits = graph.entities_intersecting_file_range(
+            FileId(1),
+            TextRange::new(12.into(), 16.into()),
             None,
         );
         assert_eq!(hits, vec![EntityHit { entity, selection, matched_span: focus }]);
