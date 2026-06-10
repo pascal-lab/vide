@@ -90,8 +90,12 @@ impl From<PreprocessorTraceMacroOperationIdentity> for SourceMacroOperationIdent
 
 impl SourcePreprocIndex {
     pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
-        let root_source = PreprocSourceId::from(trace.root_buffer_id);
-        let include_edges = trace
+        Self::from_slang_snapshot(trace.into())
+    }
+
+    pub fn from_slang_snapshot(snapshot: SlangSourceSnapshot) -> Result<Self, SourcePreprocError> {
+        let root_source = PreprocSourceId::from(snapshot.root_buffer_id);
+        let include_edges = snapshot
             .include_edges
             .iter()
             .map(|edge| SourceIncludeEdge {
@@ -103,10 +107,10 @@ impl SourcePreprocIndex {
             .iter()
             .map(|edge| (edge.included_source, edge.include_event_id))
             .collect::<BTreeMap<_, _>>();
-        let emitted_tokens = trace.emitted_tokens;
+        let emitted_tokens = snapshot.emitted_tokens;
         let mut index = Self {
             root_source: Some(root_source),
-            sources: trace
+            sources: snapshot
                 .source_buffers
                 .into_iter()
                 .map(|source| PreprocSource {
@@ -128,7 +132,7 @@ impl SourcePreprocIndex {
             return Err(SourcePreprocError::MissingRootSource);
         }
 
-        for (source_order, directive) in trace.events.into_iter().enumerate() {
+        for (source_order, directive) in snapshot.events.into_iter().enumerate() {
             collect_trace_event(&mut index, source_order, directive)?;
         }
         index.emitted_tokens = emitted_tokens.into_iter().map(emitted_token_from_trace).collect();

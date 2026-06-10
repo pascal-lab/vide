@@ -9,7 +9,11 @@ impl SourcePreprocModel {
     }
 
     pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
-        let index = SourcePreprocIndex::from_trace(trace)?;
+        Self::from_slang_snapshot(trace.into())
+    }
+
+    pub fn from_slang_snapshot(snapshot: SlangSourceSnapshot) -> Result<Self, SourcePreprocError> {
+        let index = SourcePreprocIndex::from_slang_snapshot(snapshot)?;
         Ok(Self::new(index))
     }
 

@@ -1,7 +1,8 @@
 use ::preproc::source::{
-    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCallId,
-    SourceMacroExpansionId, SourceMacroReferenceId, SourcePosition, SourcePreprocError,
-    SourcePreprocModel, SourcePreprocUnavailable, SourceRange, SourceTokenProvenance,
+    PreprocSourceId, SlangSourceSnapshot, SourceEmittedTokenId, SourceEmittedTokenRange,
+    SourceMacroCallId, SourceMacroExpansionId, SourceMacroReferenceId, SourcePosition,
+    SourcePreprocError, SourcePreprocModel, SourcePreprocUnavailable, SourceRange,
+    SourceTokenProvenance,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
@@ -839,7 +840,7 @@ pub(super) fn source_preproc_model(
             Ok(source_map) => source_map,
             Err(err) => return Arc::new(Err(err)),
         };
-    let model = match SourcePreprocModel::from_trace(trace) {
+    let model = match SourcePreprocModel::from_slang_snapshot(SlangSourceSnapshot::from(trace)) {
         Ok(model) => model,
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
     };

@@ -1,8 +1,20 @@
 use smol_str::SmolStr;
-use syntax::TokenKind;
+use syntax::{
+    PreprocessorTrace, PreprocessorTraceEmittedToken, PreprocessorTraceEvent,
+    PreprocessorTraceIncludeEdge, SourceBufferId, TokenKind,
+};
 use utils::line_index::{TextRange, TextSize};
 
 use super::provenance::SourcePreprocTables;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlangSourceSnapshot {
+    pub root_buffer_id: u32,
+    pub source_buffers: Vec<SourceBufferId>,
+    pub events: Vec<PreprocessorTraceEvent>,
+    pub include_edges: Vec<PreprocessorTraceIncludeEdge>,
+    pub emitted_tokens: Vec<PreprocessorTraceEmittedToken>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PreprocSourceId(u32);
@@ -344,6 +356,18 @@ pub enum SourcePreprocError {
     MissingRootSource,
     MissingEventRange { source_order: usize, kind: MacroEventKind },
     MissingEvent { event_id: u32 },
+}
+
+impl From<PreprocessorTrace> for SlangSourceSnapshot {
+    fn from(trace: PreprocessorTrace) -> Self {
+        Self {
+            root_buffer_id: trace.root_buffer_id,
+            source_buffers: trace.source_buffers,
+            events: trace.events,
+            include_edges: trace.include_edges,
+            emitted_tokens: trace.emitted_tokens,
+        }
+    }
 }
 
 impl PreprocSourceId {
