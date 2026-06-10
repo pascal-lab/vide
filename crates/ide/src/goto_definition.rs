@@ -9,8 +9,13 @@ use hir::{
         macro_reference_definitions_at,
     },
     semantics::Semantics,
+    source_resolver::PositionResolver,
 };
 use itertools::Itertools;
+use source_model::{
+    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    SourceTargetResolution as GraphSourceTargetResolution,
+};
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
     token::{TokenKindExt, pair_token},
@@ -55,16 +60,55 @@ fn dispatch_definition_target<'tree>(
     offset: TextSize,
     root: Option<SyntaxNode<'tree>>,
 ) -> Option<DefinitionTarget<'tree>> {
-    if let Some(target) = dispatch_preproc_definition_target(db, file_id, offset) {
-        return Some(DefinitionTarget::Preproc(Box::new(target)));
-    }
-    if let Some(includes) = dispatch_include_definition_target(db, file_id, offset) {
-        return Some(DefinitionTarget::Include(includes));
+    if let Some(target) = dispatch_source_graph_definition_target(db, file_id, offset) {
+        return Some(target);
     }
     let root = root?;
     let target =
         source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
     Some(DefinitionTarget::Source(target))
+}
+
+fn dispatch_source_graph_definition_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<DefinitionTarget<'static>> {
+    let target = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id, offset },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+    let GraphSourceTargetResolution::Resolved(target) = target else {
+        return None;
+    };
+
+    match target {
+        GraphSourceTarget::MacroParamDefinition(_) => {
+            dispatch_macro_param_definition_target(db, file_id, offset)
+                .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+        }
+        GraphSourceTarget::MacroParamReference(_) => {
+            dispatch_macro_param_reference_target(db, file_id, offset)
+                .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+        }
+        GraphSourceTarget::MacroDefinition(_) => {
+            dispatch_macro_definition_target(db, file_id, offset)
+                .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+        }
+        GraphSourceTarget::MacroReference(_) => {
+            dispatch_macro_reference_target(db, file_id, offset)
+                .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+        }
+        GraphSourceTarget::Include(_) => {
+            dispatch_include_definition_target(db, file_id, offset).map(DefinitionTarget::Include)
+        }
+        GraphSourceTarget::MacroCall(_)
+        | GraphSourceTarget::ExpansionToken(_)
+        | GraphSourceTarget::HirSymbol(_)
+        | GraphSourceTarget::HirReference(_)
+        | GraphSourceTarget::SyntaxToken(_) => None,
+    }
 }
 
 fn render_definition_target(
@@ -120,7 +164,7 @@ fn nav_targets_for_token(
     })
 }
 
-fn dispatch_preproc_definition_target(
+fn dispatch_macro_param_definition_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
@@ -128,19 +172,39 @@ fn dispatch_preproc_definition_target(
     if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
         return Some(PreprocDefinitionTarget::ParamDefinition(definition));
     }
+    None
+}
 
+fn dispatch_macro_param_reference_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<PreprocDefinitionTarget> {
     if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
         return Some(PreprocDefinitionTarget::ParamReference(resolution));
     }
+    None
+}
 
+fn dispatch_macro_definition_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<PreprocDefinitionTarget> {
     if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
         return Some(PreprocDefinitionTarget::Definition(definition));
     }
+    None
+}
 
+fn dispatch_macro_reference_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<PreprocDefinitionTarget> {
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
         return Some(PreprocDefinitionTarget::Reference(resolution));
     }
-
     None
 }
 

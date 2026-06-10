@@ -19,6 +19,7 @@ regex.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
 smol_str.workspace = true
+source-model.workspace = true
 smallvec.workspace = true
 syntax.workspace = true
 thiserror.workspace = true
