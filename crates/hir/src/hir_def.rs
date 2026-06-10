@@ -15,6 +15,12 @@ use la_arena::{Arena, Idx, RawIdx};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{SyntaxToken, ast};
 
+use crate::{
+    base_db::source_db::SourceRootDb,
+    file::HirFileId,
+    source_map::{WrittenOriginLookup, written_origin_lookup_for_file as lookup_written_origins},
+};
+
 pub type Ident = SmolStr;
 
 pub const DEFAULT_NAME: SmolStr = SmolStr::new_static("unnamed");
@@ -57,4 +63,13 @@ impl<T> HirData<T> for Arena<T> {
     fn nxt_idx(&self) -> Idx<T> {
         Idx::from_raw(RawIdx::from(self.len() as u32))
     }
+}
+
+pub(crate) fn written_origin_lookup_for_file(
+    db: &dyn SourceRootDb,
+    file_id: HirFileId,
+) -> Option<WrittenOriginLookup> {
+    let source_graph = db.source_graph_preproc_model(file_id.file_id());
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    Some(lookup_written_origins(&source_graph.graph, file_id.file_id()))
 }

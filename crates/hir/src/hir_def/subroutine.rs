@@ -41,7 +41,7 @@ use crate::{
         expr::{declarator::LowerDecl, timing_control::impl_lower_event_expr},
     },
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::SourceMap,
+    source_map::{ApplyWrittenOriginLookup, SourceMap, WrittenOriginLookup},
 };
 
 define_container! {
@@ -62,6 +62,18 @@ define_container! {
             [LocalBlockId | BlockInfo],
         },
         source_map: SubroutineSourceMap
+    }
+}
+
+impl SubroutineSourceMap {
+    pub(crate) fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        self.declaration_srcs.set_written_origin_lookup(lookup.clone());
+        self.typedef_srcs.set_written_origin_lookup(lookup.clone());
+        self.struct_srcs.set_written_origin_lookup(lookup.clone());
+        self.expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.event_expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.stmt_srcs.set_written_origin_lookup(lookup);
     }
 }
 

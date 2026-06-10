@@ -242,6 +242,16 @@ impl SourceGraph {
         })
     }
 
+    pub fn written_origins_for_file(
+        &self,
+        file_id: vfs::FileId,
+    ) -> impl Iterator<Item = (utils::line_index::TextRange, OriginId)> + '_ {
+        self.written_origin_by_span.iter().filter_map(move |(span, origin)| {
+            let span = self.span(*span);
+            (self.file_id_for_domain(span.domain) == Some(file_id)).then_some((span.range, *origin))
+        })
+    }
+
     pub fn preferred_span(&self, origin: OriginId, purpose: SourcePurpose) -> SourceChoice {
         match self.origin(origin) {
             SourceOrigin::Written { span } => SourceChoice::Span(*span),

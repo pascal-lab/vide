@@ -49,6 +49,7 @@ use super::{
     },
     ty::NetKind,
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
+    written_origin_lookup_for_file,
 };
 use crate::{
     container::{ContainerId, InFile},
@@ -56,7 +57,7 @@ use crate::{
     define_src_with_name_and_token,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{SourceMap, ToAstNode},
+    source_map::{ApplyWrittenOriginLookup, SourceMap, ToAstNode, WrittenOriginLookup},
 };
 
 pub mod continuous_assgin;
@@ -167,6 +168,28 @@ impl Module {
 }
 
 impl ModuleSourceMap {
+    pub(crate) fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        self.port_srcs.set_written_origin_lookup(lookup.clone());
+        self.assign_srcs.set_written_origin_lookup(lookup.clone());
+        self.defparam_srcs.set_written_origin_lookup(lookup.clone());
+        self.generate_region_srcs.set_written_origin_lookup(lookup.clone());
+        self.specify_block_srcs.set_written_origin_lookup(lookup.clone());
+        self.specify_item_srcs.set_written_origin_lookup(lookup.clone());
+        self.declaration_srcs.set_written_origin_lookup(lookup.clone());
+        self.typedef_srcs.set_written_origin_lookup(lookup.clone());
+        self.struct_srcs.set_written_origin_lookup(lookup.clone());
+        self.subroutine_srcs.set_written_origin_lookup(lookup.clone());
+        self.instantiation_srcs.set_written_origin_lookup(lookup.clone());
+        self.inst_param_assign_srcs.set_written_origin_lookup(lookup.clone());
+        self.instance_srcs.set_written_origin_lookup(lookup.clone());
+        self.inst_port_conn_srcs.set_written_origin_lookup(lookup.clone());
+        self.proc_srcs.set_written_origin_lookup(lookup.clone());
+        self.expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.event_expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.stmt_srcs.set_written_origin_lookup(lookup);
+    }
+
     pub fn item_to_ptr(&self, item: &ModuleItem) -> Option<SyntaxNodePtr> {
         Some(match item {
             ModuleItem::ContAssignId(idx) => self.get(*idx)?.0,
@@ -311,6 +334,9 @@ impl LowerModuleCtx<'_> {
         if func.end().is_some() {
             let subroutine = &mut self.module.subroutines[subroutine_id];
             let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
+            if let Some(lookup) = self.module_source_map.assign_srcs.written_origin_lookup() {
+                subroutine_source_map.set_written_origin_lookup(lookup);
+            }
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
@@ -529,6 +555,9 @@ pub(crate) fn module_with_source_map_query(
 
     let mut module = Module { name: file.get(local_module_id).name.clone(), ..Default::default() };
     let mut module_source_map = ModuleSourceMap::default();
+    if let Some(lookup) = written_origin_lookup_for_file(db, file_id) {
+        module_source_map.set_written_origin_lookup(lookup);
+    }
 
     let Some(ast_module) = file_source_map.get(local_module_id).and_then(|src| src.to_node(&tree))
     else {

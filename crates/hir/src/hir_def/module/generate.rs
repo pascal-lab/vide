@@ -47,10 +47,12 @@ use crate::{
             lower_subroutine, lower_subroutine_body,
         },
         typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
+        written_origin_lookup_for_file,
     },
     region_tree::{RegionTree, RegionTreeBuilder},
     source_map::{
-        FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap, ToAstNode, root_token_in,
+        ApplyWrittenOriginLookup, FromSourceAst, IsNamedSrc, IsSrc, SourceAst, SourceMap,
+        ToAstNode, WrittenOriginLookup, root_token_in,
     },
 };
 
@@ -318,6 +320,26 @@ define_container! {
     }
 }
 
+impl GenerateBlockSourceMap {
+    pub(crate) fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        self.assign_srcs.set_written_origin_lookup(lookup.clone());
+        self.defparam_srcs.set_written_origin_lookup(lookup.clone());
+        self.declaration_srcs.set_written_origin_lookup(lookup.clone());
+        self.typedef_srcs.set_written_origin_lookup(lookup.clone());
+        self.struct_srcs.set_written_origin_lookup(lookup.clone());
+        self.subroutine_srcs.set_written_origin_lookup(lookup.clone());
+        self.instantiation_srcs.set_written_origin_lookup(lookup.clone());
+        self.inst_param_assign_srcs.set_written_origin_lookup(lookup.clone());
+        self.instance_srcs.set_written_origin_lookup(lookup.clone());
+        self.inst_port_conn_srcs.set_written_origin_lookup(lookup.clone());
+        self.proc_srcs.set_written_origin_lookup(lookup.clone());
+        self.expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.event_expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.stmt_srcs.set_written_origin_lookup(lookup);
+    }
+}
+
 define_container! {
     #[derive(Default, Debug, PartialEq, Eq)]
     pub struct GenerateBlockSourceMap {
@@ -504,6 +526,10 @@ impl LowerGenerateBlockCtx<'_> {
         if func.end().is_some() {
             let subroutine = &mut self.generate_block.subroutines[subroutine_id];
             let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
+            if let Some(lookup) = self.generate_block_source_map.assign_srcs.written_origin_lookup()
+            {
+                subroutine_source_map.set_written_origin_lookup(lookup);
+            }
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
@@ -883,6 +909,9 @@ pub(crate) fn generate_block_with_source_map_query(
 
     let mut generate_block = GenerateBlock::default();
     let mut generate_block_source_map = GenerateBlockSourceMap::default();
+    if let Some(lookup) = written_origin_lookup_for_file(db, file_id) {
+        generate_block_source_map.set_written_origin_lookup(lookup);
+    }
 
     let mut lower_ctx = LowerGenerateBlockCtx {
         db,

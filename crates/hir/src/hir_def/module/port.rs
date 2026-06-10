@@ -20,7 +20,7 @@ use crate::{
         module::LowerModuleCtx,
         ty::{NetType, lower_net_kind},
     },
-    source_map::SourceMap,
+    source_map::{ApplyWrittenOriginLookup, SourceMap, WrittenOriginLookup},
 };
 
 // structure:
@@ -278,10 +278,26 @@ impl PortSrcs {
     }
 }
 
+impl ApplyWrittenOriginLookup for PortSrcs {
+    fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        match self {
+            PortSrcs::NonAnsi { ports, refs, decls, .. } => {
+                ports.set_written_origin_lookup(lookup.clone());
+                refs.set_written_origin_lookup(lookup.clone());
+                decls.set_written_origin_lookup(lookup);
+            }
+            PortSrcs::Ansi { decls, .. } => decls.set_written_origin_lookup(lookup),
+        }
+    }
+}
+
 impl LowerModuleCtx<'_> {
     pub(crate) fn lower_ansi_ports(&mut self, port_list: ast::AnsiPortList) {
         let mut ports = Arena::default();
         let mut decls = SourceMap::default();
+        if let Some(lookup) = self.module_source_map.assign_srcs.written_origin_lookup() {
+            decls.set_written_origin_lookup(lookup);
+        }
 
         let mut header = None;
         for port in port_list.ports().children() {
@@ -337,10 +353,12 @@ impl LowerModuleCtx<'_> {
     pub(crate) fn lower_wildcard_ports(&mut self, port_list: ast::WildcardPortList) {
         self.region_tree.stage(port_list.close_paren(), port_list.syntax());
         self.module.ports = Ports::Ansi(Arena::default());
-        self.module_source_map.port_srcs = PortSrcs::Ansi {
-            decls: SourceMap::default(),
-            port_list_src: Some(PortListSrc::from(port_list)),
-        };
+        let mut decls = SourceMap::default();
+        if let Some(lookup) = self.module_source_map.assign_srcs.written_origin_lookup() {
+            decls.set_written_origin_lookup(lookup);
+        }
+        self.module_source_map.port_srcs =
+            PortSrcs::Ansi { decls, port_list_src: Some(PortListSrc::from(port_list)) };
     }
 
     pub(crate) fn lower_nonansi_port(&mut self, port_list: ast::NonAnsiPortList) {
@@ -348,6 +366,10 @@ impl LowerModuleCtx<'_> {
         let mut refs = Arena::default();
         let mut port_srcs = SourceMap::default();
         let mut ref_srcs: SourceMap<PortRefSrc, PortRef> = SourceMap::default();
+        if let Some(lookup) = self.module_source_map.assign_srcs.written_origin_lookup() {
+            port_srcs.set_written_origin_lookup(lookup.clone());
+            ref_srcs.set_written_origin_lookup(lookup);
+        }
 
         for port in port_list.ports().children() {
             use ast::{NonAnsiPort::*, PortExpression::*};
@@ -422,10 +444,14 @@ impl LowerModuleCtx<'_> {
         self.region_tree.stage(port_list.close_paren(), port_list.syntax());
 
         self.module.ports = Ports::NonAnsi { ports, refs, decls: Arena::default() };
+        let mut decls = SourceMap::default();
+        if let Some(lookup) = self.module_source_map.assign_srcs.written_origin_lookup() {
+            decls.set_written_origin_lookup(lookup);
+        }
         self.module_source_map.port_srcs = PortSrcs::NonAnsi {
             ports: port_srcs,
             refs: ref_srcs,
-            decls: SourceMap::default(),
+            decls,
             port_list_src: Some(PortListSrc::from(port_list)),
         };
     }

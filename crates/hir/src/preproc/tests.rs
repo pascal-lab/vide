@@ -1,6 +1,7 @@
 use std::fmt;
 
 use rustc_hash::FxHashSet;
+use source_model::FileRange;
 use triomphe::Arc;
 use utils::{
     get::Get,
@@ -26,6 +27,7 @@ use crate::{
     },
     container::InFile,
     db::{HirDb, HirDbStorage, InternDbStorage},
+    file::HirFileId,
     hir_def::module::ModuleId,
     source_map::IsSrc,
 };
@@ -212,6 +214,26 @@ endmodule
         panic!("literal include expected");
     };
     assert_eq!(resolved_file, Some(HEADER));
+}
+
+#[test]
+fn hir_file_source_map_records_written_module_origin() {
+    let root_text = "module top;\nendmodule\n";
+    let db = db_with_entries(&[(TOP, "rtl/top.sv", root_text)]);
+
+    let (hir_file, source_map) = db.hir_file_with_source_map(HirFileId(TOP));
+    let (module_id, _) = hir_file.modules.iter().next().expect("module should lower");
+    let module_src = source_map.get(module_id).expect("module source should map");
+    let origin = source_map.module_origin(module_id).expect("module should have written origin");
+
+    let source_graph = db.source_graph_preproc_model(TOP);
+    let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
+    assert_eq!(
+        source_graph
+            .graph
+            .written_origin_for_file_range(FileRange { file_id: TOP, range: module_src.range() }),
+        Some(origin)
+    );
 }
 
 #[test]

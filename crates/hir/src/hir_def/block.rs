@@ -30,6 +30,7 @@ use super::{
     lower_ident_opt,
     stmt::{LowerStmt, Stmt, StmtId, StmtKind, StmtSrc, impl_lower_stmt},
     typedef::{Typedef, TypedefId, TypedefSrc, lower_typedef_data_ty},
+    written_origin_lookup_for_file,
 };
 use crate::{
     base_db::intern::Lookup,
@@ -38,7 +39,9 @@ use crate::{
     define_src_with_name,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{IsNamedSrc, IsSrc, SourceMap, ToAstNode},
+    source_map::{
+        ApplyWrittenOriginLookup, IsNamedSrc, IsSrc, SourceMap, ToAstNode, WrittenOriginLookup,
+    },
 };
 
 define_container! {
@@ -81,6 +84,16 @@ define_container! {
 }
 
 impl BlockSourceMap {
+    pub(crate) fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        self.declaration_srcs.set_written_origin_lookup(lookup.clone());
+        self.typedef_srcs.set_written_origin_lookup(lookup.clone());
+        self.struct_srcs.set_written_origin_lookup(lookup.clone());
+        self.expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.event_expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.stmt_srcs.set_written_origin_lookup(lookup);
+    }
+
     pub fn item_to_ptr(&self, item: &BlockItem) -> Option<SyntaxNodePtr> {
         Some(match item {
             BlockItem::DeclarationId(idx) => self.get(*idx)?.ptr(),
@@ -306,6 +319,9 @@ pub(crate) fn block_with_source_map_query(
 
     let mut block = Block::default();
     let mut block_source_map = BlockSourceMap::default();
+    if let Some(lookup) = written_origin_lookup_for_file(db, file_id) {
+        block_source_map.set_written_origin_lookup(lookup);
+    }
     let Some(ast_block) = block_src.to_node(&tree) else {
         return (Arc::new(block), Arc::new(block_source_map));
     };

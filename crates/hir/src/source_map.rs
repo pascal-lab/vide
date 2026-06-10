@@ -1,14 +1,25 @@
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
-use source_model::OriginId;
+use source_model::{OriginId, SourceGraph};
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
     has_text_range::HasTextRange,
 };
 pub(crate) use utils::get::Get;
 use utils::{get::GetRef, text_edit::TextRange};
+use vfs::FileId;
+
+pub type WrittenOriginLookup = Arc<FxHashMap<TextRange, OriginId>>;
+
+pub trait ApplyWrittenOriginLookup {
+    fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup);
+}
+
+pub fn written_origin_lookup_for_file(graph: &SourceGraph, file_id: FileId) -> WrittenOriginLookup {
+    Arc::new(graph.written_origins_for_file(file_id).collect())
+}
 
 pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
     #[inline]
@@ -54,12 +65,18 @@ pub struct SourceMap<Src: IsSrc, Hir> {
     src2hir: FxHashMap<Src, Idx<Hir>>,
     hir2src: ArenaMap<Idx<Hir>, Src>,
     origins: HirOriginMap<Hir>,
+    written_origin_lookup: Option<WrittenOriginLookup>,
 }
 
 impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     pub fn insert(&mut self, src: Src, idx: Idx<Hir>) {
         self.src2hir.insert(src, idx);
         self.hir2src.insert(idx, src);
+        if let Some(origin) =
+            self.written_origin_lookup.as_ref().and_then(|lookup| lookup.get(&src.range()))
+        {
+            self.origins.insert(idx, *origin);
+        }
     }
 
     pub fn shrink_to_fit(&mut self) {
@@ -100,6 +117,10 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     pub fn origins(&self) -> &HirOriginMap<Hir> {
         &self.origins
     }
+
+    pub fn written_origin_lookup(&self) -> Option<WrittenOriginLookup> {
+        self.written_origin_lookup.clone()
+    }
 }
 
 impl<Src: IsSrc, Hir> Get<Src> for SourceMap<Src, Hir> {
@@ -124,7 +145,14 @@ impl<Src: IsSrc, Hir> Default for SourceMap<Src, Hir> {
             src2hir: FxHashMap::default(),
             hir2src: ArenaMap::default(),
             origins: HirOriginMap::default(),
+            written_origin_lookup: None,
         }
+    }
+}
+
+impl<Src: IsSrc, Hir> ApplyWrittenOriginLookup for SourceMap<Src, Hir> {
+    fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        self.written_origin_lookup = Some(lookup);
     }
 }
 
@@ -136,7 +164,17 @@ pub struct HirOriginMap<Hir> {
 
 impl<Hir> HirOriginMap<Hir> {
     pub fn insert(&mut self, idx: Idx<Hir>, origin: OriginId) {
-        self.hir_to_origin.insert(idx, origin);
+        if self.hir_to_origin.get(idx) == Some(&origin) {
+            return;
+        }
+        if let Some(previous) = self.hir_to_origin.insert(idx, origin)
+            && let Some(indices) = self.origin_to_hir.get_mut(&previous)
+        {
+            indices.retain(|candidate| *candidate != idx);
+            if indices.is_empty() {
+                self.origin_to_hir.remove(&previous);
+            }
+        }
         self.origin_to_hir.entry(origin).or_default().push(idx);
     }
 

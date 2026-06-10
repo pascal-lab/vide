@@ -5,6 +5,7 @@ use library::{
 };
 use proc_macro_utils::define_container;
 use smallvec::SmallVec;
+use source_model::OriginId;
 use syntax::{
     ast::{self, AstNode},
     ptr::SyntaxNodePtr,
@@ -39,9 +40,9 @@ use crate::{
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
     file::HirFileId,
-    hir_def::lower_ident_opt,
+    hir_def::{lower_ident_opt, written_origin_lookup_for_file},
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::SourceMap,
+    source_map::{ApplyWrittenOriginLookup, SourceMap, WrittenOriginLookup},
 };
 
 pub mod config;
@@ -117,6 +118,23 @@ define_enum_deriving_from! {
 }
 
 impl FileSourceMap {
+    pub(crate) fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup) {
+        self.module_srcs.set_written_origin_lookup(lookup.clone());
+        self.proc_srcs.set_written_origin_lookup(lookup.clone());
+        self.declaration_srcs.set_written_origin_lookup(lookup.clone());
+        self.typedef_srcs.set_written_origin_lookup(lookup.clone());
+        self.struct_srcs.set_written_origin_lookup(lookup.clone());
+        self.config_decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.udp_decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.library_decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.library_include_srcs.set_written_origin_lookup(lookup.clone());
+        self.subroutine_srcs.set_written_origin_lookup(lookup.clone());
+        self.expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.event_expr_srcs.set_written_origin_lookup(lookup.clone());
+        self.decl_srcs.set_written_origin_lookup(lookup.clone());
+        self.stmt_srcs.set_written_origin_lookup(lookup);
+    }
+
     pub fn item_to_ptr(&self, item: &FileItem) -> Option<SyntaxNodePtr> {
         Some(match item {
             FileItem::LocalModuleId(idx) => self.get(*idx)?.node,
@@ -130,6 +148,10 @@ impl FileSourceMap {
             FileItem::LibraryIncludeId(idx) => self.get(*idx)?.0,
             FileItem::SubroutineId(idx) => self.get(*idx)?.node,
         })
+    }
+
+    pub fn module_origin(&self, module: LocalModuleId) -> Option<OriginId> {
+        self.module_srcs.hir_to_origin(module)
     }
 }
 
@@ -227,6 +249,9 @@ impl LowerFileCtx<'_> {
         if func.end().is_some() {
             let subroutine = &mut self.file.subroutines[local_subroutine_id];
             let mut subroutine_source_map = std::mem::take(&mut subroutine.source_map);
+            if let Some(lookup) = self.file_source_map.module_srcs.written_origin_lookup() {
+                subroutine_source_map.set_written_origin_lookup(lookup);
+            }
             let mut ctx = LowerSubroutineBodyCtx {
                 db: self.db,
                 file_id: self.file_id,
@@ -344,6 +369,9 @@ pub(crate) fn hir_file_with_source_map_query(
 ) -> (Arc<HirFile>, Arc<FileSourceMap>) {
     let mut hir_file = HirFile::default();
     let mut source_map = FileSourceMap::default();
+    if let Some(lookup) = written_origin_lookup_for_file(db, file_id) {
+        source_map.set_written_origin_lookup(lookup);
+    }
 
     let tree = db.parse(file_id);
     let mut lower_ctx = LowerFileCtx {
