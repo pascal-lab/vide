@@ -2,6 +2,7 @@ use std::{fmt::Debug, hash::Hash};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
+use source_model::OriginId;
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
     has_text_range::HasTextRange,
@@ -52,6 +53,7 @@ pub trait IsNamedSrc: IsSrc {
 pub struct SourceMap<Src: IsSrc, Hir> {
     src2hir: FxHashMap<Src, Idx<Hir>>,
     hir2src: ArenaMap<Idx<Hir>, Src>,
+    origins: HirOriginMap<Hir>,
 }
 
 impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
@@ -63,6 +65,7 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     pub fn shrink_to_fit(&mut self) {
         self.src2hir.shrink_to_fit();
         self.hir2src.shrink_to_fit();
+        self.origins.shrink_to_fit();
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Idx<Hir>, &Src)> {
@@ -77,6 +80,25 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     #[inline]
     pub fn hir_to_src(&self, idx: Idx<Hir>) -> Option<Src> {
         self.hir2src.get(idx).copied()
+    }
+
+    pub fn insert_origin(&mut self, idx: Idx<Hir>, origin: OriginId) {
+        self.origins.insert(idx, origin);
+    }
+
+    #[inline]
+    pub fn hir_to_origin(&self, idx: Idx<Hir>) -> Option<OriginId> {
+        self.origins.hir_to_origin(idx)
+    }
+
+    #[inline]
+    pub fn origin_to_hir(&self, origin: OriginId) -> &[Idx<Hir>] {
+        self.origins.origin_to_hir(origin)
+    }
+
+    #[inline]
+    pub fn origins(&self) -> &HirOriginMap<Hir> {
+        &self.origins
     }
 }
 
@@ -98,7 +120,68 @@ impl<Src: IsSrc, Hir> Get<Idx<Hir>> for SourceMap<Src, Hir> {
 
 impl<Src: IsSrc, Hir> Default for SourceMap<Src, Hir> {
     fn default() -> Self {
-        SourceMap { src2hir: FxHashMap::default(), hir2src: ArenaMap::default() }
+        SourceMap {
+            src2hir: FxHashMap::default(),
+            hir2src: ArenaMap::default(),
+            origins: HirOriginMap::default(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct HirOriginMap<Hir> {
+    hir_to_origin: ArenaMap<Idx<Hir>, OriginId>,
+    origin_to_hir: FxHashMap<OriginId, Vec<Idx<Hir>>>,
+}
+
+impl<Hir> HirOriginMap<Hir> {
+    pub fn insert(&mut self, idx: Idx<Hir>, origin: OriginId) {
+        self.hir_to_origin.insert(idx, origin);
+        self.origin_to_hir.entry(origin).or_default().push(idx);
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.hir_to_origin.shrink_to_fit();
+        for indices in self.origin_to_hir.values_mut() {
+            indices.shrink_to_fit();
+        }
+        self.origin_to_hir.shrink_to_fit();
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Idx<Hir>, &OriginId)> {
+        self.hir_to_origin.iter()
+    }
+
+    #[inline]
+    pub fn hir_to_origin(&self, idx: Idx<Hir>) -> Option<OriginId> {
+        self.hir_to_origin.get(idx).copied()
+    }
+
+    #[inline]
+    pub fn origin_to_hir(&self, origin: OriginId) -> &[Idx<Hir>] {
+        self.origin_to_hir.get(&origin).map(Vec::as_slice).unwrap_or(&[])
+    }
+}
+
+impl<Hir> Get<Idx<Hir>> for HirOriginMap<Hir> {
+    type Output = Option<OriginId>;
+
+    fn get(&self, idx: Idx<Hir>) -> Self::Output {
+        self.hir_to_origin(idx)
+    }
+}
+
+impl<Hir> Get<OriginId> for HirOriginMap<Hir> {
+    type Output = Vec<Idx<Hir>>;
+
+    fn get(&self, origin: OriginId) -> Self::Output {
+        self.origin_to_hir(origin).to_vec()
+    }
+}
+
+impl<Hir> Default for HirOriginMap<Hir> {
+    fn default() -> Self {
+        HirOriginMap { hir_to_origin: ArenaMap::default(), origin_to_hir: FxHashMap::default() }
     }
 }
 
