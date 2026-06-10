@@ -1,22 +1,24 @@
 use smol_str::SmolStr;
 
-use crate::ids::{MacroCallId, MacroDefinitionId, MacroExpansionId, OriginId, SpanId};
+use crate::ids::{
+    MacroCallIdentity, MacroDefinitionIdentity, MacroExpansionIdentity, OriginId, SpanId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacroBodyTokenIdentity {
-    pub call: MacroCallId,
-    pub definition: MacroDefinitionId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
+    pub call: MacroCallIdentity,
+    pub definition: MacroDefinitionIdentity,
+    pub expansion: MacroExpansionIdentity,
+    pub parent_expansion: Option<MacroExpansionIdentity>,
     pub body_token_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacroArgumentTokenIdentity {
-    pub call: MacroCallId,
-    pub definition: MacroDefinitionId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
+    pub call: MacroCallIdentity,
+    pub definition: MacroDefinitionIdentity,
+    pub expansion: MacroExpansionIdentity,
+    pub parent_expansion: Option<MacroExpansionIdentity>,
     pub body_token_index: usize,
     pub argument_index: usize,
     pub argument_token_index: usize,
@@ -24,10 +26,10 @@ pub struct MacroArgumentTokenIdentity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacroOperationTokenIdentity {
-    pub call: MacroCallId,
-    pub definition: MacroDefinitionId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
+    pub call: MacroCallIdentity,
+    pub definition: MacroDefinitionIdentity,
+    pub expansion: MacroExpansionIdentity,
+    pub parent_expansion: Option<MacroExpansionIdentity>,
     pub body_token_index: usize,
     pub argument_index: Option<usize>,
     pub argument_token_index: Option<usize>,
