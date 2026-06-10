@@ -2,8 +2,8 @@ use std::fmt;
 
 use rustc_hash::FxHashSet;
 use source_model::{
-    FilePosition, FileRange, ResolvedSourceTarget, SourceOrigin, SourcePurpose, SourceRangeResult,
-    SourceTarget, SourceTargetResolution,
+    FilePosition, FileRange, ResolvedSourceTarget, SourceEntity, SourceOrigin, SourcePurpose,
+    SourceRangeResult, SourceTarget, SourceTargetResolution,
 };
 use triomphe::Arc;
 use utils::{
@@ -299,6 +299,50 @@ fn source_graph_macro_definition_full_selection_covers_body() {
     };
 
     assert_eq!(text_at_range(root_text, full_range.range), "`define OBJ 8");
+}
+
+#[test]
+fn source_graph_indexes_macro_expansion_relations() {
+    let root_text = "`define OBJ 8\nmodule top;\nlocalparam int W = `OBJ;\nendmodule\n";
+    let db = db_with_entries(&[(TOP, "rtl/top.sv", root_text)]);
+
+    let resolved = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: TOP, offset: offset(root_text, "OBJ;") },
+        SourcePurpose::Hover,
+        None,
+    );
+    let SourceTargetResolution::Resolved(ResolvedSourceTarget {
+        entity: reference_entity,
+        target: SourceTarget::MacroReference(_),
+    }) = resolved
+    else {
+        panic!("macro reference should resolve from source graph: {resolved:?}");
+    };
+    let source_graph = db.source_graph_preproc_model(TOP);
+    let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
+    let graph = &source_graph.graph;
+
+    let call = graph
+        .entity_parents(reference_entity)
+        .iter()
+        .find_map(|parent| match graph.entity(*parent) {
+            SourceEntity::MacroCall(call) => Some(call),
+            _ => None,
+        })
+        .expect("macro reference should be contained by a macro call");
+    let expansion = graph
+        .expansion_for_call(source_graph.root_context, call)
+        .expect("macro call should expand");
+    let emitted = graph.emitted_tokens(expansion);
+    assert!(!emitted.is_empty(), "expansion should emit token entities");
+
+    let selection =
+        graph.entity_selection(emitted[0]).expect("emitted token should have selection");
+    let emitted_span = graph.selection(selection).full;
+    assert!(
+        !graph.spelled_sources(emitted_span).is_empty(),
+        "emitted token should retain spelling provenance"
+    );
 }
 
 #[test]
