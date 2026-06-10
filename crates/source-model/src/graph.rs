@@ -286,14 +286,12 @@ impl SourceGraph {
                 continue;
             };
             let selection_data = self.selection(selection);
-            for span in [selection_data.focus, Some(selection_data.full)].into_iter().flatten() {
-                let span_data = self.span(span);
-                if self.file_id_for_domain(span_data.domain) == Some(position.file_id)
-                    && span_data.range.contains(position.offset)
-                {
-                    hits.push(EntityHit { entity, selection, matched_span: span });
-                    break;
-                }
+            let span = selection_data.focus.unwrap_or(selection_data.full);
+            let span_data = self.span(span);
+            if self.file_id_for_domain(span_data.domain) == Some(position.file_id)
+                && span_data.range.contains(position.offset)
+            {
+                hits.push(EntityHit { entity, selection, matched_span: span });
             }
         }
         hits
@@ -312,14 +310,12 @@ impl SourceGraph {
                 continue;
             };
             let selection_data = self.selection(selection);
-            for span in [selection_data.focus, Some(selection_data.full)].into_iter().flatten() {
-                let span_data = self.span(span);
-                if self.file_id_for_domain(span_data.domain) == Some(file_id)
-                    && span_data.range.intersect(range).is_some()
-                {
-                    hits.push(EntityHit { entity, selection, matched_span: span });
-                    break;
-                }
+            let span = selection_data.focus.unwrap_or(selection_data.full);
+            let span_data = self.span(span);
+            if self.file_id_for_domain(span_data.domain) == Some(file_id)
+                && span_data.range.intersect(range).is_some()
+            {
+                hits.push(EntityHit { entity, selection, matched_span: span });
             }
         }
         hits
@@ -541,6 +537,35 @@ mod tests {
             None,
         );
         assert_eq!(hits, vec![EntityHit { entity, selection, matched_span: focus }]);
+    }
+
+    #[test]
+    fn entity_hit_testing_uses_focus_when_available() {
+        let mut builder = SourceGraphBuilder::new();
+        let domain = builder.intern_domain(SourceDomain::RealFile { file_id: FileId(1) });
+        let full = builder.intern_span(domain, TextRange::new(0.into(), 12.into()));
+        let focus = builder.intern_span(domain, TextRange::new(8.into(), 11.into()));
+        let selection = builder.intern_selection(full, Some(focus));
+        let entity = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(0)));
+        builder.add_relation(SourceRelation::HasSelection { entity, selection });
+
+        let graph = builder.build();
+
+        assert_eq!(
+            graph.entities_at_file_position(
+                FilePosition { file_id: FileId(1), offset: TextSize::from(9) },
+                None,
+            ),
+            vec![EntityHit { entity, selection, matched_span: focus }]
+        );
+        assert!(
+            graph
+                .entities_at_file_position(
+                    FilePosition { file_id: FileId(1), offset: TextSize::from(2) },
+                    None,
+                )
+                .is_empty()
+        );
     }
 
     #[test]

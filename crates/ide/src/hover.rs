@@ -7,9 +7,8 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        MacroDefinition, MacroExpansionDefinition, MacroReferenceDefinitions,
-        RecursiveMacroExpansionProvenance, macro_reference_definitions_at,
-        recursive_macro_expansion_provenances_at,
+        MacroDefinition, MacroExpansionDefinition, RecursiveMacroExpansionProvenance,
+        macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
     source_resolver::PositionResolver,
@@ -47,13 +46,8 @@ struct MacroSourceLink {
 }
 
 enum HoverTarget<'tree> {
-    Macro(Box<MacroHoverTarget>),
     Graph(RangeInfo<Markup>),
     Source(SourceTarget<'tree>),
-}
-
-enum MacroHoverTarget {
-    Reference(MacroReferenceDefinitions),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,8 +129,8 @@ fn dispatch_graph_hover_target(
                 .map(HoverTarget::Graph)
         }
         GraphSourceTarget::MacroReference(_) => {
-            dispatch_macro_reference_hover_target(db, file_id, offset)
-                .map(|target| HoverTarget::Macro(Box::new(target)))
+            dispatch_graph_macro_reference_hover_target(db, file_id, offset, target)
+                .map(HoverTarget::Graph)
         }
         GraphSourceTarget::Include(id) => {
             dispatch_graph_include_hover_target(db, file_id, target, id).map(HoverTarget::Graph)
@@ -157,7 +151,6 @@ fn render_hover_target(
     target: HoverTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
     match target {
-        HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, *target),
         HoverTarget::Graph(hover) => Some(hover),
         HoverTarget::Source(target) => {
             let hover = hover_for_source_target(sema, file_id.into(), target)?;
@@ -255,17 +248,17 @@ fn expanded_macro_hover(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-    reference_definitions: Option<&MacroReferenceDefinitions>,
+    reference_ids: Option<&[usize]>,
 ) -> Option<RangeInfo<Markup>> {
-    let reference_ids = if let Some(reference_definitions) = reference_definitions {
-        reference_definitions.references.iter().map(|reference| reference.id).collect::<Vec<_>>()
+    let reference_ids = if let Some(reference_ids) = reference_ids {
+        reference_ids.to_vec()
     } else {
         macro_reference_definitions_at(db, file_id, offset)
             .ok()
             .flatten()?
             .references
             .into_iter()
-            .map(|reference| reference.id)
+            .map(|reference| reference.id.raw())
             .collect::<Vec<_>>()
     };
     if reference_ids.is_empty() {
@@ -277,7 +270,7 @@ fn expanded_macro_hover(
     let expansions = expansions
         .into_iter()
         .filter(|expansion| {
-            reference_ids.contains(&expansion.root_call.reference_id)
+            reference_ids.contains(&expansion.root_call.reference_id.raw())
                 && !expansion.expansions.is_empty()
         })
         .collect::<Vec<_>>();
@@ -354,17 +347,6 @@ fn macro_signature(definition: &MacroDefinition) -> String {
         signature.push(')');
     }
     signature
-}
-
-fn macro_definition_line(definition: &MacroDefinition) -> String {
-    let mut line = String::from("`define ");
-    line.push_str(&macro_signature(definition));
-    let body = macro_definition_body_text(definition);
-    if !body.is_empty() {
-        line.push(' ');
-        line.push_str(&body);
-    }
-    line
 }
 
 fn macro_definition_source_link(
@@ -544,43 +526,6 @@ fn dispatch_graph_macro_param_reference_hover_target(
     ))
 }
 
-fn dispatch_macro_reference_hover_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<MacroHoverTarget> {
-    if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
-        if resolution.definitions.is_empty()
-            && expanded_macro_hover(db, file_id, offset, Some(&resolution)).is_none()
-        {
-            return None;
-        }
-        return Some(MacroHoverTarget::Reference(resolution));
-    }
-    None
-}
-
-fn render_macro_hover_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-    target: MacroHoverTarget,
-) -> Option<RangeInfo<Markup>> {
-    match target {
-        MacroHoverTarget::Reference(resolution) => {
-            if resolution.definitions.is_empty() {
-                return expanded_macro_hover(db, file_id, offset, Some(&resolution));
-            }
-            expanded_macro_hover(db, file_id, offset, Some(&resolution)).or_else(|| {
-                Some(RangeInfo::new(
-                    resolution.range,
-                    macro_definitions_markup(db, file_id, &resolution.definitions),
-                ))
-            })
-        }
-    }
-}
-
 fn graph_macro_param_definitions_markup(
     db: &RootDb,
     graph: &source_model::SourceGraph,
@@ -646,22 +591,107 @@ fn graph_entity_focus_text(
     Some(text[file_range.range].to_owned())
 }
 
-fn macro_definitions_markup(
+fn graph_entity_focus_file_id(
+    graph: &source_model::SourceGraph,
+    entity: source_model::EntityId,
+) -> Option<FileId> {
+    let SourceRangeResult::Mapped(file_range) =
+        graph.entity_focus_file_range(entity, SourcePurpose::Hover)
+    else {
+        return None;
+    };
+    Some(file_range.file_id)
+}
+
+fn graph_macro_definition_line(
     db: &RootDb,
+    graph: &source_model::SourceGraph,
+    definition: source_model::EntityId,
+) -> Option<String> {
+    let SourceRangeResult::Mapped(full_range) =
+        graph.entity_full_file_range(definition, SourcePurpose::Hover)
+    else {
+        return None;
+    };
+    let SourceRangeResult::Mapped(focus_range) =
+        graph.entity_focus_file_range(definition, SourcePurpose::Hover)
+    else {
+        return None;
+    };
+    if full_range.file_id != focus_range.file_id {
+        return None;
+    }
+
+    let text = db.file_text(full_range.file_id);
+    let name = text[focus_range.range].trim();
+    let suffix = text[TextRange::new(focus_range.range.end(), full_range.range.end())].trim_end();
+    let mut line = format!("`define `{name}");
+    if !suffix.is_empty() {
+        line.push_str(suffix);
+    }
+    Some(line)
+}
+
+fn dispatch_graph_macro_reference_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    reference: ResolvedSourceTarget,
+) -> Option<RangeInfo<Markup>> {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let SourceRangeResult::Mapped(reference_range) =
+        graph.entity_full_file_range(reference.entity, SourcePurpose::Hover)
+    else {
+        return None;
+    };
+    let GraphSourceTarget::MacroReference(reference_id) = reference.target else {
+        return None;
+    };
+    let reference_ids = [reference_id.raw() as usize];
+    if let Some(expanded) = expanded_macro_hover(db, file_id, offset, Some(&reference_ids)) {
+        return Some(expanded);
+    }
+
+    let definitions = graph
+        .resolved_definitions(source_graph.root_context, reference.entity)
+        .iter()
+        .map(|(definition, _)| *definition)
+        .collect::<Vec<_>>();
+    (!definitions.is_empty()).then_some(RangeInfo::new(
+        reference_range.range,
+        graph_macro_definitions_markup(db, graph, file_id, &definitions),
+    ))
+}
+
+fn graph_macro_definitions_markup(
+    db: &RootDb,
+    graph: &source_model::SourceGraph,
     anchor_file_id: FileId,
-    definitions: &[MacroDefinition],
+    definitions: &[source_model::EntityId],
 ) -> Markup {
     let mut markup = Markup::new();
     if definitions.len() == 1 {
-        render_macro_definition_display(db, &mut markup, anchor_file_id, &definitions[0]);
+        render_graph_macro_definition_display(
+            db,
+            graph,
+            &mut markup,
+            anchor_file_id,
+            definitions[0],
+        );
         return markup;
     }
 
     markup.print("Macro definitions");
-    for definition in definitions {
+    for definition in definitions.iter().copied() {
         markup.newline();
-        markup.push_with_backticks(definition.name.as_str());
-        if let Some(path) = db.file_path(definition.file_id) {
+        let name = graph_entity_focus_text(db, graph, definition)
+            .unwrap_or_else(|| "<unknown>".to_owned());
+        markup.push_with_backticks(name.as_str());
+        if let Some(file_id) = graph_entity_focus_file_id(graph, definition)
+            && let Some(path) = db.file_path(file_id)
+        {
             markup.print(" ");
             markup.print(&path.to_string());
         }
@@ -669,15 +699,24 @@ fn macro_definitions_markup(
     markup
 }
 
-fn render_macro_definition_display(
+fn render_graph_macro_definition_display(
     db: &RootDb,
+    graph: &source_model::SourceGraph,
     markup: &mut Markup,
     anchor_file_id: FileId,
-    definition: &MacroDefinition,
+    definition: source_model::EntityId,
 ) {
-    markup.push_with_code_fence(&macro_definition_line(definition));
+    let Some(line) = graph_macro_definition_line(db, graph, definition) else {
+        return;
+    };
+    markup.push_with_code_fence(&line);
     render_macro_expansion_separator(markup);
-    render_macro_source_link(db, markup, definition, anchor_file_id);
+    let Some(file_id) = graph_entity_focus_file_id(graph, definition) else {
+        return;
+    };
+    if let Some(source) = macro_file_source_link(db, file_id, anchor_file_id) {
+        render_macro_source_link_from_link(markup, source);
+    }
 }
 
 fn render_macro_source_link(
@@ -689,6 +728,10 @@ fn render_macro_source_link(
     let Some(source) = macro_definition_source_link(db, definition, anchor_file_id) else {
         return;
     };
+    render_macro_source_link_from_link(markup, source);
+}
+
+fn render_macro_source_link_from_link(markup: &mut Markup, source: MacroSourceLink) {
     markup.print_with_strong("Macro");
     markup.print(" from [");
     markup.print(&markdown_link_label(&source.label));
@@ -705,10 +748,6 @@ fn markdown_link_destination(destination: &str) -> String {
     destination.replace('>', "%3E")
 }
 
-fn macro_definition_body_text(definition: &MacroDefinition) -> String {
-    definition.body_tokens.iter().map(|token| token.as_str()).collect::<Vec<_>>().join(" ")
-}
-
 fn dispatch_graph_macro_definition_hover_target(
     db: &RootDb,
     file_id: FileId,
@@ -717,38 +756,18 @@ fn dispatch_graph_macro_definition_hover_target(
     let source_graph = db.source_graph_preproc_model(file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
-    let SourceRangeResult::Mapped(full_range) =
-        graph.entity_full_file_range(definition.entity, SourcePurpose::Hover)
-    else {
-        return None;
-    };
     let SourceRangeResult::Mapped(focus_range) =
         graph.entity_focus_file_range(definition.entity, SourcePurpose::Hover)
     else {
         return None;
     };
-    if full_range.file_id != focus_range.file_id {
-        return None;
-    }
-
-    let text = db.file_text(full_range.file_id);
-    let name = text[focus_range.range].trim();
-    let suffix = text[TextRange::new(focus_range.range.end(), full_range.range.end())].trim_end();
-    let mut line = format!("`define `{name}");
-    if !suffix.is_empty() {
-        line.push_str(suffix);
-    }
+    let line = graph_macro_definition_line(db, graph, definition.entity)?;
 
     let mut markup = Markup::new();
     markup.push_with_code_fence(&line);
     render_macro_expansion_separator(&mut markup);
     if let Some(source) = macro_file_source_link(db, focus_range.file_id, file_id) {
-        markup.print_with_strong("Macro");
-        markup.print(" from [");
-        markup.print(&markdown_link_label(&source.label));
-        markup.print("](<");
-        markup.print(&markdown_link_destination(&source.target));
-        markup.print(">)");
+        render_macro_source_link_from_link(&mut markup, source);
     }
     Some(RangeInfo::new(focus_range.range, markup))
 }
