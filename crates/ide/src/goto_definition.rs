@@ -2,7 +2,6 @@ use hir::{
     base_db::source_db::{SourceDb, SourceRootDb},
     container::InFile,
     file::HirFileId,
-    preproc::{MacroDefinition, MacroReferenceDefinitions, macro_reference_definitions_at},
     semantics::Semantics,
     source_resolver::PositionResolver,
 };
@@ -28,13 +27,8 @@ use crate::{
 };
 
 enum DefinitionTarget<'tree> {
-    Preproc(Box<PreprocDefinitionTarget>),
     Graph(RangeInfo<Vec<NavTarget>>),
     Source(SourceTarget<'tree>),
-}
-
-enum PreprocDefinitionTarget {
-    Reference(MacroReferenceDefinitions),
 }
 
 pub(crate) fn goto_definition(
@@ -75,11 +69,11 @@ fn dispatch_source_graph_definition_target(
 
     match resolution {
         GraphSourceTargetResolution::Resolved(target) => {
-            dispatch_graph_definition_target(db, file_id, offset, target)
+            dispatch_graph_definition_target(db, file_id, target)
         }
         GraphSourceTargetResolution::Ambiguous(targets) => targets
             .into_iter()
-            .find_map(|target| dispatch_graph_definition_target(db, file_id, offset, target)),
+            .find_map(|target| dispatch_graph_definition_target(db, file_id, target)),
         GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => None,
     }
 }
@@ -87,7 +81,6 @@ fn dispatch_source_graph_definition_target(
 fn dispatch_graph_definition_target(
     db: &RootDb,
     file_id: FileId,
-    offset: TextSize,
     target: ResolvedSourceTarget,
 ) -> Option<DefinitionTarget<'static>> {
     match target.target {
@@ -103,12 +96,7 @@ fn dispatch_graph_definition_target(
             dispatch_graph_macro_definition_target(db, file_id, target).map(DefinitionTarget::Graph)
         }
         GraphSourceTarget::MacroReference(_) => {
-            dispatch_graph_macro_reference_target(db, file_id, target)
-                .map(DefinitionTarget::Graph)
-                .or_else(|| {
-                    dispatch_macro_reference_target(db, file_id, offset)
-                        .map(|target| DefinitionTarget::Preproc(Box::new(target)))
-                })
+            dispatch_graph_macro_reference_target(db, file_id, target).map(DefinitionTarget::Graph)
         }
         GraphSourceTarget::Include(id) => {
             dispatch_graph_include_target(db, file_id, target, id).map(DefinitionTarget::Graph)
@@ -128,7 +116,6 @@ fn render_definition_target(
     target: DefinitionTarget<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     match target {
-        DefinitionTarget::Preproc(target) => render_preproc_definition_target(*target),
         DefinitionTarget::Graph(target) => Some(target),
         DefinitionTarget::Source(target) => {
             render_source_definition_target(db, file_id, sema, target)
@@ -273,44 +260,6 @@ fn dispatch_graph_macro_definition_target(
     };
     let target = graph_macro_nav_target(db, graph, definition.entity)?;
     Some(RangeInfo::new(definition_range.range, vec![target]))
-}
-
-fn dispatch_macro_reference_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocDefinitionTarget> {
-    if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
-        if resolution.definitions.is_empty() {
-            return None;
-        }
-        return Some(PreprocDefinitionTarget::Reference(resolution));
-    }
-    None
-}
-
-fn render_preproc_definition_target(
-    target: PreprocDefinitionTarget,
-) -> Option<RangeInfo<Vec<NavTarget>>> {
-    match target {
-        PreprocDefinitionTarget::Reference(resolution) => {
-            let reference_range = resolution.range;
-            let targets = resolution.definitions.into_iter().map(macro_nav_target).collect_vec();
-            (!targets.is_empty()).then_some(RangeInfo::new(reference_range, targets))
-        }
-    }
-}
-
-fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
-    NavTarget {
-        file_id: definition.file_id,
-        full_range: definition.name_range,
-        focus_range: Some(definition.name_range),
-        name: Some(definition.name),
-        kind: None,
-        container_name: None,
-        description: Some("macro definition".to_owned()),
-    }
 }
 
 fn graph_macro_param_nav_target(
