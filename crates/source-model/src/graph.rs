@@ -19,6 +19,8 @@ pub struct SourceGraph {
     selection_by_entity: FxHashMap<EntityId, SourceSelectionId>,
     origin_by_entity: FxHashMap<EntityId, OriginId>,
     written_origin_by_span: FxHashMap<SpanId, OriginId>,
+    children_by_entity: FxHashMap<EntityId, Vec<EntityId>>,
+    parents_by_entity: FxHashMap<EntityId, Vec<EntityId>>,
     resolutions_by_reference:
         FxHashMap<(SourceContextId, EntityId), Vec<(EntityId, ResolutionReason)>>,
     includes_by_directive: FxHashMap<(SourceContextId, crate::IncludeDirectiveId), SourceContextId>,
@@ -125,6 +127,8 @@ impl SourceGraphBuilder {
         let mut selection_by_entity = FxHashMap::default();
         let mut origin_by_entity = FxHashMap::default();
         let mut written_origin_by_span = FxHashMap::default();
+        let mut children_by_entity: FxHashMap<EntityId, Vec<EntityId>> = FxHashMap::default();
+        let mut parents_by_entity: FxHashMap<EntityId, Vec<EntityId>> = FxHashMap::default();
         let mut resolutions_by_reference: FxHashMap<
             (SourceContextId, EntityId),
             Vec<(EntityId, ResolutionReason)>,
@@ -133,6 +137,10 @@ impl SourceGraphBuilder {
 
         for relation in &self.relations {
             match *relation {
+                SourceRelation::Contains { parent, child } => {
+                    children_by_entity.entry(parent).or_default().push(child);
+                    parents_by_entity.entry(child).or_default().push(parent);
+                }
                 SourceRelation::HasSelection { entity, selection } => {
                     selection_by_entity.insert(entity, selection);
                 }
@@ -168,6 +176,8 @@ impl SourceGraphBuilder {
             selection_by_entity,
             origin_by_entity,
             written_origin_by_span,
+            children_by_entity,
+            parents_by_entity,
             resolutions_by_reference,
             includes_by_directive,
         }
@@ -209,6 +219,14 @@ impl SourceGraph {
 
     pub fn entity_origin(&self, entity: EntityId) -> Option<OriginId> {
         self.origin_by_entity.get(&entity).copied()
+    }
+
+    pub fn entity_children(&self, entity: EntityId) -> &[EntityId] {
+        self.children_by_entity.get(&entity).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn entity_parents(&self, entity: EntityId) -> &[EntityId] {
+        self.parents_by_entity.get(&entity).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn entity_focus_file_range(
@@ -566,6 +584,21 @@ mod tests {
             graph.resolved_definitions(context, reference),
             &[(definition, ResolutionReason::VisibleDefinition)]
         );
+    }
+
+    #[test]
+    fn indexes_contains_relations() {
+        let mut builder = SourceGraphBuilder::new();
+        let parent = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(0)));
+        let child = builder.add_entity(SourceEntity::MacroReference(MacroReferenceId::new(1)));
+        builder.add_relation(SourceRelation::Contains { parent, child });
+
+        let graph = builder.build();
+
+        assert_eq!(graph.entity_children(parent), &[child]);
+        assert_eq!(graph.entity_parents(child), &[parent]);
+        assert!(graph.entity_children(child).is_empty());
+        assert!(graph.entity_parents(parent).is_empty());
     }
 
     #[test]
