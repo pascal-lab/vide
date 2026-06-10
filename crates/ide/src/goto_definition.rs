@@ -4,8 +4,8 @@ use hir::{
     file::HirFileId,
     preproc::{
         MacroDefinition, MacroParamDefinition, MacroParamReferenceDefinitions,
-        MacroReferenceDefinitions, macro_definition_at, macro_param_definition_at,
-        macro_param_reference_definitions_at, macro_reference_definitions_at,
+        MacroReferenceDefinitions, macro_param_definition_at, macro_param_reference_definitions_at,
+        macro_reference_definitions_at,
     },
     semantics::Semantics,
     source_resolver::PositionResolver,
@@ -40,7 +40,6 @@ enum DefinitionTarget<'tree> {
 enum PreprocDefinitionTarget {
     ParamDefinition(MacroParamDefinition),
     ParamReference(MacroParamReferenceDefinitions),
-    Definition(MacroDefinition),
     Reference(MacroReferenceDefinitions),
 }
 
@@ -107,8 +106,7 @@ fn dispatch_graph_definition_target(
                 .map(|target| DefinitionTarget::Preproc(Box::new(target)))
         }
         GraphSourceTarget::MacroDefinition(_) => {
-            dispatch_macro_definition_target(db, file_id, offset)
-                .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+            dispatch_graph_macro_definition_target(db, file_id, target).map(DefinitionTarget::Graph)
         }
         GraphSourceTarget::MacroReference(_) => {
             dispatch_graph_macro_reference_target(db, file_id, target)
@@ -252,15 +250,21 @@ fn dispatch_macro_param_reference_target(
     None
 }
 
-fn dispatch_macro_definition_target(
+fn dispatch_graph_macro_definition_target(
     db: &RootDb,
     file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocDefinitionTarget> {
-    if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
-        return Some(PreprocDefinitionTarget::Definition(definition));
-    }
-    None
+    definition: ResolvedSourceTarget,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let SourceRangeResult::Mapped(definition_range) =
+        graph.entity_focus_file_range(definition.entity, SourcePurpose::GotoDefinition)
+    else {
+        return None;
+    };
+    let target = graph_macro_nav_target(db, graph, definition.entity)?;
+    Some(RangeInfo::new(definition_range.range, vec![target]))
 }
 
 fn dispatch_macro_reference_target(
@@ -289,9 +293,6 @@ fn render_preproc_definition_target(
             let targets =
                 resolution.definitions.into_iter().map(macro_param_nav_target).collect_vec();
             (!targets.is_empty()).then_some(RangeInfo::new(reference_range, targets))
-        }
-        PreprocDefinitionTarget::Definition(definition) => {
-            Some(RangeInfo::new(definition.name_range, vec![macro_nav_target(definition)]))
         }
         PreprocDefinitionTarget::Reference(resolution) => {
             let reference_range = resolution.range;

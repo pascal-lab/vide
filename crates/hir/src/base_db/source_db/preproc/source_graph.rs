@@ -106,7 +106,7 @@ fn add_preproc_entities(
             builder,
             mapped,
             source_domains,
-            definition.directive_range,
+            macro_definition_full_range(definition),
             Some(definition.name_range),
         );
         builder.add_relation(SourceRelation::HasSelection { entity, selection });
@@ -411,6 +411,23 @@ fn intern_selection_for_ranges(
     let focus =
         focus.map(|range| intern_span_for_source_range(builder, mapped, source_domains, range));
     builder.intern_selection(full, focus)
+}
+
+fn macro_definition_full_range(definition: &preproc::source::SourceMacroDefinition) -> SourceRange {
+    let mut full = definition.directive_range;
+    for token in &definition.body_tokens {
+        let Some(token_range) = token.range else {
+            continue;
+        };
+        if token_range.source != full.source {
+            continue;
+        }
+        full.range = TextRange::new(
+            full.range.start().min(token_range.range.start()),
+            full.range.end().max(token_range.range.end()),
+        );
+    }
+    full
 }
 
 fn intern_span_for_source_range(

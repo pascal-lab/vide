@@ -2,8 +2,8 @@ use std::fmt;
 
 use rustc_hash::FxHashSet;
 use source_model::{
-    FilePosition, FileRange, ResolvedSourceTarget, SourceOrigin, SourcePurpose, SourceTarget,
-    SourceTargetResolution,
+    FilePosition, FileRange, ResolvedSourceTarget, SourceOrigin, SourcePurpose, SourceRangeResult,
+    SourceTarget, SourceTargetResolution,
 };
 use triomphe::Arc;
 use utils::{
@@ -270,6 +270,35 @@ fn position_resolver_resolves_macro_param_targets_from_source_graph() {
             ..
         })
     ));
+}
+
+#[test]
+fn source_graph_macro_definition_full_selection_covers_body() {
+    let root_text = "`define OBJ 8\nmodule top;\nendmodule\n";
+    let db = db_with_entries(&[(TOP, "rtl/top.sv", root_text)]);
+
+    let resolved = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: TOP, offset: offset(root_text, "OBJ 8") },
+        SourcePurpose::Hover,
+        None,
+    );
+    let SourceTargetResolution::Resolved(ResolvedSourceTarget {
+        entity,
+        target: SourceTarget::MacroDefinition(_),
+    }) = resolved
+    else {
+        panic!("macro definition should resolve from source graph: {resolved:?}");
+    };
+    let source_graph = db.source_graph_preproc_model(TOP);
+    let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
+
+    let SourceRangeResult::Mapped(full_range) =
+        source_graph.graph.entity_full_file_range(entity, SourcePurpose::Hover)
+    else {
+        panic!("macro definition full selection should map to file range");
+    };
+
+    assert_eq!(text_at_range(root_text, full_range.range), "`define OBJ 8");
 }
 
 #[test]
