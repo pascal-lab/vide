@@ -24,6 +24,9 @@ pub struct SourceGraph {
     resolutions_by_reference:
         FxHashMap<(SourceContextId, EntityId), Vec<(EntityId, ResolutionReason)>>,
     includes_by_directive: FxHashMap<(SourceContextId, crate::IncludeDirectiveId), SourceContextId>,
+    expansions_by_call: FxHashMap<(SourceContextId, crate::MacroCallId), crate::MacroExpansionId>,
+    tokens_by_expansion: FxHashMap<crate::MacroExpansionId, Vec<EntityId>>,
+    spellings_by_generated: FxHashMap<SpanId, Vec<(SpanId, crate::SpellingKind)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -134,6 +137,11 @@ impl SourceGraphBuilder {
             Vec<(EntityId, ResolutionReason)>,
         > = FxHashMap::default();
         let mut includes_by_directive = FxHashMap::default();
+        let mut expansions_by_call = FxHashMap::default();
+        let mut tokens_by_expansion: FxHashMap<crate::MacroExpansionId, Vec<EntityId>> =
+            FxHashMap::default();
+        let mut spellings_by_generated: FxHashMap<SpanId, Vec<(SpanId, crate::SpellingKind)>> =
+            FxHashMap::default();
 
         for relation in &self.relations {
             match *relation {
@@ -155,6 +163,15 @@ impl SourceGraphBuilder {
                 }
                 SourceRelation::Includes { context, directive, included_context } => {
                     includes_by_directive.insert((context, directive), included_context);
+                }
+                SourceRelation::Expands { context, call, expansion } => {
+                    expansions_by_call.insert((context, call), expansion);
+                }
+                SourceRelation::EmitsToken { expansion, token } => {
+                    tokens_by_expansion.entry(expansion).or_default().push(token);
+                }
+                SourceRelation::SpelledFrom { generated, source, kind } => {
+                    spellings_by_generated.entry(generated).or_default().push((source, kind));
                 }
                 _ => {}
             }
@@ -180,6 +197,9 @@ impl SourceGraphBuilder {
             parents_by_entity,
             resolutions_by_reference,
             includes_by_directive,
+            expansions_by_call,
+            tokens_by_expansion,
+            spellings_by_generated,
         }
     }
 }
@@ -272,6 +292,22 @@ impl SourceGraph {
         directive: crate::IncludeDirectiveId,
     ) -> Option<SourceContextId> {
         self.includes_by_directive.get(&(context, directive)).copied()
+    }
+
+    pub fn expansion_for_call(
+        &self,
+        context: SourceContextId,
+        call: crate::MacroCallId,
+    ) -> Option<crate::MacroExpansionId> {
+        self.expansions_by_call.get(&(context, call)).copied()
+    }
+
+    pub fn emitted_tokens(&self, expansion: crate::MacroExpansionId) -> &[EntityId] {
+        self.tokens_by_expansion.get(&expansion).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn spelled_sources(&self, generated: SpanId) -> &[(SpanId, crate::SpellingKind)] {
+        self.spellings_by_generated.get(&generated).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn entities_at_file_position(
@@ -689,6 +725,37 @@ mod tests {
         assert_eq!(
             graph.included_context(root_context, IncludeDirectiveId::new(3)),
             Some(included_context)
+        );
+    }
+
+    #[test]
+    fn indexes_expansion_token_and_spelling_relations() {
+        let mut builder = SourceGraphBuilder::new();
+        let context = builder
+            .add_context(SourceContext::CompilationRoot { profile_id: None, root_file: FileId(1) });
+        let expansion = crate::MacroExpansionId::new(2);
+        let call = crate::MacroCallId::new(3);
+        let token =
+            builder.add_entity(SourceEntity::ExpansionToken(crate::ExpansionTokenId::new(4)));
+        let domain = builder.intern_domain(SourceDomain::RealFile { file_id: FileId(1) });
+        let generated = builder.intern_span(domain, TextRange::new(10.into(), 15.into()));
+        let source = builder.intern_span(domain, TextRange::new(2.into(), 7.into()));
+
+        builder.add_relation(SourceRelation::Expands { context, call, expansion });
+        builder.add_relation(SourceRelation::EmitsToken { expansion, token });
+        builder.add_relation(SourceRelation::SpelledFrom {
+            generated,
+            source,
+            kind: crate::SpellingKind::MacroArgument,
+        });
+
+        let graph = builder.build();
+
+        assert_eq!(graph.expansion_for_call(context, call), Some(expansion));
+        assert_eq!(graph.emitted_tokens(expansion), &[token]);
+        assert_eq!(
+            graph.spelled_sources(generated),
+            &[(source, crate::SpellingKind::MacroArgument)]
         );
     }
 
