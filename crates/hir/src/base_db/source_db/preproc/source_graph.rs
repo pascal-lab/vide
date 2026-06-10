@@ -8,7 +8,7 @@ use source_model::{
     EntityId, ExpansionTokenId, InactiveRegionId, IncludeDirectiveId, MacroArgumentTokenIdentity,
     MacroBodyTokenIdentity, MacroCallId, MacroCallIdentity, MacroDefinitionId,
     MacroDefinitionIdentity, MacroExpansionId, MacroExpansionIdentity, MacroOperationTokenIdentity,
-    MacroReferenceId, ResolutionReason, SourceContext, SourceContextId, SourceDomain,
+    MacroReferenceId, OriginId, ResolutionReason, SourceContext, SourceContextId, SourceDomain,
     SourceDomainId, SourceEntity, SourceGraph, SourceGraphBuilder, SourceOrigin, SourceRelation,
     SourceSelectionId, SourceUnavailable, SpanId, SpellingKind, SyntheticReason, VirtualOrigin,
 };
@@ -186,12 +186,29 @@ fn add_preproc_entities(
     }
 
     for expansion in mapped.model.macro_expansions().iter() {
-        if macro_call_entities.contains_key(&expansion.call) {
+        if let Some(call_entity) = macro_call_entities.get(&expansion.call).copied() {
             builder.add_relation(SourceRelation::Expands {
                 context: root_context,
                 call: MacroCallId::new(expansion.call.raw() as u32),
                 expansion: MacroExpansionId::new(expansion.id.raw() as u32),
             });
+            let origins = add_expansion_token_entities(
+                builder,
+                mapped,
+                source_domains,
+                expansion.id,
+                expansion.emitted_token_range,
+                &mut emitted_token_entities,
+            );
+            if !origins.is_empty() {
+                let call_span = call_span(builder, mapped, source_domains, expansion.call);
+                let origin = builder.add_origin(SourceOrigin::Composite {
+                    origins,
+                    preferred_span: Some(call_span),
+                });
+                builder.add_relation(SourceRelation::HasOrigin { entity: call_entity, origin });
+            }
+            continue;
         }
         add_expansion_token_entities(
             builder,
@@ -251,10 +268,11 @@ fn add_expansion_token_entities(
     expansion: preproc::source::SourceMacroExpansionId,
     emitted_range: SourceEmittedTokenRange,
     emitted_token_entities: &mut FxHashMap<SourceEmittedTokenId, EntityId>,
-) {
+) -> Vec<OriginId> {
     let graph_expansion = MacroExpansionId::new(expansion.raw() as u32);
     let display_domain =
         builder.intern_domain(SourceDomain::ExpansionDisplay { expansion: graph_expansion });
+    let mut origins = Vec::new();
 
     for token_id in emitted_token_ids(emitted_range) {
         let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
@@ -285,9 +303,11 @@ fn add_expansion_token_entities(
             emitted_span,
         );
         let origin = builder.add_origin(origin);
+        origins.push(origin);
         builder.add_relation(SourceRelation::HasOrigin { entity, origin });
         add_spelling_relations(builder, mapped, source_domains, provenance, emitted_span);
     }
+    origins
 }
 
 fn emitted_token_ids(range: SourceEmittedTokenRange) -> impl Iterator<Item = SourceEmittedTokenId> {

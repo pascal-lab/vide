@@ -252,6 +252,23 @@ impl SourceGraph {
         })
     }
 
+    pub fn lowering_origins_for_file(
+        &self,
+        file_id: vfs::FileId,
+    ) -> Vec<(utils::line_index::TextRange, OriginId)> {
+        let mut origins = self.written_origins_for_file(file_id).collect::<Vec<_>>();
+        for (entity, origin) in &self.origin_by_entity {
+            let Some(selection) = self.entity_selection(*entity) else {
+                continue;
+            };
+            let span = self.span(self.selection(selection).full);
+            if self.file_id_for_domain(span.domain) == Some(file_id) {
+                origins.push((span.range, *origin));
+            }
+        }
+        origins
+    }
+
     pub fn preferred_span(&self, origin: OriginId, purpose: SourcePurpose) -> SourceChoice {
         match self.origin(origin) {
             SourceOrigin::Written { span } => SourceChoice::Span(*span),
@@ -299,6 +316,9 @@ impl SourceGraph {
                 | SourcePurpose::SemanticToken => SourceChoice::Span(*call_span),
             },
             SourceOrigin::Synthetic { preferred_span, .. } => {
+                preferred_span.map(SourceChoice::Span).unwrap_or(SourceChoice::Unavailable)
+            }
+            SourceOrigin::Composite { preferred_span, .. } => {
                 preferred_span.map(SourceChoice::Span).unwrap_or(SourceChoice::Unavailable)
             }
             SourceOrigin::Unavailable { .. } => SourceChoice::Unavailable,
@@ -363,7 +383,8 @@ fn origin_mentions_span(origin: &SourceOrigin, span: SpanId) -> bool {
         SourceOrigin::Builtin { call_span, emitted_span, .. } => {
             [*call_span, *emitted_span].contains(&span)
         }
-        SourceOrigin::Synthetic { preferred_span, .. } => *preferred_span == Some(span),
+        SourceOrigin::Synthetic { preferred_span, .. }
+        | SourceOrigin::Composite { preferred_span, .. } => *preferred_span == Some(span),
         SourceOrigin::Unavailable { .. } | SourceOrigin::Alias { .. } => false,
     }
 }

@@ -13,6 +13,7 @@ use port::{
     PortRefId, PortRefSrc, PortSrcs, Ports,
 };
 use proc_macro_utils::define_container;
+use source_model::OriginId;
 use specify::{
     SpecifyBlock, SpecifyBlockId, SpecifyBlockSrc, SpecifyItem, SpecifyItemId, SpecifyItemSrc,
 };
@@ -205,6 +206,10 @@ impl ModuleSourceMap {
             ModuleItem::TypedefId(idx) => self.get(*idx)?.ptr(),
             ModuleItem::SubroutineId(idx) => self.get(*idx)?.node,
         })
+    }
+
+    pub fn declaration_origin(&self, declaration: DeclarationId) -> Option<OriginId> {
+        self.declaration_srcs.hir_to_origin(declaration)
     }
 }
 

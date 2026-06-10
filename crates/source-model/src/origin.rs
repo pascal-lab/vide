@@ -74,6 +74,10 @@ pub enum SourceOrigin {
         reason: SyntheticReason,
         preferred_span: Option<SpanId>,
     },
+    Composite {
+        origins: Vec<OriginId>,
+        preferred_span: Option<SpanId>,
+    },
     Unavailable {
         reason: crate::SourceUnavailable,
     },

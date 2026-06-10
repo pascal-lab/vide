@@ -1,7 +1,7 @@
 use std::fmt;
 
 use rustc_hash::FxHashSet;
-use source_model::FileRange;
+use source_model::{FileRange, SourceOrigin};
 use triomphe::Arc;
 use utils::{
     get::Get,
@@ -650,6 +650,27 @@ endmodule
     let declaration_src = module_src_map
         .get(declaration_id)
         .expect("generated declaration should keep a source-map range");
+    let origin = module_src_map
+        .declaration_origin(declaration_id)
+        .expect("generated declaration should keep a SourceGraph origin");
+
+    let source_graph = db.source_graph_preproc_model(TOP);
+    let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
+    let SourceOrigin::Composite { origins, preferred_span } = source_graph.graph.origin(origin)
+    else {
+        panic!("generated declaration should use a composite macro expansion origin");
+    };
+    assert_eq!(
+        source_graph.graph.to_file_range(
+            preferred_span.expect("composite origin should prefer the macro call span"),
+            source_model::SourcePurpose::Diagnostic,
+        ),
+        source_model::SourceRangeResult::Mapped(FileRange {
+            file_id: TOP,
+            range: declaration_src.range(),
+        })
+    );
+    assert_eq!(origins.len(), 3);
 
     let provenance =
         macro_expansion_provenance_for_range(&db, TOP, declaration_src.range()).unwrap().unwrap();

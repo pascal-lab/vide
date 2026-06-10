@@ -18,7 +18,7 @@ pub trait ApplyWrittenOriginLookup {
 }
 
 pub fn written_origin_lookup_for_file(graph: &SourceGraph, file_id: FileId) -> WrittenOriginLookup {
-    Arc::new(graph.written_origins_for_file(file_id).collect())
+    Arc::new(graph.lowering_origins_for_file(file_id).into_iter().collect())
 }
 
 pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
