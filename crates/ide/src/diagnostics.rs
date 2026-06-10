@@ -9,6 +9,7 @@ use hir::{
     hir_def::module::ModuleId,
     source_map::IsSrc,
 };
+use source_model::{OriginId, SourceChoice, SourcePurpose, SourceRangeResult};
 use syntax::{DiagnosticSeverity, SyntaxDiagnostic};
 use utils::{
     get::Get,
@@ -339,18 +340,28 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             };
             let mut diag_file_id = file_id;
             let mut range = src.range();
-            match hir::preproc::diagnostic_provenance_for_range(db, file_id, range) {
-                Ok(Some(provenance)) => {
-                    let Some((target_file_id, target_range)) =
-                        diagnostic_preproc_target_file_range(&provenance)
-                    else {
-                        continue;
-                    };
-                    diag_file_id = target_file_id;
-                    range = target_range;
+            if let Some(origin) = src_map.instantiation_origin(instantiation_id) {
+                let Some((target_file_id, target_range)) =
+                    diagnostic_source_graph_target_file_range(db, file_id, origin)
+                else {
+                    continue;
+                };
+                diag_file_id = target_file_id;
+                range = target_range;
+            } else {
+                match hir::preproc::diagnostic_provenance_for_range(db, file_id, range) {
+                    Ok(Some(provenance)) => {
+                        let Some((target_file_id, target_range)) =
+                            diagnostic_preproc_target_file_range(&provenance)
+                        else {
+                            continue;
+                        };
+                        diag_file_id = target_file_id;
+                        range = target_range;
+                    }
+                    Ok(None) => {}
+                    Err(_) => continue,
                 }
-                Ok(None) => {}
-                Err(_) => continue,
             }
 
             match resolve_module_name(db, file_id, module_name) {
@@ -378,6 +389,26 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
     }
 
     diagnostics
+}
+
+fn diagnostic_source_graph_target_file_range(
+    db: &RootDb,
+    file_id: FileId,
+    origin: OriginId,
+) -> Option<(FileId, TextRange)> {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+
+    let span = match graph.preferred_span(origin, SourcePurpose::Diagnostic) {
+        SourceChoice::Span(span) => span,
+        SourceChoice::FileRange(file_range) => return Some((file_range.file_id, file_range.range)),
+        SourceChoice::Unavailable => return None,
+    };
+    match graph.to_file_range(span, SourcePurpose::Diagnostic) {
+        SourceRangeResult::Mapped(file_range) => Some((file_range.file_id, file_range.range)),
+        SourceRangeResult::Blocked(_) | SourceRangeResult::Unavailable(_) => None,
+    }
 }
 
 fn diagnostic_preproc_target_file_range(
@@ -636,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn preproc_macro_generated_instantiation_diagnostic_uses_macro_body_provenance() {
+    fn preproc_macro_generated_instantiation_diagnostic_uses_source_graph_policy() {
         let top = "`define MAKE child u();\nmodule top;\n  `MAKE\nendmodule\n";
         let db = db_with_files(
             &[
@@ -659,12 +690,12 @@ mod tests {
             });
 
         assert_eq!(diagnostic.file_id, FileId(2));
-        assert_eq!(diagnostic.range, range_of(top, "child"));
-        assert_ne!(diagnostic.range, range_of(top, "`MAKE"));
+        assert_eq!(diagnostic.range, range_of(top, "`MAKE"));
+        assert_ne!(diagnostic.range, range_of(top, "child"));
     }
 
     #[test]
-    fn preproc_display_only_virtual_expansion_diagnostic_is_not_published() {
+    fn preproc_display_only_virtual_expansion_diagnostic_uses_call_site() {
         let top = "module top;\n  `MAKE\nendmodule\n";
         let mut db = db_with_predefines(
             &[
@@ -677,14 +708,18 @@ mod tests {
         disable_semantic_diagnostics(&mut db);
 
         let diagnostics = diagnostics(&db, FileId(2));
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diag| {
+                diag.source == DiagnosticSource::Vide
+                    && diag.name == AMBIGUOUS_MODULE_INSTANTIATION.name
+            })
+            .unwrap_or_else(|| {
+                panic!("expected display-only expansion diagnostic at call site: {diagnostics:?}")
+            });
 
-        assert!(
-            diagnostics.iter().all(|diag| {
-                diag.source != DiagnosticSource::Vide
-                    || diag.name != AMBIGUOUS_MODULE_INSTANTIATION.name
-            }),
-            "display-only virtual expansion must not publish ambiguous module diagnostics: {diagnostics:?}"
-        );
+        assert_eq!(diagnostic.file_id, FileId(2));
+        assert_eq!(diagnostic.range, range_of(top, "`MAKE"));
         assert!(
             diagnostics.iter().all(|diag| diag.file_id.0 < 3),
             "diagnostics must not target synthetic virtual FileIds: {diagnostics:?}"

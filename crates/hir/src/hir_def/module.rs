@@ -211,6 +211,10 @@ impl ModuleSourceMap {
     pub fn declaration_origin(&self, declaration: DeclarationId) -> Option<OriginId> {
         self.declaration_srcs.hir_to_origin(declaration)
     }
+
+    pub fn instantiation_origin(&self, instantiation: InstantiationId) -> Option<OriginId> {
+        self.instantiation_srcs.hir_to_origin(instantiation)
+    }
 }
 
 define_enum_deriving_from! {
