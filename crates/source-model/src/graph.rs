@@ -27,6 +27,7 @@ pub struct SourceGraph {
     expansions_by_call: FxHashMap<(SourceContextId, crate::MacroCallId), crate::MacroExpansionId>,
     tokens_by_expansion: FxHashMap<crate::MacroExpansionId, Vec<EntityId>>,
     spellings_by_generated: FxHashMap<SpanId, Vec<(SpanId, crate::SpellingKind)>>,
+    generated_by_spelling_source: FxHashMap<SpanId, Vec<(SpanId, crate::SpellingKind)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -142,6 +143,10 @@ impl SourceGraphBuilder {
             FxHashMap::default();
         let mut spellings_by_generated: FxHashMap<SpanId, Vec<(SpanId, crate::SpellingKind)>> =
             FxHashMap::default();
+        let mut generated_by_spelling_source: FxHashMap<
+            SpanId,
+            Vec<(SpanId, crate::SpellingKind)>,
+        > = FxHashMap::default();
 
         for relation in &self.relations {
             match *relation {
@@ -172,6 +177,7 @@ impl SourceGraphBuilder {
                 }
                 SourceRelation::SpelledFrom { generated, source, kind } => {
                     spellings_by_generated.entry(generated).or_default().push((source, kind));
+                    generated_by_spelling_source.entry(source).or_default().push((generated, kind));
                 }
                 _ => {}
             }
@@ -200,6 +206,7 @@ impl SourceGraphBuilder {
             expansions_by_call,
             tokens_by_expansion,
             spellings_by_generated,
+            generated_by_spelling_source,
         }
     }
 }
@@ -308,6 +315,13 @@ impl SourceGraph {
 
     pub fn spelled_sources(&self, generated: SpanId) -> &[(SpanId, crate::SpellingKind)] {
         self.spellings_by_generated.get(&generated).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn generated_from_spelling_source(
+        &self,
+        source: SpanId,
+    ) -> &[(SpanId, crate::SpellingKind)] {
+        self.generated_by_spelling_source.get(&source).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn entities_at_file_position(
@@ -756,6 +770,10 @@ mod tests {
         assert_eq!(
             graph.spelled_sources(generated),
             &[(source, crate::SpellingKind::MacroArgument)]
+        );
+        assert_eq!(
+            graph.generated_from_spelling_source(source),
+            &[(generated, crate::SpellingKind::MacroArgument)]
         );
     }
 

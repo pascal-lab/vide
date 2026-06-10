@@ -339,9 +339,15 @@ fn source_graph_indexes_macro_expansion_relations() {
     let selection =
         graph.entity_selection(emitted[0]).expect("emitted token should have selection");
     let emitted_span = graph.selection(selection).full;
+    let spelled_sources = graph.spelled_sources(emitted_span);
+    assert!(!spelled_sources.is_empty(), "emitted token should retain spelling provenance");
+    let source_span = spelled_sources[0].0;
     assert!(
-        !graph.spelled_sources(emitted_span).is_empty(),
-        "emitted token should retain spelling provenance"
+        graph
+            .generated_from_spelling_source(source_span)
+            .iter()
+            .any(|(generated, _)| *generated == emitted_span),
+        "spelling provenance should be queryable from source to generated span"
     );
 }
 
