@@ -41,6 +41,7 @@ pub mod selection_ranges;
 pub mod semantic_tokens;
 pub mod signature_help;
 pub(crate) mod source_targets;
+pub(crate) mod syntax_targets;
 #[cfg(test)]
 mod test_utils;
 #[cfg(test)]

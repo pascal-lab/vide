@@ -28,14 +28,14 @@ use crate::{
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
-    source_targets::{SourceTarget, source_target_at_offset},
+    syntax_targets::{SyntaxTarget, syntax_target_at_offset},
 };
 
 pub(crate) mod search;
 
 enum ReferencesTarget<'tree> {
     Preproc(PreprocReferencesTarget),
-    Source(SourceTarget<'tree>),
+    Source(SyntaxTarget<'tree>),
 }
 
 enum PreprocReferencesTarget {
@@ -126,8 +126,7 @@ fn dispatch_references_target<'tree>(
         return Some(target);
     }
     let root = root?;
-    let target =
-        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
+    let target = syntax_target_at_offset(root, offset, token_precedence)?;
     Some(ReferencesTarget::Source(target))
 }
 
@@ -191,7 +190,7 @@ fn render_references_target(
 fn render_source_references_target(
     sema: &Semantics<RootDb>,
     file_id: FileId,
-    target: SourceTarget<'_>,
+    target: SyntaxTarget<'_>,
     config: ReferencesConfig,
 ) -> Option<Vec<References>> {
     let hir_file_id = file_id.into();

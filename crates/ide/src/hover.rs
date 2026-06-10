@@ -102,15 +102,29 @@ fn dispatch_source_graph_hover_target(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<HoverTarget<'static>> {
-    let target = PositionResolver::new(db).resolve_position(
+    let resolution = PositionResolver::new(db).resolve_position(
         SourceFilePosition { file_id, offset },
         SourcePurpose::Hover,
         None,
     );
-    let GraphSourceTargetResolution::Resolved(target) = target else {
-        return None;
-    };
 
+    match resolution {
+        GraphSourceTargetResolution::Resolved(target) => {
+            dispatch_graph_hover_target(db, file_id, offset, target)
+        }
+        GraphSourceTargetResolution::Ambiguous(targets) => targets
+            .into_iter()
+            .find_map(|target| dispatch_graph_hover_target(db, file_id, offset, target)),
+        GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => None,
+    }
+}
+
+fn dispatch_graph_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    target: GraphSourceTarget,
+) -> Option<HoverTarget<'static>> {
     match target {
         GraphSourceTarget::MacroParamDefinition(_) => {
             dispatch_macro_param_definition_hover_target(db, file_id, offset)
@@ -533,6 +547,11 @@ fn dispatch_macro_reference_hover_target(
     offset: TextSize,
 ) -> Option<MacroHoverTarget> {
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
+        if resolution.definitions.is_empty()
+            && expanded_macro_hover(db, file_id, offset, Some(&resolution)).is_none()
+        {
+            return None;
+        }
         return Some(MacroHoverTarget::Reference(resolution));
     }
     None

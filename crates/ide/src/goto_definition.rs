@@ -74,15 +74,29 @@ fn dispatch_source_graph_definition_target(
     file_id: FileId,
     offset: TextSize,
 ) -> Option<DefinitionTarget<'static>> {
-    let target = PositionResolver::new(db).resolve_position(
+    let resolution = PositionResolver::new(db).resolve_position(
         SourceFilePosition { file_id, offset },
         SourcePurpose::GotoDefinition,
         None,
     );
-    let GraphSourceTargetResolution::Resolved(target) = target else {
-        return None;
-    };
 
+    match resolution {
+        GraphSourceTargetResolution::Resolved(target) => {
+            dispatch_graph_definition_target(db, file_id, offset, target)
+        }
+        GraphSourceTargetResolution::Ambiguous(targets) => targets
+            .into_iter()
+            .find_map(|target| dispatch_graph_definition_target(db, file_id, offset, target)),
+        GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => None,
+    }
+}
+
+fn dispatch_graph_definition_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    target: GraphSourceTarget,
+) -> Option<DefinitionTarget<'static>> {
     match target {
         GraphSourceTarget::MacroParamDefinition(_) => {
             dispatch_macro_param_definition_target(db, file_id, offset)
@@ -181,6 +195,9 @@ fn dispatch_macro_param_reference_target(
     offset: TextSize,
 ) -> Option<PreprocDefinitionTarget> {
     if let Ok(Some(resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
+        if resolution.definitions.is_empty() {
+            return None;
+        }
         return Some(PreprocDefinitionTarget::ParamReference(resolution));
     }
     None
@@ -203,6 +220,9 @@ fn dispatch_macro_reference_target(
     offset: TextSize,
 ) -> Option<PreprocDefinitionTarget> {
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
+        if resolution.definitions.is_empty() {
+            return None;
+        }
         return Some(PreprocDefinitionTarget::Reference(resolution));
     }
     None
