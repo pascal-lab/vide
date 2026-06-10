@@ -1,5 +1,11 @@
-use hir::semantics::Semantics;
+use hir::{semantics::Semantics, source_resolver::PositionResolver};
 use itertools::Itertools;
+use source_model::{
+    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    SourceTargetResolution as GraphSourceTargetResolution,
+};
+use syntax::{SyntaxNodeExt, has_text_range::HasTextRange};
+use vfs::FileId;
 
 use crate::{
     FilePosition, RangeInfo,
@@ -17,17 +23,15 @@ pub(crate) fn goto_declaration(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let target = crate::source_targets::source_target_at_offset(
-        db,
-        file_id,
-        root,
-        offset,
-        goto_definition::token_precedence,
-    )?
-    .resolved()?;
-    let (range, tokens) = target.into_parts();
+    if !source_graph_allows_goto_declaration(db, file_id, offset) {
+        return None;
+    }
+    let token = root
+        .token_at_offset(offset)
+        .pick_bext_token(|kind| (goto_definition::token_precedence(kind) > 1).into())?;
+    let range = token.text_range()?;
 
-    let origins = tokens
+    let origins = [token]
         .into_iter()
         .filter_map(|token| match DefinitionClass::resolve(&sema, hir_file_id, token)? {
             DefinitionClass::Definition(definition) => {
@@ -49,4 +53,27 @@ pub(crate) fn goto_declaration(
     let navs = origins.into_iter().unique().filter_map(|def| def.to_nav(db)).collect_vec();
 
     Some(RangeInfo::new(range, navs))
+}
+
+fn source_graph_allows_goto_declaration(
+    db: &RootDb,
+    file_id: FileId,
+    offset: utils::line_index::TextSize,
+) -> bool {
+    let target = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id, offset },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+
+    matches!(
+        target,
+        GraphSourceTargetResolution::None
+            | GraphSourceTargetResolution::Resolved(
+                GraphSourceTarget::MacroCall(_)
+                    | GraphSourceTarget::HirSymbol(_)
+                    | GraphSourceTarget::HirReference(_)
+                    | GraphSourceTarget::SyntaxToken(_)
+            )
+    )
 }
