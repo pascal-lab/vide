@@ -1,5 +1,11 @@
-use hir::{container::InFile, file::HirFileId, semantics::Semantics};
-use syntax::{SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
+use hir::{
+    container::InFile, file::HirFileId, semantics::Semantics, source_resolver::PositionResolver,
+};
+use source_model::{
+    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    SourceTargetResolution as GraphSourceTargetResolution,
+};
+use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
 use vfs::FileId;
 
@@ -33,21 +39,40 @@ pub(crate) fn document_highlight(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let tokens = crate::source_targets::source_target_at_offset(
-        db,
-        file_id,
-        root,
-        offset,
-        token_precedence,
-    )?
-    .resolved()?
-    .into_tokens();
-    let highlights = tokens
+    if !source_graph_allows_document_highlight(db, file_id, offset) {
+        return None;
+    }
+    let token =
+        root.token_at_offset(offset).pick_bext_token(|kind| (token_precedence(kind) > 1).into())?;
+    let highlights = [token]
         .into_iter()
         .filter_map(|token| highlight_for_token(&sema, file_id, hir_file_id, token, config.clone()))
         .flatten()
         .collect::<Vec<_>>();
     (!highlights.is_empty()).then_some(highlights)
+}
+
+fn source_graph_allows_document_highlight(
+    db: &RootDb,
+    file_id: FileId,
+    offset: utils::line_index::TextSize,
+) -> bool {
+    let target = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id, offset },
+        SourcePurpose::FindReferences,
+        None,
+    );
+
+    matches!(
+        target,
+        GraphSourceTargetResolution::None
+            | GraphSourceTargetResolution::Resolved(
+                GraphSourceTarget::MacroCall(_)
+                    | GraphSourceTarget::HirSymbol(_)
+                    | GraphSourceTarget::HirReference(_)
+                    | GraphSourceTarget::SyntaxToken(_)
+            )
+    )
 }
 
 fn token_precedence(kind: TokenKind) -> usize {
