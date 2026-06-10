@@ -1,5 +1,5 @@
 use hir::{
-    base_db::source_db::SourceDb,
+    base_db::source_db::{SourceDb, SourceRootDb},
     container::InFile,
     file::HirFileId,
     preproc::{
@@ -13,7 +13,8 @@ use hir::{
 };
 use itertools::Itertools;
 use source_model::{
-    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    EntityId, FilePosition as SourceFilePosition, ResolvedSourceTarget, SourceContext,
+    SourcePurpose, SourceRangeResult, SourceTarget as GraphSourceTarget,
     SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{
@@ -34,6 +35,7 @@ use crate::{
 enum DefinitionTarget<'tree> {
     Preproc(Box<PreprocDefinitionTarget>),
     Include(Vec<IncludeDirective>),
+    Graph(RangeInfo<Vec<NavTarget>>),
     Source(SourceTarget<'tree>),
 }
 
@@ -82,11 +84,11 @@ fn dispatch_source_graph_definition_target(
 
     match resolution {
         GraphSourceTargetResolution::Resolved(target) => {
-            dispatch_graph_definition_target(db, file_id, offset, target.target)
+            dispatch_graph_definition_target(db, file_id, offset, target)
         }
-        GraphSourceTargetResolution::Ambiguous(targets) => targets.into_iter().find_map(|target| {
-            dispatch_graph_definition_target(db, file_id, offset, target.target)
-        }),
+        GraphSourceTargetResolution::Ambiguous(targets) => targets
+            .into_iter()
+            .find_map(|target| dispatch_graph_definition_target(db, file_id, offset, target)),
         GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => None,
     }
 }
@@ -95,9 +97,9 @@ fn dispatch_graph_definition_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-    target: GraphSourceTarget,
+    target: ResolvedSourceTarget,
 ) -> Option<DefinitionTarget<'static>> {
-    match target {
+    match target.target {
         GraphSourceTarget::MacroParamDefinition(_) => {
             dispatch_macro_param_definition_target(db, file_id, offset)
                 .map(|target| DefinitionTarget::Preproc(Box::new(target)))
@@ -111,12 +113,19 @@ fn dispatch_graph_definition_target(
                 .map(|target| DefinitionTarget::Preproc(Box::new(target)))
         }
         GraphSourceTarget::MacroReference(_) => {
-            dispatch_macro_reference_target(db, file_id, offset)
-                .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+            dispatch_graph_macro_reference_target(db, file_id, target)
+                .map(DefinitionTarget::Graph)
+                .or_else(|| {
+                    dispatch_macro_reference_target(db, file_id, offset)
+                        .map(|target| DefinitionTarget::Preproc(Box::new(target)))
+                })
         }
-        GraphSourceTarget::Include(_) => {
-            dispatch_include_definition_target(db, file_id, offset).map(DefinitionTarget::Include)
-        }
+        GraphSourceTarget::Include(id) => dispatch_graph_include_target(db, file_id, target, id)
+            .map(DefinitionTarget::Graph)
+            .or_else(|| {
+                dispatch_include_definition_target(db, file_id, offset)
+                    .map(DefinitionTarget::Include)
+            }),
         GraphSourceTarget::MacroCall(_)
         | GraphSourceTarget::ExpansionToken(_)
         | GraphSourceTarget::HirSymbol(_)
@@ -134,6 +143,7 @@ fn render_definition_target(
     match target {
         DefinitionTarget::Preproc(target) => render_preproc_definition_target(*target),
         DefinitionTarget::Include(includes) => render_include_definition_target(db, includes),
+        DefinitionTarget::Graph(target) => Some(target),
         DefinitionTarget::Source(target) => {
             render_source_definition_target(db, file_id, sema, target)
         }
@@ -175,6 +185,51 @@ fn nav_targets_for_token(
             .filter_map(|def| def.to_nav(db))
             .collect_vec()
             .into()
+    })
+}
+
+fn dispatch_graph_macro_reference_target(
+    db: &RootDb,
+    file_id: FileId,
+    reference: ResolvedSourceTarget,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let SourceRangeResult::Mapped(reference_range) =
+        graph.entity_full_file_range(reference.entity, SourcePurpose::GotoDefinition)
+    else {
+        return None;
+    };
+    let targets = graph
+        .resolved_definitions(source_graph.root_context, reference.entity)
+        .iter()
+        .filter_map(|(definition, _)| graph_macro_nav_target(db, graph, *definition))
+        .unique()
+        .collect_vec();
+    (!targets.is_empty()).then_some(RangeInfo::new(reference_range.range, targets))
+}
+
+fn graph_macro_nav_target(
+    db: &RootDb,
+    graph: &source_model::SourceGraph,
+    entity: EntityId,
+) -> Option<NavTarget> {
+    let SourceRangeResult::Mapped(file_range) =
+        graph.entity_focus_file_range(entity, SourcePurpose::GotoDefinition)
+    else {
+        return None;
+    };
+    let text = db.file_text(file_range.file_id);
+    let name = text[file_range.range].to_owned();
+    Some(NavTarget {
+        file_id: file_range.file_id,
+        full_range: file_range.range,
+        focus_range: Some(file_range.range),
+        name: Some(name.into()),
+        kind: None,
+        container_name: None,
+        description: Some("macro definition".to_owned()),
     })
 }
 
@@ -274,6 +329,40 @@ fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
         container_name: None,
         description: Some("macro definition".to_owned()),
     }
+}
+
+fn dispatch_graph_include_target(
+    db: &RootDb,
+    file_id: FileId,
+    include: ResolvedSourceTarget,
+    include_id: source_model::IncludeDirectiveId,
+) -> Option<RangeInfo<Vec<NavTarget>>> {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let SourceRangeResult::Mapped(include_range) =
+        graph.entity_focus_file_range(include.entity, SourcePurpose::GotoDefinition)
+    else {
+        return None;
+    };
+    let included_context = graph.included_context(source_graph.root_context, include_id)?;
+    let SourceContext::IncludeContext { included_file, .. } = *graph.context(included_context)
+    else {
+        return None;
+    };
+    let target_range = TextRange::empty(TextSize::new(0));
+    let include_text = db.file_text(include_range.file_id);
+    let name = include_text[include_range.range].trim_matches('"').to_owned();
+    let target = NavTarget {
+        file_id: included_file,
+        full_range: target_range,
+        focus_range: Some(target_range),
+        name: Some(name.into()),
+        kind: None,
+        container_name: None,
+        description: db.file_path(included_file).map(|path| path.to_string()),
+    };
+    Some(RangeInfo::new(include_range.range, vec![target]))
 }
 
 fn dispatch_include_definition_target(

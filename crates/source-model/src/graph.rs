@@ -211,6 +211,35 @@ impl SourceGraph {
         self.origin_by_entity.get(&entity).copied()
     }
 
+    pub fn entity_focus_file_range(
+        &self,
+        entity: EntityId,
+        purpose: SourcePurpose,
+    ) -> SourceRangeResult<FileRange> {
+        let Some(selection) = self.entity_selection(entity) else {
+            return SourceRangeResult::Unavailable(crate::SourceUnavailable::Unsupported);
+        };
+        let selection = self.selection(selection);
+        let focus = selection.focus.unwrap_or(selection.full);
+        match self.to_file_range(focus, purpose) {
+            SourceRangeResult::Mapped(range) => SourceRangeResult::Mapped(range),
+            SourceRangeResult::Blocked(_) | SourceRangeResult::Unavailable(_) => {
+                self.to_file_range(selection.full, purpose)
+            }
+        }
+    }
+
+    pub fn entity_full_file_range(
+        &self,
+        entity: EntityId,
+        purpose: SourcePurpose,
+    ) -> SourceRangeResult<FileRange> {
+        let Some(selection) = self.entity_selection(entity) else {
+            return SourceRangeResult::Unavailable(crate::SourceUnavailable::Unsupported);
+        };
+        self.to_file_range(self.selection(selection).full, purpose)
+    }
+
     pub fn resolved_definitions(
         &self,
         context: SourceContextId,
@@ -536,6 +565,48 @@ mod tests {
         assert_eq!(
             graph.resolved_definitions(context, reference),
             &[(definition, ResolutionReason::VisibleDefinition)]
+        );
+    }
+
+    #[test]
+    fn projects_entity_focus_to_file_range() {
+        let mut builder = SourceGraphBuilder::new();
+        let domain = builder.intern_domain(SourceDomain::RealFile { file_id: FileId(1) });
+        let full = builder.intern_span(domain, TextRange::new(0.into(), 12.into()));
+        let focus = builder.intern_span(domain, TextRange::new(8.into(), 11.into()));
+        let selection = builder.intern_selection(full, Some(focus));
+        let entity = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(0)));
+        builder.add_relation(SourceRelation::HasSelection { entity, selection });
+
+        let graph = builder.build();
+
+        assert_eq!(
+            graph.entity_focus_file_range(entity, SourcePurpose::GotoDefinition),
+            SourceRangeResult::Mapped(FileRange {
+                file_id: FileId(1),
+                range: TextRange::new(8.into(), 11.into()),
+            })
+        );
+    }
+
+    #[test]
+    fn projects_entity_full_to_file_range() {
+        let mut builder = SourceGraphBuilder::new();
+        let domain = builder.intern_domain(SourceDomain::RealFile { file_id: FileId(1) });
+        let full = builder.intern_span(domain, TextRange::new(0.into(), 12.into()));
+        let focus = builder.intern_span(domain, TextRange::new(8.into(), 11.into()));
+        let selection = builder.intern_selection(full, Some(focus));
+        let entity = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(0)));
+        builder.add_relation(SourceRelation::HasSelection { entity, selection });
+
+        let graph = builder.build();
+
+        assert_eq!(
+            graph.entity_full_file_range(entity, SourcePurpose::GotoDefinition),
+            SourceRangeResult::Mapped(FileRange {
+                file_id: FileId(1),
+                range: TextRange::new(0.into(), 12.into()),
+            })
         );
     }
 
