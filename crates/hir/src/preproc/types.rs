@@ -583,8 +583,8 @@ impl MacroTokenIdentity {
             syntax::PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } => {
                 Some(Self::Argument(identity.into()))
             }
-            syntax::PreprocessorTraceTokenProvenance::TokenPaste { identity }
-            | syntax::PreprocessorTraceTokenProvenance::Stringification { identity } => {
+            syntax::PreprocessorTraceTokenProvenance::TokenPaste { identity, .. }
+            | syntax::PreprocessorTraceTokenProvenance::Stringification { identity, .. } => {
                 Some(Self::Operation(identity.into()))
             }
             syntax::PreprocessorTraceTokenProvenance::Source { .. }

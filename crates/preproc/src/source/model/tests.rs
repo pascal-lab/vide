@@ -1090,14 +1090,18 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "foobar")
         .expect("token paste result should not be dropped");
-    let SourceTokenProvenance::TokenPaste { call: paste_call, identity: paste_identity } =
-        model.token_provenance().get(pasted.provenance).unwrap()
+    let SourceTokenProvenance::TokenPaste {
+        call: paste_call,
+        identity: paste_identity,
+        inputs: paste_inputs,
+    } = model.token_provenance().get(pasted.provenance).unwrap()
     else {
         panic!(
             "token paste should carry macro operation provenance: {:?}",
             model.token_provenance().get(pasted.provenance).unwrap()
         );
     };
+    assert!(!paste_inputs.is_empty());
     assert_eq!(
         Some(paste_identity.call),
         model.macro_calls().get(*paste_call).and_then(|call| call.identity)
@@ -1111,10 +1115,12 @@ endmodule
     let SourceTokenProvenance::Stringification {
         call: stringification_call,
         identity: stringification_identity,
+        inputs: stringification_inputs,
     } = model.token_provenance().get(stringified.provenance).unwrap()
     else {
         panic!("stringification should carry macro operation provenance");
     };
+    assert!(!stringification_inputs.is_empty());
     assert_eq!(
         Some(stringification_identity.call),
         model.macro_calls().get(*stringification_call).and_then(|call| call.identity)

@@ -311,10 +311,12 @@ pub enum SourceTokenProvenance {
     TokenPaste {
         identity: SourceMacroOperationIdentity,
         call: SourceMacroCallId,
+        inputs: Vec<SourceRange>,
     },
     Stringification {
         identity: SourceMacroOperationIdentity,
         call: SourceMacroCallId,
+        inputs: Vec<SourceRange>,
     },
     Predefine {
         source: PreprocSourceId,

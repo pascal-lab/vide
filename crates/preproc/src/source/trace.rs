@@ -358,14 +358,22 @@ fn emitted_token_provenance_from_trace(
                 identity: Some(SourceMacroBuiltinIdentity::from(identity)),
             }
         }
-        PreprocessorTraceTokenProvenance::TokenPaste { identity } => {
+        PreprocessorTraceTokenProvenance::TokenPaste { identity, inputs } => {
             SourceTokenProvenanceFact::TokenPaste {
                 identity: Some(SourceMacroOperationIdentity::from(identity)),
+                inputs: inputs
+                    .into_iter()
+                    .filter_map(|range| source_range_from_trace(&range))
+                    .collect(),
             }
         }
-        PreprocessorTraceTokenProvenance::Stringification { identity } => {
+        PreprocessorTraceTokenProvenance::Stringification { identity, inputs } => {
             SourceTokenProvenanceFact::Stringification {
                 identity: Some(SourceMacroOperationIdentity::from(identity)),
+                inputs: inputs
+                    .into_iter()
+                    .filter_map(|range| source_range_from_trace(&range))
+                    .collect(),
             }
         }
         PreprocessorTraceTokenProvenance::Builtin { .. } => SourceTokenProvenanceFact::Unavailable,

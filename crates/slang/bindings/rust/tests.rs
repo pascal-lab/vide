@@ -1624,11 +1624,14 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "foobar")
         .expect("token paste result should stay in emitted stream");
-    let PreprocessorTraceTokenProvenance::TokenPaste { identity: pasted_identity } =
-        &pasted.provenance
+    let PreprocessorTraceTokenProvenance::TokenPaste {
+        identity: pasted_identity,
+        inputs: pasted_inputs,
+    } = &pasted.provenance
     else {
         panic!("token paste should carry macro operation provenance: {pasted:?}");
     };
+    assert!(!pasted_inputs.is_empty());
     assert!(pasted_identity.call_id.0 != 0);
     assert!(pasted_identity.definition_id.0 != 0);
     assert!(pasted_identity.expansion_id.0 != 0);
@@ -1639,11 +1642,14 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "\"foo\"")
         .expect("stringification result should stay in emitted stream");
-    let PreprocessorTraceTokenProvenance::Stringification { identity: stringified_identity } =
-        &stringified.provenance
+    let PreprocessorTraceTokenProvenance::Stringification {
+        identity: stringified_identity,
+        inputs: stringified_inputs,
+    } = &stringified.provenance
     else {
         panic!("stringification should carry macro operation provenance: {stringified:?}");
     };
+    assert!(!stringified_inputs.is_empty());
     assert!(stringified_identity.call_id.0 != 0);
     assert!(stringified_identity.definition_id.0 != 0);
     assert!(stringified_identity.expansion_id.0 != 0);

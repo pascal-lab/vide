@@ -266,9 +266,11 @@ pub enum SourceTokenProvenanceFact {
     },
     TokenPaste {
         identity: Option<SourceMacroOperationIdentity>,
+        inputs: Vec<SourceRange>,
     },
     Stringification {
         identity: Option<SourceMacroOperationIdentity>,
+        inputs: Vec<SourceRange>,
     },
     Unavailable,
 }

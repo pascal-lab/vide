@@ -478,16 +478,18 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             SourceTokenProvenanceFact::Builtin { name, identity } if !name.is_empty() => {
                 self.resolve_builtin_token_provenance(token_id, name.clone(), *identity)
             }
-            SourceTokenProvenanceFact::TokenPaste { identity } => self
+            SourceTokenProvenanceFact::TokenPaste { identity, inputs } => self
                 .resolve_macro_operation_token_provenance(
                     token_id,
                     *identity,
+                    inputs.clone(),
                     MacroOperationProvenanceKind::TokenPaste,
                 ),
-            SourceTokenProvenanceFact::Stringification { identity } => self
+            SourceTokenProvenanceFact::Stringification { identity, inputs } => self
                 .resolve_macro_operation_token_provenance(
                     token_id,
                     *identity,
+                    inputs.clone(),
                     MacroOperationProvenanceKind::Stringification,
                 ),
             SourceTokenProvenanceFact::Builtin { .. } | SourceTokenProvenanceFact::Unavailable => {
@@ -627,6 +629,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &mut self,
         token_id: SourceEmittedTokenId,
         identity: Option<SourceMacroOperationIdentity>,
+        inputs: Vec<SourceRange>,
         kind: MacroOperationProvenanceKind,
     ) -> SourceTokenProvenance {
         let Some(identity) = identity else {
@@ -657,10 +660,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         self.record_emitted_token_owner(token_id, call);
         match kind {
             MacroOperationProvenanceKind::TokenPaste => {
-                SourceTokenProvenance::TokenPaste { identity, call }
+                SourceTokenProvenance::TokenPaste { identity, call, inputs }
             }
             MacroOperationProvenanceKind::Stringification => {
-                SourceTokenProvenance::Stringification { identity, call }
+                SourceTokenProvenance::Stringification { identity, call, inputs }
             }
         }
     }

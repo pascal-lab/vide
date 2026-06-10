@@ -215,9 +215,11 @@ pub enum PreprocessorTraceTokenProvenance {
     },
     TokenPaste {
         identity: PreprocessorTraceMacroOperationIdentity,
+        inputs: Vec<SourceBufferRange>,
     },
     Stringification {
         identity: PreprocessorTraceMacroOperationIdentity,
+        inputs: Vec<SourceBufferRange>,
     },
     Unavailable,
 }
@@ -644,7 +646,8 @@ impl PreprocessorTraceTokenProvenance {
                 else {
                     return Self::Unavailable;
                 };
-                Self::TokenPaste { identity }
+                let inputs = macro_operation_input_ranges(&raw);
+                Self::TokenPaste { identity, inputs }
             }
             Self::STRINGIFICATION => {
                 let Some(identity) =
@@ -652,12 +655,25 @@ impl PreprocessorTraceTokenProvenance {
                 else {
                     return Self::Unavailable;
                 };
-                Self::Stringification { identity }
+                let inputs = macro_operation_input_ranges(&raw);
+                Self::Stringification { identity, inputs }
             }
             Self::UNAVAILABLE => Self::Unavailable,
             _ => Self::Unavailable,
         }
     }
+}
+
+fn macro_operation_input_ranges(
+    raw: &RawPreprocessorTraceTokenProvenance,
+) -> Vec<SourceBufferRange> {
+    [
+        SourceBufferRange::from_raw(raw.body_token_range.clone()),
+        SourceBufferRange::from_raw(raw.argument_token_range.clone()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 impl PreprocessorTraceMacroBodyIdentity {

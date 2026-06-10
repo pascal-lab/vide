@@ -345,10 +345,18 @@ void apply_direct_macro_token_provenance(
 
 bool apply_macro_operation_token_provenance(
     ::RawPreprocessorTraceEmittedToken& result,
+    slang::parsing::Token token,
+    const slang::SourceManager& sourceManager,
+    slang::SourceLocation location,
     const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance,
     uint8_t provenanceKind) {
   if (!has_direct_macro_token_provenance(provenance))
     return false;
+
+  result.call_range = to_rust_macro_callsite_range_from_macro_loc(sourceManager, location);
+  auto expansionRange = sourceManager.getExpansionRange(location);
+  result.body_token_range = to_rust_written_source_range(sourceManager, expansionRange);
+  result.argument_token_range = to_rust_original_macro_loc_range(sourceManager, token.range());
 
   apply_direct_macro_token_provenance(result, *provenance);
   result.provenance_kind = provenanceKind;
@@ -525,12 +533,12 @@ template<typename TTokens>
     switch (sourceManager.getMacroExpansionKind(location)) {
       case slang::SourceManager::MacroExpansionKind::TokenPaste:
         apply_macro_operation_token_provenance(
-            result, sourceManager.getMacroTokenProvenance(location),
+            result, token, sourceManager, location, sourceManager.getMacroTokenProvenance(location),
             TRACE_TOKEN_PROVENANCE_TOKEN_PASTE);
         return result;
       case slang::SourceManager::MacroExpansionKind::Stringification:
         apply_macro_operation_token_provenance(
-            result, sourceManager.getMacroTokenProvenance(location),
+            result, token, sourceManager, location, sourceManager.getMacroTokenProvenance(location),
             TRACE_TOKEN_PROVENANCE_STRINGIFICATION);
         return result;
       case slang::SourceManager::MacroExpansionKind::Body:
