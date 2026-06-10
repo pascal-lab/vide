@@ -286,32 +286,21 @@ fn graph_macro_param_references_for_definition(
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let mut refs = Vec::new();
-    for parent in graph.entity_parents(definition) {
-        for child in graph.entity_children(*parent) {
-            let SourceEntity::MacroParamReference(_) = graph.entity(*child) else {
-                continue;
-            };
-            if !graph
-                .resolved_definitions(source_graph.root_context, *child)
-                .iter()
-                .any(|(resolved, _)| *resolved == definition)
-            {
-                continue;
-            }
-            let SourceRangeResult::Mapped(file_range) =
-                graph.entity_focus_file_range(*child, SourcePurpose::FindReferences)
-            else {
-                continue;
-            };
-            config
-                .search_scope
-                .as_ref()
-                .is_none_or(|scope| {
-                    scope.range_for_file(file_range.file_id).is_some_and(|range| {
-                        range.is_none_or(|range| range.intersect(file_range.range).is_some())
-                    })
-                })
-                .then(|| refs.push(file_range));
+    for (reference, _) in graph.resolved_references(source_graph.root_context, definition) {
+        let SourceEntity::MacroParamReference(_) = graph.entity(*reference) else {
+            continue;
+        };
+        let SourceRangeResult::Mapped(file_range) =
+            graph.entity_focus_file_range(*reference, SourcePurpose::FindReferences)
+        else {
+            continue;
+        };
+        if config.search_scope.as_ref().is_none_or(|scope| {
+            scope.range_for_file(file_range.file_id).is_some_and(|range| {
+                range.is_none_or(|range| range.intersect(file_range.range).is_some())
+            })
+        }) {
+            refs.push(file_range);
         }
     }
     let refs = refs

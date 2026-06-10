@@ -23,6 +23,8 @@ pub struct SourceGraph {
     parents_by_entity: FxHashMap<EntityId, Vec<EntityId>>,
     resolutions_by_reference:
         FxHashMap<(SourceContextId, EntityId), Vec<(EntityId, ResolutionReason)>>,
+    references_by_definition:
+        FxHashMap<(SourceContextId, EntityId), Vec<(EntityId, ResolutionReason)>>,
     includes_by_directive: FxHashMap<(SourceContextId, crate::IncludeDirectiveId), SourceContextId>,
     expansions_by_call: FxHashMap<(SourceContextId, crate::MacroCallId), crate::MacroExpansionId>,
     tokens_by_expansion: FxHashMap<crate::MacroExpansionId, Vec<EntityId>>,
@@ -137,6 +139,10 @@ impl SourceGraphBuilder {
             (SourceContextId, EntityId),
             Vec<(EntityId, ResolutionReason)>,
         > = FxHashMap::default();
+        let mut references_by_definition: FxHashMap<
+            (SourceContextId, EntityId),
+            Vec<(EntityId, ResolutionReason)>,
+        > = FxHashMap::default();
         let mut includes_by_directive = FxHashMap::default();
         let mut expansions_by_call = FxHashMap::default();
         let mut tokens_by_expansion: FxHashMap<crate::MacroExpansionId, Vec<EntityId>> =
@@ -165,6 +171,10 @@ impl SourceGraphBuilder {
                         .entry((context, reference))
                         .or_default()
                         .push((definition, reason));
+                    references_by_definition
+                        .entry((context, definition))
+                        .or_default()
+                        .push((reference, reason));
                 }
                 SourceRelation::Includes { context, directive, included_context } => {
                     includes_by_directive.insert((context, directive), included_context);
@@ -202,6 +212,7 @@ impl SourceGraphBuilder {
             children_by_entity,
             parents_by_entity,
             resolutions_by_reference,
+            references_by_definition,
             includes_by_directive,
             expansions_by_call,
             tokens_by_expansion,
@@ -291,6 +302,14 @@ impl SourceGraph {
         reference: EntityId,
     ) -> &[(EntityId, ResolutionReason)] {
         self.resolutions_by_reference.get(&(context, reference)).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn resolved_references(
+        &self,
+        context: SourceContextId,
+        definition: EntityId,
+    ) -> &[(EntityId, ResolutionReason)] {
+        self.references_by_definition.get(&(context, definition)).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn included_context(
@@ -674,6 +693,10 @@ mod tests {
         assert_eq!(
             graph.resolved_definitions(context, reference),
             &[(definition, ResolutionReason::VisibleDefinition)]
+        );
+        assert_eq!(
+            graph.resolved_references(context, definition),
+            &[(reference, ResolutionReason::VisibleDefinition)]
         );
     }
 
