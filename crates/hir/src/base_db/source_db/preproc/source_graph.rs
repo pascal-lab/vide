@@ -1,14 +1,18 @@
 use preproc::source::{
-    PreprocSourceId, SourceIncludeDirectiveId, SourceIncludeStatus, SourceMacroResolution,
-    SourceRange,
+    PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId,
+    SourceIncludeStatus, SourceMacroArgumentIdentity, SourceMacroBodyIdentity,
+    SourceMacroOperationIdentity, SourceMacroResolution, SourceRange, SourceTokenProvenance,
 };
 use rustc_hash::FxHashMap;
 use source_model::{
-    EntityId, InactiveRegionId, IncludeDirectiveId, MacroCallId, MacroDefinitionId,
-    MacroExpansionId, MacroReferenceId, ResolutionReason, SourceContext, SourceContextId,
-    SourceDomain, SourceDomainId, SourceEntity, SourceGraph, SourceGraphBuilder, SourceRelation,
-    SourceSelectionId, SourceUnavailable, SpanId, VirtualOrigin,
+    EntityId, ExpansionTokenId, InactiveRegionId, IncludeDirectiveId, MacroArgumentTokenIdentity,
+    MacroBodyTokenIdentity, MacroCallId, MacroCallIdentity, MacroDefinitionId,
+    MacroDefinitionIdentity, MacroExpansionId, MacroExpansionIdentity, MacroOperationTokenIdentity,
+    MacroReferenceId, ResolutionReason, SourceContext, SourceContextId, SourceDomain,
+    SourceDomainId, SourceEntity, SourceGraph, SourceGraphBuilder, SourceOrigin, SourceRelation,
+    SourceSelectionId, SourceUnavailable, SpanId, SpellingKind, SyntheticReason, VirtualOrigin,
 };
+use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use super::{
@@ -22,6 +26,7 @@ pub struct SourceGraphPreprocModel {
     pub root_context: SourceContextId,
     pub source_domains: FxHashMap<PreprocSourceId, SourceDomainId>,
     pub include_contexts: FxHashMap<SourceIncludeDirectiveId, SourceContextId>,
+    pub emitted_token_entities: FxHashMap<SourceEmittedTokenId, EntityId>,
 }
 
 pub(super) fn source_graph_preproc_model_from_mapped(
@@ -53,13 +58,20 @@ pub(super) fn source_graph_preproc_model_from_mapped(
         }
     }
 
-    add_preproc_entities(&mut builder, mapped, root_context, &source_domains, &include_contexts);
+    let emitted_token_entities = add_preproc_entities(
+        &mut builder,
+        mapped,
+        root_context,
+        &source_domains,
+        &include_contexts,
+    );
 
     SourceGraphPreprocModel {
         graph: builder.build(),
         root_context,
         source_domains,
         include_contexts,
+        emitted_token_entities,
     }
 }
 
@@ -69,10 +81,11 @@ fn add_preproc_entities(
     root_context: SourceContextId,
     source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
     include_contexts: &FxHashMap<SourceIncludeDirectiveId, SourceContextId>,
-) {
+) -> FxHashMap<SourceEmittedTokenId, EntityId> {
     let mut macro_def_entities = FxHashMap::default();
     let mut macro_ref_entities = FxHashMap::default();
     let mut macro_call_entities = FxHashMap::default();
+    let mut emitted_token_entities = FxHashMap::default();
     for definition in mapped.model.macro_definitions().iter() {
         let entity = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(
             definition.id.raw() as u32,
@@ -172,7 +185,68 @@ fn add_preproc_entities(
                 expansion: MacroExpansionId::new(expansion.id.raw() as u32),
             });
         }
+        add_expansion_token_entities(
+            builder,
+            mapped,
+            source_domains,
+            expansion.id,
+            expansion.emitted_token_range,
+            &mut emitted_token_entities,
+        );
     }
+
+    emitted_token_entities
+}
+
+fn add_expansion_token_entities(
+    builder: &mut SourceGraphBuilder,
+    mapped: &MappedSourcePreprocModel,
+    source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
+    expansion: preproc::source::SourceMacroExpansionId,
+    emitted_range: SourceEmittedTokenRange,
+    emitted_token_entities: &mut FxHashMap<SourceEmittedTokenId, EntityId>,
+) {
+    let graph_expansion = MacroExpansionId::new(expansion.raw() as u32);
+    let display_domain =
+        builder.intern_domain(SourceDomain::ExpansionDisplay { expansion: graph_expansion });
+
+    for token_id in emitted_token_ids(emitted_range) {
+        let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
+            continue;
+        };
+        let display_range = mapped
+            .source_map
+            .emitted_token_display_range(expansion, token_id)
+            .unwrap_or_else(|_| TextRange::empty(TextSize::from(0)));
+        let emitted_span = builder.intern_span(display_domain, display_range);
+        let entity = builder
+            .add_entity(SourceEntity::ExpansionToken(ExpansionTokenId::new(token_id.raw() as u32)));
+        emitted_token_entities.insert(token_id, entity);
+
+        let selection = builder.intern_selection(emitted_span, Some(emitted_span));
+        builder.add_relation(SourceRelation::HasSelection { entity, selection });
+        builder
+            .add_relation(SourceRelation::EmitsToken { expansion: graph_expansion, token: entity });
+
+        let Some(provenance) = mapped.model.token_provenance().get(token.provenance) else {
+            continue;
+        };
+        let origin = source_origin_from_token_provenance(
+            builder,
+            mapped,
+            source_domains,
+            provenance,
+            emitted_span,
+        );
+        let origin = builder.add_origin(origin);
+        builder.add_relation(SourceRelation::HasOrigin { entity, origin });
+        add_spelling_relations(builder, mapped, source_domains, provenance, emitted_span);
+    }
+}
+
+fn emitted_token_ids(range: SourceEmittedTokenRange) -> impl Iterator<Item = SourceEmittedTokenId> {
+    let start = range.start.raw();
+    (start..start + range.len).map(SourceEmittedTokenId::new)
 }
 
 fn intern_selection_for_ranges(
@@ -229,6 +303,227 @@ fn add_macro_resolution_relation(
             }
         },
     });
+}
+
+fn source_origin_from_token_provenance(
+    builder: &mut SourceGraphBuilder,
+    mapped: &MappedSourcePreprocModel,
+    source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
+    provenance: &SourceTokenProvenance,
+    emitted_span: SpanId,
+) -> SourceOrigin {
+    match provenance {
+        SourceTokenProvenance::Source { token_range } => SourceOrigin::Written {
+            span: intern_span_for_source_range(builder, mapped, source_domains, *token_range),
+        },
+        SourceTokenProvenance::MacroBody { identity, body_token_range, call, .. } => {
+            SourceOrigin::MacroBody {
+                identity: macro_body_identity_from_preproc(*identity),
+                body_span: intern_span_for_source_range(
+                    builder,
+                    mapped,
+                    source_domains,
+                    *body_token_range,
+                ),
+                call_span: call_span(builder, mapped, source_domains, *call),
+                emitted_span,
+            }
+        }
+        SourceTokenProvenance::MacroArgument {
+            identity,
+            body_token_range,
+            argument_token_range,
+            call,
+            ..
+        } => SourceOrigin::MacroArgument {
+            identity: macro_argument_identity_from_preproc(*identity),
+            argument_span: intern_span_for_source_range(
+                builder,
+                mapped,
+                source_domains,
+                *argument_token_range,
+            ),
+            body_param_span: intern_span_for_source_range(
+                builder,
+                mapped,
+                source_domains,
+                *body_token_range,
+            ),
+            call_span: call_span(builder, mapped, source_domains, *call),
+            emitted_span,
+        },
+        SourceTokenProvenance::TokenPaste { identity, call, inputs } => SourceOrigin::TokenPaste {
+            identity: macro_operation_identity_from_preproc(*identity),
+            inputs: input_spans(builder, mapped, source_domains, inputs),
+            call_span: call_span(builder, mapped, source_domains, *call),
+            emitted_span,
+        },
+        SourceTokenProvenance::Stringification { identity, call, inputs } => {
+            SourceOrigin::Stringification {
+                identity: macro_operation_identity_from_preproc(*identity),
+                inputs: input_spans(builder, mapped, source_domains, inputs),
+                call_span: call_span(builder, mapped, source_domains, *call),
+                emitted_span,
+            }
+        }
+        SourceTokenProvenance::Predefine { .. } => SourceOrigin::Synthetic {
+            reason: SyntheticReason::Other("predefine".into()),
+            preferred_span: None,
+        },
+        SourceTokenProvenance::Builtin { name, call, .. } => SourceOrigin::Builtin {
+            name: name.clone(),
+            call_span: call_span(builder, mapped, source_domains, *call),
+            emitted_span,
+        },
+        SourceTokenProvenance::Unavailable(reason) => {
+            SourceOrigin::Unavailable { reason: source_unavailable_from_preproc(reason) }
+        }
+    }
+}
+
+fn add_spelling_relations(
+    builder: &mut SourceGraphBuilder,
+    mapped: &MappedSourcePreprocModel,
+    source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
+    provenance: &SourceTokenProvenance,
+    emitted_span: SpanId,
+) {
+    match provenance {
+        SourceTokenProvenance::Source { token_range } => add_spelled_from(
+            builder,
+            mapped,
+            source_domains,
+            emitted_span,
+            *token_range,
+            SpellingKind::Direct,
+        ),
+        SourceTokenProvenance::MacroBody { body_token_range, .. } => add_spelled_from(
+            builder,
+            mapped,
+            source_domains,
+            emitted_span,
+            *body_token_range,
+            SpellingKind::MacroBody,
+        ),
+        SourceTokenProvenance::MacroArgument { argument_token_range, .. } => add_spelled_from(
+            builder,
+            mapped,
+            source_domains,
+            emitted_span,
+            *argument_token_range,
+            SpellingKind::MacroArgument,
+        ),
+        SourceTokenProvenance::TokenPaste { inputs, .. } => {
+            for input in inputs {
+                add_spelled_from(
+                    builder,
+                    mapped,
+                    source_domains,
+                    emitted_span,
+                    *input,
+                    SpellingKind::TokenPaste,
+                );
+            }
+        }
+        SourceTokenProvenance::Stringification { inputs, .. } => {
+            for input in inputs {
+                add_spelled_from(
+                    builder,
+                    mapped,
+                    source_domains,
+                    emitted_span,
+                    *input,
+                    SpellingKind::Stringification,
+                );
+            }
+        }
+        SourceTokenProvenance::Builtin { call, .. } => {
+            let source = call_span(builder, mapped, source_domains, *call);
+            builder.add_relation(SourceRelation::SpelledFrom {
+                generated: emitted_span,
+                source,
+                kind: SpellingKind::Builtin,
+            });
+        }
+        SourceTokenProvenance::Predefine { .. } | SourceTokenProvenance::Unavailable(_) => {}
+    }
+}
+
+fn add_spelled_from(
+    builder: &mut SourceGraphBuilder,
+    mapped: &MappedSourcePreprocModel,
+    source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
+    generated: SpanId,
+    source_range: SourceRange,
+    kind: SpellingKind,
+) {
+    let source = intern_span_for_source_range(builder, mapped, source_domains, source_range);
+    builder.add_relation(SourceRelation::SpelledFrom { generated, source, kind });
+}
+
+fn input_spans(
+    builder: &mut SourceGraphBuilder,
+    mapped: &MappedSourcePreprocModel,
+    source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
+    inputs: &[SourceRange],
+) -> Vec<SpanId> {
+    inputs
+        .iter()
+        .map(|range| intern_span_for_source_range(builder, mapped, source_domains, *range))
+        .collect()
+}
+
+fn call_span(
+    builder: &mut SourceGraphBuilder,
+    mapped: &MappedSourcePreprocModel,
+    source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
+    call: preproc::source::SourceMacroCallId,
+) -> SpanId {
+    let Some(call) = mapped.model.macro_calls().get(call) else {
+        let domain = builder.intern_domain(SourceDomain::Unmapped {
+            reason: SourceUnavailable::MissingSource { source: 0 },
+        });
+        return builder.intern_span(domain, TextRange::empty(TextSize::from(0)));
+    };
+    intern_span_for_source_range(builder, mapped, source_domains, call.call_range)
+}
+
+fn macro_body_identity_from_preproc(identity: SourceMacroBodyIdentity) -> MacroBodyTokenIdentity {
+    MacroBodyTokenIdentity {
+        call: MacroCallIdentity::new(identity.call.raw()),
+        definition: MacroDefinitionIdentity::new(identity.definition.raw()),
+        expansion: MacroExpansionIdentity::new(identity.expansion.raw()),
+        parent_expansion: identity.parent_expansion.map(|id| MacroExpansionIdentity::new(id.raw())),
+        body_token_index: identity.body_token_index,
+    }
+}
+
+fn macro_argument_identity_from_preproc(
+    identity: SourceMacroArgumentIdentity,
+) -> MacroArgumentTokenIdentity {
+    MacroArgumentTokenIdentity {
+        call: MacroCallIdentity::new(identity.call.raw()),
+        definition: MacroDefinitionIdentity::new(identity.definition.raw()),
+        expansion: MacroExpansionIdentity::new(identity.expansion.raw()),
+        parent_expansion: identity.parent_expansion.map(|id| MacroExpansionIdentity::new(id.raw())),
+        body_token_index: identity.body_token_index,
+        argument_index: identity.argument_index,
+        argument_token_index: identity.argument_token_index,
+    }
+}
+
+fn macro_operation_identity_from_preproc(
+    identity: SourceMacroOperationIdentity,
+) -> MacroOperationTokenIdentity {
+    MacroOperationTokenIdentity {
+        call: MacroCallIdentity::new(identity.call.raw()),
+        definition: MacroDefinitionIdentity::new(identity.definition.raw()),
+        expansion: MacroExpansionIdentity::new(identity.expansion.raw()),
+        parent_expansion: identity.parent_expansion.map(|id| MacroExpansionIdentity::new(id.raw())),
+        body_token_index: identity.body_token_index,
+        argument_index: identity.argument_index,
+        argument_token_index: identity.argument_token_index,
+    }
 }
 
 fn source_domain_from_preproc_mapping(mapping: &PreprocSourceMapping) -> SourceDomain {
