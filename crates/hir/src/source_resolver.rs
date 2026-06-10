@@ -1,6 +1,6 @@
 use source_model::{
-    FilePosition, SourceBlock, SourceBlockReason, SourceContextId, SourceEntity, SourcePurpose,
-    SourceTarget, SourceTargetResolution,
+    FilePosition, ResolvedSourceTarget, SourceBlock, SourceBlockReason, SourceContextId,
+    SourceEntity, SourcePurpose, SourceTarget, SourceTargetResolution,
 };
 
 use crate::base_db::source_db::{SourcePreprocQueryError, SourceRootDb};
@@ -51,18 +51,21 @@ pub fn resolve_position(
     let mut targets = graph
         .entities_at_file_position(position, context.or(Some(source_graph.root_context)))
         .into_iter()
-        .filter_map(|hit| source_target_for_entity(graph.entity(hit.entity)))
+        .filter_map(|hit| {
+            let target = source_target_for_entity(graph.entity(hit.entity))?;
+            Some(ResolvedSourceTarget { entity: hit.entity, target })
+        })
         .collect::<Vec<_>>();
-    targets.sort_by_key(|target| target_rank(*target, purpose));
+    targets.sort_by_key(|target| target_rank(target.target, purpose));
     targets.dedup();
 
     let Some(best) = targets.first().copied() else {
         return SourceTargetResolution::None;
     };
-    let best_rank = target_rank(best, purpose);
+    let best_rank = target_rank(best.target, purpose);
     let best_targets = targets
         .into_iter()
-        .take_while(|target| target_rank(*target, purpose) == best_rank)
+        .take_while(|target| target_rank(target.target, purpose) == best_rank)
         .collect::<Vec<_>>();
 
     match best_targets.as_slice() {

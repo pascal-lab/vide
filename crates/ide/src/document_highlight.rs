@@ -2,8 +2,8 @@ use hir::{
     container::InFile, file::HirFileId, semantics::Semantics, source_resolver::PositionResolver,
 };
 use source_model::{
-    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
-    SourceTargetResolution as GraphSourceTargetResolution,
+    FilePosition as SourceFilePosition, ResolvedSourceTarget, SourcePurpose,
+    SourceTarget as GraphSourceTarget, SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
 use utils::line_index::TextRange;
@@ -66,12 +66,13 @@ fn source_graph_allows_document_highlight(
     matches!(
         target,
         GraphSourceTargetResolution::None
-            | GraphSourceTargetResolution::Resolved(
-                GraphSourceTarget::MacroCall(_)
+            | GraphSourceTargetResolution::Resolved(ResolvedSourceTarget {
+                target: GraphSourceTarget::MacroCall(_)
                     | GraphSourceTarget::HirSymbol(_)
                     | GraphSourceTarget::HirReference(_)
-                    | GraphSourceTarget::SyntaxToken(_)
-            )
+                    | GraphSourceTarget::SyntaxToken(_),
+                ..
+            })
     )
 }
 

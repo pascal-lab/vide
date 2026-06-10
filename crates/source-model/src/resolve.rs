@@ -1,7 +1,7 @@
 use crate::{
     FileRange,
     ids::{
-        ExpansionTokenId, HirReferenceId, HirSymbolId, IncludeDirectiveId, MacroCallId,
+        EntityId, ExpansionTokenId, HirReferenceId, HirSymbolId, IncludeDirectiveId, MacroCallId,
         MacroDefinitionId, MacroParamDefinitionId, MacroParamReferenceId, MacroReferenceId, SpanId,
         SyntaxTokenEntityId,
     },
@@ -21,10 +21,16 @@ pub enum SourcePurpose {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceTargetResolution {
-    Resolved(SourceTarget),
-    Ambiguous(Vec<SourceTarget>),
+    Resolved(ResolvedSourceTarget),
+    Ambiguous(Vec<ResolvedSourceTarget>),
     Blocked(SourceBlock),
     None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ResolvedSourceTarget {
+    pub entity: EntityId,
+    pub target: SourceTarget,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

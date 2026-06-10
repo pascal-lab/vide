@@ -21,7 +21,7 @@ pub use relation::{
     ResolutionReason, SourceRelation, SourceRelationEndpoint, SourceRelationTarget, SpellingKind,
 };
 pub use resolve::{
-    SourceBlock, SourceBlockReason, SourceChoice, SourcePurpose, SourceRangeResult, SourceTarget,
-    SourceTargetResolution,
+    ResolvedSourceTarget, SourceBlock, SourceBlockReason, SourceChoice, SourcePurpose,
+    SourceRangeResult, SourceTarget, SourceTargetResolution,
 };
 pub use span::{FilePosition, FileRange, SourceSelection, Span};

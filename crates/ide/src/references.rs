@@ -144,7 +144,7 @@ fn dispatch_source_graph_references_target(
         return None;
     };
 
-    match target {
+    match target.target {
         GraphSourceTarget::MacroParamDefinition(_) => {
             dispatch_macro_param_definition_references_target(db, file_id, offset)
                 .map(ReferencesTarget::Preproc)

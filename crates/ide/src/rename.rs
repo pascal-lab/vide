@@ -6,8 +6,8 @@ use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
 use source_model::{
-    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
-    SourceTargetResolution as GraphSourceTargetResolution,
+    FilePosition as SourceFilePosition, ResolvedSourceTarget, SourcePurpose,
+    SourceTarget as GraphSourceTarget, SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
@@ -268,22 +268,26 @@ fn ensure_source_graph_rename_target(db: &RootDb, position: FilePosition) -> Ren
     );
 
     match target {
-        GraphSourceTargetResolution::Resolved(
-            GraphSourceTarget::MacroDefinition(_)
-            | GraphSourceTarget::MacroReference(_)
-            | GraphSourceTarget::MacroCall(_)
-            | GraphSourceTarget::MacroParamDefinition(_)
-            | GraphSourceTarget::MacroParamReference(_)
-            | GraphSourceTarget::Include(_)
-            | GraphSourceTarget::ExpansionToken(_),
-        )
+        GraphSourceTargetResolution::Resolved(ResolvedSourceTarget {
+            target:
+                GraphSourceTarget::MacroDefinition(_)
+                | GraphSourceTarget::MacroReference(_)
+                | GraphSourceTarget::MacroCall(_)
+                | GraphSourceTarget::MacroParamDefinition(_)
+                | GraphSourceTarget::MacroParamReference(_)
+                | GraphSourceTarget::Include(_)
+                | GraphSourceTarget::ExpansionToken(_),
+            ..
+        })
         | GraphSourceTargetResolution::Ambiguous(_)
         | GraphSourceTargetResolution::Blocked(_) => Err(RenameError::NoDefFound),
-        GraphSourceTargetResolution::Resolved(
-            GraphSourceTarget::HirSymbol(_)
-            | GraphSourceTarget::HirReference(_)
-            | GraphSourceTarget::SyntaxToken(_),
-        )
+        GraphSourceTargetResolution::Resolved(ResolvedSourceTarget {
+            target:
+                GraphSourceTarget::HirSymbol(_)
+                | GraphSourceTarget::HirReference(_)
+                | GraphSourceTarget::SyntaxToken(_),
+            ..
+        })
         | GraphSourceTargetResolution::None => Ok(()),
     }
 }

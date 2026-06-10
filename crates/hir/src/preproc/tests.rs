@@ -2,7 +2,8 @@ use std::fmt;
 
 use rustc_hash::FxHashSet;
 use source_model::{
-    FilePosition, FileRange, SourceOrigin, SourcePurpose, SourceTarget, SourceTargetResolution,
+    FilePosition, FileRange, ResolvedSourceTarget, SourceOrigin, SourcePurpose, SourceTarget,
+    SourceTargetResolution,
 };
 use triomphe::Arc;
 use utils::{
@@ -230,7 +231,13 @@ fn position_resolver_resolves_macro_reference_from_source_graph() {
         None,
     );
 
-    assert!(matches!(resolved, SourceTargetResolution::Resolved(SourceTarget::MacroReference(_))));
+    assert!(matches!(
+        resolved,
+        SourceTargetResolution::Resolved(ResolvedSourceTarget {
+            target: SourceTarget::MacroReference(_),
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -245,7 +252,10 @@ fn position_resolver_resolves_macro_param_targets_from_source_graph() {
     );
     assert!(matches!(
         definition,
-        SourceTargetResolution::Resolved(SourceTarget::MacroParamDefinition(_))
+        SourceTargetResolution::Resolved(ResolvedSourceTarget {
+            target: SourceTarget::MacroParamDefinition(_),
+            ..
+        })
     ));
 
     let reference = PositionResolver::new(&db).resolve_position(
@@ -255,7 +265,10 @@ fn position_resolver_resolves_macro_param_targets_from_source_graph() {
     );
     assert!(matches!(
         reference,
-        SourceTargetResolution::Resolved(SourceTarget::MacroParamReference(_))
+        SourceTargetResolution::Resolved(ResolvedSourceTarget {
+            target: SourceTarget::MacroParamReference(_),
+            ..
+        })
     ));
 }
 
@@ -271,7 +284,13 @@ fn position_resolver_resolves_include_target_from_source_graph() {
         None,
     );
 
-    assert!(matches!(resolved, SourceTargetResolution::Resolved(SourceTarget::Include(_))));
+    assert!(matches!(
+        resolved,
+        SourceTargetResolution::Resolved(ResolvedSourceTarget {
+            target: SourceTarget::Include(_),
+            ..
+        })
+    ));
 }
 
 #[test]

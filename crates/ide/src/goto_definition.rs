@@ -82,11 +82,11 @@ fn dispatch_source_graph_definition_target(
 
     match resolution {
         GraphSourceTargetResolution::Resolved(target) => {
-            dispatch_graph_definition_target(db, file_id, offset, target)
+            dispatch_graph_definition_target(db, file_id, offset, target.target)
         }
-        GraphSourceTargetResolution::Ambiguous(targets) => targets
-            .into_iter()
-            .find_map(|target| dispatch_graph_definition_target(db, file_id, offset, target)),
+        GraphSourceTargetResolution::Ambiguous(targets) => targets.into_iter().find_map(|target| {
+            dispatch_graph_definition_target(db, file_id, offset, target.target)
+        }),
         GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => None,
     }
 }
