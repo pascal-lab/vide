@@ -7,11 +7,11 @@ use hir::{
     file::HirFileId,
     hir_def::expr::Expr,
     preproc::{
-        IncludeDirective, IncludeTarget, MacroDefinition, MacroExpansionDefinition,
-        MacroParamDefinition, MacroParamReferenceDefinitions, MacroReferenceDefinitions,
-        RecursiveMacroExpansionProvenance, include_directives_at, macro_definition_at,
-        macro_param_definition_at, macro_param_reference_definitions_at,
-        macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
+        MacroDefinition, MacroExpansionDefinition, MacroParamDefinition,
+        MacroParamReferenceDefinitions, MacroReferenceDefinitions,
+        RecursiveMacroExpansionProvenance, macro_definition_at, macro_param_definition_at,
+        macro_param_reference_definitions_at, macro_reference_definitions_at,
+        recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
     source_resolver::PositionResolver,
@@ -50,7 +50,6 @@ struct MacroSourceLink {
 
 enum HoverTarget<'tree> {
     Macro(Box<MacroHoverTarget>),
-    Include(Vec<IncludeDirective>),
     Graph(RangeInfo<Markup>),
     Source(SourceTarget<'tree>),
 }
@@ -145,11 +144,7 @@ fn dispatch_graph_hover_target(
                 .map(|target| HoverTarget::Macro(Box::new(target)))
         }
         GraphSourceTarget::Include(id) => {
-            dispatch_graph_include_hover_target(db, file_id, target, id)
-                .map(HoverTarget::Graph)
-                .or_else(|| {
-                    dispatch_include_hover_target(db, file_id, offset).map(HoverTarget::Include)
-                })
+            dispatch_graph_include_hover_target(db, file_id, target, id).map(HoverTarget::Graph)
         }
         GraphSourceTarget::MacroCall(_)
         | GraphSourceTarget::ExpansionToken(_)
@@ -168,7 +163,6 @@ fn render_hover_target(
 ) -> Option<RangeInfo<Markup>> {
     match target {
         HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, *target),
-        HoverTarget::Include(includes) => render_include_hover(db, includes),
         HoverTarget::Graph(hover) => Some(hover),
         HoverTarget::Source(target) => {
             let hover = hover_for_source_target(sema, file_id.into(), target)?;
@@ -723,39 +717,6 @@ fn dispatch_graph_include_hover_target(
         markup.print(&path.to_string());
     }
     Some(RangeInfo::new(include_range.range, markup))
-}
-
-fn dispatch_include_hover_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<Vec<IncludeDirective>> {
-    let includes = include_directives_at(db, file_id, offset).ok()?;
-    (!includes.is_empty()).then_some(includes)
-}
-
-fn render_include_hover(db: &RootDb, includes: Vec<IncludeDirective>) -> Option<RangeInfo<Markup>> {
-    let range = includes.first()?.range;
-    let mut markup = Markup::new();
-    markup.print("Include");
-    for include in includes {
-        markup.newline();
-        match include.target {
-            IncludeTarget::Literal { path, resolved_file } => {
-                markup.push_with_backticks(path.as_str());
-                if let Some(target_file_id) = resolved_file
-                    && let Some(path) = db.file_path(target_file_id)
-                {
-                    markup.newline();
-                    markup.print(&path.to_string());
-                }
-            }
-            IncludeTarget::Token { raw } => {
-                markup.push_with_backticks(raw.as_str());
-            }
-        }
-    }
-    Some(RangeInfo::new(range, markup))
 }
 
 fn handle_definition(

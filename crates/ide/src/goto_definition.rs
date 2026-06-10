@@ -3,10 +3,9 @@ use hir::{
     container::InFile,
     file::HirFileId,
     preproc::{
-        IncludeDirective, IncludeTarget, MacroDefinition, MacroParamDefinition,
-        MacroParamReferenceDefinitions, MacroReferenceDefinitions, include_directives_at,
-        macro_definition_at, macro_param_definition_at, macro_param_reference_definitions_at,
-        macro_reference_definitions_at,
+        MacroDefinition, MacroParamDefinition, MacroParamReferenceDefinitions,
+        MacroReferenceDefinitions, macro_definition_at, macro_param_definition_at,
+        macro_param_reference_definitions_at, macro_reference_definitions_at,
     },
     semantics::Semantics,
     source_resolver::PositionResolver,
@@ -34,7 +33,6 @@ use crate::{
 
 enum DefinitionTarget<'tree> {
     Preproc(Box<PreprocDefinitionTarget>),
-    Include(Vec<IncludeDirective>),
     Graph(RangeInfo<Vec<NavTarget>>),
     Source(SourceTarget<'tree>),
 }
@@ -120,12 +118,9 @@ fn dispatch_graph_definition_target(
                         .map(|target| DefinitionTarget::Preproc(Box::new(target)))
                 })
         }
-        GraphSourceTarget::Include(id) => dispatch_graph_include_target(db, file_id, target, id)
-            .map(DefinitionTarget::Graph)
-            .or_else(|| {
-                dispatch_include_definition_target(db, file_id, offset)
-                    .map(DefinitionTarget::Include)
-            }),
+        GraphSourceTarget::Include(id) => {
+            dispatch_graph_include_target(db, file_id, target, id).map(DefinitionTarget::Graph)
+        }
         GraphSourceTarget::MacroCall(_)
         | GraphSourceTarget::ExpansionToken(_)
         | GraphSourceTarget::HirSymbol(_)
@@ -142,7 +137,6 @@ fn render_definition_target(
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     match target {
         DefinitionTarget::Preproc(target) => render_preproc_definition_target(*target),
-        DefinitionTarget::Include(includes) => render_include_definition_target(db, includes),
         DefinitionTarget::Graph(target) => Some(target),
         DefinitionTarget::Source(target) => {
             render_source_definition_target(db, file_id, sema, target)
@@ -363,47 +357,6 @@ fn dispatch_graph_include_target(
         description: db.file_path(included_file).map(|path| path.to_string()),
     };
     Some(RangeInfo::new(include_range.range, vec![target]))
-}
-
-fn dispatch_include_definition_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<Vec<IncludeDirective>> {
-    let includes = include_directives_at(db, file_id, offset).ok()?;
-    (!includes.is_empty()).then_some(includes)
-}
-
-fn render_include_definition_target(
-    db: &RootDb,
-    includes: Vec<IncludeDirective>,
-) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let range = includes.first()?.range;
-    let targets = includes
-        .into_iter()
-        .filter_map(|include| {
-            let IncludeTarget::Literal { path, resolved_file: Some(target_file_id) } =
-                include.target
-            else {
-                return None;
-            };
-            let target_range = TextRange::empty(TextSize::new(0));
-            Some(NavTarget {
-                file_id: target_file_id,
-                full_range: target_range,
-                focus_range: Some(target_range),
-                name: Some(path),
-                kind: None,
-                container_name: None,
-                description: db.file_path(target_file_id).map(|path| path.to_string()),
-            })
-        })
-        .unique()
-        .collect_vec();
-    if targets.is_empty() {
-        return None;
-    }
-    Some(RangeInfo::new(range, targets))
 }
 
 fn handle_ctrl_flow_kw(
