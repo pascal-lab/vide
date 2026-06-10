@@ -1,7 +1,9 @@
 use std::fmt;
 
 use rustc_hash::FxHashSet;
-use source_model::{FileRange, SourceOrigin};
+use source_model::{
+    FilePosition, FileRange, SourceOrigin, SourcePurpose, SourceTarget, SourceTargetResolution,
+};
 use triomphe::Arc;
 use utils::{
     get::Get,
@@ -30,6 +32,7 @@ use crate::{
     file::HirFileId,
     hir_def::module::ModuleId,
     source_map::IsSrc,
+    source_resolver::PositionResolver,
 };
 
 const TOP: FileId = FileId(0);
@@ -214,6 +217,35 @@ endmodule
         panic!("literal include expected");
     };
     assert_eq!(resolved_file, Some(HEADER));
+}
+
+#[test]
+fn position_resolver_resolves_macro_reference_from_source_graph() {
+    let root_text = "`define OBJ 1\nmodule top;\nlocalparam int W = `OBJ;\nendmodule\n";
+    let db = db_with_entries(&[(TOP, "rtl/top.sv", root_text)]);
+
+    let resolved = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: TOP, offset: offset(root_text, "OBJ;") },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+
+    assert!(matches!(resolved, SourceTargetResolution::Resolved(SourceTarget::MacroReference(_))));
+}
+
+#[test]
+fn position_resolver_resolves_include_target_from_source_graph() {
+    let root_text = "`include \"defs.vh\"\nmodule top;\nendmodule\n";
+    let header_text = "`define HEADER_WIDTH 8\n";
+    let db = db_with_files(root_text, header_text);
+
+    let resolved = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: TOP, offset: offset(root_text, "defs.vh") },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+
+    assert!(matches!(resolved, SourceTargetResolution::Resolved(SourceTarget::Include(_))));
 }
 
 #[test]
