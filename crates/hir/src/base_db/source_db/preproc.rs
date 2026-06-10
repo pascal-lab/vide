@@ -17,19 +17,26 @@ use vfs::{FileId, VfsPath};
 use super::{SourceFileKind, SourceRootDb, path_file_ids, syntax_tree_options_for_file};
 use crate::base_db::project::CompilationProfileId;
 
+mod source_graph;
 mod source_mapping;
 
 #[cfg(not(test))]
 use self::source_mapping::source_preproc_file_ids;
-use self::source_mapping::{
-    display_only_expansion_source_buffer_error, emitted_range_from_token_ranges,
-    record_expansion_display_texts, shift_text_range, unshift_text_size,
-};
 #[cfg(test)]
 pub(super) use self::source_mapping::{materialized_predefine_text, source_preproc_file_ids};
-pub use self::source_mapping::{
-    preproc_virtual_builtin_path, preproc_virtual_expansion_path, preproc_virtual_predefines_path,
-    preproc_virtual_speculative_path,
+pub use self::{
+    source_graph::SourceGraphPreprocModel,
+    source_mapping::{
+        preproc_virtual_builtin_path, preproc_virtual_expansion_path,
+        preproc_virtual_predefines_path, preproc_virtual_speculative_path,
+    },
+};
+use self::{
+    source_graph::source_graph_preproc_model_from_mapped,
+    source_mapping::{
+        display_only_expansion_source_buffer_error, emitted_range_from_token_ranges,
+        record_expansion_display_texts, shift_text_range, unshift_text_size,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -368,6 +375,12 @@ impl PreprocSourceMap {
         self.entries.get(&source)
     }
 
+    pub(crate) fn source_mappings(
+        &self,
+    ) -> impl Iterator<Item = (PreprocSourceId, &PreprocSourceMapping)> {
+        self.entries.iter().map(|(source, mapping)| (*source, mapping))
+    }
+
     pub fn predefine_manifest_source(
         &self,
         source: PreprocSourceId,
@@ -612,6 +625,26 @@ impl PreprocSourceMap {
             text_len,
         })
     }
+}
+
+pub(super) fn source_graph_preproc_model(
+    db: &dyn SourceRootDb,
+    file_id: FileId,
+) -> Arc<Result<SourceGraphPreprocModel, SourcePreprocQueryError>> {
+    let mapped = db.source_preproc_model(file_id);
+    Arc::new(
+        mapped
+            .as_ref()
+            .as_ref()
+            .map(|mapped| {
+                source_graph_preproc_model_from_mapped(
+                    mapped,
+                    file_id,
+                    db.file_compilation_profile(file_id),
+                )
+            })
+            .map_err(Clone::clone),
+    )
 }
 
 fn preproc_context_file_ids(
