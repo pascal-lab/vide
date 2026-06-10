@@ -4,7 +4,7 @@ use crate::{
     EntityId, FilePosition, FileRange, OriginId, SourceBlock, SourceBlockReason, SourceChoice,
     SourceContext, SourceContextId, SourceDomain, SourceDomainId, SourceEntity, SourceOrigin,
     SourcePurpose, SourceRangeResult, SourceRelation, SourceSelection, SourceSelectionId, Span,
-    SpanId,
+    SpanId, relation::ResolutionReason,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +19,9 @@ pub struct SourceGraph {
     selection_by_entity: FxHashMap<EntityId, SourceSelectionId>,
     origin_by_entity: FxHashMap<EntityId, OriginId>,
     written_origin_by_span: FxHashMap<SpanId, OriginId>,
+    resolutions_by_reference:
+        FxHashMap<(SourceContextId, EntityId), Vec<(EntityId, ResolutionReason)>>,
+    includes_by_directive: FxHashMap<(SourceContextId, crate::IncludeDirectiveId), SourceContextId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -122,6 +125,11 @@ impl SourceGraphBuilder {
         let mut selection_by_entity = FxHashMap::default();
         let mut origin_by_entity = FxHashMap::default();
         let mut written_origin_by_span = FxHashMap::default();
+        let mut resolutions_by_reference: FxHashMap<
+            (SourceContextId, EntityId),
+            Vec<(EntityId, ResolutionReason)>,
+        > = FxHashMap::default();
+        let mut includes_by_directive = FxHashMap::default();
 
         for relation in &self.relations {
             match *relation {
@@ -130,6 +138,15 @@ impl SourceGraphBuilder {
                 }
                 SourceRelation::HasOrigin { entity, origin } => {
                     origin_by_entity.insert(entity, origin);
+                }
+                SourceRelation::ResolvesTo { context, reference, definition, reason } => {
+                    resolutions_by_reference
+                        .entry((context, reference))
+                        .or_default()
+                        .push((definition, reason));
+                }
+                SourceRelation::Includes { context, directive, included_context } => {
+                    includes_by_directive.insert((context, directive), included_context);
                 }
                 _ => {}
             }
@@ -151,6 +168,8 @@ impl SourceGraphBuilder {
             selection_by_entity,
             origin_by_entity,
             written_origin_by_span,
+            resolutions_by_reference,
+            includes_by_directive,
         }
     }
 }
@@ -190,6 +209,22 @@ impl SourceGraph {
 
     pub fn entity_origin(&self, entity: EntityId) -> Option<OriginId> {
         self.origin_by_entity.get(&entity).copied()
+    }
+
+    pub fn resolved_definitions(
+        &self,
+        context: SourceContextId,
+        reference: EntityId,
+    ) -> &[(EntityId, ResolutionReason)] {
+        self.resolutions_by_reference.get(&(context, reference)).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn included_context(
+        &self,
+        context: SourceContextId,
+        directive: crate::IncludeDirectiveId,
+    ) -> Option<SourceContextId> {
+        self.includes_by_directive.get(&(context, directive)).copied()
     }
 
     pub fn entities_at_file_position(
@@ -421,7 +456,7 @@ mod tests {
     use vfs::FileId;
 
     use super::*;
-    use crate::{MacroDefinitionId, SourceUnavailable};
+    use crate::{IncludeDirectiveId, MacroDefinitionId, MacroReferenceId, SourceUnavailable};
 
     #[test]
     fn interns_domains_spans_and_selections() {
@@ -479,6 +514,53 @@ mod tests {
             None,
         );
         assert_eq!(hits, vec![EntityHit { entity, selection, matched_span: focus }]);
+    }
+
+    #[test]
+    fn indexes_context_specific_resolution_relations() {
+        let mut builder = SourceGraphBuilder::new();
+        let context = builder
+            .add_context(SourceContext::CompilationRoot { profile_id: None, root_file: FileId(1) });
+        let reference = builder.add_entity(SourceEntity::MacroReference(MacroReferenceId::new(0)));
+        let definition =
+            builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(1)));
+        builder.add_relation(SourceRelation::ResolvesTo {
+            context,
+            reference,
+            definition,
+            reason: ResolutionReason::VisibleDefinition,
+        });
+
+        let graph = builder.build();
+
+        assert_eq!(
+            graph.resolved_definitions(context, reference),
+            &[(definition, ResolutionReason::VisibleDefinition)]
+        );
+    }
+
+    #[test]
+    fn indexes_context_specific_include_relations() {
+        let mut builder = SourceGraphBuilder::new();
+        let root_context = builder
+            .add_context(SourceContext::CompilationRoot { profile_id: None, root_file: FileId(1) });
+        let included_context = builder.add_context(SourceContext::IncludeContext {
+            parent: root_context,
+            include_directive: IncludeDirectiveId::new(3),
+            included_file: FileId(2),
+        });
+        builder.add_relation(SourceRelation::Includes {
+            context: root_context,
+            directive: IncludeDirectiveId::new(3),
+            included_context,
+        });
+
+        let graph = builder.build();
+
+        assert_eq!(
+            graph.included_context(root_context, IncludeDirectiveId::new(3)),
+            Some(included_context)
+        );
     }
 
     #[test]
