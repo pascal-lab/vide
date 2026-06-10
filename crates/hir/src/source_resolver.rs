@@ -90,15 +90,15 @@ fn source_target_for_entity(entity: SourceEntity) -> Option<SourceTarget> {
 
 fn target_rank(target: SourceTarget, purpose: SourcePurpose) -> u8 {
     match (purpose, target) {
-        (_, SourceTarget::MacroReference(_)) => 0,
-        (_, SourceTarget::MacroDefinition(_)) => 0,
-        (_, SourceTarget::Include(_)) => 0,
         (_, SourceTarget::MacroParamReference(_)) => 0,
         (_, SourceTarget::MacroParamDefinition(_)) => 0,
-        (_, SourceTarget::HirReference(_)) => 0,
-        (_, SourceTarget::HirSymbol(_)) => 0,
-        (_, SourceTarget::ExpansionToken(_)) => 1,
-        (_, SourceTarget::SyntaxToken(_)) => 1,
+        (_, SourceTarget::MacroReference(_)) => 1,
+        (_, SourceTarget::MacroDefinition(_)) => 1,
+        (_, SourceTarget::Include(_)) => 1,
+        (_, SourceTarget::HirReference(_)) => 1,
+        (_, SourceTarget::HirSymbol(_)) => 1,
+        (_, SourceTarget::ExpansionToken(_)) => 2,
+        (_, SourceTarget::SyntaxToken(_)) => 2,
         (_, SourceTarget::MacroCall(_)) => 2,
     }
 }

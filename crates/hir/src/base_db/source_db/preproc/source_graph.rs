@@ -8,9 +8,10 @@ use source_model::{
     EntityId, ExpansionTokenId, InactiveRegionId, IncludeDirectiveId, MacroArgumentTokenIdentity,
     MacroBodyTokenIdentity, MacroCallId, MacroCallIdentity, MacroDefinitionId,
     MacroDefinitionIdentity, MacroExpansionId, MacroExpansionIdentity, MacroOperationTokenIdentity,
-    MacroReferenceId, OriginId, ResolutionReason, SourceContext, SourceContextId, SourceDomain,
-    SourceDomainId, SourceEntity, SourceGraph, SourceGraphBuilder, SourceOrigin, SourceRelation,
-    SourceSelectionId, SourceUnavailable, SpanId, SpellingKind, SyntheticReason, VirtualOrigin,
+    MacroParamDefinitionId, MacroParamReferenceId, MacroReferenceId, OriginId, ResolutionReason,
+    SourceContext, SourceContextId, SourceDomain, SourceDomainId, SourceEntity, SourceGraph,
+    SourceGraphBuilder, SourceOrigin, SourceRelation, SourceSelectionId, SourceUnavailable, SpanId,
+    SpellingKind, SyntheticReason, VirtualOrigin,
 };
 use syntax::{SyntaxElement, SyntaxNode, has_text_range::HasTextRange};
 use utils::line_index::{TextRange, TextSize};
@@ -91,9 +92,12 @@ fn add_preproc_entities(
     include_contexts: &FxHashMap<SourceIncludeDirectiveId, SourceContextId>,
 ) -> FxHashMap<SourceEmittedTokenId, EntityId> {
     let mut macro_def_entities = FxHashMap::default();
+    let mut macro_param_def_entities = FxHashMap::default();
     let mut macro_ref_entities = FxHashMap::default();
     let mut macro_call_entities = FxHashMap::default();
     let mut emitted_token_entities = FxHashMap::default();
+    let mut next_macro_param_definition_id = 0u32;
+    let mut next_macro_param_reference_id = 0u32;
     for definition in mapped.model.macro_definitions().iter() {
         let entity = builder.add_entity(SourceEntity::MacroDefinition(MacroDefinitionId::new(
             definition.id.raw() as u32,
@@ -107,6 +111,87 @@ fn add_preproc_entities(
         );
         builder.add_relation(SourceRelation::HasSelection { entity, selection });
         macro_def_entities.insert(definition.id, entity);
+    }
+
+    for definition in mapped.model.macro_definitions().iter() {
+        let Some(params) = &definition.params else {
+            continue;
+        };
+        let Some(definition_entity) = macro_def_entities.get(&definition.id).copied() else {
+            continue;
+        };
+        for (param_index, param) in params.iter().enumerate() {
+            let Some(name_range) = param.name_range else {
+                continue;
+            };
+            if param.name.is_none() {
+                continue;
+            }
+
+            let entity = builder.add_entity(SourceEntity::MacroParamDefinition(
+                MacroParamDefinitionId::new(next_macro_param_definition_id),
+            ));
+            next_macro_param_definition_id += 1;
+            let selection = intern_selection_for_ranges(
+                builder,
+                mapped,
+                source_domains,
+                param.range.unwrap_or(name_range),
+                Some(name_range),
+            );
+            builder.add_relation(SourceRelation::HasSelection { entity, selection });
+            builder.add_relation(SourceRelation::Contains {
+                parent: definition_entity,
+                child: entity,
+            });
+            macro_param_def_entities.insert((definition.id, param_index), entity);
+        }
+    }
+
+    for definition in mapped.model.macro_definitions().iter() {
+        let Some(params) = &definition.params else {
+            continue;
+        };
+        let Some(definition_entity) = macro_def_entities.get(&definition.id).copied() else {
+            continue;
+        };
+        for token in &definition.body_tokens {
+            let Some(token_range) = token.range else {
+                continue;
+            };
+            for (param_index, param) in params.iter().enumerate() {
+                if param.name.as_ref() != Some(&token.value) {
+                    continue;
+                }
+
+                let entity = builder.add_entity(SourceEntity::MacroParamReference(
+                    MacroParamReferenceId::new(next_macro_param_reference_id),
+                ));
+                next_macro_param_reference_id += 1;
+                let selection = intern_selection_for_ranges(
+                    builder,
+                    mapped,
+                    source_domains,
+                    token_range,
+                    Some(token_range),
+                );
+                builder.add_relation(SourceRelation::HasSelection { entity, selection });
+                builder.add_relation(SourceRelation::Contains {
+                    parent: definition_entity,
+                    child: entity,
+                });
+                if let Some(definition_entity) =
+                    macro_param_def_entities.get(&(definition.id, param_index)).copied()
+                {
+                    builder.add_relation(SourceRelation::ResolvesTo {
+                        context: root_context,
+                        reference: entity,
+                        definition: definition_entity,
+                        reason: ResolutionReason::SemanticResolution,
+                    });
+                }
+            }
+        }
     }
 
     for reference in mapped.model.macro_references().iter() {

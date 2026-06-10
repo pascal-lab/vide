@@ -234,6 +234,32 @@ fn position_resolver_resolves_macro_reference_from_source_graph() {
 }
 
 #[test]
+fn position_resolver_resolves_macro_param_targets_from_source_graph() {
+    let root_text = "`define SHIFT(value, amount) ((value) << amount)\nmodule top;\nendmodule\n";
+    let db = db_with_entries(&[(TOP, "rtl/top.sv", root_text)]);
+
+    let definition = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: TOP, offset: offset_after(root_text, "SHIFT(") },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+    assert!(matches!(
+        definition,
+        SourceTargetResolution::Resolved(SourceTarget::MacroParamDefinition(_))
+    ));
+
+    let reference = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: TOP, offset: offset(root_text, "value) <<") },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+    assert!(matches!(
+        reference,
+        SourceTargetResolution::Resolved(SourceTarget::MacroParamReference(_))
+    ));
+}
+
+#[test]
 fn position_resolver_resolves_include_target_from_source_graph() {
     let root_text = "`include \"defs.vh\"\nmodule top;\nendmodule\n";
     let header_text = "`define HEADER_WIDTH 8\n";

@@ -6,10 +6,15 @@ use hir::{
         macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
+    source_resolver::PositionResolver,
 };
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
+use source_model::{
+    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    SourceTargetResolution as GraphSourceTargetResolution,
+};
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
     has_text_range::HasTextRange,
@@ -117,13 +122,53 @@ fn dispatch_references_target<'tree>(
     offset: TextSize,
     root: Option<SyntaxNode<'tree>>,
 ) -> Option<ReferencesTarget<'tree>> {
-    if let Some(target) = dispatch_preproc_references_target(db, file_id, offset) {
-        return Some(ReferencesTarget::Preproc(target));
+    if let Some(target) = dispatch_source_graph_references_target(db, file_id, offset) {
+        return Some(target);
     }
     let root = root?;
     let target =
         source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
     Some(ReferencesTarget::Source(target))
+}
+
+fn dispatch_source_graph_references_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<ReferencesTarget<'static>> {
+    let target = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id, offset },
+        SourcePurpose::FindReferences,
+        None,
+    );
+    let GraphSourceTargetResolution::Resolved(target) = target else {
+        return None;
+    };
+
+    match target {
+        GraphSourceTarget::MacroParamDefinition(_) => {
+            dispatch_macro_param_definition_references_target(db, file_id, offset)
+                .map(ReferencesTarget::Preproc)
+        }
+        GraphSourceTarget::MacroParamReference(_) => {
+            dispatch_macro_param_reference_references_target(db, file_id, offset)
+                .map(ReferencesTarget::Preproc)
+        }
+        GraphSourceTarget::MacroDefinition(_) => {
+            dispatch_macro_definition_references_target(db, file_id, offset)
+                .map(ReferencesTarget::Preproc)
+        }
+        GraphSourceTarget::MacroReference(_) => {
+            dispatch_macro_reference_references_target(db, file_id, offset)
+                .map(ReferencesTarget::Preproc)
+        }
+        GraphSourceTarget::Include(_)
+        | GraphSourceTarget::MacroCall(_)
+        | GraphSourceTarget::ExpansionToken(_)
+        | GraphSourceTarget::HirSymbol(_)
+        | GraphSourceTarget::HirReference(_)
+        | GraphSourceTarget::SyntaxToken(_) => None,
+    }
 }
 
 fn render_references_target(
@@ -175,43 +220,42 @@ fn references_for_token(
     })
 }
 
-fn dispatch_preproc_references_target(
+fn dispatch_macro_definition_references_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
 ) -> Option<PreprocReferencesTarget> {
-    if let Some(target) = dispatch_preproc_macro_param_references_target(db, file_id, offset) {
-        return Some(target);
-    }
-
-    let definitions = if let Some(definition) = macro_definition_at(db, file_id, offset).ok()? {
-        vec![definition]
-    } else {
-        macro_reference_definitions_at(db, file_id, offset).ok()??.definitions
-    };
-    if definitions.is_empty() {
-        return None;
-    }
-
-    Some(PreprocReferencesTarget::Macros(definitions))
+    macro_definition_at(db, file_id, offset)
+        .ok()?
+        .map(|definition| PreprocReferencesTarget::Macros(vec![definition]))
 }
 
-fn dispatch_preproc_macro_param_references_target(
+fn dispatch_macro_reference_references_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
 ) -> Option<PreprocReferencesTarget> {
-    let definitions =
-        if let Some(definition) = macro_param_definition_at(db, file_id, offset).ok()? {
-            vec![definition]
-        } else {
-            macro_param_reference_definitions_at(db, file_id, offset).ok()??.definitions
-        };
-    if definitions.is_empty() {
-        return None;
-    }
+    let definitions = macro_reference_definitions_at(db, file_id, offset).ok()??.definitions;
+    (!definitions.is_empty()).then_some(PreprocReferencesTarget::Macros(definitions))
+}
 
-    Some(PreprocReferencesTarget::MacroParams(definitions))
+fn dispatch_macro_param_definition_references_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<PreprocReferencesTarget> {
+    macro_param_definition_at(db, file_id, offset)
+        .ok()?
+        .map(|definition| PreprocReferencesTarget::MacroParams(vec![definition]))
+}
+
+fn dispatch_macro_param_reference_references_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<PreprocReferencesTarget> {
+    let definitions = macro_param_reference_definitions_at(db, file_id, offset).ok()??.definitions;
+    (!definitions.is_empty()).then_some(PreprocReferencesTarget::MacroParams(definitions))
 }
 
 fn render_preproc_references_target(
