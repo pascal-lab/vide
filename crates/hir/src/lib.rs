@@ -12,4 +12,5 @@ pub mod region_tree;
 pub mod scope;
 pub mod semantics;
 pub mod source_map;
+pub mod source_resolver;
 pub mod type_infer;
