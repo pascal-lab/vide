@@ -18,6 +18,7 @@ pub struct SourceGraph {
     relations: Vec<SourceRelation>,
     selection_by_entity: FxHashMap<EntityId, SourceSelectionId>,
     origin_by_entity: FxHashMap<EntityId, OriginId>,
+    written_origin_by_span: FxHashMap<SpanId, OriginId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -31,6 +32,7 @@ pub struct SourceGraphBuilder {
     entities: Vec<SourceEntity>,
     contexts: Vec<SourceContext>,
     origins: Vec<SourceOrigin>,
+    origin_ids: FxHashMap<SourceOrigin, OriginId>,
     relations: Vec<SourceRelation>,
 }
 
@@ -98,9 +100,18 @@ impl SourceGraphBuilder {
     }
 
     pub fn add_origin(&mut self, origin: SourceOrigin) -> OriginId {
+        if let Some(id) = self.origin_ids.get(&origin).copied() {
+            return id;
+        }
+
         let id = OriginId::new(self.origins.len() as u32);
-        self.origins.push(origin);
+        self.origins.push(origin.clone());
+        self.origin_ids.insert(origin, id);
         id
+    }
+
+    pub fn add_written_origin(&mut self, span: SpanId) -> OriginId {
+        self.add_origin(SourceOrigin::Written { span })
     }
 
     pub fn add_relation(&mut self, relation: SourceRelation) {
@@ -110,6 +121,7 @@ impl SourceGraphBuilder {
     pub fn build(self) -> SourceGraph {
         let mut selection_by_entity = FxHashMap::default();
         let mut origin_by_entity = FxHashMap::default();
+        let mut written_origin_by_span = FxHashMap::default();
 
         for relation in &self.relations {
             match *relation {
@@ -120,6 +132,11 @@ impl SourceGraphBuilder {
                     origin_by_entity.insert(entity, origin);
                 }
                 _ => {}
+            }
+        }
+        for (raw, origin) in self.origins.iter().enumerate() {
+            if let SourceOrigin::Written { span } = *origin {
+                written_origin_by_span.insert(span, OriginId::new(raw as u32));
             }
         }
 
@@ -133,6 +150,7 @@ impl SourceGraphBuilder {
             relations: self.relations,
             selection_by_entity,
             origin_by_entity,
+            written_origin_by_span,
         }
     }
 }
@@ -207,6 +225,21 @@ impl SourceGraph {
                 origin_mentions_span(origin, span).then(|| OriginId::new(raw as u32))
             })
             .collect()
+    }
+
+    pub fn written_origin_for_span(&self, span: SpanId) -> Option<OriginId> {
+        self.written_origin_by_span.get(&span).copied()
+    }
+
+    pub fn written_origin_for_file_range(&self, range: FileRange) -> Option<OriginId> {
+        self.spans.iter().enumerate().find_map(|(raw, span)| {
+            if span.range != range.range
+                || self.file_id_for_domain(span.domain) != Some(range.file_id)
+            {
+                return None;
+            }
+            self.written_origin_for_span(SpanId::new(raw as u32))
+        })
     }
 
     pub fn preferred_span(&self, origin: OriginId, purpose: SourcePurpose) -> SourceChoice {
@@ -369,6 +402,27 @@ mod tests {
             None,
         );
         assert_eq!(hits, vec![EntityHit { entity, selection, matched_span: focus }]);
+    }
+
+    #[test]
+    fn interns_written_origins_for_file_ranges() {
+        let mut builder = SourceGraphBuilder::new();
+        let file_id = FileId(2);
+        let domain = builder.intern_domain(SourceDomain::RealFile { file_id });
+        let span = builder.intern_span(domain, TextRange::new(4.into(), 9.into()));
+        let origin = builder.add_written_origin(span);
+        let same_origin = builder.add_written_origin(span);
+        let graph = builder.build();
+
+        assert_eq!(origin, same_origin);
+        assert_eq!(graph.written_origin_for_span(span), Some(origin));
+        assert_eq!(
+            graph.written_origin_for_file_range(FileRange {
+                file_id,
+                range: TextRange::new(4.into(), 9.into()),
+            }),
+            Some(origin)
+        );
     }
 
     #[test]

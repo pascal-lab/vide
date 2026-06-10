@@ -638,10 +638,12 @@ pub(super) fn source_graph_preproc_model(
             .as_ref()
             .as_ref()
             .map(|mapped| {
+                let tree = db.parse_src_for_compilation(file_id);
                 source_graph_preproc_model_from_mapped(
                     mapped,
                     file_id,
                     db.file_compilation_profile(file_id),
+                    tree.root(),
                 )
             })
             .map_err(Clone::clone),

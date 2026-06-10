@@ -12,6 +12,7 @@ use source_model::{
     SourceDomainId, SourceEntity, SourceGraph, SourceGraphBuilder, SourceOrigin, SourceRelation,
     SourceSelectionId, SourceUnavailable, SpanId, SpellingKind, SyntheticReason, VirtualOrigin,
 };
+use syntax::{SyntaxElement, SyntaxNode, has_text_range::HasTextRange};
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -33,6 +34,7 @@ pub(super) fn source_graph_preproc_model_from_mapped(
     mapped: &MappedSourcePreprocModel,
     root_file: FileId,
     profile_id: Option<CompilationProfileId>,
+    root_syntax: Option<SyntaxNode<'_>>,
 ) -> SourceGraphPreprocModel {
     let mut builder = SourceGraphBuilder::new();
     let root_context = builder.add_context(SourceContext::CompilationRoot {
@@ -44,6 +46,12 @@ pub(super) fn source_graph_preproc_model_from_mapped(
     for (source, mapping) in mapped.source_map.source_mappings() {
         let domain = builder.intern_domain(source_domain_from_preproc_mapping(mapping));
         source_domains.insert(source, domain);
+    }
+    if let Some(root_syntax) = root_syntax
+        && let Some(root_source) = mapped.model.root_source()
+        && let Some(root_domain) = source_domains.get(&root_source).copied()
+    {
+        add_written_syntax_origins(&mut builder, root_syntax, root_domain);
     }
 
     let mut include_contexts = FxHashMap::default();
@@ -196,6 +204,44 @@ fn add_preproc_entities(
     }
 
     emitted_token_entities
+}
+
+fn add_written_syntax_origins(
+    builder: &mut SourceGraphBuilder,
+    root: SyntaxNode<'_>,
+    domain: SourceDomainId,
+) {
+    add_written_node_origin(builder, root, domain);
+    for child in root.children() {
+        add_written_element_origins(builder, child, domain);
+    }
+}
+
+fn add_written_element_origins(
+    builder: &mut SourceGraphBuilder,
+    element: SyntaxElement<'_>,
+    domain: SourceDomainId,
+) {
+    if let Some(range) = element.text_range() {
+        let span = builder.intern_span(domain, range);
+        builder.add_written_origin(span);
+    }
+    if let Some(node) = element.as_node() {
+        for child in node.children() {
+            add_written_element_origins(builder, child, domain);
+        }
+    }
+}
+
+fn add_written_node_origin(
+    builder: &mut SourceGraphBuilder,
+    node: SyntaxNode<'_>,
+    domain: SourceDomainId,
+) {
+    if let Some(range) = node.text_range() {
+        let span = builder.intern_span(domain, range);
+        builder.add_written_origin(span);
+    }
 }
 
 fn add_expansion_token_entities(
