@@ -14,6 +14,11 @@ use hir::{
         macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
     },
     semantics::Semantics,
+    source_resolver::PositionResolver,
+};
+use source_model::{
+    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, TokenKind,
@@ -83,16 +88,55 @@ fn dispatch_hover_target<'tree>(
     offset: TextSize,
     root: Option<SyntaxNode<'tree>>,
 ) -> Option<HoverTarget<'tree>> {
-    if let Some(macro_target) = dispatch_macro_hover_target(db, file_id, offset) {
-        return Some(HoverTarget::Macro(Box::new(macro_target)));
-    }
-    if let Some(includes) = dispatch_include_hover_target(db, file_id, offset) {
-        return Some(HoverTarget::Include(includes));
+    if let Some(target) = dispatch_source_graph_hover_target(db, file_id, offset) {
+        return Some(target);
     }
     let root = root?;
     let target =
         source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
     Some(HoverTarget::Source(target))
+}
+
+fn dispatch_source_graph_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<HoverTarget<'static>> {
+    let target = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id, offset },
+        SourcePurpose::Hover,
+        None,
+    );
+    let GraphSourceTargetResolution::Resolved(target) = target else {
+        return None;
+    };
+
+    match target {
+        GraphSourceTarget::MacroParamDefinition(_) => {
+            dispatch_macro_param_definition_hover_target(db, file_id, offset)
+                .map(|target| HoverTarget::Macro(Box::new(target)))
+        }
+        GraphSourceTarget::MacroParamReference(_) => {
+            dispatch_macro_param_reference_hover_target(db, file_id, offset)
+                .map(|target| HoverTarget::Macro(Box::new(target)))
+        }
+        GraphSourceTarget::MacroDefinition(_) => {
+            dispatch_macro_definition_hover_target(db, file_id, offset)
+                .map(|target| HoverTarget::Macro(Box::new(target)))
+        }
+        GraphSourceTarget::MacroReference(_) => {
+            dispatch_macro_reference_hover_target(db, file_id, offset)
+                .map(|target| HoverTarget::Macro(Box::new(target)))
+        }
+        GraphSourceTarget::Include(_) => {
+            dispatch_include_hover_target(db, file_id, offset).map(HoverTarget::Include)
+        }
+        GraphSourceTarget::MacroCall(_)
+        | GraphSourceTarget::ExpansionToken(_)
+        | GraphSourceTarget::HirSymbol(_)
+        | GraphSourceTarget::HirReference(_)
+        | GraphSourceTarget::SyntaxToken(_) => None,
+    }
 }
 
 fn render_hover_target(
@@ -447,7 +491,7 @@ fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
     Some(TextRange::new(start, end))
 }
 
-fn dispatch_macro_hover_target(
+fn dispatch_macro_param_definition_hover_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
@@ -455,22 +499,42 @@ fn dispatch_macro_hover_target(
     if let Ok(Some(definition)) = macro_param_definition_at(db, file_id, offset) {
         return Some(MacroHoverTarget::ParamDefinition(definition));
     }
+    None
+}
 
+fn dispatch_macro_param_reference_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<MacroHoverTarget> {
     if let Ok(Some(param_resolution)) = macro_param_reference_definitions_at(db, file_id, offset) {
         if param_resolution.definitions.is_empty() {
             return None;
         }
         return Some(MacroHoverTarget::ParamReference(param_resolution));
     }
+    None
+}
 
+fn dispatch_macro_definition_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<MacroHoverTarget> {
     if let Ok(Some(definition)) = macro_definition_at(db, file_id, offset) {
         return Some(MacroHoverTarget::Definition(definition));
     }
+    None
+}
 
+fn dispatch_macro_reference_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Option<MacroHoverTarget> {
     if let Ok(Some(resolution)) = macro_reference_definitions_at(db, file_id, offset) {
         return Some(MacroHoverTarget::Reference(resolution));
     }
-
     None
 }
 
