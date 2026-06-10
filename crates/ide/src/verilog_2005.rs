@@ -1399,6 +1399,36 @@ endmodule
 }
 
 #[test]
+fn preproc_source_graph_targets_are_not_renameable() {
+    let text = r#"
+`define /*marker:macro_def*/SHIFT(/*marker:param_def*/value, amount) ((/*marker:param_ref*/value) << amount)
+module top;
+  localparam int W = `/*marker:macro_ref*/SHIFT(4, 1);
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let analysis = host.make_analysis();
+    let config = RenameConfig::workspace(ScopeVisibility::Private);
+
+    for marker in ["macro_def", "macro_ref", "param_def", "param_ref"] {
+        let err = analysis
+            .prepare_rename(position(file_id, &markers, marker), config.clone())
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            matches!(err, RenameError::NoDefFound),
+            "{marker} should be blocked by source graph rename policy: {err:?}"
+        );
+    }
+
+    let err = analysis
+        .rename(position(file_id, &markers, "macro_ref"), config, "SHIFT2")
+        .unwrap()
+        .unwrap_err();
+    assert!(matches!(err, RenameError::NoDefFound));
+}
+
+#[test]
 fn preproc_macro_argument_source_token_resolves_to_hir_definition() {
     let text = r#"
 `define NEXT(value) (value + 1)

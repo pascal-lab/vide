@@ -1,7 +1,14 @@
-use hir::{base_db::source_db::SourceDb, container::InFile, semantics::Semantics};
+use hir::{
+    base_db::source_db::SourceDb, container::InFile, semantics::Semantics,
+    source_resolver::PositionResolver,
+};
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
+use source_model::{
+    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    SourceTargetResolution as GraphSourceTargetResolution,
+};
 use syntax::{
     SyntaxAncestors, SyntaxNode, SyntaxNodeExt, SyntaxTokenWithParent,
     ast::{self, AstNode, Expression, Name},
@@ -100,9 +107,10 @@ pub struct RenameCollisionInfo {
 
 pub(crate) fn prepare_rename(
     db: &RootDb,
-    FilePosition { file_id, offset }: FilePosition,
+    position @ FilePosition { file_id, offset }: FilePosition,
     config: RenameConfig,
 ) -> RenameResult<TextRange> {
+    ensure_source_graph_rename_target(db, position)?;
     let sema = Semantics::new(db);
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
@@ -228,8 +236,9 @@ struct RecursiveRenameTarget {
 
 fn resolve_rename_target(
     sema: &Semantics<'_, RootDb>,
-    FilePosition { file_id, offset }: FilePosition,
+    position @ FilePosition { file_id, offset }: FilePosition,
 ) -> RenameResult<ResolvedRenameTarget> {
+    ensure_source_graph_rename_target(sema.db, position)?;
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root().ok_or(RenameError::NoRefFound)?;
     let token = pick_token(root, offset)?;
@@ -249,6 +258,34 @@ fn resolve_rename_target(
         DefinitionClass::Ambiguous(_) => return Err(RenameError::NoDefFound),
     };
     Ok(ResolvedRenameTarget { selected_def, targets: targets.into_vec() })
+}
+
+fn ensure_source_graph_rename_target(db: &RootDb, position: FilePosition) -> RenameResult<()> {
+    let target = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id: position.file_id, offset: position.offset },
+        SourcePurpose::Rename,
+        None,
+    );
+
+    match target {
+        GraphSourceTargetResolution::Resolved(
+            GraphSourceTarget::MacroDefinition(_)
+            | GraphSourceTarget::MacroReference(_)
+            | GraphSourceTarget::MacroCall(_)
+            | GraphSourceTarget::MacroParamDefinition(_)
+            | GraphSourceTarget::MacroParamReference(_)
+            | GraphSourceTarget::Include(_)
+            | GraphSourceTarget::ExpansionToken(_),
+        )
+        | GraphSourceTargetResolution::Ambiguous(_)
+        | GraphSourceTargetResolution::Blocked(_) => Err(RenameError::NoDefFound),
+        GraphSourceTargetResolution::Resolved(
+            GraphSourceTarget::HirSymbol(_)
+            | GraphSourceTarget::HirReference(_)
+            | GraphSourceTarget::SyntaxToken(_),
+        )
+        | GraphSourceTargetResolution::None => Ok(()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
