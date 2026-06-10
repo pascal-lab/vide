@@ -17,7 +17,8 @@ use hir::{
     source_resolver::PositionResolver,
 };
 use source_model::{
-    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    FilePosition as SourceFilePosition, ResolvedSourceTarget, SourceContext, SourcePurpose,
+    SourceRangeResult, SourceTarget as GraphSourceTarget,
     SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{
@@ -50,6 +51,7 @@ struct MacroSourceLink {
 enum HoverTarget<'tree> {
     Macro(Box<MacroHoverTarget>),
     Include(Vec<IncludeDirective>),
+    Graph(RangeInfo<Markup>),
     Source(SourceTarget<'tree>),
 }
 
@@ -110,11 +112,11 @@ fn dispatch_source_graph_hover_target(
 
     match resolution {
         GraphSourceTargetResolution::Resolved(target) => {
-            dispatch_graph_hover_target(db, file_id, offset, target.target)
+            dispatch_graph_hover_target(db, file_id, offset, target)
         }
         GraphSourceTargetResolution::Ambiguous(targets) => targets
             .into_iter()
-            .find_map(|target| dispatch_graph_hover_target(db, file_id, offset, target.target)),
+            .find_map(|target| dispatch_graph_hover_target(db, file_id, offset, target)),
         GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => None,
     }
 }
@@ -123,9 +125,9 @@ fn dispatch_graph_hover_target(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-    target: GraphSourceTarget,
+    target: ResolvedSourceTarget,
 ) -> Option<HoverTarget<'static>> {
-    match target {
+    match target.target {
         GraphSourceTarget::MacroParamDefinition(_) => {
             dispatch_macro_param_definition_hover_target(db, file_id, offset)
                 .map(|target| HoverTarget::Macro(Box::new(target)))
@@ -142,8 +144,12 @@ fn dispatch_graph_hover_target(
             dispatch_macro_reference_hover_target(db, file_id, offset)
                 .map(|target| HoverTarget::Macro(Box::new(target)))
         }
-        GraphSourceTarget::Include(_) => {
-            dispatch_include_hover_target(db, file_id, offset).map(HoverTarget::Include)
+        GraphSourceTarget::Include(id) => {
+            dispatch_graph_include_hover_target(db, file_id, target, id)
+                .map(HoverTarget::Graph)
+                .or_else(|| {
+                    dispatch_include_hover_target(db, file_id, offset).map(HoverTarget::Include)
+                })
         }
         GraphSourceTarget::MacroCall(_)
         | GraphSourceTarget::ExpansionToken(_)
@@ -163,6 +169,7 @@ fn render_hover_target(
     match target {
         HoverTarget::Macro(target) => render_macro_hover_target(db, file_id, offset, *target),
         HoverTarget::Include(includes) => render_include_hover(db, includes),
+        HoverTarget::Graph(hover) => Some(hover),
         HoverTarget::Source(target) => {
             let hover = hover_for_source_target(sema, file_id.into(), target)?;
             Some(with_expanded_macro_hover(db, file_id, offset, hover))
@@ -683,6 +690,39 @@ fn markdown_link_destination(destination: &str) -> String {
 
 fn macro_definition_body_text(definition: &MacroDefinition) -> String {
     definition.body_tokens.iter().map(|token| token.as_str()).collect::<Vec<_>>().join(" ")
+}
+
+fn dispatch_graph_include_hover_target(
+    db: &RootDb,
+    file_id: FileId,
+    include: ResolvedSourceTarget,
+    include_id: source_model::IncludeDirectiveId,
+) -> Option<RangeInfo<Markup>> {
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let SourceRangeResult::Mapped(include_range) =
+        graph.entity_focus_file_range(include.entity, SourcePurpose::Hover)
+    else {
+        return None;
+    };
+    let included_context = graph.included_context(source_graph.root_context, include_id)?;
+    let SourceContext::IncludeContext { included_file, .. } = *graph.context(included_context)
+    else {
+        return None;
+    };
+    let include_text = db.file_text(include_range.file_id);
+    let literal = include_text[include_range.range].to_owned();
+
+    let mut markup = Markup::new();
+    markup.print("Include");
+    markup.newline();
+    markup.push_with_backticks(literal.as_str());
+    if let Some(path) = db.file_path(included_file) {
+        markup.newline();
+        markup.print(&path.to_string());
+    }
+    Some(RangeInfo::new(include_range.range, markup))
 }
 
 fn dispatch_include_hover_target(
