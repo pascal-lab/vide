@@ -349,6 +349,16 @@ fn source_graph_indexes_macro_expansion_relations() {
             .any(|(generated, _)| *generated == emitted_span),
         "spelling provenance should be queryable from source to generated span"
     );
+    assert!(
+        graph
+            .generated_from_file_position(FilePosition {
+                file_id: TOP,
+                offset: offset(root_text, "8"),
+            })
+            .iter()
+            .any(|(generated, _)| *generated == emitted_span),
+        "spelling provenance should be queryable from source file position"
+    );
 }
 
 #[test]
