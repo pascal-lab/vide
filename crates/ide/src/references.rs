@@ -1,8 +1,8 @@
 use hir::{
+    base_db::source_db::{SourceDb, SourceRootDb},
     file::HirFileId,
     preproc::{
-        MacroDefinition, MacroParamDefinition, MacroReferenceIndexStatus, macro_definition_at,
-        macro_param_definition_at, macro_param_reference_definitions_at, macro_param_references,
+        MacroDefinition, MacroReferenceIndexStatus, macro_definition_at,
         macro_reference_definitions_at, macro_references,
     },
     semantics::Semantics,
@@ -12,7 +12,8 @@ use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use source_model::{
-    FilePosition as SourceFilePosition, SourcePurpose, SourceTarget as GraphSourceTarget,
+    EntityId, FilePosition as SourceFilePosition, ResolvedSourceTarget, SourceEntity,
+    SourcePurpose, SourceRangeResult, SourceTarget as GraphSourceTarget,
     SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{
@@ -39,7 +40,7 @@ enum ReferencesTarget<'tree> {
 }
 
 enum PreprocReferencesTarget {
-    MacroParams(Vec<MacroParamDefinition>),
+    GraphMacroParams(Vec<EntityId>),
     Macros(Vec<MacroDefinition>),
 }
 
@@ -146,11 +147,12 @@ fn dispatch_source_graph_references_target(
 
     match target.target {
         GraphSourceTarget::MacroParamDefinition(_) => {
-            dispatch_macro_param_definition_references_target(db, file_id, offset)
-                .map(ReferencesTarget::Preproc)
+            Some(ReferencesTarget::Preproc(PreprocReferencesTarget::GraphMacroParams(vec![
+                target.entity,
+            ])))
         }
         GraphSourceTarget::MacroParamReference(_) => {
-            dispatch_macro_param_reference_references_target(db, file_id, offset)
+            dispatch_graph_macro_param_reference_references_target(db, file_id, target)
                 .map(ReferencesTarget::Preproc)
         }
         GraphSourceTarget::MacroDefinition(_) => {
@@ -238,23 +240,20 @@ fn dispatch_macro_reference_references_target(
     (!definitions.is_empty()).then_some(PreprocReferencesTarget::Macros(definitions))
 }
 
-fn dispatch_macro_param_definition_references_target(
+fn dispatch_graph_macro_param_reference_references_target(
     db: &RootDb,
     file_id: FileId,
-    offset: TextSize,
+    reference: ResolvedSourceTarget,
 ) -> Option<PreprocReferencesTarget> {
-    macro_param_definition_at(db, file_id, offset)
-        .ok()?
-        .map(|definition| PreprocReferencesTarget::MacroParams(vec![definition]))
-}
-
-fn dispatch_macro_param_reference_references_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocReferencesTarget> {
-    let definitions = macro_param_reference_definitions_at(db, file_id, offset).ok()??.definitions;
-    (!definitions.is_empty()).then_some(PreprocReferencesTarget::MacroParams(definitions))
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let definitions = source_graph
+        .graph
+        .resolved_definitions(source_graph.root_context, reference.entity)
+        .iter()
+        .map(|(definition, _)| *definition)
+        .collect_vec();
+    (!definitions.is_empty()).then_some(PreprocReferencesTarget::GraphMacroParams(definitions))
 }
 
 fn render_preproc_references_target(
@@ -264,10 +263,10 @@ fn render_preproc_references_target(
     config: &ReferencesConfig,
 ) -> Option<Vec<References>> {
     match target {
-        PreprocReferencesTarget::MacroParams(definitions) => definitions
+        PreprocReferencesTarget::GraphMacroParams(definitions) => definitions
             .into_iter()
             .map(|definition| {
-                macro_param_references_for_definition(db, file_id, definition, config)
+                graph_macro_param_references_for_definition(db, file_id, definition, config)
             })
             .collect(),
         PreprocReferencesTarget::Macros(definitions) => definitions
@@ -277,23 +276,46 @@ fn render_preproc_references_target(
     }
 }
 
-fn macro_param_references_for_definition(
+fn graph_macro_param_references_for_definition(
     db: &RootDb,
     file_id: FileId,
-    definition: MacroParamDefinition,
+    definition: EntityId,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let refs = macro_param_references(db, file_id, &definition)
-        .ok()?
-        .references
-        .into_iter()
-        .filter(|usage| {
-            config.search_scope.as_ref().is_none_or(|scope| {
-                scope.range_for_file(usage.file_id).is_some_and(|range| {
-                    range.is_none_or(|range| range.intersect(usage.range).is_some())
+    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let mut refs = Vec::new();
+    for parent in graph.entity_parents(definition) {
+        for child in graph.entity_children(*parent) {
+            let SourceEntity::MacroParamReference(_) = graph.entity(*child) else {
+                continue;
+            };
+            if !graph
+                .resolved_definitions(source_graph.root_context, *child)
+                .iter()
+                .any(|(resolved, _)| *resolved == definition)
+            {
+                continue;
+            }
+            let SourceRangeResult::Mapped(file_range) =
+                graph.entity_focus_file_range(*child, SourcePurpose::FindReferences)
+            else {
+                continue;
+            };
+            config
+                .search_scope
+                .as_ref()
+                .is_none_or(|scope| {
+                    scope.range_for_file(file_range.file_id).is_some_and(|range| {
+                        range.is_none_or(|range| range.intersect(file_range.range).is_some())
+                    })
                 })
-            })
-        })
+                .then(|| refs.push(file_range));
+        }
+    }
+    let refs = refs
+        .into_iter()
         .into_group_map_by(|usage| usage.file_id)
         .into_iter()
         .map(|(file_id, usages)| {
@@ -307,7 +329,7 @@ fn macro_param_references_for_definition(
         })
         .collect();
     Some(References {
-        def: Some(vec![macro_param_nav_target(definition)]),
+        def: Some(vec![graph_macro_param_nav_target(db, graph, definition)?]),
         refs,
         status: ReferencesStatus::Complete,
     })
@@ -356,18 +378,6 @@ fn references_status_from_macro_index(status: MacroReferenceIndexStatus) -> Refe
     }
 }
 
-fn macro_param_nav_target(definition: MacroParamDefinition) -> NavTarget {
-    NavTarget {
-        file_id: definition.macro_definition.file_id,
-        full_range: definition.range,
-        focus_range: Some(definition.range),
-        name: Some(definition.name),
-        kind: None,
-        container_name: Some(definition.macro_definition.name),
-        description: Some("macro parameter".to_owned()),
-    }
-}
-
 fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
     NavTarget {
         file_id: definition.file_id,
@@ -378,6 +388,41 @@ fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
         container_name: None,
         description: Some("macro definition".to_owned()),
     }
+}
+
+fn graph_macro_param_nav_target(
+    db: &RootDb,
+    graph: &source_model::SourceGraph,
+    entity: EntityId,
+) -> Option<NavTarget> {
+    let SourceRangeResult::Mapped(file_range) =
+        graph.entity_focus_file_range(entity, SourcePurpose::FindReferences)
+    else {
+        return None;
+    };
+    let text = db.file_text(file_range.file_id);
+    let name = text[file_range.range].to_owned();
+    let container_name = graph.entity_parents(entity).iter().find_map(|parent| {
+        let SourceEntity::MacroDefinition(_) = graph.entity(*parent) else {
+            return None;
+        };
+        let SourceRangeResult::Mapped(parent_range) =
+            graph.entity_focus_file_range(*parent, SourcePurpose::FindReferences)
+        else {
+            return None;
+        };
+        let text = db.file_text(parent_range.file_id);
+        Some(text[parent_range.range].to_owned().into())
+    });
+    Some(NavTarget {
+        file_id: file_range.file_id,
+        full_range: file_range.range,
+        focus_range: Some(file_range.range),
+        name: Some(name.into()),
+        kind: None,
+        container_name,
+        description: Some("macro parameter".to_owned()),
+    })
 }
 
 pub(crate) fn handle_ctrl_flow_kw(
