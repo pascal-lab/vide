@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/instance_missing_parens_repair_adds_port_list.sv
+---
+module child; endmodule
+module top; child u(); endmodule

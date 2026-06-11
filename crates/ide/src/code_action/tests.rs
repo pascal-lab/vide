@@ -365,26 +365,6 @@ fn remove_empty_port_connection_requires_diagnostics() {
 }
 
 #[test]
-fn convert_ordered_ports_is_available_without_diagnostics() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, y); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ordered_ports").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn convert_ordered_params_is_available_without_diagnostics() {
-    let text = "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/8, 16) u(); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ordered_params").unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
-    );
-}
-
-#[test]
 fn literal_base_does_not_offer_decimal_for_unknown_bits() {
     let labels = action_labels_without_diagnostics(
         "module top; logic [3:0] value = /*caret*/'hx; endmodule\n",
@@ -418,60 +398,6 @@ fn missing_parameter_repair_is_not_offered_when_nothing_is_missing() {
         RepairKind::MissingParameter,
     );
     assert!(!labels.iter().any(|label| label == "Fill parameters"));
-}
-
-#[test]
-fn convert_ordered_ports_repair_names_ordered_connections() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, .b(y)); endmodule\n";
-    let fixed = apply_action(text, RepairKind::ConvertOrderedPorts).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn remove_empty_port_connection_repair_removes_trailing_comma() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y),/*caret*/); endmodule\n";
-    let fixed = apply_action(text, RepairKind::RemoveEmptyPortConnections).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn remove_empty_port_connection_repair_removes_middle_empty_connection() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(x), , .b(y)); endmodule\n";
-    let fixed = apply_action(text, RepairKind::RemoveEmptyPortConnections).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn convert_ordered_params_repair_names_ordered_assignments() {
-    let text = "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/8, .B(16)) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::ConvertOrderedParams).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn implicit_named_port_repair_adds_empty_parens() {
-    let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
-    let fixed = apply_action(text, RepairKind::AddImplicitNamedPortParens).unwrap();
-    assert_eq!(fixed, "module child(input a); endmodule\nmodule top; child u(.a()); endmodule\n");
-}
-
-#[test]
-fn implicit_named_port_repair_is_available_without_diagnostics() {
-    let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "add_implicit_named_port_parens").unwrap();
-    assert_eq!(fixed, "module child(input a); endmodule\nmodule top; child u(.a()); endmodule\n");
 }
 
 #[test]
@@ -605,13 +531,6 @@ fn convert_always_to_always_ff_requires_edge_sensitivity() {
         "module top; logic clk, d, q; /*caret*/always @(clk) q <= d; endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Convert to always_ff"));
-}
-
-#[test]
-fn instance_missing_parens_repair_adds_port_list() {
-    let text = "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n";
-    let fixed = apply_action(text, RepairKind::AddInstanceParens).unwrap();
-    assert_eq!(fixed, "module child; endmodule\nmodule top; child u(); endmodule\n");
 }
 
 #[test]
