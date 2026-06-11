@@ -485,10 +485,10 @@ fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
 
 fn dispatch_graph_macro_param_definition_hover_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     definition: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Markup>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(definition.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(definition_range) =
@@ -504,10 +504,10 @@ fn dispatch_graph_macro_param_definition_hover_target(
 
 fn dispatch_graph_macro_param_reference_hover_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     reference: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Markup>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(reference.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(reference_range) =
@@ -638,7 +638,7 @@ fn dispatch_graph_macro_reference_hover_target(
     offset: TextSize,
     reference: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Markup>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(reference.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(reference_range) =
@@ -753,7 +753,7 @@ fn dispatch_graph_macro_definition_hover_target(
     file_id: FileId,
     definition: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Markup>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(definition.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(focus_range) =
@@ -774,11 +774,11 @@ fn dispatch_graph_macro_definition_hover_target(
 
 fn dispatch_graph_include_hover_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     include: ResolvedSourceTarget,
     include_id: source_model::IncludeDirectiveId,
 ) -> Option<RangeInfo<Markup>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(include.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(include_range) =

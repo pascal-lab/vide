@@ -4,6 +4,7 @@ use preproc::source::{
     SourceMacroOperationIdentity, SourceMacroResolution, SourceRange, SourceTokenProvenance,
 };
 use rustc_hash::FxHashMap;
+use smol_str::SmolStr;
 use source_model::{
     EntityId, ExpansionTokenId, InactiveRegionId, IncludeDirectiveId, MacroArgumentTokenIdentity,
     MacroBodyTokenIdentity, MacroCallId, MacroCallIdentity, MacroDefinitionId,
@@ -96,6 +97,7 @@ fn add_preproc_entities(
     let mut macro_ref_entities = FxHashMap::default();
     let mut macro_call_entities = FxHashMap::default();
     let mut emitted_token_entities = FxHashMap::default();
+    let mut predefine_macro_defs_by_name = FxHashMap::<SmolStr, Vec<EntityId>>::default();
     let mut next_macro_param_definition_id = 0u32;
     let mut next_macro_param_reference_id = 0u32;
     for definition in mapped.model.macro_definitions().iter() {
@@ -111,6 +113,9 @@ fn add_preproc_entities(
         );
         builder.add_relation(SourceRelation::HasSelection { entity, selection });
         macro_def_entities.insert(definition.id, entity);
+        if mapped.source_map.predefine_manifest_source(definition.name_range.source).is_some() {
+            predefine_macro_defs_by_name.entry(definition.name.clone()).or_default().push(entity);
+        }
     }
 
     for definition in mapped.model.macro_definitions().iter() {
@@ -213,6 +218,13 @@ fn add_preproc_entities(
             &reference.resolution,
             &macro_def_entities,
         );
+        add_predefine_resolution_relation(
+            builder,
+            root_context,
+            entity,
+            reference,
+            &predefine_macro_defs_by_name,
+        );
         macro_ref_entities.insert(reference.id, entity);
     }
 
@@ -238,6 +250,15 @@ fn add_preproc_entities(
             &call.callee,
             &macro_def_entities,
         );
+        if let Some(reference) = mapped.model.macro_references().get(call.reference) {
+            add_predefine_resolution_relation(
+                builder,
+                root_context,
+                entity,
+                reference,
+                &predefine_macro_defs_by_name,
+            );
+        }
         macro_call_entities.insert(call.id, entity);
     }
 
@@ -436,6 +457,13 @@ fn intern_span_for_source_range(
     source_domains: &FxHashMap<PreprocSourceId, SourceDomainId>,
     source_range: SourceRange,
 ) -> SpanId {
+    if let Some(manifest_source) = mapped.source_map.predefine_manifest_source(source_range.source)
+    {
+        let domain =
+            builder.intern_domain(SourceDomain::RealFile { file_id: manifest_source.file_id });
+        return builder.intern_span(domain, manifest_source.range);
+    }
+
     let domain = source_domains.get(&source_range.source).copied().unwrap_or_else(|| {
         builder.intern_domain(SourceDomain::Unmapped {
             reason: SourceUnavailable::MissingSource { source: source_range.source.raw() },
@@ -443,6 +471,29 @@ fn intern_span_for_source_range(
     });
     let range = mapped.source_map.map_range(source_range).unwrap_or(source_range.range);
     builder.intern_span(domain, range)
+}
+
+fn add_predefine_resolution_relation(
+    builder: &mut SourceGraphBuilder,
+    context: SourceContextId,
+    reference: EntityId,
+    source_reference: &preproc::source::SourceMacroReference,
+    predefine_macro_defs_by_name: &FxHashMap<SmolStr, Vec<EntityId>>,
+) {
+    if !matches!(source_reference.resolution, SourceMacroResolution::Undefined) {
+        return;
+    }
+    let Some(definitions) = predefine_macro_defs_by_name.get(&source_reference.name) else {
+        return;
+    };
+    for definition in definitions {
+        builder.add_relation(SourceRelation::ResolvesTo {
+            context,
+            reference,
+            definition: *definition,
+            reason: ResolutionReason::VisibleDefinition,
+        });
+    }
 }
 
 fn add_macro_resolution_relation(

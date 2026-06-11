@@ -163,10 +163,10 @@ fn nav_targets_for_token(
 
 fn dispatch_graph_macro_reference_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     reference: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(reference.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(reference_range) =
@@ -208,10 +208,10 @@ fn graph_macro_nav_target(
 
 fn dispatch_graph_macro_param_definition_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     definition: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(definition.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(definition_range) =
@@ -225,10 +225,10 @@ fn dispatch_graph_macro_param_definition_target(
 
 fn dispatch_graph_macro_param_reference_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     reference: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(reference.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(reference_range) =
@@ -247,10 +247,10 @@ fn dispatch_graph_macro_param_reference_target(
 
 fn dispatch_graph_macro_definition_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     definition: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(definition.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(definition_range) =
@@ -308,11 +308,11 @@ fn graph_macro_entity_name(
 
 fn dispatch_graph_include_target(
     db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     include: ResolvedSourceTarget,
     include_id: source_model::IncludeDirectiveId,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(include.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let SourceRangeResult::Mapped(include_range) =

@@ -1,3 +1,5 @@
+use vfs::FileId;
+
 use crate::{
     FileRange,
     ids::{
@@ -29,6 +31,7 @@ pub enum SourceTargetResolution {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResolvedSourceTarget {
+    pub model_file_id: FileId,
     pub entity: EntityId,
     pub target: SourceTarget,
 }

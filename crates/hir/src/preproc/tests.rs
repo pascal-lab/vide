@@ -241,6 +241,45 @@ fn position_resolver_resolves_macro_reference_from_source_graph() {
 }
 
 #[test]
+fn position_resolver_resolves_manifest_predefine_definition_from_context_graph() {
+    let root_text = "module top;\nlocalparam int W = `FROM_MANIFEST;\nendmodule\n";
+    let manifest_text = "defines = [\"FROM_MANIFEST=1\"]\n";
+    let manifest_range = TextRange::new(
+        offset(manifest_text, "\"FROM_MANIFEST=1\""),
+        offset_after(manifest_text, "\"FROM_MANIFEST=1\""),
+    );
+    let db = db_with_entries_and_predefine_entries(
+        &[(TOP, "rtl/top.sv", root_text), (MANIFEST, "vide.toml", manifest_text)],
+        vec![Predefine::with_source(
+            "FROM_MANIFEST=1",
+            PredefineSource { path: abs_path("vide.toml"), range: manifest_range },
+        )],
+    );
+
+    let resolved = PositionResolver::new(&db).resolve_position(
+        FilePosition { file_id: MANIFEST, offset: offset(manifest_text, "FROM_MANIFEST") },
+        SourcePurpose::GotoDefinition,
+        None,
+    );
+    let SourceTargetResolution::Resolved(ResolvedSourceTarget {
+        model_file_id,
+        entity,
+        target: SourceTarget::MacroDefinition(_),
+    }) = resolved
+    else {
+        panic!("manifest predefine should resolve from a context source graph: {resolved:?}");
+    };
+    assert_eq!(model_file_id, TOP);
+
+    let source_graph = db.source_graph_preproc_model(model_file_id);
+    let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
+    assert_eq!(
+        source_graph.graph.entity_focus_file_range(entity, SourcePurpose::GotoDefinition),
+        SourceRangeResult::Mapped(FileRange { file_id: MANIFEST, range: manifest_range })
+    );
+}
+
+#[test]
 fn position_resolver_resolves_macro_param_targets_from_source_graph() {
     let root_text = "`define SHIFT(value, amount) ((value) << amount)\nmodule top;\nendmodule\n";
     let db = db_with_entries(&[(TOP, "rtl/top.sv", root_text)]);
@@ -283,12 +322,14 @@ fn source_graph_macro_definition_full_selection_covers_body() {
         None,
     );
     let SourceTargetResolution::Resolved(ResolvedSourceTarget {
+        model_file_id,
         entity,
         target: SourceTarget::MacroDefinition(_),
     }) = resolved
     else {
         panic!("macro definition should resolve from source graph: {resolved:?}");
     };
+    assert_eq!(model_file_id, TOP);
     let source_graph = db.source_graph_preproc_model(TOP);
     let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
 
@@ -312,12 +353,14 @@ fn source_graph_indexes_macro_expansion_relations() {
         None,
     );
     let SourceTargetResolution::Resolved(ResolvedSourceTarget {
+        model_file_id,
         entity: reference_entity,
         target: SourceTarget::MacroReference(_),
     }) = resolved
     else {
         panic!("macro reference should resolve from source graph: {resolved:?}");
     };
+    assert_eq!(model_file_id, TOP);
     let source_graph = db.source_graph_preproc_model(TOP);
     let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
     let graph = &source_graph.graph;
