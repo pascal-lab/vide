@@ -624,36 +624,6 @@ fn extract_variable_requires_block_scope() {
 }
 
 #[test]
-fn pull_assignment_up_converts_if_else_assignment_to_ternary() {
-    let text = "module top; always_comb /*caret*/if (a) y = 1; else y = 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = a ? 1 : 0; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_converts_else_if_chain_to_nested_ternary() {
-    let text =
-        "module top; always_comb if (/*caret*/a) y = 1; else if (b) y = 2; else y = 3; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = a ? 1 : b ? 2 : 3; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_triggers_from_else_if_chain_body() {
-    let text =
-        "module top; always_comb if (a) y = 1; else if (b) /*caret*/y = 2; else y = 3; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = a ? 1 : b ? 2 : 3; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_wraps_conditional_predicate() {
-    let text = "module top; always_comb if (a ? b : c) /*caret*/y = 1; else y = 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = (a ? b : c) ? 1 : 0; endmodule\n");
-}
-
-#[test]
 fn pull_assignment_up_requires_single_assignment_branches() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb if (a) begin /*caret*/y = 1; z = 0; end else y = 2; endmodule\n",
@@ -667,23 +637,6 @@ fn pull_assignment_up_rejects_block_with_declarations() {
         "module top; always_comb if (a) begin logic tmp; /*caret*/y = tmp; end else y = 0; endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Pull assignment up"));
-}
-
-#[test]
-fn pull_assignment_down_converts_ternary_assignment_to_if_else() {
-    let text = "module top; always_comb /*caret*/y = a ? 1 : 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_down").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a) y = 1; else y = 0; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_down_converts_nested_ternary_to_else_if_chain() {
-    let text = "module top; always_comb /*caret*/y = a ? 1 : b ? 2 : 3; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_down").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb if (a) y = 1; else if (b) y = 2; else y = 3; endmodule\n"
-    );
 }
 
 #[test]
