@@ -272,51 +272,67 @@ fn expanded_macro_hover_for_graph_target(
     offset: TextSize,
     target: ResolvedSourceTarget,
 ) -> Option<RangeInfo<Markup>> {
-    let source_graph = db.source_graph_preproc_model(target.model_file_id);
-    let source_graph = source_graph.as_ref().as_ref().ok()?;
-    let graph = &source_graph.graph;
-    let call_ids = graph_macro_call_ids_for_target(graph, target);
-    if call_ids.is_empty() {
+    let source_graph_model = db.source_graph_preproc_model(target.model_file_id);
+    let source_graph_model = source_graph_model.as_ref().as_ref().ok()?;
+    let graph = &source_graph_model.graph;
+    let call_entities = graph_macro_call_entities_for_target(graph, target);
+    if call_entities.is_empty() {
         return None;
     }
 
-    let expansions = call_ids
+    let expansions = call_entities
         .into_iter()
-        .filter_map(|call_id| {
-            recursive_macro_expansion_provenance_for_source_graph_call(
+        .filter_map(|call_entity| {
+            let SourceEntity::MacroCall(call_id) = graph.entity(call_entity) else {
+                return None;
+            };
+            let expansion = recursive_macro_expansion_provenance_for_source_graph_call(
                 db,
                 target.model_file_id,
                 call_id,
             )
             .ok()
-            .flatten()
+            .flatten()?;
+            let source_link = graph_macro_call_definition_source_link(
+                db,
+                graph,
+                source_graph_model.root_context,
+                call_entity,
+            );
+            Some(MacroExpansionHover { expansion, source_link })
         })
         .collect::<Vec<_>>();
     let expansions = expansions
         .into_iter()
-        .filter(|expansion| !expansion.expansions.is_empty())
+        .filter(|expansion| !expansion.expansion.expansions.is_empty())
         .collect::<Vec<_>>();
     if expansions.is_empty() {
         return None;
     }
 
-    let ranges = expansions.iter().map(|expansion| expansion.root_call.range).collect::<Vec<_>>();
+    let ranges =
+        expansions.iter().map(|expansion| expansion.expansion.root_call.range).collect::<Vec<_>>();
     let range = covering_range(&ranges).unwrap_or_else(|| TextRange::empty(offset));
-    let markup = expanded_macro_markup(db, &expansions);
+    let markup = expanded_macro_markup(&expansions);
     Some(RangeInfo::new(range, markup))
 }
 
-fn graph_macro_call_ids_for_target(
+struct MacroExpansionHover {
+    expansion: RecursiveMacroExpansionProvenance,
+    source_link: Option<MacroSourceLink>,
+}
+
+fn graph_macro_call_entities_for_target(
     graph: &source_model::SourceGraph,
     target: ResolvedSourceTarget,
-) -> Vec<source_model::MacroCallId> {
+) -> Vec<source_model::EntityId> {
     match target.target {
-        GraphSourceTarget::MacroCall(call_id) => vec![call_id],
+        GraphSourceTarget::MacroCall(_) => vec![target.entity],
         GraphSourceTarget::MacroReference(_) => graph
             .entity_parents(target.entity)
             .iter()
             .filter_map(|entity| match graph.entity(*entity) {
-                SourceEntity::MacroCall(call_id) => Some(call_id),
+                SourceEntity::MacroCall(_) => Some(*entity),
                 _ => None,
             })
             .collect(),
@@ -324,22 +340,34 @@ fn graph_macro_call_ids_for_target(
     }
 }
 
-fn expanded_macro_markup(db: &RootDb, expansions: &[RecursiveMacroExpansionProvenance]) -> Markup {
+fn graph_macro_call_definition_source_link(
+    db: &RootDb,
+    graph: &source_model::SourceGraph,
+    context: source_model::SourceContextId,
+    call_entity: source_model::EntityId,
+) -> Option<MacroSourceLink> {
+    let SourceRangeResult::Mapped(call_range) =
+        graph.entity_full_file_range(call_entity, SourcePurpose::Hover)
+    else {
+        return None;
+    };
+    let definition = graph.resolved_definitions(context, call_entity).first()?.0;
+    let definition_file_id = graph_entity_focus_file_id(graph, definition)?;
+    macro_file_source_link(db, definition_file_id, call_range.file_id)
+}
+
+fn expanded_macro_markup(expansions: &[MacroExpansionHover]) -> Markup {
     let mut markup = Markup::new();
 
     for expansion in expansions {
-        render_recursive_expansion(db, &mut markup, expansion);
+        render_recursive_expansion(&mut markup, expansion);
     }
 
     markup
 }
 
-fn render_recursive_expansion(
-    db: &RootDb,
-    markup: &mut Markup,
-    expansion: &RecursiveMacroExpansionProvenance,
-) {
-    let Some(root) = expansion.expansions.first() else {
+fn render_recursive_expansion(markup: &mut Markup, expansion: &MacroExpansionHover) {
+    let Some(root) = expansion.expansion.expansions.first() else {
         return;
     };
 
@@ -352,8 +380,8 @@ fn render_recursive_expansion(
     markup.newline();
     markup.push_with_code_fence(&macro_expansion_hover_text(root.expansion.display_text.as_str()));
     render_macro_expansion_separator(markup);
-    if let MacroExpansionDefinition::Source(definition) = &root.expansion.definition {
-        render_macro_source_link(db, markup, definition, root.expansion.call.file_id);
+    if let Some(source) = &expansion.source_link {
+        render_macro_source_link_from_link(markup, source);
     }
 }
 
@@ -387,20 +415,6 @@ fn macro_signature(definition: &MacroDefinition) -> String {
         signature.push(')');
     }
     signature
-}
-
-fn macro_definition_source_link(
-    db: &RootDb,
-    definition: &MacroDefinition,
-    anchor_file_id: FileId,
-) -> Option<MacroSourceLink> {
-    match &definition.source {
-        hir::preproc::MappedPreprocSource::RealFile { file_id } => {
-            macro_file_source_link(db, *file_id, anchor_file_id)
-        }
-        hir::preproc::MappedPreprocSource::VirtualFile { .. }
-        | hir::preproc::MappedPreprocSource::VirtualDisplay { .. } => None,
-    }
 }
 
 fn macro_file_source_link(
@@ -754,23 +768,11 @@ fn render_graph_macro_definition_display(
         return;
     };
     if let Some(source) = macro_file_source_link(db, file_id, anchor_file_id) {
-        render_macro_source_link_from_link(markup, source);
+        render_macro_source_link_from_link(markup, &source);
     }
 }
 
-fn render_macro_source_link(
-    db: &RootDb,
-    markup: &mut Markup,
-    definition: &MacroDefinition,
-    anchor_file_id: FileId,
-) {
-    let Some(source) = macro_definition_source_link(db, definition, anchor_file_id) else {
-        return;
-    };
-    render_macro_source_link_from_link(markup, source);
-}
-
-fn render_macro_source_link_from_link(markup: &mut Markup, source: MacroSourceLink) {
+fn render_macro_source_link_from_link(markup: &mut Markup, source: &MacroSourceLink) {
     markup.print_with_strong("Macro");
     markup.print(" from [");
     markup.print(&markdown_link_label(&source.label));
@@ -806,7 +808,7 @@ fn dispatch_graph_macro_definition_hover_target(
     markup.push_with_code_fence(&line);
     render_macro_expansion_separator(&mut markup);
     if let Some(source) = macro_file_source_link(db, focus_range.file_id, file_id) {
-        render_macro_source_link_from_link(&mut markup, source);
+        render_macro_source_link_from_link(&mut markup, &source);
     }
     Some(RangeInfo::new(focus_range.range, markup))
 }
