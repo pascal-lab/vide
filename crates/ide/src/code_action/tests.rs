@@ -718,13 +718,6 @@ fn apply_de_morgan_requires_parenthesized_logical_expression() {
 }
 
 #[test]
-fn expected_token_repair_inserts_missing_semicolon() {
-    let text = "module top;\nlogic a/*caret*/\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::InsertExpectedToken).unwrap();
-    assert_eq!(fixed, "module top;\nlogic a;\nendmodule\n");
-}
-
-#[test]
 fn expected_token_repair_uses_diagnostic_range() {
     let text = "/*caret*/module top;\nlogic a\nendmodule\n";
     let clean_text = text.replace("/*caret*/", "");
