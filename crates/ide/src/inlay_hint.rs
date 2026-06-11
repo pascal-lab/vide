@@ -728,7 +728,7 @@ mod tests {
     #[test]
     fn inlay_hint_fixtures() {
         insta::glob!("inlay_hint/fixtures/*.sv", |path| {
-            let fixture = read_fixture(&path);
+            let fixture = read_fixture(path);
             let (db, file_id) = db_with_file(&fixture.source);
             let hints = inlay_hint(
                 &db,

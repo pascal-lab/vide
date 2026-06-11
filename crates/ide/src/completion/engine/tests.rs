@@ -132,7 +132,7 @@ fn manual_and_triggered_at_use_same_sensitivity_expectation_behavior() {
 #[test]
 fn completion_fixtures() {
     insta::glob!("fixtures/*.v", |path| {
-        let fixture = load_fixture(&path);
+        let fixture = load_fixture(path);
         let items = completions_in_path(&fixture.source, &fixture.path, fixture.trigger);
         insta::assert_debug_snapshot!(items);
     });
