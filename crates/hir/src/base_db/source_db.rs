@@ -16,7 +16,6 @@ use crate::base_db::{
 
 mod preproc;
 
-pub(crate) use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
     MappedSourcePreprocModel, PreprocExpansionDisplay, PreprocExpansionMapping,
     PreprocExpansionSourceBuffer, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
@@ -27,7 +26,9 @@ pub use self::preproc::{
     preproc_virtual_speculative_path,
 };
 #[cfg(test)]
-use self::preproc::{materialized_predefine_text, source_preproc_file_ids};
+use self::preproc::{
+    materialized_predefine_text, source_preproc_file_ids, workspace_preproc_model_file_ids,
+};
 use self::preproc::{
     source_graph_preproc_model, source_preproc_context_index_for_profile,
     source_preproc_contexts_for_file, source_preproc_model,

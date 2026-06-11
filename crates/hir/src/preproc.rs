@@ -6,10 +6,8 @@ use preproc::source::{
     SourceMacroDefinition as SourceMacroDefinitionFact,
     SourceMacroExpansion as SourceMacroExpansionFact,
     SourceMacroExpansionDefinition as SourceMacroExpansionDefinitionFact, SourceMacroExpansionId,
-    SourceMacroExpansionQuery as SourceMacroExpansionQueryFact,
     SourceMacroExpansionStatus as SourceMacroExpansionStatusFact,
-    SourceMacroParam as SourceMacroParamFact, SourceMacroReference as SourceMacroReferenceFact,
-    SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
+    SourceMacroResolution as SourceMacroResolutionFact,
     SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePreprocError,
     SourcePreprocUnavailable, SourceRange, SourceTokenProvenance as SourceTokenProvenanceFact,
 };
@@ -20,13 +18,9 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::base_db::{
-    project::Predefine,
-    source_db::{
-        MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
-        SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
-        workspace_preproc_model_file_ids,
-    },
+use crate::base_db::source_db::{
+    MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
+    SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
 };
 
 mod conditionals;
@@ -35,14 +29,17 @@ mod expansion;
 mod helpers;
 mod includes;
 mod predefines;
-mod reference_index;
-mod reference_queries;
 mod types;
 
 use self::helpers::*;
 pub use self::{
-    conditionals::*, definitions::*, expansion::*, includes::*, reference_index::*,
-    reference_queries::*, types::*,
+    conditionals::inactive_branches,
+    definitions::visible_macro_names_at,
+    expansion::{
+        macro_call_resolutions_in_range, recursive_macro_expansion_provenance_for_source_graph_call,
+    },
+    includes::include_directive_at,
+    types::*,
 };
 
 #[cfg(test)]

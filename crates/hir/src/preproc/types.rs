@@ -7,7 +7,7 @@ use preproc::source::{
 };
 use smol_str::SmolStr;
 use utils::line_index::{TextRange, TextSize};
-use vfs::{FileId, VfsPath};
+use vfs::FileId;
 
 use crate::base_db::source_db::{
     PreprocSourceMapError, PreprocVirtualOrigin, SourcePreprocQueryError,
@@ -18,22 +18,10 @@ pub type PreprocResult<T> = Result<T, PreprocError>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocError {
     SourceQuery(SourcePreprocQueryError),
-    MissingRootSource,
-    UnmappedSource {
-        buffer_id: u32,
-    },
     MismatchedDefinitionRangeFiles {
         event_id: u32,
         directive_file_id: FileId,
         name_file_id: FileId,
-    },
-    MismatchedReferenceRangeFiles {
-        event_id: u32,
-        directive_file_id: FileId,
-        name_file_id: FileId,
-    },
-    MissingDefinitionNameRange {
-        event_id: u32,
     },
     SourceMap(PreprocSourceMapError),
     Unavailable {
@@ -44,14 +32,8 @@ pub enum PreprocError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreprocUnavailable {
     Source(SourcePreprocUnavailable),
-    AmbiguousMacroReferenceContexts { contexts: usize },
-    AmbiguousMacroExpansionContexts { contexts: usize },
-    AmbiguousMacroParamContexts { contexts: usize },
-    AmbiguousMacroDefinitionContexts { contexts: usize },
-    AmbiguousDiagnosticProvenance { targets: usize },
     AmbiguousIncludeTargets { targets: usize },
     PartialPreprocContextIndex { skipped_models: usize },
-    DisplayOnlyVirtualExpansion { path: VfsPath, origin: PreprocVirtualOrigin },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +70,6 @@ mapped_preproc_id!(MacroExpansionId, SourceMacroExpansionId);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MacroDefinitionId {
     Source(SourceMacroDefinitionId),
-    ConfiguredPredefine { file_id: FileId, range: TextRange },
 }
 
 impl From<SourceMacroDefinitionId> for MacroDefinitionId {
@@ -96,9 +77,6 @@ impl From<SourceMacroDefinitionId> for MacroDefinitionId {
         Self::Source(value)
     }
 }
-
-pub(crate) const CONFIGURED_PREDEFINE_DEFINE_INDEX: usize = usize::MAX;
-pub(crate) const CONFIGURED_PREDEFINE_EVENT_ID: u32 = u32::MAX;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MappedPreprocSource {
@@ -156,104 +134,11 @@ pub struct MacroDefinitionParam {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroParamDefinition {
-    pub macro_definition: MacroDefinition,
-    pub param_index: usize,
-    pub name: SmolStr,
-    pub range: TextRange,
-    pub param_range: Option<TextRange>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroParamReference {
-    pub macro_definition: MacroDefinition,
-    pub source: MappedPreprocSource,
-    pub capability: PreprocAvailability,
-    pub file_id: FileId,
-    pub param_index: usize,
-    pub token_index: usize,
-    pub name: SmolStr,
-    pub range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroParamReferenceDefinitions {
-    pub references: Vec<MacroParamReference>,
-    pub range: TextRange,
-    pub definitions: Vec<MacroParamDefinition>,
-    pub capability: PreprocAvailability,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroParamReferences {
-    pub references: Vec<MacroParamReference>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroUsage {
-    pub reference_id: MacroReferenceId,
-    pub source: MappedPreprocSource,
-    pub capability: PreprocAvailability,
-    pub file_id: FileId,
-    pub name: SmolStr,
-    pub usage_index: usize,
-    pub directive_range: TextRange,
-    pub range: TextRange,
-    pub resolution: MacroResolution,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroUsageResolution {
-    pub capability: PreprocAvailability,
-    pub usage: MacroUsage,
-    pub definition: MacroDefinition,
-    pub definition_provenance: MacroDefinitionProvenance,
-    pub include_chain: Vec<IncludeChainEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroDefinitionProvenance {
-    pub id: MacroDefinitionId,
-    pub source: MappedPreprocSource,
-    pub capability: PreprocAvailability,
-    pub event_id: u32,
-    pub file_id: FileId,
-    pub directive_range: TextRange,
-    pub name_range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncludeChainEntry {
     pub include_event_id: u32,
     pub include_file_id: FileId,
     pub include_range: TextRange,
     pub included_file_id: FileId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroReference {
-    pub id: MacroReferenceId,
-    pub source: MappedPreprocSource,
-    pub capability: PreprocAvailability,
-    pub file_id: FileId,
-    pub name: SmolStr,
-    pub directive_range: TextRange,
-    pub range: TextRange,
-    pub resolution: MacroResolution,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroReferenceResolution {
-    pub reference: MacroReference,
-    pub definition: MacroDefinition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroReferenceDefinitions {
-    pub references: Vec<MacroReference>,
-    pub range: TextRange,
-    pub definitions: Vec<MacroDefinition>,
-    pub capability: PreprocAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,13 +207,6 @@ impl MacroExpansionDefinition {
     pub fn capability(&self) -> &PreprocAvailability {
         match self {
             Self::Source(definition) => &definition.capability,
-            Self::Builtin { capability, .. } => capability,
-        }
-    }
-
-    pub fn capability_mut(&mut self) -> &mut PreprocAvailability {
-        match self {
-            Self::Source(definition) => &mut definition.capability,
             Self::Builtin { capability, .. } => capability,
         }
     }
@@ -590,52 +468,9 @@ impl MacroTokenIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DiagnosticProvenance {
-    SourceToken {
-        source: MappedPreprocSource,
-        range: TextRange,
-    },
-    MacroBody {
-        call: MacroCall,
-        definition_id: MacroDefinitionId,
-        source: MappedPreprocSource,
-        range: TextRange,
-    },
-    MacroArgument {
-        call: MacroCall,
-        argument_index: usize,
-        source: MappedPreprocSource,
-        range: TextRange,
-    },
-    VirtualExpansion {
-        source: MappedPreprocSource,
-        range: TextRange,
-    },
-    Builtin {
-        call: MacroCall,
-        name: SmolStr,
-    },
-    Unavailable(PreprocUnavailable),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacroExpansionQuery {
-    Available(Box<MacroExpansion>),
-    Ambiguous(Vec<MacroExpansion>),
-    Unavailable(Box<MacroExpansionUnavailable>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroExpansionUnavailable {
     pub call: MacroCall,
     pub reason: PreprocUnavailable,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecursiveMacroExpansion {
-    pub root_call: MacroCall,
-    pub expansions: Vec<MacroExpansion>,
-    pub unavailable: Vec<MacroExpansionUnavailable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -660,50 +495,6 @@ impl MacroDefinitionKey {
             range_start: definition.name_range.start(),
             range_end: definition.name_range.end(),
             name: definition.name.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct MacroParamDefinitionKey {
-    macro_definition: MacroDefinitionKey,
-    param_index: usize,
-    range_start: TextSize,
-    range_end: TextSize,
-    name: SmolStr,
-}
-
-impl MacroParamDefinitionKey {
-    pub(crate) fn from_definition(definition: &MacroParamDefinition) -> Self {
-        Self {
-            macro_definition: MacroDefinitionKey::from_definition(&definition.macro_definition),
-            param_index: definition.param_index,
-            range_start: definition.range.start(),
-            range_end: definition.range.end(),
-            name: definition.name.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct MacroParamReferenceKey {
-    macro_definition: MacroDefinitionKey,
-    param_index: usize,
-    file_id: FileId,
-    range_start: TextSize,
-    range_end: TextSize,
-    name: SmolStr,
-}
-
-impl MacroParamReferenceKey {
-    pub(crate) fn from_reference(reference: &MacroParamReference) -> Self {
-        Self {
-            macro_definition: MacroDefinitionKey::from_definition(&reference.macro_definition),
-            param_index: reference.param_index,
-            file_id: reference.file_id,
-            range_start: reference.range.start(),
-            range_end: reference.range.end(),
-            name: reference.name.clone(),
         }
     }
 }
