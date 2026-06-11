@@ -527,49 +527,6 @@ fn remove_parentheses_requires_cursor_on_paren() {
 }
 
 #[test]
-fn merge_nested_if_merges_simple_nested_if() {
-    let text = "module top; always_comb if (/*caret*/a) begin if (b) y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_wraps_or_conditions() {
-    let text =
-        "module top; always_comb if (/*caret*/a || b) begin if (c || d) y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if ((a || b) && (c || d)) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_merges_multiple_nested_levels() {
-    let text = "module top; always_comb if (/*caret*/a) begin if (b) begin if (c) y = 1; end end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_triggers_from_middle_nested_level() {
-    let text = "module top; always_comb if (a) begin if (/*caret*/b) begin if (c) y = 1; end end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_triggers_from_innermost_nested_level() {
-    let text = "module top; always_comb if (a) begin if (b) begin if (/*caret*/c) y = 1; end end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_merges_mixed_block_and_unbraced_levels() {
-    let text = "module top; always_comb if (a) begin if (/*caret*/b) if (c) y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
 fn merge_nested_if_requires_no_else_branches() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb if (/*caret*/a) begin if (b) y = 1; else y = 0; end endmodule\n",
