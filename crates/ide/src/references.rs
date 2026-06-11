@@ -1,19 +1,15 @@
 use hir::{
-    base_db::source_db::{SourceDb, SourceRootDb},
+    base_db::source_db::{SourceDb, SourcePreprocContextStatus, SourceRootDb},
     file::HirFileId,
-    preproc::{
-        MacroDefinition, MacroReferenceIndexStatus, macro_definition_at,
-        macro_reference_definitions_at, macro_references,
-    },
     semantics::Semantics,
-    source_resolver::PositionResolver,
+    source_resolver::{PositionResolver, source_graph_model_file_ids_for_file},
 };
 use itertools::Itertools;
 use nohash_hasher::IntMap;
 use search::{ReferencesCtx, SearchScope};
 use source_model::{
-    EntityId, FilePosition as SourceFilePosition, ResolvedSourceTarget, SourceEntity,
-    SourcePurpose, SourceRangeResult, SourceTarget as GraphSourceTarget,
+    EntityId, FilePosition as SourceFilePosition, FileRange, ResolvedSourceTarget, SourceEntity,
+    SourceGraph, SourcePurpose, SourceRangeResult, SourceTarget as GraphSourceTarget,
     SourceTargetResolution as GraphSourceTargetResolution,
 };
 use syntax::{
@@ -39,9 +35,15 @@ enum ReferencesTarget<'tree> {
     Source(SyntaxTarget<'tree>),
 }
 
+#[derive(Clone, Copy)]
+struct GraphEntityTarget {
+    model_file_id: FileId,
+    entity: EntityId,
+}
+
 enum PreprocReferencesTarget {
-    GraphMacroParams(Vec<EntityId>),
-    Macros(Vec<MacroDefinition>),
+    GraphMacroParams(Vec<GraphEntityTarget>),
+    GraphMacros(Vec<FileRange>),
 }
 
 bitflags::bitflags! {
@@ -148,7 +150,7 @@ fn dispatch_source_graph_references_target(
     match target.target {
         GraphSourceTarget::MacroParamDefinition(_) => {
             Some(ReferencesTarget::Preproc(PreprocReferencesTarget::GraphMacroParams(vec![
-                target.entity,
+                GraphEntityTarget { model_file_id: target.model_file_id, entity: target.entity },
             ])))
         }
         GraphSourceTarget::MacroParamReference(_) => {
@@ -156,11 +158,18 @@ fn dispatch_source_graph_references_target(
                 .map(ReferencesTarget::Preproc)
         }
         GraphSourceTarget::MacroDefinition(_) => {
-            dispatch_macro_definition_references_target(db, file_id, offset)
-                .map(ReferencesTarget::Preproc)
+            let source_graph = db.source_graph_preproc_model(target.model_file_id);
+            let source_graph = source_graph.as_ref().as_ref().ok()?;
+            let SourceRangeResult::Mapped(range) = source_graph
+                .graph
+                .entity_focus_file_range(target.entity, SourcePurpose::FindReferences)
+            else {
+                return None;
+            };
+            Some(ReferencesTarget::Preproc(PreprocReferencesTarget::GraphMacros(vec![range])))
         }
         GraphSourceTarget::MacroReference(_) => {
-            dispatch_macro_reference_references_target(db, file_id, offset)
+            dispatch_graph_macro_reference_references_target(db, file_id, target)
                 .map(ReferencesTarget::Preproc)
         }
         GraphSourceTarget::Include(_)
@@ -221,37 +230,45 @@ fn references_for_token(
     })
 }
 
-fn dispatch_macro_definition_references_target(
+fn dispatch_graph_macro_reference_references_target(
     db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocReferencesTarget> {
-    macro_definition_at(db, file_id, offset)
-        .ok()?
-        .map(|definition| PreprocReferencesTarget::Macros(vec![definition]))
-}
-
-fn dispatch_macro_reference_references_target(
-    db: &RootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> Option<PreprocReferencesTarget> {
-    let definitions = macro_reference_definitions_at(db, file_id, offset).ok()??.definitions;
-    (!definitions.is_empty()).then_some(PreprocReferencesTarget::Macros(definitions))
-}
-
-fn dispatch_graph_macro_param_reference_references_target(
-    db: &RootDb,
-    file_id: FileId,
+    _file_id: FileId,
     reference: ResolvedSourceTarget,
 ) -> Option<PreprocReferencesTarget> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(reference.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let definitions = source_graph
         .graph
         .resolved_definitions(source_graph.root_context, reference.entity)
         .iter()
-        .map(|(definition, _)| *definition)
+        .filter_map(|(definition, _)| {
+            let SourceRangeResult::Mapped(range) = source_graph
+                .graph
+                .entity_focus_file_range(*definition, SourcePurpose::FindReferences)
+            else {
+                return None;
+            };
+            Some(range)
+        })
+        .collect_vec();
+    (!definitions.is_empty()).then_some(PreprocReferencesTarget::GraphMacros(definitions))
+}
+
+fn dispatch_graph_macro_param_reference_references_target(
+    db: &RootDb,
+    _file_id: FileId,
+    reference: ResolvedSourceTarget,
+) -> Option<PreprocReferencesTarget> {
+    let source_graph = db.source_graph_preproc_model(reference.model_file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let definitions = source_graph
+        .graph
+        .resolved_definitions(source_graph.root_context, reference.entity)
+        .iter()
+        .map(|(definition, _)| GraphEntityTarget {
+            model_file_id: reference.model_file_id,
+            entity: *definition,
+        })
         .collect_vec();
     (!definitions.is_empty()).then_some(PreprocReferencesTarget::GraphMacroParams(definitions))
 }
@@ -265,28 +282,27 @@ fn render_preproc_references_target(
     match target {
         PreprocReferencesTarget::GraphMacroParams(definitions) => definitions
             .into_iter()
-            .map(|definition| {
-                graph_macro_param_references_for_definition(db, file_id, definition, config)
-            })
+            .map(|definition| graph_macro_param_references_for_definition(db, definition, config))
             .collect(),
-        PreprocReferencesTarget::Macros(definitions) => definitions
+        PreprocReferencesTarget::GraphMacros(definitions) => definitions
             .into_iter()
-            .map(|definition| macro_references_for_definition(db, file_id, definition, config))
+            .map(|definition| {
+                graph_macro_references_for_definition(db, file_id, definition, config)
+            })
             .collect(),
     }
 }
 
 fn graph_macro_param_references_for_definition(
     db: &RootDb,
-    file_id: FileId,
-    definition: EntityId,
+    definition: GraphEntityTarget,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let source_graph = db.source_graph_preproc_model(file_id);
+    let source_graph = db.source_graph_preproc_model(definition.model_file_id);
     let source_graph = source_graph.as_ref().as_ref().ok()?;
     let graph = &source_graph.graph;
     let mut refs = Vec::new();
-    for (reference, _) in graph.resolved_references(source_graph.root_context, definition) {
+    for (reference, _) in graph.resolved_references(source_graph.root_context, definition.entity) {
         let SourceEntity::MacroParamReference(_) = graph.entity(*reference) else {
             continue;
         };
@@ -318,30 +334,24 @@ fn graph_macro_param_references_for_definition(
         })
         .collect();
     Some(References {
-        def: Some(vec![graph_macro_param_nav_target(db, graph, definition)?]),
+        def: Some(vec![graph_macro_param_nav_target(db, graph, definition.entity)?]),
         refs,
         status: ReferencesStatus::Complete,
     })
 }
 
-fn macro_references_for_definition(
+fn graph_macro_references_for_definition(
     db: &RootDb,
     file_id: FileId,
-    definition: MacroDefinition,
+    definition_range: FileRange,
     config: &ReferencesConfig,
 ) -> Option<References> {
-    let references = macro_references(db, file_id, &definition).ok()?;
-    let status = references_status_from_macro_index(references.status);
-    let refs = references
-        .references
+    let refs = graph_macro_reference_ranges_for_definition(db, file_id, definition_range, config);
+    let status = graph_preproc_reference_status(db, definition_range.file_id);
+    let (nav_source_graph, nav_definition) =
+        find_graph_macro_definition_model_by_focus_range(db, file_id, definition_range)?;
+    let refs = refs
         .into_iter()
-        .filter(|usage| {
-            config.search_scope.as_ref().is_none_or(|scope| {
-                scope.range_for_file(usage.file_id).is_some_and(|range| {
-                    range.is_none_or(|range| range.intersect(usage.range).is_some())
-                })
-            })
-        })
         .into_group_map_by(|usage| usage.file_id)
         .into_iter()
         .map(|(file_id, usages)| {
@@ -354,29 +364,103 @@ fn macro_references_for_definition(
             )
         })
         .collect();
-    Some(References { def: Some(vec![macro_nav_target(definition)]), refs, status })
+    Some(References {
+        def: Some(vec![graph_macro_nav_target(db, &nav_source_graph.graph, nav_definition)?]),
+        refs,
+        status,
+    })
 }
 
-fn references_status_from_macro_index(status: MacroReferenceIndexStatus) -> ReferencesStatus {
-    match status {
-        MacroReferenceIndexStatus::Complete => ReferencesStatus::Complete,
-        MacroReferenceIndexStatus::Partial { issues } => ReferencesStatus::Partial {
+fn graph_macro_reference_ranges_for_definition(
+    db: &RootDb,
+    file_id: FileId,
+    definition_range: FileRange,
+    config: &ReferencesConfig,
+) -> Vec<FileRange> {
+    let mut refs = Vec::new();
+    for source_graph in graph_preproc_reference_models(db, file_id) {
+        let Some(definition) =
+            find_graph_macro_definition_by_focus_range(&source_graph.graph, definition_range)
+        else {
+            continue;
+        };
+        for (reference, _) in
+            source_graph.graph.resolved_references(source_graph.root_context, definition)
+        {
+            let SourceEntity::MacroReference(_) = source_graph.graph.entity(*reference) else {
+                continue;
+            };
+            let SourceRangeResult::Mapped(file_range) = source_graph
+                .graph
+                .entity_focus_file_range(*reference, SourcePurpose::FindReferences)
+            else {
+                continue;
+            };
+            if config.search_scope.as_ref().is_none_or(|scope| {
+                scope.range_for_file(file_range.file_id).is_some_and(|range| {
+                    range.is_none_or(|range| range.intersect(file_range.range).is_some())
+                })
+            }) {
+                refs.push(file_range);
+            }
+        }
+    }
+    refs
+}
+
+fn graph_preproc_reference_models(
+    db: &RootDb,
+    file_id: FileId,
+) -> Vec<hir::base_db::source_db::SourceGraphPreprocModel> {
+    source_graph_model_file_ids_for_file(db, file_id)
+        .into_iter()
+        .filter_map(|model_file_id| match db.source_graph_preproc_model(model_file_id).as_ref() {
+            Ok(source_graph) => Some(source_graph.clone()),
+            Err(_) => None,
+        })
+        .collect()
+}
+
+fn graph_preproc_reference_status(db: &RootDb, file_id: FileId) -> ReferencesStatus {
+    match db.source_preproc_contexts_for_file(file_id).status {
+        SourcePreprocContextStatus::Complete => ReferencesStatus::Complete,
+        SourcePreprocContextStatus::Partial { skipped_models } => ReferencesStatus::Partial {
             reason: ReferencesPartialReason::PreprocMacroIndex,
-            issue_count: issues.len(),
+            issue_count: skipped_models,
         },
     }
 }
 
-fn macro_nav_target(definition: MacroDefinition) -> NavTarget {
-    NavTarget {
-        file_id: definition.file_id,
-        full_range: definition.name_range,
-        focus_range: Some(definition.name_range),
-        name: Some(definition.name),
-        kind: None,
-        container_name: None,
-        description: Some("macro definition".to_owned()),
-    }
+fn find_graph_macro_definition_by_focus_range(
+    graph: &SourceGraph,
+    definition_range: FileRange,
+) -> Option<EntityId> {
+    graph
+        .entities_intersecting_file_range(definition_range.file_id, definition_range.range, None)
+        .into_iter()
+        .find_map(|hit| {
+            let SourceEntity::MacroDefinition(_) = graph.entity(hit.entity) else {
+                return None;
+            };
+            let SourceRangeResult::Mapped(range) =
+                graph.entity_focus_file_range(hit.entity, SourcePurpose::FindReferences)
+            else {
+                return None;
+            };
+            (range == definition_range).then_some(hit.entity)
+        })
+}
+
+fn find_graph_macro_definition_model_by_focus_range(
+    db: &RootDb,
+    file_id: FileId,
+    definition_range: FileRange,
+) -> Option<(hir::base_db::source_db::SourceGraphPreprocModel, EntityId)> {
+    graph_preproc_reference_models(db, file_id).into_iter().find_map(|source_graph| {
+        let definition =
+            find_graph_macro_definition_by_focus_range(&source_graph.graph, definition_range)?;
+        Some((source_graph, definition))
+    })
 }
 
 fn graph_macro_param_nav_target(
@@ -411,6 +495,29 @@ fn graph_macro_param_nav_target(
         kind: None,
         container_name,
         description: Some("macro parameter".to_owned()),
+    })
+}
+
+fn graph_macro_nav_target(
+    db: &RootDb,
+    graph: &source_model::SourceGraph,
+    entity: EntityId,
+) -> Option<NavTarget> {
+    let SourceRangeResult::Mapped(file_range) =
+        graph.entity_focus_file_range(entity, SourcePurpose::FindReferences)
+    else {
+        return None;
+    };
+    let text = db.file_text(file_range.file_id);
+    let name = text[file_range.range].to_owned();
+    Some(NavTarget {
+        file_id: file_range.file_id,
+        full_range: file_range.range,
+        focus_range: Some(file_range.range),
+        name: Some(name.into()),
+        kind: None,
+        container_name: None,
+        description: Some("macro definition".to_owned()),
     })
 }
 
@@ -466,37 +573,5 @@ fn token_precedence(kind: TokenKind) -> usize {
         _ if kind.name_like() => 4,
         _ if kind.is_pair_token() => 4,
         _ => 1,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use hir::preproc::{MacroReferenceIndexIssue, PreprocError};
-
-    use super::*;
-
-    #[test]
-    fn macro_reference_index_status_maps_to_reference_status() {
-        assert_eq!(
-            references_status_from_macro_index(MacroReferenceIndexStatus::Complete),
-            ReferencesStatus::Complete
-        );
-
-        let status = references_status_from_macro_index(MacroReferenceIndexStatus::Partial {
-            issues: vec![MacroReferenceIndexIssue::SkippedModel {
-                file_id: FileId(0),
-                error: PreprocError::MissingRootSource,
-            }],
-        });
-
-        assert_eq!(
-            status,
-            ReferencesStatus::Partial {
-                reason: ReferencesPartialReason::PreprocMacroIndex,
-                issue_count: 1,
-            }
-        );
-        assert!(status.is_partial());
-        assert_eq!(status.issue_count(), 1);
     }
 }
