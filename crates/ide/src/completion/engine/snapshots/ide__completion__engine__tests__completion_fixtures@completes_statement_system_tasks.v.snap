@@ -1,0 +1,199 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_statement_system_tasks.v
+---
+[
+    CompletionItem {
+        label: "$dimensions",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dimensions()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dimensions(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$display",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$display()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$display(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$displayb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$displayb()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$displayb(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$displayh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$displayh()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$displayh(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$displayo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$displayo()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$displayo(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_chi_square",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_chi_square()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_chi_square(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_erlang",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_erlang()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_erlang(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_exponential",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_exponential()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_exponential(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_normal",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_normal()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_normal(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_poisson",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_poisson()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_poisson(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_t",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_t()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_t(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_uniform",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_uniform()",
+                del: 26..29,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_uniform(${1:args})",
+                del: 26..29,
+            },
+        ),
+    },
+]

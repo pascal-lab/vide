@@ -1,0 +1,23 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_expression_system_functions.v
+---
+[
+    CompletionItem {
+        label: "$clog2",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$clog2()",
+                del: 29..32,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$clog2(${1:args})",
+                del: 29..32,
+            },
+        ),
+    },
+]
