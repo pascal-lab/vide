@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/ansi_port_keyword_prefix_after_comma.v
+---
+lex: Code
+prefix: "o"
+replacement: 18..19
+expectations:
+  AnsiPortItem from Ast(AnsiPortList)
