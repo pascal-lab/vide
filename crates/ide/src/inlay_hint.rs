@@ -566,7 +566,7 @@ mod tests {
     };
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
-    use super::{InlayHintConfig, InlayKind, inlay_hint};
+    use super::{InlayHintConfig, inlay_hint};
     use crate::db::root_db::RootDb;
 
     fn db_with_file(text: &str) -> (RootDb, FileId) {
@@ -625,292 +625,118 @@ mod tests {
         }
     }
 
-    fn port_hint_labels(text: &str) -> Vec<String> {
-        let (db, file_id) = db_with_file(text);
-        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
-        inlay_hint(&db, file_id, range, port_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::Port))
-            .map(|hint| hint.label)
-            .collect()
+    struct InlayFixture {
+        source: String,
+        range: Option<TextRange>,
+        config: InlayHintConfig,
     }
 
-    fn port_hint_labels_in_range(text: &str, range: TextRange) -> Vec<String> {
-        let (db, file_id) = db_with_file(text);
-        inlay_hint(&db, file_id, range, port_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::Port))
-            .map(|hint| hint.label)
-            .collect()
+    fn read_fixture(path: &std::path::Path) -> InlayFixture {
+        let raw = std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+        let mut offset = 0;
+        let mut config = None;
+
+        while offset < raw.len() {
+            let rest = &raw[offset..];
+            let line_len = rest.find('\n').map_or(rest.len(), |idx| idx + 1);
+            let line_with_newline = &rest[..line_len];
+            let line = line_with_newline.strip_suffix('\n').unwrap_or(line_with_newline);
+            let Some(meta) = line.trim().strip_prefix("//- ") else {
+                break;
+            };
+            let (key, value) = meta
+                .split_once(':')
+                .unwrap_or_else(|| panic!("invalid metadata in {}", path.display()));
+            match key.trim() {
+                "config" => config = Some(parse_config(value.trim(), path)),
+                other => panic!("unknown metadata key `{other}` in {}", path.display()),
+            }
+            offset += line_len;
+        }
+
+        let (source, range) = strip_range_markers(&raw[offset..], path);
+        let range = range.or_else(|| Some(TextRange::up_to(TextSize::of(source.as_str()))));
+        InlayFixture {
+            source,
+            range,
+            config: config.unwrap_or_else(|| panic!("missing config in {}", path.display())),
+        }
     }
 
-    fn port_hints(text: &str) -> Vec<super::InlayHint> {
-        let (db, file_id) = db_with_file(text);
-        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
-        inlay_hint(&db, file_id, range, port_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::Port))
-            .collect()
+    fn parse_config(value: &str, path: &std::path::Path) -> InlayHintConfig {
+        match value {
+            "port" => port_config(),
+            "parameter" => parameter_config(),
+            "macro_argument" => macro_argument_config(),
+            "end_structure" => end_structure_config(),
+            other => panic!("unknown config `{other}` in {}", path.display()),
+        }
     }
 
-    fn param_hint_labels(text: &str) -> Vec<String> {
-        let (db, file_id) = db_with_file(text);
-        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
-        inlay_hint(&db, file_id, range, parameter_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::ParamAssign))
-            .map(|hint| hint.label)
-            .collect()
+    fn strip_range_markers(text: &str, path: &std::path::Path) -> (String, Option<TextRange>) {
+        const START: &str = "/*range-start*/";
+        const END: &str = "/*range-end*/";
+
+        let Some(start_marker) = text.find(START) else {
+            if text.contains(END) {
+                panic!("range end without start in {}", path.display());
+            }
+            return (text.to_string(), None);
+        };
+        let after_start = start_marker + START.len();
+        let end_marker = text[after_start..]
+            .find(END)
+            .map(|idx| after_start + idx)
+            .unwrap_or_else(|| panic!("range start without end in {}", path.display()));
+
+        let start = TextSize::of(&text[..start_marker]);
+        let end = start + TextSize::of(&text[after_start..end_marker]);
+        let mut source = String::new();
+        source.push_str(&text[..start_marker]);
+        source.push_str(&text[after_start..end_marker]);
+        source.push_str(&text[end_marker + END.len()..]);
+        (source, Some(TextRange::new(start, end)))
     }
 
-    fn macro_argument_hint_labels(text: &str) -> Vec<String> {
-        let (db, file_id) = db_with_file(text);
-        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
-        inlay_hint(&db, file_id, range, macro_argument_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::MacroArgument))
-            .map(|hint| hint.label)
-            .collect()
-    }
+    fn hint_snapshot(hints: Vec<super::InlayHint>) -> String {
+        if hints.is_empty() {
+            return String::from("<none>");
+        }
 
-    fn macro_argument_hint_labels_in_range(text: &str, range: TextRange) -> Vec<String> {
-        let (db, file_id) = db_with_file(text);
-        inlay_hint(&db, file_id, range, macro_argument_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::MacroArgument))
-            .map(|hint| hint.label)
-            .collect()
-    }
-
-    fn macro_argument_hints(text: &str) -> Vec<super::InlayHint> {
-        let (db, file_id) = db_with_file(text);
-        let range = TextRange::new(TextSize::from(0), TextSize::of(text));
-        inlay_hint(&db, file_id, range, macro_argument_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::MacroArgument))
-            .collect()
-    }
-
-    #[test]
-    fn comment_only_range_skips_module_end_hint() {
-        let text = "\
-module top;
-    // ISSUE_RANGE_START
-    // This comment-only area contains no module ending.
-    // ISSUE_RANGE_END
-
-endmodule
-";
-        let start = text.find("// ISSUE_RANGE_START").unwrap();
-        let end_marker = text.find("// ISSUE_RANGE_END").unwrap();
-        let end = end_marker + text[end_marker..].find('\n').unwrap() + 1;
-        let range = TextRange::new(TextSize::of(&text[..start]), TextSize::of(&text[..end]));
-        let (db, file_id) = db_with_file(text);
-
-        let hints = inlay_hint(&db, file_id, range, end_structure_config());
-
-        assert!(hints.is_empty(), "comment-only range returned hints: {hints:?}");
-    }
-
-    #[test]
-    fn module_end_range_returns_end_structure_hint() {
-        let text = "module top;\nendmodule\n";
-        let start = text.find("endmodule").unwrap();
-        let end = start + "endmodule".len();
-        let range = TextRange::new(TextSize::of(&text[..start]), TextSize::of(&text[..end]));
-        let (db, file_id) = db_with_file(text);
-
-        let labels = inlay_hint(&db, file_id, range, end_structure_config())
-            .into_iter()
-            .filter(|hint| matches!(hint.kind, InlayKind::EndStructure))
-            .map(|hint| hint.label)
-            .collect::<Vec<_>>();
-
-        assert_eq!(labels, vec![": top"]);
+        let mut out = String::new();
+        for hint in hints {
+            let target = hint
+                .target_location
+                .as_ref()
+                .map(|target| (usize::from(target.value.start()), usize::from(target.value.end())));
+            let edit = hint.text_edit.as_ref().map(|edit| format!("{edit:?}"));
+            out.push_str(&format!(
+                "{:?} @ {} {:?} padding=({}, {}) target={:?} edit={:?}\n",
+                hint.kind,
+                usize::from(hint.position),
+                hint.label,
+                hint.padding_left,
+                hint.padding_right,
+                target,
+                edit
+            ));
+        }
+        out
     }
 
     #[test]
-    fn extra_ordered_connections_do_not_invent_ansi_port_hints() {
-        let text = "module child(input a); endmodule\nmodule top; child u(1'b0, 1'b1); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["a ←"]);
-    }
-
-    #[test]
-    fn extra_ordered_connections_do_not_invent_non_ansi_port_hints() {
-        let text =
-            "module child(a); input a; endmodule\nmodule top; child u(1'b0, 1'b1); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["a ←"]);
-    }
-
-    #[test]
-    fn port_hints_show_direction_arrows() {
-        let text = "module child(input i, output o, inout io, ref r); endmodule\n\
-            module top; logic a, b, c, d; child u(a, b, c, d); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["i ←", "o →", "io ↔", "r &"]);
-    }
-
-    #[test]
-    fn ordered_port_hint_omits_same_name_but_keeps_direction() {
-        let text = "module child(output instr_addr_o); endmodule\n\
-            module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["→"]);
-    }
-
-    #[test]
-    fn ordered_same_name_arrow_hint_is_not_clickable() {
-        let text = "module child(output instr_addr_o); endmodule\n\
-            module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
-
-        let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["→"]);
-        assert!(hints[0].target_location.is_none());
-        assert!(hints[0].text_edit.is_none());
-    }
-
-    #[test]
-    fn named_same_name_arrow_hint_is_not_clickable() {
-        let text = "module child(output clk); endmodule\n\
-            module top; logic clk; child u(.clk(clk)); endmodule\n";
-
-        let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["→"]);
-        assert!(hints[0].target_location.is_none());
-    }
-
-    #[test]
-    fn named_port_hint_is_clickable() {
-        let text = "module child(output out); endmodule\n\
-            module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
-
-        let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["out →"]);
-        assert!(hints[0].target_location.is_some());
-    }
-
-    #[test]
-    fn ordered_port_hint_keeps_different_name_with_direction() {
-        let text = "module child(output out); endmodule\n\
-            module top; logic instr_addr_o; child u(instr_addr_o); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["out →"]);
-    }
-
-    #[test]
-    fn named_port_hint_omits_visible_name_but_keeps_direction() {
-        let text = "module child(output instr_addr_o); endmodule\n\
-            module top; logic instr_addr_o; child u(.instr_addr_o(instr_addr_o)); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["→"]);
-    }
-
-    #[test]
-    fn named_port_hints_resolve_ports_by_name_not_position() {
-        let text = "module child(input a, output b, input c); endmodule\n\
-            module top; logic local_b, local_c; child u(.b(local_b), .c(local_c)); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["→", "←"]);
-    }
-
-    #[test]
-    fn port_hints_in_later_viewport_skip_previous_connections() {
-        let text = "module child(input a, output b); endmodule\n\
-            module top; logic local_a, local_b; child u(.a(local_a), .b(local_b)); endmodule\n";
-        let start = TextSize::from(text.find(".b(local_b)").expect("second connection") as u32);
-        let end = start + TextSize::of(".b(local_b)");
-
-        assert_eq!(port_hint_labels_in_range(text, TextRange::new(start, end)), vec!["→"]);
-    }
-
-    #[test]
-    fn unknown_named_port_does_not_fall_back_to_position() {
-        let text = "module child(input a); endmodule\n\
-            module top; logic sig; child u(.bogus(sig)); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), Vec::<String>::new());
-    }
-
-    #[test]
-    fn unknown_named_non_ansi_port_does_not_fall_back_to_position() {
-        let text = "module child(a); input a; endmodule\n\
-            module top; logic sig; child u(.bogus(sig)); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), Vec::<String>::new());
-    }
-
-    #[test]
-    fn explicit_non_ansi_port_label_uses_internal_ref_for_direction() {
-        let text = "module child(.out(foo)); output foo; endmodule\n\
-            module top; logic sig; child u(.out(sig)); endmodule\n";
-
-        assert_eq!(port_hint_labels(text), vec!["→"]);
-    }
-
-    #[test]
-    fn implicit_named_port_hint_appears_before_local_name() {
-        let text = "module child(input clk_i); endmodule\n\
-            module top; logic clk_i; child u(.clk_i,); endmodule\n";
-
-        let hints = port_hints(text);
-        assert_eq!(hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(), vec!["←"]);
-        assert_eq!(
-            hints[0].position,
-            TextSize::from(text.rfind("clk_i,").expect("connection name") as u32)
-        );
-        assert!(hints[0].target_location.is_none());
-    }
-
-    #[test]
-    fn extra_ordered_parameter_assignments_do_not_invent_param_hints() {
-        let text = "module child #(parameter P = 1) (); endmodule\nmodule top; child #(1, 2) u(); endmodule\n";
-
-        assert_eq!(param_hint_labels(text), vec!["P:"]);
-    }
-
-    #[test]
-    fn macro_argument_hints_show_function_like_macro_params() {
-        let text = "`define MAKE(width, expr) logic [width-1:0] expr\n\
-            module top; `MAKE(8, data_q) endmodule\n";
-
-        assert_eq!(macro_argument_hint_labels(text), vec!["width:", "expr:"]);
-    }
-
-    #[test]
-    fn macro_argument_hint_range_skips_previous_arguments() {
-        let text = "`define MAKE(width, expr) logic [width-1:0] expr\n\
-            module top; `MAKE(8, data_q) endmodule\n";
-        let start = TextSize::from(text.find("data_q").expect("second argument") as u32);
-        let end = start + TextSize::of("data_q");
-
-        assert_eq!(
-            macro_argument_hint_labels_in_range(text, TextRange::new(start, end)),
-            vec!["expr:"]
-        );
-    }
-
-    #[test]
-    fn macro_argument_hint_targets_formal_parameter() {
-        let text = "`define MAKE(width, expr) logic [width-1:0] expr\n\
-            module top; `MAKE(8, data_q) endmodule\n";
-
-        let hints = macro_argument_hints(text);
-
-        assert_eq!(
-            hints.iter().map(|hint| hint.label.as_str()).collect::<Vec<_>>(),
-            vec!["width:", "expr:"]
-        );
-        assert_eq!(
-            hints[0].target_location.as_ref().map(|target| target.value),
-            Some(TextRange::new(
-                TextSize::from(text.find("width").expect("formal parameter") as u32),
-                TextSize::from(
-                    (text.find("width").expect("formal parameter") + "width".len()) as u32
-                ),
-            ))
-        );
-        assert!(hints.iter().all(|hint| hint.text_edit.is_none()));
+    fn inlay_hint_fixtures() {
+        insta::glob!("inlay_hint/fixtures/*.sv", |path| {
+            let fixture = read_fixture(&path);
+            let (db, file_id) = db_with_file(&fixture.source);
+            let hints = inlay_hint(
+                &db,
+                file_id,
+                fixture.range.expect("fixture range should be initialized"),
+                fixture.config,
+            );
+            insta::assert_snapshot!(hint_snapshot(hints));
+        });
     }
 }

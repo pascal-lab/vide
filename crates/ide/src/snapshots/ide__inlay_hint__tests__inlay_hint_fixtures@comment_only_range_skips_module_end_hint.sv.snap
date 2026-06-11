@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/comment_only_range_skips_module_end_hint.sv
+---
+<none>

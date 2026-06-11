@@ -1,0 +1,9 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/port_hints_show_direction_arrows.sv
+---
+Port @ 98 "i ←" padding=(false, true) target=Some((19, 20)) edit=Some("TextEdit { changes: [TextEditItem { ins: \".i(\", del: 98..98 }, TextEditItem { ins: \")\", del: 99..99 }] }")
+Port @ 101 "o →" padding=(false, true) target=Some((29, 30)) edit=Some("TextEdit { changes: [TextEditItem { ins: \".o(\", del: 101..101 }, TextEditItem { ins: \")\", del: 102..102 }] }")
+Port @ 104 "io ↔" padding=(false, true) target=Some((38, 40)) edit=Some("TextEdit { changes: [TextEditItem { ins: \".io(\", del: 104..104 }, TextEditItem { ins: \")\", del: 105..105 }] }")
+Port @ 107 "r &" padding=(false, true) target=Some((46, 47)) edit=Some("TextEdit { changes: [TextEditItem { ins: \".r(\", del: 107..107 }, TextEditItem { ins: \")\", del: 108..108 }] }")

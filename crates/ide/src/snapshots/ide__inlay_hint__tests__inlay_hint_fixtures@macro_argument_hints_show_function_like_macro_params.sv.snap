@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/macro_argument_hints_show_function_like_macro_params.sv
+---
+MacroArgument @ 67 "width:" padding=(false, true) target=Some((13, 18)) edit=None
+MacroArgument @ 70 "expr:" padding=(false, true) target=Some((20, 24)) edit=None
