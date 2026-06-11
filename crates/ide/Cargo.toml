@@ -30,5 +30,5 @@ which = "7.0.0"
 vfs.workspace = true
 
 [dev-dependencies]
-insta = { version = "1.46.0", features = ["glob"] }
+insta = { workspace = true, features = ["glob"] }
 utils = { workspace = true, features = ["test-support"] }
