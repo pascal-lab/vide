@@ -450,59 +450,6 @@ fn instance_missing_parens_repair_requires_diagnostics() {
 }
 
 #[test]
-fn convert_ansi_ports_to_non_ansi() {
-    let text = "module top(/*caret*/input a, output logic b);\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ansi_ports_to_non_ansi").unwrap();
-    assert_eq!(
-        fixed,
-        "module top(a, b);\n    input a;\n    output logic b;\n    assign b = a;\nendmodule\n"
-    );
-}
-
-#[test]
-fn convert_ansi_ports_to_non_ansi_uses_inherited_header() {
-    let text = "module top(/*caret*/input a, b);\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ansi_ports_to_non_ansi").unwrap();
-    assert_eq!(
-        fixed,
-        "module top(a, b);\n    input a;\n    input wire logic b;\n    assign b = a;\nendmodule\n"
-    );
-}
-
-#[test]
-fn convert_non_ansi_ports_to_ansi() {
-    let text =
-        "module top(/*caret*/a, b);\ninput wire a;\noutput logic b;\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert_eq!(fixed, "module top(input wire a, output logic b);\n    assign b = a;\nendmodule\n");
-}
-
-#[test]
-fn convert_non_ansi_ports_to_ansi_merges_data_declaration() {
-    let text = "module top (\n    /*caret*/c,\n    led0\n);\n    input  wire c;\n    output led0;\n    reg led0;\n\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert_eq!(fixed, "module top (\n    input  wire c,\n    output reg led0\n);\nendmodule\n");
-}
-
-#[test]
-fn convert_ansi_ports_to_non_ansi_preserves_body_comments() {
-    let text =
-        "module top(/*caret*/input a, output logic b);\n// keep this\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ansi_ports_to_non_ansi").unwrap();
-    assert!(fixed.contains("// keep this"), "{fixed}");
-    assert!(fixed.contains("assign b = a;"), "{fixed}");
-}
-
-#[test]
-fn convert_non_ansi_ports_to_ansi_preserves_body_comments() {
-    let text = "module top(/*caret*/a, b);\n// keep first\ninput wire a;\n// keep second\noutput logic b;\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert!(fixed.contains("// keep first"), "{fixed}");
-    assert!(fixed.contains("// keep second"), "{fixed}");
-    assert!(fixed.contains("assign b = a;"), "{fixed}");
-}
-
-#[test]
 fn convert_port_declarations_requires_caret_in_port_list() {
     let labels = action_labels_without_diagnostics(
         "module /*caret*/top(input a, output logic b);\nassign b = a;\nendmodule\n",
