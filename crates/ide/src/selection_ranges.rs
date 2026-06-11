@@ -1,13 +1,13 @@
 use hir::semantics::Semantics;
 use itertools::Itertools;
 use syntax::{
-    SyntaxCursorExt, SyntaxNodeExt, TokenKind,
+    SyntaxCursorExt, TokenKind,
     has_text_range::HasTextRange,
     token::{SyntaxTokenWithParentExt, TokenKindExt},
 };
 use utils::line_index::TextRange;
 
-use crate::{FilePosition, db::root_db::RootDb};
+use crate::{FilePosition, db::root_db::RootDb, syntax_targets::syntax_target_at_offset};
 
 pub(crate) fn selection_ranges(
     db: &RootDb,
@@ -25,11 +25,9 @@ pub(crate) fn selection_ranges(
 
     let mut cursor = root.walk();
 
-    let trivias_start = match root.token_at_offset(offset).pick_bext_token(token_precedence) {
-        Some(token) => {
-            let Some(token_range) = token.text_range() else {
-                return res;
-            };
+    let trivias_start = match syntax_target_at_offset(root.clone(), offset, token_precedence) {
+        Some(target) => {
+            let (token_range, _) = target.into_parts();
             if !cursor.goto_first_tok_after_or_last(token_range.start()) {
                 return res;
             }
