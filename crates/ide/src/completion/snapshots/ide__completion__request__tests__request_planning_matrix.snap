@@ -1,0 +1,146 @@
+---
+source: crates/ide/src/completion/request.rs
+expression: report
+---
+module member keywords: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: Keywords(
+                    KeywordProvider {
+                        context: ModuleMember,
+                        snippets: DesignItem,
+                        module_instantiations: true,
+                    },
+                ),
+                trigger: ManualOrPrefix,
+            },
+        ],
+    },
+)
+port connection list: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: ParenList(
+                    PortConnections,
+                ),
+                trigger: NonNewline,
+            },
+        ],
+    },
+)
+parameter port list: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: ParenList(
+                    ParameterPortList,
+                ),
+                trigger: NonNewline,
+            },
+            ProviderPlan {
+                provider: Keywords(
+                    KeywordProvider {
+                        context: ParameterPortListItem,
+                        snippets: ParameterPortList,
+                        module_instantiations: false,
+                    },
+                ),
+                trigger: ManualOrPrefix,
+            },
+        ],
+    },
+)
+statement keyword plus expression: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: Keywords(
+                    KeywordProvider {
+                        context: Statement,
+                        snippets: DesignItem,
+                        module_instantiations: false,
+                    },
+                ),
+                trigger: ManualOrPrefix,
+            },
+            ProviderPlan {
+                provider: SystemTasks,
+                trigger: ManualOrPrefix,
+            },
+            ProviderPlan {
+                provider: Expression,
+                trigger: NonNewline,
+            },
+        ],
+    },
+)
+event control with parens: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: EventControl {
+                    wrap_in_parens: true,
+                },
+                trigger: NonNewline,
+            },
+        ],
+    },
+)
+preproc directive name: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: Directives,
+                trigger: NonNewline,
+            },
+        ],
+    },
+)
+line comment ignores broad keywords: None
+comma suppresses broad keywords: None
+apostrophe suppresses expression: None
+apostrophe accepts integer literal base: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: IntegerLiteralBase,
+                trigger: ManualOrPrefix,
+            },
+        ],
+    },
+)
+newline accepts ansi port items: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: PortList(
+                    Ansi,
+                ),
+                trigger: ManualPrefixOrNewline,
+            },
+            ProviderPlan {
+                provider: Keywords(
+                    KeywordProvider {
+                        context: AnsiPortItem,
+                        snippets: None,
+                        module_instantiations: false,
+                    },
+                ),
+                trigger: ManualPrefixOrNewline,
+            },
+        ],
+    },
+)
+newline suppresses module member keywords: None
+comma filters mixed request: Some(
+    CompletionRequest {
+        providers: [
+            ProviderPlan {
+                provider: PortConnectionName,
+                trigger: NonNewline,
+            },
+        ],
+    },
+)
