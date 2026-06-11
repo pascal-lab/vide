@@ -445,17 +445,15 @@ impl SourceGraph {
     pub fn written_origins_for_file(
         &self,
         file_id: vfs::FileId,
-    ) -> impl Iterator<Item = (utils::line_index::TextRange, OriginId)> + '_ {
+    ) -> impl Iterator<Item = (FileRange, OriginId)> + '_ {
         self.written_origin_by_span.iter().filter_map(move |(span, origin)| {
             let span = self.span(*span);
-            (self.file_id_for_domain(span.domain) == Some(file_id)).then_some((span.range, *origin))
+            (self.file_id_for_domain(span.domain) == Some(file_id))
+                .then_some((FileRange { file_id, range: span.range }, *origin))
         })
     }
 
-    pub fn lowering_origins_for_file(
-        &self,
-        file_id: vfs::FileId,
-    ) -> Vec<(utils::line_index::TextRange, OriginId)> {
+    pub fn lowering_origins_for_file(&self, file_id: vfs::FileId) -> Vec<(FileRange, OriginId)> {
         let mut origins = self.written_origins_for_file(file_id).collect::<Vec<_>>();
         for (entity, origin) in &self.origin_by_entity {
             let Some(selection) = self.entity_selection(*entity) else {
@@ -463,7 +461,7 @@ impl SourceGraph {
             };
             let span = self.span(self.selection(selection).full);
             if self.file_id_for_domain(span.domain) == Some(file_id) {
-                origins.push((span.range, *origin));
+                origins.push((FileRange { file_id, range: span.range }, *origin));
             }
         }
         origins
@@ -850,16 +848,26 @@ mod tests {
         let span = builder.intern_span(domain, TextRange::new(4.into(), 9.into()));
         let origin = builder.add_written_origin(span);
         let same_origin = builder.add_written_origin(span);
+        let other_file_id = FileId(3);
+        let other_domain = builder.intern_domain(SourceDomain::RealFile { file_id: other_file_id });
+        let other_span = builder.intern_span(other_domain, TextRange::new(4.into(), 9.into()));
+        let other_origin = builder.add_written_origin(other_span);
         let graph = builder.build();
+
+        let file_range = FileRange { file_id, range: TextRange::new(4.into(), 9.into()) };
+        let other_file_range =
+            FileRange { file_id: other_file_id, range: TextRange::new(4.into(), 9.into()) };
 
         assert_eq!(origin, same_origin);
         assert_eq!(graph.written_origin_for_span(span), Some(origin));
-        assert_eq!(
-            graph.written_origin_for_file_range(FileRange {
-                file_id,
-                range: TextRange::new(4.into(), 9.into()),
-            }),
-            Some(origin)
+        assert_eq!(graph.written_origin_for_file_range(file_range), Some(origin));
+        assert_eq!(graph.written_origin_for_file_range(other_file_range), Some(other_origin));
+        assert!(graph.lowering_origins_for_file(file_id).contains(&(file_range, origin)));
+        assert!(
+            !graph
+                .lowering_origins_for_file(file_id)
+                .iter()
+                .any(|(range, _)| range.file_id == other_file_id)
         );
     }
 

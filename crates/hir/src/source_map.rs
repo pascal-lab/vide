@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
-use source_model::{OriginId, SourceGraph};
+use source_model::{FileRange, OriginId, SourceGraph};
 use syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
     has_text_range::HasTextRange,
@@ -11,14 +11,28 @@ pub(crate) use utils::get::Get;
 use utils::{get::GetRef, text_edit::TextRange};
 use vfs::FileId;
 
-pub type WrittenOriginLookup = Arc<FxHashMap<TextRange, OriginId>>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WrittenOriginLookup {
+    file_id: FileId,
+    origins: Arc<FxHashMap<FileRange, OriginId>>,
+}
+
+impl WrittenOriginLookup {
+    fn new(file_id: FileId, origins: impl IntoIterator<Item = (FileRange, OriginId)>) -> Self {
+        Self { file_id, origins: Arc::new(origins.into_iter().collect()) }
+    }
+
+    fn origin_for_range(&self, range: TextRange) -> Option<OriginId> {
+        self.origins.get(&FileRange { file_id: self.file_id, range }).copied()
+    }
+}
 
 pub trait ApplyWrittenOriginLookup {
     fn set_written_origin_lookup(&mut self, lookup: WrittenOriginLookup);
 }
 
 pub fn written_origin_lookup_for_file(graph: &SourceGraph, file_id: FileId) -> WrittenOriginLookup {
-    Arc::new(graph.lowering_origins_for_file(file_id).into_iter().collect())
+    WrittenOriginLookup::new(file_id, graph.lowering_origins_for_file(file_id))
 }
 
 pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
@@ -72,10 +86,12 @@ impl<Src: IsSrc, Hir> SourceMap<Src, Hir> {
     pub fn insert(&mut self, src: Src, idx: Idx<Hir>) {
         self.src2hir.insert(src, idx);
         self.hir2src.insert(idx, src);
-        if let Some(origin) =
-            self.written_origin_lookup.as_ref().and_then(|lookup| lookup.get(&src.range()))
+        if let Some(origin) = self
+            .written_origin_lookup
+            .as_ref()
+            .and_then(|lookup| lookup.origin_for_range(src.range()))
         {
-            self.origins.insert(idx, *origin);
+            self.origins.insert(idx, origin);
         }
     }
 
