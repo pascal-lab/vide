@@ -1,0 +1,102 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: report
+---
+remove_empty_port_connection_repair_requires_matching_diagnostic:
+  - Fill connections
+remove_empty_port_connection_requires_diagnostics:
+  - Fill connections
+literal_base_unknown_bits:
+  - Convert literal to binary
+  - Convert literal to octal
+literal_base_string_literal:
+  <none>
+reformat_number_literal_requires_enough_digits:
+  - Convert literal to binary
+  - Convert literal to octal
+  - Convert literal to hexadecimal
+missing_parameter_repair_is_not_offered_when_nothing_is_missing:
+  <none>
+named_port_shorthand_collapse_requires_same_name:
+  <none>
+named_port_shorthand_requires_all_connections_named:
+  - Convert ordered port connections to named connections
+  - Add explicit empty port connection
+convert_always_to_comb_requires_keyword_or_event:
+  - Unwrap single-statement begin/end
+convert_always_comb_requires_keyword:
+  <none>
+convert_always_ff_requires_keyword_or_event:
+  - Wrap statement in begin/end
+convert_always_to_always_ff_requires_edge_sensitivity:
+  <none>
+instance_missing_parens_repair_requires_diagnostics:
+  <none>
+convert_ansi_ports_requires_port_list_module_name:
+  <none>
+convert_ansi_ports_requires_port_list_body:
+  <none>
+convert_non_ansi_ports_requires_port_list_module_name:
+  <none>
+convert_non_ansi_ports_requires_port_list_decl:
+  <none>
+split_declaration_declarators_requires_multiple_declarators:
+  <none>
+sort_named_parameter_assignments_rejects_mixed_assignments:
+  - Convert ordered parameter assignments to named assignments
+sort_named_port_connections_uses_module_order_for_availability:
+  <none>
+sort_named_port_connections_rejects_ordered_connections:
+  - Convert ordered port connections to named connections
+add_default_case_item_skips_existing_default:
+  <none>
+remove_parentheses_keeps_required_parens:
+  <none>
+remove_parentheses_requires_cursor_on_paren:
+  <none>
+merge_nested_if_requires_no_else_branches:
+  <none>
+merge_nested_if_rejects_block_with_declarations:
+  <none>
+extract_variable_requires_selection:
+  <none>
+extract_variable_requires_complete_expression_selection:
+  <none>
+extract_variable_rejects_continuous_assign_lhs:
+  <none>
+extract_variable_requires_block_scope:
+  - Wrap statement in begin/end
+pull_assignment_up_requires_single_assignment_branches:
+  - Invert if/else
+pull_assignment_up_rejects_block_with_declarations:
+  - Invert if/else
+unwrap_single_statement_block_requires_single_statement:
+  <none>
+unwrap_single_statement_block_requires_control_flow_body:
+  <none>
+wrap_statement_in_begin_end_skips_existing_block:
+  - Unwrap single-statement begin/end
+wrap_statement_in_begin_end_requires_control_flow_body:
+  <none>
+inc_dec_assists_are_limited_to_other_two_forms:
+  - Expand postfix expression
+  - Convert postfix to prefix expression
+  - Convert postfix to compound assignment
+inc_dec_assists_require_discarded_value_context:
+  <none>
+convert_assignment_inc_dec_requires_same_lhs_and_one:
+  <none>
+convert_assignment_inc_dec_requires_discarded_value_context:
+  - Collapse compound assignment
+convert_compound_inc_dec_requires_one:
+  - Expand compound assignment
+collapse_compound_assignment_requires_same_lhs:
+  <none>
+expand_compound_assignment_skips_plain_assignment:
+  <none>
+factor_de_morgan_requires_cursor_on_logical_operator:
+  <none>
+apply_de_morgan_requires_parenthesized_logical_expression:
+  <none>
+expected_token_repair_requires_diagnostic:
+  <none>
