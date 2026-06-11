@@ -299,30 +299,36 @@ fn collect_symbol(file_id: FileId, symbol: DocumentSymbol, symbols: &mut Vec<Wor
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use super::*;
 
     #[test]
-    fn query_parser_splits_path_filter_from_item_query() {
+    fn query_and_index_matrix() {
+        let mut report = String::new();
+
         let query = Query::new("top::inner sig");
-        assert_eq!(query.path_filter, vec!["top", "inner"]);
-        assert_eq!(query.query, "sig");
-    }
+        writeln!(&mut report, "parsed query: top::inner sig").unwrap();
+        writeln!(&mut report, "  path_filter: {:?}", query.path_filter).unwrap();
+        writeln!(&mut report, "  item_query: {:?}", query.query).unwrap();
 
-    #[test]
-    fn query_matches_qualified_symbols() {
         let query = Query::new("top sig");
-        assert!(query.matches(&symbol("signal", Some("top"))));
-        assert!(!query.matches(&symbol("signal", Some("child"))));
-    }
+        writeln!(&mut report, "qualified matches: top sig").unwrap();
+        for (name, symbol) in [
+            ("top.signal", symbol("signal", Some("top"))),
+            ("child.signal", symbol("signal", Some("child"))),
+        ] {
+            writeln!(&mut report, "  {name}: {}", query.matches(&symbol)).unwrap();
+        }
 
-    #[test]
-    fn symbol_index_groups_case_insensitive_names() {
         let index = SymbolIndex::new(vec![
             symbol("Top", None),
             symbol("top", Some("pkg")),
             symbol("child", None),
         ]);
-        assert_eq!(index.map.len(), 2);
+        writeln!(&mut report, "case-insensitive index map entries: {}", index.map.len()).unwrap();
+
+        insta::assert_snapshot!(report);
     }
 
     fn symbol(name: &str, container_name: Option<&str>) -> WorkspaceSymbol {
