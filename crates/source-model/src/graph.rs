@@ -347,13 +347,24 @@ impl SourceGraph {
         &self,
         position: FilePosition,
     ) -> Vec<(SpanId, crate::SpellingKind)> {
+        self.generated_spelling_hits_for_file_position(position)
+            .into_iter()
+            .map(|(_, generated, kind)| (generated, kind))
+            .collect()
+    }
+
+    pub fn generated_spelling_hits_for_file_position(
+        &self,
+        position: FilePosition,
+    ) -> Vec<(SpanId, SpanId, crate::SpellingKind)> {
         let mut generated = Vec::new();
         for (source, targets) in &self.generated_by_spelling_source {
             let source_span = self.span(*source);
             if self.file_id_for_domain(source_span.domain) == Some(position.file_id)
                 && source_span.range.contains(position.offset)
             {
-                generated.extend(targets.iter().copied());
+                generated
+                    .extend(targets.iter().map(|(generated, kind)| (*source, *generated, *kind)));
             }
         }
         generated
