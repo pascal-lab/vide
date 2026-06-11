@@ -1500,6 +1500,19 @@ endmodule
         }),
         "references from payload_i definition should include macro argument source token: {refs_from_def:?}"
     );
+
+    let highlights = analysis
+        .document_highlight(
+            arg,
+            DocumentHighlightConfig { scope_visibility: ScopeVisibility::Public },
+        )
+        .unwrap()
+        .expect("macro argument source token highlights expected");
+    assert!(
+        highlights.iter().any(|highlight| highlight.range == definition_range)
+            && highlights.iter().any(|highlight| highlight.range == arg_range),
+        "macro argument highlights should include definition and source argument token: {highlights:?}"
+    );
 }
 
 #[test]

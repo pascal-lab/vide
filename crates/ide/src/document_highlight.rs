@@ -5,8 +5,8 @@ use source_model::{
     FilePosition as SourceFilePosition, ResolvedSourceTarget, SourcePurpose,
     SourceTarget as GraphSourceTarget, SourceTargetResolution as GraphSourceTargetResolution,
 };
-use syntax::{SyntaxNodeExt, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
-use utils::line_index::TextRange;
+use syntax::{SyntaxNode, SyntaxTokenWithParent, TokenKind, token::TokenKindExt};
+use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use crate::{
@@ -17,6 +17,7 @@ use crate::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
+    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 #[derive(Debug, Clone)]
@@ -39,12 +40,9 @@ pub(crate) fn document_highlight(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    if !source_graph_allows_document_highlight(db, file_id, offset) {
-        return None;
-    }
-    let token =
-        root.token_at_offset(offset).pick_bext_token(|kind| (token_precedence(kind) > 1).into())?;
-    let highlights = [token]
+    let target = document_highlight_target_at_offset(db, file_id, root, offset)?;
+    let highlights = target
+        .into_tokens()
         .into_iter()
         .filter_map(|token| highlight_for_token(&sema, file_id, hir_file_id, token, config.clone()))
         .flatten()
@@ -52,11 +50,21 @@ pub(crate) fn document_highlight(
     (!highlights.is_empty()).then_some(highlights)
 }
 
-fn source_graph_allows_document_highlight(
+fn document_highlight_target_at_offset<'tree>(
     db: &RootDb,
     file_id: FileId,
-    offset: utils::line_index::TextSize,
-) -> bool {
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+) -> Option<SyntaxTarget<'tree>> {
+    generated_syntax_target_at_offset(db, file_id, root, offset, SourcePurpose::FindReferences)
+        .or_else(|| {
+            source_graph_allows_document_highlight(db, file_id, offset).then(|| {
+                syntax_target_at_offset(root, offset, |kind| (token_precedence(kind) > 1).into())
+            })?
+        })
+}
+
+fn source_graph_allows_document_highlight(db: &RootDb, file_id: FileId, offset: TextSize) -> bool {
     let target = PositionResolver::new(db).resolve_position(
         SourceFilePosition { file_id, offset },
         SourcePurpose::FindReferences,
