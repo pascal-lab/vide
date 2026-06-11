@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/preproc_directive_body.v
 lex: PreprocDirective
 prefix: ""
 replacement: 8..8
+in_decl_name: false
 expectations:
   <none>

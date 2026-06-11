@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/lex_line_comment.v
 lex: LineComment
 prefix: ""
 replacement: 19..19
+in_decl_name: false
 expectations:
   <none>

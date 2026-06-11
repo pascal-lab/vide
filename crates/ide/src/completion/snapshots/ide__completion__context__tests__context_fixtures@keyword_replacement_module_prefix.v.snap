@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/keyword_replacement_modul
 lex: Code
 prefix: "module"
 replacement: 0..6
+in_decl_name: false
 expectations:
   Keyword(CompilationUnitMember) from Parser

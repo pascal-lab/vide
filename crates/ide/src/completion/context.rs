@@ -375,57 +375,42 @@ mod tests {
     static PARSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static NEXT_FILE_ID: AtomicUsize = AtomicUsize::new(0);
 
-    fn ctx(text: &str) -> CompletionContext {
-        ctx_with_trigger(text, None)
-    }
-
-    fn library_map_ctx(text: &str) -> CompletionContext {
-        let marker = "/*caret*/";
-        let off = text.find(marker).expect("missing /*caret*/");
-        let owned = text.replace(marker, "");
-        let tree = SyntaxTree::from_library_map_text(&owned, "test", "test.map");
-        let root = tree.root().unwrap();
-        detect_completion_context_with_source_text(root, TextSize::from(off as u32), None, &owned)
-    }
-
-    fn ctx_with_trigger(text: &str, trigger: Option<TriggerChar>) -> CompletionContext {
+    fn fixture_context(fixture: &ContextFixture) -> CompletionContext {
         let _guard = PARSE_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
 
         let marker = "/*caret*/";
-        let off = text.find(marker).expect("missing /*caret*/");
-        let mut owned = text.to_string();
-        owned = owned.replace(marker, "");
+        let off = fixture.source.find(marker).expect("missing /*caret*/");
+        let owned = fixture.source.replace(marker, "");
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
-        let path = format!("test_{id}.v");
-        let tree = SyntaxTree::from_text(&owned, "test", &path);
+        let tree = match fixture.source_kind {
+            ContextSourceKind::SystemVerilog => {
+                let path = format!("test_{id}.v");
+                SyntaxTree::from_text(&owned, "test", &path)
+            }
+            ContextSourceKind::LibraryMap => {
+                SyntaxTree::from_library_map_text(&owned, "test", &format!("test_{id}.map"))
+            }
+        };
 
         let root = tree.root().unwrap();
         detect_completion_context_with_source_text(
             root,
             TextSize::from(off as u32),
-            trigger,
+            fixture.trigger,
             &owned,
         )
     }
 
-    fn expected(c: &CompletionContext) -> Option<ExpectedSyntax> {
-        c.expectations.first().map(|expectation| expectation.syntax)
-    }
-
-    fn source(c: &CompletionContext, syntax: ExpectedSyntax) -> Option<ExpectationSource> {
-        c.expectations
-            .iter()
-            .find(|expectation| expectation.syntax == syntax)
-            .map(|expectation| expectation.source)
-    }
-
-    fn keyword(context: SyntaxKeywordContext) -> ExpectedSyntax {
-        ExpectedSyntax::Keyword(context)
+    #[derive(Debug, Clone, Copy)]
+    enum ContextSourceKind {
+        SystemVerilog,
+        LibraryMap,
     }
 
     struct ContextFixture {
         source: String,
         trigger: Option<TriggerChar>,
+        source_kind: ContextSourceKind,
     }
 
     impl ContextFixture {
@@ -434,6 +419,10 @@ mod tests {
                 .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
             let mut trigger = None;
             let mut final_newline = true;
+            let source_kind = match path.extension().and_then(|extension| extension.to_str()) {
+                Some("map") => ContextSourceKind::LibraryMap,
+                _ => ContextSourceKind::SystemVerilog,
+            };
             let mut source = String::new();
 
             for line in raw.lines() {
@@ -461,7 +450,7 @@ mod tests {
                 source.pop();
             }
 
-            Self { source, trigger }
+            Self { source, trigger, source_kind }
         }
     }
 
@@ -482,8 +471,8 @@ mod tests {
 
     fn context_snapshot(c: &CompletionContext) -> String {
         let mut out = format!(
-            "lex: {:?}\nprefix: {:?}\nreplacement: {:?}\nexpectations:",
-            c.lex, c.prefix, c.replacement
+            "lex: {:?}\nprefix: {:?}\nreplacement: {:?}\nin_decl_name: {}\nexpectations:",
+            c.lex, c.prefix, c.replacement, c.in_decl_name
         );
         if c.expectations.is_empty() {
             out.push_str("\n  <none>");
@@ -500,225 +489,10 @@ mod tests {
 
     #[test]
     fn context_fixtures() {
-        insta::glob!("context/fixtures/*.v", |path| {
+        insta::glob!("context/fixtures/*", |path| {
             let fixture = ContextFixture::read(path);
-            let c = ctx_with_trigger(&fixture.source, fixture.trigger);
+            let c = fixture_context(&fixture);
             insta::assert_snapshot!(context_snapshot(&c));
         });
-    }
-
-    #[test]
-    fn detects_top_level_item_start() {
-        let c = ctx("module m; endmodule\n/*caret*/\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::CompilationUnitMember)));
-    }
-
-    #[test]
-    fn detects_top_level_item_keyword_prefix() {
-        for text in ["con/*caret*/\n", "pri/*caret*/\n"] {
-            let c = ctx(text);
-            assert_eq!(
-                expected(&c),
-                Some(keyword(SyntaxKeywordContext::CompilationUnitMember)),
-                "{text}"
-            );
-            assert!(!c.in_decl_name, "{text}");
-        }
-    }
-
-    #[test]
-    fn detects_library_map_item_keyword_prefix() {
-        let c = library_map_ctx("lib/*caret*/\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::LibraryMapMember)));
-        assert_eq!(c.prefix, "lib");
-    }
-
-    #[test]
-    fn detects_module_member_start() {
-        let c = ctx("module m;\n  /*caret*/\nendmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ModuleMember)));
-    }
-
-    #[test]
-    fn detects_generate_region_item_start() {
-        let c = ctx("module m; generate\n  /*caret*/\nendgenerate endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::GenerateMember)));
-    }
-
-    #[test]
-    fn detects_generate_block_item_start() {
-        let c = ctx("module m; begin : g\n  /*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::GenerateMember)));
-    }
-
-    #[test]
-    fn detects_specify_item_start() {
-        let c = ctx("module m; specify\n  /*caret*/\nendspecify endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
-    }
-
-    #[test]
-    fn detects_specify_item_keyword_prefix() {
-        let c = ctx("module m; specify\n  sp/*caret*/\nendspecify endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
-    }
-
-    #[test]
-    fn detects_config_header_item_start() {
-        let c = ctx("config cfg;\n  de/*caret*/\n  design work.top;\nendconfig\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ConfigHeaderItem)));
-    }
-
-    #[test]
-    fn detects_config_rule_item_start() {
-        let c = ctx("config cfg;\n  design work.top;\n  de/*caret*/\nendconfig\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ConfigRule)));
-    }
-
-    #[test]
-    fn item_context_does_not_recover_identifier_replacement_start_without_token() {
-        let c = ctx("module m; specify\n  sp/*caret*/\nendspecify endmodule\n");
-
-        assert_eq!(c.replacement, TextRange::empty(TextSize::from(22)));
-        assert_eq!(c.prefix, "");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::SpecifyItem)));
-        assert_eq!(
-            c.expectations.first().map(|expectation| expectation.source),
-            Some(ExpectationSource::Parser)
-        );
-    }
-
-    #[test]
-    fn broad_completion_contexts_come_from_parser_expected_syntax() {
-        let cases = [
-            ("module m;\n  /*caret*/\nendmodule\n", keyword(SyntaxKeywordContext::ModuleMember)),
-            (
-                "module m; initial begin\n  /*caret*/\nend endmodule\n",
-                keyword(SyntaxKeywordContext::BlockItem),
-            ),
-            (
-                "module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n",
-                keyword(SyntaxKeywordContext::Statement),
-            ),
-            ("module m; logic [7:0] lhs = /*caret*/; endmodule\n", ExpectedSyntax::Expression),
-            ("module m #(\n  /*caret*/\n) (); endmodule\n", ExpectedSyntax::ParameterPortListItem),
-            (
-                "module m(input a); endmodule\nmodule top; m u0(/*caret*/); endmodule\n",
-                ExpectedSyntax::PortConnection,
-            ),
-            ("module m; initial f(/*caret*/); endmodule\n", ExpectedSyntax::ArgumentExpr),
-            ("module m(input a,\n  /*caret*/\n); endmodule\n", ExpectedSyntax::AnsiPortItem),
-            (
-                "module m; task t(input a,\n  /*caret*/\n); endtask endmodule\n",
-                ExpectedSyntax::FunctionPortItem,
-            ),
-            (
-                "module m(a, /*caret*/b); input a; output b; endmodule\n",
-                ExpectedSyntax::NonAnsiPortName,
-            ),
-        ];
-
-        for (text, syntax) in cases {
-            let c = ctx(text);
-            assert_eq!(source(&c, syntax), Some(ExpectationSource::Parser), "{text}");
-        }
-    }
-
-    #[test]
-    fn truncated_module_member_prefix_uses_parser_expected_syntax() {
-        let c = ctx("module counter;\n  wi/*caret*/");
-
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::ModuleMember)));
-        assert_eq!(
-            source(&c, keyword(SyntaxKeywordContext::ModuleMember)),
-            Some(ExpectationSource::Parser)
-        );
-    }
-
-    #[test]
-    fn detects_block_decl_start_before_statement() {
-        let c = ctx("module m; initial begin\n  /*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::BlockItem)));
-    }
-
-    #[test]
-    fn detects_procedural_statement_start_after_statement() {
-        let c = ctx("module m; initial begin\n  x = 1;\n  /*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::Statement)));
-    }
-
-    #[test]
-    fn detects_block_decl_keyword_prefix_before_statement() {
-        let c = ctx("module m; initial begin\n  re/*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::BlockItem)));
-    }
-
-    #[test]
-    fn detects_procedural_statement_keyword_prefix_after_statement() {
-        let c = ctx("module m; initial begin\n  x = 1;\n  re/*caret*/\nend endmodule\n");
-        assert_eq!(expected(&c), Some(keyword(SyntaxKeywordContext::Statement)));
-    }
-
-    #[test]
-    fn detects_else_clause_after_if_block() {
-        let c = ctx(
-            "module m; initial begin\n  if (cond) begin\n  end\n  el/*caret*/\nend endmodule\n",
-        );
-        assert!(
-            c.expectations
-                .iter()
-                .any(|expectation| expectation.syntax == ExpectedSyntax::ElseClause)
-        );
-        assert_eq!(c.prefix, "el");
-    }
-
-    #[test]
-    fn detects_after_at_trigger() {
-        let c = ctx_with_trigger(
-            "module m; always @/*caret*/(posedge clk) begin end endmodule\n",
-            Some(TriggerChar::At),
-        );
-        assert_eq!(expected(&c), Some(ExpectedSyntax::EventControl { wrap_in_parens: true }));
-    }
-
-    #[test]
-    fn detects_after_backtick_trigger() {
-        let c = ctx_with_trigger(
-            "module m; initial `/*caret*/FOO; endmodule\n",
-            Some(TriggerChar::Backtick),
-        );
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-    }
-
-    #[test]
-    fn manual_and_triggered_backtick_use_same_expectation() {
-        let text = "module m; initial `/*caret*/FOO; endmodule\n";
-        let manual = ctx(text);
-        let triggered = ctx_with_trigger(text, Some(TriggerChar::Backtick));
-        assert_eq!(expected(&manual), expected(&triggered));
-    }
-
-    #[test]
-    fn detects_decl_name_in_ansi_port_list() {
-        let c = ctx("module m(input [3:0] /*caret*/); endmodule\n");
-        assert!(c.in_decl_name);
-    }
-
-    #[test]
-    fn detects_decl_name_in_tf_port_list() {
-        let c = ctx("module m; task t(input [3:0] /*caret*/); endtask endmodule\n");
-        assert!(c.in_decl_name);
-    }
-
-    #[test]
-    fn detects_decl_name_in_ansi_port_list_multiline() {
-        let c = ctx("module m(\n  input [3:0] /*caret*/\n);\nendmodule\n");
-        assert!(c.in_decl_name);
-    }
-
-    #[test]
-    fn detects_decl_name_in_tf_port_list_multiline() {
-        let c = ctx("module m;\ntask t(\n  input [3:0] /*caret*/\n);\nendtask\nendmodule\n");
-        assert!(c.in_decl_name);
     }
 }

@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/function_port_list_newlin
 lex: Code
 prefix: ""
 replacement: 20..20
+in_decl_name: false
 expectations:
   FunctionPortItem from Parser

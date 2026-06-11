@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/ansi_port_list_newline_tr
 lex: Code
 prefix: ""
 replacement: 15..15
+in_decl_name: false
 expectations:
   AnsiPortItem from Parser

@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/ansi_port_list_comma_trig
 lex: Code
 prefix: ""
 replacement: 18..19
+in_decl_name: true
 expectations:
   DeclName from DeclarationName

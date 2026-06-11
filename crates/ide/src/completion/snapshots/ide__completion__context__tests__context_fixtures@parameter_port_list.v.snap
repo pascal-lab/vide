@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/parameter_port_list.v
 lex: Code
 prefix: ""
 replacement: 11..11
+in_decl_name: false
 expectations:
   ParameterPortListItem from Parser

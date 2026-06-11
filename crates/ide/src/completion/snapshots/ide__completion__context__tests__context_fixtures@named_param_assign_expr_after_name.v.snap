@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/named_param_assign_expr_a
 lex: Code
 prefix: ""
 replacement: 59..59
+in_decl_name: false
 expectations:
   ParameterAssignmentExpr from Ast(NamedParamAssignment)

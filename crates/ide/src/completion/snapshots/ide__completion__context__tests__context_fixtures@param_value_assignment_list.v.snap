@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/param_value_assignment_li
 lex: Code
 prefix: ""
 replacement: 56..56
+in_decl_name: false
 expectations:
   ParamValueAssignment from Ast(ParameterValueAssignment)

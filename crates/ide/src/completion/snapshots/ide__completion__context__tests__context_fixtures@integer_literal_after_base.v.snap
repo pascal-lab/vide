@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/integer_literal_after_bas
 lex: Literal
 prefix: ""
 replacement: 25..25
+in_decl_name: false
 expectations:
   <none>

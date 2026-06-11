@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/parameter_port_keyword_pr
 lex: Code
 prefix: "para"
 replacement: 11..15
+in_decl_name: true
 expectations:
   ParameterPortListItem from Ast(ParameterPortList)

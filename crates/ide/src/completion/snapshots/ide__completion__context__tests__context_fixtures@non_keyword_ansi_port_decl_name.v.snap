@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/non_keyword_ansi_port_dec
 lex: Code
 prefix: "b"
 replacement: 18..19
+in_decl_name: true
 expectations:
   DeclName from DeclarationName

@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/line_comment_eof_top_leve
 lex: LineComment
 prefix: ""
 replacement: 4..4
+in_decl_name: false
 expectations:
   <none>

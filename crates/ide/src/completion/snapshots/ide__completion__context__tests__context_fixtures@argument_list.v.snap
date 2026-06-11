@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/argument_list.v
 lex: Code
 prefix: ""
 replacement: 20..20
+in_decl_name: false
 expectations:
   ArgumentExpr from Parser

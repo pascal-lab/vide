@@ -6,6 +6,7 @@ input_file: crates/ide/src/completion/context/fixtures/system_identifier_dollar_
 lex: Code
 prefix: "$"
 replacement: 24..25
+in_decl_name: false
 expectations:
   Keyword(BlockItem) from Parser
   Expression from Parser

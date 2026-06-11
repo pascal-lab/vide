@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/specify_item_keyword_prefix.v
+---
+lex: Code
+prefix: ""
+replacement: 22..22
+in_decl_name: false
+expectations:
+  Keyword(SpecifyItem) from Parser

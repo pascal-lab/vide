@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/preproc_directive_keyword
 lex: Code
 prefix: "de"
 replacement: 1..7
+in_decl_name: false
 expectations:
   DirectiveName from Token(Directive)

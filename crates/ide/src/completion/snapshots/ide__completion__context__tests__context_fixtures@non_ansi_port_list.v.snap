@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/non_ansi_port_list.v
 lex: Code
 prefix: ""
 replacement: 12..13
+in_decl_name: false
 expectations:
   NonAnsiPortName from Parser

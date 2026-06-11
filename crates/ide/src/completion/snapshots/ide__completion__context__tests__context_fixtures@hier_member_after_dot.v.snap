@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/hier_member_after_dot.v
 lex: Code
 prefix: ""
 replacement: 34..34
+in_decl_name: false
 expectations:
   MemberName from Token(Dot)

@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/ansi_port_keyword_prefix_
 lex: Code
 prefix: "in"
 replacement: 15..17
+in_decl_name: false
 expectations:
   AnsiPortItem from Parser

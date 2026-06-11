@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/function_port_keyword_pre
 lex: Code
 prefix: "in"
 replacement: 17..19
+in_decl_name: true
 expectations:
   FunctionPortItem from Ast(FunctionPortList)

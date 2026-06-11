@@ -1,0 +1,13 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/else_clause_after_if_block.v
+---
+lex: Code
+prefix: "el"
+replacement: 50..52
+in_decl_name: false
+expectations:
+  Keyword(Statement) from Parser
+  Expression from Parser
+  ElseClause from Ast(ConditionalStatement)

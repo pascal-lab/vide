@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/eof_identifier_replacemen
 lex: Code
 prefix: "mo"
 replacement: 0..2
+in_decl_name: false
 expectations:
   Keyword(CompilationUnitMember) from Parser

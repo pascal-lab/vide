@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/named_param_after_dot.v
 lex: Code
 prefix: ""
 replacement: 57..57
+in_decl_name: false
 expectations:
   ParameterAssignmentName from Ast(NamedParamAssignment)

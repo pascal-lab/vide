@@ -6,5 +6,6 @@ input_file: crates/ide/src/completion/context/fixtures/port_connection_list.v
 lex: Code
 prefix: ""
 replacement: 46..46
+in_decl_name: false
 expectations:
   PortConnection from Parser
