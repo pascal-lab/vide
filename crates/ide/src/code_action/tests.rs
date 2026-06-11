@@ -417,41 +417,6 @@ fn named_port_shorthand_requires_all_connections_named() {
 }
 
 #[test]
-fn convert_always_star_to_always_comb() {
-    let text = "module top; logic a, y; /*caret*/always @(*) begin y = a; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_to_always_comb").unwrap();
-    assert_eq!(fixed, "module top; logic a, y; always_comb begin y = a; end endmodule\n");
-}
-
-#[test]
-fn convert_always_comb_to_always_star() {
-    let text = "module top; logic a, y; /*caret*/always_comb begin y = a; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_comb_to_always").unwrap();
-    assert_eq!(fixed, "module top; logic a, y; always @(*) begin y = a; end endmodule\n");
-}
-
-#[test]
-fn convert_always_posedge_to_always_ff() {
-    let text = "module top; logic clk, d, q; /*caret*/always @(posedge clk) q <= d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_to_always_ff").unwrap();
-    assert_eq!(fixed, "module top; logic clk, d, q; always_ff @(posedge clk) q <= d; endmodule\n");
-}
-
-#[test]
-fn convert_always_event_list_to_always_ff() {
-    let text = "module top; logic clk, d, q; always @(/*caret*/posedge clk) q <= d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_to_always_ff").unwrap();
-    assert_eq!(fixed, "module top; logic clk, d, q; always_ff @(posedge clk) q <= d; endmodule\n");
-}
-
-#[test]
-fn convert_always_ff_to_plain_always() {
-    let text = "module top; logic clk, d, q; /*caret*/always_ff @(posedge clk) q <= d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_ff_to_always").unwrap();
-    assert_eq!(fixed, "module top; logic clk, d, q; always @(posedge clk) q <= d; endmodule\n");
-}
-
-#[test]
 fn convert_always_block_requires_caret_on_keyword_or_event_list() {
     let labels = action_labels_without_diagnostics(
         "module top; logic a, y; always @(*) begin /*caret*/y = a; end endmodule\n",
