@@ -1,0 +1,366 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_visible_macro_names.v
+---
+[
+    CompletionItem {
+        label: "WIDTH",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "WIDTH",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "default_nettype",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "default_nettype",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "default_nettype ${1:wire}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "define",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "define",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "define ${1:NAME} ${0:VALUE}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "elsif",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "elsif",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "elsif ${1:SYMBOL}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "ifdef",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "ifdef",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "ifdef ${1:SYMBOL}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "ifndef",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "ifndef",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "ifndef ${1:SYMBOL}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "include",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "include",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "include \"${1:file}\"",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "pragma",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "pragma",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "pragma ${1:pragma}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "timescale",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "timescale",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "timescale ${1:time_unit}/${2:time_precision}",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "begin_keywords",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "begin_keywords",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "celldefine",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "celldefine",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "default_nettype",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "default_nettype",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "define",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "define",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "else",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "else",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "elsif",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "elsif",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "end_keywords",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "end_keywords",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "endcelldefine",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "endcelldefine",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "endif",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "endif",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "ifdef",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "ifdef",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "ifndef",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "ifndef",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "include",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "include",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "line",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "line",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "nounconnected_drive",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "nounconnected_drive",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pragma",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "pragma",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "resetall",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "resetall",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "timescale",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "timescale",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "unconnected_drive",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "unconnected_drive",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "undef",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "undef",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "undefineall",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "undefineall",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

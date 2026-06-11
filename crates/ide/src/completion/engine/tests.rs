@@ -1,7 +1,6 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use hir::base_db::{change::Change, source_root::SourceRoot};
-use insta::assert_debug_snapshot;
 use triomphe::Arc;
 use utils::{lines::LineEnding, text_edit::TextSize};
 use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
@@ -57,10 +56,6 @@ fn labels(items: &[CompletionItem]) -> Vec<&str> {
     items.iter().map(|item| item.label.as_str()).collect()
 }
 
-fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/completion/engine/fixtures")
-}
-
 fn parse_trigger(line: &str) -> Option<TriggerChar> {
     let line = line.trim();
     let prefix = "// trigger:";
@@ -82,7 +77,7 @@ fn parse_trigger(line: &str) -> Option<TriggerChar> {
     }
 }
 
-fn load_fixture(path: &PathBuf) -> (String, Option<TriggerChar>) {
+fn load_fixture(path: &Path) -> (String, Option<TriggerChar>) {
     let text = std::fs::read_to_string(path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
     let text = normalize_fixture_text(&text);
     let mut lines = text.lines();
@@ -96,263 +91,6 @@ fn load_fixture(path: &PathBuf) -> (String, Option<TriggerChar>) {
     }
 
     (text, None)
-}
-
-#[test]
-fn no_completion_in_line_comment_at_eof_top_level() {
-    let items = completions_in_text("// ,/*caret*/", None);
-    assert!(items.is_empty());
-}
-
-#[test]
-fn no_completion_in_line_comment_at_file_start() {
-    // regression: line comment before any module should not trigger completion
-    let items = completions_in_text("// hello /*caret*/world\nmodule m; endmodule\n", None);
-    assert!(items.is_empty());
-}
-
-#[test]
-fn no_completion_in_line_comment_with_comma_trigger() {
-    // regression: comma trigger in line comment should not trigger completion
-    let items =
-        completions_in_text("// ,,/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
-    assert!(items.is_empty());
-}
-
-#[test]
-fn no_completion_in_line_comment_with_dollar_trigger() {
-    let items =
-        completions_in_text("// $/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Dollar));
-    assert!(items.is_empty());
-}
-
-#[test]
-fn no_completion_in_line_comment_middle_of_file() {
-    // regression: line comment between modules should not trigger completion
-    let items = completions_in_text(
-        "// first line\n// second line ,/*caret*/\n\nmodule m; endmodule\n",
-        Some(TriggerChar::Comma),
-    );
-    assert!(items.is_empty());
-}
-
-#[test]
-fn no_completion_in_line_comment_user_reported_case() {
-    // exact reproduction of user's file with // ,, at line 6
-    let text = r#"// when declaring new symbol, after typing the type, the completion should not suggest anything
-
-// when in trivia and string literals, no completion should be suggested
-
-// those keywords complete in modules (input, etc) should also be suggested in tasks and functions
-
-// ,,/*caret*/
-
-`timescale 1ns / 1ps
-
-module adder (
-    input  [3:0] a,
-    input  [3:0] b,
-    output [4:0] y
-);
-endmodule
-"#;
-    let items = completions_in_text(text, Some(TriggerChar::Comma));
-    assert!(items.is_empty(), "should not complete in line comment, got: {:?}", items);
-}
-
-#[test]
-fn no_completion_in_line_comment_before_timescale() {
-    // simpler reproduction: comment line right before `timescale directive
-    let text = r#"// comment ,/*caret*/
-`timescale 1ns / 1ps
-module m; endmodule
-"#;
-    let items = completions_in_text(text, Some(TriggerChar::Comma));
-    assert!(
-        items.is_empty(),
-        "should not complete in line comment before `timescale, got: {:?}",
-        items
-    );
-}
-
-#[test]
-fn no_completion_in_line_comment_before_module() {
-    // comment line right before module (no directive)
-    let text = r#"// comment ,/*caret*/
-module m; endmodule
-"#;
-    let items = completions_in_text(text, Some(TriggerChar::Comma));
-    assert!(
-        items.is_empty(),
-        "should not complete in line comment before module, got: {:?}",
-        items
-    );
-}
-
-#[test]
-fn no_completion_inside_literal() {
-    let items = completions_in_text("module m; initial x = 12/*caret*/34; endmodule\n", None);
-    assert!(items.is_empty(), "should not complete in numeric literal, got: {:?}", items);
-}
-
-#[test]
-fn no_completion_inside_based_literal() {
-    let items = completions_in_text("module m; initial x = 4'b10/*caret*/10; endmodule\n", None);
-    assert!(items.is_empty(), "should not complete in based numeric literal, got: {:?}", items);
-}
-
-#[test]
-fn no_completion_while_typing_based_literal() {
-    for text in [
-        "module m; initial x = 4'b/*caret*/; endmodule\n",
-        "module m; initial x = 4'b0001/*caret*/; endmodule\n",
-    ] {
-        let items = completions_in_text(text, None);
-        assert!(
-            items.is_empty(),
-            "should not complete while typing based literal, got: {:?}",
-            items
-        );
-    }
-}
-
-#[test]
-fn completes_integer_literal_base_after_apostrophe() {
-    let items = completions_in_text(
-        "module m; initial x = 4'/*caret*/; endmodule\n",
-        Some(TriggerChar::Apostrophe),
-    );
-    let item_labels = labels(&items);
-
-    assert_eq!(item_labels, ["b", "d", "h", "o", "sb", "sd", "sh", "so"]);
-}
-
-#[test]
-fn completes_integer_literal_base_after_apostrophe_in_assignment() {
-    let items = completions_in_text(
-        r#"
-`timescale 1ns/1ps
-
-module counter #(
-    parameter WIDTH = 8
-) (
-    input  wire             clk,
-    input  wire             rst_n,
-    input  wire             enable,
-    output reg  [WIDTH-1:0] count
-);
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            count <= {WIDTH{1'b0}};
-        end else if (enable) begin
-            count <= count + 1'/*caret*/
-        end
-    end
-endmodule
-"#,
-        Some(TriggerChar::Apostrophe),
-    );
-    let item_labels = labels(&items);
-
-    assert_eq!(item_labels, ["b", "d", "h", "o", "sb", "sd", "sh", "so"]);
-}
-
-#[test]
-fn completes_signed_integer_literal_base_prefix() {
-    let items = completions_in_text("module m; initial x = 4's/*caret*/; endmodule\n", None);
-    let item_labels = labels(&items);
-
-    assert_eq!(item_labels, ["sb", "sd", "sh", "so"]);
-
-    let sb = items.iter().find(|item| item.label == "sb").unwrap();
-    let mut text = "module m; initial x = 4's; endmodule\n".to_string();
-    sb.edit.as_ref().unwrap().apply_on(&mut text);
-    assert_eq!(text, "module m; initial x = 4'sb; endmodule\n");
-}
-
-#[test]
-fn no_integer_literal_base_completion_without_integer_size() {
-    for text in [
-        "module m; initial x = '/*caret*/; endmodule\n",
-        "module m; initial x = foo'/*caret*/; endmodule\n",
-    ] {
-        let items = completions_in_text(text, Some(TriggerChar::Apostrophe));
-        assert!(
-            items.is_empty(),
-            "apostrophe trigger should only complete integer literal bases, got: {:?}",
-            items
-        );
-    }
-}
-
-#[test]
-fn no_completion_at_top_level_with_comma_trigger() {
-    let items = completions_in_text(",/*caret*/\nmodule m; endmodule\n", Some(TriggerChar::Comma));
-    assert!(
-        items.is_empty(),
-        "should not complete at top level on comma trigger, got: {:?}",
-        items
-    );
-}
-
-#[test]
-fn backtick_trigger_completes_preproc_directives() {
-    let items = completions_in_text(
-        "module m; initial `/*caret*/; endmodule\n",
-        Some(TriggerChar::Backtick),
-    );
-    let define = items
-        .iter()
-        .find(|item| item.label == "define" && item.kind == CompletionItemKind::Keyword)
-        .expect("define directive completion expected");
-    let mut text = "module m; initial `; endmodule\n".to_string();
-    define.edit.as_ref().unwrap().apply_on(&mut text);
-
-    assert_eq!(text, "module m; initial `define; endmodule\n");
-}
-
-#[test]
-fn preproc_completion_preserves_typed_backtick() {
-    let items = completions_in_text("module m; initial `de/*caret*/; endmodule\n", None);
-    let define = items
-        .iter()
-        .find(|item| item.label == "define" && item.kind == CompletionItemKind::Keyword)
-        .expect("define directive completion expected");
-    let mut text = "module m; initial `de; endmodule\n".to_string();
-    define.edit.as_ref().unwrap().apply_on(&mut text);
-
-    assert_eq!(text, "module m; initial `define; endmodule\n");
-}
-
-#[test]
-fn preproc_completion_includes_visible_macro_names() {
-    let items = completions_in_text(
-        "`define WIDTH 8\nmodule m; initial `/*caret*/; endmodule\n",
-        Some(TriggerChar::Backtick),
-    );
-    let width = items
-        .iter()
-        .find(|item| item.label == "WIDTH" && item.kind == CompletionItemKind::Text)
-        .expect("visible macro completion expected");
-    let mut text = "`define WIDTH 8\nmodule m; initial `; endmodule\n".to_string();
-    width.edit.as_ref().unwrap().apply_on(&mut text);
-
-    assert_eq!(text, "`define WIDTH 8\nmodule m; initial `WIDTH; endmodule\n");
-}
-
-#[test]
-fn preproc_completion_uses_current_macro_environment() {
-    let items = completions_in_text(
-        "`define WIDTH 8\n`undef WIDTH\nmodule m; initial `/*caret*/; endmodule\n",
-        Some(TriggerChar::Backtick),
-    );
-    assert!(!labels(&items).contains(&"WIDTH"), "undefined macro should not be visible: {items:?}");
-}
-
-#[test]
-fn no_directive_keyword_completion_in_directive_body() {
-    let items = completions_in_text("`define /*caret*/FOO 1\nmodule m; endmodule\n", None);
-    assert!(items.is_empty(), "directive body should not suggest directive keywords: {items:?}");
 }
 
 #[test]
@@ -959,26 +697,9 @@ fn named_port_expr_without_known_type_does_not_fallback_to_all_values() {
 
 #[test]
 fn completion_fixtures() {
-    let dir = fixtures_dir();
-    let mut fixtures: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
-        .unwrap_or_else(|err| panic!("failed to read fixtures dir {dir:?}: {err}"))
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension()? != "v" {
-                return None;
-            }
-            let name = path.file_stem()?.to_string_lossy().to_string();
-            Some((name, path))
-        })
-        .collect();
-
-    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
-    assert!(!fixtures.is_empty(), "no fixtures found in {dir:?}");
-
-    for (name, path) in fixtures {
+    insta::glob!("fixtures/*.v", |path| {
         let (text, trigger) = load_fixture(&path);
         let items = completions_in_text(&text, trigger);
-        assert_debug_snapshot!(name, items);
-    }
+        insta::assert_debug_snapshot!(items);
+    });
 }

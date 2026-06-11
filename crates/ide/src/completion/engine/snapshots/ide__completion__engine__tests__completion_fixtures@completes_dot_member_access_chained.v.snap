@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_dot_member_access_chained.v
+---
+[
+    CompletionItem {
+        label: "leaf_wire",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "leaf_wire",
+                del: 162..162,
+            },
+        ),
+        snippet_edit: None,
+    },
+]
