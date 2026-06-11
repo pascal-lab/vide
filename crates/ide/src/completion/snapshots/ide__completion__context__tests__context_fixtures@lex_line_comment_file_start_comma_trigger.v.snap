@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/lex_line_comment_file_start_comma_trigger.v
+---
+lex: LineComment
+prefix: ""
+replacement: 4..4
+expectations:
+  <none>

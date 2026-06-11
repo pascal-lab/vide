@@ -359,9 +359,13 @@ fn is_integer_literal_size_before(caret: &CaretSnapshot<'_>, offset: TextSize) -
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Mutex, OnceLock,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        fs,
+        path::Path,
+        sync::{
+            Mutex, OnceLock,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
 
     use syntax::SyntaxTree;
@@ -419,43 +423,78 @@ mod tests {
         ExpectedSyntax::Keyword(context)
     }
 
-    #[test]
-    fn detects_line_comment() {
-        let c = ctx("module m; // hello /*caret*/world\nendmodule\n");
-        assert_eq!(c.lex, LexContext::LineComment);
+    struct ContextFixture {
+        source: String,
+        trigger: Option<TriggerChar>,
+    }
+
+    impl ContextFixture {
+        fn read(path: &Path) -> Self {
+            let raw = fs::read_to_string(path)
+                .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+            let mut trigger = None;
+            let mut source = String::new();
+
+            for line in raw.lines() {
+                let Some(meta) = line.strip_prefix("//- ") else {
+                    source.push_str(line);
+                    source.push('\n');
+                    continue;
+                };
+
+                let (key, value) = meta
+                    .split_once(':')
+                    .unwrap_or_else(|| panic!("invalid fixture metadata in {}", path.display()));
+                match key.trim() {
+                    "trigger" => trigger = Some(parse_context_trigger(value.trim(), path)),
+                    other => panic!("unknown fixture metadata key `{other}` in {}", path.display()),
+                }
+            }
+
+            Self { source, trigger }
+        }
+    }
+
+    fn parse_context_trigger(value: &str, path: &Path) -> TriggerChar {
+        match value {
+            "dot" => TriggerChar::Dot,
+            "open_paren" => TriggerChar::OpenParen,
+            "comma" => TriggerChar::Comma,
+            "at" => TriggerChar::At,
+            "hash" => TriggerChar::Hash,
+            "dollar" => TriggerChar::Dollar,
+            "backtick" => TriggerChar::Backtick,
+            "apostrophe" => TriggerChar::Apostrophe,
+            "newline" => TriggerChar::Newline,
+            other => panic!("unknown trigger `{other}` in {}", path.display()),
+        }
+    }
+
+    fn context_snapshot(c: &CompletionContext) -> String {
+        let mut out = format!(
+            "lex: {:?}\nprefix: {:?}\nreplacement: {:?}\nexpectations:",
+            c.lex, c.prefix, c.replacement
+        );
+        if c.expectations.is_empty() {
+            out.push_str("\n  <none>");
+        } else {
+            for expectation in &c.expectations {
+                out.push_str(&format!(
+                    "\n  {:?} from {:?}",
+                    expectation.syntax, expectation.source
+                ));
+            }
+        }
+        out
     }
 
     #[test]
-    fn detects_line_comment_at_file_start() {
-        // regression: line comment at file start should be detected
-        let c = ctx("// hello /*caret*/world\nmodule m; endmodule\n");
-        assert_eq!(c.lex, LexContext::LineComment);
-    }
-
-    #[test]
-    fn detects_line_comment_at_file_start_with_comma() {
-        // regression: comma trigger in line comment at file start
-        let c = ctx_with_trigger("// ,/*caret*/,\nmodule m; endmodule\n", Some(TriggerChar::Comma));
-        assert_eq!(c.lex, LexContext::LineComment);
-    }
-
-    #[test]
-    fn detects_line_comment_in_middle_of_file() {
-        // regression: line comment in middle of file (before any module)
-        let c = ctx("// line1\n// line2 /*caret*/\nmodule m; endmodule\n");
-        assert_eq!(c.lex, LexContext::LineComment);
-    }
-
-    #[test]
-    fn detects_block_comment() {
-        let c = ctx("module m; /* hello /*caret*/world */ endmodule\n");
-        assert_eq!(c.lex, LexContext::BlockComment);
-    }
-
-    #[test]
-    fn detects_string_literal() {
-        let c = ctx("module m; initial $display(\"he/*caret*/llo\"); endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
+    fn context_fixtures() {
+        insta::glob!("context/fixtures/*.v", |path| {
+            let fixture = ContextFixture::read(path);
+            let c = ctx_with_trigger(&fixture.source, fixture.trigger);
+            insta::assert_snapshot!(context_snapshot(&c));
+        });
     }
 
     #[test]
@@ -467,18 +506,6 @@ mod tests {
         assert_eq!(c.lex, LexContext::Code);
         assert_eq!(c.prefix, "$");
         assert_eq!(c.replacement, TextRange::new(dollar, dollar + TextSize::from(1)));
-    }
-
-    #[test]
-    fn detects_literal() {
-        let c = ctx("module m; initial x = 12/*caret*/34; endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
-    }
-
-    #[test]
-    fn detects_based_literal() {
-        let c = ctx("module m; initial x = 4'b10/*caret*/10; endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
     }
 
     #[test]
@@ -503,26 +530,6 @@ mod tests {
     fn detects_typing_based_literal_after_base() {
         let c = ctx("module m; initial x = 4'b/*caret*/; endmodule\n");
         assert_eq!(c.lex, LexContext::Literal);
-        assert_eq!(expected(&c), None);
-    }
-
-    #[test]
-    fn detects_typing_based_literal_after_digits() {
-        let c = ctx("module m; initial x = 4'b0001/*caret*/; endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
-    }
-
-    #[test]
-    fn detects_preproc_directive() {
-        let c = ctx("`define /*caret*/FOO 1\nmodule m; endmodule\n");
-        assert_eq!(c.lex, LexContext::PreprocDirective);
-        assert_eq!(expected(&c), None);
-    }
-
-    #[test]
-    fn detects_preproc_directive_at_boundary() {
-        let c = ctx("`define FOO/*caret*/\nmodule m; endmodule\n");
-        assert_eq!(c.lex, LexContext::PreprocDirective);
         assert_eq!(expected(&c), None);
     }
 
@@ -560,13 +567,6 @@ mod tests {
     #[test]
     fn detects_line_comment_at_eol_boundary_top_level() {
         let c = ctx("// ,/*caret*/\n");
-        assert_eq!(c.lex, LexContext::LineComment);
-    }
-
-    #[test]
-    fn detects_line_comment_before_directive() {
-        // regression: line comment before `timescale should still be detected
-        let c = ctx("// comment/*caret*/\n`timescale 1ns / 1ps\nmodule m; endmodule\n");
         assert_eq!(c.lex, LexContext::LineComment);
     }
 
