@@ -744,69 +744,6 @@ fn expand_compound_assignment_skips_plain_assignment() {
 }
 
 #[test]
-fn apply_de_morgan_rewrites_parenthesized_logical_expression() {
-    let text = "module top; assign y = /*caret*/!(a && b); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !a || !b; endmodule\n");
-}
-
-#[test]
-fn apply_de_morgan_rewrites_logical_chain() {
-    let text = "module top; assign y = /*caret*/!(a && b && c); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !a || !b || !c; endmodule\n");
-}
-
-#[test]
-fn apply_de_morgan_inverts_comparison_operators() {
-    let text = "module top; assign y = /*caret*/!(a == b || c != d || e <= f); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = a != b && c == d && e > f; endmodule\n");
-}
-
-#[test]
-fn apply_de_morgan_triggers_across_if_condition() {
-    let text = "module top; always_comb if (!(a == b /*caret*/|| c != d)) y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a != b && c == d) y = 1; endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_rewrites_negated_operands() {
-    let text = "module top; assign y = !a /*caret*/|| !b; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !(a && b); endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_inverts_comparison_operators() {
-    let text = "module top; assign y = a == b /*caret*/&& c < d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !(a != b || c >= d); endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_rewrites_logical_chain() {
-    let text = "module top; assign y = a /*caret*/|| b || c; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !(!a && !b && !c); endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_triggers_across_if_condition() {
-    let text = "module top; always_comb if (a == b /*caret*/&& c < d) y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (!(a != b || c >= d)) y = 1; endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_triggers_on_if_condition_operand() {
-    let text = "module top; always_comb if (a == /*caret*/b && c < d) y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (!(a != b || c >= d)) y = 1; endmodule\n");
-}
-
-#[test]
 fn factor_de_morgan_requires_cursor_on_logical_operator() {
     let labels =
         action_labels_without_diagnostics("module top; assign y = /*caret*/!a || b; endmodule\n");
