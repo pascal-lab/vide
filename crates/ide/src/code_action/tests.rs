@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 use hir::base_db::{change::Change, source_root::SourceRoot};
 use triomphe::Arc;
 use utils::{
@@ -8,6 +10,55 @@ use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::db::root_db::RootDb;
+
+struct CodeActionFixture {
+    action: String,
+    label: Option<String>,
+    source: String,
+}
+
+impl CodeActionFixture {
+    fn read(path: &Path) -> Self {
+        let raw = fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+        let mut action = None;
+        let mut label = None;
+        let mut source = String::new();
+
+        for line in raw.lines() {
+            let Some(meta) = line.strip_prefix("//- ") else {
+                source.push_str(line);
+                source.push('\n');
+                continue;
+            };
+
+            let (key, value) = meta
+                .split_once(':')
+                .unwrap_or_else(|| panic!("invalid fixture metadata in {}", path.display()));
+            match key.trim() {
+                "action" => action = Some(value.trim().to_owned()),
+                "label" => label = Some(value.trim().to_owned()),
+                other => panic!("unknown fixture metadata key `{other}` in {}", path.display()),
+            }
+        }
+
+        Self {
+            action: action.unwrap_or_else(|| panic!("missing action in {}", path.display())),
+            label,
+            source,
+        }
+    }
+
+    fn apply(&self, path: &Path) -> String {
+        match &self.label {
+            Some(label) => {
+                apply_action_without_diagnostics_with_label(&self.source, &self.action, label)
+            }
+            None => apply_action_without_diagnostics(&self.source, &self.action),
+        }
+        .unwrap_or_else(|| panic!("fixture {} did not produce an edit", path.display()))
+    }
+}
 
 fn db_with_file(text: &str) -> (RootDb, FileId, TextSize) {
     let marker = "/*caret*/";
@@ -245,6 +296,15 @@ fn action_labels_without_diagnostics(text: &str) -> Vec<String> {
 }
 
 #[test]
+fn code_action_edit_fixtures() {
+    insta::glob!("fixtures/code_actions/*.sv", |path| {
+        let fixture = CodeActionFixture::read(path);
+        let fixed = fixture.apply(path);
+        insta::assert_snapshot!(fixed);
+    });
+}
+
+#[test]
 fn remove_empty_port_connection_repair_requires_matching_diagnostic() {
     let (db, file_id, offset) = db_with_file(
         "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n",
@@ -290,71 +350,6 @@ fn convert_ordered_params_is_available_without_diagnostics() {
 }
 
 #[test]
-fn literal_base_converts_plain_decimal_to_sized_signed_hexadecimal() {
-    let text = "module top; localparam int value = /*caret*/42; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to hexadecimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 32'sh2a; endmodule\n");
-}
-
-#[test]
-fn literal_base_preserves_plain_decimal_sign_bit() {
-    let text = "module top; localparam longint value = /*caret*/2147483648; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to hexadecimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam longint value = 33'sh80000000; endmodule\n");
-}
-
-#[test]
-fn literal_base_preserves_size_and_signed_base() {
-    let text = "module top; localparam logic [7:0] value = /*caret*/8'sh2A; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to binary",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam logic [7:0] value = 8'sb101010; endmodule\n");
-}
-
-#[test]
-fn literal_base_converts_unsized_based_literal_to_based_decimal() {
-    let text = "module top; localparam int value = /*caret*/'hff; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to decimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 'd255; endmodule\n");
-}
-
-#[test]
-fn literal_base_preserves_unsized_signed_base() {
-    let text = "module top; localparam int value = /*caret*/'shff; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to decimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 'sd255; endmodule\n");
-}
-
-#[test]
 fn literal_base_does_not_offer_decimal_for_unknown_bits() {
     let labels = action_labels_without_diagnostics(
         "module top; logic [3:0] value = /*caret*/'hx; endmodule\n",
@@ -371,45 +366,6 @@ fn literal_base_is_not_available_for_string_literals() {
     );
 
     assert!(!labels.iter().any(|label| label.starts_with("Convert literal to ")));
-}
-
-#[test]
-fn reformat_number_literal_adds_decimal_separators() {
-    let text = "module top; localparam int value = /*caret*/10000; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "reformat_number_literal",
-        "Convert 10000 to 10_000",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 10_000; endmodule\n");
-}
-
-#[test]
-fn reformat_number_literal_removes_separators() {
-    let text = "module top; localparam int value = /*caret*/10_000; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "reformat_number_literal",
-        "Remove digit separators",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 10000; endmodule\n");
-}
-
-#[test]
-fn reformat_number_literal_formats_hex_literals() {
-    let text = "module top; localparam int value = /*caret*/'hff0000; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "reformat_number_literal",
-        "Convert 'hff0000 to 'hff_0000",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 'hff_0000; endmodule\n");
 }
 
 #[test]
