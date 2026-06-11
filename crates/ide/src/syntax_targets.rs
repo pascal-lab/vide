@@ -41,6 +41,15 @@ pub(crate) fn syntax_target_at_offset<'tree>(
     Some(SyntaxTarget { range, tokens: vec![token] })
 }
 
+pub(crate) fn left_biased_syntax_target_at_offset<'tree>(
+    root: SyntaxNode<'tree>,
+    offset: TextSize,
+) -> Option<SyntaxTarget<'tree>> {
+    let token = root.token_at_offset(offset).left_biased()?;
+    let range = token.text_range()?;
+    Some(SyntaxTarget { range, tokens: vec![token] })
+}
+
 pub(crate) fn generated_syntax_target_at_offset<'tree>(
     db: &RootDb,
     file_id: FileId,
@@ -210,6 +219,21 @@ mod tests {
 
         let target =
             syntax_target_at_offset(root, range.start(), test_precedence).expect("target token");
+        let (target_range, tokens) = target.into_parts();
+
+        assert_eq!(target_range, range);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].raw_text().as_bytes(), b"payload_i");
+    }
+
+    #[test]
+    fn left_biased_syntax_target_keeps_token_at_end_boundary() {
+        let source = "module m; wire payload_i; endmodule\n";
+        let tree = SyntaxTree::from_text(source, "test", "test.sv");
+        let root = tree.root().expect("test source should parse");
+        let range = source_range(source, "payload_i");
+
+        let target = left_biased_syntax_target_at_offset(root, range.end()).expect("target token");
         let (target_range, tokens) = target.into_parts();
 
         assert_eq!(target_range, range);

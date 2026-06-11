@@ -14,7 +14,7 @@ use hir::{
 };
 use itertools::Either;
 use syntax::{
-    SyntaxAncestors, SyntaxNodeExt,
+    SyntaxAncestors,
     ast::{self, AstNode},
     has_text_range::HasTextRangeIn,
     match_ast,
@@ -30,6 +30,7 @@ use utils::{
 use crate::{
     FilePosition, db::root_db::RootDb, markup::Markup,
     module_resolution::resolve_instantiation_target,
+    syntax_targets::left_biased_syntax_target_at_offset,
 };
 
 #[derive(Debug)]
@@ -71,7 +72,8 @@ pub(crate) fn signature_help(
     let hir_file_id = file_id.into();
     let parsed_file = sema.parse_file(file_id);
     let root = parsed_file.root()?;
-    let token = root.token_at_offset(offset).left_biased()?;
+    let token =
+        left_biased_syntax_target_at_offset(root, offset)?.into_tokens().into_iter().next()?;
 
     for node in SyntaxAncestors::start_from(token.parent) {
         match_ast! { node,
