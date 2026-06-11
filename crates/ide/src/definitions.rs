@@ -575,6 +575,8 @@ fn scoped_right_token(scoped: ast::ScopedName<'_>) -> Option<SyntaxToken<'_>> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use hir::{
         base_db::{change::Change, source_root::SourceRoot},
         container::InModule,
@@ -608,61 +610,77 @@ mod tests {
         (host, file_id)
     }
 
-    #[test]
-    fn implicit_non_ansi_port_origin_uses_header_port_name_range() {
-        let text = "module m(a); input a; endmodule";
-        let (host, file_id) = host_with_file(text);
-        let db = host.raw_db();
-        let sema = Semantics::<RootDb>::new(db);
-        let parsed_file = sema.parse_file(file_id);
-        let file = parsed_file.compilation_unit().unwrap();
-        let port_decl_name_offset = TextSize::from(text.find("input a").unwrap() as u32 + 6);
-        let token = file.syntax().token_at_offset(port_decl_name_offset).left_biased().unwrap();
-        let DefinitionClass::Definition(def) =
-            DefinitionClass::resolve(&sema, file_id.into(), token).unwrap()
-        else {
-            panic!("expected plain definition");
-        };
-
-        let PathResolution::NonAnsiPort { label: Some(label), module, .. } = def.0 else {
-            panic!("expected non-ANSI port label resolution");
-        };
-        let range = DefinitionOrigin::NonAnsiPort(InModule::new(module, label))
-            .name_range(db)
-            .expect("non-ANSI port label should have a name range");
-        assert_eq!(range.file_id.file_id(), file_id);
-        assert_eq!(range.value, TextRange::new(TextSize::from(9), TextSize::from(10)));
+    #[derive(Clone, Copy)]
+    enum TokenPick {
+        LeftBiased,
+        GotoDefinition,
     }
 
     #[test]
-    fn named_port_connection_name_resolves_to_target_port() {
-        let text = "module child(input clk); endmodule\n\
-            module top; logic clk; child u(.clk(clk)); endmodule";
-        let (host, file_id) = host_with_file(text);
-        let db = host.raw_db();
-        let sema = Semantics::<RootDb>::new(db);
-        let parsed_file = sema.parse_file(file_id);
-        let file = parsed_file.compilation_unit().unwrap();
-        let conn_name_offset = TextSize::from(text.rfind(".clk").unwrap() as u32 + 2);
-        let token = file
-            .syntax()
-            .token_at_offset(conn_name_offset)
-            .pick_bext_token(crate::goto_definition::token_precedence)
-            .unwrap();
-        let DefinitionClass::Definition(def) =
-            DefinitionClass::resolve(&sema, file_id.into(), token).unwrap()
-        else {
-            panic!("expected plain definition");
-        };
+    fn definition_name_range_matrix() {
+        let mut report = String::new();
 
-        let PathResolution::AnsiPort(port) = def.0 else {
-            panic!("expected ANSI port resolution");
-        };
-        let range = DefinitionOrigin::Decl(port.into())
-            .name_range(db)
-            .expect("ANSI port should have a name range");
-        assert_eq!(range.file_id.file_id(), file_id);
-        assert_eq!(&text[usize::from(range.value.start())..usize::from(range.value.end())], "clk");
-        assert!(range.value.start() < conn_name_offset);
+        for (name, text, pick) in [
+            (
+                "implicit non-ansi port",
+                "module m(a); input /*caret*/a; endmodule",
+                TokenPick::LeftBiased,
+            ),
+            (
+                "named port connection",
+                "module child(input clk); endmodule\n\
+                    module top; logic clk; child u(.c/*caret*/lk(clk)); endmodule",
+                TokenPick::GotoDefinition,
+            ),
+        ] {
+            let offset = TextSize::from(text.find("/*caret*/").unwrap() as u32);
+            let text = text.replace("/*caret*/", "");
+            let (host, file_id) = host_with_file(&text);
+            let db = host.raw_db();
+            let sema = Semantics::<RootDb>::new(db);
+            let parsed_file = sema.parse_file(file_id);
+            let file = parsed_file.compilation_unit().unwrap();
+            let tokens = file.syntax().token_at_offset(offset);
+            let token = match pick {
+                TokenPick::LeftBiased => tokens.left_biased(),
+                TokenPick::GotoDefinition => {
+                    tokens.pick_bext_token(crate::goto_definition::token_precedence)
+                }
+            }
+            .unwrap();
+            let DefinitionClass::Definition(def) =
+                DefinitionClass::resolve(&sema, file_id.into(), token).unwrap()
+            else {
+                panic!("expected plain definition for {name}");
+            };
+
+            let (resolution, range) = match def.0 {
+                PathResolution::NonAnsiPort { label: Some(label), module, .. } => (
+                    "NonAnsiPort",
+                    DefinitionOrigin::NonAnsiPort(InModule::new(module, label))
+                        .name_range(db)
+                        .expect("non-ANSI port label should have a name range"),
+                ),
+                PathResolution::AnsiPort(port) => (
+                    "AnsiPort",
+                    DefinitionOrigin::Decl(port.into())
+                        .name_range(db)
+                        .expect("ANSI port should have a name range"),
+                ),
+                other => panic!("unexpected definition for {name}: {other:?}"),
+            };
+            let range_start = usize::from(range.value.start());
+            let range_end = usize::from(range.value.end());
+
+            writeln!(&mut report, "{name}:").unwrap();
+            writeln!(&mut report, "  resolution: {resolution}").unwrap();
+            writeln!(&mut report, "  same_file: {}", range.file_id.file_id() == file_id).unwrap();
+            writeln!(&mut report, "  name_range: {:?}", range.value).unwrap();
+            writeln!(&mut report, "  name_text: {:?}", &text[range_start..range_end]).unwrap();
+            writeln!(&mut report, "  starts_before_caret: {}", range.value.start() < offset)
+                .unwrap();
+        }
+
+        insta::assert_snapshot!(report);
     }
 }
