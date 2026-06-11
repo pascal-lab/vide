@@ -1,0 +1,331 @@
+---
+source: crates/ide/src/semantic_tokens.rs
+expression: tokens
+---
+[
+    SemaToken {
+        range: 0..35,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 35..43,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 43..63,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 63..66,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 66..86,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 86..91,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 91..111,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 111..116,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 116..136,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 136..141,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 141..203,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 203..206,
+        tag: Instance,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 206..218,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 218..221,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 221..226,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 226..234,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 234..246,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 246..249,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 249..274,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 274..277,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 277..282,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 282..285,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 285..297,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 297..302,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 302..322,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 322..327,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 327..347,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 347..352,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 352..416,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 416..419,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 419..439,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 439..442,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 442..462,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 462..465,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 465..485,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 485..490,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            READ,
+        ),
+    },
+    SemaToken {
+        range: 490..510,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 510..515,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 515..535,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 535..540,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 540..554,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+]

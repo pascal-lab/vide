@@ -506,15 +506,12 @@ fn collect_resolved_path(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use hir::base_db::{change::Change, source_root::SourceRoot};
     use insta::assert_debug_snapshot;
     use triomphe::Arc;
-    use utils::{
-        lines::LineEnding,
-        text_edit::{TextRange, TextSize},
-    };
+    use utils::{lines::LineEnding, text_edit::TextRange};
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::*;
@@ -545,6 +542,45 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/semantic_tokens/fixtures")
     }
 
+    struct SemanticTokenFixture {
+        text: String,
+        config: SemaTokenConfig,
+    }
+
+    impl SemanticTokenFixture {
+        fn read(path: &Path) -> Self {
+            let raw =
+                std::fs::read_to_string(path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
+            let mut source_start = 0;
+            let mut config =
+                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } };
+
+            for line in raw.split_inclusive('\n') {
+                let line_text = line.trim_end_matches(['\r', '\n']);
+                let Some(meta) = line_text.strip_prefix("//- ") else {
+                    break;
+                };
+                source_start += line.len();
+
+                let (key, value) = meta
+                    .split_once(':')
+                    .unwrap_or_else(|| panic!("invalid fixture metadata in {path:?}"));
+                let value = parse_bool_metadata(value.trim(), path);
+                match key.trim() {
+                    "port.clk_rst" => config.port.clk_rst = value,
+                    "port.io" => config.port.io = value,
+                    other => panic!("unknown fixture metadata key `{other}` in {path:?}"),
+                }
+            }
+
+            Self { text: raw[source_start..].to_owned(), config }
+        }
+    }
+
+    fn parse_bool_metadata(value: &str, path: &Path) -> bool {
+        value.parse().unwrap_or_else(|_| panic!("invalid bool metadata `{value}` in {path:?}"))
+    }
+
     #[test]
     fn semantic_token_fixtures() {
         let dir = fixtures_dir();
@@ -565,191 +601,18 @@ mod tests {
         assert!(!fixtures.is_empty(), "no fixtures found in {dir:?}");
 
         for (name, path) in fixtures {
-            let text =
-                std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
-            let text = normalize_fixture_text(&text);
+            let fixture = SemanticTokenFixture::read(&path);
+            let text = normalize_fixture_text(&fixture.text);
             let (host, file_id) = setup(&text);
             let tokens = host
                 .make_analysis()
                 .semantic_tokens(
                     file_id,
-                    SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } },
+                    fixture.config,
                     Some(TextRange::up_to(utils::text_edit::TextSize::of(text.as_str()))),
                 )
                 .unwrap();
             assert_debug_snapshot!(name, tokens);
         }
-    }
-
-    #[test]
-    fn conditional_macro_references_use_macro_semantic_tokens_when_undefined() {
-        let text = r#"
-`define KNOWN 1
-`ifdef UNKNOWN
-`endif
-`ifndef KNOWN
-`endif
-module top;
-endmodule
-"#;
-        let (host, file_id) = setup(text);
-        let tokens = host
-            .make_analysis()
-            .semantic_tokens(
-                file_id,
-                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } },
-                Some(TextRange::up_to(TextSize::of(text))),
-            )
-            .unwrap();
-
-        let token_at = |start: usize, len: usize| {
-            let range =
-                TextRange::new(TextSize::from(start as u32), TextSize::from((start + len) as u32));
-            tokens
-                .iter()
-                .find(|token| !token.is_empty() && token.range == range)
-                .copied()
-                .unwrap_or_else(|| panic!("expected semantic token at {range:?}: {tokens:?}"))
-        };
-        let unknown_start = text.find("UNKNOWN").expect("UNKNOWN conditional should exist");
-        let known_start = text.rfind("KNOWN").expect("KNOWN conditional should exist");
-
-        assert_eq!(
-            (
-                token_at(unknown_start, "UNKNOWN".len()).tag,
-                token_at(unknown_start, "UNKNOWN".len()).mods
-            ),
-            (SemaTokenTag::Macro, SemaTokenModifier::REF)
-        );
-        assert_eq!(
-            (token_at(known_start, "KNOWN".len()).tag, token_at(known_start, "KNOWN".len()).mods),
-            (SemaTokenTag::Macro, SemaTokenModifier::REF)
-        );
-    }
-
-    #[test]
-    fn named_port_connection_labels_use_target_module_ports() {
-        let text = r#"
-module darksocv
-(
-    input        UART_RXD,
-    output [31:0] LED,
-    input  [31:0] IPORT,
-    output [31:0] OPORT,
-    output [3:0]  DEBUG
-);
-    wire [31:0] iport;
-    wire [31:0] oport;
-
-    darkio io0 (
-        .RXD    (UART_RXD),
-        .TXD    (UART_TXD),
-        .LED    (LED),
-        .IPORT  (iport),
-        .OPORT  (oport),
-        .DEBUG  (IODEBUG)
-    );
-endmodule
-
-module darkio
-(
-    input         RXD,
-    output        TXD,
-    output [31:0] LED,
-    input  [31:0] IPORT,
-    output [31:0] OPORT,
-    output  [3:0] DEBUG
-);
-endmodule
-"#;
-        let (host, file_id) = setup(text);
-        let tokens = host
-            .make_analysis()
-            .semantic_tokens(
-                file_id,
-                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: true, io: true } },
-                Some(TextRange::up_to(TextSize::of(text))),
-            )
-            .unwrap();
-
-        let token = |needle: &str| {
-            let start = text.find(needle).expect("connection label should exist") + 1;
-            let end = start + needle.len() - 1;
-            let range = TextRange::new(TextSize::from(start as u32), TextSize::from(end as u32));
-            tokens
-                .iter()
-                .find(|token| !token.is_empty() && token.range == range)
-                .copied()
-                .unwrap_or_else(|| panic!("expected token at {range:?} for {needle}"))
-        };
-
-        assert_eq!(
-            (token(".RXD").tag, token(".RXD").mods),
-            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::READ)
-        );
-        assert_eq!(
-            (token(".TXD").tag, token(".TXD").mods),
-            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
-        );
-        assert_eq!(
-            (token(".LED").tag, token(".LED").mods),
-            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
-        );
-        assert_eq!(
-            (token(".IPORT").tag, token(".IPORT").mods),
-            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::READ)
-        );
-        assert_eq!(
-            (token(".OPORT").tag, token(".OPORT").mods),
-            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
-        );
-        assert_eq!(
-            (token(".DEBUG").tag, token(".DEBUG").mods),
-            (SemaTokenTag::Port(SemaTokenPort::Others), SemaTokenModifier::WRITE)
-        );
-    }
-
-    #[test]
-    fn named_port_connection_token_uses_name_range() {
-        let text = "\
-module child(output logic instr_req_o);
-endmodule
-
-module top(output logic instr_req_o);
-child u_child (
-    .instr_req_o (instr_req_o),
-);
-endmodule
-";
-        let (host, file_id) = setup(text);
-        let tokens = host
-            .make_analysis()
-            .semantic_tokens(
-                file_id,
-                SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: true } },
-                Some(TextRange::up_to(TextSize::of(text))),
-            )
-            .unwrap();
-
-        let named_port_start = text.find(".instr_req_o").unwrap() + 1;
-        let named_port_range = TextRange::new(
-            TextSize::from(named_port_start as u32),
-            TextSize::from((named_port_start + "instr_req_o".len()) as u32),
-        );
-        let expr_start = text.find("(instr_req_o)").unwrap() + 1;
-        let expr_range = TextRange::new(
-            TextSize::from(expr_start as u32),
-            TextSize::from((expr_start + "instr_req_o".len()) as u32),
-        );
-
-        assert!(tokens.iter().any(|token| token.range == named_port_range));
-        assert!(tokens.iter().any(|token| token.range == expr_range));
-        assert!(
-            tokens
-                .iter()
-                .all(|token| token.range
-                    != TextRange::new(named_port_range.start(), expr_range.end())),
-            "named port connection must not produce a token spanning the whole connection"
-        );
     }
 }

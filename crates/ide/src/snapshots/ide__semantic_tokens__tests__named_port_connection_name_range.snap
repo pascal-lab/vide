@@ -1,0 +1,91 @@
+---
+source: crates/ide/src/semantic_tokens.rs
+expression: tokens
+---
+[
+    SemaToken {
+        range: 0..26,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 26..37,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 37..75,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 75..86,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 86..95,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 95..102,
+        tag: Instance,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 102..110,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 110..121,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 121..123,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 123..134,
+        tag: Port(
+            Others,
+        ),
+        mods: SemaTokenModifier(
+            WRITE,
+        ),
+    },
+    SemaToken {
+        range: 134..150,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+]
