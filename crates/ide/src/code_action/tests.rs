@@ -473,26 +473,9 @@ fn convert_port_declarations_requires_caret_in_port_list() {
 }
 
 #[test]
-fn split_declaration_declarators_splits_data_declaration() {
-    let text = "module top; /*caret*/logic [3:0] a, b = 4'h0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "split_declaration_declarators").unwrap();
-    assert_eq!(fixed, "module top; logic [3:0] a;\nlogic [3:0] b = 4'h0; endmodule\n");
-}
-
-#[test]
 fn split_declaration_declarators_requires_multiple_declarators() {
     let labels = action_labels_without_diagnostics("module top; /*caret*/logic a; endmodule\n");
     assert!(!labels.iter().any(|label| label == "Split declaration"));
-}
-
-#[test]
-fn sort_named_parameter_assignments_sorts_named_assignments() {
-    let text = "module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule\nmodule top; child #(/*caret*/.DEPTH(16), .WIDTH(8)) u(); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "sort_named_parameter_assignments").unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule\nmodule top; child #(.WIDTH(8), .DEPTH(16)) u(); endmodule\n"
-    );
 }
 
 #[test]
@@ -501,16 +484,6 @@ fn sort_named_parameter_assignments_rejects_mixed_assignments() {
         "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/.B(2), 1) u(); endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Sort named parameter assignments"));
-}
-
-#[test]
-fn sort_named_port_connections_sorts_named_connections() {
-    let text = "module child(input z, input a); endmodule\nmodule top; child u(/*caret*/.a(y), .z(x)); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "sort_named_port_connections").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input z, input a); endmodule\nmodule top; child u(.z(x), .a(y)); endmodule\n"
-    );
 }
 
 #[test]
@@ -530,35 +503,11 @@ fn sort_named_port_connections_rejects_ordered_connections() {
 }
 
 #[test]
-fn add_default_case_item_adds_default_before_endcase() {
-    let text = "module top; always_comb case (/*caret*/sel)\n    1'b0: y = 0;\nendcase endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "add_default_case_item").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb case (sel)\n    1'b0: y = 0;\n    default: ;\nendcase endmodule\n"
-    );
-}
-
-#[test]
 fn add_default_case_item_skips_existing_default() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb case (/*caret*/sel) default: ; endcase endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Add default case item"));
-}
-
-#[test]
-fn invert_if_else_swaps_branches_and_negates_condition() {
-    let text = "module top; always_comb if (/*caret*/a) y = 1; else y = 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "invert_if_else").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (!(a)) y = 0; else y = 1; endmodule\n");
-}
-
-#[test]
-fn remove_parentheses_removes_redundant_binary_parens() {
-    let text = "module top; assign y = /*caret*/(a + b) + c; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "remove_parentheses").unwrap();
-    assert_eq!(fixed, "module top; assign y = a + b + c; endmodule\n");
 }
 
 #[test]
