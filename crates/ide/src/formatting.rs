@@ -372,6 +372,8 @@ fn format_previous<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use hir::base_db::{change::Change, source_root::SourceRoot};
     use triomphe::Arc;
     use utils::{
@@ -427,35 +429,26 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_on_type_trigger_is_no_edit() {
-        let (db, file_id) = db_with_file("module A;\nendmodule");
-        let edit = format_on_type(
-            &db,
-            FilePosition { file_id, offset: TextSize::from(0) },
-            ".".to_owned(),
-            &line_info(&db, file_id),
-            config(),
-            &CancellationToken::new(),
-        )
-        .unwrap();
+    fn on_type_no_edit_matrix() {
+        let mut report = String::new();
 
-        assert!(edit.is_none());
-    }
+        for (name, text, offset, trigger) in [
+            ("unsupported trigger", "module A;\nendmodule", 0, "."),
+            ("first line inside block comment", "/*\n*/", 3, "\n"),
+        ] {
+            let (db, file_id) = db_with_file(text);
+            let edit = format_on_type(
+                &db,
+                FilePosition { file_id, offset: TextSize::from(offset) },
+                trigger.to_owned(),
+                &line_info(&db, file_id),
+                config(),
+                &CancellationToken::new(),
+            )
+            .unwrap();
+            writeln!(&mut report, "{name}: {edit:?}").unwrap();
+        }
 
-    #[test]
-    fn first_line_inside_block_comment_is_no_edit() {
-        let text = "/*\n*/";
-        let (db, file_id) = db_with_file(text);
-        let edit = format_on_type(
-            &db,
-            FilePosition { file_id, offset: TextSize::from(3) },
-            "\n".to_owned(),
-            &line_info(&db, file_id),
-            config(),
-            &CancellationToken::new(),
-        )
-        .unwrap();
-
-        assert!(edit.is_none());
+        insta::assert_snapshot!(report);
     }
 }
