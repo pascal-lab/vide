@@ -38,7 +38,7 @@ use crate::{
     hover::{HoverConfig, HoverFormat},
     references::{ReferencesConfig, search::SearchScope},
     rename::{RenameConfig, RenameEditScope, RenameError},
-    semantic_tokens::{SemaTokenConfig, SemaTokenPortConfig},
+    semantic_tokens::{SemaTokenConfig, SemaTokenModifier, SemaTokenPortConfig, SemaTokenTag},
     test_utils::normalize_fixture_text,
 };
 
@@ -2002,8 +2002,10 @@ module top;
 endmodule
 "#,
         r#"
+`ifndef /*marker:guard_ref*/HEADER_FLAG
 `define /*marker:definition*/HEADER_WIDTH 8
 `define HEADER_FLAG
+`endif
 "#,
     );
     let analysis = fixture.host.make_analysis();
@@ -2094,6 +2096,24 @@ endmodule
                 && diagnostic.range.intersect(inactive_range).is_some()
         }),
         "header macro should drive inactive branch diagnostics: {diagnostics:?}"
+    );
+
+    let guard_ref_range =
+        marked_range(&fixture.header_markers, "guard_ref", TextSize::of("HEADER_FLAG"));
+    let header_tokens = analysis
+        .semantic_tokens(
+            fixture.header_file_id,
+            SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } },
+            Some(TextRange::up_to(TextSize::of(fixture.header_text.as_str()))),
+        )
+        .unwrap();
+    assert!(
+        header_tokens.iter().any(|token| {
+            token.range == guard_ref_range
+                && token.tag == SemaTokenTag::Macro
+                && token.mods == SemaTokenModifier::REF
+        }),
+        "header guard reference should use SourceGraph semantic token facts: {header_tokens:?}"
     );
 }
 

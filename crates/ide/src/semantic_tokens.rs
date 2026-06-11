@@ -18,6 +18,7 @@ use hir::{
     scope::NonAnsiPortEntry,
     semantics::{Semantics, pathres::PathResolution},
     source_map::{IsNamedSrc, IsSrc, ToAstNode},
+    source_resolver::source_graph_model_file_ids_for_file,
 };
 use smol_str::SmolStr;
 use source_model::{SourceEntity, SourcePurpose, SourceRangeResult};
@@ -161,33 +162,43 @@ fn collect_preproc_macro_references(
     range: TextRange,
     collector: &mut SemaTokenCollector,
 ) {
-    let source_graph = db.source_graph_preproc_model(file_id);
-    let Ok(source_graph) = source_graph.as_ref() else {
-        return;
-    };
-    let graph = &source_graph.graph;
+    let mut emitted = Vec::new();
+    for model_file_id in source_graph_model_file_ids_for_file(db, file_id) {
+        let source_graph = db.source_graph_preproc_model(model_file_id);
+        let Ok(source_graph) = source_graph.as_ref() else {
+            continue;
+        };
+        let graph = &source_graph.graph;
 
-    for hit in
-        graph.entities_intersecting_file_range(file_id, range, Some(source_graph.root_context))
-    {
-        let SourceEntity::MacroReference(_) = graph.entity(hit.entity) else {
-            continue;
-        };
-        let selection = graph.selection(hit.selection);
-        let span = selection.focus.unwrap_or(hit.matched_span);
-        let SourceRangeResult::Mapped(file_range) =
-            graph.to_file_range(span, SourcePurpose::SemanticToken)
-        else {
-            continue;
-        };
-        if file_range.file_id != file_id || file_range.range.intersect(collector.range).is_none() {
-            continue;
-        };
-        collector.tokens.add(SemaToken {
-            range: file_range.range,
-            tag: SemaTokenTag::Macro,
-            mods: SemaTokenModifier::REF,
-        });
+        for hit in
+            graph.entities_intersecting_file_range(file_id, range, Some(source_graph.root_context))
+        {
+            let SourceEntity::MacroReference(_) = graph.entity(hit.entity) else {
+                continue;
+            };
+            let selection = graph.selection(hit.selection);
+            let span = selection.focus.unwrap_or(hit.matched_span);
+            let SourceRangeResult::Mapped(file_range) =
+                graph.to_file_range(span, SourcePurpose::SemanticToken)
+            else {
+                continue;
+            };
+            if file_range.file_id != file_id
+                || file_range.range.intersect(collector.range).is_none()
+            {
+                continue;
+            };
+            let token = SemaToken {
+                range: file_range.range,
+                tag: SemaTokenTag::Macro,
+                mods: SemaTokenModifier::REF,
+            };
+            if emitted.contains(&token) {
+                continue;
+            }
+            collector.tokens.add(token);
+            emitted.push(token);
+        }
     }
 }
 
