@@ -11,6 +11,7 @@ use memchr::memmem::Finder;
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use source_model::SourcePurpose;
 use syntax::{
     SyntaxNode, SyntaxTokenWithParent, has_text_range::HasTextRange, ptr::SyntaxTokenPtr,
     token::TokenKindExt,
@@ -27,7 +28,7 @@ use crate::{
     ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
-    source_targets::SourceTargetRequestCache,
+    syntax_targets::{generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 /// A search scope is a set of files and ranges within those files that should
@@ -205,7 +206,6 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
             self.def.origins().into_iter().filter_map(|def| def.name_range(db)).collect();
 
         let finder = &Finder::new(&name);
-        let mut source_target_cache = SourceTargetRequestCache::default();
         for (text, file_id, range) in self.scope_files() {
             self.sema.db.unwind_if_cancelled();
 
@@ -215,14 +215,7 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
                     let Some(root) = (*parsed_file).root() else {
                         return Vec::new();
                     };
-                    Self::filter_tokens(
-                        sema.db,
-                        root,
-                        file_id,
-                        &def_ranges,
-                        offset,
-                        &mut source_target_cache,
-                    )
+                    Self::filter_tokens(sema.db, root, file_id, &def_ranges, offset)
                 })
                 .filter(|tp| self.classify_and_filter(sema, file_id.into(), tp))
                 .for_each(|token| {
@@ -274,17 +267,15 @@ impl<'a, 'b> ReferencesCtx<'a, 'b> {
         file_id: FileId,
         names: &[InFile<TextRange>],
         offset: TextSize,
-        source_target_cache: &mut SourceTargetRequestCache,
     ) -> Vec<SyntaxTokenWithParent<'tree>> {
-        let Some(target) = crate::source_targets::source_target_at_offset_with_cache(
+        let Some(target) = generated_syntax_target_at_offset(
             db,
             file_id,
             node,
             offset,
-            super::token_precedence,
-            source_target_cache,
+            SourcePurpose::FindReferences,
         )
-        .and_then(|resolution| resolution.resolved()) else {
+        .or_else(|| syntax_target_at_offset(node, offset, super::token_precedence)) else {
             return Vec::new();
         };
 

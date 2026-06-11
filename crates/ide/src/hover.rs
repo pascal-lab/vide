@@ -35,7 +35,7 @@ use crate::{
     definitions::DefinitionClass,
     markup::Markup,
     render,
-    source_targets::{SourceTarget, source_target_at_offset},
+    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 const MACRO_EXPANSION_SEPARATOR: &str = "--------------------";
@@ -47,7 +47,7 @@ struct MacroSourceLink {
 
 enum HoverTarget<'tree> {
     Graph(RangeInfo<Markup>),
-    Source(SourceTarget<'tree>),
+    Source(SyntaxTarget<'tree>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,8 +82,8 @@ fn dispatch_hover_target<'tree>(
         return Some(target);
     }
     let root = root?;
-    let target =
-        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
+    let target = generated_syntax_target_at_offset(db, file_id, root, offset, SourcePurpose::Hover)
+        .or_else(|| syntax_target_at_offset(root, offset, token_precedence))?;
     Some(HoverTarget::Source(target))
 }
 
@@ -162,7 +162,7 @@ fn render_hover_target(
 fn hover_for_source_target(
     sema: &Semantics<RootDb>,
     hir_file_id: HirFileId,
-    target: SourceTarget<'_>,
+    target: SyntaxTarget<'_>,
 ) -> Option<RangeInfo<Markup>> {
     let (range, tokens) = target.into_parts();
     hover_for_token_selection(sema, hir_file_id, range, tokens)

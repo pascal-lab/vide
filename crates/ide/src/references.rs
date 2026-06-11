@@ -25,7 +25,7 @@ use crate::{
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
-    syntax_targets::{SyntaxTarget, syntax_target_at_offset},
+    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 pub(crate) mod search;
@@ -129,7 +129,9 @@ fn dispatch_references_target<'tree>(
         return Some(target);
     }
     let root = root?;
-    let target = syntax_target_at_offset(root, offset, token_precedence)?;
+    let target =
+        generated_syntax_target_at_offset(db, file_id, root, offset, SourcePurpose::FindReferences)
+            .or_else(|| syntax_target_at_offset(root, offset, token_precedence))?;
     Some(ReferencesTarget::Source(target))
 }
 

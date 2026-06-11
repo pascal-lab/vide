@@ -23,12 +23,12 @@ use crate::{
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
-    source_targets::{SourceTarget, source_target_at_offset},
+    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 enum DefinitionTarget<'tree> {
     Graph(RangeInfo<Vec<NavTarget>>),
-    Source(SourceTarget<'tree>),
+    Source(SyntaxTarget<'tree>),
 }
 
 pub(crate) fn goto_definition(
@@ -52,7 +52,8 @@ fn dispatch_definition_target<'tree>(
     }
     let root = root?;
     let target =
-        source_target_at_offset(db, file_id, root, offset, token_precedence)?.resolved()?;
+        generated_syntax_target_at_offset(db, file_id, root, offset, SourcePurpose::GotoDefinition)
+            .or_else(|| syntax_target_at_offset(root, offset, token_precedence))?;
     Some(DefinitionTarget::Source(target))
 }
 
@@ -127,7 +128,7 @@ fn render_source_definition_target(
     db: &RootDb,
     file_id: FileId,
     sema: &Semantics<RootDb>,
-    target: SourceTarget<'_>,
+    target: SyntaxTarget<'_>,
 ) -> Option<RangeInfo<Vec<NavTarget>>> {
     let hir_file_id = file_id.into();
     let (range, tokens) = target.into_parts();
