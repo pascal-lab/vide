@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_generate_member_wire_keyword.v
+---
+[
+    CompletionItem {
+        label: "wire",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 21..23,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wire ${1:name};",
+                del: 21..23,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 21..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

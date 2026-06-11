@@ -99,12 +99,11 @@ fn token_precedence(kind: TokenKind) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use hir::base_db::{change::Change, source_root::SourceRoot};
     use triomphe::Arc;
-    use utils::{
-        line_index::{TextRange, TextSize},
-        lines::LineEnding,
-    };
+    use utils::lines::LineEnding;
     use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
     use super::selection_ranges;
@@ -131,20 +130,17 @@ mod tests {
     }
 
     #[test]
-    fn empty_file_keeps_cursor_selection_range() {
-        let (db, file_id) = db_with_file("");
-        let ranges = selection_ranges(&db, FilePosition { file_id, offset: 0.into() });
+    fn selection_range_matrix() {
+        let mut report = String::new();
 
-        assert_eq!(ranges.first(), Some(&TextRange::empty(0.into())));
-    }
+        for (name, text, offset) in
+            [("empty file", "", 0), ("trivia-only line comment", "// hello", 3)]
+        {
+            let (db, file_id) = db_with_file(text);
+            let ranges = selection_ranges(&db, FilePosition { file_id, offset: offset.into() });
+            writeln!(&mut report, "{name}: {ranges:?}").unwrap();
+        }
 
-    #[test]
-    fn trivia_only_file_keeps_cursor_and_comment_ranges() {
-        let text = "// hello";
-        let (db, file_id) = db_with_file(text);
-        let ranges = selection_ranges(&db, FilePosition { file_id, offset: 3.into() });
-
-        assert_eq!(ranges.first(), Some(&TextRange::empty(3.into())));
-        assert!(ranges.contains(&TextRange::new(0.into(), TextSize::of(text))));
+        insta::assert_snapshot!(report);
     }
 }

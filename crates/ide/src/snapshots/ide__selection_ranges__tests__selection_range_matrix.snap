@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/selection_ranges.rs
+expression: report
+---
+empty file: [0..0]
+trivia-only line comment: [3..3, 0..8, 0..8]

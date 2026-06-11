@@ -1,0 +1,23 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_subroutine_name_in_module_scope.v
+---
+[
+    CompletionItem {
+        label: "px_func",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "px_func()",
+                del: 113..117,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "px_func(${1:args})",
+                del: 113..117,
+            },
+        ),
+    },
+]

@@ -292,6 +292,8 @@ fn dir_ancestors(path: VfsPath) -> Vec<VfsPath> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use hir::{
         base_db::{change::Change, source_db::SourceDb, source_root::SourceRoot},
         container::InModule,
@@ -305,17 +307,20 @@ mod tests {
 
     use super::*;
 
-    fn db_with_root(files: &[(&str, &str)], root: impl FnOnce(FileSet) -> SourceRoot) -> RootDb {
+    fn db_with_root(
+        files: &[(String, String)],
+        root: impl FnOnce(FileSet) -> SourceRoot,
+    ) -> RootDb {
         let mut db = RootDb::new(None);
         let mut file_set = FileSet::default();
         let mut change = Change::new();
 
         for (idx, (path, text)) in files.iter().enumerate() {
             let file_id = FileId(idx as u32);
-            file_set.insert(file_id, VfsPath::new_virtual_path((*path).to_owned()));
+            file_set.insert(file_id, VfsPath::new_virtual_path(path.clone()));
             change.add_changed_file(ChangedFile {
                 file_id,
-                change_kind: ChangeKind::Create(Arc::from(*text), LineEnding::Unix),
+                change_kind: ChangeKind::Create(Arc::from(text.as_str()), LineEnding::Unix),
             });
         }
 
@@ -324,144 +329,207 @@ mod tests {
         db
     }
 
-    fn child_name() -> Ident {
-        SmolStr::new("child")
+    enum RootKind {
+        BestEffort,
+        Local,
     }
 
-    #[test]
-    fn best_effort_resolves_duplicate_module_by_nearest_directory() {
-        let db = db_with_root(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-            ],
-            SourceRoot::new_best_effort_index,
-        );
-
-        let ModuleResolution::BestEffortProximity { selected: module_id, candidates } =
-            resolve_module_name(&db, FileId(1), &child_name())
-        else {
-            panic!("expected nearest child module to be selected");
-        };
-
-        assert_eq!(module_id.file_id.file_id(), FileId(0));
-        assert_eq!(candidates.len(), 2);
+    enum Query {
+        Module(SmolStr),
+        NamedPort,
+        NamedParam,
     }
 
-    #[test]
-    fn named_port_resolution_uses_same_proximity_policy_as_module_resolution() {
-        let top = "module top; child #(.WIDTH(1)) u(.a(sig)); endmodule\n";
-        let db = db_with_root(
-            &[
-                (
-                    "/project/a/child.sv",
-                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
+    struct ResolutionFixture {
+        root: RootKind,
+        query: Query,
+        focus: FileId,
+        offset: Option<TextSize>,
+        files: Vec<(String, String)>,
+    }
+
+    impl ResolutionFixture {
+        fn read(path: &Path) -> Self {
+            let raw = std::fs::read_to_string(path)
+                .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+            let mut root = None;
+            let mut query = None;
+            let mut focus_path = None;
+            let mut files: Vec<(String, String)> = Vec::new();
+            let mut current_path: Option<String> = None;
+            let mut current_text = String::new();
+            let mut focus_index = None;
+            let mut offset = None;
+
+            for line in raw.lines() {
+                let Some(meta) = line.strip_prefix("//- ") else {
+                    current_text.push_str(line);
+                    current_text.push('\n');
+                    continue;
+                };
+
+                let (key, value) = meta
+                    .split_once(':')
+                    .unwrap_or_else(|| panic!("invalid fixture metadata in {}", path.display()));
+                let value = value.trim();
+                match key.trim() {
+                    "root" => {
+                        root = Some(match value {
+                            "best_effort" => RootKind::BestEffort,
+                            "local" => RootKind::Local,
+                            other => panic!("unknown root kind `{other}` in {}", path.display()),
+                        });
+                    }
+                    "query" => {
+                        query = Some(match value {
+                            value if let Some(module) = value.strip_prefix("module ") => {
+                                Query::Module(SmolStr::new(module))
+                            }
+                            "named_port" => Query::NamedPort,
+                            "named_param" => Query::NamedParam,
+                            other => panic!("unknown query `{other}` in {}", path.display()),
+                        });
+                    }
+                    "focus" => focus_path = Some(value.to_owned()),
+                    "file" => {
+                        if let Some(file_path) = current_path.take() {
+                            let file_index = files.len();
+                            if focus_path.as_deref() == Some(file_path.as_str()) {
+                                focus_index = Some(file_index);
+                            }
+                            let clean_text = strip_caret(&current_text, &mut offset);
+                            files.push((file_path, clean_text));
+                            current_text.clear();
+                        }
+                        current_path = Some(value.to_owned());
+                    }
+                    other => panic!("unknown metadata key `{other}` in {}", path.display()),
+                }
+            }
+
+            if let Some(file_path) = current_path.take() {
+                let file_index = files.len();
+                if focus_path.as_deref() == Some(file_path.as_str()) {
+                    focus_index = Some(file_index);
+                }
+                let clean_text = strip_caret(&current_text, &mut offset);
+                files.push((file_path, clean_text));
+            }
+
+            ResolutionFixture {
+                root: root.unwrap_or_else(|| panic!("missing root in {}", path.display())),
+                query: query.unwrap_or_else(|| panic!("missing query in {}", path.display())),
+                focus: FileId(
+                    focus_index
+                        .unwrap_or_else(|| panic!("missing focus file in {}", path.display()))
+                        as u32,
                 ),
-                ("/project/a/top.sv", top),
-                (
-                    "/project/b/child.sv",
-                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
-                ),
-            ],
-            SourceRoot::new_best_effort_index,
+                offset,
+                files,
+            }
+        }
+    }
+
+    fn strip_caret(text: &str, offset: &mut Option<TextSize>) -> String {
+        const CARET: &str = "/*caret*/";
+        let Some(marker_offset) = text.find(CARET) else {
+            return text.to_owned();
+        };
+        assert!(
+            offset.is_none(),
+            "only one caret marker is allowed across module resolution fixture files"
         );
+        *offset = Some(TextSize::from(marker_offset as u32));
+        text.replace(CARET, "")
+    }
 
-        let tree = db.parse_src(FileId(1));
-        let root = tree.root().expect("test source should parse");
-        let port_conn = root
-            .find_node_at_offset::<ast::NamedPortConnection>(TextSize::from(
-                top.find(".a").unwrap() as u32 + 1,
-            ))
-            .expect("named port connection should parse");
-
-        let Some(PathResolution::AnsiPort(InModule { module_id, .. })) =
-            resolve_named_port_connection(&db, FileId(1), port_conn)
-        else {
-            panic!("expected named port connection to resolve to nearest child port");
+    fn fixture_snapshot(fixture: ResolutionFixture) -> String {
+        let db = match fixture.root {
+            RootKind::BestEffort => db_with_root(&fixture.files, SourceRoot::new_best_effort_index),
+            RootKind::Local => db_with_root(&fixture.files, SourceRoot::new_local),
         };
 
-        assert_eq!(module_id.file_id.file_id(), FileId(0));
+        match fixture.query {
+            Query::Module(module) => {
+                let result = resolve_module_name(&db, fixture.focus, &module);
+                format_module_resolution(&fixture.files, result)
+            }
+            Query::NamedPort => {
+                let offset = fixture.offset.expect("named_port query requires /*caret*/");
+                let tree = db.parse_src(fixture.focus);
+                let root = tree.root().expect("test source should parse");
+                let port_conn = root
+                    .find_node_at_offset::<ast::NamedPortConnection>(offset)
+                    .expect("named port connection should parse at /*caret*/");
+                match resolve_named_port_connection(&db, fixture.focus, port_conn) {
+                    Some(PathResolution::AnsiPort(InModule { module_id, .. })) => {
+                        format!(
+                            "AnsiPort module={}",
+                            file_path(&fixture.files, module_id.file_id.file_id())
+                        )
+                    }
+                    other => format!("{other:?}"),
+                }
+            }
+            Query::NamedParam => {
+                let offset = fixture.offset.expect("named_param query requires /*caret*/");
+                let tree = db.parse_src(fixture.focus);
+                let root = tree.root().expect("test source should parse");
+                let param_assign = root
+                    .find_node_at_offset::<ast::NamedParamAssignment>(offset)
+                    .expect("named parameter assignment should parse at /*caret*/");
+                match resolve_named_param_assignment(&db, fixture.focus, param_assign) {
+                    Some(PathResolution::ParamDecl(InModule { module_id, .. })) => {
+                        format!(
+                            "ParamDecl module={}",
+                            file_path(&fixture.files, module_id.file_id.file_id())
+                        )
+                    }
+                    other => format!("{other:?}"),
+                }
+            }
+        }
+    }
+
+    fn format_module_resolution(files: &[(String, String)], result: ModuleResolution) -> String {
+        match result {
+            ModuleResolution::Unique(module_id) => {
+                format!("Unique selected={}", file_path(files, module_id.file_id.file_id()))
+            }
+            ModuleResolution::BestEffortProximity { selected, candidates } => format!(
+                "BestEffortProximity selected={} candidates={:?}",
+                file_path(files, selected.file_id.file_id()),
+                candidate_paths(files, candidates)
+            ),
+            ModuleResolution::Ambiguous { candidates, kind } => {
+                format!(
+                    "Ambiguous kind={kind:?} candidates={:?}",
+                    candidate_paths(files, candidates)
+                )
+            }
+            ModuleResolution::Unresolved => "Unresolved".to_string(),
+        }
+    }
+
+    fn candidate_paths(files: &[(String, String)], candidates: Vec<ModuleId>) -> Vec<String> {
+        candidates
+            .into_iter()
+            .map(|module_id| file_path(files, module_id.file_id.file_id()))
+            .collect()
+    }
+
+    fn file_path(files: &[(String, String)], file_id: FileId) -> String {
+        files
+            .get(file_id.0 as usize)
+            .map(|(path, _)| path.clone())
+            .unwrap_or_else(|| format!("<unknown {:?}>", file_id))
     }
 
     #[test]
-    fn named_param_resolution_uses_same_proximity_policy_as_module_resolution() {
-        let top = "module top; child #(.WIDTH(1)) u(.a(sig)); endmodule\n";
-        let db = db_with_root(
-            &[
-                (
-                    "/project/a/child.sv",
-                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
-                ),
-                ("/project/a/top.sv", top),
-                (
-                    "/project/b/child.sv",
-                    "module child #(parameter WIDTH = 1) (input wire a); endmodule\n",
-                ),
-            ],
-            SourceRoot::new_best_effort_index,
-        );
-
-        let tree = db.parse_src(FileId(1));
-        let root = tree.root().expect("test source should parse");
-        let param_assign = root
-            .find_node_at_offset::<ast::NamedParamAssignment>(TextSize::from(
-                top.find(".WIDTH").unwrap() as u32 + 1,
-            ))
-            .expect("named parameter assignment should parse");
-
-        let Some(PathResolution::ParamDecl(InModule { module_id, .. })) =
-            resolve_named_param_assignment(&db, FileId(1), param_assign)
-        else {
-            panic!("expected named parameter assignment to resolve to nearest child parameter");
-        };
-
-        assert_eq!(module_id.file_id.file_id(), FileId(0));
-    }
-
-    #[test]
-    fn best_effort_keeps_tied_duplicate_modules_ambiguous() {
-        let db = db_with_root(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-                ("/project/top.sv", "module top; child u(); endmodule\n"),
-            ],
-            SourceRoot::new_best_effort_index,
-        );
-
-        let ModuleResolution::Ambiguous {
-            candidates,
-            kind: ModuleResolutionAmbiguity::BestEffortTie,
-        } = resolve_module_name(&db, FileId(2), &child_name())
-        else {
-            panic!("expected equally near child modules to remain ambiguous");
-        };
-        let candidate_files =
-            candidates.into_iter().map(|module_id| module_id.file_id.file_id()).collect::<Vec<_>>();
-
-        assert_eq!(candidate_files, vec![FileId(0), FileId(1)]);
-    }
-
-    #[test]
-    fn configured_roots_do_not_use_proximity_to_resolve_duplicate_modules() {
-        let db = db_with_root(
-            &[
-                ("/project/a/child.sv", "module child; endmodule\n"),
-                ("/project/a/top.sv", "module top; child u(); endmodule\n"),
-                ("/project/b/child.sv", "module child; endmodule\n"),
-            ],
-            SourceRoot::new_local,
-        );
-
-        let ModuleResolution::Ambiguous { candidates, kind: ModuleResolutionAmbiguity::Strict } =
-            resolve_module_name(&db, FileId(1), &child_name())
-        else {
-            panic!("expected configured root to preserve duplicate module ambiguity");
-        };
-        let candidate_files =
-            candidates.into_iter().map(|module_id| module_id.file_id.file_id()).collect::<Vec<_>>();
-
-        assert_eq!(candidate_files, vec![FileId(0), FileId(2)]);
+    fn module_resolution_fixtures() {
+        insta::glob!("module_resolution/fixtures/*.sv", |path| {
+            let fixture = ResolutionFixture::read(path);
+            insta::assert_snapshot!(fixture_snapshot(fixture));
+        });
     }
 }

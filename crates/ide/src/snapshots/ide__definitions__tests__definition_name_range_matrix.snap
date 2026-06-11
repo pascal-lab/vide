@@ -1,0 +1,16 @@
+---
+source: crates/ide/src/definitions.rs
+expression: report
+---
+implicit non-ansi port:
+  resolution: NonAnsiPort
+  same_file: true
+  name_range: 9..10
+  name_text: "a"
+  starts_before_caret: true
+named port connection:
+  resolution: AnsiPort
+  same_file: true
+  name_range: 19..22
+  name_text: "clk"
+  starts_before_caret: true

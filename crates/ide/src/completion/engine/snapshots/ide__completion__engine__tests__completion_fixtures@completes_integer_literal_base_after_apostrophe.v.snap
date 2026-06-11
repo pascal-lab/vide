@@ -1,0 +1,95 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_integer_literal_base_after_apostrophe.v
+---
+[
+    CompletionItem {
+        label: "b",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "b",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "d",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "d",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "h",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "h",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "o",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "o",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "sb",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "sb",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "sd",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "sd",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "sh",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "sh",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "so",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "so",
+                del: 24..24,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

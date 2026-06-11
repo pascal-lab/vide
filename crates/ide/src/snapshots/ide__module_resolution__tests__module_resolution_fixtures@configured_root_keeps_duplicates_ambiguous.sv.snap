@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/module_resolution.rs
+expression: fixture_snapshot(fixture)
+input_file: crates/ide/src/module_resolution/fixtures/configured_root_keeps_duplicates_ambiguous.sv
+---
+Ambiguous kind=Strict candidates=["/project/a/child.sv", "/project/b/child.sv"]

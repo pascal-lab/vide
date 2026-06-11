@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_ansi_port_keyword_prefix.v
+---
+[
+    CompletionItem {
+        label: "wire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 15..18,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

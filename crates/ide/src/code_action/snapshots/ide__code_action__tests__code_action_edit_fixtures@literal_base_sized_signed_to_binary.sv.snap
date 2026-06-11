@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/literal_base_sized_signed_to_binary.sv
+---
+module top; localparam logic [7:0] value = 8'sb101010; endmodule

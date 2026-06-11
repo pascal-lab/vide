@@ -1,0 +1,29 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/filters_assignment_rhs_by_expected_type.v
+---
+[
+    CompletionItem {
+        label: "lhs",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "lhs",
+                del: 99..99,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "same_width",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "same_width",
+                del: 99..99,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

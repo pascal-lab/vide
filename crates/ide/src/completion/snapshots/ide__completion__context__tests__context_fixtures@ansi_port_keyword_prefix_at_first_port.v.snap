@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/ansi_port_keyword_prefix_at_first_port.v
+---
+lex: Code
+prefix: "in"
+replacement: 15..17
+in_decl_name: false
+expectations:
+  AnsiPortItem from Parser

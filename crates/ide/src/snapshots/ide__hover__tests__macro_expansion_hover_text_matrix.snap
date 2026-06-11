@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/hover.rs
+expression: report
+---
+dedents common indentation:
+always_ff @(posedge clk) begin
+  q <= 1;
+end
+removes single-line callsite indent:
+logic generated;

@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/convert_always_star_to_always_comb.sv
+---
+module top; logic a, y; always_comb begin y = a; end endmodule

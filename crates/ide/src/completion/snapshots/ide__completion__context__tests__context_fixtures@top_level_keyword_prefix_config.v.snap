@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/top_level_keyword_prefix_config.v
+---
+lex: Code
+prefix: "con"
+replacement: 0..3
+in_decl_name: false
+expectations:
+  Keyword(CompilationUnitMember) from Parser

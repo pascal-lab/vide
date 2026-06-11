@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/named_port_after_dot.v
+---
+lex: Code
+prefix: ""
+replacement: 47..47
+in_decl_name: false
+expectations:
+  PortConnectionName from Ast(NamedPortConnection)

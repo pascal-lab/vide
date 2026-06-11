@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/workspace_symbols.rs
+expression: report
+---
+parsed query: top::inner sig
+  path_filter: ["top", "inner"]
+  item_query: "sig"
+qualified matches: top sig
+  top.signal: true
+  child.signal: false
+case-insensitive index map entries: 2

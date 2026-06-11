@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/missing_parameter_empty_parameter_list.sv
+---
+module child #(parameter A, parameter B) (); endmodule
+module top; child #(.A(), .B()) u(); endmodule

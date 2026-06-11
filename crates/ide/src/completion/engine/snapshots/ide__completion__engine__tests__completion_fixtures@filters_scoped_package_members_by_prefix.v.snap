@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/filters_scoped_package_members_by_prefix.v
+---
+[
+    CompletionItem {
+        label: "pkg_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "pkg_value",
+                del: 133..136,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

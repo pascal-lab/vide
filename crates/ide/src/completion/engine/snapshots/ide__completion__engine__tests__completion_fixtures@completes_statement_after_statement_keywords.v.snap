@@ -1,0 +1,455 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_statement_after_statement_keywords.v
+---
+[
+    CompletionItem {
+        label: "assign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "assign ${1:lhs} = ${0:rhs};",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "begin",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "begin",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "case",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "case",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "case (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "casex",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "casex",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "casex (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "casez",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "casez",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "casez (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "deassign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "deassign",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "deassign ${1:lhs};",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "disable",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "disable",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "disable ${1:block};",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "for",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "for",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "for (${1:i} = ${2:0}; ${3:i} < ${4:N}; ${5:i} = ${6:i} + 1) begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "force",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "force",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "force ${1:lhs} = ${0:rhs};",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "forever",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "forever",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "forever begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "fork",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "fork",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "fork\n\t${0}\njoin",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if else",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "release",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "release",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "release ${1:lhs};",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "repeat",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "repeat",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "repeat (${1:N}) begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wait",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wait",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wait (${1:cond}) begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "while",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "while",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "while (${1:cond}) begin\n\t${0}\nend",
+                del: 35..35,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "begin",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "begin",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "case",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "case",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "casex",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "casex",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "casez",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "casez",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "deassign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "deassign",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "disable",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "disable",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "for",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "for",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "force",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "force",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "forever",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "forever",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "fork",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "fork",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "if",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "release",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "release",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "repeat",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "repeat",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wait",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wait",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "while",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "while",
+                del: 35..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

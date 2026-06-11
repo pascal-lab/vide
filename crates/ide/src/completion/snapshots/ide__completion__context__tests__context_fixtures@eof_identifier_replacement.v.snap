@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/eof_identifier_replacement.v
+---
+lex: Code
+prefix: "mo"
+replacement: 0..2
+in_decl_name: false
+expectations:
+  Keyword(CompilationUnitMember) from Parser

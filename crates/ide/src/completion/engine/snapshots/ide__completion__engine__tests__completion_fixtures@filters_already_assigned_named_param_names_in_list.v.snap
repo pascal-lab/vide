@@ -1,0 +1,23 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/filters_already_assigned_named_param_names_in_list.v
+---
+[
+    CompletionItem {
+        label: "Z",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: ".Z()",
+                del: 120..120,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: ".Z(${1:expr})",
+                del: 120..120,
+            },
+        ),
+    },
+]

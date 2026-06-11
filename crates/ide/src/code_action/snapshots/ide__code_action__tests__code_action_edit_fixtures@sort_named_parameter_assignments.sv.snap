@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/sort_named_parameter_assignments.sv
+---
+module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule
+module top; child #(.WIDTH(8), .DEPTH(16)) u(); endmodule

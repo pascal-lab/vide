@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/split_declaration_declarators.sv
+---
+module top; logic [3:0] a;
+logic [3:0] b = 4'h0; endmodule

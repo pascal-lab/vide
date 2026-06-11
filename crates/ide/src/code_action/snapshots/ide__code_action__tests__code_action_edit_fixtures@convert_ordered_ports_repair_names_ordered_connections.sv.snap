@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/convert_ordered_ports_repair_names_ordered_connections.sv
+---
+module child(input a, input b); endmodule
+module top; child u(.a(x), .b(y)); endmodule

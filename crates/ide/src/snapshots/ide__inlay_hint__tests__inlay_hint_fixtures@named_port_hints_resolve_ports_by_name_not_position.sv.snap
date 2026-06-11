@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/named_port_hints_resolve_ports_by_name_not_position.sv
+---
+Port @ 99 "→" padding=(true, true) target=None edit=None
+Port @ 112 "←" padding=(true, true) target=None edit=None

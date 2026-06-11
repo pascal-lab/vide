@@ -196,46 +196,55 @@ fn lookup_in_table<'a>(table: &'a toml::Table, key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, fmt::Write};
 
     use toml::Value;
 
     use super::{I18n, Locale, keys};
 
     #[test]
-    fn maps_lsp_locales_to_supported_locales() {
-        assert_eq!(Locale::from_lsp(Some("zh-CN")), Locale::ZhCn);
-        assert_eq!(Locale::from_lsp(Some("zh_Hans")), Locale::ZhCn);
-        assert_eq!(Locale::from_lsp(Some("en-US")), Locale::En);
-        assert_eq!(Locale::from_lsp(None), Locale::En);
-    }
+    fn i18n_matrix() {
+        let mut report = String::new();
 
-    #[test]
-    fn reads_messages_from_embedded_tables() {
-        assert_eq!(
-            I18n::new(Locale::ZhCn).text(keys::CODE_ACTION_CONVERT_ORDERED_PORTS),
-            "将有序端口连接转换为命名连接"
-        );
-        assert_eq!(
-            I18n::new(Locale::En).text(keys::CODE_ACTION_ADD_MISSING_CONNECTIONS),
-            "Fill connections"
-        );
-    }
+        writeln!(&mut report, "locale mapping:").unwrap();
+        for locale in [Some("zh-CN"), Some("zh_Hans"), Some("en-US"), None] {
+            writeln!(&mut report, "  {locale:?} -> {:?}", Locale::from_lsp(locale)).unwrap();
+        }
 
-    #[test]
-    fn formats_named_args() {
-        assert_eq!(
-            I18n::new(Locale::ZhCn).format(keys::QIHE_FINISHED, [("total", 3.to_string())]),
-            "Qihe 分析完成，共 3 条诊断。"
-        );
-    }
+        writeln!(&mut report, "message lookup:").unwrap();
+        writeln!(
+            &mut report,
+            "  zh convert ordered ports: {}",
+            I18n::new(Locale::ZhCn).text(keys::CODE_ACTION_CONVERT_ORDERED_PORTS)
+        )
+        .unwrap();
+        writeln!(
+            &mut report,
+            "  en add missing connections: {}",
+            I18n::new(Locale::En).text(keys::CODE_ACTION_ADD_MISSING_CONNECTIONS)
+        )
+        .unwrap();
 
-    #[test]
-    fn locale_tables_have_matching_keys() {
+        writeln!(&mut report, "formatting:").unwrap();
+        writeln!(
+            &mut report,
+            "  {}",
+            I18n::new(Locale::ZhCn).format(keys::QIHE_FINISHED, [("total", 3.to_string())])
+        )
+        .unwrap();
+
         let en_keys = leaf_keys(&super::EN_MESSAGES);
         let zh_cn_keys = leaf_keys(&super::ZH_CN_MESSAGES);
+        let only_en = en_keys.difference(&zh_cn_keys).collect::<Vec<_>>();
+        let only_zh_cn = zh_cn_keys.difference(&en_keys).collect::<Vec<_>>();
 
-        assert_eq!(en_keys, zh_cn_keys);
+        writeln!(&mut report, "locale table keys:").unwrap();
+        writeln!(&mut report, "  en: {}", en_keys.len()).unwrap();
+        writeln!(&mut report, "  zh-CN: {}", zh_cn_keys.len()).unwrap();
+        writeln!(&mut report, "  only en: {only_en:?}").unwrap();
+        writeln!(&mut report, "  only zh-CN: {only_zh_cn:?}").unwrap();
+
+        insta::assert_snapshot!(report);
     }
 
     fn leaf_keys(table: &toml::Table) -> BTreeSet<String> {

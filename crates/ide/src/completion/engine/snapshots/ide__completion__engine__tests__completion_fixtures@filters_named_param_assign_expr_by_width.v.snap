@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/filters_named_param_assign_expr_by_width.v
+---
+[
+    CompletionItem {
+        label: "P4",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "P4",
+                del: 117..117,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

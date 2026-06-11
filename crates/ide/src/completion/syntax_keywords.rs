@@ -131,144 +131,20 @@ fn keyword_kind(keyword: &str) -> Option<TokenKind> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use super::*;
 
     #[test]
-    fn gate_type_keywords_include_slang_gate_facts() {
-        assert!(gate_type_keywords().iter().any(|keyword| keyword == "bufif0"));
-        assert!(gate_type_keywords().iter().any(|keyword| keyword == "and"));
-    }
+    fn keyword_context_matrix() {
+        let mut report = String::new();
 
-    #[test]
-    fn edge_keywords_include_slang_edge_facts() {
-        assert!(edge_keywords().iter().any(|keyword| keyword == "posedge"));
-        assert!(edge_keywords().iter().any(|keyword| keyword == "negedge"));
-        assert!(edge_keywords().iter().any(|keyword| keyword == "edge"));
-    }
+        writeln!(&mut report, "# special keyword groups").unwrap();
+        write_keywords(&mut report, "GateType", gate_type_keywords());
+        write_keywords(&mut report, "Edge", edge_keywords());
 
-    #[test]
-    fn compilation_unit_keywords_use_member_facts() {
-        let keywords = keywords_at(SyntaxKeywordContext::CompilationUnitMember);
-
-        assert!(keywords.iter().any(|keyword| keyword == "module"));
-        assert!(keywords.iter().any(|keyword| keyword == "macromodule"));
-        assert!(keywords.iter().any(|keyword| keyword == "primitive"));
-        assert!(keywords.iter().any(|keyword| keyword == "config"));
-        assert!(!keywords.iter().any(|keyword| keyword == "library"));
-        assert!(!keywords.iter().any(|keyword| keyword == "include"));
-        assert!(!keywords.iter().any(|keyword| keyword == "endmodule"));
-    }
-
-    #[test]
-    fn library_map_keywords_use_library_map_facts() {
-        let keywords = keywords_at(SyntaxKeywordContext::LibraryMapMember);
-
-        assert!(keywords.iter().any(|keyword| keyword == "library"));
-        assert!(keywords.iter().any(|keyword| keyword == "include"));
-        assert!(keywords.iter().any(|keyword| keyword == "config"));
-        assert!(!keywords.iter().any(|keyword| keyword == "module"));
-    }
-
-    #[test]
-    fn module_member_keywords_use_slang_allowed_in_module() {
-        let keywords = keywords_at(SyntaxKeywordContext::ModuleMember);
-
-        assert!(keywords.iter().any(|keyword| keyword == "always"));
-        assert!(keywords.iter().any(|keyword| keyword == "begin"));
-        assert!(keywords.iter().any(|keyword| keyword == "input"));
-        assert!(keywords.iter().any(|keyword| keyword == "wire"));
-        assert!(keywords.iter().any(|keyword| keyword == "localparam"));
-        assert!(keywords.iter().any(|keyword| keyword == "buf"));
-        assert!(!keywords.iter().any(|keyword| keyword == "while"));
-        assert!(!keywords.iter().any(|keyword| keyword == "return"));
-        assert!(!keywords.iter().any(|keyword| keyword == "endmodule"));
-    }
-
-    #[test]
-    fn generate_member_keywords_use_slang_allowed_in_generate() {
-        let keywords = keywords_at(SyntaxKeywordContext::GenerateMember);
-
-        assert!(keywords.iter().any(|keyword| keyword == "assign"));
-        assert!(keywords.iter().any(|keyword| keyword == "begin"));
-        assert!(keywords.iter().any(|keyword| keyword == "wire"));
-        assert!(keywords.iter().any(|keyword| keyword == "buf"));
-        assert!(!keywords.iter().any(|keyword| keyword == "casex"));
-        assert!(!keywords.iter().any(|keyword| keyword == "casez"));
-        assert!(!keywords.iter().any(|keyword| keyword == "while"));
-        assert!(!keywords.iter().any(|keyword| keyword == "return"));
-        assert!(!keywords.iter().any(|keyword| keyword == "generate"));
-    }
-
-    #[test]
-    fn specify_item_keywords_use_specify_item_entries() {
-        let keywords = keywords_at(SyntaxKeywordContext::SpecifyItem);
-
-        assert!(keywords.iter().any(|keyword| keyword == "specparam"));
-        assert!(keywords.iter().any(|keyword| keyword == "pulsestyle_ondetect"));
-        assert!(keywords.iter().any(|keyword| keyword == "ifnone"));
-        assert!(keywords.iter().any(|keyword| keyword == "if"));
-        assert!(!keywords.iter().any(|keyword| keyword == "wire"));
-        assert!(!keywords.iter().any(|keyword| keyword == "specify"));
-    }
-
-    #[test]
-    fn keyword_candidates_filter_prefix() {
-        let candidates = keyword_candidates_for_context(SyntaxKeywordContext::ModuleMember, "al");
-
-        assert!(candidates.contains_plain("always"));
-        assert!(candidates.labels().iter().all(|keyword| keyword.starts_with("al")));
-    }
-
-    #[test]
-    fn module_header_keywords_use_ansi_port_facts() {
-        let keywords = keywords_at(SyntaxKeywordContext::ModuleHeaderItem);
-
-        assert!(keywords.iter().any(|keyword| keyword == "input"));
-        assert!(keywords.iter().any(|keyword| keyword == "output"));
-        assert!(!keywords.iter().any(|keyword| keyword == "always"));
-    }
-
-    #[test]
-    fn block_and_statement_keywords_are_separate() {
-        let block_keywords = keywords_at(SyntaxKeywordContext::BlockItem);
-        assert!(block_keywords.iter().any(|keyword| keyword == "integer"));
-        assert!(block_keywords.iter().any(|keyword| keyword == "localparam"));
-        assert!(block_keywords.iter().any(|keyword| keyword == "for"));
-        assert!(!block_keywords.iter().any(|keyword| keyword == "wire"));
-        assert!(!block_keywords.iter().any(|keyword| keyword == "module"));
-
-        let statement_keywords = keywords_at(SyntaxKeywordContext::Statement);
-        assert!(statement_keywords.iter().any(|keyword| keyword == "for"));
-        assert!(statement_keywords.iter().any(|keyword| keyword == "if"));
-        assert!(statement_keywords.iter().any(|keyword| keyword == "begin"));
-        assert!(!statement_keywords.iter().any(|keyword| keyword == "integer"));
-        assert!(!statement_keywords.iter().any(|keyword| keyword == "wire"));
-        assert!(!statement_keywords.iter().any(|keyword| keyword == "always"));
-    }
-
-    #[test]
-    fn port_and_parameter_keywords_use_slang_token_facts() {
-        let ansi_keywords = keywords_at(SyntaxKeywordContext::AnsiPortItem);
-        assert!(ansi_keywords.iter().any(|keyword| keyword == "input"));
-        assert!(ansi_keywords.iter().any(|keyword| keyword == "output"));
-        assert!(!ansi_keywords.iter().any(|keyword| keyword == "always"));
-
-        let function_keywords = keywords_at(SyntaxKeywordContext::FunctionPortItem);
-        assert!(function_keywords.iter().any(|keyword| keyword == "input"));
-        assert!(function_keywords.iter().any(|keyword| keyword == "output"));
-        assert!(!function_keywords.iter().any(|keyword| keyword == "always"));
-
-        let parameter_keywords = keywords_at(SyntaxKeywordContext::ParameterPortListItem);
-        assert!(
-            parameter_keywords.iter().any(|keyword| keyword == "parameter"),
-            "parameter predictions: {parameter_keywords:?}"
-        );
-        assert!(!parameter_keywords.iter().any(|keyword| keyword == "always"));
-    }
-
-    #[test]
-    fn core_keyword_contexts_are_non_empty() {
-        let cases = [
+        writeln!(&mut report, "\n# syntax keyword contexts").unwrap();
+        for context in [
             SyntaxKeywordContext::CompilationUnitMember,
             SyntaxKeywordContext::LibraryMapMember,
             SyntaxKeywordContext::ModuleHeaderItem,
@@ -282,26 +158,42 @@ mod tests {
             SyntaxKeywordContext::AnsiPortItem,
             SyntaxKeywordContext::FunctionPortItem,
             SyntaxKeywordContext::ParameterPortListItem,
-        ];
-
-        for context in cases {
-            let keywords = keywords_at(context);
-            assert!(!keywords.is_empty(), "{context:?} produced no keywords");
+            SyntaxKeywordContext::GateType,
+        ] {
+            write_keywords(&mut report, &format!("{context:?}"), &keywords_at(context));
         }
+
+        writeln!(&mut report, "\n# prefix filters").unwrap();
+        for (context, prefix) in [
+            (SyntaxKeywordContext::ModuleMember, "al"),
+            (SyntaxKeywordContext::ModuleMember, "lo"),
+            (SyntaxKeywordContext::GenerateMember, "as"),
+            (SyntaxKeywordContext::SpecifyItem, "sp"),
+            (SyntaxKeywordContext::ConfigHeaderItem, "de"),
+            (SyntaxKeywordContext::ConfigRule, "de"),
+            (SyntaxKeywordContext::BlockItem, "re"),
+            (SyntaxKeywordContext::Statement, "re"),
+            (SyntaxKeywordContext::AnsiPortItem, "wir"),
+            (SyntaxKeywordContext::ParameterPortListItem, "para"),
+        ] {
+            let candidates = keyword_candidates_for_context(context, prefix);
+            writeln!(
+                &mut report,
+                "{context:?} prefix {prefix:?}: all_match={} {:?}",
+                candidates.labels().iter().all(|keyword| keyword.starts_with(prefix)),
+                candidates.labels()
+            )
+            .unwrap();
+        }
+
+        insta::assert_snapshot!(report);
     }
 
-    #[test]
-    fn config_keywords_use_config_phase_entries() {
-        let header = keywords_for_context(SyntaxKeywordContext::ConfigHeaderItem);
-        assert!(header.iter().any(|keyword| keyword == "design"));
-        assert!(header.iter().any(|keyword| keyword == "localparam"));
-        assert!(!header.iter().any(|keyword| keyword == "default"));
-
-        let rules = keywords_for_context(SyntaxKeywordContext::ConfigRule);
-        assert!(rules.iter().any(|keyword| keyword == "default"));
-        assert!(rules.iter().any(|keyword| keyword == "instance"));
-        assert!(rules.iter().any(|keyword| keyword == "cell"));
-        assert!(!rules.iter().any(|keyword| keyword == "design"));
+    fn write_keywords(out: &mut String, name: &str, keywords: &[String]) {
+        writeln!(out, "{name}:").unwrap();
+        for keyword in keywords {
+            writeln!(out, "  {keyword}").unwrap();
+        }
     }
 
     fn keywords_at(context: SyntaxKeywordContext) -> Vec<String> {

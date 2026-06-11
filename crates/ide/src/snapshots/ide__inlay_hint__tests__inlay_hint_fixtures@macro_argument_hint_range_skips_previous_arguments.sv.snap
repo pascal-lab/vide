@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/macro_argument_hint_range_skips_previous_arguments.sv
+---
+MacroArgument @ 70 "expr:" padding=(false, true) target=Some((20, 24)) edit=None

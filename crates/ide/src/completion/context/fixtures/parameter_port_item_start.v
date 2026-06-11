@@ -1,0 +1,3 @@
+module m #(
+  /*caret*/
+) (); endmodule

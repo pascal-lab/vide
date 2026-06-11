@@ -211,149 +211,146 @@ impl MemDocs {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use super::*;
 
     #[test]
-    fn remap_file_id_moves_open_document_to_canonical_id() {
-        let path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
-        let duplicate = FileId(1);
-        let canonical = FileId(0);
-        let mut docs = MemDocs::default();
-        docs.insert(duplicate, path.clone(), 7, "module top; endmodule\n".to_owned());
-
-        docs.remap_file_id(duplicate, canonical);
-
-        assert!(!docs.contains_file_id(duplicate));
-        assert!(docs.contains_file_id(canonical));
-        assert_eq!(docs.file_id(&path), Some(canonical));
-        assert_eq!(docs.buffers.get(&canonical).unwrap().data, "module top; endmodule\n");
-        assert_eq!(docs.version(canonical), Some(7));
-        assert_eq!(docs.version_for_path(&path), Some(7));
-    }
-
-    #[test]
-    fn remap_file_id_preserves_existing_canonical_document() {
+    fn mem_docs_alias_matrix() {
         let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
         let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
         let duplicate = FileId(1);
         let canonical = FileId(0);
+        let mut report = String::new();
+
+        let path = canonical_path.clone();
+        let mut docs = MemDocs::default();
+        docs.insert(duplicate, path.clone(), 7, "module top; endmodule\n".to_owned());
+        docs.remap_file_id(duplicate, canonical);
+        render_case(
+            &mut report,
+            "remap_file_id_moves_open_document_to_canonical_id",
+            &docs,
+            &[canonical, duplicate],
+            &[&canonical_path, &alias_path],
+            canonical,
+        );
+
         let mut docs = MemDocs::default();
         docs.insert(canonical, canonical_path.clone(), 1, "canonical text".to_owned());
         docs.insert(duplicate, alias_path.clone(), 2, "alias text".to_owned());
-
         docs.remap_file_id(duplicate, canonical);
-
-        let buffer = docs.buffers.get(&canonical).unwrap();
-        assert_eq!(buffer.path, canonical_path);
-        assert_eq!(buffer.data, "canonical text");
-        assert_eq!(docs.file_id(&alias_path), Some(canonical));
-        assert_eq!(docs.version_for_path(&canonical_path), Some(1));
-        assert_eq!(docs.version_for_path(&alias_path), Some(2));
-        assert_eq!(docs.text_for_change(&alias_path, canonical), None);
-        assert_eq!(
-            docs.open_documents(canonical).into_iter().map(|doc| doc.path).collect::<Vec<_>>(),
-            vec![canonical_path]
+        render_case(
+            &mut report,
+            "remap_file_id_preserves_existing_canonical_document",
+            &docs,
+            &[canonical, duplicate],
+            &[&canonical_path, &alias_path],
+            canonical,
         );
-    }
 
-    #[test]
-    fn remove_path_closes_alias_without_removing_open_document() {
-        let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
-        let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
-        let canonical = FileId(0);
         let mut docs = MemDocs::default();
         docs.insert(canonical, canonical_path.clone(), 1, "canonical text".to_owned());
         docs.insert(canonical, alias_path.clone(), 2, "canonical text".to_owned());
+        let removed = docs.remove_path(&alias_path);
+        writeln!(&mut report, "remove_path_closes_alias_without_removing_open_document:").unwrap();
+        writeln!(&mut report, "  removed: {removed}").unwrap();
+        render_docs(&mut report, &docs, &[canonical], &[&canonical_path, &alias_path], canonical);
 
-        assert!(docs.remove_path(&alias_path));
-
-        let buffer = docs.buffers.get(&canonical).unwrap();
-        assert_eq!(buffer.path, canonical_path);
-        assert_eq!(buffer.data, "canonical text");
-        assert_eq!(docs.file_id(&alias_path), None);
-        assert_eq!(docs.file_id(&canonical_path), Some(canonical));
-        assert_eq!(docs.version_for_path(&alias_path), None);
-        assert_eq!(docs.version_for_path(&canonical_path), Some(1));
-    }
-
-    #[test]
-    fn remove_path_promotes_remaining_alias_when_owner_path_closes() {
-        let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
-        let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
-        let canonical = FileId(0);
         let mut docs = MemDocs::default();
         docs.insert(canonical, canonical_path.clone(), 1, "canonical text".to_owned());
         docs.insert(canonical, alias_path.clone(), 2, "canonical text".to_owned());
+        let removed = docs.remove_path(&canonical_path);
+        writeln!(&mut report, "remove_path_promotes_remaining_alias_when_owner_path_closes:")
+            .unwrap();
+        writeln!(&mut report, "  removed: {removed}").unwrap();
+        render_docs(&mut report, &docs, &[canonical], &[&canonical_path, &alias_path], canonical);
 
-        assert!(docs.remove_path(&canonical_path));
-
-        let buffer = docs.buffers.get(&canonical).unwrap();
-        assert_eq!(buffer.path, alias_path);
-        assert_eq!(buffer.data, "canonical text");
-        assert_eq!(docs.file_id(&canonical_path), None);
-        assert_eq!(docs.file_id(&alias_path), Some(canonical));
-        assert_eq!(docs.version_for_path(&canonical_path), None);
-        assert_eq!(docs.version_for_path(&alias_path), Some(2));
-        assert_eq!(docs.version(canonical), Some(2));
-    }
-
-    #[test]
-    fn changes_update_only_the_changed_uri_version() {
-        let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
-        let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
-        let canonical = FileId(0);
         let mut docs = MemDocs::default();
         docs.insert(canonical, canonical_path.clone(), 1, "module top; endmodule\n".to_owned());
         docs.insert(canonical, alias_path.clone(), 7, "module top; endmodule\n".to_owned());
-
         let mut data = docs.text_for_change(&alias_path, canonical).unwrap().to_owned();
         data.push_str("// alias edit\n");
-        assert!(docs.apply_change(&alias_path, canonical, 8, Some(data)));
+        let applied = docs.apply_change(&alias_path, canonical, 8, Some(data));
+        writeln!(&mut report, "changes_update_only_the_changed_uri_version:").unwrap();
+        writeln!(&mut report, "  applied: {applied}").unwrap();
+        render_docs(&mut report, &docs, &[canonical], &[&canonical_path, &alias_path], canonical);
 
-        assert_eq!(
-            docs.buffers.get(&canonical).unwrap().data,
-            "module top; endmodule\n// alias edit\n"
-        );
-        assert_eq!(docs.version_for_path(&canonical_path), Some(1));
-        assert_eq!(docs.version_for_path(&alias_path), Some(8));
-        assert_eq!(docs.version(canonical), Some(1));
-    }
-
-    #[test]
-    fn divergent_alias_open_is_detached_from_canonical_buffer() {
-        let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
-        let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
-        let canonical = FileId(0);
         let mut docs = MemDocs::default();
         docs.insert(canonical, canonical_path.clone(), 1, "canonical text".to_owned());
         docs.insert(canonical, alias_path.clone(), 7, "alias text".to_owned());
+        let applied =
+            docs.apply_change(&alias_path, canonical, 8, Some("new alias text".to_owned()));
+        writeln!(&mut report, "divergent_alias_open_is_detached_from_canonical_buffer:").unwrap();
+        writeln!(&mut report, "  applied: {applied}").unwrap();
+        render_docs(&mut report, &docs, &[canonical], &[&canonical_path, &alias_path], canonical);
 
-        assert_eq!(docs.version_for_path(&alias_path), Some(7));
-        assert_eq!(docs.file_id(&alias_path), Some(canonical));
-        assert_eq!(docs.text_for_change(&alias_path, canonical), None);
-        assert!(!docs.apply_change(&alias_path, canonical, 8, Some("new alias text".to_owned())));
-        assert_eq!(docs.buffers.get(&canonical).unwrap().data, "canonical text");
-        assert_eq!(
-            docs.open_documents(canonical).into_iter().map(|doc| doc.path).collect::<Vec<_>>(),
-            vec![canonical_path]
-        );
-    }
-
-    #[test]
-    fn open_documents_return_every_uri_version() {
-        let canonical_path = VfsPath::new_virtual_path("/workspace/top.sv".to_owned());
-        let alias_path = VfsPath::new_virtual_path("/alias/top.sv".to_owned());
-        let canonical = FileId(0);
         let mut docs = MemDocs::default();
         docs.insert(canonical, canonical_path.clone(), 1, "module top; endmodule\n".to_owned());
         docs.insert(canonical, alias_path.clone(), 7, "module top; endmodule\n".to_owned());
+        render_case(
+            &mut report,
+            "open_documents_return_every_uri_version",
+            &docs,
+            &[canonical],
+            &[&canonical_path, &alias_path],
+            canonical,
+        );
+
+        insta::assert_snapshot!(report);
+    }
+
+    fn render_case(
+        report: &mut String,
+        name: &str,
+        docs: &MemDocs,
+        file_ids: &[FileId],
+        paths: &[&VfsPath],
+        open_docs_file_id: FileId,
+    ) {
+        writeln!(report, "{name}:").unwrap();
+        render_docs(report, docs, file_ids, paths, open_docs_file_id);
+    }
+
+    fn render_docs(
+        report: &mut String,
+        docs: &MemDocs,
+        file_ids: &[FileId],
+        paths: &[&VfsPath],
+        open_docs_file_id: FileId,
+    ) {
+        writeln!(report, "  file_ids:").unwrap();
+        for file_id in file_ids {
+            writeln!(report, "    {:?}: contains={}", file_id, docs.contains_file_id(*file_id))
+                .unwrap();
+            writeln!(report, "      version={:?}", docs.version(*file_id)).unwrap();
+            match docs.buffers.get(file_id) {
+                Some(buffer) => {
+                    writeln!(report, "      buffer path={:?} data={:?}", buffer.path, buffer.data)
+                        .unwrap()
+                }
+                None => writeln!(report, "      buffer=<none>").unwrap(),
+            }
+        }
+
+        writeln!(report, "  paths:").unwrap();
+        for path in paths {
+            writeln!(report, "    {path:?}:").unwrap();
+            writeln!(report, "      file_id={:?}", docs.file_id(path)).unwrap();
+            writeln!(report, "      version={:?}", docs.version_for_path(path)).unwrap();
+            writeln!(
+                report,
+                "      text_for_change={:?}",
+                docs.text_for_change(path, open_docs_file_id)
+            )
+            .unwrap();
+        }
 
         let documents = docs
-            .open_documents(canonical)
+            .open_documents(open_docs_file_id)
             .into_iter()
             .map(|document| (document.path, document.version))
             .collect::<Vec<_>>();
-
-        assert_eq!(documents, vec![(alias_path, 7), (canonical_path, 1)]);
+        writeln!(report, "  open_documents={documents:?}").unwrap();
     }
 }

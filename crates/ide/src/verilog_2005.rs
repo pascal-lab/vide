@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::Write,
     path::{Path, PathBuf},
 };
@@ -397,11 +397,19 @@ fn completion_labels_for_with_path(text: &str, marker: &str, path: &str) -> Vec<
 
 #[test]
 fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
+    let fixture_root = fixtures_dir();
     let mut paths = Vec::new();
-    collect_fixture_paths(&fixtures_dir(), &mut paths);
+    collect_fixture_paths(&fixture_root, &mut paths);
     assert!(!paths.is_empty(), "no Verilog-2005 feature fixtures found");
 
+    let mut report = String::new();
     for path in paths {
+        let relative_path = path
+            .strip_prefix(&fixture_root)
+            .unwrap_or(&path)
+            .display()
+            .to_string()
+            .replace('\\', "/");
         let text =
             std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path:?}: {err}"));
         let text = normalize_fixture_text(&text);
@@ -410,38 +418,58 @@ fn verilog_2005_feature_matrix_lsp_requests_do_not_panic() {
         let analysis = host.make_analysis();
         let full_range = TextRange::up_to(utils::text_edit::TextSize::of(text.as_str()));
 
+        writeln!(&mut report, "## {relative_path}").unwrap();
+
         let parse_diagnostics = analysis
             .parse_diagnostics(file_id)
             .unwrap_or_else(|_| panic!("parse diagnostics cancelled for {path:?}"));
-        assert!(
-            parse_diagnostics.is_empty(),
-            "Verilog-2005 fixture should parse cleanly for {path:?}: {parse_diagnostics:?}"
-        );
+        writeln!(&mut report, "parse_diagnostics: {parse_diagnostics:?}").unwrap();
 
         let symbols = analysis
             .document_symbol(file_id)
             .unwrap_or_else(|_| panic!("document symbols cancelled for {path:?}"));
         let mut names = Vec::new();
         flatten_symbols(&symbols, &mut names);
+        writeln!(&mut report, "expected_symbols:").unwrap();
         for expected in expected_symbols {
-            assert!(
-                names.iter().any(|name| name == &expected),
-                "missing symbol {expected:?} in {path:?}; got {names:?}"
-            );
+            let found = names.iter().any(|name| name == &expected);
+            writeln!(&mut report, "  {expected}: found={found}").unwrap();
         }
 
-        analysis
+        let mut symbol_lines = Vec::new();
+        collect_symbol_lines(&symbols, 0, &mut symbol_lines);
+        writeln!(&mut report, "document_symbols:").unwrap();
+        for line in symbol_lines {
+            writeln!(&mut report, "  {line}").unwrap();
+        }
+
+        let tokens = analysis
             .semantic_tokens(
                 file_id,
                 SemaTokenConfig { port: SemaTokenPortConfig { clk_rst: false, io: false } },
                 Some(full_range),
             )
             .unwrap_or_else(|_| panic!("semantic tokens cancelled for {path:?}"));
+        let mut token_counts = BTreeMap::<String, usize>::new();
+        for token in tokens.into_iter().filter(|token| !token.is_empty()) {
+            *token_counts.entry(format!("{:?} {:?}", token.tag, token.mods)).or_default() += 1;
+        }
+        writeln!(&mut report, "semantic_token_classes:").unwrap();
+        for (class, count) in token_counts {
+            writeln!(&mut report, "  {class}: {count}").unwrap();
+        }
 
-        analysis
+        let folds = analysis
             .folding_ranges(file_id, &FoldingConfig { line_fold_only: false })
             .unwrap_or_else(|_| panic!("folding ranges cancelled for {path:?}"));
+        writeln!(&mut report, "folding_ranges: {}", folds.len()).unwrap();
+        for fold in folds {
+            writeln!(&mut report, "  {:?} {:?}", fold.kind, fold.range).unwrap();
+        }
+        writeln!(&mut report).unwrap();
     }
+
+    assert_snapshot!("verilog_2005_feature_matrix", report);
 }
 
 #[test]

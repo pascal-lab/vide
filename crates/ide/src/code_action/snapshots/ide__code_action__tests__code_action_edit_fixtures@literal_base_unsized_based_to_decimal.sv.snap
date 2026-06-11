@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/literal_base_unsized_based_to_decimal.sv
+---
+module top; localparam int value = 'd255; endmodule

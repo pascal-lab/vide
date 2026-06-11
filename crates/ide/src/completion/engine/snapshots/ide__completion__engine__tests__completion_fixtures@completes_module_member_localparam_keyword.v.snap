@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_module_member_localparam_keyword.v
+---
+[
+    CompletionItem {
+        label: "localparam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 12..14,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "localparam ${1:NAME} = ${2:VALUE};",
+                del: 12..14,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "localparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 12..14,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

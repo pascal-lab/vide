@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/unknown_named_non_ansi_port_does_not_fall_back_to_position.sv
+---
+<none>

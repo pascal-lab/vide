@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_generate_block_scope_chain.v
+---
+[
+    CompletionItem {
+        label: "generated_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "generated_value",
+                del: 153..156,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

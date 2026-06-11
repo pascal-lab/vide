@@ -74,6 +74,7 @@ crossbeam-channel = "0.5.8"
 dunce = "1.0.5"
 either = "1.9.0"
 globset = "0.4.16"
+insta = "1.46.0"
 itertools = "0.14.0"
 la-arena = "0.3.1"
 lsp-server = "0.7.6"
@@ -127,6 +128,7 @@ lto = true
 winapi.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 utils = { workspace = true, features = ["test-support"] }
 
 [features]

@@ -1,0 +1,406 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_prefix_module_at_file_start.v
+---
+[
+    CompletionItem {
+        label: "config",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "config",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "config ${1:name};\n\tdesign ${2:work.top};\nendconfig",
+                del: 0..6,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "macromodule",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "macromodule",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "macromodule ${1:name} (${2:ports});\n\t${0}\nendmodule",
+                del: 0..6,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "module",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "module",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "module ${1:name} (${2:ports});\n\t${0}\nendmodule",
+                del: 0..6,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "module #(...)",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "module",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "module ${1:name} #(\n\tparameter ${2:PARAM} = ${3:VALUE}\n) (${4:ports});\n\t${0}\nendmodule",
+                del: 0..6,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "primitive",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "primitive",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "primitive ${1:name} (${2:ports});\n\t${0}\nendprimitive",
+                del: 0..6,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "automatic",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "automatic",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "config",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "config",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "event",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "event",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "function",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "function",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "localparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "macromodule",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "macromodule",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "module",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "module",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "parameter",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "primitive",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "primitive",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "real",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "signed",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "signed",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply0",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply1",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "task",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "task",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "time",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri0",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri1",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "triand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "triand",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "trior",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "trior",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "trireg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "trireg",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "unsigned",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "unsigned",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "uwire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "uwire",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wand",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wor",
+                del: 0..6,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

@@ -1,0 +1,139 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_tf_port_list_keywords.v
+---
+[
+    CompletionItem {
+        label: "default",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "default",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "event",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "event",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "inout",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "inout",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "input",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "input",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "output",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "output",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "real",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "signed",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "signed",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "time",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "unsigned",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "unsigned",
+                del: 20..20,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

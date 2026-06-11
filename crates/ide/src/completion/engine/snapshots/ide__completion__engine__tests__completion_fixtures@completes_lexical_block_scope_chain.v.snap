@@ -1,0 +1,29 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_lexical_block_scope_chain.v
+---
+[
+    CompletionItem {
+        label: "inner_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "inner_value",
+                del: 108..108,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "outer_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "outer_value",
+                del: 108..108,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

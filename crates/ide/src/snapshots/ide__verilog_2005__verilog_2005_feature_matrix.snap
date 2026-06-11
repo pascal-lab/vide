@@ -1,0 +1,249 @@
+---
+source: crates/ide/src/verilog_2005.rs
+expression: report
+---
+## assignments/continuous_and_procedural.v
+parse_diagnostics: []
+expected_symbols:
+  assignments: found=true
+  init_blk: found=true
+document_symbols:
+  assignments Module container=None
+    clk PortDecl container=Some("assignments")
+    d PortDecl container=Some("assignments")
+    q PortDecl container=Some("assignments")
+    init_blk Block container=Some("assignments")
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 9
+folding_ranges: 4
+  Comment 0..56
+  PortList 77..125
+  Module 127..277
+  Block 163..267
+
+## behavioral/loops_wait_disable_case.v
+parse_diagnostics: []
+expected_symbols:
+  behavioral: found=true
+  seq: found=true
+document_symbols:
+  behavioral Module container=None
+    clk PortDecl container=Some("behavioral")
+    rst_n PortDecl container=Some("behavioral")
+    en PortDecl container=Some("behavioral")
+    sel PortDecl container=Some("behavioral")
+    q PortDecl container=Some("behavioral")
+    i DataDecl container=Some("behavioral")
+    unnamed Stmt container=Some("behavioral")
+      seq Block container=Some("unnamed")
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 18
+folding_ranges: 10
+  Comment 0..50
+  PortList 70..163
+  Module 165..619
+  Block 224..609
+  Block 256..296
+  Block 302..601
+  Stmt 320..377
+  Stmt 391..526
+  Stmt 244..601
+  Stmt 192..609
+
+## data_types/nets_regs_memories_ports.v
+parse_diagnostics: []
+expected_symbols:
+  data_types: found=true
+  mem: found=true
+  wildcard_ports: found=true
+  explicit_ansi_port: found=true
+document_symbols:
+  data_types Module container=None
+    clk PortDecl container=Some("data_types")
+    din PortDecl container=Some("data_types")
+    dout PortDecl container=Some("data_types")
+    bus NetDecl container=Some("data_types")
+    mem DataDecl container=Some("data_types")
+    idx DataDecl container=Some("data_types")
+    stamp DataDecl container=Some("data_types")
+    gain DataDecl container=Some("data_types")
+  wildcard_ports Module container=None
+    clk PortDecl container=Some("wildcard_ports")
+    y PortDecl container=Some("wildcard_ports")
+    clk PortDecl container=Some("wildcard_ports")
+    y PortDecl container=Some("wildcard_ports")
+  explicit_ansi_port Module container=None
+    out_wire NetDecl container=Some("explicit_ansi_port")
+    in_wire NetDecl container=Some("explicit_ansi_port")
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 10
+folding_ranges: 8
+  Comment 0..120
+  PortList 140..205
+  Module 207..404
+  Block 327..394
+  Stmt 312..394
+  Module 406..492
+  PortList 520..570
+  Module 572..618
+
+## expressions/operators_selects_concat.v
+parse_diagnostics: []
+expected_symbols:
+  expressions: found=true
+document_symbols:
+  expressions Module container=None
+    a PortDecl container=Some("expressions")
+    b PortDecl container=Some("expressions")
+    y PortDecl container=Some("expressions")
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 8
+folding_ranges: 2
+  PortList 50..110
+  Module 112..182
+
+## gate_primitive/gates_and_primitives.v
+parse_diagnostics: []
+expected_symbols:
+  gates_and_primitives: found=true
+  u_and: found=true
+document_symbols:
+  gates_and_primitives Module container=None
+    a PortDecl container=Some("gates_and_primitives")
+    b PortDecl container=Some("gates_and_primitives")
+    y PortDecl container=Some("gates_and_primitives")
+    u_and Instance container=Some("gates_and_primitives")
+    p_pull Instance container=Some("gates_and_primitives")
+semantic_token_classes:
+  Instance SemaTokenModifier(0x0): 2
+  Port(Others) SemaTokenModifier(0x0): 7
+folding_ranges: 3
+  Comment 0..62
+  PortList 92..134
+  Module 136..193
+
+## hierarchy_generate_config/generate_config_library.v
+parse_diagnostics: []
+expected_symbols:
+  child: found=true
+  top: found=true
+  i: found=true
+  g_loop: found=true
+  cfg_top: found=true
+document_symbols:
+  child Module container=None
+    a PortDecl container=Some("child")
+    y PortDecl container=Some("child")
+  top Module container=None
+    a PortDecl container=Some("top")
+    y PortDecl container=Some("top")
+    i Genvar container=Some("top")
+    generate Generate container=Some("top")
+      g_loop Generate container=Some("generate")
+        u_child Instance container=Some("g_loop")
+  cfg_top Config container=None
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 6
+folding_ranges: 7
+  Comment 0..116
+  PortList 131..160
+  Module 162..189
+  PortList 202..243
+  Module 245..411
+  Generate 264..401
+  Config 413..485
+
+## lexical_preproc/macros_and_comments.v
+parse_diagnostics: []
+expected_symbols:
+  lexical_preproc: found=true
+document_symbols:
+  lexical_preproc Module container=None
+    a PortDecl container=Some("lexical_preproc")
+    y PortDecl container=Some("lexical_preproc")
+    -style comments should not affect model construction. Region container=Some("lexical_preproc")
+semantic_token_classes:
+  Macro SemaTokenModifier(REF): 2
+  Port(Others) SemaTokenModifier(0x0): 4
+folding_ranges: 3
+  Region 149..239
+  PortList 80..143
+  Module 145..239
+
+## specify_timing/specify_and_timing_checks.v
+parse_diagnostics: []
+expected_symbols:
+  specify_timing: found=true
+  t_setup: found=true
+document_symbols:
+  specify_timing Module container=None
+    a PortDecl container=Some("specify_timing")
+    b PortDecl container=Some("specify_timing")
+    y PortDecl container=Some("specify_timing")
+    specify Specify container=Some("specify_timing")
+      t_setup Specparam container=Some("specify")
+      t_hold Specparam container=Some("specify")
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 10
+folding_ranges: 4
+  Comment 0..58
+  PortList 82..124
+  Module 126..306
+  Specify 153..296
+
+## system_tasks/system_task_calls.v
+parse_diagnostics: []
+expected_symbols:
+  system_tasks: found=true
+  log: found=true
+document_symbols:
+  system_tasks Module container=None
+    log DataDecl container=Some("system_tasks")
+semantic_token_classes:
+folding_ranges: 3
+  Comment 0..52
+  Module 54..196
+  Block 105..186
+
+## tasks_functions/task_and_function.v
+parse_diagnostics: []
+expected_symbols:
+  tasks_functions: found=true
+  drive: found=true
+  add1: found=true
+document_symbols:
+  tasks_functions Module container=None
+    a PortDecl container=Some("tasks_functions")
+    y PortDecl container=Some("tasks_functions")
+    drive Fn container=Some("tasks_functions")
+    add1 Fn container=Some("tasks_functions")
+semantic_token_classes:
+  Port(Others) SemaTokenModifier(0x0): 3
+folding_ranges: 5
+  Comment 0..80
+  PortList 105..150
+  Module 152..446
+  Block 399..436
+  Stmt 396..436
+
+## udp/udp_declaration_and_instance.v
+parse_diagnostics: []
+expected_symbols:
+  udp_mux: found=true
+  uses_udp: found=true
+  u_udp: found=true
+document_symbols:
+  udp_mux Primitive container=None
+  uses_udp Module container=None
+    sel PortDecl container=Some("uses_udp")
+    a PortDecl container=Some("uses_udp")
+    b PortDecl container=Some("uses_udp")
+    y PortDecl container=Some("uses_udp")
+    u_udp Instance container=Some("uses_udp")
+semantic_token_classes:
+  Instance SemaTokenModifier(0x0): 1
+  Port(Others) SemaTokenModifier(0x0): 8
+folding_ranges: 3
+  Comment 0..76
+  PortList 261..318
+  Module 320..363

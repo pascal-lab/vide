@@ -1,0 +1,19 @@
+---
+source: src/i18n.rs
+expression: report
+---
+locale mapping:
+  Some("zh-CN") -> ZhCn
+  Some("zh_Hans") -> ZhCn
+  Some("en-US") -> En
+  None -> En
+message lookup:
+  zh convert ordered ports: 将有序端口连接转换为命名连接
+  en add missing connections: Fill connections
+formatting:
+  Qihe 分析完成，共 3 条诊断。
+locale table keys:
+  en: 80
+  zh-CN: 80
+  only en: []
+  only zh-CN: []

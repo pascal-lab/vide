@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/named_port_shorthand_collapse_all_named_connections.sv
+---
+module child(input a, b); endmodule
+module top; logic a, b; child u(.a, .b); endmodule

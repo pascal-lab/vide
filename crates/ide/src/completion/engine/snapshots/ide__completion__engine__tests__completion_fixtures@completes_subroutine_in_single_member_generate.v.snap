@@ -1,0 +1,45 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_subroutine_in_single_member_generate.v
+---
+[
+    CompletionItem {
+        label: "arg",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "arg",
+                del: 160..171,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "local_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "local_value",
+                del: 160..171,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "f",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "f()",
+                del: 160..171,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "f(${1:args})",
+                del: 160..171,
+            },
+        ),
+    },
+]

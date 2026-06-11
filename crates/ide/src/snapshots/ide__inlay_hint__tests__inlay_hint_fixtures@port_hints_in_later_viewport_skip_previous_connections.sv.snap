@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/port_hints_in_later_viewport_skip_previous_connections.sv
+---
+Port @ 103 "→" padding=(true, true) target=None edit=None

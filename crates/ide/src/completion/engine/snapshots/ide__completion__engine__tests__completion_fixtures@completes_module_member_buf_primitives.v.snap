@@ -1,0 +1,40 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_module_member_buf_primitives.v
+---
+[
+    CompletionItem {
+        label: "buf",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "buf",
+                del: 12..14,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "bufif0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "bufif0",
+                del: 12..14,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "bufif1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "bufif1",
+                del: 12..14,
+            },
+        ),
+        snippet_edit: None,
+    },
+]
