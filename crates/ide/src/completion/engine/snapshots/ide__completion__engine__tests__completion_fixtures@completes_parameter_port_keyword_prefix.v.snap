@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_parameter_port_keyword_prefix.v
+---
+[
+    CompletionItem {
+        label: "parameter",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 11..15,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "parameter ${1:NAME} = ${2:VALUE}",
+                del: 11..15,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "parameter",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 11..15,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

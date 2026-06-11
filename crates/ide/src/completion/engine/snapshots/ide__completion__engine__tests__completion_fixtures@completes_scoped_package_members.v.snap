@@ -1,0 +1,29 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_scoped_package_members.v
+---
+[
+    CompletionItem {
+        label: "other_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "other_value",
+                del: 133..133,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pkg_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "pkg_value",
+                del: 133..133,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

@@ -1,0 +1,704 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_block_decl_keywords.v
+---
+[
+    CompletionItem {
+        label: "assign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "assign ${1:lhs} = ${0:rhs};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "begin",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "begin",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "case",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "case",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "case (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "casex",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "casex",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "casex (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "casez",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "casez",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "casez (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "deassign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "deassign",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "deassign ${1:lhs};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "disable",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "disable",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "disable ${1:block};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "event",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "event",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "event ${1:name};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "for",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "for",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "for (${1:i} = ${2:0}; ${3:i} < ${4:N}; ${5:i} = ${6:i} + 1) begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "force",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "force",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "force ${1:lhs} = ${0:rhs};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "forever",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "forever",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "forever begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "fork",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "fork",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "fork\n\t${0}\njoin",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if else",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "integer ${1:name};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "localparam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "localparam ${1:NAME} = ${2:VALUE};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "parameter",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "parameter ${1:NAME} = ${2:VALUE};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "real",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "real ${1:name};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "realtime ${1:name};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "reg ${1:name};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "release",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "release",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "release ${1:lhs};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "repeat",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "repeat",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "repeat (${1:N}) begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "time",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "time ${1:name};",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wait",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wait",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wait (${1:cond}) begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "while",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "while",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "while (${1:cond}) begin\n\t${0}\nend",
+                del: 26..26,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "automatic",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "automatic",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "begin",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "begin",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "case",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "case",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "casex",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "casex",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "casez",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "casez",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "deassign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "deassign",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "disable",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "disable",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "event",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "event",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "for",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "for",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "force",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "force",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "forever",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "forever",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "fork",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "fork",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "if",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "localparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "parameter",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "real",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "release",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "release",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "repeat",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "repeat",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "signed",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "signed",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "time",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "unsigned",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "unsigned",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wait",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wait",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "while",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "while",
+                del: 26..26,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

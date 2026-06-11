@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/no_completion_for_unresolved_instantiation_connections.v
+---
+[]

@@ -1,0 +1,39 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_generate_module_instantiation_snippets.v
+---
+[
+    CompletionItem {
+        label: "Foo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "Foo u0();",
+                del: 45..47,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "Foo ${1:u0}(${2});",
+                del: 45..47,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "Foo #(...)",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "Foo #() u0();",
+                del: 45..47,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "Foo #(${1}) ${2:u0}(${3});",
+                del: 45..47,
+            },
+        ),
+    },
+]

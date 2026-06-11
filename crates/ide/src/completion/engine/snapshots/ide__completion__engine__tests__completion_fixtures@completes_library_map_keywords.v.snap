@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_library_map_keywords.v
+---
+[
+    CompletionItem {
+        label: "library",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "library",
+                del: 0..3,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "library ${1:name} ${2:\"*.v\"};",
+                del: 0..3,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "library",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "library",
+                del: 0..3,
+            },
+        ),
+        snippet_edit: None,
+    },
+]
