@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/unwrap_single_statement_block_for_body.sv
+---
+module top; always_comb for (int i = 0; i < 4; i++) y = i; endmodule

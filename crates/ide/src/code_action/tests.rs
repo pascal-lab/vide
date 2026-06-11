@@ -640,13 +640,6 @@ fn pull_assignment_up_rejects_block_with_declarations() {
 }
 
 #[test]
-fn unwrap_single_statement_block_unwraps_single_statement() {
-    let text = "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "unwrap_single_statement_block").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a) y = 1; endmodule\n");
-}
-
-#[test]
 fn unwrap_single_statement_block_requires_single_statement() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb /*caret*/begin y = 1; z = 0; end endmodule\n",
@@ -663,21 +656,6 @@ fn unwrap_single_statement_block_requires_control_flow_body() {
 }
 
 #[test]
-fn unwrap_single_statement_block_unwraps_for_body() {
-    let text =
-        "module top; always_comb for (int i = 0; i < 4; i++) /*caret*/begin y = i; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "unwrap_single_statement_block").unwrap();
-    assert_eq!(fixed, "module top; always_comb for (int i = 0; i < 4; i++) y = i; endmodule\n");
-}
-
-#[test]
-fn wrap_statement_in_begin_end_wraps_statement() {
-    let text = "module top; always_comb if (a) /*caret*/y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "wrap_statement_in_begin_end").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a) begin\n    y = 1;\nend endmodule\n");
-}
-
-#[test]
 fn wrap_statement_in_begin_end_skips_existing_block() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n",
@@ -691,16 +669,6 @@ fn wrap_statement_in_begin_end_requires_control_flow_body() {
         "module top; always_comb begin /*caret*/y = 1; end endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Wrap statement in begin/end"));
-}
-
-#[test]
-fn wrap_statement_in_begin_end_wraps_for_body() {
-    let text = "module top; always_comb for (int i = 0; i < 4; i++) /*caret*/y = i; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "wrap_statement_in_begin_end").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb for (int i = 0; i < 4; i++) begin\n    y = i;\nend endmodule\n"
-    );
 }
 
 #[test]
