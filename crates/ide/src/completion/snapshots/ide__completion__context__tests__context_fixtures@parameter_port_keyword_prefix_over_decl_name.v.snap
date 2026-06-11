@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/parameter_port_keyword_prefix_over_decl_name.v
+---
+lex: Code
+prefix: "para"
+replacement: 11..15
+expectations:
+  ParameterPortListItem from Ast(ParameterPortList)

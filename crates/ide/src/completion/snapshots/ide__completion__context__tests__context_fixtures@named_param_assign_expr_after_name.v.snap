@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/named_param_assign_expr_after_name.v
+---
+lex: Code
+prefix: ""
+replacement: 59..59
+expectations:
+  ParameterAssignmentExpr from Ast(NamedParamAssignment)

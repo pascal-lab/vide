@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/argument_list.v
+---
+lex: Code
+prefix: ""
+replacement: 20..20
+expectations:
+  ArgumentExpr from Parser
