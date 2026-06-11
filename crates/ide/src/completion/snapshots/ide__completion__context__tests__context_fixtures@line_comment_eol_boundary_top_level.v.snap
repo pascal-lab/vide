@@ -1,0 +1,10 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/line_comment_eol_boundary_top_level.v
+---
+lex: LineComment
+prefix: ""
+replacement: 4..4
+expectations:
+  <none>

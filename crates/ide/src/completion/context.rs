@@ -433,6 +433,7 @@ mod tests {
             let raw = fs::read_to_string(path)
                 .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
             let mut trigger = None;
+            let mut final_newline = true;
             let mut source = String::new();
 
             for line in raw.lines() {
@@ -447,8 +448,17 @@ mod tests {
                     .unwrap_or_else(|| panic!("invalid fixture metadata in {}", path.display()));
                 match key.trim() {
                     "trigger" => trigger = Some(parse_context_trigger(value.trim(), path)),
+                    "final-newline" => {
+                        final_newline = value.trim().parse().unwrap_or_else(|_| {
+                            panic!("invalid final-newline metadata in {}", path.display())
+                        })
+                    }
                     other => panic!("unknown fixture metadata key `{other}` in {}", path.display()),
                 }
+            }
+
+            if !final_newline && source.ends_with('\n') {
+                source.pop();
             }
 
             Self { source, trigger }
@@ -495,93 +505,6 @@ mod tests {
             let c = ctx_with_trigger(&fixture.source, fixture.trigger);
             insta::assert_snapshot!(context_snapshot(&c));
         });
-    }
-
-    #[test]
-    fn detects_standalone_dollar_as_system_identifier_prefix() {
-        let text = "module m; initial begin $/*caret*/ end endmodule\n";
-        let dollar = TextSize::from(text.find('$').unwrap() as u32);
-        let c = ctx(text);
-
-        assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(c.prefix, "$");
-        assert_eq!(c.replacement, TextRange::new(dollar, dollar + TextSize::from(1)));
-    }
-
-    #[test]
-    fn detects_typing_based_literal_after_quote() {
-        let c = ctx("module m; initial x = 4'/*caret*/; endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::IntegerLiteralBase));
-        assert!(c.replacement.is_empty());
-        assert_eq!(c.prefix, "");
-    }
-
-    #[test]
-    fn detects_typing_signed_based_literal_after_s() {
-        let c = ctx("module m; initial x = 4's/*caret*/; endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::IntegerLiteralBase));
-        assert!(!c.replacement.is_empty());
-        assert_eq!(c.prefix, "s");
-    }
-
-    #[test]
-    fn detects_typing_based_literal_after_base() {
-        let c = ctx("module m; initial x = 4'b/*caret*/; endmodule\n");
-        assert_eq!(c.lex, LexContext::Literal);
-        assert_eq!(expected(&c), None);
-    }
-
-    #[test]
-    fn detects_preproc_directive_keyword() {
-        let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
-        assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-        assert_eq!(c.prefix, "de");
-    }
-
-    #[test]
-    fn normalizes_preproc_directive_word_replacement() {
-        let c = ctx("`de/*caret*/fine FOO 1\nmodule m; endmodule\n");
-        assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-        assert_eq!(c.prefix, "de");
-        assert_eq!(c.replacement, TextRange::new(TextSize::from(1), TextSize::from(7)));
-    }
-
-    #[test]
-    fn detects_inline_preproc_directive_word() {
-        let c = ctx("module m; initial `de/*caret*/; endmodule\n");
-        assert_eq!(c.lex, LexContext::Code);
-        assert_eq!(expected(&c), Some(ExpectedSyntax::DirectiveName));
-        assert_eq!(c.prefix, "de");
-    }
-
-    #[test]
-    fn detects_line_comment_at_eof_top_level() {
-        let c = ctx("// ,/*caret*/");
-        assert_eq!(c.lex, LexContext::LineComment);
-    }
-
-    #[test]
-    fn detects_line_comment_at_eol_boundary_top_level() {
-        let c = ctx("// ,/*caret*/\n");
-        assert_eq!(c.lex, LexContext::LineComment);
-    }
-
-    #[test]
-    fn replacement_includes_keywords() {
-        let c = ctx("module/*caret*/ m; endmodule\n");
-        assert_eq!(c.prefix, "module");
-        assert!(!c.replacement.is_empty());
-    }
-
-    #[test]
-    fn replacement_at_eof_identifier() {
-        let c = ctx("mo/*caret*/");
-        assert_eq!(c.prefix, "mo");
-        assert!(!c.replacement.is_empty());
     }
 
     #[test]
