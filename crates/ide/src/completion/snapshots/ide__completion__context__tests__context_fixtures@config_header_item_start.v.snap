@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/config_header_item_start.v
+---
+lex: Code
+prefix: "de"
+replacement: 14..16
+in_decl_name: false
+expectations:
+  Keyword(ConfigHeaderItem) from Parser

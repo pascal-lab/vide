@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/module_end_range_returns_end_structure_hint.sv
+---
+EndStructure @ 21 ": top" padding=(true, false) target=None edit=None

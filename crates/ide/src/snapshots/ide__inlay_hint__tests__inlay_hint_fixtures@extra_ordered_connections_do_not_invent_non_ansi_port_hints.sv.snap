@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/extra_ordered_connections_do_not_invent_non_ansi_port_hints.sv
+---
+Port @ 56 "a ←" padding=(false, true) target=Some((13, 14)) edit=Some("TextEdit { changes: [TextEditItem { ins: \".a(\", del: 56..56 }, TextEditItem { ins: \")\", del: 60..60 }] }")

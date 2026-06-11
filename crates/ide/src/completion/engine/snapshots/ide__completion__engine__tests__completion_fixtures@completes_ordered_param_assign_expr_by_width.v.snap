@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_ordered_param_assign_expr_by_width.v
+---
+[
+    CompletionItem {
+        label: "P8",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "P8",
+                del: 141..141,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

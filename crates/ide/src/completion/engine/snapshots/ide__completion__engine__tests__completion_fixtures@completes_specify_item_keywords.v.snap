@@ -1,0 +1,132 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_specify_item_keywords.v
+---
+[
+    CompletionItem {
+        label: "if",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${0}\nend",
+                del: 22..22,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if else",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend",
+                del: 22..22,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "specparam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "specparam",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "specparam ${1:NAME} = ${2:VALUE};",
+                del: 22..22,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "ifnone",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "ifnone",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "noshowcancelled",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "noshowcancelled",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pulsestyle_ondetect",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "pulsestyle_ondetect",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pulsestyle_onevent",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "pulsestyle_onevent",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "showcancelled",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "showcancelled",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "specparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "specparam",
+                del: 22..22,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

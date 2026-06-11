@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/formatting.rs
+expression: report
+---
+unsupported trigger: None
+first line inside block comment: None

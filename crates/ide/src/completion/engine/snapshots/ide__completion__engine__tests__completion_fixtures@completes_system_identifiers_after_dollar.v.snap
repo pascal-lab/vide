@@ -1,0 +1,3639 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_system_identifiers_after_dollar.v
+---
+[
+    CompletionItem {
+        label: "$acos",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$acos()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$acos(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$acosh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$acosh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$acosh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$asin",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$asin()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$asin(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$asinh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$asinh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$asinh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertcontrol",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertcontrol()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertcontrol(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertfailoff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertfailoff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertfailoff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertfailon",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertfailon()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertfailon(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertkill",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertkill()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertkill(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertnonvacuouson",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertnonvacuouson()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertnonvacuouson(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertoff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertoff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertoff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$asserton",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$asserton()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$asserton(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertpassoff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertpassoff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertpassoff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertpasson",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertpasson()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertpasson(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$assertvacuousoff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$assertvacuousoff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$assertvacuousoff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$and$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$and$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$and$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$and$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$and$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$and$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$nand$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$nand$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$nand$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$nand$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$nand$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$nand$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$nor$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$nor$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$nor$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$nor$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$nor$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$nor$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$or$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$or$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$or$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$async$or$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$async$or$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$async$or$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$atan",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$atan()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$atan(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$atan2",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$atan2()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$atan2(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$atanh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$atanh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$atanh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$bits",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$bits()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$bits(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$bitstoreal",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$bitstoreal()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$bitstoreal(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$bitstoshortreal",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$bitstoshortreal()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$bitstoshortreal(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$cast",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$cast()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$cast(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$ceil",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$ceil()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$ceil(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$changed",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$changed()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$changed(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$changed_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$changed_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$changed_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$changing_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$changing_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$changing_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$clog2",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$clog2()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$clog2(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$cos",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$cos()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$cos(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$cosh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$cosh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$cosh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$countbits",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$countbits()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$countbits(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$countdrivers",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$countdrivers()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$countdrivers(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$countones",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$countones()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$countones(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$coverage_control",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$coverage_control()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$coverage_control(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$coverage_get",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$coverage_get()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$coverage_get(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$coverage_get_max",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$coverage_get_max()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$coverage_get_max(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$coverage_merge",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$coverage_merge()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$coverage_merge(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$coverage_save",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$coverage_save()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$coverage_save(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dimensions",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dimensions()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dimensions(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$display",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$display()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$display(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$displayb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$displayb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$displayb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$displayh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$displayh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$displayh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$displayo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$displayo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$displayo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_chi_square",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_chi_square()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_chi_square(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_erlang",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_erlang()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_erlang(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_exponential",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_exponential()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_exponential(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_normal",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_normal()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_normal(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_poisson",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_poisson()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_poisson(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_t",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_t()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_t(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dist_uniform",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dist_uniform()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dist_uniform(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpall",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpall()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpall(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpfile",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpfile()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpfile(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpflush",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpflush()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpflush(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumplimit",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumplimit()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumplimit(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpoff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpoff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpoff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpon",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpon()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpon(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpports",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpports()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpports(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpportsall",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpportsall()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpportsall(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpportsflush",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpportsflush()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpportsflush(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpportslimit",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpportslimit()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpportslimit(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpportsoff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpportsoff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpportsoff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpportson",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpportson()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpportson(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$dumpvars",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$dumpvars()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$dumpvars(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$error",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$error()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$error(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$exit",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$exit()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$exit(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$exp",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$exp()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$exp(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$falling_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$falling_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$falling_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fatal",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fatal()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fatal(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fclose",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fclose()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fclose(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fdisplay",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fdisplay()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fdisplay(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fdisplayb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fdisplayb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fdisplayb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fdisplayh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fdisplayh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fdisplayh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fdisplayo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fdisplayo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fdisplayo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fell",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fell()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fell(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fell_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fell_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fell_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$feof",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$feof()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$feof(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$ferror",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$ferror()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$ferror(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fflush",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fflush()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fflush(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fgetc",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fgetc()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fgetc(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fgets",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fgets()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fgets(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$finish",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$finish()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$finish(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$floor",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$floor()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$floor(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fmonitor",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fmonitor()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fmonitor(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fmonitorb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fmonitorb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fmonitorb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fmonitorh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fmonitorh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fmonitorh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fmonitoro",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fmonitoro()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fmonitoro(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fopen",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fopen()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fopen(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fread",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fread()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fread(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fscanf",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fscanf()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fscanf(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fseek",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fseek()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fseek(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fstrobe",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fstrobe()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fstrobe(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fstrobeb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fstrobeb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fstrobeb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fstrobeh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fstrobeh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fstrobeh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fstrobeo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fstrobeo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fstrobeo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$ftell",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$ftell()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$ftell(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$future_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$future_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$future_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fwrite",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fwrite()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fwrite(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fwriteb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fwriteb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fwriteb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fwriteh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fwriteh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fwriteh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$fwriteo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$fwriteo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$fwriteo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$get_coverage",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$get_coverage()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$get_coverage(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$getpattern",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$getpattern()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$getpattern(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$global_clock",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$global_clock()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$global_clock(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$high",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$high()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$high(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$hypot",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$hypot()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$hypot(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$increment",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$increment()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$increment(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$incsave",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$incsave()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$incsave(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$inferred_clock",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$inferred_clock()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$inferred_clock(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$inferred_disable",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$inferred_disable()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$inferred_disable(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$info",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$info()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$info(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$input",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$input()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$input(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$isunbounded",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$isunbounded()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$isunbounded(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$isunknown",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$isunknown()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$isunknown(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$itor",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$itor()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$itor(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$key",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$key()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$key(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$left",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$left()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$left(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$list",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$list()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$list(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$ln",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$ln()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$ln(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$load_coverage_db",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$load_coverage_db()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$load_coverage_db(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$log",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$log()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$log(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$log10",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$log10()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$log10(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$low",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$low()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$low(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$monitor",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$monitor()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$monitor(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$monitorb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$monitorb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$monitorb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$monitorh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$monitorh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$monitorh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$monitoro",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$monitoro()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$monitoro(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$monitoroff",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$monitoroff()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$monitoroff(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$monitoron",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$monitoron()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$monitoron(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$nokey",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$nokey()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$nokey(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$nolog",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$nolog()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$nolog(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$onehot",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$onehot()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$onehot(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$onehot0",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$onehot0()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$onehot0(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$past",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$past()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$past(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$past_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$past_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$past_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$pow",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$pow()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$pow(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$printtimescale",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$printtimescale()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$printtimescale(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$psprintf",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$psprintf()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$psprintf(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$q_add",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$q_add()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$q_add(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$q_exam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$q_exam()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$q_exam(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$q_full",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$q_full()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$q_full(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$q_initialize",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$q_initialize()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$q_initialize(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$q_remove",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$q_remove()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$q_remove(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$random",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$random()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$random(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$readmemb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$readmemb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$readmemb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$readmemh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$readmemh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$readmemh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$realtime",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$realtime()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$realtime(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$realtobits",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$realtobits()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$realtobits(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$reset",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$reset()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$reset(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$reset_count",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$reset_count()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$reset_count(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$reset_value",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$reset_value()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$reset_value(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$restart",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$restart()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$restart(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$rewind",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$rewind()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$rewind(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$right",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$right()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$right(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$rising_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$rising_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$rising_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$rose",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$rose()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$rose(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$rose_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$rose_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$rose_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$rtoi",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$rtoi()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$rtoi(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sampled",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sampled()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sampled(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$save",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$save()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$save(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$scale",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$scale()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$scale(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$scope",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$scope()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$scope(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sdf_annotate",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sdf_annotate()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sdf_annotate(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$set_coverage_db_name",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$set_coverage_db_name()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$set_coverage_db_name(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sformat",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sformat()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sformat(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sformatf",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sformatf()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sformatf(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$shortrealtobits",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$shortrealtobits()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$shortrealtobits(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$showscopes",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$showscopes()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$showscopes(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$showvars",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$showvars()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$showvars(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$signed",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$signed()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$signed(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sin",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sin()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sin(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sinh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sinh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sinh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$size",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$size()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$size(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sqrt",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sqrt()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sqrt(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sreadmemb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sreadmemb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sreadmemb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sreadmemh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sreadmemh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sreadmemh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sscanf",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sscanf()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sscanf(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$stable",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$stable()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$stable(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$stable_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$stable_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$stable_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$stacktrace",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$stacktrace()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$stacktrace(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$static_assert",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$static_assert()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$static_assert(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$steady_gclk",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$steady_gclk()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$steady_gclk(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$stime",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$stime()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$stime(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$stop",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$stop()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$stop(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$strobe",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$strobe()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$strobe(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$strobeb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$strobeb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$strobeb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$strobeh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$strobeh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$strobeh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$strobeo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$strobeo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$strobeo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$swrite",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$swrite()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$swrite(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$swriteb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$swriteb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$swriteb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$swriteh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$swriteh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$swriteh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$swriteo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$swriteo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$swriteo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$and$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$and$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$and$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$and$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$and$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$and$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$nand$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$nand$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$nand$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$nand$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$nand$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$nand$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$nor$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$nor$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$nor$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$nor$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$nor$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$nor$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$or$array",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$or$array()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$or$array(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$sync$or$plane",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$sync$or$plane()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$sync$or$plane(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$system",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$system()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$system(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$tan",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$tan()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$tan(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$tanh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$tanh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$tanh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$test$plusargs",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$test$plusargs()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$test$plusargs(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$time",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$time()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$time(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$timeformat",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$timeformat()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$timeformat(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$timeprecision",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$timeprecision()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$timeprecision(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$timeunit",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$timeunit()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$timeunit(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$typename",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$typename()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$typename(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$ungetc",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$ungetc()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$ungetc(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$unpacked_dimensions",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$unpacked_dimensions()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$unpacked_dimensions(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$unsigned",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$unsigned()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$unsigned(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$urandom",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$urandom()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$urandom(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$urandom_range",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$urandom_range()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$urandom_range(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$value$plusargs",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$value$plusargs()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$value$plusargs(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$warning",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$warning()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$warning(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$write",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$write()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$write(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$writeb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$writeb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$writeb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$writeh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$writeh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$writeh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$writememb",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$writememb()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$writememb(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$writememh",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$writememh()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$writememh(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "$writeo",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "$writeo()",
+                del: 26..27,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "\\$writeo(${1:args})",
+                del: 26..27,
+            },
+        ),
+    },
+]

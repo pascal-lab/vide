@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_top_level_primitive_prefix.v
+---
+[
+    CompletionItem {
+        label: "primitive",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "primitive",
+                del: 0..3,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "primitive ${1:name} (${2:ports});\n\t${0}\nendprimitive",
+                del: 0..3,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "primitive",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "primitive",
+                del: 0..3,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/module_resolution.rs
+expression: fixture_snapshot(fixture)
+input_file: crates/ide/src/module_resolution/fixtures/named_param_uses_nearest_duplicate_module.sv
+---
+ParamDecl module=/project/a/child.sv

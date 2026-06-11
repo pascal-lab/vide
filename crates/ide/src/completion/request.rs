@@ -290,6 +290,8 @@ impl KeywordProvider {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use utils::line_index::{TextRange, TextSize};
 
     use super::*;
@@ -317,126 +319,90 @@ mod tests {
     }
 
     #[test]
-    fn maps_syntax_expectations_to_provider_requests() {
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                None,
-                Some(keyword(SyntaxKeywordContext::ModuleMember))
-            )),
-            Some(CompletionRequest::single(CompletionProvider::Keywords(KeywordProvider {
-                context: SyntaxKeywordContext::ModuleMember,
-                snippets: KeywordSnippetScope::DesignItem,
-                module_instantiations: true,
-            })))
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                None,
-                Some(ExpectedSyntax::PortConnection)
-            )),
-            Some(CompletionRequest::single(CompletionProvider::ParenList(
-                ParenListKind::PortConnections
-            )))
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                None,
-                Some(ExpectedSyntax::ParameterPortListItem)
-            )),
-            Some(CompletionRequest::from_providers(smallvec![
-                CompletionProvider::ParenList(ParenListKind::ParameterPortList),
-                CompletionProvider::Keywords(KeywordProvider {
-                    context: SyntaxKeywordContext::ParameterPortListItem,
-                    snippets: KeywordSnippetScope::ParameterPortList,
-                    module_instantiations: false,
-                }),
-            ]))
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                None,
-                Some(keyword(SyntaxKeywordContext::Statement))
-            )),
-            Some(CompletionRequest::from_providers(smallvec![
-                CompletionProvider::Keywords(KeywordProvider {
-                    context: SyntaxKeywordContext::Statement,
-                    snippets: KeywordSnippetScope::DesignItem,
-                    module_instantiations: false,
-                }),
-                CompletionProvider::SystemTasks,
-                CompletionProvider::Expression,
-            ]))
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                None,
-                Some(ExpectedSyntax::EventControl { wrap_in_parens: true })
-            )),
-            Some(CompletionRequest::single(CompletionProvider::EventControl {
-                wrap_in_parens: true
-            }))
-        );
-    }
+    fn request_planning_matrix() {
+        let mut report = String::new();
 
-    #[test]
-    fn keeps_directive_requests_outside_regular_code() {
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::PreprocDirective,
-                None,
-                Some(ExpectedSyntax::DirectiveName)
-            )),
-            Some(CompletionRequest::single(CompletionProvider::Directives))
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::LineComment,
-                None,
-                Some(keyword(SyntaxKeywordContext::ModuleMember))
-            )),
-            None
-        );
-    }
+        for (name, ctx) in [
+            (
+                "module member keywords",
+                context(LexContext::Code, None, Some(keyword(SyntaxKeywordContext::ModuleMember))),
+            ),
+            (
+                "port connection list",
+                context(LexContext::Code, None, Some(ExpectedSyntax::PortConnection)),
+            ),
+            (
+                "parameter port list",
+                context(LexContext::Code, None, Some(ExpectedSyntax::ParameterPortListItem)),
+            ),
+            (
+                "statement keyword plus expression",
+                context(LexContext::Code, None, Some(keyword(SyntaxKeywordContext::Statement))),
+            ),
+            (
+                "event control with parens",
+                context(
+                    LexContext::Code,
+                    None,
+                    Some(ExpectedSyntax::EventControl { wrap_in_parens: true }),
+                ),
+            ),
+            (
+                "preproc directive name",
+                context(LexContext::PreprocDirective, None, Some(ExpectedSyntax::DirectiveName)),
+            ),
+            (
+                "line comment ignores broad keywords",
+                context(
+                    LexContext::LineComment,
+                    None,
+                    Some(keyword(SyntaxKeywordContext::ModuleMember)),
+                ),
+            ),
+            (
+                "comma suppresses broad keywords",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Comma),
+                    Some(keyword(SyntaxKeywordContext::ModuleMember)),
+                ),
+            ),
+            (
+                "apostrophe suppresses expression",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Apostrophe),
+                    Some(ExpectedSyntax::Expression),
+                ),
+            ),
+            (
+                "apostrophe accepts integer literal base",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Apostrophe),
+                    Some(ExpectedSyntax::IntegerLiteralBase),
+                ),
+            ),
+            (
+                "newline accepts ansi port items",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Newline),
+                    Some(ExpectedSyntax::AnsiPortItem),
+                ),
+            ),
+            (
+                "newline suppresses module member keywords",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Newline),
+                    Some(keyword(SyntaxKeywordContext::ModuleMember)),
+                ),
+            ),
+        ] {
+            writeln!(&mut report, "{name}: {:#?}", CompletionRequest::from_context(&ctx)).unwrap();
+        }
 
-    #[test]
-    fn suppresses_broad_keyword_requests_for_empty_punctuation_triggers() {
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                Some(TriggerChar::Comma),
-                Some(keyword(SyntaxKeywordContext::ModuleMember))
-            )),
-            None
-        );
-    }
-
-    #[test]
-    fn apostrophe_trigger_only_requests_integer_literal_bases() {
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                Some(TriggerChar::Apostrophe),
-                Some(ExpectedSyntax::Expression)
-            )),
-            None
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                Some(TriggerChar::Apostrophe),
-                Some(ExpectedSyntax::IntegerLiteralBase)
-            )),
-            Some(CompletionRequest::single(CompletionProvider::IntegerLiteralBase))
-        );
-    }
-
-    #[test]
-    fn trigger_activation_filters_each_provider() {
         let request = CompletionRequest {
             providers: smallvec![
                 ProviderPlan::new(CompletionProvider::Keywords(KeywordProvider {
@@ -452,37 +418,8 @@ mod tests {
             Some(TriggerChar::Comma),
             Some(keyword(SyntaxKeywordContext::ModuleMember)),
         ));
+        writeln!(&mut report, "comma filters mixed request: {activated:#?}").unwrap();
 
-        assert_eq!(
-            activated,
-            Some(CompletionRequest::single(CompletionProvider::PortConnectionName))
-        );
-    }
-
-    #[test]
-    fn accepts_newline_only_for_port_item_requests() {
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                Some(TriggerChar::Newline),
-                Some(ExpectedSyntax::AnsiPortItem)
-            )),
-            Some(CompletionRequest::from_providers(smallvec![
-                CompletionProvider::PortList(PortListKind::Ansi),
-                CompletionProvider::Keywords(KeywordProvider {
-                    context: SyntaxKeywordContext::AnsiPortItem,
-                    snippets: KeywordSnippetScope::None,
-                    module_instantiations: false,
-                }),
-            ]))
-        );
-        assert_eq!(
-            CompletionRequest::from_context(&context(
-                LexContext::Code,
-                Some(TriggerChar::Newline),
-                Some(keyword(SyntaxKeywordContext::ModuleMember))
-            )),
-            None
-        );
+        insta::assert_snapshot!(report);
     }
 }

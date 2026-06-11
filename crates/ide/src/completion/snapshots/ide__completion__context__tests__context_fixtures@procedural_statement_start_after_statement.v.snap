@@ -1,0 +1,12 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/procedural_statement_start_after_statement.v
+---
+lex: Code
+prefix: ""
+replacement: 35..35
+in_decl_name: false
+expectations:
+  Keyword(Statement) from Parser
+  Expression from Parser

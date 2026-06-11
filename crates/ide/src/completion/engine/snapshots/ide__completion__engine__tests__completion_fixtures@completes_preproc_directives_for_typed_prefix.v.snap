@@ -1,0 +1,61 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_preproc_directives_for_typed_prefix.v
+---
+[
+    CompletionItem {
+        label: "default_nettype",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "default_nettype",
+                del: 19..21,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "default_nettype ${1:wire}",
+                del: 19..21,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "define",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "define",
+                del: 19..21,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "define ${1:NAME} ${0:VALUE}",
+                del: 19..21,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "default_nettype",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "default_nettype",
+                del: 19..21,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "define",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "define",
+                del: 19..21,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

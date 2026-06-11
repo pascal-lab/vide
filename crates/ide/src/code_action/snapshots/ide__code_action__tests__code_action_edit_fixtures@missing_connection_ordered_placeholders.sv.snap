@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/missing_connection_ordered_placeholders.sv
+---
+module child(input a, input b, input c); endmodule
+module top; child u(1'b0, /* b */ '0, /* c */ '0); endmodule

@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/module_resolution.rs
+expression: fixture_snapshot(fixture)
+input_file: crates/ide/src/module_resolution/fixtures/best_effort_selects_nearest_duplicate_module.sv
+---
+BestEffortProximity selected=/project/a/child.sv candidates=["/project/a/child.sv", "/project/b/child.sv"]

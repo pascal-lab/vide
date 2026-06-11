@@ -1,0 +1,1326 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_module_member_keywords.v
+---
+[
+    CompletionItem {
+        label: "always",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "always",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "always ${1} begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "always @(*)",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "always",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "always @(*) begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "assign ${1:lhs} = ${0:rhs};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "begin",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "begin",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "case",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "case",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "case (${1:expr})\n\t${2:val}: ${3:stmt};\n\tdefault: ${0:stmt};\nendcase",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "defparam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "defparam",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "defparam ${1:path} = ${2:value};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "event",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "event",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "event ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "for",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "for",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "for (${1:i} = ${2:0}; ${3:i} < ${4:N}; ${5:i} = ${6:i} + 1) begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "function",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "function",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "function ${1:name};\n\t${0}\nendfunction",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "generate",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "generate",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "generate\n\t${0}\nendgenerate",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "genvar",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "genvar",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "genvar ${1:i};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "if else",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "if (${1:cond}) begin\n\t${2}\nend else begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "initial",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "initial",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "initial begin\n\t${0}\nend",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "integer ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "localparam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "localparam ${1:NAME} = ${2:VALUE};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "parameter",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "parameter ${1:NAME} = ${2:VALUE};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "real",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "real ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "realtime ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "reg ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "specify",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "specify",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "specify\n\t${0}\nendspecify",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "specparam",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "specparam",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "specparam ${1:NAME} = ${2:VALUE};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "supply0",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "supply0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "supply0 ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "supply1",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "supply1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "supply1 ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "task",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "task",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "task ${1:name};\n\t${0}\nendtask",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "time",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "time ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "tri",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "tri",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "tri ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "tri0",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "tri0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "tri0 ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "tri1",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "tri1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "tri1 ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "triand",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "triand",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "triand ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "trior",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "trior",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "trior ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "trireg",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "trireg",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "trireg ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wand",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wand",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wand ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wire",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wire ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "wor",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "wor",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "wor ${1:name};",
+                del: 12..12,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "always",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "always",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "and",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "and",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "automatic",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "automatic",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "begin",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "begin",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "buf",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "buf",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "bufif0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "bufif0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "bufif1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "bufif1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "case",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "case",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "cmos",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "cmos",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "default",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "default",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "defparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "defparam",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "event",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "event",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "for",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "for",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "function",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "function",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "generate",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "generate",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "genvar",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "genvar",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "if",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "if",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "initial",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "initial",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "inout",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "inout",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "input",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "input",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "integer",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "integer",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "localparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "localparam",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "macromodule",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "macromodule",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "module",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "module",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "nand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "nand",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "nmos",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "nmos",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "nor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "nor",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "not",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "not",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "notif0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "notif0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "notif1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "notif1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "or",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "or",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "output",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "output",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "parameter",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "parameter",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pmos",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "pmos",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pulldown",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "pulldown",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "pullup",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "pullup",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rcmos",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "rcmos",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "real",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "real",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "realtime",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "realtime",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "reg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "reg",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rnmos",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "rnmos",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rpmos",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "rpmos",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rtran",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "rtran",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rtranif0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "rtranif0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "rtranif1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "rtranif1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "signed",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "signed",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "specify",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "specify",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "specparam",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "specparam",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "supply1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "supply1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "task",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "task",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "time",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "time",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tran",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tran",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tranif0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tranif0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tranif1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tranif1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri0",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri0",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "tri1",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "tri1",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "triand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "triand",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "trior",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "trior",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "trireg",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "trireg",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "unsigned",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "unsigned",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "uwire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "uwire",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wand",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wand",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wire",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wire",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "wor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "wor",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "xnor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "xnor",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "xor",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "xor",
+                del: 12..12,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

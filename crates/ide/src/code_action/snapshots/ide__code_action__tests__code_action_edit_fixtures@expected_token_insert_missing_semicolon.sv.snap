@@ -1,0 +1,8 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/expected_token_insert_missing_semicolon.sv
+---
+module top;
+logic a;
+endmodule

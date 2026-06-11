@@ -1,0 +1,41 @@
+---
+source: crates/ide/src/semantic_tokens.rs
+expression: tokens
+---
+[
+    SemaToken {
+        range: 0..23,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 23..30,
+        tag: Macro,
+        mods: SemaTokenModifier(
+            REF,
+        ),
+    },
+    SemaToken {
+        range: 30..46,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+    SemaToken {
+        range: 46..51,
+        tag: Macro,
+        mods: SemaTokenModifier(
+            REF,
+        ),
+    },
+    SemaToken {
+        range: 51..81,
+        tag: None,
+        mods: SemaTokenModifier(
+            0x0,
+        ),
+    },
+]

@@ -1,0 +1,99 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_module_member_and_primitive.v
+---
+[
+    CompletionItem {
+        label: "always",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "always",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "always ${1} begin\n\t${0}\nend",
+                del: 12..13,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "always @(*)",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "always",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "always @(*) begin\n\t${0}\nend",
+                del: 12..13,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "assign ${1:lhs} = ${0:rhs};",
+                del: 12..13,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "always",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "always",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "and",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "and",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "automatic",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "automatic",
+                del: 12..13,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

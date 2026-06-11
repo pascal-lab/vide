@@ -1,0 +1,29 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_struct_fields.v
+---
+[
+    CompletionItem {
+        label: "first_field",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "first_field",
+                del: 134..134,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "second_field",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "second_field",
+                del: 134..134,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

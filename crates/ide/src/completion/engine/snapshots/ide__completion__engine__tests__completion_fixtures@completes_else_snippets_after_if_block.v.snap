@@ -1,0 +1,39 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_else_snippets_after_if_block.v
+---
+[
+    CompletionItem {
+        label: "else",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "else",
+                del: 58..60,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "else begin\n\t${0}\nend",
+                del: 58..60,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "else if",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "else",
+                del: 58..60,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "else if (${1:cond}) begin\n\t${0}\nend",
+                del: 58..60,
+            },
+        ),
+    },
+]

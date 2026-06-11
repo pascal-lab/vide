@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_generate_member_assign_keyword.v
+---
+[
+    CompletionItem {
+        label: "assign",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 21..23,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "assign ${1:lhs} = ${0:rhs};",
+                del: 21..23,
+            },
+        ),
+    },
+    CompletionItem {
+        label: "assign",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "assign",
+                del: 21..23,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

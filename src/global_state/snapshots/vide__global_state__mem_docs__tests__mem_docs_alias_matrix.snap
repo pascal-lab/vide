@@ -1,0 +1,119 @@
+---
+source: src/global_state/mem_docs.rs
+expression: report
+---
+remap_file_id_moves_open_document_to_canonical_id:
+  file_ids:
+    FileId(0): contains=true
+      version=Some(7)
+      buffer path="/workspace/top.sv" data="module top; endmodule\n"
+    FileId(1): contains=false
+      version=None
+      buffer=<none>
+  paths:
+    "/workspace/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(7)
+      text_for_change=Some("module top; endmodule\n")
+    "/alias/top.sv":
+      file_id=None
+      version=None
+      text_for_change=None
+  open_documents=[("/workspace/top.sv", 7)]
+remap_file_id_preserves_existing_canonical_document:
+  file_ids:
+    FileId(0): contains=true
+      version=Some(1)
+      buffer path="/workspace/top.sv" data="canonical text"
+    FileId(1): contains=false
+      version=None
+      buffer=<none>
+  paths:
+    "/workspace/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(1)
+      text_for_change=Some("canonical text")
+    "/alias/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(2)
+      text_for_change=None
+  open_documents=[("/workspace/top.sv", 1)]
+remove_path_closes_alias_without_removing_open_document:
+  removed: true
+  file_ids:
+    FileId(0): contains=true
+      version=Some(1)
+      buffer path="/workspace/top.sv" data="canonical text"
+  paths:
+    "/workspace/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(1)
+      text_for_change=Some("canonical text")
+    "/alias/top.sv":
+      file_id=None
+      version=None
+      text_for_change=None
+  open_documents=[("/workspace/top.sv", 1)]
+remove_path_promotes_remaining_alias_when_owner_path_closes:
+  removed: true
+  file_ids:
+    FileId(0): contains=true
+      version=Some(2)
+      buffer path="/alias/top.sv" data="canonical text"
+  paths:
+    "/workspace/top.sv":
+      file_id=None
+      version=None
+      text_for_change=None
+    "/alias/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(2)
+      text_for_change=Some("canonical text")
+  open_documents=[("/alias/top.sv", 2)]
+changes_update_only_the_changed_uri_version:
+  applied: true
+  file_ids:
+    FileId(0): contains=true
+      version=Some(1)
+      buffer path="/workspace/top.sv" data="module top; endmodule\n// alias edit\n"
+  paths:
+    "/workspace/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(1)
+      text_for_change=Some("module top; endmodule\n// alias edit\n")
+    "/alias/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(8)
+      text_for_change=Some("module top; endmodule\n// alias edit\n")
+  open_documents=[("/alias/top.sv", 8), ("/workspace/top.sv", 1)]
+divergent_alias_open_is_detached_from_canonical_buffer:
+  applied: false
+  file_ids:
+    FileId(0): contains=true
+      version=Some(1)
+      buffer path="/workspace/top.sv" data="canonical text"
+  paths:
+    "/workspace/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(1)
+      text_for_change=Some("canonical text")
+    "/alias/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(7)
+      text_for_change=None
+  open_documents=[("/workspace/top.sv", 1)]
+open_documents_return_every_uri_version:
+  file_ids:
+    FileId(0): contains=true
+      version=Some(1)
+      buffer path="/workspace/top.sv" data="module top; endmodule\n"
+  paths:
+    "/workspace/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(1)
+      text_for_change=Some("module top; endmodule\n")
+    "/alias/top.sv":
+      file_id=Some(FileId(0))
+      version=Some(7)
+      text_for_change=Some("module top; endmodule\n")
+  open_documents=[("/alias/top.sv", 7), ("/workspace/top.sv", 1)]

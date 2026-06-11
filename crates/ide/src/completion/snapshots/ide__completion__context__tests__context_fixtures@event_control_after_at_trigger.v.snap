@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/event_control_after_at_trigger.v
+---
+lex: Code
+prefix: ""
+replacement: 18..18
+in_decl_name: false
+expectations:
+  EventControl { wrap_in_parens: true } from Token(At)

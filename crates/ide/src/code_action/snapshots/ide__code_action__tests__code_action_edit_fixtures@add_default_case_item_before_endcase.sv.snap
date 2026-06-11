@@ -1,0 +1,9 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/add_default_case_item_before_endcase.sv
+---
+module top; always_comb case (sel)
+    1'b0: y = 0;
+    default: ;
+endcase endmodule

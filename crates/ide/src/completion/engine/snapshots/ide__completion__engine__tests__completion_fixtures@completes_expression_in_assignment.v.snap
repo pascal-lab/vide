@@ -1,0 +1,51 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_expression_in_assignment.v
+---
+[
+    CompletionItem {
+        label: "P",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "P",
+                del: 81..81,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "a",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "a",
+                del: 81..81,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "b",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "b",
+                del: 81..81,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "out",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "out",
+                del: 81..81,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

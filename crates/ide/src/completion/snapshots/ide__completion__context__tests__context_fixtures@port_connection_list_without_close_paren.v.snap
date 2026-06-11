@@ -1,0 +1,12 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/port_connection_list_without_close_paren.v
+---
+lex: Code
+prefix: ""
+replacement: 46..46
+in_decl_name: false
+expectations:
+  PortConnection from Parser
+  Keyword(ModuleMember) from Parser

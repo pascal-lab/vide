@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_file_scope_values.v
+---
+[
+    CompletionItem {
+        label: "file_value",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "file_value",
+                del: 38..42,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

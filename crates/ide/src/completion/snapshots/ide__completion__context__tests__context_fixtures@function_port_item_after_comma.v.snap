@@ -1,0 +1,11 @@
+---
+source: crates/ide/src/completion/context.rs
+expression: context_snapshot(&c)
+input_file: crates/ide/src/completion/context/fixtures/function_port_item_after_comma.v
+---
+lex: Code
+prefix: ""
+replacement: 28..28
+in_decl_name: false
+expectations:
+  FunctionPortItem from Parser

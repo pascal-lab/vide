@@ -1,0 +1,18 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/completes_config_rule_phase_keywords.v
+---
+[
+    CompletionItem {
+        label: "default",
+        kind: Keyword,
+        edit: Some(
+            TextEditItem {
+                ins: "default",
+                del: 33..35,
+            },
+        ),
+        snippet_edit: None,
+    },
+]

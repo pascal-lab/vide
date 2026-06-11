@@ -1,3 +1,5 @@
+use std::{fmt::Write, fs, path::Path};
+
 use hir::base_db::{change::Change, source_root::SourceRoot};
 use triomphe::Arc;
 use utils::{
@@ -8,6 +10,99 @@ use vfs::{ChangeKind, ChangedFile, FileId, FileSet, VfsPath};
 
 use super::*;
 use crate::db::root_db::RootDb;
+
+struct CodeActionFixture {
+    action: FixtureAction,
+    source: String,
+}
+
+enum FixtureAction {
+    Action { name: String, label: Option<String> },
+    Repair(RepairKind),
+}
+
+impl CodeActionFixture {
+    fn read(path: &Path) -> Self {
+        let raw = fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+        let mut action = None;
+        let mut label = None;
+        let mut repair = None;
+        let mut source = String::new();
+
+        for line in raw.lines() {
+            let Some(meta) = line.strip_prefix("//- ") else {
+                source.push_str(line);
+                source.push('\n');
+                continue;
+            };
+
+            let (key, value) = meta
+                .split_once(':')
+                .unwrap_or_else(|| panic!("invalid fixture metadata in {}", path.display()));
+            match key.trim() {
+                "action" => action = Some(value.trim().to_owned()),
+                "label" => label = Some(value.trim().to_owned()),
+                "repair" => repair = Some(parse_fixture_repair(value.trim(), path)),
+                other => panic!("unknown fixture metadata key `{other}` in {}", path.display()),
+            }
+        }
+
+        let action = match (action, repair) {
+            (Some(name), None) => FixtureAction::Action { name, label },
+            (None, Some(repair)) => {
+                if label.is_some() {
+                    panic!("repair fixture {} cannot specify label", path.display());
+                }
+                FixtureAction::Repair(repair)
+            }
+            (Some(_), Some(_)) => {
+                panic!("fixture {} must specify only one of action or repair", path.display())
+            }
+            (None, None) => {
+                panic!("fixture {} must specify one of action or repair", path.display())
+            }
+        };
+
+        Self { action, source }
+    }
+
+    fn apply(&self, path: &Path) -> String {
+        match &self.action {
+            FixtureAction::Action { name, label } => {
+                if self.source.contains("/*selection*/") {
+                    if label.is_some() {
+                        panic!("selection fixture {} cannot specify label", path.display());
+                    }
+                    apply_action_without_diagnostics_with_selection(&self.source, name)
+                } else {
+                    match label {
+                        Some(label) => {
+                            apply_action_without_diagnostics_with_label(&self.source, name, label)
+                        }
+                        None => apply_action_without_diagnostics(&self.source, name),
+                    }
+                }
+            }
+            FixtureAction::Repair(repair) => apply_action(&self.source, *repair),
+        }
+        .unwrap_or_else(|| panic!("fixture {} did not produce an edit", path.display()))
+    }
+}
+
+fn parse_fixture_repair(value: &str, path: &Path) -> RepairKind {
+    match value {
+        "MissingConnection" => RepairKind::MissingConnection,
+        "MissingParameter" => RepairKind::MissingParameter,
+        "ConvertOrderedPorts" => RepairKind::ConvertOrderedPorts,
+        "ConvertOrderedParams" => RepairKind::ConvertOrderedParams,
+        "RemoveEmptyPortConnections" => RepairKind::RemoveEmptyPortConnections,
+        "AddImplicitNamedPortParens" => RepairKind::AddImplicitNamedPortParens,
+        "AddInstanceParens" => RepairKind::AddInstanceParens,
+        "InsertExpectedToken" => RepairKind::InsertExpectedToken,
+        other => panic!("unknown fixture repair kind `{other}` in {}", path.display()),
+    }
+}
 
 fn db_with_file(text: &str) -> (RootDb, FileId, TextSize) {
     let marker = "/*caret*/";
@@ -244,1247 +339,299 @@ fn action_labels_without_diagnostics(text: &str) -> Vec<String> {
     .collect()
 }
 
-#[test]
-fn remove_empty_port_connection_repair_requires_matching_diagnostic() {
-    let (db, file_id, offset) = db_with_file(
-        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n",
-    );
-    let actions = code_action(
-        &db,
-        file_id,
-        utils::text_edit::TextRange::empty(offset),
-        CodeActionDiagnostics { items: vec![diagnostic_for_repair(RepairKind::MissingParameter)] },
-        CodeActionResolveStrategy::All,
-    );
-
-    assert!(actions.iter().all(|action| action.id.name != "remove_empty_port_connections"));
-}
-
-#[test]
-fn remove_empty_port_connection_requires_diagnostics() {
-    let labels = action_labels_without_diagnostics(
-        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(), ); endmodule\n",
-    );
-
-    assert!(!labels.iter().any(|label| label == "Remove empty port connections"));
-}
-
-#[test]
-fn convert_ordered_ports_is_available_without_diagnostics() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, y); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ordered_ports").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn convert_ordered_params_is_available_without_diagnostics() {
-    let text = "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/8, 16) u(); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ordered_params").unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn literal_base_converts_plain_decimal_to_sized_signed_hexadecimal() {
-    let text = "module top; localparam int value = /*caret*/42; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to hexadecimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 32'sh2a; endmodule\n");
-}
-
-#[test]
-fn literal_base_preserves_plain_decimal_sign_bit() {
-    let text = "module top; localparam longint value = /*caret*/2147483648; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to hexadecimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam longint value = 33'sh80000000; endmodule\n");
-}
-
-#[test]
-fn literal_base_preserves_size_and_signed_base() {
-    let text = "module top; localparam logic [7:0] value = /*caret*/8'sh2A; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to binary",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam logic [7:0] value = 8'sb101010; endmodule\n");
-}
-
-#[test]
-fn literal_base_converts_unsized_based_literal_to_based_decimal() {
-    let text = "module top; localparam int value = /*caret*/'hff; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to decimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 'd255; endmodule\n");
-}
-
-#[test]
-fn literal_base_preserves_unsized_signed_base() {
-    let text = "module top; localparam int value = /*caret*/'shff; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "convert_literal_base",
-        "Convert literal to decimal",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 'sd255; endmodule\n");
-}
-
-#[test]
-fn literal_base_does_not_offer_decimal_for_unknown_bits() {
-    let labels = action_labels_without_diagnostics(
-        "module top; logic [3:0] value = /*caret*/'hx; endmodule\n",
-    );
-
-    assert!(labels.iter().any(|label| label == "Convert literal to binary"));
-    assert!(!labels.iter().any(|label| label == "Convert literal to decimal"));
-}
-
-#[test]
-fn literal_base_is_not_available_for_string_literals() {
-    let labels = action_labels_without_diagnostics(
-        "module top; string value = /*caret*/\"42\"; endmodule\n",
-    );
-
-    assert!(!labels.iter().any(|label| label.starts_with("Convert literal to ")));
-}
-
-#[test]
-fn reformat_number_literal_adds_decimal_separators() {
-    let text = "module top; localparam int value = /*caret*/10000; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "reformat_number_literal",
-        "Convert 10000 to 10_000",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 10_000; endmodule\n");
-}
-
-#[test]
-fn reformat_number_literal_removes_separators() {
-    let text = "module top; localparam int value = /*caret*/10_000; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "reformat_number_literal",
-        "Remove digit separators",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 10000; endmodule\n");
-}
-
-#[test]
-fn reformat_number_literal_formats_hex_literals() {
-    let text = "module top; localparam int value = /*caret*/'hff0000; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_label(
-        text,
-        "reformat_number_literal",
-        "Convert 'hff0000 to 'hff_0000",
-    )
-    .unwrap();
-
-    assert_eq!(fixed, "module top; localparam int value = 'hff_0000; endmodule\n");
-}
-
-#[test]
-fn reformat_number_literal_requires_enough_digits() {
-    let labels = action_labels_without_diagnostics(
-        "module top; localparam int value = /*caret*/999; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label.starts_with("Convert 999 to ")));
-}
-
-#[test]
-fn missing_connection_repair_fills_named_connections() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_is_available_without_diagnostics() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n";
-    let labels = action_labels_without_diagnostics(text);
-    assert!(labels.iter().any(|label| label == "Fill connections"));
-
-    let fixed = apply_action_without_diagnostics(text, "add_missing_connections").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_handles_one_line_trailing_comma() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(),); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_preserves_multiline_named_style() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    /*caret*/.a()\n);\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    .a(),\n    .b(),\n    .c()\n);\nendmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_preserves_multiline_trailing_comma_style() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    /*caret*/.a(),\n);\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    .a(),\n    .b(),\n    .c(),\n);\nendmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_fills_empty_named_connection_list() {
-    let text =
-        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_fills_ordered_connections() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top; logic b, c; child u(/*caret*/1'b0); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top; logic b, c; child u(1'b0, b, c); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_uses_valid_ordered_placeholders() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top; child u(/*caret*/1'b0); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top; child u(1'b0, /* b */ '0, /* c */ '0); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_fills_named_parameters() {
-    let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_is_available_without_diagnostics() {
-    let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "add_missing_parameters").unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_preserves_multiline_trailing_comma_style() {
-    let text = "module child #(parameter A = 1, parameter B, parameter C) (); endmodule\nmodule top;\nchild #(\n    /*caret*/.A(1),\n) u();\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B, parameter C) (); endmodule\nmodule top;\nchild #(\n    .A(1),\n    .B(),\n    .C(),\n) u();\nendmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_fills_empty_parameter_list() {
-    let text = "module child #(parameter A, parameter B) (); endmodule\nmodule top; child #(/*caret*/) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A, parameter B) (); endmodule\nmodule top; child #(.A(), .B()) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_fills_ordered_parameters() {
-    let text = "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(/*caret*/1) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(1, B, C) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_uses_valid_ordered_placeholders() {
-    let text = "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; child #(/*caret*/1) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; child #(1, /* B */ 0, /* C */ 0) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_is_not_offered_when_nothing_is_missing() {
-    let labels = action_labels(
-        "module child #(parameter A = 1) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n",
-        RepairKind::MissingParameter,
-    );
-    assert!(!labels.iter().any(|label| label == "Fill parameters"));
-}
-
-#[test]
-fn convert_ordered_ports_repair_names_ordered_connections() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/x, .b(y)); endmodule\n";
-    let fixed = apply_action(text, RepairKind::ConvertOrderedPorts).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn remove_empty_port_connection_repair_removes_trailing_comma() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y),/*caret*/); endmodule\n";
-    let fixed = apply_action(text, RepairKind::RemoveEmptyPortConnections).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn remove_empty_port_connection_repair_removes_middle_empty_connection() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(x), , .b(y)); endmodule\n";
-    let fixed = apply_action(text, RepairKind::RemoveEmptyPortConnections).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(x), .b(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn convert_ordered_params_repair_names_ordered_assignments() {
-    let text = "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/8, .B(16)) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::ConvertOrderedParams).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(.A(8), .B(16)) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn implicit_named_port_repair_adds_empty_parens() {
-    let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
-    let fixed = apply_action(text, RepairKind::AddImplicitNamedPortParens).unwrap();
-    assert_eq!(fixed, "module child(input a); endmodule\nmodule top; child u(.a()); endmodule\n");
-}
-
-#[test]
-fn implicit_named_port_repair_is_available_without_diagnostics() {
-    let text = "module child(input a); endmodule\nmodule top; child u(/*caret*/.a); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "add_implicit_named_port_parens").unwrap();
-    assert_eq!(fixed, "module child(input a); endmodule\nmodule top; child u(.a()); endmodule\n");
-}
-
-#[test]
-fn named_port_shorthand_expands() {
-    let text =
-        "module child(input a); endmodule\nmodule top; logic a; child u(/*caret*/.a); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "expand_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a); endmodule\nmodule top; logic a; child u(.a(a)); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_expands_all_named_connections_in_instance() {
-    let text = "module child(input a, b); endmodule\nmodule top; logic a, b; child u(/*caret*/.a, .b); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "expand_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, b); endmodule\nmodule top; logic a, b; child u(.a(a), .b(b)); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapses() {
-    let text = "module child(input a); endmodule\nmodule top; logic a; child u(/*caret*/.a(a)); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "collapse_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a); endmodule\nmodule top; logic a; child u(.a); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapses_all_named_connections_in_instance() {
-    let text = "module child(input a, b); endmodule\nmodule top; logic a, b; child u(/*caret*/.a(a), .b(b)); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "collapse_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, b); endmodule\nmodule top; logic a, b; child u(.a, .b); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapses_matching_connections_in_instance() {
-    let text = "module child(input a, b, c); endmodule\nmodule top; logic sw1, b, gate_out; child u(/*caret*/.a(sw1), .c(c), .b(gate_out)); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "collapse_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, b, c); endmodule\nmodule top; logic sw1, b, gate_out; child u(.a(sw1), .c, .b(gate_out)); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapse_requires_at_least_one_same_name() {
-    let labels = action_labels_without_diagnostics(
-        "module child(input a); endmodule\nmodule top; logic b; child u(/*caret*/.a(b)); endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Collapse named port to shorthand"));
-}
-
-#[test]
-fn named_port_shorthand_requires_all_connections_named() {
-    let labels = action_labels_without_diagnostics(
-        "module child(input a, b); endmodule\nmodule top; logic a, b; child u(/*caret*/.a, b); endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Expand named port shorthand"));
-}
-
-#[test]
-fn convert_always_star_to_always_comb() {
-    let text = "module top; logic a, y; /*caret*/always @(*) begin y = a; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_to_always_comb").unwrap();
-    assert_eq!(fixed, "module top; logic a, y; always_comb begin y = a; end endmodule\n");
-}
-
-#[test]
-fn convert_always_comb_to_always_star() {
-    let text = "module top; logic a, y; /*caret*/always_comb begin y = a; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_comb_to_always").unwrap();
-    assert_eq!(fixed, "module top; logic a, y; always @(*) begin y = a; end endmodule\n");
-}
-
-#[test]
-fn convert_always_posedge_to_always_ff() {
-    let text = "module top; logic clk, d, q; /*caret*/always @(posedge clk) q <= d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_to_always_ff").unwrap();
-    assert_eq!(fixed, "module top; logic clk, d, q; always_ff @(posedge clk) q <= d; endmodule\n");
-}
-
-#[test]
-fn convert_always_event_list_to_always_ff() {
-    let text = "module top; logic clk, d, q; always @(/*caret*/posedge clk) q <= d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_to_always_ff").unwrap();
-    assert_eq!(fixed, "module top; logic clk, d, q; always_ff @(posedge clk) q <= d; endmodule\n");
-}
-
-#[test]
-fn convert_always_ff_to_plain_always() {
-    let text = "module top; logic clk, d, q; /*caret*/always_ff @(posedge clk) q <= d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_always_ff_to_always").unwrap();
-    assert_eq!(fixed, "module top; logic clk, d, q; always @(posedge clk) q <= d; endmodule\n");
-}
-
-#[test]
-fn convert_always_block_requires_caret_on_keyword_or_event_list() {
-    let labels = action_labels_without_diagnostics(
-        "module top; logic a, y; always @(*) begin /*caret*/y = a; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert to always_comb"));
-
-    let labels = action_labels_without_diagnostics(
-        "module top; logic a, y; always_comb begin /*caret*/y = a; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert to always @(*)"));
-
-    let labels = action_labels_without_diagnostics(
-        "module top; logic clk, d, q; always_ff @(posedge clk) /*caret*/q <= d; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert to always @(...)"));
-}
-
-#[test]
-fn convert_always_to_always_ff_requires_edge_sensitivity() {
-    let labels = action_labels_without_diagnostics(
-        "module top; logic clk, d, q; /*caret*/always @(clk) q <= d; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert to always_ff"));
-}
-
-#[test]
-fn instance_missing_parens_repair_adds_port_list() {
-    let text = "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n";
-    let fixed = apply_action(text, RepairKind::AddInstanceParens).unwrap();
-    assert_eq!(fixed, "module child; endmodule\nmodule top; child u(); endmodule\n");
-}
-
-#[test]
-fn instance_missing_parens_repair_requires_diagnostics() {
-    let text = "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n";
-    let labels = action_labels_without_diagnostics(text);
-    assert!(!labels.iter().any(|label| label == "Add empty instance port list"));
-}
-
-#[test]
-fn convert_ansi_ports_to_non_ansi() {
-    let text = "module top(/*caret*/input a, output logic b);\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ansi_ports_to_non_ansi").unwrap();
-    assert_eq!(
-        fixed,
-        "module top(a, b);\n    input a;\n    output logic b;\n    assign b = a;\nendmodule\n"
-    );
-}
-
-#[test]
-fn convert_ansi_ports_to_non_ansi_uses_inherited_header() {
-    let text = "module top(/*caret*/input a, b);\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ansi_ports_to_non_ansi").unwrap();
-    assert_eq!(
-        fixed,
-        "module top(a, b);\n    input a;\n    input wire logic b;\n    assign b = a;\nendmodule\n"
-    );
-}
-
-#[test]
-fn convert_non_ansi_ports_to_ansi() {
-    let text =
-        "module top(/*caret*/a, b);\ninput wire a;\noutput logic b;\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert_eq!(fixed, "module top(input wire a, output logic b);\n    assign b = a;\nendmodule\n");
-}
-
-#[test]
-fn convert_non_ansi_ports_to_ansi_merges_data_declaration() {
-    let text = "module top (\n    /*caret*/c,\n    led0\n);\n    input  wire c;\n    output led0;\n    reg led0;\n\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert_eq!(fixed, "module top (\n    input  wire c,\n    output reg led0\n);\nendmodule\n");
-}
-
-#[test]
-fn convert_ansi_ports_to_non_ansi_preserves_body_comments() {
-    let text =
-        "module top(/*caret*/input a, output logic b);\n// keep this\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_ansi_ports_to_non_ansi").unwrap();
-    assert!(fixed.contains("// keep this"), "{fixed}");
-    assert!(fixed.contains("assign b = a;"), "{fixed}");
-}
-
-#[test]
-fn convert_non_ansi_ports_to_ansi_preserves_body_comments() {
-    let text = "module top(/*caret*/a, b);\n// keep first\ninput wire a;\n// keep second\noutput logic b;\nassign b = a;\nendmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "convert_non_ansi_ports_to_ansi").unwrap();
-    assert!(fixed.contains("// keep first"), "{fixed}");
-    assert!(fixed.contains("// keep second"), "{fixed}");
-    assert!(fixed.contains("assign b = a;"), "{fixed}");
-}
-
-#[test]
-fn convert_port_declarations_requires_caret_in_port_list() {
-    let labels = action_labels_without_diagnostics(
-        "module /*caret*/top(input a, output logic b);\nassign b = a;\nendmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert ANSI port declarations to non-ANSI"));
-
-    let labels = action_labels_without_diagnostics(
-        "module top(input a, output logic b);\n/*caret*/assign b = a;\nendmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert ANSI port declarations to non-ANSI"));
-
-    let labels = action_labels_without_diagnostics(
-        "module /*caret*/top(a, b);\ninput wire a;\noutput logic b;\nassign b = a;\nendmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert non-ANSI port declarations to ANSI"));
-
-    let labels = action_labels_without_diagnostics(
-        "module top(a, b);\ninput wire a;\n/*caret*/output logic b;\nassign b = a;\nendmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert non-ANSI port declarations to ANSI"));
-}
-
-#[test]
-fn split_declaration_declarators_splits_data_declaration() {
-    let text = "module top; /*caret*/logic [3:0] a, b = 4'h0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "split_declaration_declarators").unwrap();
-    assert_eq!(fixed, "module top; logic [3:0] a;\nlogic [3:0] b = 4'h0; endmodule\n");
-}
-
-#[test]
-fn split_declaration_declarators_requires_multiple_declarators() {
-    let labels = action_labels_without_diagnostics("module top; /*caret*/logic a; endmodule\n");
-    assert!(!labels.iter().any(|label| label == "Split declaration"));
-}
-
-#[test]
-fn sort_named_parameter_assignments_sorts_named_assignments() {
-    let text = "module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule\nmodule top; child #(/*caret*/.DEPTH(16), .WIDTH(8)) u(); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "sort_named_parameter_assignments").unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter WIDTH = 8, parameter DEPTH = 16) (); endmodule\nmodule top; child #(.WIDTH(8), .DEPTH(16)) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn sort_named_parameter_assignments_rejects_mixed_assignments() {
-    let labels = action_labels_without_diagnostics(
-        "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/.B(2), 1) u(); endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Sort named parameter assignments"));
-}
-
-#[test]
-fn sort_named_port_connections_sorts_named_connections() {
-    let text = "module child(input z, input a); endmodule\nmodule top; child u(/*caret*/.a(y), .z(x)); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "sort_named_port_connections").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input z, input a); endmodule\nmodule top; child u(.z(x), .a(y)); endmodule\n"
-    );
-}
-
-#[test]
-fn sort_named_port_connections_uses_module_order_for_availability() {
-    let labels = action_labels_without_diagnostics(
-        "module child(input z, input a); endmodule\nmodule top; child u(/*caret*/.z(x), .a(y)); endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Sort named port connections"));
-}
-
-#[test]
-fn sort_named_port_connections_rejects_ordered_connections() {
-    let labels = action_labels_without_diagnostics(
-        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.b(y), x); endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Sort named port connections"));
-}
-
-#[test]
-fn add_default_case_item_adds_default_before_endcase() {
-    let text = "module top; always_comb case (/*caret*/sel)\n    1'b0: y = 0;\nendcase endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "add_default_case_item").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb case (sel)\n    1'b0: y = 0;\n    default: ;\nendcase endmodule\n"
-    );
-}
-
-#[test]
-fn add_default_case_item_skips_existing_default() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb case (/*caret*/sel) default: ; endcase endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Add default case item"));
-}
-
-#[test]
-fn invert_if_else_swaps_branches_and_negates_condition() {
-    let text = "module top; always_comb if (/*caret*/a) y = 1; else y = 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "invert_if_else").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (!(a)) y = 0; else y = 1; endmodule\n");
-}
-
-#[test]
-fn remove_parentheses_removes_redundant_binary_parens() {
-    let text = "module top; assign y = /*caret*/(a + b) + c; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "remove_parentheses").unwrap();
-    assert_eq!(fixed, "module top; assign y = a + b + c; endmodule\n");
-}
-
-#[test]
-fn remove_parentheses_keeps_required_parens() {
-    let labels = action_labels_without_diagnostics(
-        "module top; assign y = /*caret*/(a + b) * c; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Remove redundant parentheses"));
-}
-
-#[test]
-fn remove_parentheses_requires_cursor_on_paren() {
-    let labels = action_labels_without_diagnostics(
-        "module top; assign y = (a /*caret*/+ b) + c; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Remove redundant parentheses"));
-}
-
-#[test]
-fn merge_nested_if_merges_simple_nested_if() {
-    let text = "module top; always_comb if (/*caret*/a) begin if (b) y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_wraps_or_conditions() {
-    let text =
-        "module top; always_comb if (/*caret*/a || b) begin if (c || d) y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if ((a || b) && (c || d)) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_merges_multiple_nested_levels() {
-    let text = "module top; always_comb if (/*caret*/a) begin if (b) begin if (c) y = 1; end end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_triggers_from_middle_nested_level() {
-    let text = "module top; always_comb if (a) begin if (/*caret*/b) begin if (c) y = 1; end end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_triggers_from_innermost_nested_level() {
-    let text = "module top; always_comb if (a) begin if (b) begin if (/*caret*/c) y = 1; end end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_merges_mixed_block_and_unbraced_levels() {
-    let text = "module top; always_comb if (a) begin if (/*caret*/b) if (c) y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "merge_nested_if").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a && b && c) y = 1; endmodule\n");
-}
-
-#[test]
-fn merge_nested_if_requires_no_else_branches() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb if (/*caret*/a) begin if (b) y = 1; else y = 0; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Merge nested if"));
-}
-
-#[test]
-fn merge_nested_if_rejects_block_with_declarations() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb if (/*caret*/a) begin logic tmp; if (b) y = tmp; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Merge nested if"));
-}
-
-#[test]
-fn extract_variable_inserts_local_before_statement() {
-    let text = "module top; always_comb begin y = /*selection*/a + b/*selection*/; end endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb begin logic value = a + b;\ny = value; end endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_allows_selection_padding() {
-    let text =
-        "module top; always_comb begin y =/*selection*/ a + b /*selection*/; end endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb begin logic value = a + b;\ny = value ; end endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_uses_assignment_lhs_type() {
-    let text = "module top; logic [7:0] y, a, b; always_comb begin y = /*selection*/a + b/*selection*/; end endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; logic [7:0] y, a, b; always_comb begin logic [7:0] value = a + b;\ny = value; end endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_from_continuous_assign() {
-    let text = "module top; assign y = /*selection*/a + b/*selection*/; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(fixed, "module top; wire logic value = a + b;\nassign y = value; endmodule\n");
-}
-
-#[test]
-fn extract_variable_uses_continuous_assign_lhs_type() {
-    let text =
-        "module top; logic [7:0] y, a, b; assign y = /*selection*/a + b/*selection*/; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; logic [7:0] y, a, b; wire logic [7:0] value = a + b;\nassign y = value; endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_requires_selection() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin y = a /*caret*/+ b; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Extract into variable"));
-}
-
-#[test]
-fn extract_variable_requires_complete_expression_selection() {
-    let labels = action_labels_without_diagnostics_with_selection(
-        "module top; always_comb begin y = a /*selection*/+/*selection*/ b; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Extract into variable"));
-}
-
-#[test]
-fn extract_variable_rejects_continuous_assign_lhs() {
-    let labels = action_labels_without_diagnostics_with_selection(
-        "module top; assign /*selection*/y/*selection*/ = a + b; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Extract into variable"));
-}
-
-#[test]
-fn extract_variable_requires_block_scope() {
-    let labels = action_labels_without_diagnostics_with_selection(
-        "module top; always_comb if (a) y = /*selection*/b + c/*selection*/; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Extract into variable"));
-}
-
-#[test]
-fn pull_assignment_up_converts_if_else_assignment_to_ternary() {
-    let text = "module top; always_comb /*caret*/if (a) y = 1; else y = 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = a ? 1 : 0; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_converts_else_if_chain_to_nested_ternary() {
-    let text =
-        "module top; always_comb if (/*caret*/a) y = 1; else if (b) y = 2; else y = 3; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = a ? 1 : b ? 2 : 3; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_triggers_from_else_if_chain_body() {
-    let text =
-        "module top; always_comb if (a) y = 1; else if (b) /*caret*/y = 2; else y = 3; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = a ? 1 : b ? 2 : 3; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_wraps_conditional_predicate() {
-    let text = "module top; always_comb if (a ? b : c) /*caret*/y = 1; else y = 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_up").unwrap();
-    assert_eq!(fixed, "module top; always_comb y = (a ? b : c) ? 1 : 0; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_up_requires_single_assignment_branches() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb if (a) begin /*caret*/y = 1; z = 0; end else y = 2; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Pull assignment up"));
-}
-
-#[test]
-fn pull_assignment_up_rejects_block_with_declarations() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb if (a) begin logic tmp; /*caret*/y = tmp; end else y = 0; endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Pull assignment up"));
-}
-
-#[test]
-fn pull_assignment_down_converts_ternary_assignment_to_if_else() {
-    let text = "module top; always_comb /*caret*/y = a ? 1 : 0; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_down").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a) y = 1; else y = 0; endmodule\n");
-}
-
-#[test]
-fn pull_assignment_down_converts_nested_ternary_to_else_if_chain() {
-    let text = "module top; always_comb /*caret*/y = a ? 1 : b ? 2 : 3; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "pull_assignment_down").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb if (a) y = 1; else if (b) y = 2; else y = 3; endmodule\n"
-    );
-}
-
-#[test]
-fn unwrap_single_statement_block_unwraps_single_statement() {
-    let text = "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "unwrap_single_statement_block").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a) y = 1; endmodule\n");
-}
-
-#[test]
-fn unwrap_single_statement_block_requires_single_statement() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb /*caret*/begin y = 1; z = 0; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Unwrap single-statement begin/end"));
-}
-
-#[test]
-fn unwrap_single_statement_block_requires_control_flow_body() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb /*caret*/begin y = 1; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Unwrap single-statement begin/end"));
-}
-
-#[test]
-fn unwrap_single_statement_block_unwraps_for_body() {
-    let text =
-        "module top; always_comb for (int i = 0; i < 4; i++) /*caret*/begin y = i; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "unwrap_single_statement_block").unwrap();
-    assert_eq!(fixed, "module top; always_comb for (int i = 0; i < 4; i++) y = i; endmodule\n");
-}
-
-#[test]
-fn wrap_statement_in_begin_end_wraps_statement() {
-    let text = "module top; always_comb if (a) /*caret*/y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "wrap_statement_in_begin_end").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a) begin\n    y = 1;\nend endmodule\n");
-}
-
-#[test]
-fn wrap_statement_in_begin_end_skips_existing_block() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Wrap statement in begin/end"));
-}
-
-#[test]
-fn wrap_statement_in_begin_end_requires_control_flow_body() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin /*caret*/y = 1; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Wrap statement in begin/end"));
-}
-
-#[test]
-fn wrap_statement_in_begin_end_wraps_for_body() {
-    let text = "module top; always_comb for (int i = 0; i < 4; i++) /*caret*/y = i; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "wrap_statement_in_begin_end").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb for (int i = 0; i < 4; i++) begin\n    y = i;\nend endmodule\n"
-    );
-}
-
-#[test]
-fn expand_postfix_inc_dec_expands_increment() {
-    let text = "module top; always_comb begin /*caret*/i++; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i = i + 1; end endmodule\n");
-}
-
-#[test]
-fn expand_prefix_inc_dec_expands_decrement() {
-    let text = "module top; always_comb begin /*caret*/--i; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i = i - 1; end endmodule\n");
-}
-
-#[test]
-fn convert_postfix_to_prefix_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/i++; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_postfix_to_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin ++i; end endmodule\n");
-}
-
-#[test]
-fn convert_postfix_to_compound_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/i--; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_postfix_to_compound_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i -= 1; end endmodule\n");
-}
-
-#[test]
-fn convert_prefix_to_postfix_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/--i; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_prefix_to_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i--; end endmodule\n");
-}
-
-#[test]
-fn convert_prefix_to_compound_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/++i; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_prefix_to_compound_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i += 1; end endmodule\n");
-}
-
-#[test]
-fn convert_compound_to_postfix_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_compound_to_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i++; end endmodule\n");
-}
-
-#[test]
-fn convert_compound_to_prefix_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/i -= 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_compound_to_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin --i; end endmodule\n");
-}
-
-#[test]
-fn inc_dec_assists_are_limited_to_other_two_forms() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin /*caret*/i++; end endmodule\n",
-    );
-    let labels = labels
-        .into_iter()
-        .filter(|label| label.contains("expression") || label.contains("compound assignment"))
-        .collect::<Vec<_>>();
-    assert_eq!(labels.len(), 3);
-    assert!(labels.iter().any(|label| label == "Expand postfix expression"));
-    assert!(labels.iter().any(|label| label == "Convert postfix to prefix expression"));
-    assert!(labels.iter().any(|label| label == "Convert postfix to compound assignment"));
-}
-
-#[test]
-fn inc_dec_assists_require_discarded_value_context() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin y = /*caret*/i++; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Expand postfix expression"));
-    assert!(!labels.iter().any(|label| label == "Convert postfix to prefix expression"));
-    assert!(!labels.iter().any(|label| label == "Convert postfix to compound assignment"));
-}
-
-#[test]
-fn inc_dec_assists_support_for_loop_steps() {
-    let text = "module top; int i; logic y; always_comb for (i = 0; i < 4; /*caret*/i++) y = i; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; int i; logic y; always_comb for (i = 0; i < 4; i = i + 1) y = i; endmodule\n"
-    );
-}
-
-#[test]
-fn compound_inc_dec_can_expand() {
-    let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i = i + 1; end endmodule\n");
-}
-
-#[test]
-fn convert_assignment_to_postfix_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/i = i + 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_assignment_to_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i++; end endmodule\n");
-}
-
-#[test]
-fn convert_assignment_to_prefix_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/i = i - 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_assignment_to_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin --i; end endmodule\n");
-}
-
-#[test]
-fn convert_assignment_inc_dec_requires_same_lhs_and_one() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin /*caret*/i = j + 1; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix expression"));
-    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix expression"));
-}
-
-#[test]
-fn convert_assignment_inc_dec_requires_discarded_value_context() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin y = (/*caret*/i = i + 1); end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Convert assignment to postfix expression"));
-    assert!(!labels.iter().any(|label| label == "Convert assignment to prefix expression"));
-}
-
-#[test]
-fn convert_compound_inc_dec_requires_one() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin /*caret*/i += 2; end endmodule\n",
-    );
-    assert!(
-        !labels.iter().any(|label| label == "Convert compound assignment to postfix expression")
-    );
-    assert!(
-        !labels.iter().any(|label| label == "Convert compound assignment to prefix expression")
-    );
-}
-
-#[test]
-fn expand_compound_assignment_expands_assignment() {
-    let text = "module top; always_comb begin /*caret*/a += b; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin a = a + b; end endmodule\n");
-}
-
-#[test]
-fn collapse_compound_assignment_collapses_assignment() {
-    let text = "module top; always_comb begin /*caret*/a = a + b; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "collapse_compound_assignment").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin a += b; end endmodule\n");
-}
-
-#[test]
-fn collapse_compound_assignment_requires_same_lhs() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin /*caret*/a = c + b; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Collapse compound assignment"));
-}
-
-#[test]
-fn expand_compound_assignment_skips_plain_assignment() {
-    let labels = action_labels_without_diagnostics(
-        "module top; always_comb begin /*caret*/a = b; end endmodule\n",
-    );
-    assert!(!labels.iter().any(|label| label == "Expand compound assignment"));
-}
-
-#[test]
-fn apply_de_morgan_rewrites_parenthesized_logical_expression() {
-    let text = "module top; assign y = /*caret*/!(a && b); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !a || !b; endmodule\n");
-}
-
-#[test]
-fn apply_de_morgan_rewrites_logical_chain() {
-    let text = "module top; assign y = /*caret*/!(a && b && c); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !a || !b || !c; endmodule\n");
-}
-
-#[test]
-fn apply_de_morgan_inverts_comparison_operators() {
-    let text = "module top; assign y = /*caret*/!(a == b || c != d || e <= f); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = a != b && c == d && e > f; endmodule\n");
-}
-
-#[test]
-fn apply_de_morgan_triggers_across_if_condition() {
-    let text = "module top; always_comb if (!(a == b /*caret*/|| c != d)) y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "apply_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (a != b && c == d) y = 1; endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_rewrites_negated_operands() {
-    let text = "module top; assign y = !a /*caret*/|| !b; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !(a && b); endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_inverts_comparison_operators() {
-    let text = "module top; assign y = a == b /*caret*/&& c < d; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !(a != b || c >= d); endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_rewrites_logical_chain() {
-    let text = "module top; assign y = a /*caret*/|| b || c; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; assign y = !(!a && !b && !c); endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_triggers_across_if_condition() {
-    let text = "module top; always_comb if (a == b /*caret*/&& c < d) y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (!(a != b || c >= d)) y = 1; endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_triggers_on_if_condition_operand() {
-    let text = "module top; always_comb if (a == /*caret*/b && c < d) y = 1; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "factor_de_morgan").unwrap();
-    assert_eq!(fixed, "module top; always_comb if (!(a != b || c >= d)) y = 1; endmodule\n");
-}
-
-#[test]
-fn factor_de_morgan_requires_cursor_on_logical_operator() {
-    let labels =
-        action_labels_without_diagnostics("module top; assign y = /*caret*/!a || b; endmodule\n");
-    assert!(!labels.iter().any(|label| label == "Factor De Morgan's law"));
-}
-
-#[test]
-fn apply_de_morgan_requires_parenthesized_logical_expression() {
-    let labels =
-        action_labels_without_diagnostics("module top; assign y = /*caret*/!a; endmodule\n");
-    assert!(!labels.iter().any(|label| label == "Apply De Morgan's law"));
-}
-
-#[test]
-fn expected_token_repair_inserts_missing_semicolon() {
-    let text = "module top;\nlogic a/*caret*/\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::InsertExpectedToken).unwrap();
-    assert_eq!(fixed, "module top;\nlogic a;\nendmodule\n");
+#[derive(Clone, Copy)]
+enum LabelCaseKind {
+    NoDiagnostics,
+    Selection,
+    Repair(RepairKind),
+    MismatchedRepair(RepairKind),
+}
+
+struct LabelCase {
+    name: &'static str,
+    kind: LabelCaseKind,
+    text: &'static str,
+}
+
+fn action_labels_for_case(case: &LabelCase) -> Vec<String> {
+    match case.kind {
+        LabelCaseKind::NoDiagnostics => action_labels_without_diagnostics(case.text),
+        LabelCaseKind::Selection => action_labels_without_diagnostics_with_selection(case.text),
+        LabelCaseKind::Repair(repair) => action_labels(case.text, repair),
+        LabelCaseKind::MismatchedRepair(repair) => {
+            let (db, file_id, offset) = db_with_file(case.text);
+            code_action(
+                &db,
+                file_id,
+                TextRange::empty(offset),
+                CodeActionDiagnostics { items: vec![diagnostic_for_repair(repair)] },
+                CodeActionResolveStrategy::All,
+            )
+            .into_iter()
+            .map(|action| action.label)
+            .collect()
+        }
+    }
+}
+
+#[test]
+fn code_action_edit_fixtures() {
+    insta::glob!("fixtures/code_actions/*.sv", |path| {
+        let fixture = CodeActionFixture::read(path);
+        let fixed = fixture.apply(path);
+        insta::assert_snapshot!(fixed);
+    });
+}
+
+#[test]
+fn code_action_availability_matrix() {
+    let cases = [
+        LabelCase {
+            name: "remove_empty_port_connection_repair_requires_matching_diagnostic",
+            kind: LabelCaseKind::MismatchedRepair(RepairKind::MissingParameter),
+            text: "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n",
+        },
+        LabelCase {
+            name: "remove_empty_port_connection_requires_diagnostics",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(), ); endmodule\n",
+        },
+        LabelCase {
+            name: "literal_base_unknown_bits",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; logic [3:0] value = /*caret*/'hx; endmodule\n",
+        },
+        LabelCase {
+            name: "literal_base_string_literal",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; string value = /*caret*/\"42\"; endmodule\n",
+        },
+        LabelCase {
+            name: "reformat_number_literal_requires_enough_digits",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; localparam int value = /*caret*/999; endmodule\n",
+        },
+        LabelCase {
+            name: "missing_parameter_repair_is_not_offered_when_nothing_is_missing",
+            kind: LabelCaseKind::Repair(RepairKind::MissingParameter),
+            text: "module child #(parameter A = 1) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n",
+        },
+        LabelCase {
+            name: "named_port_shorthand_collapse_requires_same_name",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child(input a); endmodule\nmodule top; logic b; child u(/*caret*/.a(b)); endmodule\n",
+        },
+        LabelCase {
+            name: "named_port_shorthand_requires_all_connections_named",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child(input a, b); endmodule\nmodule top; logic a, b; child u(/*caret*/.a, b); endmodule\n",
+        },
+        LabelCase {
+            name: "convert_always_to_comb_requires_keyword_or_event",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; logic a, y; always @(*) begin /*caret*/y = a; end endmodule\n",
+        },
+        LabelCase {
+            name: "convert_always_comb_requires_keyword",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; logic a, y; always_comb begin /*caret*/y = a; end endmodule\n",
+        },
+        LabelCase {
+            name: "convert_always_ff_requires_keyword_or_event",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; logic clk, d, q; always_ff @(posedge clk) /*caret*/q <= d; endmodule\n",
+        },
+        LabelCase {
+            name: "convert_always_to_always_ff_requires_edge_sensitivity",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; logic clk, d, q; /*caret*/always @(clk) q <= d; endmodule\n",
+        },
+        LabelCase {
+            name: "instance_missing_parens_repair_requires_diagnostics",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child; endmodule\nmodule top; child u/*caret*/; endmodule\n",
+        },
+        LabelCase {
+            name: "convert_ansi_ports_requires_port_list_module_name",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module /*caret*/top(input a, output logic b);\nassign b = a;\nendmodule\n",
+        },
+        LabelCase {
+            name: "convert_ansi_ports_requires_port_list_body",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top(input a, output logic b);\n/*caret*/assign b = a;\nendmodule\n",
+        },
+        LabelCase {
+            name: "convert_non_ansi_ports_requires_port_list_module_name",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module /*caret*/top(a, b);\ninput wire a;\noutput logic b;\nassign b = a;\nendmodule\n",
+        },
+        LabelCase {
+            name: "convert_non_ansi_ports_requires_port_list_decl",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top(a, b);\ninput wire a;\n/*caret*/output logic b;\nassign b = a;\nendmodule\n",
+        },
+        LabelCase {
+            name: "split_declaration_declarators_requires_multiple_declarators",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; /*caret*/logic a; endmodule\n",
+        },
+        LabelCase {
+            name: "sort_named_parameter_assignments_rejects_mixed_assignments",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child #(parameter A = 1, parameter B = 2) (); endmodule\nmodule top; child #(/*caret*/.B(2), 1) u(); endmodule\n",
+        },
+        LabelCase {
+            name: "sort_named_port_connections_uses_module_order_for_availability",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child(input z, input a); endmodule\nmodule top; child u(/*caret*/.z(x), .a(y)); endmodule\n",
+        },
+        LabelCase {
+            name: "sort_named_port_connections_rejects_ordered_connections",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.b(y), x); endmodule\n",
+        },
+        LabelCase {
+            name: "add_default_case_item_skips_existing_default",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb case (/*caret*/sel) default: ; endcase endmodule\n",
+        },
+        LabelCase {
+            name: "remove_parentheses_keeps_required_parens",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; assign y = /*caret*/(a + b) * c; endmodule\n",
+        },
+        LabelCase {
+            name: "remove_parentheses_requires_cursor_on_paren",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; assign y = (a /*caret*/+ b) + c; endmodule\n",
+        },
+        LabelCase {
+            name: "merge_nested_if_requires_no_else_branches",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb if (/*caret*/a) begin if (b) y = 1; else y = 0; end endmodule\n",
+        },
+        LabelCase {
+            name: "merge_nested_if_rejects_block_with_declarations",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb if (/*caret*/a) begin logic tmp; if (b) y = tmp; end endmodule\n",
+        },
+        LabelCase {
+            name: "extract_variable_requires_selection",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin y = a /*caret*/+ b; end endmodule\n",
+        },
+        LabelCase {
+            name: "extract_variable_requires_complete_expression_selection",
+            kind: LabelCaseKind::Selection,
+            text: "module top; always_comb begin y = a /*selection*/+/*selection*/ b; end endmodule\n",
+        },
+        LabelCase {
+            name: "extract_variable_rejects_continuous_assign_lhs",
+            kind: LabelCaseKind::Selection,
+            text: "module top; assign /*selection*/y/*selection*/ = a + b; endmodule\n",
+        },
+        LabelCase {
+            name: "extract_variable_requires_block_scope",
+            kind: LabelCaseKind::Selection,
+            text: "module top; always_comb if (a) y = /*selection*/b + c/*selection*/; endmodule\n",
+        },
+        LabelCase {
+            name: "pull_assignment_up_requires_single_assignment_branches",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb if (a) begin /*caret*/y = 1; z = 0; end else y = 2; endmodule\n",
+        },
+        LabelCase {
+            name: "pull_assignment_up_rejects_block_with_declarations",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb if (a) begin logic tmp; /*caret*/y = tmp; end else y = 0; endmodule\n",
+        },
+        LabelCase {
+            name: "unwrap_single_statement_block_requires_single_statement",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb /*caret*/begin y = 1; z = 0; end endmodule\n",
+        },
+        LabelCase {
+            name: "unwrap_single_statement_block_requires_control_flow_body",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb /*caret*/begin y = 1; end endmodule\n",
+        },
+        LabelCase {
+            name: "wrap_statement_in_begin_end_skips_existing_block",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb if (a) /*caret*/begin y = 1; end endmodule\n",
+        },
+        LabelCase {
+            name: "wrap_statement_in_begin_end_requires_control_flow_body",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin /*caret*/y = 1; end endmodule\n",
+        },
+        LabelCase {
+            name: "inc_dec_assists_are_limited_to_other_two_forms",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin /*caret*/i++; end endmodule\n",
+        },
+        LabelCase {
+            name: "inc_dec_assists_require_discarded_value_context",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin y = /*caret*/i++; end endmodule\n",
+        },
+        LabelCase {
+            name: "convert_assignment_inc_dec_requires_same_lhs_and_one",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin /*caret*/i = j + 1; end endmodule\n",
+        },
+        LabelCase {
+            name: "convert_assignment_inc_dec_requires_discarded_value_context",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin y = (/*caret*/i = i + 1); end endmodule\n",
+        },
+        LabelCase {
+            name: "convert_compound_inc_dec_requires_one",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin /*caret*/i += 2; end endmodule\n",
+        },
+        LabelCase {
+            name: "collapse_compound_assignment_requires_same_lhs",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin /*caret*/a = c + b; end endmodule\n",
+        },
+        LabelCase {
+            name: "expand_compound_assignment_skips_plain_assignment",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; always_comb begin /*caret*/a = b; end endmodule\n",
+        },
+        LabelCase {
+            name: "factor_de_morgan_requires_cursor_on_logical_operator",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; assign y = /*caret*/!a || b; endmodule\n",
+        },
+        LabelCase {
+            name: "apply_de_morgan_requires_parenthesized_logical_expression",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top; assign y = /*caret*/!a; endmodule\n",
+        },
+        LabelCase {
+            name: "expected_token_repair_requires_diagnostic",
+            kind: LabelCaseKind::NoDiagnostics,
+            text: "module top;\nlogic a/*caret*/\nendmodule\n",
+        },
+    ];
+
+    let mut report = String::new();
+    for case in cases {
+        let labels = action_labels_for_case(&case);
+        writeln!(&mut report, "{}:", case.name).unwrap();
+        if labels.is_empty() {
+            writeln!(&mut report, "  <none>").unwrap();
+        } else {
+            for label in labels {
+                writeln!(&mut report, "  - {label}").unwrap();
+            }
+        }
+    }
+
+    insta::assert_snapshot!(report);
 }
 
 #[test]
@@ -1509,11 +656,4 @@ fn expected_token_repair_uses_diagnostic_range() {
     edit.apply(&mut fixed);
 
     assert_eq!(fixed, "module top;\nlogic a;\nendmodule\n");
-}
-
-#[test]
-fn expected_token_repair_requires_diagnostic() {
-    let text = "module top;\nlogic a/*caret*/\nendmodule\n";
-    let labels = action_labels_without_diagnostics(text);
-    assert!(!labels.iter().any(|label| label.starts_with("Insert missing ")));
 }

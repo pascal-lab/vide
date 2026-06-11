@@ -1,0 +1,34 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/filters_subroutine_calls_by_return_type.v
+---
+[
+    CompletionItem {
+        label: "lhs",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "lhs",
+                del: 201..201,
+            },
+        ),
+        snippet_edit: None,
+    },
+    CompletionItem {
+        label: "same_type",
+        kind: Snippet,
+        edit: Some(
+            TextEditItem {
+                ins: "same_type()",
+                del: 201..201,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "same_type(${1:args})",
+                del: 201..201,
+            },
+        ),
+    },
+]
