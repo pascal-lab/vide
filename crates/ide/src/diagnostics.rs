@@ -341,21 +341,17 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             let mut diag_file_id = file_id;
             let mut range = src.range();
             if let Some(origin) = src_map.instantiation_origin(instantiation_id) {
-                let Some((target_file_id, target_range)) =
+                if let Some((target_file_id, target_range)) =
                     diagnostic_source_graph_target_file_range(db, file_id, origin)
-                else {
-                    continue;
-                };
-                diag_file_id = target_file_id;
-                range = target_range;
+                {
+                    diag_file_id = target_file_id;
+                    range = target_range;
+                }
             } else {
                 match hir::preproc::diagnostic_provenance_for_range(db, file_id, range) {
                     Ok(Some(provenance)) => {
-                        let Some((target_file_id, target_range)) =
-                            diagnostic_preproc_target_file_range(&provenance)
-                        else {
-                            continue;
-                        };
+                        let (target_file_id, target_range) =
+                            diagnostic_preproc_target_or_default(&provenance, (file_id, range));
                         diag_file_id = target_file_id;
                         range = target_range;
                     }
@@ -426,6 +422,13 @@ fn diagnostic_preproc_target_file_range(
         }
         hir::preproc::DiagnosticProvenance::Unavailable(_) => None,
     }
+}
+
+fn diagnostic_preproc_target_or_default(
+    provenance: &hir::preproc::DiagnosticProvenance,
+    default: (FileId, TextRange),
+) -> (FileId, TextRange) {
+    diagnostic_preproc_target_file_range(provenance).unwrap_or(default)
 }
 
 fn inactive_preprocessor_branch_diagnostics(db: &RootDb, file_id: FileId) -> Vec<Diagnostic> {
@@ -519,7 +522,7 @@ mod tests {
     use super::{
         AMBIGUOUS_MODULE_INSTANTIATION, DIAGNOSTIC_INACTIVE_PREPROCESSOR_BRANCH, DiagnosticSource,
         DiagnosticTag, INACTIVE_PREPROCESSOR_BRANCH, diagnostic_preproc_target_file_range,
-        diagnostics, source_root_diagnostics,
+        diagnostic_preproc_target_or_default, diagnostics, source_root_diagnostics,
     };
     use crate::db::root_db::RootDb;
 
@@ -739,6 +742,16 @@ mod tests {
         };
 
         assert_eq!(diagnostic_preproc_target_file_range(&provenance), None);
+    }
+
+    #[test]
+    fn diagnostic_target_defaults_for_unavailable_provenance() {
+        let default = (FileId(2), TextRange::new(TextSize::from(4), TextSize::from(9)));
+        let provenance = hir::preproc::DiagnosticProvenance::Unavailable(
+            hir::preproc::PreprocUnavailable::AmbiguousDiagnosticProvenance { targets: 2 },
+        );
+
+        assert_eq!(diagnostic_preproc_target_or_default(&provenance, default), default);
     }
 
     #[test]
