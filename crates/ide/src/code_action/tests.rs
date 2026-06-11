@@ -69,12 +69,21 @@ impl CodeActionFixture {
 
     fn apply(&self, path: &Path) -> String {
         match &self.action {
-            FixtureAction::Action { name, label } => match label {
-                Some(label) => {
-                    apply_action_without_diagnostics_with_label(&self.source, name, label)
+            FixtureAction::Action { name, label } => {
+                if self.source.contains("/*selection*/") {
+                    if label.is_some() {
+                        panic!("selection fixture {} cannot specify label", path.display());
+                    }
+                    apply_action_without_diagnostics_with_selection(&self.source, name)
+                } else {
+                    match label {
+                        Some(label) => {
+                            apply_action_without_diagnostics_with_label(&self.source, name, label)
+                        }
+                        None => apply_action_without_diagnostics(&self.source, name),
+                    }
                 }
-                None => apply_action_without_diagnostics(&self.source, name),
-            },
+            }
             FixtureAction::Repair(repair) => apply_action(&self.source, *repair),
         }
         .unwrap_or_else(|| panic!("fixture {} did not produce an edit", path.display()))
@@ -540,55 +549,6 @@ fn merge_nested_if_rejects_block_with_declarations() {
         "module top; always_comb if (/*caret*/a) begin logic tmp; if (b) y = tmp; end endmodule\n",
     );
     assert!(!labels.iter().any(|label| label == "Merge nested if"));
-}
-
-#[test]
-fn extract_variable_inserts_local_before_statement() {
-    let text = "module top; always_comb begin y = /*selection*/a + b/*selection*/; end endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb begin logic value = a + b;\ny = value; end endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_allows_selection_padding() {
-    let text =
-        "module top; always_comb begin y =/*selection*/ a + b /*selection*/; end endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; always_comb begin logic value = a + b;\ny = value ; end endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_uses_assignment_lhs_type() {
-    let text = "module top; logic [7:0] y, a, b; always_comb begin y = /*selection*/a + b/*selection*/; end endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; logic [7:0] y, a, b; always_comb begin logic [7:0] value = a + b;\ny = value; end endmodule\n"
-    );
-}
-
-#[test]
-fn extract_variable_from_continuous_assign() {
-    let text = "module top; assign y = /*selection*/a + b/*selection*/; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(fixed, "module top; wire logic value = a + b;\nassign y = value; endmodule\n");
-}
-
-#[test]
-fn extract_variable_uses_continuous_assign_lhs_type() {
-    let text =
-        "module top; logic [7:0] y, a, b; assign y = /*selection*/a + b/*selection*/; endmodule\n";
-    let fixed = apply_action_without_diagnostics_with_selection(text, "extract_variable").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; logic [7:0] y, a, b; wire logic [7:0] value = a + b;\nassign y = value; endmodule\n"
-    );
 }
 
 #[test]

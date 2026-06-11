@@ -1,0 +1,7 @@
+---
+source: crates/ide/src/code_action/tests.rs
+expression: fixed
+input_file: crates/ide/src/code_action/fixtures/code_actions/extract_variable_allows_selection_padding.sv
+---
+module top; always_comb begin logic value = a + b;
+y = value ; end endmodule
