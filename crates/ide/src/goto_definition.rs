@@ -3,7 +3,9 @@ use hir::{
     container::InFile,
     file::HirFileId,
     semantics::Semantics,
-    source_resolver::PositionResolver,
+    source_resolver::{
+        PositionResolver, SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset,
+    },
 };
 use itertools::Itertools;
 use source_model::{
@@ -23,7 +25,6 @@ use crate::{
     db::root_db::RootDb,
     definitions::DefinitionClass,
     navigation_target::{NavTarget, ToNav},
-    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 enum DefinitionTarget<'tree> {

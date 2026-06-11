@@ -1,5 +1,10 @@
 use hir::{
-    container::InFile, file::HirFileId, semantics::Semantics, source_resolver::PositionResolver,
+    container::InFile,
+    file::HirFileId,
+    semantics::Semantics,
+    source_resolver::{
+        PositionResolver, SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset,
+    },
 };
 use source_model::{
     FilePosition as SourceFilePosition, ResolvedSourceTarget, SourcePurpose,
@@ -17,7 +22,6 @@ use crate::{
         self, ReferenceCategory, ReferencesConfig,
         search::{ReferencesCtx, SearchScope},
     },
-    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 #[derive(Debug, Clone)]

@@ -11,7 +11,9 @@ use hir::{
         recursive_macro_expansion_provenance_for_source_graph_call,
     },
     semantics::Semantics,
-    source_resolver::PositionResolver,
+    source_resolver::{
+        PositionResolver, SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset,
+    },
 };
 use source_model::{
     FilePosition as SourceFilePosition, ResolvedSourceTarget, SourceContext, SourceEntity,
@@ -30,12 +32,8 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    FilePosition, RangeInfo,
-    db::root_db::RootDb,
-    definitions::DefinitionClass,
-    markup::Markup,
+    FilePosition, RangeInfo, db::root_db::RootDb, definitions::DefinitionClass, markup::Markup,
     render,
-    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 const MACRO_EXPANSION_SEPARATOR: &str = "--------------------";

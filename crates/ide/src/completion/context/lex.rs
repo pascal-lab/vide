@@ -1,10 +1,9 @@
+use hir::source_resolver::left_biased_syntax_target_at_offset;
 use syntax::{SyntaxAncestors, SyntaxNodeExt, has_text_range::HasTextRange, token::TokenKindExt};
 use utils::line_index::TextSize;
 
 use super::{LexContext, caret::CaretSnapshot};
-use crate::{
-    completion::directives::is_directive_kind, syntax_targets::left_biased_syntax_target_at_offset,
-};
+use crate::completion::directives::is_directive_kind;
 
 pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
     if is_inside_literal(caret) {

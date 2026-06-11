@@ -6,6 +6,12 @@ use vfs::FileId;
 
 use crate::base_db::source_db::{SourceFileKind, SourcePreprocQueryError, SourceRootDb};
 
+mod syntax_targets;
+pub use syntax_targets::{
+    SyntaxTarget, generated_syntax_target_at_offset, left_biased_syntax_target_at_offset,
+    syntax_target_at_offset,
+};
+
 #[derive(Debug, Clone, Copy)]
 pub struct PositionResolver<'db> {
     db: &'db dyn SourceRootDb,

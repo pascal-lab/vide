@@ -2,7 +2,10 @@ use hir::{
     base_db::source_db::{SourceDb, SourcePreprocContextStatus, SourceRootDb},
     file::HirFileId,
     semantics::Semantics,
-    source_resolver::{PositionResolver, source_graph_model_file_ids_for_file},
+    source_resolver::{
+        PositionResolver, SyntaxTarget, generated_syntax_target_at_offset,
+        source_graph_model_file_ids_for_file, syntax_target_at_offset,
+    },
 };
 use itertools::Itertools;
 use nohash_hasher::IntMap;
@@ -25,7 +28,6 @@ use crate::{
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
     navigation_target::{NavTarget, ToNav},
-    syntax_targets::{SyntaxTarget, generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 pub(crate) mod search;

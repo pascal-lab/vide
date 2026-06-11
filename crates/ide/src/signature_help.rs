@@ -11,6 +11,7 @@ use hir::{
         },
     },
     semantics::Semantics,
+    source_resolver::left_biased_syntax_target_at_offset,
 };
 use itertools::Either;
 use syntax::{
@@ -30,7 +31,6 @@ use utils::{
 use crate::{
     FilePosition, db::root_db::RootDb, markup::Markup,
     module_resolution::resolve_instantiation_target,
-    syntax_targets::left_biased_syntax_target_at_offset,
 };
 
 #[derive(Debug)]

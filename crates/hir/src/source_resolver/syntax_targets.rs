@@ -1,6 +1,3 @@
-use hir::{
-    base_db::source_db::SourceRootDb, source_resolver::source_graph_model_file_ids_for_file,
-};
 use source_model::{
     FilePosition as SourceFilePosition, MacroArgumentTokenIdentity, MacroBodyTokenIdentity,
     MacroCallIdentity, MacroDefinitionIdentity, MacroExpansionIdentity,
@@ -13,25 +10,26 @@ use syntax::{
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::db::root_db::RootDb;
+use super::source_graph_model_file_ids_for_file;
+use crate::base_db::source_db::SourceRootDb;
 
 #[derive(Debug, Clone)]
-pub(crate) struct SyntaxTarget<'tree> {
+pub struct SyntaxTarget<'tree> {
     range: TextRange,
     tokens: Vec<SyntaxTokenWithParent<'tree>>,
 }
 
 impl<'tree> SyntaxTarget<'tree> {
-    pub(crate) fn into_tokens(self) -> Vec<SyntaxTokenWithParent<'tree>> {
+    pub fn into_tokens(self) -> Vec<SyntaxTokenWithParent<'tree>> {
         self.tokens
     }
 
-    pub(crate) fn into_parts(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
+    pub fn into_parts(self) -> (TextRange, Vec<SyntaxTokenWithParent<'tree>>) {
         (self.range, self.tokens)
     }
 }
 
-pub(crate) fn syntax_target_at_offset<'tree>(
+pub fn syntax_target_at_offset<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: impl Fn(TokenKind) -> usize,
@@ -41,7 +39,7 @@ pub(crate) fn syntax_target_at_offset<'tree>(
     Some(SyntaxTarget { range, tokens: vec![token] })
 }
 
-pub(crate) fn left_biased_syntax_target_at_offset<'tree>(
+pub fn left_biased_syntax_target_at_offset<'tree>(
     root: SyntaxNode<'tree>,
     offset: TextSize,
 ) -> Option<SyntaxTarget<'tree>> {
@@ -50,8 +48,8 @@ pub(crate) fn left_biased_syntax_target_at_offset<'tree>(
     Some(SyntaxTarget { range, tokens: vec![token] })
 }
 
-pub(crate) fn generated_syntax_target_at_offset<'tree>(
-    db: &RootDb,
+pub fn generated_syntax_target_at_offset<'tree>(
+    db: &dyn SourceRootDb,
     file_id: FileId,
     root: SyntaxNode<'tree>,
     offset: TextSize,

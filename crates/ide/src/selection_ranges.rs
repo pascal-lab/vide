@@ -1,4 +1,4 @@
-use hir::semantics::Semantics;
+use hir::{semantics::Semantics, source_resolver::syntax_target_at_offset};
 use itertools::Itertools;
 use syntax::{
     SyntaxCursorExt, TokenKind,
@@ -7,7 +7,7 @@ use syntax::{
 };
 use utils::line_index::TextRange;
 
-use crate::{FilePosition, db::root_db::RootDb, syntax_targets::syntax_target_at_offset};
+use crate::{FilePosition, db::root_db::RootDb};
 
 pub(crate) fn selection_ranges(
     db: &RootDb,

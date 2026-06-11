@@ -5,6 +5,7 @@ use hir::{
     container::{ContainerId, InFile},
     semantics::Semantics,
     source_map::IsSrc,
+    source_resolver::{generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 use itertools::Itertools;
 use memchr::memmem::Finder;
@@ -28,7 +29,6 @@ use crate::{
     ScopeVisibility,
     db::root_db::RootDb,
     definitions::{Definition, DefinitionClass},
-    syntax_targets::{generated_syntax_target_at_offset, syntax_target_at_offset},
 };
 
 /// A search scope is a set of files and ranges within those files that should
