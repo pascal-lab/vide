@@ -2,7 +2,9 @@ use syntax::{SyntaxAncestors, SyntaxNodeExt, has_text_range::HasTextRange, token
 use utils::line_index::TextSize;
 
 use super::{LexContext, caret::CaretSnapshot};
-use crate::completion::directives::is_directive_kind;
+use crate::{
+    completion::directives::is_directive_kind, syntax_targets::left_biased_syntax_target_at_offset,
+};
 
 pub(super) fn detect_lex_context(caret: &CaretSnapshot<'_>) -> LexContext {
     if is_inside_literal(caret) {
@@ -49,9 +51,9 @@ fn trivia_kind_at_caret_offset(caret: &CaretSnapshot<'_>) -> Option<syntax::Triv
 }
 
 fn is_inside_literal(caret: &CaretSnapshot<'_>) -> bool {
-    let tok = caret.root.token_at_offset(caret.offset).left_biased();
-    tok.is_some_and(|tp| {
-        tp.kind().is_literal() && tp.text_range().is_some_and(|r| r.contains(caret.offset))
+    left_biased_syntax_target_at_offset(caret.root.clone(), caret.offset).is_some_and(|target| {
+        let (range, tokens) = target.into_parts();
+        range.contains(caret.offset) && tokens.into_iter().any(|token| token.kind().is_literal())
     })
 }
 
