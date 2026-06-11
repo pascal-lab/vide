@@ -12,9 +12,13 @@ use super::*;
 use crate::db::root_db::RootDb;
 
 struct CodeActionFixture {
-    action: String,
-    label: Option<String>,
+    action: FixtureAction,
     source: String,
+}
+
+enum FixtureAction {
+    Action { name: String, label: Option<String> },
+    Repair(RepairKind),
 }
 
 impl CodeActionFixture {
@@ -23,6 +27,7 @@ impl CodeActionFixture {
             .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
         let mut action = None;
         let mut label = None;
+        let mut repair = None;
         let mut source = String::new();
 
         for line in raw.lines() {
@@ -38,25 +43,55 @@ impl CodeActionFixture {
             match key.trim() {
                 "action" => action = Some(value.trim().to_owned()),
                 "label" => label = Some(value.trim().to_owned()),
+                "repair" => repair = Some(parse_fixture_repair(value.trim(), path)),
                 other => panic!("unknown fixture metadata key `{other}` in {}", path.display()),
             }
         }
 
-        Self {
-            action: action.unwrap_or_else(|| panic!("missing action in {}", path.display())),
-            label,
-            source,
-        }
+        let action = match (action, repair) {
+            (Some(name), None) => FixtureAction::Action { name, label },
+            (None, Some(repair)) => {
+                if label.is_some() {
+                    panic!("repair fixture {} cannot specify label", path.display());
+                }
+                FixtureAction::Repair(repair)
+            }
+            (Some(_), Some(_)) => {
+                panic!("fixture {} must specify only one of action or repair", path.display())
+            }
+            (None, None) => {
+                panic!("fixture {} must specify one of action or repair", path.display())
+            }
+        };
+
+        Self { action, source }
     }
 
     fn apply(&self, path: &Path) -> String {
-        match &self.label {
-            Some(label) => {
-                apply_action_without_diagnostics_with_label(&self.source, &self.action, label)
-            }
-            None => apply_action_without_diagnostics(&self.source, &self.action),
+        match &self.action {
+            FixtureAction::Action { name, label } => match label {
+                Some(label) => {
+                    apply_action_without_diagnostics_with_label(&self.source, name, label)
+                }
+                None => apply_action_without_diagnostics(&self.source, name),
+            },
+            FixtureAction::Repair(repair) => apply_action(&self.source, *repair),
         }
         .unwrap_or_else(|| panic!("fixture {} did not produce an edit", path.display()))
+    }
+}
+
+fn parse_fixture_repair(value: &str, path: &Path) -> RepairKind {
+    match value {
+        "MissingConnection" => RepairKind::MissingConnection,
+        "MissingParameter" => RepairKind::MissingParameter,
+        "ConvertOrderedPorts" => RepairKind::ConvertOrderedPorts,
+        "ConvertOrderedParams" => RepairKind::ConvertOrderedParams,
+        "RemoveEmptyPortConnections" => RepairKind::RemoveEmptyPortConnections,
+        "AddImplicitNamedPortParens" => RepairKind::AddImplicitNamedPortParens,
+        "AddInstanceParens" => RepairKind::AddInstanceParens,
+        "InsertExpectedToken" => RepairKind::InsertExpectedToken,
+        other => panic!("unknown fixture repair kind `{other}` in {}", path.display()),
     }
 }
 
@@ -374,150 +409,6 @@ fn reformat_number_literal_requires_enough_digits() {
         "module top; localparam int value = /*caret*/999; endmodule\n",
     );
     assert!(!labels.iter().any(|label| label.starts_with("Convert 999 to ")));
-}
-
-#[test]
-fn missing_connection_repair_fills_named_connections() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_is_available_without_diagnostics() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a()); endmodule\n";
-    let labels = action_labels_without_diagnostics(text);
-    assert!(labels.iter().any(|label| label == "Fill connections"));
-
-    let fixed = apply_action_without_diagnostics(text, "add_missing_connections").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_handles_one_line_trailing_comma() {
-    let text = "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/.a(),); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_preserves_multiline_named_style() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    /*caret*/.a()\n);\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    .a(),\n    .b(),\n    .c()\n);\nendmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_preserves_multiline_trailing_comma_style() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    /*caret*/.a(),\n);\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top;\nchild u(\n    .a(),\n    .b(),\n    .c(),\n);\nendmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_fills_empty_named_connection_list() {
-    let text =
-        "module child(input a, input b); endmodule\nmodule top; child u(/*caret*/); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b); endmodule\nmodule top; child u(.a(), .b()); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_fills_ordered_connections() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top; logic b, c; child u(/*caret*/1'b0); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top; logic b, c; child u(1'b0, b, c); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_connection_repair_uses_valid_ordered_placeholders() {
-    let text = "module child(input a, input b, input c); endmodule\nmodule top; child u(/*caret*/1'b0); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingConnection).unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, input b, input c); endmodule\nmodule top; child u(1'b0, /* b */ '0, /* c */ '0); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_fills_named_parameters() {
-    let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_is_available_without_diagnostics() {
-    let text = "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "add_missing_parameters").unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B) (); endmodule\nmodule top; child #(.A(1), .B()) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_preserves_multiline_trailing_comma_style() {
-    let text = "module child #(parameter A = 1, parameter B, parameter C) (); endmodule\nmodule top;\nchild #(\n    /*caret*/.A(1),\n) u();\nendmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A = 1, parameter B, parameter C) (); endmodule\nmodule top;\nchild #(\n    .A(1),\n    .B(),\n    .C(),\n) u();\nendmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_fills_empty_parameter_list() {
-    let text = "module child #(parameter A, parameter B) (); endmodule\nmodule top; child #(/*caret*/) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A, parameter B) (); endmodule\nmodule top; child #(.A(), .B()) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_fills_ordered_parameters() {
-    let text = "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(/*caret*/1) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; parameter B = 2; parameter C = 3; child #(1, B, C) u(); endmodule\n"
-    );
-}
-
-#[test]
-fn missing_parameter_repair_uses_valid_ordered_placeholders() {
-    let text = "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; child #(/*caret*/1) u(); endmodule\n";
-    let fixed = apply_action(text, RepairKind::MissingParameter).unwrap();
-    assert_eq!(
-        fixed,
-        "module child #(parameter A, parameter B, parameter C) (); endmodule\nmodule top; child #(1, /* B */ 0, /* C */ 0) u(); endmodule\n"
-    );
 }
 
 #[test]
