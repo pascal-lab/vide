@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use preproc::source::{
     SourceEmittedTokenId, SourceEmittedTokenRange, SourceIncludeDirectiveId,
     SourceMacroArgumentIdentity, SourceMacroBodyIdentity, SourceMacroCallId, SourceMacroCallKey,
@@ -8,10 +6,7 @@ use preproc::source::{
     SourcePreprocError, SourcePreprocUnavailable,
 };
 use smol_str::SmolStr;
-use utils::{
-    line_index::{TextRange, TextSize},
-    uniq_vec::UniqVec,
-};
+use utils::line_index::{TextRange, TextSize};
 use vfs::{FileId, VfsPath};
 
 use crate::base_db::source_db::{
@@ -669,25 +664,6 @@ impl MacroDefinitionKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct MacroReferenceKey {
-    file_id: FileId,
-    range_start: TextSize,
-    range_end: TextSize,
-    name: SmolStr,
-}
-
-impl MacroReferenceKey {
-    pub(crate) fn from_reference(reference: &MacroReference) -> Self {
-        Self {
-            file_id: reference.file_id,
-            range_start: reference.range.start(),
-            range_end: reference.range.end(),
-            name: reference.name.clone(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct MacroParamDefinitionKey {
     macro_definition: MacroDefinitionKey,
@@ -745,82 +721,6 @@ impl InactiveBranchKey {
             file_id: branch.file_id,
             range_start: branch.range.start(),
             range_end: branch.range.end(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct MacroReferenceIndex {
-    references_by_definition:
-        BTreeMap<MacroDefinitionKey, UniqVec<MacroReference, MacroReferenceKey>>,
-    definitions_by_reference:
-        BTreeMap<MacroReferenceKey, UniqVec<MacroDefinition, MacroDefinitionKey>>,
-    issues: Vec<MacroReferenceIndexIssue>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroReferences {
-    pub references: Vec<MacroReference>,
-    pub status: MacroReferenceIndexStatus,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacroReferenceIndexStatus {
-    Complete,
-    Partial { issues: Vec<MacroReferenceIndexIssue> },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacroReferenceIndexIssue {
-    SkippedModel {
-        file_id: FileId,
-        error: PreprocError,
-    },
-    UnavailableReference {
-        file_id: FileId,
-        reference_id: MacroReferenceId,
-        reason: PreprocUnavailable,
-    },
-}
-
-impl MacroReferenceIndex {
-    pub fn references_for(&self, definition: &MacroDefinition) -> Vec<MacroReference> {
-        self.references_by_definition
-            .get(&MacroDefinitionKey::from_definition(definition))
-            .map(|references| references.as_slice().to_vec())
-            .unwrap_or_default()
-    }
-
-    pub fn definitions_for_reference(
-        &self,
-        reference: &MacroReference,
-    ) -> Option<&[MacroDefinition]> {
-        self.definitions_by_reference
-            .get(&MacroReferenceKey::from_reference(reference))
-            .map(UniqVec::as_slice)
-    }
-
-    pub fn status(&self) -> MacroReferenceIndexStatus {
-        if self.issues.is_empty() {
-            MacroReferenceIndexStatus::Complete
-        } else {
-            MacroReferenceIndexStatus::Partial { issues: self.issues.clone() }
-        }
-    }
-
-    pub(super) fn push(&mut self, definition: MacroDefinition, reference: MacroReference) {
-        let definition_key = MacroDefinitionKey::from_definition(&definition);
-        let references = self.references_by_definition.entry(definition_key).or_default();
-        references.push([MacroReferenceKey::from_reference(&reference)], reference.clone());
-
-        let reference_key = MacroReferenceKey::from_reference(&reference);
-        let definitions = self.definitions_by_reference.entry(reference_key).or_default();
-        definitions.push([MacroDefinitionKey::from_definition(&definition)], definition);
-    }
-
-    pub(super) fn push_issue(&mut self, issue: MacroReferenceIndexIssue) {
-        if !self.issues.contains(&issue) {
-            self.issues.push(issue);
         }
     }
 }

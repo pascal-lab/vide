@@ -21,7 +21,7 @@ use utils::{
 use vfs::FileId;
 
 use crate::base_db::{
-    project::{CompilationProfileId, Predefine},
+    project::Predefine,
     source_db::{
         MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
         SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,

@@ -2,8 +2,8 @@ use std::fmt;
 
 use rustc_hash::FxHashSet;
 use source_model::{
-    FilePosition, FileRange, ResolvedSourceTarget, SourceEntity, SourceOrigin, SourcePurpose,
-    SourceRangeResult, SourceTarget, SourceTargetResolution,
+    FilePosition, FileRange, ResolutionReason, ResolvedSourceTarget, SourceEntity, SourceOrigin,
+    SourcePurpose, SourceRangeResult, SourceTarget, SourceTargetResolution,
 };
 use triomphe::Arc;
 use utils::{
@@ -177,6 +177,49 @@ fn offset_after_n(text: &str, needle: &str, occurrence: usize) -> TextSize {
 
 fn text_at_range(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
+}
+
+fn source_graph_macro_references_for_definition(
+    db: &TestDb,
+    model_file_id: FileId,
+    definition_file_id: FileId,
+    definition_range: TextRange,
+) -> Vec<(FileRange, ResolutionReason)> {
+    let source_graph = db.source_graph_preproc_model(model_file_id);
+    let source_graph = source_graph.as_ref().as_ref().expect("source graph should build");
+    let graph = &source_graph.graph;
+    let definition = graph
+        .entities_intersecting_file_range(definition_file_id, definition_range, None)
+        .into_iter()
+        .find_map(|hit| {
+            let SourceEntity::MacroDefinition(_) = graph.entity(hit.entity) else {
+                return None;
+            };
+            let SourceRangeResult::Mapped(range) =
+                graph.entity_focus_file_range(hit.entity, SourcePurpose::FindReferences)
+            else {
+                return None;
+            };
+            (range.file_id == definition_file_id && range.range == definition_range)
+                .then_some(hit.entity)
+        })
+        .expect("macro definition should exist in source graph");
+
+    graph
+        .resolved_references(source_graph.root_context, definition)
+        .iter()
+        .filter_map(|(reference, reason)| {
+            let SourceEntity::MacroReference(_) = graph.entity(*reference) else {
+                return None;
+            };
+            let SourceRangeResult::Mapped(range) =
+                graph.entity_focus_file_range(*reference, SourcePurpose::FindReferences)
+            else {
+                return None;
+            };
+            Some((range, *reason))
+        })
+        .collect()
 }
 
 fn assert_expansion_is_display_only_source_buffer(
@@ -1280,9 +1323,10 @@ endmodule
     assert_eq!(definition.name_range, manifest_range);
     assert_eq!(text_at_range(manifest_text, definition.name_range), "\"Z_FROM_MANIFEST=1\"");
 
-    let references = macro_references(&db, MANIFEST, &definition).unwrap();
+    let references =
+        source_graph_macro_references_for_definition(&db, TOP, MANIFEST, definition.name_range);
     assert!(
-        references.references.iter().any(|reference| {
+        references.iter().any(|(reference, _)| {
             reference.file_id == TOP
                 && text_at_range(root_text, reference.range) == "Z_FROM_MANIFEST"
         }),
@@ -1318,9 +1362,10 @@ endmodule
     assert_eq!(definition.name_range, manifest_range);
     assert_eq!(text_at_range(manifest_text, definition.name_range), raw_define);
 
-    let references = macro_references(&db, MANIFEST, &definition).unwrap();
+    let references =
+        source_graph_macro_references_for_definition(&db, TOP, MANIFEST, definition.name_range);
     assert!(
-        references.references.iter().any(|reference| reference.file_id == TOP
+        references.iter().any(|(reference, _)| reference.file_id == TOP
             && text_at_range(root_text, reference.range) == "MSG"),
         "escaped manifest predefine should still find source references: {references:?}"
     );
@@ -1382,17 +1427,15 @@ localparam int ENABLED = `HEADER_FLAG;
     assert_eq!(definition.source.file_id(), Some(HEADER));
     assert!(matches!(definition.capability, PreprocAvailability::Complete));
 
-    let refs = macro_references(&db, HEADER, &definition).unwrap().references;
+    let refs =
+        source_graph_macro_references_for_definition(&db, TOP, HEADER, definition.name_range);
 
-    assert!(refs.iter().any(|reference| {
+    assert!(refs.iter().any(|(reference, _)| {
         reference.file_id == TOP && text_at_range(root_text, reference.range) == "HEADER_FLAG"
     }));
-    assert!(refs.iter().any(|reference| {
+    assert!(refs.iter().any(|(reference, reason)| {
         reference.file_id == TOP
-            && matches!(
-                reference.resolution,
-                MacroResolution::Resolved { reason: MacroResolutionReason::VisibleDefinition, .. }
-            )
+            && *reason == ResolutionReason::VisibleDefinition
             && text_at_range(root_text, reference.range) == "HEADER_FLAG"
     }));
 
@@ -1616,8 +1659,9 @@ fn preproc_ifndef_guard_reference_resolves_to_following_define() {
         resolution.definitions.iter().find(|definition| definition.file_id == HEADER).unwrap();
     assert_eq!(text_at_range(header_text, definition.name_range), "HEADER_FLAG");
 
-    let refs = macro_references(&db, HEADER, definition).unwrap().references;
-    assert!(refs.iter().any(|reference| {
+    let refs =
+        source_graph_macro_references_for_definition(&db, TOP, HEADER, definition.name_range);
+    assert!(refs.iter().any(|(reference, _)| {
         reference.file_id == HEADER
             && reference.range.start() == offset(header_text, "HEADER_FLAG")
             && text_at_range(header_text, reference.range) == "HEADER_FLAG"

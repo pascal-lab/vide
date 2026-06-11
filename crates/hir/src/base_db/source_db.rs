@@ -379,10 +379,6 @@ pub trait SourceRootDb: SourceDb {
         &self,
         file_id: FileId,
     ) -> Arc<SourcePreprocRelevantContexts>;
-    fn macro_reference_index_for_profile(
-        &self,
-        profile_id: Option<CompilationProfileId>,
-    ) -> Arc<crate::preproc::MacroReferenceIndex>;
     fn parsed_compilation_unit(&self, file_id: FileId) -> ParsedCompilationUnit;
     fn parse_src_for_compilation(&self, file_id: FileId) -> SyntaxTree;
     fn parser_expected_syntax(
@@ -444,13 +440,6 @@ fn include_buffers_for_profile(
 ) -> Arc<Vec<SyntaxTreeBuffer>> {
     let plan = db.compilation_plan_for_profile(profile_id);
     Arc::new(compilation_plan::include_buffers_for_plan(db, &plan))
-}
-
-fn macro_reference_index_for_profile(
-    db: &dyn SourceRootDb,
-    profile_id: Option<CompilationProfileId>,
-) -> Arc<crate::preproc::MacroReferenceIndex> {
-    Arc::new(crate::preproc::build_macro_reference_index(db, profile_id))
 }
 
 fn semantic_diagnostics(db: &dyn SourceRootDb, file_id: FileId) -> Arc<[SyntaxDiagnostic]> {
