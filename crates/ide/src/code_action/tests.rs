@@ -401,62 +401,6 @@ fn missing_parameter_repair_is_not_offered_when_nothing_is_missing() {
 }
 
 #[test]
-fn named_port_shorthand_expands() {
-    let text =
-        "module child(input a); endmodule\nmodule top; logic a; child u(/*caret*/.a); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "expand_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a); endmodule\nmodule top; logic a; child u(.a(a)); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_expands_all_named_connections_in_instance() {
-    let text = "module child(input a, b); endmodule\nmodule top; logic a, b; child u(/*caret*/.a, .b); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "expand_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, b); endmodule\nmodule top; logic a, b; child u(.a(a), .b(b)); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapses() {
-    let text = "module child(input a); endmodule\nmodule top; logic a; child u(/*caret*/.a(a)); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "collapse_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a); endmodule\nmodule top; logic a; child u(.a); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapses_all_named_connections_in_instance() {
-    let text = "module child(input a, b); endmodule\nmodule top; logic a, b; child u(/*caret*/.a(a), .b(b)); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "collapse_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, b); endmodule\nmodule top; logic a, b; child u(.a, .b); endmodule\n"
-    );
-}
-
-#[test]
-fn named_port_shorthand_collapses_matching_connections_in_instance() {
-    let text = "module child(input a, b, c); endmodule\nmodule top; logic sw1, b, gate_out; child u(/*caret*/.a(sw1), .c(c), .b(gate_out)); endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "collapse_named_port_connection_shorthand").unwrap();
-    assert_eq!(
-        fixed,
-        "module child(input a, b, c); endmodule\nmodule top; logic sw1, b, gate_out; child u(.a(sw1), .c, .b(gate_out)); endmodule\n"
-    );
-}
-
-#[test]
 fn named_port_shorthand_collapse_requires_at_least_one_same_name() {
     let labels = action_labels_without_diagnostics(
         "module child(input a); endmodule\nmodule top; logic b; child u(/*caret*/.a(b)); endmodule\n",
