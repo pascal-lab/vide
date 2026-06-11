@@ -8,7 +8,7 @@ use hir::{
     hir_def::expr::Expr,
     preproc::{
         MacroDefinition, MacroExpansionDefinition, RecursiveMacroExpansionProvenance,
-        macro_reference_definitions_at, recursive_macro_expansion_provenances_at,
+        recursive_macro_expansion_provenance_for_source_graph_call,
     },
     semantics::Semantics,
     source_resolver::PositionResolver,
@@ -233,7 +233,7 @@ fn with_expanded_macro_hover(
     offset: TextSize,
     mut hover: RangeInfo<Markup>,
 ) -> RangeInfo<Markup> {
-    let Some(expanded) = expanded_macro_hover(db, file_id, offset, None) else {
+    let Some(expanded) = expanded_macro_hover_at_position(db, file_id, offset) else {
         return hover;
     };
     if let Some(range) = covering_range(&[hover.range, expanded.range]) {
@@ -244,35 +244,57 @@ fn with_expanded_macro_hover(
     hover
 }
 
-fn expanded_macro_hover(
+fn expanded_macro_hover_at_position(
     db: &RootDb,
     file_id: FileId,
     offset: TextSize,
-    reference_ids: Option<&[usize]>,
 ) -> Option<RangeInfo<Markup>> {
-    let reference_ids = if let Some(reference_ids) = reference_ids {
-        reference_ids.to_vec()
-    } else {
-        macro_reference_definitions_at(db, file_id, offset)
-            .ok()
-            .flatten()?
-            .references
-            .into_iter()
-            .map(|reference| reference.id.raw())
-            .collect::<Vec<_>>()
+    let resolution = PositionResolver::new(db).resolve_position(
+        SourceFilePosition { file_id, offset },
+        SourcePurpose::Hover,
+        None,
+    );
+    let target = match resolution {
+        GraphSourceTargetResolution::Resolved(target) => target,
+        GraphSourceTargetResolution::Ambiguous(targets) => targets.into_iter().find(|target| {
+            matches!(
+                target.target,
+                GraphSourceTarget::MacroReference(_) | GraphSourceTarget::MacroCall(_)
+            )
+        })?,
+        GraphSourceTargetResolution::Blocked(_) | GraphSourceTargetResolution::None => return None,
     };
-    if reference_ids.is_empty() {
+    expanded_macro_hover_for_graph_target(db, offset, target)
+}
+
+fn expanded_macro_hover_for_graph_target(
+    db: &RootDb,
+    offset: TextSize,
+    target: ResolvedSourceTarget,
+) -> Option<RangeInfo<Markup>> {
+    let source_graph = db.source_graph_preproc_model(target.model_file_id);
+    let source_graph = source_graph.as_ref().as_ref().ok()?;
+    let graph = &source_graph.graph;
+    let call_ids = graph_macro_call_ids_for_target(graph, target);
+    if call_ids.is_empty() {
         return None;
     }
 
-    let expansions =
-        recursive_macro_expansion_provenances_at(db, file_id, offset).ok().unwrap_or_default();
+    let expansions = call_ids
+        .into_iter()
+        .filter_map(|call_id| {
+            recursive_macro_expansion_provenance_for_source_graph_call(
+                db,
+                target.model_file_id,
+                call_id,
+            )
+            .ok()
+            .flatten()
+        })
+        .collect::<Vec<_>>();
     let expansions = expansions
         .into_iter()
-        .filter(|expansion| {
-            reference_ids.contains(&expansion.root_call.reference_id.raw())
-                && !expansion.expansions.is_empty()
-        })
+        .filter(|expansion| !expansion.expansions.is_empty())
         .collect::<Vec<_>>();
     if expansions.is_empty() {
         return None;
@@ -282,6 +304,24 @@ fn expanded_macro_hover(
     let range = covering_range(&ranges).unwrap_or_else(|| TextRange::empty(offset));
     let markup = expanded_macro_markup(db, &expansions);
     Some(RangeInfo::new(range, markup))
+}
+
+fn graph_macro_call_ids_for_target(
+    graph: &source_model::SourceGraph,
+    target: ResolvedSourceTarget,
+) -> Vec<source_model::MacroCallId> {
+    match target.target {
+        GraphSourceTarget::MacroCall(call_id) => vec![call_id],
+        GraphSourceTarget::MacroReference(_) => graph
+            .entity_parents(target.entity)
+            .iter()
+            .filter_map(|entity| match graph.entity(*entity) {
+                SourceEntity::MacroCall(call_id) => Some(call_id),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn expanded_macro_markup(db: &RootDb, expansions: &[RecursiveMacroExpansionProvenance]) -> Markup {
@@ -646,11 +686,10 @@ fn dispatch_graph_macro_reference_hover_target(
     else {
         return None;
     };
-    let GraphSourceTarget::MacroReference(reference_id) = reference.target else {
+    let GraphSourceTarget::MacroReference(_) = reference.target else {
         return None;
     };
-    let reference_ids = [reference_id.raw() as usize];
-    if let Some(expanded) = expanded_macro_hover(db, file_id, offset, Some(&reference_ids)) {
+    if let Some(expanded) = expanded_macro_hover_for_graph_target(db, offset, reference) {
         return Some(expanded);
     }
 

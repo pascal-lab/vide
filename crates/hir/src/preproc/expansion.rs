@@ -1,5 +1,22 @@
 use super::*;
 
+pub fn recursive_macro_expansion_provenance_for_source_graph_call(
+    db: &dyn SourceRootDb,
+    model_file_id: FileId,
+    call_id: source_model::MacroCallId,
+) -> PreprocResult<Option<RecursiveMacroExpansionProvenance>> {
+    let mapped = db.source_preproc_model(model_file_id);
+    let mapped = mapped_result(mapped.as_ref())?;
+    let Some(call_fact) = mapped
+        .model
+        .macro_calls()
+        .get(preproc::source::SourceMacroCallId::new(call_id.raw() as usize))
+    else {
+        return Ok(None);
+    };
+    recursive_macro_expansion_provenance_for_call(mapped, call_fact).map(Some)
+}
+
 pub fn immediate_macro_expansion_at(
     db: &dyn SourceRootDb,
     file_id: FileId,
