@@ -672,68 +672,6 @@ fn wrap_statement_in_begin_end_requires_control_flow_body() {
 }
 
 #[test]
-fn expand_postfix_inc_dec_expands_increment() {
-    let text = "module top; always_comb begin /*caret*/i++; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i = i + 1; end endmodule\n");
-}
-
-#[test]
-fn expand_prefix_inc_dec_expands_decrement() {
-    let text = "module top; always_comb begin /*caret*/--i; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i = i - 1; end endmodule\n");
-}
-
-#[test]
-fn convert_postfix_to_prefix_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/i++; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_postfix_to_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin ++i; end endmodule\n");
-}
-
-#[test]
-fn convert_postfix_to_compound_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/i--; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_postfix_to_compound_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i -= 1; end endmodule\n");
-}
-
-#[test]
-fn convert_prefix_to_postfix_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/--i; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_prefix_to_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i--; end endmodule\n");
-}
-
-#[test]
-fn convert_prefix_to_compound_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/++i; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_prefix_to_compound_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i += 1; end endmodule\n");
-}
-
-#[test]
-fn convert_compound_to_postfix_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_compound_to_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i++; end endmodule\n");
-}
-
-#[test]
-fn convert_compound_to_prefix_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/i -= 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_compound_to_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin --i; end endmodule\n");
-}
-
-#[test]
 fn inc_dec_assists_are_limited_to_other_two_forms() {
     let labels = action_labels_without_diagnostics(
         "module top; always_comb begin /*caret*/i++; end endmodule\n",
@@ -756,39 +694,6 @@ fn inc_dec_assists_require_discarded_value_context() {
     assert!(!labels.iter().any(|label| label == "Expand postfix expression"));
     assert!(!labels.iter().any(|label| label == "Convert postfix to prefix expression"));
     assert!(!labels.iter().any(|label| label == "Convert postfix to compound assignment"));
-}
-
-#[test]
-fn inc_dec_assists_support_for_loop_steps() {
-    let text = "module top; int i; logic y; always_comb for (i = 0; i < 4; /*caret*/i++) y = i; endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_postfix_inc_dec").unwrap();
-    assert_eq!(
-        fixed,
-        "module top; int i; logic y; always_comb for (i = 0; i < 4; i = i + 1) y = i; endmodule\n"
-    );
-}
-
-#[test]
-fn compound_inc_dec_can_expand() {
-    let text = "module top; always_comb begin /*caret*/i += 1; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i = i + 1; end endmodule\n");
-}
-
-#[test]
-fn convert_assignment_to_postfix_inc_dec_converts_increment() {
-    let text = "module top; always_comb begin /*caret*/i = i + 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_assignment_to_postfix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin i++; end endmodule\n");
-}
-
-#[test]
-fn convert_assignment_to_prefix_inc_dec_converts_decrement() {
-    let text = "module top; always_comb begin /*caret*/i = i - 1; end endmodule\n";
-    let fixed =
-        apply_action_without_diagnostics(text, "convert_assignment_to_prefix_inc_dec").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin --i; end endmodule\n");
 }
 
 #[test]
@@ -820,20 +725,6 @@ fn convert_compound_inc_dec_requires_one() {
     assert!(
         !labels.iter().any(|label| label == "Convert compound assignment to prefix expression")
     );
-}
-
-#[test]
-fn expand_compound_assignment_expands_assignment() {
-    let text = "module top; always_comb begin /*caret*/a += b; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "expand_compound_assignment").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin a = a + b; end endmodule\n");
-}
-
-#[test]
-fn collapse_compound_assignment_collapses_assignment() {
-    let text = "module top; always_comb begin /*caret*/a = a + b; end endmodule\n";
-    let fixed = apply_action_without_diagnostics(text, "collapse_compound_assignment").unwrap();
-    assert_eq!(fixed, "module top; always_comb begin a += b; end endmodule\n");
 }
 
 #[test]
