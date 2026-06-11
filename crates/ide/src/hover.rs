@@ -668,20 +668,25 @@ fn handle_definition(
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use super::*;
 
     #[test]
-    fn macro_expansion_hover_text_dedents_common_indentation() {
-        let text = "\n    always_ff @(posedge clk) begin\n      q <= 1;\n    end\n";
+    fn macro_expansion_hover_text_matrix() {
+        let mut report = String::new();
 
-        assert_eq!(
-            macro_expansion_hover_text(text),
-            "always_ff @(posedge clk) begin\n  q <= 1;\nend"
-        );
-    }
+        for (name, text) in [
+            (
+                "dedents common indentation",
+                "\n    always_ff @(posedge clk) begin\n      q <= 1;\n    end\n",
+            ),
+            ("removes single-line callsite indent", "  logic generated;"),
+        ] {
+            writeln!(&mut report, "{name}:").unwrap();
+            writeln!(&mut report, "{}", macro_expansion_hover_text(text)).unwrap();
+        }
 
-    #[test]
-    fn macro_expansion_hover_text_removes_single_line_callsite_indent() {
-        assert_eq!(macro_expansion_hover_text("  logic generated;"), "logic generated;");
+        insta::assert_snapshot!(report);
     }
 }
