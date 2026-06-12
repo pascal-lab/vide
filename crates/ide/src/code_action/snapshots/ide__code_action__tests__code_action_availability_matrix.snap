@@ -17,6 +17,8 @@ reformat_number_literal_requires_enough_digits:
   - Convert literal to hexadecimal
 missing_parameter_repair_is_not_offered_when_nothing_is_missing:
   <none>
+missing_parameter_repair_skips_body_params_when_header_has_parameter_ports:
+  <none>
 named_port_shorthand_collapse_requires_same_name:
   <none>
 named_port_shorthand_requires_all_connections_named:

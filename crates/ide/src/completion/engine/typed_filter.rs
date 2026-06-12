@@ -3,7 +3,7 @@ use hir::{
     db::HirDb,
     hir_def::{
         Ident,
-        declaration::{Declaration, DeclarationId, DeclarationSrc},
+        declaration::Declaration,
         expr::declarator::DeclaratorParent,
         module::{ModuleId, port::Ports},
     },
@@ -13,7 +13,7 @@ use hir::{
         Ty, TyClass, packed_bit_width, type_class, type_of_decl, type_of_path_resolution,
     },
 };
-use utils::get::{Get, GetRef};
+use utils::get::GetRef;
 
 use crate::db::root_db::RootDb;
 
@@ -51,11 +51,13 @@ pub(super) fn expected_param_ty(
     let DeclaratorParent::DeclarationId(declaration_id) = target_module.get(decl_id).parent else {
         return None;
     };
-    let Declaration::ParamDecl(_) = target_module.get(declaration_id) else {
+    let Declaration::ParamDecl(param_decl) = target_module.get(declaration_id) else {
         return None;
     };
 
-    is_overridable_parameter_decl(db, target_module_id, declaration_id)
+    param_decl
+        .kind
+        .is_overridable()
         .then(|| type_of_decl(db, InContainer::new(target_module_id.into(), decl_id)).ty)
 }
 
@@ -147,20 +149,4 @@ pub(super) fn is_compatible_typed_value(db: &RootDb, expected: &Ty, candidate: &
         (Some(expected), Some(candidate)) => expected == candidate,
         _ => false,
     }
-}
-
-fn is_overridable_parameter_decl(
-    db: &RootDb,
-    module_id: ModuleId,
-    declaration_id: DeclarationId,
-) -> bool {
-    let (_, module_src_map) = db.module_with_source_map(module_id);
-    let tree = db.parse(module_id.file_id);
-    let Some(DeclarationSrc::ParameterDeclaration(ptr)) = module_src_map.get(declaration_id) else {
-        return false;
-    };
-    let Some(node) = ptr.to_node(&tree) else {
-        return false;
-    };
-    node.first_token().is_some_and(|kw| kw.kind() == syntax::Token![parameter])
 }

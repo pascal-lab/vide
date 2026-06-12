@@ -2681,7 +2681,7 @@ endmodule
         .unwrap()
         .expect("parameter hover expected");
     assert!(
-        param_hover.info.as_str().contains("parameter logic DEPTH = WIDTH + 1"),
+        param_hover.info.as_str().contains("localparam logic DEPTH = WIDTH + 1"),
         "parameter hover should use parameter-specific renderer: {}",
         param_hover.info.as_str()
     );
@@ -2963,6 +2963,39 @@ endmodule
     assert_eq!(
         signature.label,
         "module child(input rst, output io_vgaclk, output [7:0] a, output [7:0] b, output [7:0] c)"
+    );
+}
+
+#[test]
+fn parameter_signature_help_skips_body_params_when_header_has_parameter_ports() {
+    let text = r#"
+module child #(parameter PORT = 1) ();
+  parameter BODY = 2;
+endmodule
+
+module top;
+  child #(/*marker:param*/1) u();
+endmodule
+"#;
+    let (host, file_id, _clean_text, markers) = setup_marked(text);
+    let signature = host
+        .make_analysis()
+        .signature_help(
+            position(file_id, &markers, "param"),
+            crate::signature_help::SignatureHelpConfig { params_only: false },
+        )
+        .unwrap()
+        .expect("signature help expected for ordered parameter assignment");
+
+    assert!(
+        signature.label.contains("PORT"),
+        "port parameter expected in signature help: {}",
+        signature.label
+    );
+    assert!(
+        !signature.label.contains("BODY"),
+        "body parameter should be local when the target has parameter ports: {}",
+        signature.label
     );
 }
 
