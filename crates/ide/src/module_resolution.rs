@@ -140,7 +140,8 @@ fn resolve_named_param_in_module(
     };
     let module = db.module(module_id);
     if let DeclaratorParent::DeclarationId(declaration_id) = module.get(decl_id).parent
-        && let Declaration::ParamDecl(_) = module.get(declaration_id)
+        && let Declaration::ParamDecl(param_decl) = module.get(declaration_id)
+        && param_decl.kind.is_overridable()
     {
         Some(PathResolution::ParamDecl(InModule::new(module_id, decl_id)))
     } else {

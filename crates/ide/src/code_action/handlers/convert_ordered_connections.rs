@@ -14,7 +14,7 @@ use utils::get::{Get, GetRef};
 use crate::{
     code_action::{
         CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-        leading_parameter_names, port_names,
+        leading_overridable_parameter_names, port_names,
     },
     module_resolution::resolve_hir_instantiation_target,
 };
@@ -115,7 +115,7 @@ pub(super) fn convert_ordered_params(
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
     let target_module = db.module(target_module_id);
-    let param_names = leading_parameter_names(&target_module);
+    let param_names = leading_overridable_parameter_names(&target_module);
 
     let replacements = instantiation
         .param_assigns

@@ -467,7 +467,7 @@ fn render_declaration_prefix(
             prefix.push_str(&ty);
             prefix
         }
-        Declaration::ParamDecl(_) => format!("parameter {ty}"),
+        Declaration::ParamDecl(param_decl) => format!("{} {ty}", param_decl.kind.keyword()),
         Declaration::GenvarDecl(_) => format!("genvar {ty}"),
         Declaration::SpecparamDecl(_) => {
             if ty.is_empty() {

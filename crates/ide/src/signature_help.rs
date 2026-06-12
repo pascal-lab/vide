@@ -276,8 +276,16 @@ fn sig_help_for_instantiation(
         }
     }
 
-    for port_decl in
-        target_module.declarations.values().take_while(|d| matches!(d, Declaration::ParamDecl(_)))
+    for port_decl in target_module
+        .declarations
+        .values()
+        .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable()
+            )
+        })
     {
         let mut buf = String::new();
         if !res.config.params_only {

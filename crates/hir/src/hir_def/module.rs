@@ -32,7 +32,8 @@ use super::{
     alloc_idx_and_src,
     block::{BlockInfo, BlockSrc, LocalBlockId},
     declaration::{
-        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, impl_lower_declaration,
+        Declaration, DeclarationId, DeclarationSrc, LowerDeclaration, ParamDeclKind,
+        impl_lower_declaration,
     },
     expr::{
         Expr, ExprSrc, LowerExpr,
@@ -149,6 +150,19 @@ define_src_with_name_and_token!(ModuleSrc(ast::ModuleDeclaration, end: endmodule
 impl Module {
     pub fn param_port_id_by_idx(&self, idx: usize) -> Option<DeclId> {
         self.param_ports.clone()?.nth(idx)
+    }
+
+    pub fn overridable_param_id_by_idx(&self, idx: usize) -> Option<DeclId> {
+        self.declarations
+            .values()
+            .filter_map(|declaration| match declaration {
+                Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable() => {
+                    Some(param_decl.decls.clone())
+                }
+                _ => None,
+            })
+            .flatten()
+            .nth(idx)
     }
 
     pub fn non_ansi_port_id_by_idx(&self, idx: usize) -> Option<NonAnsiPortId> {
@@ -331,9 +345,19 @@ impl LowerModuleCtx<'_> {
 
     pub(crate) fn lower_module_decl(&mut self, decl: ast::ModuleDeclaration) {
         let header = decl.header();
+        let has_param_ports = header.parameters().is_some();
         if let Some(param_ports) = header.parameters() {
+            let mut inherited_kind = ParamDeclKind::Parameter;
             for decls in param_ports.declarations().children() {
-                self.declaration_ctx().lower_param_decl_base(decls);
+                let decl_id = self.declaration_ctx().lower_param_decl_base_with_context(
+                    decls,
+                    Some(inherited_kind),
+                    false,
+                    true,
+                );
+                if let Declaration::ParamDecl(param_decl) = self.module.get(decl_id) {
+                    inherited_kind = param_decl.kind;
+                }
                 self.region_tree.handle_node(decls.syntax());
             }
 
@@ -367,9 +391,15 @@ impl LowerModuleCtx<'_> {
                 }
                 NetDeclaration(net_decl) => self.declaration_ctx().lower_net_decl(net_decl).into(),
                 LocalVariableDeclaration(_) => continue,
-                ParameterDeclarationStatement(param_decl) => {
-                    self.declaration_ctx().lower_param_decl_base(param_decl.parameter()).into()
-                }
+                ParameterDeclarationStatement(param_decl) => self
+                    .declaration_ctx()
+                    .lower_param_decl_base_with_context(
+                        param_decl.parameter(),
+                        None,
+                        has_param_ports,
+                        false,
+                    )
+                    .into(),
                 TypedefDeclaration(typedef_decl) => self.lower_typedef(typedef_decl).into(),
                 GenvarDeclaration(genvar_decl) => {
                     self.declaration_ctx().lower_genvar_decl(genvar_decl).into()
