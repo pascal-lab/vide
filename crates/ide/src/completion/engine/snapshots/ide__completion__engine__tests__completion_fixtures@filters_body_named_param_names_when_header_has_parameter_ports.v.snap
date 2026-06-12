@@ -1,0 +1,23 @@
+---
+source: crates/ide/src/completion/engine/tests.rs
+expression: items
+input_file: crates/ide/src/completion/engine/fixtures/filters_body_named_param_names_when_header_has_parameter_ports.v
+---
+[
+    CompletionItem {
+        label: "A",
+        kind: Text,
+        edit: Some(
+            TextEditItem {
+                ins: "A()",
+                del: 84..84,
+            },
+        ),
+        snippet_edit: Some(
+            TextEditItem {
+                ins: "A(${1:expr})",
+                del: 84..84,
+            },
+        ),
+    },
+]

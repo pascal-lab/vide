@@ -112,7 +112,28 @@ pub enum NetStrength {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ParamDecl {
     pub ty: DataTy,
+    pub kind: ParamDeclKind,
+    pub is_port: bool,
     pub decls: DeclsRange,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ParamDeclKind {
+    Parameter,
+    LocalParam,
+}
+
+impl ParamDeclKind {
+    pub fn is_overridable(self) -> bool {
+        matches!(self, Self::Parameter)
+    }
+
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Self::Parameter => "parameter",
+            Self::LocalParam => "localparam",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -247,11 +268,23 @@ impl LowerDeclarationCtx<'_> {
         &mut self,
         param_decl: ast::ParameterDeclarationBase,
     ) -> DeclarationId {
+        self.lower_param_decl_base_with_context(param_decl, None, false, false)
+    }
+
+    pub(crate) fn lower_param_decl_base_with_context(
+        &mut self,
+        param_decl: ast::ParameterDeclarationBase,
+        inherited_kind: Option<ParamDeclKind>,
+        force_local: bool,
+        is_port: bool,
+    ) -> DeclarationId {
         use ast::ParameterDeclarationBase::*;
         match param_decl {
-            ParameterDeclaration(param_decl) => self.lower_param_decl(param_decl),
+            ParameterDeclaration(param_decl) => {
+                self.lower_param_decl(param_decl, inherited_kind, force_local, is_port)
+            }
             TypeParameterDeclaration(type_param_decl) => {
-                self.lower_type_param_decl(type_param_decl)
+                self.lower_type_param_decl(type_param_decl, inherited_kind, force_local, is_port)
             }
         }
     }
@@ -259,7 +292,15 @@ impl LowerDeclarationCtx<'_> {
     fn lower_type_param_decl(
         &mut self,
         type_param_decl: ast::TypeParameterDeclaration,
+        inherited_kind: Option<ParamDeclKind>,
+        force_local: bool,
+        is_port: bool,
     ) -> DeclarationId {
+        let kind = lower_param_decl_kind(
+            type_param_decl.keyword().map(|keyword| keyword.kind()),
+            inherited_kind,
+            force_local,
+        );
         let start = self.decls.nxt_idx();
         let ty = DataTy::Builtin(
             self.db.intern_ty(crate::hir_def::expr::data_ty::BuiltinDataTy::default()),
@@ -267,19 +308,30 @@ impl LowerDeclarationCtx<'_> {
         let decls = DeclsRange::new(start..self.decls.nxt_idx());
 
         alloc_idx_and_src! {
-            ParamDecl { ty, decls } => self.declarations,
+            ParamDecl { ty, kind, is_port, decls } => self.declarations,
             type_param_decl => self.declaration_srcs,
         }
     }
 
-    fn lower_param_decl(&mut self, param_decl: ast::ParameterDeclaration) -> DeclarationId {
+    fn lower_param_decl(
+        &mut self,
+        param_decl: ast::ParameterDeclaration,
+        inherited_kind: Option<ParamDeclKind>,
+        force_local: bool,
+        is_port: bool,
+    ) -> DeclarationId {
+        let kind = lower_param_decl_kind(
+            param_decl.keyword().map(|keyword| keyword.kind()),
+            inherited_kind,
+            force_local,
+        );
         let ty = self.expr_ctx().lower_data_ty(param_decl.type_());
 
         let parent = self.declarations.nxt_idx().into();
         let decls = self.decl_ctx().lower_declarators(param_decl.declarators(), parent);
 
         alloc_idx_and_src! {
-            ParamDecl { ty, decls } => self.declarations,
+            ParamDecl { ty, kind, is_port, decls } => self.declarations,
             param_decl => self.declaration_srcs,
         }
     }
@@ -313,5 +365,21 @@ impl LowerDeclarationCtx<'_> {
             SpecparamDecl { ty, decls } => self.declarations,
             specparam_decl => self.declaration_srcs,
         }
+    }
+}
+
+fn lower_param_decl_kind(
+    keyword: Option<TokenKind>,
+    inherited_kind: Option<ParamDeclKind>,
+    force_local: bool,
+) -> ParamDeclKind {
+    if force_local {
+        return ParamDeclKind::LocalParam;
+    }
+
+    match keyword {
+        Some(TokenKind::LOCAL_PARAM_KEYWORD) => ParamDeclKind::LocalParam,
+        Some(TokenKind::PARAMETER_KEYWORD) => ParamDeclKind::Parameter,
+        _ => inherited_kind.unwrap_or(ParamDeclKind::Parameter),
     }
 }

@@ -38,21 +38,26 @@ pub(crate) fn remaining_ordered_port_names(module: &Module, connected: usize) ->
     }
 }
 
-pub(crate) fn leading_parameter_names(module: &Module) -> Vec<SmolStr> {
+pub(crate) fn leading_overridable_parameter_names(module: &Module) -> Vec<SmolStr> {
     module
         .declarations
         .values()
         .take_while(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
+        .filter(|declaration| {
+            matches!(declaration, Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable())
+        })
         .flat_map(|declaration| declaration.decls())
         .filter_map(|decl| module.get(decl).name.clone())
         .collect()
 }
 
-pub(crate) fn all_parameter_names(module: &Module) -> Vec<SmolStr> {
+pub(crate) fn all_overridable_parameter_names(module: &Module) -> Vec<SmolStr> {
     module
         .declarations
         .values()
-        .filter(|declaration| matches!(declaration, Declaration::ParamDecl(_)))
+        .filter(|declaration| {
+            matches!(declaration, Declaration::ParamDecl(param_decl) if param_decl.kind.is_overridable())
+        })
         .flat_map(|declaration| declaration.decls())
         .filter_map(|decl| module.get(decl).name.clone())
         .collect()
