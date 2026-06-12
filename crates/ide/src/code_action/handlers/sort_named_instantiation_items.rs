@@ -20,8 +20,8 @@ use utils::{
 
 use crate::{
     code_action::{
-        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, all_parameter_names,
-        line_indent, port_names,
+        CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind,
+        all_overridable_parameter_names, line_indent, port_names,
     },
     module_resolution::resolve_hir_instantiation_target,
 };
@@ -61,7 +61,7 @@ pub(super) fn sort_named_parameter_assignments(
     let (module, module_src_map) = db.module_with_source_map(module_id);
     let instantiation = module.get(instantiation_id);
     let target_module_id = resolve_hir_instantiation_target(db, ctx.file_id(), instantiation)?;
-    let parameter_order = all_parameter_names(&db.module(target_module_id));
+    let parameter_order = all_overridable_parameter_names(&db.module(target_module_id));
     let parameter_order_map: FxHashMap<_, _> =
         parameter_order.iter().enumerate().map(|(index, name)| (name.as_ref(), index)).collect();
 

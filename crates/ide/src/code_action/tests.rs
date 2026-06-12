@@ -417,6 +417,11 @@ fn code_action_availability_matrix() {
             text: "module child #(parameter A = 1) (); endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n",
         },
         LabelCase {
+            name: "missing_parameter_repair_skips_body_params_when_header_has_parameter_ports",
+            kind: LabelCaseKind::Repair(RepairKind::MissingParameter),
+            text: "module child #(parameter A = 1) (); parameter B = 2; endmodule\nmodule top; child #(/*caret*/.A(1)) u(); endmodule\n",
+        },
+        LabelCase {
             name: "named_port_shorthand_collapse_requires_same_name",
             kind: LabelCaseKind::NoDiagnostics,
             text: "module child(input a); endmodule\nmodule top; logic b; child u(/*caret*/.a(b)); endmodule\n",

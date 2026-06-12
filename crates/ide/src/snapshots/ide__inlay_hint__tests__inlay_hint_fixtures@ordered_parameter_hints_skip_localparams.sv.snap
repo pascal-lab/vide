@@ -1,0 +1,6 @@
+---
+source: crates/ide/src/inlay_hint.rs
+expression: hint_snapshot(hints)
+input_file: crates/ide/src/inlay_hint/fixtures/ordered_parameter_hints_skip_localparams.sv
+---
+ParamAssign @ 84 "P:" padding=(false, true) target=Some((43, 48)) edit=Some("TextEdit { changes: [TextEditItem { ins: \".P(\", del: 84..84 }, TextEditItem { ins: \")\", del: 85..85 }] }")

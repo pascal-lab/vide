@@ -2,7 +2,7 @@ use hir::{
     db::HirDb,
     hir_def::{
         Ident,
-        declaration::{Declaration, DeclarationSrc},
+        declaration::Declaration,
         expr::declarator::DeclaratorParent,
         module::{ModuleId, port::Ports},
     },
@@ -11,7 +11,7 @@ use syntax::{
     SyntaxAncestors,
     ast::{self, AstNode},
 };
-use utils::get::{Get, GetRef};
+use utils::get::GetRef;
 
 use crate::db::root_db::RootDb;
 
@@ -59,8 +59,7 @@ pub(super) fn overridable_params_of_module_in_order(
     db: &RootDb,
     module_id: ModuleId,
 ) -> Vec<Ident> {
-    let (module, module_src_map) = db.module_with_source_map(module_id);
-    let tree = db.parse(module_id.file_id);
+    let module = db.module(module_id);
 
     let mut names = Vec::new();
 
@@ -71,22 +70,10 @@ pub(super) fn overridable_params_of_module_in_order(
         let DeclaratorParent::DeclarationId(declaration_id) = decl.parent else {
             continue;
         };
-        let Declaration::ParamDecl(_) = module.get(declaration_id) else {
+        let Declaration::ParamDecl(param_decl) = module.get(declaration_id) else {
             continue;
         };
-
-        let Some(DeclarationSrc::ParameterDeclaration(ptr)) = module_src_map.get(declaration_id)
-        else {
-            continue;
-        };
-        let Some(ast_decl) = ptr.to_node(&tree).and_then(ast::ParameterDeclaration::cast) else {
-            continue;
-        };
-
-        let Some(keyword) = ast_decl.keyword() else {
-            continue;
-        };
-        if keyword.kind() != syntax::Token![parameter] {
+        if !param_decl.kind.is_overridable() {
             continue;
         }
 

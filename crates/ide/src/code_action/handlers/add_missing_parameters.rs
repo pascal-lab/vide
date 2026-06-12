@@ -12,8 +12,8 @@ use utils::get::{Get, GetRef};
 use crate::{
     code_action::{
         CodeActionCollector, CodeActionCtx, CodeActionId, CodeActionKind, RepairKind,
-        all_parameter_names, apply_missing_list_edit, leading_parameter_names,
-        missing_member_entry_text,
+        all_overridable_parameter_names, apply_missing_list_edit,
+        leading_overridable_parameter_names, missing_member_entry_text,
     },
     module_resolution::resolve_hir_instantiation_target,
 };
@@ -65,7 +65,7 @@ pub(super) fn add_missing_parameters(
         .unwrap_or_default();
 
     let names: Vec<_> = if is_ordered {
-        leading_parameter_names(&target_module)
+        leading_overridable_parameter_names(&target_module)
             .into_iter()
             .skip(instantiation.param_assigns.len())
             .collect()
@@ -81,7 +81,7 @@ pub(super) fn add_missing_parameters(
             }
         }
 
-        all_parameter_names(&target_module)
+        all_overridable_parameter_names(&target_module)
             .into_iter()
             .filter(|name| !assigned_names.contains(name))
             .collect()

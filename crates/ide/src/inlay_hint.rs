@@ -349,7 +349,7 @@ fn process_instantiation(
                 let assign_src = src_map.get(assign_id)?;
                 check_or_throw!(collector.intersect(assign_src.range()));
 
-                let param_id = target_module.param_port_id_by_idx(id)?;
+                let param_id = target_module.overridable_param_id_by_idx(id)?;
                 let param_name = target_module.get(param_id).name.as_ref()?;
                 check_or_throw!(!should_skip(module.get(*assign_expr), param_name));
                 let target_src = InFile::new(target_file, target_src_map.get(param_id)?);

@@ -16,8 +16,8 @@ pub use diagnostics::{
 pub(crate) use edits::{apply_missing_list_edit, line_indent};
 pub(crate) use engine::code_action;
 pub(crate) use module_members::{
-    all_parameter_names, leading_parameter_names, missing_member_entry_text, port_names,
-    remaining_ordered_port_names,
+    all_overridable_parameter_names, leading_overridable_parameter_names,
+    missing_member_entry_text, port_names, remaining_ordered_port_names,
 };
 
 #[cfg(test)]
