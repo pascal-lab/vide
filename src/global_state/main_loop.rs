@@ -11,6 +11,126 @@ use super::{
 };
 use crate::global_state::DEFAULT_REQ_HANDLER;
 
+impl Task {
+    pub(crate) fn response(response: lsp_server::Response) -> Self {
+        Task::Response(ResponseTask::new(response))
+    }
+
+    pub(in crate::global_state) fn kind(&self) -> &'static str {
+        match self {
+            Task::Response(_) => "task.response",
+            Task::Retry(_) => "task.retry",
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { .. }) => {
+                "task.fetch_workspace.begin"
+            }
+            Task::FetchWorkspace(FetchWorkspaceProgress::End { .. }) => "task.fetch_workspace.end",
+            Task::Diagnostics(_) => "task.diagnostics",
+            Task::Qihe(task) => task.kind(),
+        }
+    }
+
+    pub(in crate::global_state) fn summary(&self) -> String {
+        match self {
+            Task::Response(response) => response.summary(),
+            Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
+                format!("task fetch workspace begin cause={cause}")
+            }
+            Task::FetchWorkspace(FetchWorkspaceProgress::End { workspaces, errors, .. }) => {
+                format!(
+                    "task fetch workspace end workspaces={} errors={}",
+                    workspaces.len(),
+                    errors.len()
+                )
+            }
+            Task::Diagnostics(tasks) => {
+                let diagnostic_count = tasks.diagnostic_count();
+                format!(
+                    "task diagnostics files={} diagnostics={diagnostic_count}",
+                    tasks.touched_file_count()
+                )
+            }
+            Task::Qihe(task) => task.summary(),
+        }
+    }
+}
+
+impl GlobalState {
+    pub(in crate::global_state) fn register_did_save_cap(&mut self) {
+        let mut document_selector = vec![lsp_types::DocumentFilter {
+            language: None,
+            scheme: None,
+            pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
+        }];
+        document_selector.extend(project_manifest::MANIFEST_FILE_NAMES.iter().map(|file_name| {
+            lsp_types::DocumentFilter {
+                language: None,
+                scheme: None,
+                pattern: Some(format!("**/{file_name}")),
+            }
+        }));
+
+        let save_registration_options = lsp_types::TextDocumentSaveRegistrationOptions {
+            include_text: false.into(),
+            text_document_registration_options: lsp_types::TextDocumentRegistrationOptions {
+                document_selector: document_selector.into(),
+            },
+        };
+
+        let registration = lsp_types::Registration {
+            id: "textDocument/didSave".into(),
+            method: "textDocument/didSave".into(),
+            register_options: match serde_json::to_value(save_registration_options) {
+                Ok(options) => Some(options),
+                Err(error) => {
+                    tracing::error!("failed to serialize didSave registration options: {error:#}");
+                    return;
+                }
+            },
+        };
+        self.send_request::<lsp_types::request::RegisterCapability>(
+            lsp_types::RegistrationParams { registrations: vec![registration] },
+            DEFAULT_REQ_HANDLER,
+        );
+    }
+
+    pub(in crate::global_state) fn handle_notification(&mut self, notif: Notification) {
+        use handlers::notification::*;
+        use lsp_types::notification::*;
+
+        let mut dispatcher = NotifDispatcher { notif: Some(notif), global_state: self };
+        dispatcher
+            .on_sync_mut::<Cancel>(handle_cancel)
+            .on_sync_mut::<WorkDoneProgressCancel>(handle_work_done_progress_cancel)
+            .on_sync_mut::<DidOpenTextDocument>(handle_did_open_text_document)
+            .on_sync_mut::<DidChangeTextDocument>(handle_did_change_text_document)
+            .on_sync_mut::<DidCloseTextDocument>(handle_did_close_text_document)
+            .on_sync_mut::<DidSaveTextDocument>(handle_did_save_text_document)
+            .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)
+            .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)
+            .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)
+            .on_sync_mut::<SetTrace>(handle_set_trace)
+            .finish();
+    }
+
+    pub(in crate::global_state) fn handle_response(&mut self, res: Response) {
+        let Some(handler) = self.req_queue.outgoing.complete(res.id.clone()) else {
+            tracing::error!("received response for unknown request: {:?}", res);
+            return;
+        };
+        handler(self, res)
+    }
+
+    pub(in crate::global_state) fn drain_pending_diagnostic_requests(&mut self) {
+        let pending_requests = std::mem::take(&mut self.pending_diagnostic_requests);
+        for req in pending_requests {
+            if !self.is_completed(&req) {
+                self.handle_request(req);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -586,124 +706,5 @@ mod tests {
         let second = state.fetch_workspaces_task.should_start().unwrap();
         assert_eq!(second.cause, "second reload");
         assert_ne!(second.generation, first.generation);
-    }
-}
-impl Task {
-    pub(crate) fn response(response: lsp_server::Response) -> Self {
-        Task::Response(ResponseTask::new(response))
-    }
-
-    pub(in crate::global_state) fn kind(&self) -> &'static str {
-        match self {
-            Task::Response(_) => "task.response",
-            Task::Retry(_) => "task.retry",
-            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { .. }) => {
-                "task.fetch_workspace.begin"
-            }
-            Task::FetchWorkspace(FetchWorkspaceProgress::End { .. }) => "task.fetch_workspace.end",
-            Task::Diagnostics(_) => "task.diagnostics",
-            Task::Qihe(task) => task.kind(),
-        }
-    }
-
-    pub(in crate::global_state) fn summary(&self) -> String {
-        match self {
-            Task::Response(response) => response.summary(),
-            Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
-            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
-                format!("task fetch workspace begin cause={cause}")
-            }
-            Task::FetchWorkspace(FetchWorkspaceProgress::End { workspaces, errors, .. }) => {
-                format!(
-                    "task fetch workspace end workspaces={} errors={}",
-                    workspaces.len(),
-                    errors.len()
-                )
-            }
-            Task::Diagnostics(tasks) => {
-                let diagnostic_count = tasks.diagnostic_count();
-                format!(
-                    "task diagnostics files={} diagnostics={diagnostic_count}",
-                    tasks.touched_file_count()
-                )
-            }
-            Task::Qihe(task) => task.summary(),
-        }
-    }
-}
-
-impl GlobalState {
-    pub(in crate::global_state) fn register_did_save_cap(&mut self) {
-        let mut document_selector = vec![lsp_types::DocumentFilter {
-            language: None,
-            scheme: None,
-            pattern: Some("**/*.{v,sv,vh,svh,svi}".into()),
-        }];
-        document_selector.extend(project_manifest::MANIFEST_FILE_NAMES.iter().map(|file_name| {
-            lsp_types::DocumentFilter {
-                language: None,
-                scheme: None,
-                pattern: Some(format!("**/{file_name}")),
-            }
-        }));
-
-        let save_registration_options = lsp_types::TextDocumentSaveRegistrationOptions {
-            include_text: false.into(),
-            text_document_registration_options: lsp_types::TextDocumentRegistrationOptions {
-                document_selector: document_selector.into(),
-            },
-        };
-
-        let registration = lsp_types::Registration {
-            id: "textDocument/didSave".into(),
-            method: "textDocument/didSave".into(),
-            register_options: match serde_json::to_value(save_registration_options) {
-                Ok(options) => Some(options),
-                Err(error) => {
-                    tracing::error!("failed to serialize didSave registration options: {error:#}");
-                    return;
-                }
-            },
-        };
-        self.send_request::<lsp_types::request::RegisterCapability>(
-            lsp_types::RegistrationParams { registrations: vec![registration] },
-            DEFAULT_REQ_HANDLER,
-        );
-    }
-
-    pub(in crate::global_state) fn handle_notification(&mut self, notif: Notification) {
-        use handlers::notification::*;
-        use lsp_types::notification::*;
-
-        let mut dispatcher = NotifDispatcher { notif: Some(notif), global_state: self };
-        dispatcher
-            .on_sync_mut::<Cancel>(handle_cancel)
-            .on_sync_mut::<WorkDoneProgressCancel>(handle_work_done_progress_cancel)
-            .on_sync_mut::<DidOpenTextDocument>(handle_did_open_text_document)
-            .on_sync_mut::<DidChangeTextDocument>(handle_did_change_text_document)
-            .on_sync_mut::<DidCloseTextDocument>(handle_did_close_text_document)
-            .on_sync_mut::<DidSaveTextDocument>(handle_did_save_text_document)
-            .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)
-            .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)
-            .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)
-            .on_sync_mut::<SetTrace>(handle_set_trace)
-            .finish();
-    }
-
-    pub(in crate::global_state) fn handle_response(&mut self, res: Response) {
-        let Some(handler) = self.req_queue.outgoing.complete(res.id.clone()) else {
-            tracing::error!("received response for unknown request: {:?}", res);
-            return;
-        };
-        handler(self, res)
-    }
-
-    pub(in crate::global_state) fn drain_pending_diagnostic_requests(&mut self) {
-        let pending_requests = std::mem::take(&mut self.pending_diagnostic_requests);
-        for req in pending_requests {
-            if !self.is_completed(&req) {
-                self.handle_request(req);
-            }
-        }
     }
 }
