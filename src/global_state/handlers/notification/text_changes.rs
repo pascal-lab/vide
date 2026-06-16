@@ -15,7 +15,7 @@ pub(super) fn set_vfs_file_contents(
     text: String,
 ) -> anyhow::Result<FileId> {
     let (text, endings) = LineEnding::normalize(text);
-    let mut vfs = state.vfs.write();
+    let mut vfs = state.workspace.vfs.write();
     vfs.0.set_file_contents(path, LoadResult::Loaded(text, endings));
     vfs.0.file_id(path).ok_or_else(|| anyhow::format_err!("loaded file has no FileId: {path}"))
 }
@@ -25,9 +25,9 @@ pub(super) fn open_vfs_file_contents(
     path: &VfsPath,
     text: &str,
 ) -> anyhow::Result<FileId> {
-    let mut vfs = state.vfs.write();
+    let mut vfs = state.workspace.vfs.write();
     let file_id = vfs.0.register_file_ingress(path);
-    if state.mem_docs.contains_file_id(file_id) {
+    if state.analysis.mem_docs.contains_file_id(file_id) {
         return Ok(file_id);
     }
 
@@ -37,8 +37,14 @@ pub(super) fn open_vfs_file_contents(
 }
 
 pub(super) fn open_mem_doc_file_id(state: &GlobalState, path: &VfsPath) -> Option<FileId> {
-    state.mem_docs.file_id(path).or_else(|| {
-        state.vfs.read().0.file_id(path).filter(|file_id| state.mem_docs.contains_file_id(*file_id))
+    state.analysis.mem_docs.file_id(path).or_else(|| {
+        state
+            .workspace
+            .vfs
+            .read()
+            .0
+            .file_id(path)
+            .filter(|file_id| state.analysis.mem_docs.contains_file_id(*file_id))
     })
 }
 

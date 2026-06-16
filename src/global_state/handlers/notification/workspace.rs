@@ -34,8 +34,8 @@ pub(crate) fn handle_did_change_configuration(
                     if let Some(json) = configs.get_mut(0) {
                         // Note that json can be null according to the spec if the client can't
                         // provide a configuration. This is handled in Config::update below.
-                        let mut config = (*this.config).clone();
-                        this.config_errors = config.update(json.take()).err();
+                        let mut config = (*this.config_state.config).clone();
+                        this.config_state.config_errors = config.update(json.take()).err();
                         this.update_configuration(config);
                     }
                 }
@@ -53,7 +53,7 @@ pub(crate) fn handle_did_change_workspace_folders(
     state: &mut GlobalState,
     params: DidChangeWorkspaceFoldersParams,
 ) -> anyhow::Result<()> {
-    let config = Arc::make_mut(&mut state.config);
+    let config = Arc::make_mut(&mut state.config_state.config);
 
     for workspace in params.event.removed {
         if let Ok(path) = from_proto::abs_path(&workspace.uri) {
@@ -88,12 +88,12 @@ pub(crate) fn handle_did_change_watched_files(
             }
 
             // Invalidate the file in the VFS so that it's reloaded later.
-            state.vfs_loader.handle.invalidate(path);
+            state.workspace.vfs_loader.handle.invalidate(path);
         }
     }
 
     if let Some(path) = workspace_structure_change {
-        let config = Arc::make_mut(&mut state.config);
+        let config = Arc::make_mut(&mut state.config_state.config);
         config.refresh_project_manifests();
         state.request_workspace_auto_reload(format!("DidChangeWatchedFiles {path}"));
     }
@@ -151,6 +151,6 @@ mod tests {
         )
         .unwrap();
 
-        assert!(state.fetch_workspaces_task.has_op_requested());
+        assert!(state.workspace.fetch_workspaces_task.has_op_requested());
     }
 }

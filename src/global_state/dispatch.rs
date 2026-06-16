@@ -7,8 +7,8 @@ use crate::i18n::keys;
 impl GlobalState {
     pub(in crate::global_state) fn handle_request(&mut self, req: Request) {
         if Self::is_pull_diagnostic_request(&req) && !self.is_workspace_ready() {
-            self.workspace_vfs.defer_diagnostics_until_ready();
-            self.pending_diagnostic_requests.push(req);
+            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
+            self.diagnostics.pending_diagnostic_requests.push(req);
             return;
         }
 
@@ -16,17 +16,23 @@ impl GlobalState {
 
         // Handle shutdown req first
         dispatcher.on_sync_mut::<lsp_types::request::Shutdown>(|this, ()| {
-            this.shutdown_requested = true;
+            this.client.shutdown_requested = true;
             this.cancel_all_tasks();
             Ok(())
         });
 
         match &mut dispatcher {
-            ReqDispatcher { req: Some(req), global_state: this } if this.shutdown_requested => {
+            ReqDispatcher { req: Some(req), global_state: this }
+                if this.client.shutdown_requested =>
+            {
                 this.respond(lsp_server::Response::new_err(
                     req.id.clone(),
                     lsp_server::ErrorCode::InvalidRequest as i32,
-                    this.config.i18n.text(keys::SERVER_SHUTDOWN_ALREADY_REQUESTED).to_owned(),
+                    this.config_state
+                        .config
+                        .i18n
+                        .text(keys::SERVER_SHUTDOWN_ALREADY_REQUESTED)
+                        .to_owned(),
                 ));
                 return;
             }

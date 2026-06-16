@@ -113,13 +113,13 @@ impl GlobalState {
         let _span =
             tracing::info_span!("diagnostics.publish", task_count, diagnostic_count).entered();
 
-        if self.config.cli_pull_diagnostics_support() {
+        if self.config_state.config.cli_pull_diagnostics_support() {
             tracing::info!("skipping push diagnostics for pull-capable client");
             return;
         }
 
-        if !self.workspace_vfs.is_ready() {
-            self.workspace_vfs.defer_diagnostics_until_ready();
+        if !self.workspace.workspace_vfs.is_ready() {
+            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
             tracing::debug!("diagnostics publish deferred until workspace/VFS is ready");
             return;
         }
@@ -136,13 +136,14 @@ impl GlobalState {
         let current_targets =
             tasks.iter().map(PublishDiagnosticsTask::cache_key).collect::<FxHashSet<_>>();
         let stale_targets = self
+            .diagnostics
             .published_diagnostics
             .keys()
             .filter(|key| touched_file_ids.contains(&key.file_id) && !current_targets.contains(key))
             .cloned()
             .collect::<Vec<_>>();
         for key in stale_targets {
-            self.published_diagnostics.remove(&key);
+            self.diagnostics.published_diagnostics.remove(&key);
             self.send_notification::<lsp_types::notification::PublishDiagnostics>(
                 lsp_types::PublishDiagnosticsParams {
                     uri: key.uri,
@@ -156,7 +157,7 @@ impl GlobalState {
         for diag in tasks {
             let file_diagnostics = diag.diagnostics.len();
             let cache_key = diag.cache_key();
-            let should_publish = match self.published_diagnostics.get(&cache_key) {
+            let should_publish = match self.diagnostics.published_diagnostics.get(&cache_key) {
                 Some(prev) => prev != &diag.diagnostics,
                 None => !diag.diagnostics.is_empty(),
             };
@@ -167,9 +168,9 @@ impl GlobalState {
             }
 
             if diag.diagnostics.is_empty() {
-                self.published_diagnostics.remove(&cache_key);
+                self.diagnostics.published_diagnostics.remove(&cache_key);
             } else {
-                self.published_diagnostics.insert(cache_key, diag.diagnostics.clone());
+                self.diagnostics.published_diagnostics.insert(cache_key, diag.diagnostics.clone());
             }
 
             self.send_notification::<lsp_types::notification::PublishDiagnostics>(
