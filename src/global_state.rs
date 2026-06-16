@@ -40,8 +40,10 @@ pub(crate) use self::workspace_state::{
     WorkspaceFetchCause, WorkspaceFetchCompletion, WorkspaceGeneration,
 };
 use self::{
-    diagnostics::{DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness},
-    main_loop::DiagnosticPublishKey,
+    diagnostics::{
+        DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness,
+        publisher::DiagnosticPublishKey,
+    },
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
     task::{Task, TaskPool},
