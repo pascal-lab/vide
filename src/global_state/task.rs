@@ -10,7 +10,7 @@ use utils::{
 };
 
 use super::{
-    main_loop::PublishDiagnosticsBatch,
+    diagnostics::publisher::PublishDiagnosticsBatch,
     qihe::{QiheRunId, QiheUpdate},
     reload::FetchWorkspaceProgress,
     response_effect::AcceptedResponseEffect,

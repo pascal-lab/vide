@@ -11,7 +11,7 @@ use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
-    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
+    diagnostics::publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
     reload::should_refresh_for_change,
     task::Task,
 };

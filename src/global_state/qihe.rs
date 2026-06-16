@@ -30,8 +30,10 @@ use vfs::FileId;
 
 use super::{
     GlobalState, QiheDiagnosticState,
-    diagnostics::DiagnosticCommitFreshness,
-    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
+    diagnostics::{
+        DiagnosticCommitFreshness,
+        publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
+    },
     respond::Progress,
     snapshot::GlobalStateSnapshot,
     task::QiheTask,
