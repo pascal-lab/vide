@@ -1,22 +1,21 @@
-use lsp_server::{Notification, Request, Response};
-use lsp_types::request::Request as _;
+use lsp_server::{Notification, Response};
 use project_model::project_manifest;
 
 pub use super::event_loop::main_loop;
 use super::{
     GlobalState,
-    dispatcher::{NotifDispatcher, ReqDispatcher},
+    dispatcher::NotifDispatcher,
     handlers,
     reload::FetchWorkspaceProgress,
     task::{ResponseTask, Task},
 };
-use crate::{global_state::DEFAULT_REQ_HANDLER, i18n::keys};
+use crate::global_state::DEFAULT_REQ_HANDLER;
 
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
 
-    use lsp_server::{Connection, Message};
+    use lsp_server::{Connection, Message, Request};
     use lsp_types::{
         ClientCapabilities, Diagnostic, DiagnosticSeverity, Position, ProgressParams,
         ProgressParamsValue, PublishDiagnosticsParams, Range, WindowClientCapabilities,
@@ -672,69 +671,6 @@ impl GlobalState {
         );
     }
 
-    pub(in crate::global_state) fn handle_request(&mut self, req: Request) {
-        if Self::is_pull_diagnostic_request(&req) && !self.is_workspace_ready() {
-            self.workspace_vfs.defer_diagnostics_until_ready();
-            self.pending_diagnostic_requests.push(req);
-            return;
-        }
-
-        let mut dispatcher = ReqDispatcher { req: Some(req), global_state: self };
-
-        // Handle shutdown req first
-        dispatcher.on_sync_mut::<lsp_types::request::Shutdown>(|this, ()| {
-            this.shutdown_requested = true;
-            this.cancel_all_tasks();
-            Ok(())
-        });
-
-        match &mut dispatcher {
-            ReqDispatcher { req: Some(req), global_state: this } if this.shutdown_requested => {
-                this.respond(lsp_server::Response::new_err(
-                    req.id.clone(),
-                    lsp_server::ErrorCode::InvalidRequest as i32,
-                    this.config.i18n.text(keys::SERVER_SHUTDOWN_ALREADY_REQUESTED).to_owned(),
-                ));
-                return;
-            }
-            _ => (),
-        }
-
-        use handlers::request::*;
-        use lsp_types::request::*;
-        dispatcher
-            .on_no_retry::<Completion>(handle_completion)
-            .on_latency_sensitive::<SemanticTokensFullRequest>(handle_semantic_tokens_full)
-            .on_latency_sensitive::<SemanticTokensFullDeltaRequest>(
-                handle_semantic_tokens_full_delta,
-            )
-            .on_latency_sensitive::<SemanticTokensRangeRequest>(handle_semantic_tokens_range)
-            .on::<DocumentSymbolRequest>(handle_document_symbol)
-            .on::<WorkspaceSymbolRequest>(handle_workspace_symbol)
-            .on::<FoldingRangeRequest>(handle_folding_ranges)
-            .on::<DocumentDiagnosticRequest>(handle_document_diagnostic)
-            .on::<WorkspaceDiagnosticRequest>(handle_workspace_diagnostic)
-            .on_no_retry::<SignatureHelpRequest>(handle_signature_help)
-            .on_no_retry::<InlayHintRequest>(handle_inlay_hint)
-            .on_no_retry::<CodeLensRequest>(handle_code_lens)
-            .on_no_retry::<CodeLensResolve>(handle_code_lens_resolve)
-            .on_no_retry::<HoverRequest>(handle_hover)
-            .on_no_retry::<GotoDefinition>(handle_goto_definition)
-            .on_no_retry::<GotoDeclaration>(handle_goto_declaration)
-            .on_no_retry::<DocumentHighlightRequest>(handle_document_highlight)
-            .on_no_retry::<References>(handle_references)
-            .on_no_retry::<PrepareRenameRequest>(handle_prepare_rename)
-            .on_no_retry::<Rename>(handle_rename)
-            .on_fmt_thread::<Formatting>(handle_formatting)
-            .on_fmt_thread::<RangeFormatting>(handle_range_formatting)
-            .on_fmt_thread::<OnTypeFormatting>(handle_on_type_formatting)
-            .on_no_retry::<CodeActionRequest>(handle_code_action)
-            .on_no_retry::<CodeActionResolveRequest>(handle_code_action_resolve)
-            .on_sync_mut::<ExecuteCommand>(handle_execute_command)
-            .on::<SelectionRangeRequest>(handle_selection_range)
-            .finish();
-    }
-
     pub(in crate::global_state) fn handle_notification(&mut self, notif: Notification) {
         use handlers::notification::*;
         use lsp_types::notification::*;
@@ -760,14 +696,6 @@ impl GlobalState {
             return;
         };
         handler(self, res)
-    }
-
-    fn is_pull_diagnostic_request(req: &Request) -> bool {
-        matches!(
-            req.method.as_str(),
-            lsp_types::request::DocumentDiagnosticRequest::METHOD
-                | lsp_types::request::WorkspaceDiagnosticRequest::METHOD
-        )
     }
 
     pub(in crate::global_state) fn drain_pending_diagnostic_requests(&mut self) {
