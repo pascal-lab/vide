@@ -31,13 +31,14 @@ use vfs::FileId;
 use super::{
     GlobalState, QiheDiagnosticState,
     diagnostics::DiagnosticCommitFreshness,
-    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, QiheTask},
+    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
     respond::Progress,
     snapshot::GlobalStateSnapshot,
+    task::QiheTask,
 };
 use crate::{
     config::user_config::QiheConfig,
-    global_state::main_loop::Task,
+    global_state::task::Task,
     i18n::{I18n, keys},
     lsp_ext::{
         ext::{
@@ -1183,7 +1184,7 @@ mod tests {
         },
         global_state::{
             GlobalState, QiheDiagnosticState,
-            main_loop::{QiheTask, Task},
+            task::{QiheTask, Task},
         },
         i18n::I18n,
     };

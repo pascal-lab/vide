@@ -9,7 +9,7 @@ use utils::{
     thread::ThreadIntent,
 };
 
-use super::main_loop::Task;
+use super::task::Task;
 use crate::{
     config::{Config, FilesWatcher},
     global_state::{

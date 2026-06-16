@@ -14,8 +14,8 @@ use utils::{
 };
 
 use super::{
-    main_loop::{ResponseTask, Task},
     snapshot::GlobalStateSnapshot,
+    task::{ResponseTask, Task},
 };
 use crate::{global_state::GlobalState, i18n::keys, lsp_ext::lsp_error::LspError};
 

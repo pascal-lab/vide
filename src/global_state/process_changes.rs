@@ -11,8 +11,9 @@ use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
-    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, Task},
+    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
     reload::should_refresh_for_change,
+    task::Task,
 };
 use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
 

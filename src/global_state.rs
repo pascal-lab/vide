@@ -10,6 +10,7 @@ pub mod reload;
 pub mod respond;
 mod response_effect;
 pub(crate) mod snapshot;
+pub(crate) mod task;
 mod trace;
 mod workspace_state;
 
@@ -49,9 +50,10 @@ pub(crate) use self::workspace_state::{
 };
 use self::{
     diagnostics::{DiagnosticCommitFreshness, DiagnosticFileRevision, DiagnosticPublishFreshness},
-    main_loop::{DiagnosticPublishKey, Task},
+    main_loop::DiagnosticPublishKey,
     mem_docs::MemDocs,
     snapshot::GlobalStateSnapshot,
+    task::Task,
     trace::LspTrace,
     workspace_state::WorkspaceVfsReadiness,
 };

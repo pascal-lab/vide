@@ -15,10 +15,10 @@ use super::{
     dispatcher::{NotifDispatcher, ReqDispatcher},
     handlers,
     process_changes::DiagnosticInvalidation,
-    qihe::{QiheRunId, QiheUpdate},
     reload::FetchWorkspaceProgress,
     respond::Progress,
     snapshot::DiagnosticPublishTarget,
+    task::{ResponseTask, Task},
 };
 use crate::{config::Config, global_state::DEFAULT_REQ_HANDLER, i18n::keys};
 
@@ -719,52 +719,6 @@ impl PublishDiagnosticsTask {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum Task {
-    Response(ResponseTask),
-    Retry(lsp_server::Request),
-    FetchWorkspace(FetchWorkspaceProgress),
-    Diagnostics(PublishDiagnosticsBatch),
-    Qihe(QiheTask),
-}
-
-#[derive(Debug)]
-pub(crate) struct ResponseTask {
-    response: lsp_server::Response,
-    accepted_effects: Vec<super::response_effect::AcceptedResponseEffect>,
-}
-
-impl ResponseTask {
-    pub(crate) fn new(response: lsp_server::Response) -> Self {
-        Self { response, accepted_effects: Vec::new() }
-    }
-
-    pub(crate) fn with_accepted_effects(
-        mut self,
-        accepted_effects: Vec<super::response_effect::AcceptedResponseEffect>,
-    ) -> Self {
-        self.accepted_effects = accepted_effects;
-        self
-    }
-
-    fn summary(&self) -> String {
-        format!(
-            "task response id={:?} error={} accepted_effects={}",
-            self.response.id,
-            self.response.error.is_some(),
-            self.accepted_effects.len()
-        )
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum QiheTask {
-    Log { run_id: QiheRunId, token: String, message: String },
-    Finished { run_id: QiheRunId, update: QiheUpdate, progress_token: String },
-    Cancelled { run_id: QiheRunId, message: String, progress_token: String },
-    Failed { run_id: QiheRunId, message: String, progress_token: String },
-}
-
 impl Task {
     pub(crate) fn response(response: lsp_server::Response) -> Self {
         Task::Response(ResponseTask::new(response))
@@ -805,34 +759,6 @@ impl Task {
                 )
             }
             Task::Qihe(task) => task.summary(),
-        }
-    }
-}
-
-impl QiheTask {
-    fn kind(&self) -> &'static str {
-        match self {
-            QiheTask::Log { .. } => "task.qihe.log",
-            QiheTask::Finished { .. } => "task.qihe.finished",
-            QiheTask::Cancelled { .. } => "task.qihe.cancelled",
-            QiheTask::Failed { .. } => "task.qihe.failed",
-        }
-    }
-
-    fn summary(&self) -> String {
-        match self {
-            QiheTask::Log { token, message, .. } => {
-                format!("task qihe log token={token} bytes={}", message.len())
-            }
-            QiheTask::Finished { progress_token, .. } => {
-                format!("task qihe finished token={progress_token}")
-            }
-            QiheTask::Cancelled { progress_token, message, .. } => {
-                format!("task qihe cancelled token={progress_token} message={message}")
-            }
-            QiheTask::Failed { progress_token, message, .. } => {
-                format!("task qihe failed token={progress_token} message={message}")
-            }
         }
     }
 }
