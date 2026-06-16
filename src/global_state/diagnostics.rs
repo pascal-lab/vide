@@ -2,6 +2,8 @@ use hir::base_db::{project::CompilationProfileId, source_root::SourceRootId};
 use lsp_types::Url;
 use vfs::FileId;
 
+pub(crate) mod publisher;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DiagnosticCommitFreshness {
     diagnostics_revision: u64,

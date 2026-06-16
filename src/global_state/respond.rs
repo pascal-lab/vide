@@ -20,7 +20,7 @@ impl Progress {
 
 impl GlobalState {
     pub(crate) fn send(&self, message: lsp_server::Message) {
-        if self.sender.send(message).is_err() {
+        if self.client.sender.send(message).is_err() {
             tracing::debug!("LSP message dropped because client connection is closed");
         }
     }
@@ -35,13 +35,14 @@ impl GlobalState {
         params: R::Params,
         handler: ReqHandler,
     ) {
-        let request = self.req_queue.outgoing.register(R::METHOD.to_string(), params, handler);
+        let request =
+            self.client.req_queue.outgoing.register(R::METHOD.to_string(), params, handler);
         self.send(request.into());
     }
 
     pub(crate) fn respond(&mut self, response: lsp_server::Response) -> bool {
-        if let Some((method, start)) = self.req_queue.incoming.complete(&response.id) {
-            self.task_pool.handle.complete_request(&response.id);
+        if let Some((method, start)) = self.client.req_queue.incoming.complete(&response.id) {
+            self.tasks.task_pool.handle.complete_request(&response.id);
             if let Some(err) = &response.error
                 && err.message.starts_with("server panicked")
             {
@@ -64,7 +65,7 @@ impl GlobalState {
         fraction: Option<f64>,
         cancel_token: Option<String>,
     ) {
-        if !self.config.cli_work_done_progress() {
+        if !self.config_state.config.cli_work_done_progress() {
             return;
         }
 
@@ -75,9 +76,10 @@ impl GlobalState {
 
         let cancellable = Some(cancel_token.is_some());
 
-        let token = lsp_types::ProgressToken::String(
-            cancel_token.unwrap_or_else(|| format!("{}/{title}", self.config.opt.process_name)),
-        );
+        let token =
+            lsp_types::ProgressToken::String(cancel_token.unwrap_or_else(|| {
+                format!("{}/{title}", self.config_state.config.opt.process_name)
+            }));
 
         let work_done_progress = match state {
             Progress::Begin => {

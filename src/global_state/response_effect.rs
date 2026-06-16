@@ -28,7 +28,7 @@ impl AcceptedResponseEffect {
     pub(crate) fn apply(self, state: &mut GlobalState) {
         match self {
             AcceptedResponseEffect::CommitSemanticTokens { uri, tokens } => {
-                state.semantic_tokens_cache.lock().insert(uri, tokens);
+                state.analysis.semantic_tokens_cache.lock().insert(uri, tokens);
             }
         }
     }

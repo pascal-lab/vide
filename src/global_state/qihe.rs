@@ -30,14 +30,17 @@ use vfs::FileId;
 
 use super::{
     GlobalState, QiheDiagnosticState,
-    diagnostics::DiagnosticCommitFreshness,
-    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, QiheTask},
+    diagnostics::{
+        DiagnosticCommitFreshness,
+        publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
+    },
     respond::Progress,
     snapshot::GlobalStateSnapshot,
+    task::QiheTask,
 };
 use crate::{
     config::user_config::QiheConfig,
-    global_state::main_loop::Task,
+    global_state::task::Task,
     i18n::{I18n, keys},
     lsp_ext::{
         ext::{
@@ -141,18 +144,18 @@ impl QiheUpdate {
 impl GlobalState {
     pub(crate) fn spawn_qihe_analysis(&mut self, params: RunQiheAnalysisParams) {
         self.end_superseded_qihe_progress();
-        self.qihe_run_generation = self.qihe_run_generation.next();
-        let run_id = self.qihe_run_generation;
+        self.qihe.qihe_run_generation = self.qihe.qihe_run_generation.next();
+        let run_id = self.qihe.qihe_run_generation;
         let progress_token = qihe_progress_token(run_id, &params.uri);
         let progress_label = params.uri.path().to_string();
-        let cancellation = self.task_pool.handle.task_token();
+        let cancellation = self.tasks.task_pool.handle.task_token();
         let snapshot = self.make_snapshot_with_cancel(cancellation.clone());
 
-        self.qihe_active_progress_token = Some(progress_token.clone());
-        self.qihe_active_cancel_token = Some(cancellation.clone());
+        self.qihe.qihe_active_progress_token = Some(progress_token.clone());
+        self.qihe.qihe_active_cancel_token = Some(cancellation.clone());
         self.begin_qihe_progress(&progress_token, progress_label);
 
-        self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, move |sender| {
+        self.tasks.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, move |sender| {
             let log_sink = QiheLogSink::new(sender.clone(), run_id, progress_token.clone());
             let task = Task::Qihe(
                 panic::catch_unwind(AssertUnwindSafe(|| {
@@ -181,26 +184,29 @@ impl GlobalState {
     pub(crate) fn handle_qihe_task(&mut self, task: QiheTask) {
         match task {
             QiheTask::Log { run_id, token, message } => {
-                if run_id == self.qihe_run_generation {
+                if run_id == self.qihe.qihe_run_generation {
                     self.log_qihe_message(token, message);
                 }
             }
             QiheTask::Finished { run_id, update, progress_token } => {
-                if run_id != self.qihe_run_generation {
+                if run_id != self.qihe.qihe_run_generation {
                     tracing::debug!(
                         ?run_id,
-                        current = ?self.qihe_run_generation,
+                        current = ?self.qihe.qihe_run_generation,
                         "stale qihe result ignored"
                     );
                     return;
                 }
                 if self
+                    .qihe
                     .qihe_active_cancel_token
                     .as_ref()
                     .is_some_and(CancellationToken::is_cancelled)
-                    && self.qihe_active_progress_token.as_deref() == Some(progress_token.as_str())
+                    && self.qihe.qihe_active_progress_token.as_deref()
+                        == Some(progress_token.as_str())
                 {
-                    let message = self.config.i18n.text(keys::QIHE_CANCELLED).to_owned();
+                    let message =
+                        self.config_state.config.i18n.text(keys::QIHE_CANCELLED).to_owned();
                     self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
                     return;
                 }
@@ -211,7 +217,7 @@ impl GlobalState {
                         current = ?self.diagnostic_commit_freshness(),
                         "stale qihe diagnostics ignored"
                     );
-                    let message = self.config.i18n.text(keys::QIHE_STALE).to_owned();
+                    let message = self.config_state.config.i18n.text(keys::QIHE_STALE).to_owned();
                     self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
                     return;
                 }
@@ -221,10 +227,10 @@ impl GlobalState {
                 self.end_current_qihe_progress(progress_token, "end", summary.clone(), summary);
             }
             QiheTask::Cancelled { run_id, message, progress_token } => {
-                if run_id != self.qihe_run_generation {
+                if run_id != self.qihe.qihe_run_generation {
                     tracing::debug!(
                         ?run_id,
-                        current = ?self.qihe_run_generation,
+                        current = ?self.qihe.qihe_run_generation,
                         "stale qihe cancellation ignored"
                     );
                     return;
@@ -232,10 +238,10 @@ impl GlobalState {
                 self.end_current_qihe_progress(progress_token, "end", message.clone(), message);
             }
             QiheTask::Failed { run_id, message, progress_token } => {
-                if run_id != self.qihe_run_generation {
+                if run_id != self.qihe.qihe_run_generation {
                     tracing::debug!(
                         ?run_id,
-                        current = ?self.qihe_run_generation,
+                        current = ?self.qihe.qihe_run_generation,
                         "stale qihe failure ignored"
                     );
                     return;
@@ -244,22 +250,22 @@ impl GlobalState {
                     progress_token,
                     "failed",
                     message.clone(),
-                    self.config.i18n.text(keys::QIHE_FAILED).to_owned(),
+                    self.config_state.config.i18n.text(keys::QIHE_FAILED).to_owned(),
                 );
             }
         }
     }
 
     fn cancel_active_qihe_analysis(&mut self) {
-        if let Some(cancel) = &self.qihe_active_cancel_token {
+        if let Some(cancel) = &self.qihe.qihe_active_cancel_token {
             cancel.cancel();
         }
     }
 
     fn end_superseded_qihe_progress(&mut self) {
         self.cancel_active_qihe_analysis();
-        self.qihe_active_cancel_token = None;
-        let Some(progress_token) = self.qihe_active_progress_token.take() else {
+        self.qihe.qihe_active_cancel_token = None;
+        let Some(progress_token) = self.qihe.qihe_active_progress_token.take() else {
             return;
         };
 
@@ -274,9 +280,9 @@ impl GlobalState {
         message: String,
         progress_message: String,
     ) {
-        if self.qihe_active_progress_token.as_deref() == Some(progress_token.as_str()) {
-            self.qihe_active_progress_token = None;
-            self.qihe_active_cancel_token = None;
+        if self.qihe.qihe_active_progress_token.as_deref() == Some(progress_token.as_str()) {
+            self.qihe.qihe_active_progress_token = None;
+            self.qihe.qihe_active_cancel_token = None;
         }
         self.end_qihe_progress(progress_token, state, message, progress_message);
     }
@@ -290,7 +296,7 @@ impl GlobalState {
             NumberOrString::Number(token) => token.to_string(),
         };
 
-        if self.qihe_active_progress_token.as_deref() != Some(token.as_str()) {
+        if self.qihe.qihe_active_progress_token.as_deref() != Some(token.as_str()) {
             return;
         }
 
@@ -301,7 +307,7 @@ impl GlobalState {
         &mut self,
         mut by_file: FxHashMap<FileId, Vec<Diagnostic>>,
     ) -> FxHashSet<FileId> {
-        let mut cache = self.qihe_diagnostics.lock();
+        let mut cache = self.qihe.qihe_diagnostics.lock();
         let mut changed_files = cache
             .iter()
             .filter_map(|(&file_id, state)| (!state.diagnostics.is_empty()).then_some(file_id))
@@ -330,7 +336,7 @@ impl GlobalState {
             return;
         }
 
-        if self.config.cli_pull_diagnostics_support() {
+        if self.config_state.config.cli_pull_diagnostics_support() {
             self.invalidate_diagnostics(
                 super::process_changes::DiagnosticInvalidation::FileChanges(changed_files),
             );
@@ -402,7 +408,7 @@ impl GlobalState {
         token: String,
     ) {
         self.report_progress(
-            self.config.i18n.text(keys::QIHE_PROGRESS_TITLE),
+            self.config_state.config.i18n.text(keys::QIHE_PROGRESS_TITLE),
             state,
             Some(message),
             fraction,
@@ -1183,7 +1189,7 @@ mod tests {
         },
         global_state::{
             GlobalState, QiheDiagnosticState,
-            main_loop::{QiheTask, Task},
+            task::{QiheTask, Task},
         },
         i18n::I18n,
     };
@@ -1303,7 +1309,7 @@ mod tests {
         );
         let (server, _client) = lsp_server::Connection::memory();
         let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        state.qihe_run_generation = QiheRunId::new(2);
+        state.qihe.qihe_run_generation = QiheRunId::new(2);
         let file_id = FileId(0);
         let current = Diagnostic {
             range: Range::new(Position::new(0, 0), Position::new(0, 1)),
@@ -1314,7 +1320,7 @@ mod tests {
         };
         let stale = Diagnostic { message: "stale".to_owned(), ..current.clone() };
         let freshness = state.diagnostic_commit_freshness();
-        state.qihe_diagnostics.lock().insert(
+        state.qihe.qihe_diagnostics.lock().insert(
             file_id,
             QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![current.clone()] },
         );
@@ -1329,7 +1335,7 @@ mod tests {
             progress_token: "old".to_owned(),
         });
 
-        let stored = state.qihe_diagnostics.lock().get(&file_id).unwrap().diagnostics.clone();
+        let stored = state.qihe.qihe_diagnostics.lock().get(&file_id).unwrap().diagnostics.clone();
         assert_eq!(stored, vec![current]);
     }
 
@@ -1352,8 +1358,8 @@ mod tests {
         );
         let (server, _client) = lsp_server::Connection::memory();
         let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        state.qihe_run_generation = QiheRunId::new(1);
-        state.qihe_active_progress_token = Some("current".to_owned());
+        state.qihe.qihe_run_generation = QiheRunId::new(1);
+        state.qihe.qihe_active_progress_token = Some("current".to_owned());
 
         state.handle_qihe_task(QiheTask::Finished {
             run_id: QiheRunId::new(1),
@@ -1365,7 +1371,7 @@ mod tests {
             progress_token: "current".to_owned(),
         });
 
-        assert_eq!(state.qihe_active_progress_token, None);
+        assert_eq!(state.qihe.qihe_active_progress_token, None);
     }
 
     #[test]
@@ -1381,9 +1387,9 @@ mod tests {
         };
         let cancellation = CancellationToken::new();
         cancellation.cancel();
-        state.qihe_run_generation = QiheRunId::new(1);
-        state.qihe_active_progress_token = Some("current".to_owned());
-        state.qihe_active_cancel_token = Some(cancellation);
+        state.qihe.qihe_run_generation = QiheRunId::new(1);
+        state.qihe.qihe_active_progress_token = Some("current".to_owned());
+        state.qihe.qihe_active_cancel_token = Some(cancellation);
 
         state.handle_qihe_task(QiheTask::Finished {
             run_id: QiheRunId::new(1),
@@ -1395,9 +1401,9 @@ mod tests {
             progress_token: "current".to_owned(),
         });
 
-        assert!(state.qihe_diagnostics.lock().get(&file_id).is_none());
-        assert_eq!(state.qihe_active_progress_token, None);
-        assert!(state.qihe_active_cancel_token.is_none());
+        assert!(state.qihe.qihe_diagnostics.lock().get(&file_id).is_none());
+        assert_eq!(state.qihe.qihe_active_progress_token, None);
+        assert!(state.qihe.qihe_active_cancel_token.is_none());
     }
 
     #[test]
@@ -1406,8 +1412,8 @@ mod tests {
         let uri = lsp_types::Url::parse("file:///workspace/top.sv").unwrap();
         let progress_token = qihe_progress_token(QiheRunId::new(7), &uri);
         let token = CancellationToken::new();
-        state.qihe_active_progress_token = Some(progress_token.clone());
-        state.qihe_active_cancel_token = Some(token.clone());
+        state.qihe.qihe_active_progress_token = Some(progress_token.clone());
+        state.qihe.qihe_active_cancel_token = Some(token.clone());
 
         state.cancel_work_done_progress(lsp_types::WorkDoneProgressCancelParams {
             token: NumberOrString::String(progress_token),
@@ -1423,8 +1429,8 @@ mod tests {
         let active_token = qihe_progress_token(QiheRunId::new(8), &uri);
         let stale_token = qihe_progress_token(QiheRunId::new(7), &uri);
         let cancellation = CancellationToken::new();
-        state.qihe_active_progress_token = Some(active_token);
-        state.qihe_active_cancel_token = Some(cancellation.clone());
+        state.qihe.qihe_active_progress_token = Some(active_token);
+        state.qihe.qihe_active_cancel_token = Some(cancellation.clone());
 
         state.cancel_work_done_progress(lsp_types::WorkDoneProgressCancelParams {
             token: NumberOrString::String(stale_token),
@@ -1461,14 +1467,14 @@ mod tests {
             ..Diagnostic::default()
         };
         let freshness = state.diagnostic_commit_freshness();
-        state.qihe_diagnostics.lock().insert(
+        state.qihe.qihe_diagnostics.lock().insert(
             file_id,
             QiheDiagnosticState { freshness, generation: 1, diagnostics: vec![diagnostic.clone()] },
         );
 
         assert_eq!(state.make_snapshot().qihe_diagnostics(file_id), vec![diagnostic]);
 
-        state.diagnostics_revision += 1;
+        state.diagnostics.diagnostics_revision += 1;
         let snapshot = state.make_snapshot();
         assert!(snapshot.qihe_diagnostics(file_id).is_empty());
     }
@@ -1492,10 +1498,10 @@ mod tests {
         );
         let (server, _client) = lsp_server::Connection::memory();
         let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
-        state.qihe_run_generation = QiheRunId::new(1);
-        state.qihe_active_progress_token = Some("current".to_owned());
+        state.qihe.qihe_run_generation = QiheRunId::new(1);
+        state.qihe.qihe_active_progress_token = Some("current".to_owned());
         let freshness = state.diagnostic_commit_freshness();
-        state.diagnostics_revision += 1;
+        state.diagnostics.diagnostics_revision += 1;
 
         state.handle_qihe_task(QiheTask::Finished {
             run_id: QiheRunId::new(1),
@@ -1516,8 +1522,8 @@ mod tests {
             progress_token: "current".to_owned(),
         });
 
-        assert!(state.qihe_diagnostics.lock().is_empty());
-        assert_eq!(state.qihe_active_progress_token, None);
+        assert!(state.qihe.qihe_diagnostics.lock().is_empty());
+        assert_eq!(state.qihe.qihe_active_progress_token, None);
     }
 
     #[test]
