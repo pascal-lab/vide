@@ -11,8 +11,9 @@ use vfs::{ChangedFile, FileId, Vfs, VfsPath};
 
 use super::{
     DEFAULT_REQ_HANDLER, GlobalState,
-    main_loop::{PublishDiagnosticsBatch, PublishDiagnosticsTask, Task},
+    diagnostics::publisher::{PublishDiagnosticsBatch, PublishDiagnosticsTask},
     reload::should_refresh_for_change,
+    task::Task,
 };
 use crate::{config::user_config::DiagnosticsUpdateUserConfig, lsp_ext::to_proto};
 
@@ -26,9 +27,9 @@ pub(crate) enum DiagnosticInvalidation {
 impl GlobalState {
     pub(crate) fn process_changes(&mut self) -> bool {
         let pending_diagnostic_targets =
-            std::mem::take(&mut self.pending_document_diagnostic_targets);
+            std::mem::take(&mut self.diagnostics.pending_document_diagnostic_targets);
         let mut diagnostic_targets_changed = !pending_diagnostic_targets.is_empty();
-        let mut write_guard = self.vfs.write();
+        let mut write_guard = self.workspace.vfs.write();
         let changed_files = write_guard.0.take_changes();
         // downgrade earlier to allow more reader
         let read_guard = RwLockWriteGuard::downgrade_to_upgradable(write_guard);
@@ -42,14 +43,14 @@ impl GlobalState {
             .collect_vec();
         diagnostic_targets_changed |= !file_id_redirects.is_empty();
         for (from, to) in file_id_redirects {
-            self.mem_docs.remap_file_id(from, to);
+            self.analysis.mem_docs.remap_file_id(from, to);
         }
 
         // collect changes
         let Some(changed_files) = Self::colease_modifications(changed_files) else {
             std::mem::drop(read_guard);
             if !pending_diagnostic_targets.is_empty() {
-                self.diagnostic_target_revision += 1;
+                self.diagnostics.diagnostic_target_revision += 1;
                 self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
             }
             return false;
@@ -90,13 +91,15 @@ impl GlobalState {
             content_changed_file_ids.insert(changed_file.file_id);
             bytes.push(changed_file);
         }
-        if self.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnType {
+        if self.config_state.config.user_config.diagnostics.update
+            == DiagnosticsUpdateUserConfig::OnType
+        {
             changed_file_ids.extend(pending_diagnostic_targets.iter().copied());
         }
         let externally_changed_file_ids = content_changed_file_ids
             .iter()
             .copied()
-            .filter(|file_id| !self.mem_docs.contains_file_id(*file_id))
+            .filter(|file_id| !self.analysis.mem_docs.contains_file_id(*file_id))
             .collect::<FxHashSet<_>>();
 
         let mut write_guard = RwLockUpgradableReadGuard::upgrade(read_guard);
@@ -105,21 +108,21 @@ impl GlobalState {
 
         std::mem::drop(write_guard);
 
-        self.analysis_host.apply_change(change);
-        self.diagnostics_revision += 1;
+        self.analysis.analysis_host.apply_change(change);
+        self.diagnostics.diagnostics_revision += 1;
         for file_id in &content_changed_file_ids {
-            let revision = self.diagnostic_file_revisions.entry(*file_id).or_default();
+            let revision = self.diagnostics.diagnostic_file_revisions.entry(*file_id).or_default();
             *revision = revision.next();
         }
         if diagnostic_targets_changed {
-            self.diagnostic_target_revision += 1;
+            self.diagnostics.diagnostic_target_revision += 1;
         }
         self.remove_deleted_qihe_diagnostics(&deleted_file_ids);
         self.clear_deleted_push_diagnostics(&deleted_push_diagnostics);
         if has_structure_changes {
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         } else {
-            match self.config.user_config.diagnostics.update {
+            match self.config_state.config.user_config.diagnostics.update {
                 DiagnosticsUpdateUserConfig::OnType => {
                     self.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(
                         changed_file_ids,
@@ -135,14 +138,14 @@ impl GlobalState {
         }
         if !pending_diagnostic_targets.is_empty()
             && (has_structure_changes
-                || self.config.user_config.diagnostics.update
+                || self.config_state.config.user_config.diagnostics.update
                     != DiagnosticsUpdateUserConfig::OnType)
         {
             self.request_diagnostics(pending_diagnostic_targets.into_iter().collect());
         }
 
         if let Some(path) = workspace_structure_change {
-            let config = triomphe::Arc::make_mut(&mut self.config);
+            let config = triomphe::Arc::make_mut(&mut self.config_state.config);
             config.refresh_project_manifests();
             self.request_workspace_auto_reload(format!("workspace vfs change: {:?}", path));
         }
@@ -151,12 +154,12 @@ impl GlobalState {
     }
 
     pub(crate) fn open_mem_doc_file_ids(&self) -> Vec<FileId> {
-        self.mem_docs.file_ids().collect()
+        self.analysis.mem_docs.file_ids().collect()
     }
 
     pub(crate) fn invalidate_diagnostics(&mut self, invalidation: DiagnosticInvalidation) {
-        if !self.workspace_vfs.is_ready() {
-            self.workspace_vfs.defer_diagnostics_until_ready();
+        if !self.workspace.workspace_vfs.is_ready() {
+            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
             tracing::debug!(
                 ?invalidation,
                 "diagnostics invalidation deferred until workspace/VFS is ready"
@@ -164,8 +167,8 @@ impl GlobalState {
             return;
         }
 
-        if self.config.cli_pull_diagnostics_support()
-            && self.config.cli_workspace_diagnostic_refresh_support()
+        if self.config_state.config.cli_pull_diagnostics_support()
+            && self.config_state.config.cli_workspace_diagnostic_refresh_support()
             && match &invalidation {
                 DiagnosticInvalidation::FileChanges(file_ids) => !file_ids.is_empty(),
                 DiagnosticInvalidation::WorkspaceChanged => true,
@@ -191,14 +194,14 @@ impl GlobalState {
             return;
         }
 
-        let mut qihe_diagnostics = self.qihe_diagnostics.lock();
+        let mut qihe_diagnostics = self.qihe.qihe_diagnostics.lock();
         for file_id in deleted_file_ids {
             qihe_diagnostics.remove(file_id);
         }
     }
 
     fn clear_deleted_push_diagnostics(&mut self, deleted_files: &[(FileId, VfsPath)]) {
-        if deleted_files.is_empty() || self.config.cli_pull_diagnostics_support() {
+        if deleted_files.is_empty() || self.config_state.config.cli_pull_diagnostics_support() {
             return;
         }
 
@@ -250,9 +253,9 @@ impl GlobalState {
             change.add_changed_file(changed_file)
         }
         if has_structure_changes {
-            let roots = self.source_root_config.partition(vfs);
+            let roots = self.config_state.source_root_config.partition(vfs);
             change.set_roots(roots);
-            change.set_project_config(self.project_config.clone());
+            change.set_project_config(self.config_state.project_config.clone());
         }
         change
     }
@@ -329,8 +332,8 @@ impl GlobalState {
             return;
         }
 
-        if !self.workspace_vfs.is_ready() {
-            self.workspace_vfs.defer_diagnostics_until_ready();
+        if !self.workspace.workspace_vfs.is_ready() {
+            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
             tracing::debug!(
                 file_count = files.len(),
                 "diagnostics request deferred until workspace/VFS is ready"
@@ -338,15 +341,15 @@ impl GlobalState {
             return;
         }
 
-        if self.config.cli_pull_diagnostics_support() {
-            if self.config.cli_workspace_diagnostic_refresh_support() {
+        if self.config_state.config.cli_pull_diagnostics_support() {
+            if self.config_state.config.cli_workspace_diagnostic_refresh_support() {
                 self.send_request::<WorkspaceDiagnosticRefresh>((), DEFAULT_REQ_HANDLER);
             }
             return;
         }
 
         let snapshot = self.make_snapshot();
-        self.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
+        self.tasks.task_pool.handle.spawn_and_send(ThreadIntent::Worker, move || {
             let mut results = Vec::with_capacity(files.len());
             let mut touched_file_ids = FxHashSet::default();
             for file_id in files {
@@ -421,14 +424,14 @@ mod tests {
         let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
         let file_path = root.join("top.sv");
 
-        state.vfs.write().0.set_file_contents(
+        state.workspace.vfs.write().0.set_file_contents(
             &VfsPath::from(file_path),
             LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
         );
 
         assert!(state.process_changes());
         assert!(
-            !state.fetch_workspaces_task.has_op_requested(),
+            !state.workspace.fetch_workspaces_task.has_op_requested(),
             "loading an ordinary source file should not queue a project configuration reload"
         );
     }

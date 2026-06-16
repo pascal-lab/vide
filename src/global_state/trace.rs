@@ -27,7 +27,7 @@ impl LspTrace {
 
 impl GlobalState {
     pub(crate) fn set_lsp_trace(&mut self, level: TraceValue) {
-        self.lsp_trace.set_level(level);
+        self.client.lsp_trace.set_level(level);
     }
 }
 
