@@ -71,7 +71,7 @@ mod tests {
 
         handle_set_trace(&mut state, SetTraceParams { value: TraceValue::Verbose }).unwrap();
 
-        assert_eq!(state.lsp_trace.level(), TraceValue::Verbose);
+        assert_eq!(state.client.lsp_trace.level(), TraceValue::Verbose);
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
     }
 }

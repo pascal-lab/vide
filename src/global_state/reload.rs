@@ -36,15 +36,15 @@ impl From<FetchWorkspaceProgress> for Task {
 
 impl GlobalState {
     pub(crate) fn is_workspace_ready(&self) -> bool {
-        self.workspace_vfs.is_ready()
+        self.workspace.workspace_vfs.is_ready()
     }
 
     pub(crate) fn fetch_workspaces(&mut self, request: WorkspaceFetchCause) {
-        self.workspace_vfs.start_workspace_fetch(request.generation);
+        self.workspace.workspace_vfs.start_workspace_fetch(request.generation);
         tracing::info!(cause = %request.cause, generation = ?request.generation, "will fetch workspaces");
 
-        self.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, {
-            let manifests = self.config.project_manifests.clone();
+        self.tasks.task_pool.handle.spawn_and_send_cps(ThreadIntent::Worker, {
+            let manifests = self.config_state.config.project_manifests.clone();
             let generation = request.generation;
             let cause = request.cause;
 
@@ -109,24 +109,24 @@ impl GlobalState {
     }
 
     pub(crate) fn request_workspace_reload(&mut self, cause: impl Into<String>) {
-        let request = self.workspace_vfs.request_workspace_reload(cause.into());
-        self.fetch_workspaces_task.request(request);
+        let request = self.workspace.workspace_vfs.request_workspace_reload(cause.into());
+        self.workspace.fetch_workspaces_task.request(request);
     }
 
     pub(crate) fn request_workspace_auto_reload(&mut self, cause: impl Into<String>) {
-        if self.config.user_config.workspace.auto.reload {
+        if self.config_state.config.user_config.workspace.auto.reload {
             self.request_workspace_reload(cause);
         }
     }
 
     pub(crate) fn start_requested_workspace_fetch(&mut self) {
-        if let Some(request) = self.fetch_workspaces_task.should_start() {
+        if let Some(request) = self.workspace.fetch_workspaces_task.should_start() {
             self.fetch_workspaces(request);
         }
     }
 
     pub(crate) fn fetch_workspace_error_stringify(&self) -> Result<(), String> {
-        match self.fetch_workspaces_task.last_op_result() {
+        match self.workspace.fetch_workspaces_task.last_op_result() {
             Some((workspaces, _)) if workspaces.is_empty() => Err("no workspace fetched".into()),
             Some((_, errors)) if !errors.is_empty() => Err(errors
                 .iter()
@@ -139,7 +139,8 @@ impl GlobalState {
     pub(crate) fn switch_workspaces(&mut self, cause: String, generation: WorkspaceGeneration) {
         tracing::info!(%cause, ?generation, "start switching workspaces");
 
-        let Some((workspaces, errors)) = self.fetch_workspaces_task.last_op_result() else {
+        let Some((workspaces, errors)) = self.workspace.fetch_workspaces_task.last_op_result()
+        else {
             return;
         };
 
@@ -147,27 +148,27 @@ impl GlobalState {
             return;
         }
 
-        self.workspaces = workspaces.clone();
+        self.workspace.workspaces = workspaces.clone();
 
-        if matches!(self.config.files().watcher, FilesWatcher::Client)
-            && self.config.cli_did_change_watched_files_dyn_reg()
+        if matches!(self.config_state.config.files().watcher, FilesWatcher::Client)
+            && self.config_state.config.cli_did_change_watched_files_dyn_reg()
         {
             self.register_client_file_watchers(self.client_file_watcher_globs());
         } else {
             self.unregister_client_file_watchers();
         }
 
-        let files_config = self.config.files();
+        let files_config = self.config_state.config.files();
         let (to_load, to_watch, source_root_config, project_config) =
-            get_workspace_folder(&self.workspaces, &files_config.exclude);
+            get_workspace_folder(&self.workspace.workspaces, &files_config.exclude);
         let mut change = Change::new();
         {
-            let vfs = self.vfs.read();
+            let vfs = self.workspace.vfs.read();
             change.set_roots(source_root_config.partition(&vfs.0));
         }
-        self.project_config = project_config.clone();
+        self.config_state.project_config = project_config.clone();
         change.set_project_config(project_config);
-        self.analysis_host.apply_change(change);
+        self.analysis.analysis_host.apply_change(change);
 
         let to_watch = match files_config.watcher {
             FilesWatcher::Client => vec![],
@@ -175,17 +176,17 @@ impl GlobalState {
         };
 
         let to_load_len = to_load.len();
-        let vfs_config_version = self.workspace_vfs.begin_vfs_load(to_load_len);
+        let vfs_config_version = self.workspace.workspace_vfs.begin_vfs_load(to_load_len);
 
-        self.vfs_loader.handle.set_config(vfs::loader::Config {
+        self.workspace.vfs_loader.handle.set_config(vfs::loader::Config {
             to_load,
             to_watch,
             version: vfs_config_version,
         });
 
-        self.source_root_config = source_root_config;
+        self.config_state.source_root_config = source_root_config;
 
-        self.diagnostics_revision += 1;
+        self.diagnostics.diagnostics_revision += 1;
         self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
 
         tracing::info!("did switch workspaces");
@@ -194,21 +195,21 @@ impl GlobalState {
     pub(crate) fn update_configuration(&mut self, config: Config) {
         let diagnostics_config = config.diagnostics_config();
         let diagnostics_config_changed =
-            !self.config.diagnostics_config().has_same_settings(&diagnostics_config);
+            !self.config_state.config.diagnostics_config().has_same_settings(&diagnostics_config);
         let workspace_affecting_change =
-            config.workspace_affecting_settings_changed(self.config.as_ref());
-        let _old_config = std::mem::replace(&mut self.config, Arc::new(config));
+            config.workspace_affecting_settings_changed(self.config_state.config.as_ref());
+        let _old_config = std::mem::replace(&mut self.config_state.config, Arc::new(config));
 
         if diagnostics_config_changed {
-            self.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
+            self.analysis.analysis_host.raw_db_mut().set_diagnostics_config_with_durability(
                 Arc::new(diagnostics_config),
                 Durability::HIGH,
             );
-            self.diagnostics_revision += 1;
+            self.diagnostics.diagnostics_revision += 1;
             self.invalidate_diagnostics(DiagnosticInvalidation::WorkspaceChanged);
         }
         if workspace_affecting_change {
-            let config = Arc::make_mut(&mut self.config);
+            let config = Arc::make_mut(&mut self.config_state.config);
             config.refresh_project_manifests();
             self.request_workspace_reload("configuration changed");
         }
@@ -217,6 +218,7 @@ impl GlobalState {
 
     fn client_file_watcher_globs(&self) -> Vec<String> {
         let mut globs = self
+            .config_state
             .config
             .workspace_roots
             .iter()
@@ -227,7 +229,8 @@ impl GlobalState {
             })
             .collect_vec();
         globs.extend(
-            self.workspaces
+            self.workspace
+                .workspaces
                 .iter()
                 .flat_map(|ws| ws.roots())
                 .filter(|it| !it.role.is_library())
@@ -247,7 +250,7 @@ impl GlobalState {
     }
 
     fn register_client_file_watchers(&mut self, globs: Vec<String>) {
-        if self.registered_client_file_watcher_globs.as_ref() == Some(&globs) {
+        if self.workspace.registered_client_file_watcher_globs.as_ref() == Some(&globs) {
             tracing::debug!("client file watcher registration unchanged");
             return;
         }
@@ -281,7 +284,7 @@ impl GlobalState {
                     lsp_types::RegistrationParams { registrations: vec![registration] },
                     DEFAULT_REQ_HANDLER,
                 );
-                self.registered_client_file_watcher_globs = Some(globs);
+                self.workspace.registered_client_file_watcher_globs = Some(globs);
             }
             Err(error) => {
                 tracing::error!("failed to serialize file watcher registration options: {error:#}");
@@ -290,7 +293,7 @@ impl GlobalState {
     }
 
     fn unregister_client_file_watchers(&mut self) {
-        if self.registered_client_file_watcher_globs.take().is_none() {
+        if self.workspace.registered_client_file_watcher_globs.take().is_none() {
             return;
         }
 
@@ -474,7 +477,7 @@ mod tests {
         let (model, errors) = ProjectModel::load(vec![manifest]);
         assert!(errors.is_empty(), "{errors:#?}");
         let (mut state, _client) = test_state_with_root(root_path);
-        state.workspaces = Arc::new(model.workspaces);
+        state.workspace.workspaces = Arc::new(model.workspaces);
 
         let globs = state.client_file_watcher_globs();
 
@@ -501,7 +504,7 @@ mod tests {
         let (model, errors) = ProjectModel::load(vec![manifest]);
         assert!(errors.is_empty(), "{errors:#?}");
         let (mut state, _client) = test_state_with_root(root_path);
-        state.workspaces = Arc::new(model.workspaces);
+        state.workspace.workspaces = Arc::new(model.workspaces);
 
         let globs = state.client_file_watcher_globs();
         let source_file_glob = top_path.to_string().replace('\\', "/");
@@ -524,7 +527,7 @@ mod tests {
     #[test]
     fn diagnostics_config_update_does_not_request_workspace_reload() {
         let (mut state, _client) = test_state();
-        let mut config = (*state.config).clone();
+        let mut config = (*state.config_state.config).clone();
         config
             .update(serde_json::json!({
                 "diagnostics": {
@@ -535,7 +538,7 @@ mod tests {
 
         state.update_configuration(config);
 
-        assert!(!state.fetch_workspaces_task.has_op_requested());
+        assert!(!state.workspace.fetch_workspaces_task.has_op_requested());
     }
 
     #[test]
@@ -543,7 +546,7 @@ mod tests {
         let root = TestDir::new("structural-config-reload");
         let root_path = root.path().to_path_buf();
         let (mut state, _client) = test_state_with_root(root_path);
-        let mut config = (*state.config).clone();
+        let mut config = (*state.config_state.config).clone();
         config
             .update(serde_json::json!({
                 "files": { "excludeDirs": ["build"] },
@@ -553,7 +556,7 @@ mod tests {
 
         state.update_configuration(config);
 
-        assert!(state.fetch_workspaces_task.has_op_requested());
+        assert!(state.workspace.fetch_workspaces_task.has_op_requested());
     }
 
     #[test]
@@ -568,23 +571,23 @@ mod tests {
         assert!(errors.is_empty(), "{errors:#?}");
 
         let (mut state, _client) = test_state_with_root(root_path);
-        state.workspaces = Arc::new(model.workspaces);
-        let existing_workspaces = Arc::clone(&state.workspaces);
+        state.workspace.workspaces = Arc::new(model.workspaces);
+        let existing_workspaces = Arc::clone(&state.workspace.workspaces);
 
         state.request_workspace_reload("test reload");
-        let request = state.fetch_workspaces_task.should_start().unwrap();
+        let request = state.workspace.fetch_workspaces_task.should_start().unwrap();
         assert_eq!(request.cause, "test reload");
-        state.workspace_vfs.start_workspace_fetch(request.generation);
+        state.workspace.workspace_vfs.start_workspace_fetch(request.generation);
         assert_eq!(
-            state.workspace_vfs.finish_workspace_fetch(request.generation, true),
+            state.workspace.workspace_vfs.finish_workspace_fetch(request.generation, true),
             crate::global_state::WorkspaceFetchCompletion::CurrentFailure
         );
-        state.fetch_workspaces_task.complete(Some((
+        state.workspace.fetch_workspaces_task.complete(Some((
             Arc::new(Vec::new()),
             vec![anyhow::anyhow!("failed to reload workspace")],
         )));
 
-        assert!(Arc::ptr_eq(&state.workspaces, &existing_workspaces));
+        assert!(Arc::ptr_eq(&state.workspace.workspaces, &existing_workspaces));
     }
 
     #[test]
@@ -599,23 +602,23 @@ mod tests {
         assert!(errors.is_empty(), "{errors:#?}");
 
         let (mut state, _client) = test_state_with_root(root_path);
-        let initial_workspaces = Arc::clone(&state.workspaces);
-        assert!(state.workspaces.is_empty());
+        let initial_workspaces = Arc::clone(&state.workspace.workspaces);
+        assert!(state.workspace.workspaces.is_empty());
 
         state.request_workspace_reload("test reload");
-        let request = state.fetch_workspaces_task.should_start().unwrap();
+        let request = state.workspace.fetch_workspaces_task.should_start().unwrap();
         assert_eq!(request.cause, "test reload");
-        state.workspace_vfs.start_workspace_fetch(request.generation);
+        state.workspace.workspace_vfs.start_workspace_fetch(request.generation);
         assert_eq!(
-            state.workspace_vfs.finish_workspace_fetch(request.generation, true),
+            state.workspace.workspace_vfs.finish_workspace_fetch(request.generation, true),
             crate::global_state::WorkspaceFetchCompletion::CurrentFailure
         );
-        state.fetch_workspaces_task.complete(Some((
+        state.workspace.fetch_workspaces_task.complete(Some((
             Arc::new(model.workspaces),
             vec![anyhow::anyhow!("failed to load dependency")],
         )));
 
-        assert!(Arc::ptr_eq(&state.workspaces, &initial_workspaces));
-        assert!(state.workspaces.is_empty());
+        assert!(Arc::ptr_eq(&state.workspace.workspaces, &initial_workspaces));
+        assert!(state.workspace.workspaces.is_empty());
     }
 }

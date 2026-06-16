@@ -114,7 +114,7 @@ impl GlobalState {
     }
 
     pub(in crate::global_state) fn handle_response(&mut self, res: Response) {
-        let Some(handler) = self.req_queue.outgoing.complete(res.id.clone()) else {
+        let Some(handler) = self.client.req_queue.outgoing.complete(res.id.clone()) else {
             tracing::error!("received response for unknown request: {:?}", res);
             return;
         };
@@ -122,7 +122,7 @@ impl GlobalState {
     }
 
     pub(in crate::global_state) fn drain_pending_diagnostic_requests(&mut self) {
-        let pending_requests = std::mem::take(&mut self.pending_diagnostic_requests);
+        let pending_requests = std::mem::take(&mut self.diagnostics.pending_diagnostic_requests);
         for req in pending_requests {
             if !self.is_completed(&req) {
                 self.handle_request(req);
@@ -285,6 +285,7 @@ mod tests {
         assert_eq!(publish_alias.diagnostics, vec![diagnostic]);
         assert!(
             state
+                .diagnostics
                 .published_diagnostics
                 .contains_key(&DiagnosticPublishKey::for_test(file_id, alias_uri))
         );
@@ -342,6 +343,7 @@ mod tests {
         assert!(cleared.diagnostics.is_empty());
         assert!(
             !state
+                .diagnostics
                 .published_diagnostics
                 .contains_key(&DiagnosticPublishKey::for_test(file_id, alias_uri))
         );
@@ -367,7 +369,7 @@ mod tests {
         );
         let (server, client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, lsp_types::TraceValue::Off);
-        state.diagnostics_revision = 2;
+        state.diagnostics.diagnostics_revision = 2;
         let file_id = FileId(0);
         let uri =
             to_proto::url_from_abs_path(root.write("workspace/top.sv", "").as_path()).unwrap();
@@ -385,7 +387,7 @@ mod tests {
         ));
 
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
-        assert!(state.published_diagnostics.is_empty());
+        assert!(state.diagnostics.published_diagnostics.is_empty());
     }
 
     #[test]
@@ -394,8 +396,8 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let file_path = root_path.join("stale.sv");
         let mut state = test_state(root_path);
-        state.workspace_vfs.begin_vfs_load(1);
-        state.workspace_vfs.begin_vfs_load(1);
+        state.workspace.workspace_vfs.begin_vfs_load(1);
+        state.workspace.workspace_vfs.begin_vfs_load(1);
 
         state.process_vfs_msg(vfs_loader::Message::Loaded {
             files: vec![(
@@ -406,7 +408,7 @@ mod tests {
         });
 
         let vfs_path = VfsPath::from(file_path);
-        let mut vfs = state.vfs.write();
+        let mut vfs = state.workspace.vfs.write();
         assert!(vfs.0.file_id(&vfs_path).is_none());
         assert!(vfs.0.take_changes().is_empty());
     }
@@ -426,8 +428,8 @@ mod tests {
             },
         );
 
-        let config_version = state.workspace_vfs.begin_vfs_load(0);
-        assert!(!state.workspace_vfs.is_ready());
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(0);
+        assert!(!state.workspace.workspace_vfs.is_ready());
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 0,
@@ -435,7 +437,7 @@ mod tests {
             config_version,
         });
 
-        assert!(state.workspace_vfs.is_ready());
+        assert!(state.workspace.workspace_vfs.is_ready());
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
     }
 
@@ -444,7 +446,7 @@ mod tests {
         let root = TestDir::new("diagnostic-request-readiness-queue");
         let root_path = root.path().to_path_buf();
         let mut state = test_state(root_path);
-        let config_version = state.workspace_vfs.begin_vfs_load(1);
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1);
         let request_id = lsp_server::RequestId::from(7);
         let req = Request::new(
             request_id.clone(),
@@ -460,8 +462,8 @@ mod tests {
         state.register_request(Instant::now(), &req);
         state.handle_request(req);
 
-        assert_eq!(state.pending_diagnostic_requests.len(), 1);
-        assert!(state.task_pool.receiver.recv_timeout(Duration::from_millis(50)).is_err());
+        assert_eq!(state.diagnostics.pending_diagnostic_requests.len(), 1);
+        assert!(state.tasks.task_pool.receiver.recv_timeout(Duration::from_millis(50)).is_err());
 
         state
             .handle_event(Event::Vfs(vfs_loader::Message::Progress {
@@ -471,8 +473,8 @@ mod tests {
             }))
             .unwrap();
 
-        assert!(state.pending_diagnostic_requests.is_empty());
-        let task = state.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(state.diagnostics.pending_diagnostic_requests.is_empty());
+        let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Task::Response(response) = task else {
             panic!("expected parked diagnostic request to resume as response task, got {task:?}");
         };
@@ -502,6 +504,7 @@ mod tests {
         ));
 
         let result_id = state
+            .analysis
             .semantic_tokens_cache
             .lock()
             .get(&uri)
@@ -526,6 +529,7 @@ mod tests {
         ));
 
         let result_id = state
+            .analysis
             .semantic_tokens_cache
             .lock()
             .get(&uri)
@@ -547,8 +551,8 @@ mod tests {
                 ..ClientCapabilities::default()
             },
         );
-        let stale_config = state.workspace_vfs.begin_vfs_load(4);
-        let current_config = state.workspace_vfs.begin_vfs_load(4);
+        let stale_config = state.workspace.workspace_vfs.begin_vfs_load(4);
+        let current_config = state.workspace.workspace_vfs.begin_vfs_load(4);
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
@@ -557,14 +561,14 @@ mod tests {
         });
 
         assert_eq!(
-            state.workspace_vfs.current_vfs_progress(),
+            state.workspace.workspace_vfs.current_vfs_progress(),
             crate::global_state::VfsProgress {
                 config_version: current_config,
                 n_done: 0,
                 n_total: 4,
             }
         );
-        assert!(!state.workspace_vfs.is_ready());
+        assert!(!state.workspace.workspace_vfs.is_ready());
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
@@ -574,7 +578,7 @@ mod tests {
         });
 
         assert_eq!(
-            state.workspace_vfs.current_vfs_progress(),
+            state.workspace.workspace_vfs.current_vfs_progress(),
             crate::global_state::VfsProgress {
                 config_version: current_config,
                 n_done: 2,
@@ -609,7 +613,7 @@ mod tests {
                 ..ClientCapabilities::default()
             },
         );
-        let config_version = state.workspace_vfs.begin_vfs_load(2);
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(2);
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 2,
@@ -617,9 +621,9 @@ mod tests {
             config_version,
         });
 
-        assert!(state.workspace_vfs.is_ready());
+        assert!(state.workspace.workspace_vfs.is_ready());
         assert_eq!(
-            state.workspace_vfs.current_vfs_progress(),
+            state.workspace.workspace_vfs.current_vfs_progress(),
             crate::global_state::VfsProgress { config_version, n_done: 2, n_total: 2 }
         );
         assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::End(_)));
@@ -630,9 +634,9 @@ mod tests {
             config_version,
         });
 
-        assert!(state.workspace_vfs.is_ready());
+        assert!(state.workspace.workspace_vfs.is_ready());
         assert_eq!(
-            state.workspace_vfs.current_vfs_progress(),
+            state.workspace.workspace_vfs.current_vfs_progress(),
             crate::global_state::VfsProgress { config_version, n_done: 2, n_total: 2 }
         );
         assert!(client.receiver.recv_timeout(Duration::from_millis(50)).is_err());
@@ -648,11 +652,11 @@ mod tests {
         std::fs::create_dir_all(&stale_root).unwrap();
         let (mut state, _client) = test_state_with_caps(root_path, ClientCapabilities::default());
         let existing_workspaces = Arc::new(workspace_model(existing_root));
-        state.workspaces = Arc::clone(&existing_workspaces);
+        state.workspace.workspaces = Arc::clone(&existing_workspaces);
 
         state.request_workspace_reload("first reload");
-        let first = state.fetch_workspaces_task.should_start().unwrap();
-        state.workspace_vfs.start_workspace_fetch(first.generation);
+        let first = state.workspace.fetch_workspaces_task.should_start().unwrap();
+        state.workspace.workspace_vfs.start_workspace_fetch(first.generation);
         state.request_workspace_reload("second reload");
 
         state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::End {
@@ -661,9 +665,9 @@ mod tests {
             errors: Vec::new(),
         }));
 
-        assert!(Arc::ptr_eq(&state.workspaces, &existing_workspaces));
-        assert_eq!(state.workspace_vfs.current_vfs_config_version(), 0);
-        let second = state.fetch_workspaces_task.should_start().unwrap();
+        assert!(Arc::ptr_eq(&state.workspace.workspaces, &existing_workspaces));
+        assert_eq!(state.workspace.workspace_vfs.current_vfs_config_version(), 0);
+        let second = state.workspace.fetch_workspaces_task.should_start().unwrap();
         assert_eq!(second.cause, "second reload");
         assert_ne!(second.generation, first.generation);
     }
@@ -686,8 +690,8 @@ mod tests {
         );
 
         state.request_workspace_reload("first reload");
-        let first = state.fetch_workspaces_task.should_start().unwrap();
-        state.workspace_vfs.start_workspace_fetch(first.generation);
+        let first = state.workspace.fetch_workspaces_task.should_start().unwrap();
+        state.workspace.workspace_vfs.start_workspace_fetch(first.generation);
         state.process_task(Task::FetchWorkspace(FetchWorkspaceProgress::Begin {
             generation: first.generation,
             cause: first.cause.clone(),
@@ -702,8 +706,8 @@ mod tests {
         }));
 
         assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::End(_)));
-        assert_eq!(state.workspace_vfs.current_vfs_config_version(), 0);
-        let second = state.fetch_workspaces_task.should_start().unwrap();
+        assert_eq!(state.workspace.workspace_vfs.current_vfs_config_version(), 0);
+        let second = state.workspace.fetch_workspaces_task.should_start().unwrap();
         assert_eq!(second.cause, "second reload");
         assert_ne!(second.generation, first.generation);
     }

@@ -25,7 +25,7 @@ fn handle_qihe_analysis_command(
 fn handle_reload_workspace_command(
     state: &mut crate::global_state::GlobalState,
 ) -> anyhow::Result<Option<serde_json::Value>> {
-    let config = triomphe::Arc::make_mut(&mut state.config);
+    let config = triomphe::Arc::make_mut(&mut state.config_state.config);
     config.refresh_project_manifests();
     state.request_workspace_reload("workspace reload command");
     Ok(None)
@@ -84,7 +84,10 @@ fn extract_execute_arg<T: DeserializeOwned>(
     params: &lsp_types::ExecuteCommandParams,
 ) -> anyhow::Result<T> {
     let args = params.arguments.first().cloned().ok_or_else(|| {
-        anyhow::format_err!("{}", state.config.i18n.text(keys::EXECUTE_COMMAND_MISSING_ARGUMENTS))
+        anyhow::format_err!(
+            "{}",
+            state.config_state.config.i18n.text(keys::EXECUTE_COMMAND_MISSING_ARGUMENTS)
+        )
     })?;
     Ok(serde_json::from_value(args)?)
 }
@@ -102,6 +105,7 @@ pub(crate) fn handle_execute_command(
         _ => anyhow::bail!(
             "{}",
             state
+                .config_state
                 .config
                 .i18n
                 .format(keys::EXECUTE_COMMAND_UNKNOWN, [("command", params.command.clone())])

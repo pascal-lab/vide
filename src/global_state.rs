@@ -63,24 +63,40 @@ pub(crate) type ReqHandler = fn(&mut GlobalState, lsp_server::Response);
 pub(crate) const DEFAULT_REQ_HANDLER: ReqHandler = |_, _| {};
 
 pub(crate) struct GlobalState {
+    pub(crate) client: ClientState,
+    pub(crate) config_state: ConfigState,
+    pub(crate) analysis: AnalysisState,
+    pub(crate) diagnostics: DiagnosticsState,
+    pub(crate) workspace: WorkspaceState,
+    pub(crate) qihe: QiheState,
+    pub(crate) tasks: TaskState,
+}
+
+pub(crate) struct ClientState {
     pub(crate) sender: Sender<Message>,
     pub(crate) lsp_trace: LspTrace,
-
     pub(crate) req_queue: ReqQueue<(String, Instant), ReqHandler>,
+    pub(crate) shutdown_requested: bool,
+}
 
+pub(crate) struct TaskState {
     pub(crate) task_pool: Handle<TaskPool<Task>, Receiver<Task>>,
+}
 
+pub(crate) struct ConfigState {
     pub(crate) config: Arc<Config>,
     pub(crate) config_errors: Option<ConfigError>,
     pub(crate) source_root_config: SourceRootConfig,
     pub(crate) project_config: SharedProjectConfig,
+}
 
+pub(crate) struct AnalysisState {
     pub(crate) analysis_host: AnalysisHost,
     pub(crate) mem_docs: MemDocs,
-
-    pub(crate) shutdown_requested: bool,
-
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, lsp_types::SemanticTokens>>>,
+}
+
+pub(crate) struct DiagnosticsState {
     pub(crate) published_diagnostics: FxHashMap<DiagnosticPublishKey, Vec<lsp_types::Diagnostic>>,
     pub(crate) pending_diagnostic_requests: Vec<Request>,
     // didOpen/didClose can change the URI set for a file without changing its
@@ -90,17 +106,21 @@ pub(crate) struct GlobalState {
     pub(crate) diagnostics_revision: u64,
     pub(crate) diagnostic_target_revision: u64,
     pub(crate) diagnostic_file_revisions: FxHashMap<FileId, DiagnosticFileRevision>,
+}
+
+pub(crate) struct QiheState {
     pub(crate) qihe_diagnostics: Arc<Mutex<FxHashMap<FileId, QiheDiagnosticState>>>,
     // Only the latest Qihe run is allowed to commit diagnostics or logs.
     pub(crate) qihe_run_generation: qihe::QiheRunId,
     pub(crate) qihe_active_progress_token: Option<String>,
     pub(crate) qihe_active_cancel_token: Option<CancellationToken>,
+}
 
+pub(crate) struct WorkspaceState {
     pub(crate) vfs_loader: Handle<Box<dyn vfs::loader::Handle>, Receiver<vfs::loader::Message>>,
     pub(crate) vfs: Arc<RwLock<(Vfs, IntMap<FileId, LineEnding>)>>,
     pub(crate) workspace_vfs: WorkspaceVfsReadiness,
 
-    // workspaces
     pub(crate) workspaces: Arc<Vec<Workspace>>,
     pub(crate) fetch_workspaces_task:
         ExclTask<(Arc<Vec<Workspace>>, Vec<anyhow::Error>), WorkspaceFetchCause>,
@@ -133,42 +153,51 @@ impl GlobalState {
             .set_diagnostics_config_with_durability(diagnostics_config, Durability::HIGH);
 
         GlobalState {
-            sender,
-            lsp_trace: LspTrace::new(initial_trace),
-            req_queue: ReqQueue::default(),
-            task_pool,
-            config: Arc::new(config),
-            config_errors: None,
-            analysis_host,
-            mem_docs: MemDocs::default(),
-            shutdown_requested: false,
-            source_root_config: SourceRootConfig::default(),
-            project_config: Arc::new(ProjectConfig::default()),
-
-            semantic_tokens_cache: Arc::new(Default::default()),
-            published_diagnostics: FxHashMap::default(),
-            pending_diagnostic_requests: Vec::new(),
-            pending_document_diagnostic_targets: FxHashSet::default(),
-            diagnostics_revision: 0,
-            diagnostic_target_revision: 0,
-            diagnostic_file_revisions: FxHashMap::default(),
-            qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
-            qihe_run_generation: qihe::QiheRunId::default(),
-            qihe_active_progress_token: None,
-            qihe_active_cancel_token: None,
-
-            vfs_loader,
-            vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
-            workspace_vfs: WorkspaceVfsReadiness::default(),
-
-            workspaces: Arc::from(vec![]),
-            fetch_workspaces_task: ExclTask::default(),
-            registered_client_file_watcher_globs: None,
+            client: ClientState {
+                sender,
+                lsp_trace: LspTrace::new(initial_trace),
+                req_queue: ReqQueue::default(),
+                shutdown_requested: false,
+            },
+            config_state: ConfigState {
+                config: Arc::new(config),
+                config_errors: None,
+                source_root_config: SourceRootConfig::default(),
+                project_config: Arc::new(ProjectConfig::default()),
+            },
+            analysis: AnalysisState {
+                analysis_host,
+                mem_docs: MemDocs::default(),
+                semantic_tokens_cache: Arc::new(Default::default()),
+            },
+            diagnostics: DiagnosticsState {
+                published_diagnostics: FxHashMap::default(),
+                pending_diagnostic_requests: Vec::new(),
+                pending_document_diagnostic_targets: FxHashSet::default(),
+                diagnostics_revision: 0,
+                diagnostic_target_revision: 0,
+                diagnostic_file_revisions: FxHashMap::default(),
+            },
+            workspace: WorkspaceState {
+                vfs_loader,
+                vfs: Arc::new(RwLock::new((Vfs::default(), IntMap::default()))),
+                workspace_vfs: WorkspaceVfsReadiness::default(),
+                workspaces: Arc::from(vec![]),
+                fetch_workspaces_task: ExclTask::default(),
+                registered_client_file_watcher_globs: None,
+            },
+            qihe: QiheState {
+                qihe_diagnostics: Arc::new(Mutex::new(FxHashMap::default())),
+                qihe_run_generation: qihe::QiheRunId::default(),
+                qihe_active_progress_token: None,
+                qihe_active_cancel_token: None,
+            },
+            tasks: TaskState { task_pool },
         }
     }
 
     pub(crate) fn make_snapshot(&self) -> GlobalStateSnapshot {
-        self.make_snapshot_with_cancel(self.task_pool.handle.task_token())
+        self.make_snapshot_with_cancel(self.tasks.task_pool.handle.task_token())
     }
 
     pub(crate) fn make_snapshot_with_cancel(
@@ -176,15 +205,15 @@ impl GlobalState {
         cancellation: CancellationToken,
     ) -> GlobalStateSnapshot {
         GlobalStateSnapshot {
-            config: Arc::clone(&self.config),
-            workspaces: Arc::clone(&self.workspaces),
-            analysis: self.analysis_host.make_analysis(),
-            vfs: Arc::clone(&self.vfs),
-            mem_docs: self.mem_docs.clone(),
-            sema_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
-            qihe_diagnostics: Arc::clone(&self.qihe_diagnostics),
+            config: Arc::clone(&self.config_state.config),
+            workspaces: Arc::clone(&self.workspace.workspaces),
+            analysis: self.analysis.analysis_host.make_analysis(),
+            vfs: Arc::clone(&self.workspace.vfs),
+            mem_docs: self.analysis.mem_docs.clone(),
+            sema_tokens_cache: Arc::clone(&self.analysis.semantic_tokens_cache),
+            qihe_diagnostics: Arc::clone(&self.qihe.qihe_diagnostics),
             diagnostic_publish_freshness: self.diagnostic_publish_freshness(),
-            diagnostic_file_revisions: self.diagnostic_file_revisions.clone(),
+            diagnostic_file_revisions: self.diagnostics.diagnostic_file_revisions.clone(),
             cancellation,
             accepted_response_effects: Default::default(),
         }
@@ -192,9 +221,9 @@ impl GlobalState {
 
     pub(crate) fn diagnostic_publish_freshness(&self) -> DiagnosticPublishFreshness {
         DiagnosticPublishFreshness::new(
-            self.diagnostics_revision,
-            self.diagnostic_target_revision,
-            self.workspace_vfs.diagnostic_readiness_revision(),
+            self.diagnostics.diagnostics_revision,
+            self.diagnostics.diagnostic_target_revision,
+            self.workspace.workspace_vfs.diagnostic_readiness_revision(),
         )
     }
 
@@ -213,23 +242,23 @@ pub(crate) struct QiheDiagnosticState {
 // handle request
 impl GlobalState {
     pub(crate) fn register_request(&mut self, req_received: Instant, req: &Request) {
-        self.req_queue.incoming.register(req.id.clone(), (req.method.clone(), req_received));
-        self.task_pool.handle.register_request(req.id.clone());
+        self.client.req_queue.incoming.register(req.id.clone(), (req.method.clone(), req_received));
+        self.tasks.task_pool.handle.register_request(req.id.clone());
     }
 
     pub(crate) fn is_completed(&self, req: &Request) -> bool {
-        self.req_queue.incoming.is_completed(&req.id)
+        self.client.req_queue.incoming.is_completed(&req.id)
     }
 
     pub(crate) fn cancel(&mut self, req_id: lsp_server::RequestId) {
-        self.task_pool.handle.cancel_request(&req_id);
-        if let Some(response) = self.req_queue.incoming.cancel(req_id) {
-            self.task_pool.handle.complete_request(&response.id);
+        self.tasks.task_pool.handle.cancel_request(&req_id);
+        if let Some(response) = self.client.req_queue.incoming.cancel(req_id) {
+            self.tasks.task_pool.handle.complete_request(&response.id);
             self.send(response.into());
         }
     }
 
     pub(crate) fn cancel_all_tasks(&mut self) {
-        self.task_pool.handle.cancel_all();
+        self.tasks.task_pool.handle.cancel_all();
     }
 }

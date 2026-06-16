@@ -537,20 +537,20 @@ mod tests {
         let (server, _client) = Connection::memory();
         let mut state = GlobalState::new(server.sender, config, TraceValue::Off);
 
-        state.vfs.write().0.set_file_contents(
+        state.workspace.vfs.write().0.set_file_contents(
             &VfsPath::from(root.join("top.sv")),
             LoadResult::Loaded("module top; endmodule\n".to_owned(), LineEnding::Unix),
         );
         assert!(state.process_changes());
         let snapshot = state.make_snapshot();
 
-        state.vfs.write().0.set_file_contents(
+        state.workspace.vfs.write().0.set_file_contents(
             &VfsPath::from(root.join("child.sv")),
             LoadResult::Loaded("module child; endmodule\n".to_owned(), LineEnding::Unix),
         );
 
         let mut live_file_ids =
-            state.vfs.read().0.iter().map(|(file_id, _)| file_id).collect::<Vec<_>>();
+            state.workspace.vfs.read().0.iter().map(|(file_id, _)| file_id).collect::<Vec<_>>();
         live_file_ids.sort_unstable_by_key(|file_id| file_id.0);
         assert_eq!(live_file_ids, vec![FileId(0), FileId(1)]);
 

@@ -81,10 +81,11 @@ impl ReqDispatcher<'_> {
         let request_id = req.id.clone();
         let cancellation = self
             .global_state
+            .tasks
             .task_pool
             .handle
             .request_token(&request_id)
-            .unwrap_or_else(|| self.global_state.task_pool.handle.task_token());
+            .unwrap_or_else(|| self.global_state.tasks.task_pool.handle.task_token());
 
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
             let _span = tracing::info_span!(
@@ -157,10 +158,11 @@ impl ReqDispatcher<'_> {
         let request_id = req.id.clone();
         let cancellation = self
             .global_state
+            .tasks
             .task_pool
             .handle
             .request_token(&request_id)
-            .unwrap_or_else(|| self.global_state.task_pool.handle.task_token());
+            .unwrap_or_else(|| self.global_state.tasks.task_pool.handle.task_token());
         let world = self.global_state.make_snapshot_with_cancel(cancellation.clone());
         let accepted_response_effects = world.accepted_response_effects();
         tracing::info!(
@@ -170,7 +172,7 @@ impl ReqDispatcher<'_> {
             "queued async request handler"
         );
 
-        self.global_state.task_pool.handle.spawn_and_send(intent, move || {
+        self.global_state.tasks.task_pool.handle.spawn_and_send(intent, move || {
             let worker_cancellation = cancellation.clone();
             let result = panic::catch_unwind(move || {
                 let _span = tracing::info_span!(
@@ -231,7 +233,12 @@ impl ReqDispatcher<'_> {
             let response = Response::new_err(
                 req.id,
                 lsp_server::ErrorCode::MethodNotFound as i32,
-                self.global_state.config.i18n.text(keys::SERVER_UNKNOWN_REQUEST).to_owned(),
+                self.global_state
+                    .config_state
+                    .config
+                    .i18n
+                    .text(keys::SERVER_UNKNOWN_REQUEST)
+                    .to_owned(),
             );
             self.global_state.respond(response);
         }

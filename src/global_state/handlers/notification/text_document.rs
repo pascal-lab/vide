@@ -20,14 +20,19 @@ pub(crate) fn handle_did_open_text_document(
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
         let file_id = open_vfs_file_contents(state, &path, &params.text_document.text)?;
-        if state.mem_docs.text(file_id).is_some_and(|text| text != params.text_document.text) {
+        if state
+            .analysis
+            .mem_docs
+            .text(file_id)
+            .is_some_and(|text| text != params.text_document.text)
+        {
             tracing::warn!(
                 ?file_id,
                 path = %path,
                 "open document alias has different text; keeping canonical analysis buffer"
             );
         }
-        if state.mem_docs.insert(
+        if state.analysis.mem_docs.insert(
             file_id,
             path.clone(),
             params.text_document.version,
@@ -35,7 +40,7 @@ pub(crate) fn handle_did_open_text_document(
         ) {
             tracing::error!("duplicate DidOpenTextDocument: {}", path);
         }
-        state.pending_document_diagnostic_targets.insert(file_id);
+        state.diagnostics.pending_document_diagnostic_targets.insert(file_id);
     }
     Ok(())
 }
@@ -49,7 +54,7 @@ pub(crate) fn handle_did_change_text_document(
             tracing::error!("unexpected DidChangeTextDocument: {}", path);
             return Ok(());
         };
-        let text = match state.mem_docs.text_for_change(&path, file_id) {
+        let text = match state.analysis.mem_docs.text_for_change(&path, file_id) {
             Some(text) => text.to_owned(),
             None => {
                 tracing::error!("unexpected DidChangeTextDocument: {}", path);
@@ -58,7 +63,7 @@ pub(crate) fn handle_did_change_text_document(
         };
 
         let text = match update_document_text(
-            state.config.position_encoding(),
+            state.config_state.config.position_encoding(),
             &text,
             params.content_changes,
         ) {
@@ -68,8 +73,12 @@ pub(crate) fn handle_did_change_text_document(
                 return Ok(());
             }
         };
-        if !state.mem_docs.apply_change(&path, file_id, params.text_document.version, text.clone())
-        {
+        if !state.analysis.mem_docs.apply_change(
+            &path,
+            file_id,
+            params.text_document.version,
+            text.clone(),
+        ) {
             tracing::error!("unexpected DidChangeTextDocument: {}", path);
             return Ok(());
         }
@@ -85,16 +94,16 @@ pub(crate) fn handle_did_close_text_document(
     params: DidCloseTextDocumentParams,
 ) -> anyhow::Result<()> {
     if let Ok(path) = from_proto::vfs_path(&params.text_document.uri) {
-        let file_id = state.mem_docs.file_id(&path);
-        if !state.mem_docs.remove_path(&path) {
+        let file_id = state.analysis.mem_docs.file_id(&path);
+        if !state.analysis.mem_docs.remove_path(&path) {
             tracing::error!("orphan DidCloseTextDocument: {}", path);
         }
         if let Some(file_id) = file_id {
-            state.pending_document_diagnostic_targets.insert(file_id);
+            state.diagnostics.pending_document_diagnostic_targets.insert(file_id);
         }
 
         if let Some(path) = path.as_abs_path() {
-            state.vfs_loader.handle.invalidate(path.to_path_buf());
+            state.workspace.vfs_loader.handle.invalidate(path.to_path_buf());
         }
     }
     Ok(())
@@ -110,12 +119,13 @@ pub(crate) fn handle_did_save_text_document(
         && reload::should_refresh_for_change(abs_path, false)
     {
         // Re-fetch workspaces if a workspace related file has changed.
-        let config = Arc::make_mut(&mut state.config);
+        let config = Arc::make_mut(&mut state.config_state.config);
         config.refresh_project_manifests();
         state.request_workspace_auto_reload(format!("DidSaveTextDocument {abs_path}"));
     }
 
-    if state.config.user_config.diagnostics.update == DiagnosticsUpdateUserConfig::OnSave
+    if state.config_state.config.user_config.diagnostics.update
+        == DiagnosticsUpdateUserConfig::OnSave
         && let Ok(file_id) = state.make_snapshot().file_id(&params.text_document.uri)
     {
         state.invalidate_diagnostics(DiagnosticInvalidation::FileChanges(FxHashSet::from_iter([
@@ -184,7 +194,7 @@ mod tests {
             },
         )
         .unwrap();
-        let file_id = state.mem_docs.file_id(&vfs_path).unwrap();
+        let file_id = state.analysis.mem_docs.file_id(&vfs_path).unwrap();
 
         handle_did_change_text_document(
             &mut state,
@@ -202,7 +212,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(state.mem_docs.version_for_path(&vfs_path), Some(1));
-        assert_eq!(state.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
+        assert_eq!(state.analysis.mem_docs.version_for_path(&vfs_path), Some(1));
+        assert_eq!(state.analysis.mem_docs.text(file_id), Some("module top;\nendmodule\n"));
     }
 }

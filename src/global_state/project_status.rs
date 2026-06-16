@@ -9,7 +9,7 @@ impl GlobalState {
     pub(crate) fn send_loading_project_status(&self, cause: String) {
         self.send_project_status(
             ProjectStatusState::Loading,
-            self.workspaces.len(),
+            self.workspace.workspaces.len(),
             Vec::new(),
             Some(cause),
         );
@@ -19,6 +19,7 @@ impl GlobalState {
         let state = if !errors.is_empty() {
             ProjectStatusState::Error
         } else if self
+            .config_state
             .config
             .project_manifests
             .iter()
@@ -42,7 +43,7 @@ impl GlobalState {
         let mut manifest_uris = Vec::new();
         let mut unconfigured_root_uris = Vec::new();
 
-        for manifest in &self.config.project_manifests {
+        for manifest in &self.config_state.config.project_manifests {
             match manifest {
                 ProjectManifest::Toml(path) => {
                     if let Some(uri) = url_from_path(path.as_path()) {
