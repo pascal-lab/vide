@@ -106,25 +106,16 @@ impl SourcePreprocModel {
         let Some(call_fact) = self.macro_calls.get(call) else {
             return Err(SourcePreprocUnavailable::MissingMacroCall { call });
         };
-        match (call_fact.expansion, &call_fact.status) {
-            (Some(expansion), SourceMacroCallStatus::ExpansionAvailable)
-                if self.macro_expansions.get(expansion).is_some() =>
-            {
-                Ok(expansion)
-            }
-            (Some(expansion), SourceMacroCallStatus::ExpansionAvailable) => {
-                Err(SourcePreprocUnavailable::MissingMacroExpansion {
-                    call: self
-                        .macro_expansions
-                        .get(expansion)
-                        .map(|expansion| expansion.call)
-                        .unwrap_or(call),
-                })
-            }
-            (_, SourceMacroCallStatus::ExpansionUnavailable(reason)) => Err(reason.clone()),
-            (None, SourceMacroCallStatus::ExpansionAvailable) => {
-                Err(SourcePreprocUnavailable::MissingMacroExpansion { call })
-            }
+        match &call_fact.expansion {
+            Ok(expansion) if self.macro_expansions.get(*expansion).is_some() => Ok(*expansion),
+            Ok(expansion) => Err(SourcePreprocUnavailable::MissingMacroExpansion {
+                call: self
+                    .macro_expansions
+                    .get(*expansion)
+                    .map(|expansion| expansion.call)
+                    .unwrap_or(call),
+            }),
+            Err(reason) => Err(reason.clone()),
         }
     }
 

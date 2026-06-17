@@ -53,11 +53,10 @@ logic [`HEADER_WIDTH-1:0] data;
         .find(|call| call.reference == reference.id)
         .expect("macro usage should create a call record");
     assert_eq!(call.call_range.source, root_source);
-    assert_eq!(call.status, SourceMacroCallStatus::ExpansionAvailable);
     let Ok(expansion_id) = model.immediate_macro_expansion(call.id) else {
         panic!("object-like macro call should have an immediate expansion");
     };
-    assert_eq!(call.expansion, Some(expansion_id));
+    assert_eq!(call.expansion, Ok(expansion_id));
     let expansion = model.macro_expansions().get(expansion_id).unwrap();
     assert_eq!(expansion.call, call.id);
     assert_eq!(expansion.definition, SourceMacroExpansionDefinition::Source(*resolved_definition));

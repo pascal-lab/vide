@@ -118,8 +118,7 @@ pub struct SourceMacroCall {
     pub call_range: SourceRange,
     pub callee: SourceMacroResolution,
     pub arguments: Vec<SourceMacroArgument>,
-    pub expansion: Option<SourceMacroExpansionId>,
-    pub status: SourceMacroCallStatus,
+    pub expansion: Result<SourceMacroExpansionId, SourcePreprocUnavailable>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,12 +126,6 @@ pub struct SourceMacroArgument {
     pub argument_index: usize,
     pub argument_range: Option<SourceRange>,
     pub tokens: Vec<SourceMacroToken>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceMacroCallStatus {
-    ExpansionAvailable,
-    ExpansionUnavailable(SourcePreprocUnavailable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

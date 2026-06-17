@@ -181,10 +181,7 @@ impl SourcePreprocModelBuilder {
             call_range,
             callee,
             arguments: Vec::new(),
-            expansion: None,
-            status: SourceMacroCallStatus::ExpansionUnavailable(
-                SourcePreprocUnavailable::MissingExpansionTokens,
-            ),
+            expansion: Err(SourcePreprocUnavailable::MissingMacroExpansion { call: id }),
         });
         if let Some(trace_call) = trace_call {
             self.calls_by_trace_id.insert(trace_call, id);

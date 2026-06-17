@@ -79,7 +79,6 @@ endmodule
                 .is_some_and(|reference| reference.name.as_str() == "DECL_PIPE")
         })
         .expect("DECL_PIPE call should be traced");
-    assert_eq!(decl_call.status, SourceMacroCallStatus::ExpansionAvailable);
 
     let Ok(expansion_id) = model.immediate_macro_expansion(decl_call.id) else {
         panic!("DECL_PIPE call should have a complete expansion");
@@ -131,7 +130,6 @@ endmodule
                 .is_some_and(|reference| reference.name.as_str() == "PIPE_ASSIGN")
         })
         .expect("PIPE_ASSIGN call should be traced");
-    assert_eq!(pipe_call.status, SourceMacroCallStatus::ExpansionAvailable);
 
     let Ok(expansion_id) = model.immediate_macro_expansion(pipe_call.id) else {
         panic!("PIPE_ASSIGN call should have a complete expansion");

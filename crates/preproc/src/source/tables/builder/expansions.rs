@@ -62,8 +62,7 @@ impl SourcePreprocModelBuilder {
                 child_calls: child_calls_by_parent.get(&call).cloned().unwrap_or_default(),
             });
             if let Some(call) = self.model.macro_calls.get_mut(call) {
-                call.expansion = Some(expansion);
-                call.status = SourceMacroCallStatus::ExpansionAvailable;
+                call.expansion = Ok(expansion);
             }
         }
     }
