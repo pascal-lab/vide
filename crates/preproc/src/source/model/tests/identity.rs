@@ -55,14 +55,14 @@ endmodule
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenProvenance::MacroBody { call, identity, body_token_range, .. } =
-                model.token_provenance().get(token.provenance?)?
+            let SourceTokenOrigin::MacroBody { call, identity, body_token_range, .. } =
+                model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
             (*call == leaf_call.id).then_some((token, *identity, *body_token_range))
         })
-        .expect("final payload token should keep LEAF body provenance");
+        .expect("final payload token should keep LEAF body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
     assert_eq!(identity.parent_expansion, wrap_call.expansion_identity);
     assert_eq!(text_at_range(root_text, body_token_range.range), "payload_i");
@@ -81,13 +81,13 @@ endmodule
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenProvenance::MacroArgument {
+            let SourceTokenOrigin::MacroArgument {
                 identity,
                 call,
                 argument_index,
                 body_token_range,
                 argument_token_range,
-            } = model.token_provenance().get(token.provenance?)?
+            } = model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
@@ -99,18 +99,18 @@ endmodule
                 *argument_token_range,
             ))
         })
-        .expect("payload identifier should be direct macro argument provenance");
+        .expect("payload identifier should be direct macro argument origin");
     let slice = model
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenProvenance::MacroArgument {
+            let SourceTokenOrigin::MacroArgument {
                 identity,
                 call,
                 argument_index,
                 body_token_range,
                 argument_token_range,
-            } = model.token_provenance().get(token.provenance?)?
+            } = model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
@@ -122,7 +122,7 @@ endmodule
                 *argument_token_range,
             ))
         })
-        .expect("slice index should be direct macro argument provenance");
+        .expect("slice index should be direct macro argument origin");
 
     assert_eq!(payload.0.call, slice.0.call);
     assert_eq!(payload.1, slice.1);

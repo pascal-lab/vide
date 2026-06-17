@@ -73,10 +73,10 @@ logic [`HEADER_WIDTH-1:0] data;
         .expect("macro body token should be present in trace-emitted tokens");
     assert_eq!(expansion.emitted_token_range.start, emitted.id);
     assert_eq!(expansion.emitted_token_range.len, 1);
-    let provenance = model.token_provenance().get(emitted.provenance.unwrap()).unwrap();
+    let origin = model.token_origins().get(emitted.origin.unwrap()).unwrap();
     assert!(matches!(
-        provenance,
-        SourceTokenProvenance::MacroBody {
+        origin,
+        SourceTokenOrigin::MacroBody {
             definition: body_definition,
             body_token_range,
             call: body_call,
@@ -104,10 +104,10 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "7")
         .expect("argument replacement token should be emitted");
-    let SourceTokenProvenance::MacroArgument { call, argument_index, argument_token_range, .. } =
-        model.token_provenance().get(emitted.provenance.unwrap()).unwrap()
+    let SourceTokenOrigin::MacroArgument { call, argument_index, argument_token_range, .. } =
+        model.token_origins().get(emitted.origin.unwrap()).unwrap()
     else {
-        panic!("argument replacement should map to MacroArgument provenance");
+        panic!("argument replacement should map to MacroArgument origin");
     };
     assert_eq!(*argument_index, 0);
     assert_eq!(argument_token_range.source, root_source);
@@ -201,14 +201,14 @@ endmodule
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenProvenance::MacroBody { identity, call, body_token_range, .. } =
-                model.token_provenance().get(token.provenance?)?
+            let SourceTokenOrigin::MacroBody { identity, call, body_token_range, .. } =
+                model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
             (*call == payl_call.id).then_some((token, *identity, *body_token_range))
         })
-        .expect("PAYL emitted token should keep direct macro body provenance");
+        .expect("PAYL emitted token should keep direct macro body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
     assert_eq!(text_at_range(root_text, payload_body_range.range), "payload_i");
     assert_eq!(Some(payload_identity.call), payl_call.identity);

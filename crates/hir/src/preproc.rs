@@ -4,7 +4,7 @@ use preproc::source::{
     SourceMacroCallId, SourceMacroDefinition, SourceMacroExpansion, SourceMacroExpansionDefinition,
     SourceMacroExpansionId, SourceMacroExpansionQuery, SourceMacroParam, SourceMacroReference,
     SourceMacroReferenceSite, SourceMacroResolution, SourceMacroResolutionReason,
-    SourcePreprocError, SourcePreprocUnavailable, SourceRange, SourceTokenProvenance,
+    SourcePreprocError, SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
 };
 use smol_str::SmolStr;
 use utils::{

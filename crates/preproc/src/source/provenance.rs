@@ -89,7 +89,7 @@ source_table_id!(SourceMacroStateId);
 source_table_id!(SourceMacroCallId);
 source_table_id!(SourceMacroExpansionId);
 source_table_id!(SourceEmittedTokenId);
-source_table_id!(SourceTokenProvenanceId);
+source_table_id!(SourceTokenOriginId);
 
 pub trait HasDirectiveRange {
     fn directive_range(&self) -> SourceRange;

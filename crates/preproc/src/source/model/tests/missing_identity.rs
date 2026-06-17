@@ -33,7 +33,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
             value: SmolStr::new("1"),
             display: SmolStr::new("1"),
             kind: SourceTokenKind::Syntax(TokenKind::INTEGER_LITERAL),
-            provenance: TokenOrigin::MacroBody {
+            origin: TokenOrigin::MacroBody {
                 macro_name: "A".to_owned(),
                 identity: MacroBodyOrigin {
                     call_id: MacroCallId(20),
@@ -75,7 +75,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
 
     let model = SourcePreprocModel::new(index);
     let emitted = model.emitted_tokens().iter().next().unwrap();
-    assert_eq!(emitted.provenance, None);
+    assert_eq!(emitted.origin, None);
 }
 
 fn source_buffer_range(range: SourceRange) -> SourceBufferRange {

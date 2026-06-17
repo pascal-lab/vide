@@ -10,12 +10,7 @@ source_table!(SourceMacroReferenceTable, references, SourceMacroReferenceId, Sou
 source_table!(SourceMacroCallTable, calls, SourceMacroCallId, SourceMacroCall, mutable);
 source_table!(SourceMacroExpansionTable, expansions, SourceMacroExpansionId, SourceMacroExpansion);
 source_table!(SourceEmittedTokenTable, tokens, SourceEmittedTokenId, SourceEmittedToken);
-source_table!(
-    SourceTokenProvenanceTable,
-    provenance,
-    SourceTokenProvenanceId,
-    SourceTokenProvenance
-);
+source_table!(SourceTokenOriginTable, origins, SourceTokenOriginId, SourceTokenOrigin);
 
 impl SourceIncludeGraph {
     pub fn directives(&self) -> &[SourceIncludeDirective] {

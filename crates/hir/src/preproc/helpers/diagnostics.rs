@@ -32,10 +32,10 @@ enum TokenDiagnosticTarget {
 
 fn diagnostic_target_for_token(
     mapped: &MappedSourcePreprocModel,
-    provenance: &SourceTokenProvenance,
+    origin: &SourceTokenOrigin,
 ) -> PreprocResult<TokenDiagnosticTarget> {
-    Ok(match provenance {
-        SourceTokenProvenance::Source { token_range } => {
+    Ok(match origin {
+        SourceTokenOrigin::Source { token_range } => {
             let (source, range) = map_source_mapping_range(mapped, *token_range)?;
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
@@ -44,7 +44,7 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        SourceTokenProvenance::MacroBody { identity, body_token_range, call, .. } => {
+        SourceTokenOrigin::MacroBody { identity, body_token_range, call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_source_mapping_range(mapped, *body_token_range)?;
             let file_id = require_file_backed_source(&source)?;
@@ -58,7 +58,7 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        SourceTokenProvenance::MacroArgument {
+        SourceTokenOrigin::MacroArgument {
             identity,
             call,
             argument_index,
@@ -81,19 +81,19 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        SourceTokenProvenance::TokenPaste { call, .. } => {
+        SourceTokenOrigin::TokenPaste { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Blocked
         }
-        SourceTokenProvenance::Stringification { call, .. } => {
+        SourceTokenOrigin::Stringification { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Blocked
         }
-        SourceTokenProvenance::Predefine { source } => {
+        SourceTokenOrigin::Predefine { source } => {
             let _source = map_source_mapping_id(mapped, *source)?;
             TokenDiagnosticTarget::Skip
         }
-        SourceTokenProvenance::Builtin { name, identity, call, .. } => {
+        SourceTokenOrigin::Builtin { name, identity, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::Builtin { call: identity.call, name: name.clone() },
@@ -125,13 +125,11 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
                 token: token_id,
             }));
         };
-        let Some(provenance) =
-            token.provenance.and_then(|id| mapped.model.token_provenance().get(id))
-        else {
+        let Some(origin) = token.origin.and_then(|id| mapped.model.token_origins().get(id)) else {
             saw_unavailable = true;
             continue;
         };
-        match diagnostic_target_for_token(mapped, provenance)? {
+        match diagnostic_target_for_token(mapped, origin)? {
             TokenDiagnosticTarget::Target(target) => return Ok(Some(target)),
             TokenDiagnosticTarget::Skip => {}
             TokenDiagnosticTarget::Blocked => {

@@ -40,8 +40,8 @@ impl SourcePreprocModel {
         &self.emitted_tokens
     }
 
-    pub fn token_provenance(&self) -> &SourceTokenProvenanceTable {
-        &self.token_provenance
+    pub fn token_origins(&self) -> &SourceTokenOriginTable {
+        &self.token_origins
     }
 
     pub fn include_graph(&self) -> &SourceIncludeGraph {

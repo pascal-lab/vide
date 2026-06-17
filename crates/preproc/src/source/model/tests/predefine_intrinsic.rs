@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn source_model_maps_predefine_and_intrinsic_provenance() {
+fn source_model_maps_predefine_and_intrinsic_origin() {
     let root_text = r#"module m;
 localparam int P = `FROM_API;
 localparam int L = `__LINE__;
@@ -20,10 +20,10 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "11")
         .expect("predefine expansion token should be emitted");
-    let SourceTokenProvenance::Predefine { source } =
-        model.token_provenance().get(predefine.provenance.unwrap()).unwrap()
+    let SourceTokenOrigin::Predefine { source } =
+        model.token_origins().get(predefine.origin.unwrap()).unwrap()
     else {
-        panic!("configured predefine token should map to Predefine provenance");
+        panic!("configured predefine token should map to Predefine origin");
     };
     assert!(model.sources().iter().any(|candidate| {
         candidate.id == *source && candidate.origin == PreprocSourceOrigin::Predefine
@@ -34,16 +34,16 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "3")
         .expect("intrinsic macro token should stay in emitted stream");
-    let SourceTokenProvenance::Builtin { name, call, identity } =
-        model.token_provenance().get(intrinsic.provenance.unwrap()).unwrap()
+    let SourceTokenOrigin::Builtin { name, call, identity } =
+        model.token_origins().get(intrinsic.origin.unwrap()).unwrap()
     else {
-        panic!("intrinsic macro token should have builtin provenance");
+        panic!("intrinsic macro token should have builtin origin");
     };
     assert_eq!(name.as_str(), "__LINE__");
     assert_ne!(identity.call.0, 0);
     assert_ne!(identity.expansion.0, 0);
 
-    let call = model.macro_calls().get(*call).expect("builtin provenance should map to a call");
+    let call = model.macro_calls().get(*call).expect("builtin origin should map to a call");
     let SourceMacroExpansionQuery::Available(expansion_id) =
         model.immediate_macro_expansion(call.id)
     else {

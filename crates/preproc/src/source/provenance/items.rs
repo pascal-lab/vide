@@ -190,11 +190,11 @@ pub struct SourceEmittedToken {
     pub display: SmolStr,
     pub kind: SourceTokenKind,
     pub emitted_range: SourceEmittedTokenRange,
-    pub provenance: Option<SourceTokenProvenanceId>,
+    pub origin: Option<SourceTokenOriginId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceTokenProvenance {
+pub enum SourceTokenOrigin {
     Source {
         token_range: SourceRange,
     },

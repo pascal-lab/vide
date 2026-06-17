@@ -82,10 +82,10 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "3")
         .expect("nested macro body token should be emitted");
-    let SourceTokenProvenance::MacroBody { identity, definition, call, .. } =
-        model.token_provenance().get(emitted.provenance.unwrap()).unwrap()
+    let SourceTokenOrigin::MacroBody { identity, definition, call, .. } =
+        model.token_origins().get(emitted.origin.unwrap()).unwrap()
     else {
-        panic!("nested emitted token should keep macro body provenance");
+        panic!("nested emitted token should keep macro body origin");
     };
     assert_eq!(*call, leaf_call.id);
     assert_eq!(Some(identity.call), leaf_call.identity);
@@ -153,12 +153,12 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "foobar")
         .expect("token paste result should not be dropped");
-    let SourceTokenProvenance::TokenPaste { call: paste_call, identity: paste_identity } =
-        model.token_provenance().get(pasted.provenance.unwrap()).unwrap()
+    let SourceTokenOrigin::TokenPaste { call: paste_call, identity: paste_identity } =
+        model.token_origins().get(pasted.origin.unwrap()).unwrap()
     else {
         panic!(
-            "token paste should carry macro operation provenance: {:?}",
-            model.token_provenance().get(pasted.provenance.unwrap()).unwrap()
+            "token paste should carry macro operation origin: {:?}",
+            model.token_origins().get(pasted.origin.unwrap()).unwrap()
         );
     };
     assert_eq!(
@@ -171,12 +171,12 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "\"foo\"")
         .expect("stringification result should not be dropped");
-    let SourceTokenProvenance::Stringification {
+    let SourceTokenOrigin::Stringification {
         call: stringification_call,
         identity: stringification_identity,
-    } = model.token_provenance().get(stringified.provenance.unwrap()).unwrap()
+    } = model.token_origins().get(stringified.origin.unwrap()).unwrap()
     else {
-        panic!("stringification should carry macro operation provenance");
+        panic!("stringification should carry macro operation origin");
     };
     assert_eq!(
         Some(stringification_identity.call),

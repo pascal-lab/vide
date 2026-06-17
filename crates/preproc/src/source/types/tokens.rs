@@ -14,5 +14,5 @@ pub struct SourceEmittedTokenRecord {
     pub value: SmolStr,
     pub display: SmolStr,
     pub kind: SourceTokenKind,
-    pub provenance: TokenOrigin,
+    pub origin: TokenOrigin,
 }

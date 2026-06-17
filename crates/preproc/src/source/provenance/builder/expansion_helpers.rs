@@ -38,8 +38,8 @@ impl SourcePreprocModelBuilder {
         let mut builtin_name = None;
         for token_id in direct_tokens_by_call.get(&call)? {
             let token = self.model.emitted_tokens.get(*token_id)?;
-            let provenance = token.provenance.and_then(|id| self.model.token_provenance.get(id))?;
-            let SourceTokenProvenance::Builtin { name, .. } = provenance else {
+            let origin = token.origin.and_then(|id| self.model.token_origins.get(id))?;
+            let SourceTokenOrigin::Builtin { name, .. } = origin else {
                 continue;
             };
             match &builtin_name {
