@@ -37,19 +37,24 @@ impl SourcePreprocModelBuilder {
         match &token.origin {
             TokenOrigin::Source { token_range } => source_range_from_origin(token_range)
                 .map(|token_range| SourceTokenOrigin::Source { token_range }),
-            TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } => {
+            TokenOrigin::MacroBody {
+                macro_name,
+                identity: trace_origin,
+                call_range,
+                body_token_range,
+            } => {
                 let call_range = source_range_from_origin(call_range)?;
                 let body_token_range = source_range_from_origin(body_token_range)?;
                 self.resolve_macro_body_token_origin(
                     token_id,
                     SmolStr::new(macro_name),
-                    *identity,
+                    *trace_origin,
                     call_range,
                     body_token_range,
                 )
             }
             TokenOrigin::MacroArgument {
-                identity,
+                identity: trace_origin,
                 call_range,
                 body_token_range,
                 argument_token_range,
@@ -60,24 +65,26 @@ impl SourcePreprocModelBuilder {
                 let argument_token_range = source_range_from_origin(argument_token_range)?;
                 self.resolve_macro_argument_token_origin(
                     token_id,
-                    *identity,
+                    *trace_origin,
                     body_token_range,
                     argument_token_range,
                 )
             }
-            TokenOrigin::Builtin { name, identity } if !name.is_empty() => {
-                self.resolve_builtin_token_origin(token_id, SmolStr::new(name), *identity)
+            TokenOrigin::Builtin { name, identity: trace_origin } if !name.is_empty() => {
+                self.resolve_builtin_token_origin(token_id, SmolStr::new(name), *trace_origin)
             }
-            TokenOrigin::TokenPaste { identity } => self.resolve_macro_operation_token_origin(
-                token_id,
-                *identity,
-                MacroOperationOriginKind::TokenPaste,
-            ),
-            TokenOrigin::Stringification { identity } => self.resolve_macro_operation_token_origin(
-                token_id,
-                *identity,
-                MacroOperationOriginKind::Stringification,
-            ),
+            TokenOrigin::TokenPaste { identity: trace_origin } => self
+                .resolve_macro_operation_token_origin(
+                    token_id,
+                    *trace_origin,
+                    MacroOperationOriginKind::TokenPaste,
+                ),
+            TokenOrigin::Stringification { identity: trace_origin } => self
+                .resolve_macro_operation_token_origin(
+                    token_id,
+                    *trace_origin,
+                    MacroOperationOriginKind::Stringification,
+                ),
             TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
         }
     }
@@ -90,18 +97,18 @@ impl SourcePreprocModelBuilder {
         call_range: SourceRange,
         body_token_range: SourceRange,
     ) -> Option<SourceTokenOrigin> {
-        let Ok(definition) = self.definition_for_identity(origin.definition_id) else {
+        let Ok(definition) = self.definition_for_trace_id(origin.definition_id) else {
             return None;
         };
         let body_token_index = origin_index(origin.body_token_index)?;
         let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
             token_id,
             macro_name,
-            call_identity: origin.call_id,
+            trace_call: origin.call_id,
             definition,
             call_range,
-            expansion_identity: origin.expansion_id,
-            parent_expansion_identity: origin.parent_expansion_id,
+            trace_expansion: origin.expansion_id,
+            parent_trace_expansion: origin.parent_expansion_id,
         }) else {
             return None;
         };
@@ -124,12 +131,12 @@ impl SourcePreprocModelBuilder {
         body_token_range: SourceRange,
         argument_token_range: SourceRange,
     ) -> Option<SourceTokenOrigin> {
-        let Ok(definition) = self.definition_for_identity(origin.definition_id) else {
+        let Ok(definition) = self.definition_for_trace_id(origin.definition_id) else {
             return None;
         };
         let body_token_index = origin_index(origin.body_token_index)?;
         let argument_index = origin_index(origin.argument_index)?;
-        let call = self.call_ids_by_identity.get(&origin.call_id).copied()?;
+        let call = self.calls_by_trace_id.get(&origin.call_id).copied()?;
         if !self.definition_body_token_exists(definition, body_token_index) {
             return None;
         }
@@ -154,9 +161,9 @@ impl SourcePreprocModelBuilder {
         name: SmolStr,
         origin: MacroBuiltinOrigin,
     ) -> Option<SourceTokenOrigin> {
-        let call = self.call_ids_by_identity.get(&origin.call_id).copied()?;
-        let call_expansion_identity = origin.parent_expansion_id.unwrap_or(origin.expansion_id);
-        if self.record_call_expansion_identity(call, call_expansion_identity, None).is_err() {
+        let call = self.calls_by_trace_id.get(&origin.call_id).copied()?;
+        let call_trace_expansion = origin.parent_expansion_id.unwrap_or(origin.expansion_id);
+        if self.record_call_expansion_trace(call, call_trace_expansion, None).is_err() {
             return None;
         }
         self.record_emitted_token_owner(token_id, call);
@@ -169,12 +176,12 @@ impl SourcePreprocModelBuilder {
         origin: MacroOperationOrigin,
         kind: MacroOperationOriginKind,
     ) -> Option<SourceTokenOrigin> {
-        if self.definition_for_identity(origin.definition_id).is_err() {
+        if self.definition_for_trace_id(origin.definition_id).is_err() {
             return None;
         };
-        let call = self.call_ids_by_identity.get(&origin.call_id).copied()?;
-        let call_expansion_identity = origin.parent_expansion_id.unwrap_or(origin.expansion_id);
-        if self.record_call_expansion_identity(call, call_expansion_identity, None).is_err() {
+        let call = self.calls_by_trace_id.get(&origin.call_id).copied()?;
+        let call_trace_expansion = origin.parent_expansion_id.unwrap_or(origin.expansion_id);
+        if self.record_call_expansion_trace(call, call_trace_expansion, None).is_err() {
             return None;
         }
         self.record_emitted_token_owner(token_id, call);

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
+fn source_model_uses_direct_trace_definition_when_body_ranges_collide() {
     let trace = Trace {
         root_buffer_id: 1,
         source_buffers: vec![SourceBufferId {
@@ -113,11 +113,11 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
     let SourceTokenOrigin::MacroBody { definition, call, origin, .. } =
         model.token_origins().get(emitted.origin.unwrap()).unwrap()
     else {
-        panic!("colliding range token should still resolve through direct body identity");
+        panic!("colliding range token should still resolve through direct body trace id");
     };
 
     let definition = model.macro_definitions().get(*definition).unwrap();
     assert_eq!(definition.name.as_str(), "B");
-    assert_eq!(definition.identity, Some(origin.definition_id));
-    assert_eq!(model.macro_calls().get(*call).unwrap().identity, Some(origin.call_id));
+    assert_eq!(definition.trace_definition, Some(origin.definition_id));
+    assert_eq!(model.macro_calls().get(*call).unwrap().trace_call, Some(origin.call_id));
 }

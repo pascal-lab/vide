@@ -61,11 +61,11 @@ impl SourcePreprocModelBuilder {
         };
         let event_id = usage.event_id;
         let directive_range = usage.range;
-        let definition_identity = usage.definition_identity;
-        let expansion_identity = usage.expansion_identity;
-        let parent_expansion_identity = usage.parent_expansion_identity;
+        let trace_definition = usage.trace_definition;
+        let trace_expansion = usage.trace_expansion;
+        let parent_trace_expansion = usage.parent_trace_expansion;
         let arguments = usage.arguments.clone();
-        let resolution = self.resolve_usage_reference(name.as_str(), definition_identity);
+        let resolution = self.resolve_usage_reference(name.as_str(), trace_definition);
         let reference = self.push_reference(
             event_id,
             SourceMacroReferenceSite::Usage { usage_index: directive.index },
@@ -78,9 +78,9 @@ impl SourcePreprocModelBuilder {
             reference,
             directive_range,
             resolution,
-            usage.identity,
-            expansion_identity,
-            parent_expansion_identity,
+            usage.trace_call,
+            trace_expansion,
+            parent_trace_expansion,
         );
         for argument in arguments {
             self.record_macro_actual_argument(call, argument);
@@ -167,16 +167,16 @@ impl SourcePreprocModelBuilder {
         reference: SourceMacroReferenceId,
         call_range: SourceRange,
         callee: SourceMacroResolution,
-        identity: Option<MacroCallId>,
-        expansion_identity: Option<MacroExpansionId>,
-        parent_expansion_identity: Option<MacroExpansionId>,
+        trace_call: Option<MacroCallId>,
+        trace_expansion: Option<MacroExpansionId>,
+        parent_trace_expansion: Option<MacroExpansionId>,
     ) -> SourceMacroCallId {
         let id = SourceMacroCallId::new(self.model.macro_calls.len());
         self.model.macro_calls.push(SourceMacroCall {
             id,
-            identity,
-            expansion_identity,
-            parent_expansion_identity,
+            trace_call,
+            trace_expansion,
+            parent_trace_expansion,
             reference,
             call_range,
             callee,
@@ -186,13 +186,13 @@ impl SourcePreprocModelBuilder {
                 SourcePreprocUnavailable::MissingExpansionTokens,
             ),
         });
-        if let Some(identity) = identity {
-            self.call_ids_by_identity.insert(identity, id);
+        if let Some(trace_call) = trace_call {
+            self.calls_by_trace_id.insert(trace_call, id);
         } else {
             self.macro_calls_partial = true;
         }
-        if let Some(expansion_identity) = expansion_identity {
-            self.call_ids_by_expansion_identity.insert(expansion_identity, id);
+        if let Some(trace_expansion) = trace_expansion {
+            self.calls_by_expansion_trace_id.insert(trace_expansion, id);
         }
         id
     }

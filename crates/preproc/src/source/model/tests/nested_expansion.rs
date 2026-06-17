@@ -33,12 +33,12 @@ endmodule
         .expect("nested macro invocation should create a runtime usage call");
     let leaf_reference = model.macro_references().get(leaf_call.reference).unwrap();
     assert_eq!(text_at_range(root_text, leaf_reference.name_range.range), "`LEAF");
-    assert_eq!(leaf_call.parent_expansion_identity, wrap_call.expansion_identity);
+    assert_eq!(leaf_call.parent_trace_expansion, wrap_call.trace_expansion);
 
     let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
         model.immediate_macro_expansion(wrap_call.id)
     else {
-        panic!("outer macro should have an expansion identity from the runtime usage record");
+        panic!("outer macro should have an expansion trace id from the runtime usage record");
     };
     let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
     assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
@@ -50,7 +50,7 @@ endmodule
 }
 
 #[test]
-fn source_model_builds_nested_leaf_expansion_from_direct_identity() {
+fn source_model_builds_nested_leaf_expansion_from_direct_trace() {
     let root_text = r#"`define LEAF 3
 `define WRAP `LEAF
 module m;
@@ -68,9 +68,9 @@ endmodule
                 && matches!(reference.site, SourceMacroReferenceSite::Usage { .. })
         })
         .expect("nested macro invocation should create a runtime usage call");
-    assert!(leaf_call.identity.is_some());
-    assert!(leaf_call.expansion_identity.is_some());
-    assert!(leaf_call.parent_expansion_identity.is_some());
+    assert!(leaf_call.trace_call.is_some());
+    assert!(leaf_call.trace_expansion.is_some());
+    assert!(leaf_call.parent_trace_expansion.is_some());
 
     let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
         model.immediate_macro_expansion(leaf_call.id)
@@ -88,12 +88,12 @@ endmodule
         panic!("nested emitted token should keep macro body origin");
     };
     assert_eq!(*call, leaf_call.id);
-    assert_eq!(Some(origin.call_id), leaf_call.identity);
-    assert_eq!(Some(origin.expansion_id), leaf_call.expansion_identity);
-    assert_eq!(origin.parent_expansion_id, leaf_call.parent_expansion_identity);
+    assert_eq!(Some(origin.call_id), leaf_call.trace_call);
+    assert_eq!(Some(origin.expansion_id), leaf_call.trace_expansion);
+    assert_eq!(origin.parent_expansion_id, leaf_call.parent_trace_expansion);
     assert_eq!(
         Some(origin.definition_id),
-        model.macro_definitions().get(*definition).unwrap().identity
+        model.macro_definitions().get(*definition).unwrap().trace_definition
     );
 
     let recursive = model.recursive_macro_expansion(leaf_call.id);
@@ -163,7 +163,7 @@ endmodule
     };
     assert_eq!(
         Some(paste_origin.call_id),
-        model.macro_calls().get(*paste_call).and_then(|call| call.identity)
+        model.macro_calls().get(*paste_call).and_then(|call| call.trace_call)
     );
 
     let stringified = model
@@ -180,7 +180,7 @@ endmodule
     };
     assert_eq!(
         Some(stringification_origin.call_id),
-        model.macro_calls().get(*stringification_call).and_then(|call| call.identity)
+        model.macro_calls().get(*stringification_call).and_then(|call| call.trace_call)
     );
     assert_ne!(paste_call, stringification_call);
     for call in [*paste_call, *stringification_call] {
@@ -222,7 +222,7 @@ endmodule
                 .is_some_and(|reference| reference.name.as_str() == "FOOBAR")
         })
         .expect("pasted macro usage should be expanded as a child call");
-    assert_eq!(child_call.parent_expansion_identity, parent_call.expansion_identity);
+    assert_eq!(child_call.parent_trace_expansion, parent_call.trace_expansion);
 
     let SourceMacroExpansionQuery::Available(parent_expansion) =
         model.immediate_macro_expansion(parent_call.id)

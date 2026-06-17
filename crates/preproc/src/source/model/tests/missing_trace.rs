@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
+fn source_model_marks_missing_direct_trace_partial_without_range_fallback() {
     let root_source = PreprocSourceId::from(1);
     let define_range = source_range(root_source, 0, 11);
     let name_range = source_range(root_source, 8, 9);
@@ -48,7 +48,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
         }],
         defines: vec![SourceMacroDefine {
             event_id: SourcePreprocEventId(0),
-            identity: Some(MacroDefinitionId(10)),
+            trace_definition: Some(MacroDefinitionId(10)),
             name: Some(SmolStr::new("A")),
             name_range: Some(name_range),
             params: None,
@@ -61,10 +61,10 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
         }],
         usages: vec![SourceMacroUsage {
             event_id: SourcePreprocEventId(1),
-            identity: Some(MacroCallId(20)),
-            definition_identity: None,
-            expansion_identity: None,
-            parent_expansion_identity: None,
+            trace_call: Some(MacroCallId(20)),
+            trace_definition: None,
+            trace_expansion: None,
+            parent_trace_expansion: None,
             name: Some(SmolStr::new("A")),
             name_range: Some(usage_range),
             arguments: Vec::new(),

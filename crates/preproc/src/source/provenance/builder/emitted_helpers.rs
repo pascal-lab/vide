@@ -5,11 +5,11 @@ impl SourcePreprocModelBuilder {
         &mut self,
         request: EmittedTokenMacroCall,
     ) -> Result<SourceMacroCallId, ()> {
-        if let Some(call) = self.call_ids_by_identity.get(&request.call_identity).copied() {
-            self.record_call_expansion_identity(
+        if let Some(call) = self.calls_by_trace_id.get(&request.trace_call).copied() {
+            self.record_call_expansion_trace(
                 call,
-                request.expansion_identity,
-                request.parent_expansion_identity,
+                request.trace_expansion,
+                request.parent_trace_expansion,
             )?;
             return Ok(call);
         }
@@ -34,9 +34,9 @@ impl SourcePreprocModelBuilder {
             reference,
             request.call_range,
             resolution,
-            Some(request.call_identity),
-            Some(request.expansion_identity),
-            request.parent_expansion_identity,
+            Some(request.trace_call),
+            Some(request.trace_expansion),
+            request.parent_trace_expansion,
         ))
     }
 
@@ -53,11 +53,11 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn definition_for_identity(
+    pub(in crate::source::provenance::builder) fn definition_for_trace_id(
         &self,
-        identity: MacroDefinitionId,
+        trace_definition: MacroDefinitionId,
     ) -> Result<SourceMacroDefinitionId, ()> {
-        self.definition_ids_by_identity.get(&identity).copied().ok_or(())
+        self.definitions_by_trace_id.get(&trace_definition).copied().ok_or(())
     }
 
     pub(in crate::source::provenance::builder) fn definition_body_token_exists(
@@ -82,32 +82,32 @@ impl SourcePreprocModelBuilder {
         definition.params.as_ref().is_some_and(|params| params.get(argument_index).is_some())
     }
 
-    pub(in crate::source::provenance::builder) fn record_call_expansion_identity(
+    pub(in crate::source::provenance::builder) fn record_call_expansion_trace(
         &mut self,
         call: SourceMacroCallId,
-        expansion_identity: MacroExpansionId,
-        parent_expansion_identity: Option<MacroExpansionId>,
+        trace_expansion: MacroExpansionId,
+        parent_trace_expansion: Option<MacroExpansionId>,
     ) -> Result<(), ()> {
         let Some(call_fact) = self.model.macro_calls.get_mut(call) else {
             return Err(());
         };
-        if let Some(existing) = call_fact.expansion_identity {
-            if existing != expansion_identity {
+        if let Some(existing) = call_fact.trace_expansion {
+            if existing != trace_expansion {
                 self.expansions_partial = true;
                 return Err(());
             }
         } else {
-            call_fact.expansion_identity = Some(expansion_identity);
-            self.call_ids_by_expansion_identity.insert(expansion_identity, call);
+            call_fact.trace_expansion = Some(trace_expansion);
+            self.calls_by_expansion_trace_id.insert(trace_expansion, call);
         }
-        if let Some(parent_expansion_identity) = parent_expansion_identity {
-            match call_fact.parent_expansion_identity {
-                Some(existing) if existing != parent_expansion_identity => {
+        if let Some(parent_trace_expansion) = parent_trace_expansion {
+            match call_fact.parent_trace_expansion {
+                Some(existing) if existing != parent_trace_expansion => {
                     self.expansions_partial = true;
                     return Err(());
                 }
                 Some(_) => {}
-                None => call_fact.parent_expansion_identity = Some(parent_expansion_identity),
+                None => call_fact.parent_trace_expansion = Some(parent_trace_expansion),
             }
         }
         Ok(())

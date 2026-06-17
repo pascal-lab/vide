@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn source_model_exposes_expansion_provenance_skeleton_tables() {
+fn source_model_exposes_expansion_origin_tables() {
     let root_text = r#"`include "defs.vh"
 logic [`HEADER_WIDTH-1:0] data;
 "#;
@@ -179,7 +179,7 @@ endmodule
     assert_eq!(text_at_range(root_text, payl_usage.range.range), "`PAYL");
     let payl_reference = reference_for_usage(&model, payl_usage_index);
     let SourceMacroResolution::Resolved { definition, .. } = &payl_reference.resolution else {
-        panic!("PAYL usage should resolve through its runtime definition identity");
+        panic!("PAYL usage should resolve through its runtime definition trace id");
     };
     assert_eq!(model.macro_definitions().get(*definition).unwrap().name.as_str(), "PAYL");
     let payl_call = model
@@ -187,7 +187,7 @@ endmodule
         .iter()
         .find(|call| call.reference == payl_reference.id)
         .expect("nested PAYL usage should create a call");
-    assert_eq!(payl_call.parent_expansion_identity, next_call.expansion_identity);
+    assert_eq!(payl_call.parent_trace_expansion, next_call.trace_expansion);
 
     let SourceMacroExpansionQuery::Available(payl_expansion_id) =
         model.immediate_macro_expansion(payl_call.id)
@@ -211,9 +211,9 @@ endmodule
         .expect("PAYL emitted token should keep direct macro body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
     assert_eq!(text_at_range(root_text, payload_body_range.range), "payload_i");
-    assert_eq!(Some(payload_origin.call_id), payl_call.identity);
-    assert_eq!(Some(payload_origin.expansion_id), payl_call.expansion_identity);
-    assert_eq!(payload_origin.parent_expansion_id, next_call.expansion_identity);
+    assert_eq!(Some(payload_origin.call_id), payl_call.trace_call);
+    assert_eq!(Some(payload_origin.expansion_id), payl_call.trace_expansion);
+    assert_eq!(payload_origin.parent_expansion_id, next_call.trace_expansion);
     assert_eq!(payl_expansion.emitted_token_range.start, payload.id);
     assert_eq!(payl_expansion.emitted_token_range.len, 1);
 

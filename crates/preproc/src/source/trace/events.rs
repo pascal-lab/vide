@@ -131,10 +131,10 @@ fn collect_trace_event(
             let event_index = index.usages.len();
             index.usages.push(SourceMacroUsage {
                 event_id,
-                identity: directive.macro_call_id,
-                definition_identity: directive.macro_definition_id,
-                expansion_identity: directive.macro_expansion_id,
-                parent_expansion_identity: directive.parent_macro_expansion_id,
+                trace_call: directive.macro_call_id,
+                trace_definition: directive.macro_definition_id,
+                trace_expansion: directive.macro_expansion_id,
+                parent_trace_expansion: directive.parent_macro_expansion_id,
                 name: directive.name.macro_name(),
                 name_range: directive.name.source_range(),
                 arguments: directive
@@ -159,7 +159,7 @@ fn collect_trace_define(
 ) -> SourceMacroDefine {
     SourceMacroDefine {
         event_id,
-        identity: directive.macro_definition_id,
+        trace_definition: directive.macro_definition_id,
         name: directive.name.value(),
         name_range: directive.name.source_range(),
         params: (!directive.params.is_empty())

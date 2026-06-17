@@ -25,8 +25,8 @@ impl SourcePreprocModelBuilder {
 
         for call in call_ids {
             let tokens = expansion_tokens_by_call.remove(&call).unwrap_or_default();
-            let Some(expansion_identity) =
-                self.model.macro_calls.get(call).and_then(|call| call.expansion_identity)
+            let Some(trace_expansion) =
+                self.model.macro_calls.get(call).and_then(|call| call.trace_expansion)
             else {
                 self.mark_call_unavailable(
                     call,
@@ -55,7 +55,7 @@ impl SourcePreprocModelBuilder {
             let expansion = SourceMacroExpansionId::new(self.model.macro_expansions.len());
             self.model.macro_expansions.push(SourceMacroExpansion {
                 id: expansion,
-                identity: Some(expansion_identity),
+                trace_expansion: Some(trace_expansion),
                 call,
                 definition,
                 emitted_token_range,

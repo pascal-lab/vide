@@ -22,7 +22,7 @@ impl SourcePreprocModelBuilder {
             self.model.macro_definitions.push(SourceMacroDefinition {
                 id,
                 event_id: define.event_id,
-                identity: define.identity,
+                trace_definition: define.trace_definition,
                 name,
                 name_range,
                 directive_range: define.range,
@@ -30,8 +30,8 @@ impl SourcePreprocModelBuilder {
                 body_tokens: define.body.clone(),
             });
             self.definition_ids_by_define_index.insert(define_index, id);
-            if let Some(identity) = define.identity {
-                self.definition_ids_by_identity.insert(identity, id);
+            if let Some(trace_definition) = define.trace_definition {
+                self.definitions_by_trace_id.insert(trace_definition, id);
             }
         }
     }

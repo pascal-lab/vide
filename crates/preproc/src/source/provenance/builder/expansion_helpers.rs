@@ -61,10 +61,10 @@ impl SourcePreprocModelBuilder {
                 self.expansions_partial = true;
                 continue;
             };
-            let Some(parent_expansion_identity) = child_call.parent_expansion_identity else {
+            let Some(parent_trace_expansion) = child_call.parent_trace_expansion else {
                 continue;
             };
-            match self.call_ids_by_expansion_identity.get(&parent_expansion_identity).copied() {
+            match self.calls_by_expansion_trace_id.get(&parent_trace_expansion).copied() {
                 Some(parent) if parent != *child => {
                     children.entry(parent).or_default().push(*child);
                 }
