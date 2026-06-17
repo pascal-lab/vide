@@ -1,9 +1,9 @@
 use preproc::source::{
     MacroIncludeTarget, PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange,
     SourceIncludeChainEntry, SourceIncludeStatus, SourceMacroArgument, SourceMacroCall,
-    SourceMacroCallId, SourceMacroDefinition, SourceMacroExpansion, SourceMacroExpansionQuery,
-    SourceMacroParam, SourceMacroReference, SourceMacroReferenceSite, SourceMacroResolution,
-    SourcePreprocError, SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
+    SourceMacroCallId, SourceMacroDefinition, SourceMacroExpansion, SourceMacroParam,
+    SourceMacroReference, SourceMacroReferenceSite, SourceMacroResolution, SourcePreprocError,
+    SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
 };
 use smol_str::SmolStr;
 use utils::{

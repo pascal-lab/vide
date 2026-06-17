@@ -29,19 +29,13 @@ endmodule
     assert_eq!(wrap_call.parent_trace_expansion, next_call.trace_expansion);
     assert_eq!(leaf_call.parent_trace_expansion, wrap_call.trace_expansion);
 
-    let SourceMacroExpansionQuery::Available(next_expansion_id) =
-        model.immediate_macro_expansion(next_call.id)
-    else {
+    let Ok(next_expansion_id) = model.immediate_macro_expansion(next_call.id) else {
         panic!("NEXT should have an immediate expansion");
     };
-    let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
-        model.immediate_macro_expansion(wrap_call.id)
-    else {
+    let Ok(wrap_expansion_id) = model.immediate_macro_expansion(wrap_call.id) else {
         panic!("WRAP should have an immediate expansion");
     };
-    let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
-        model.immediate_macro_expansion(leaf_call.id)
-    else {
+    let Ok(leaf_expansion_id) = model.immediate_macro_expansion(leaf_call.id) else {
         panic!("LEAF should have an immediate expansion");
     };
 

@@ -6,13 +6,13 @@ pub(in crate::preproc) fn diagnostic_target_for_call(
     source_call: &SourceMacroCall,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
     match mapped.model.immediate_macro_expansion(source_call.id) {
-        SourceMacroExpansionQuery::Available(expansion_id) => {
+        Ok(expansion_id) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
                 return Ok(None);
             };
             diagnostic_target_for_source_expansion(mapped, expansion)
         }
-        SourceMacroExpansionQuery::Unavailable(_) => Ok(None),
+        Err(_) => Ok(None),
     }
 }
 

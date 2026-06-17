@@ -80,9 +80,7 @@ fn source_model_does_not_create_expansion_without_emitted_tokens() {
     assert!(model.macro_expansions().is_empty());
     assert!(matches!(
         model.immediate_macro_expansion(call.id),
-        SourceMacroExpansionQuery::Unavailable(
-            SourcePreprocUnavailable::MissingMacroExpansion { .. }
-        )
+        Err(SourcePreprocUnavailable::MissingMacroExpansion { .. })
     ));
 }
 
@@ -108,9 +106,7 @@ endmodule
                     .is_some_and(|reference| reference.name.as_str() == name)
             })
             .unwrap_or_else(|| panic!("{name} call should be traced"));
-        let SourceMacroExpansionQuery::Available(expansion_id) =
-            model.immediate_macro_expansion(call.id)
-        else {
+        let Ok(expansion_id) = model.immediate_macro_expansion(call.id) else {
             panic!("{name} zero-token expansion should be available: {call:?}");
         };
         let expansion = model.macro_expansions().get(expansion_id).unwrap();
