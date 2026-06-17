@@ -101,6 +101,10 @@ fn text_at_range(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
 }
 
+fn offset(text: &str, needle: &str) -> TextSize {
+    TextSize::from(u32::try_from(text.find(needle).expect("needle should exist")).unwrap())
+}
+
 fn range(buffer_id: u32, range: Range<usize>) -> SourceBufferRange {
     SourceBufferRange { buffer_id, range }
 }
@@ -189,6 +193,31 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
     assert_eq!(source_map.map_up(4), None);
     assert_eq!(source_map.map_down(&Origin::TokenPaste { call: MacroCallId(31) }), vec![3]);
     assert!(source_map.map_down(&Origin::Stringify { call: MacroCallId(31) }).is_empty());
+    assert_eq!(
+        source_map.source_hits(TOP, TextSize::from(21)),
+        vec![ExpansionSourceHit {
+            expanded_token_index: 1,
+            range: text_range(20, 24),
+            origin: Origin::MacroBody {
+                call: MacroCallId(11),
+                def: MacroDefinitionId(12),
+                body_range: text_range(20, 24),
+            },
+        }]
+    );
+    assert_eq!(
+        source_map.source_hits(TOP, TextSize::from(51)),
+        vec![ExpansionSourceHit {
+            expanded_token_index: 2,
+            range: text_range(50, 54),
+            origin: Origin::MacroArg {
+                call: MacroCallId(21),
+                arg_index: 2,
+                arg_range: text_range(50, 54),
+            },
+        }]
+    );
+    assert!(source_map.source_hits(TOP, TextSize::from(70)).is_empty());
 }
 
 #[test]
@@ -223,4 +252,16 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
     let module = modules.next().expect("macro expansion should contain a module");
     assert!(modules.next().is_none());
     assert_eq!(module.header().name().unwrap().value_text().to_string(), "from_macro");
+}
+
+#[test]
+fn macro_files_at_offset_returns_available_expansions() {
+    let root_text = "`define DECL module from_macro; endmodule\n`DECL\n";
+    let db = db_with_root_text(root_text);
+
+    let macro_files = macro_files_at_offset(&db, TOP, offset(root_text, "`DECL"));
+
+    assert_eq!(macro_files.len(), 1);
+    let expansion = db.macro_expansion(macro_files[0]);
+    assert!(expansion.text.contains("from_macro"));
 }
