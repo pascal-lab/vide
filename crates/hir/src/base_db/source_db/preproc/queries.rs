@@ -72,7 +72,7 @@ pub(in crate::base_db::source_db) fn source_preproc_model(
         return Arc::new(Err(SourcePreprocQueryError::TraceUnavailable));
     };
 
-    let mut source_map =
+    let source_map =
         match source_preproc_file_ids(db, file_id, profile_id, &trace, &options, &preprocess) {
             Ok(source_map) => source_map,
             Err(err) => return Arc::new(Err(err)),
@@ -81,7 +81,6 @@ pub(in crate::base_db::source_db) fn source_preproc_model(
         Ok(model) => model,
         Err(err) => return Arc::new(Err(SourcePreprocQueryError::Model(err))),
     };
-    record_expansion_display_texts(profile_id, &model, &mut source_map);
 
     Arc::new(Ok(MappedSourcePreprocModel::new(model, source_map)))
 }
