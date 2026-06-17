@@ -4,6 +4,7 @@ pub mod declaration;
 pub mod expr;
 pub mod file;
 pub mod literal;
+pub mod macro_file;
 pub mod module;
 pub mod proc;
 pub mod stmt;

@@ -121,7 +121,7 @@ pub(crate) fn folding_ranges(db: &RootDb, file_id: FileId, _config: &FoldingConf
     let line_index = db.line_index(file_id);
     let line_index = line_index.as_ref();
 
-    let file_id = HirFileId(file_id);
+    let file_id = HirFileId::File(file_id);
     let (file, src_map) = db.hir_file_with_source_map(file_id);
 
     let mut folds = Vec::default();
