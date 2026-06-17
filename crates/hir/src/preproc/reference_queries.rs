@@ -62,7 +62,6 @@ pub fn macro_usage_resolutions_at(
             resolutions.push_unique_eq(MacroUsageResolution {
                 usage: MacroUsage {
                     reference_id: mapped_reference.id,
-                    source: mapped_reference.source,
                     file_id: mapped_reference.file_id,
                     name: mapped_reference.name,
                     usage_index,
