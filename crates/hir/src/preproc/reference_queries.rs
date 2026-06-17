@@ -193,19 +193,16 @@ pub fn macro_reference_definitions_at(
             let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-            let (_, range) = match mapped_source_range_at_offset(
-                mapped,
-                reference.name_range,
-                file_id,
-                offset,
-            ) {
-                Ok(Some(hit)) => hit,
-                Ok(None) => continue,
-                Err(error) => {
-                    record_first_error(&mut first_error, error);
-                    continue;
-                }
-            };
+            let (_, range) =
+                match source_mapping_range_at_offset(mapped, reference.name_range, file_id, offset)
+                {
+                    Ok(Some(hit)) => hit,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        record_first_error(&mut first_error, error);
+                        continue;
+                    }
+                };
             query_range.get_or_insert(range);
 
             let mapped_reference = match map_macro_reference(mapped, reference) {

@@ -8,7 +8,7 @@ pub(in crate::preproc) fn map_macro_param_reference(
     token_range: SourceRange,
 ) -> PreprocResult<MacroParamReference> {
     let macro_definition = map_macro_definition(mapped, definition)?;
-    let (source, range) = map_mapped_source_range(mapped, token_range)?;
+    let (source, range) = map_source_mapping_range(mapped, token_range)?;
     let file_id = require_file_backed_source(&source)?;
     let name = definition
         .params
@@ -58,7 +58,7 @@ pub(in crate::preproc) fn map_macro_call(
     mapped: &MappedSourcePreprocModel,
     call: &SourceMacroCall,
 ) -> PreprocResult<MacroCall> {
-    let (source, range) = map_mapped_source_range(mapped, call.call_range)?;
+    let (source, range) = map_source_mapping_range(mapped, call.call_range)?;
     let arguments = call
         .arguments
         .iter()
@@ -83,7 +83,7 @@ pub(in crate::preproc) fn map_macro_argument(
 ) -> PreprocResult<MacroArgument> {
     let range = argument
         .argument_range
-        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+        .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
         .transpose()?;
     Ok(MacroArgument {
         argument_index: argument.argument_index,
@@ -102,7 +102,7 @@ fn map_macro_argument_token(
 ) -> PreprocResult<MacroArgumentToken> {
     let range = token
         .range
-        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+        .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
         .transpose()?;
     Ok(MacroArgumentToken { raw: token.raw.clone(), range })
 }
@@ -142,8 +142,8 @@ pub(in crate::preproc) fn map_reference_ranges(
     reference: &SourceMacroReference,
 ) -> PreprocResult<(PreprocSourceMapping, TextRange, TextRange)> {
     let (directive_source, directive_range) =
-        map_mapped_source_range(mapped, reference.directive_range)?;
-    let (name_source, name_range) = map_mapped_source_range(mapped, reference.name_range)?;
+        map_source_mapping_range(mapped, reference.directive_range)?;
+    let (name_source, name_range) = map_source_mapping_range(mapped, reference.name_range)?;
     if directive_source != name_source {
         let directive_file_id = require_file_backed_source(&directive_source)?;
         let name_file_id = require_file_backed_source(&name_source)?;
