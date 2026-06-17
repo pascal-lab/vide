@@ -81,8 +81,6 @@ endmodule
         .expect("nested macro body token should be emitted");
     let SourceTokenOrigin::MacroBody {
         trace_call,
-        trace_expansion,
-        parent_trace_expansion,
         trace_definition,
         definition,
         call,
@@ -93,8 +91,6 @@ endmodule
     };
     assert_eq!(*call, leaf_call.id);
     assert_eq!(Some(*trace_call), leaf_call.trace_call);
-    assert_eq!(Some(*trace_expansion), leaf_call.trace_expansion);
-    assert_eq!(*parent_trace_expansion, leaf_call.parent_trace_expansion);
     assert_eq!(
         Some(*trace_definition),
         model.macro_definitions().get(*definition).unwrap().trace_definition

@@ -22,8 +22,6 @@ pub(in crate::source::tables::builder) struct MacroArgumentOriginInput {
     pub(in crate::source::tables::builder) token_id: SourceEmittedTokenId,
     pub(in crate::source::tables::builder) trace_call: MacroCallId,
     pub(in crate::source::tables::builder) trace_definition: MacroDefinitionId,
-    pub(in crate::source::tables::builder) trace_expansion: MacroExpansionId,
-    pub(in crate::source::tables::builder) parent_trace_expansion: Option<MacroExpansionId>,
     pub(in crate::source::tables::builder) body_token_index: u32,
     pub(in crate::source::tables::builder) trace_argument_index: u32,
     pub(in crate::source::tables::builder) argument_token_index: u32,
@@ -37,7 +35,6 @@ pub(in crate::source::tables::builder) struct MacroOperationOriginInput {
     pub(in crate::source::tables::builder) trace_definition: MacroDefinitionId,
     pub(in crate::source::tables::builder) trace_expansion: MacroExpansionId,
     pub(in crate::source::tables::builder) parent_trace_expansion: Option<MacroExpansionId>,
-    pub(in crate::source::tables::builder) body_token_index: u32,
     pub(in crate::source::tables::builder) argument_index: Option<u32>,
     pub(in crate::source::tables::builder) argument_token_index: Option<u32>,
     pub(in crate::source::tables::builder) kind: MacroOperationKind,
@@ -86,9 +83,6 @@ impl SourcePreprocModelBuilder {
         Some(SourceTokenOrigin::MacroBody {
             trace_call,
             trace_definition,
-            trace_expansion,
-            parent_trace_expansion,
-            body_token_index,
             definition,
             body_token_range,
             call,
@@ -103,8 +97,6 @@ impl SourcePreprocModelBuilder {
             token_id,
             trace_call,
             trace_definition,
-            trace_expansion,
-            parent_trace_expansion,
             body_token_index,
             trace_argument_index,
             argument_token_index,
@@ -128,11 +120,6 @@ impl SourcePreprocModelBuilder {
 
         Some(SourceTokenOrigin::MacroArgument {
             trace_call,
-            trace_definition,
-            trace_expansion,
-            parent_trace_expansion,
-            body_token_index,
-            trace_argument_index,
             argument_token_index,
             call,
             argument_index,
@@ -158,8 +145,6 @@ impl SourcePreprocModelBuilder {
         Some(SourceTokenOrigin::Builtin {
             name,
             trace_call,
-            trace_expansion,
-            parent_trace_expansion,
             call,
         })
     }
@@ -174,7 +159,6 @@ impl SourcePreprocModelBuilder {
             trace_definition,
             trace_expansion,
             parent_trace_expansion,
-            body_token_index,
             argument_index,
             argument_token_index,
             kind,
@@ -191,20 +175,12 @@ impl SourcePreprocModelBuilder {
         match kind {
             MacroOperationKind::TokenPaste => Some(SourceTokenOrigin::TokenPaste {
                 trace_call,
-                trace_definition,
-                trace_expansion,
-                parent_trace_expansion,
-                body_token_index,
                 argument_index,
                 argument_token_index,
                 call,
             }),
             MacroOperationKind::Stringify => Some(SourceTokenOrigin::Stringify {
                 trace_call,
-                trace_definition,
-                trace_expansion,
-                parent_trace_expansion,
-                body_token_index,
                 argument_index,
                 argument_token_index,
                 call,

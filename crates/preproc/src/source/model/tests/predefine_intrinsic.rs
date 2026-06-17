@@ -34,14 +34,13 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "3")
         .expect("intrinsic macro token should stay in emitted stream");
-    let SourceTokenOrigin::Builtin { name, call, trace_call, trace_expansion, .. } =
+    let SourceTokenOrigin::Builtin { name, call, trace_call, .. } =
         model.token_origins().get(intrinsic.origin.unwrap()).unwrap()
     else {
         panic!("intrinsic macro token should have builtin origin");
     };
     assert_eq!(name.as_str(), "__LINE__");
     assert_ne!(trace_call.0, 0);
-    assert_ne!(trace_expansion.0, 0);
 
     let call = model.macro_calls().get(*call).expect("builtin origin should map to a call");
     let Ok(expansion_id) = model.immediate_macro_expansion(call.id) else {
