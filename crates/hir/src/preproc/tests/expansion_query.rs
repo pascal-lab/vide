@@ -108,7 +108,7 @@ module top; `MAKE(8, data_q) endmodule
 }
 
 #[test]
-fn preproc_builtin_intrinsic_expansion_uses_structured_diagnostic_provenance() {
+fn preproc_builtin_intrinsic_expansion_uses_structured_diagnostic_target() {
     let root_text = r#"module m;
 localparam int L = `__LINE__;
 localparam string F = `__FILE__;
@@ -140,14 +140,17 @@ endmodule
             )
         }));
 
-        let diagnostic = diagnostic_provenance_for_range(&db, TOP, immediate.call.range)
+        let diagnostic = diagnostic_target_for_range(&db, TOP, immediate.call.range)
             .unwrap()
-            .expect("diagnostic provenance expected");
+            .target
+            .expect("diagnostic target expected");
         assert!(matches!(
-            diagnostic,
-            DiagnosticProvenance::Builtin { name, call }
-                if name.as_str() == expected_name && call.range == immediate.call.range
+            diagnostic.origin,
+            crate::hir_def::macro_file::Origin::Builtin { name, .. }
+                if name.as_str() == expected_name
         ));
+        assert_eq!(diagnostic.file_id, TOP);
+        assert_eq!(diagnostic.range, immediate.call.range);
     }
 }
 

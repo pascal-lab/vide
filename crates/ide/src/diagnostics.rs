@@ -21,8 +21,6 @@ use crate::{
     module_resolution::{ModuleResolution, ModuleResolutionAmbiguity, resolve_module_name},
 };
 
-mod preproc;
-
 const AMBIGUOUS_MODULE_INSTANTIATION: VideDiagnosticDescriptor =
     VideDiagnosticDescriptor { code: 1, subsystem: 0, name: "ambiguous-module-instantiation" };
 const INACTIVE_PREPROCESSOR_BRANCH: VideDiagnosticDescriptor =
@@ -341,17 +339,15 @@ fn module_instantiation_resolution_diagnostics(db: &RootDb, file_id: FileId) -> 
             };
             let mut diag_file_id = file_id;
             let mut range = src.range();
-            match hir::preproc::diagnostic_provenance_for_range(db, file_id, range) {
-                Ok(Some(provenance)) => {
-                    let Some((target_file_id, target_range)) =
-                        preproc::diagnostic_preproc_target_file_range(&provenance)
-                    else {
+            match hir::preproc::diagnostic_target_for_range(db, file_id, range) {
+                Ok(result) => {
+                    if let Some(target) = result.target {
+                        diag_file_id = target.file_id;
+                        range = target.range;
+                    } else if result.covered {
                         continue;
-                    };
-                    diag_file_id = target_file_id;
-                    range = target_range;
+                    }
                 }
-                Ok(None) => {}
                 Err(_) => continue,
             }
 
@@ -620,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn preproc_macro_generated_instantiation_diagnostic_uses_macro_body_provenance() {
+    fn preproc_macro_generated_instantiation_diagnostic_uses_macro_body_target() {
         let top = "`define MAKE child u();\nmodule top;\n  `MAKE\nendmodule\n";
         let db = db_with_files(
             &[

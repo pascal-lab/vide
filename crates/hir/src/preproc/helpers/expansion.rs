@@ -72,24 +72,6 @@ pub(in crate::preproc) fn map_expansion_source_buffer(
     mapped.source_map.expansion_source_buffer(expansion).map_err(PreprocError::SourceMap)
 }
 
-pub(in crate::preproc) fn display_only_virtual_expansion_unavailable(
-    source: &PreprocSourceMapping,
-) -> PreprocUnavailable {
-    match source {
-        PreprocSourceMapping::VirtualDisplay { path, origin } => {
-            PreprocUnavailable::DisplayOnlyVirtualExpansion {
-                path: path.clone(),
-                origin: origin.clone(),
-            }
-        }
-        PreprocSourceMapping::RealFile(_)
-        | PreprocSourceMapping::VirtualFile { .. }
-        | PreprocSourceMapping::Unmapped(_) => {
-            PreprocUnavailable::Source(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
-        }
-    }
-}
-
 pub(in crate::preproc) fn source_macro_calls_at(
     mapped: &MappedSourcePreprocModel,
     file_id: FileId,
