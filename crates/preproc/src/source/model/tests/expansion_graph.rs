@@ -185,23 +185,41 @@ endmodule
     let payl_expansion = model.macro_expansions().get(payl_expansion_id).unwrap();
     assert_eq!(payl_expansion.call, payl_call.id);
 
-    let (payload, payload_origin, payload_body_range) = model
+    let (
+        payload,
+        payload_trace_call,
+        payload_trace_expansion,
+        payload_parent_trace_expansion,
+        payload_body_range,
+    ) = model
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenOrigin::MacroBody { origin, call, body_token_range, .. } =
-                model.token_origins().get(token.origin?)?
+            let SourceTokenOrigin::MacroBody {
+                trace_call,
+                trace_expansion,
+                parent_trace_expansion,
+                call,
+                body_token_range,
+                ..
+            } = model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
-            (*call == payl_call.id).then_some((token, *origin, *body_token_range))
+            (*call == payl_call.id).then_some((
+                token,
+                *trace_call,
+                *trace_expansion,
+                *parent_trace_expansion,
+                *body_token_range,
+            ))
         })
         .expect("PAYL emitted token should keep direct macro body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
     assert_eq!(text_at_range(root_text, payload_body_range.range), "payload_i");
-    assert_eq!(Some(payload_origin.call_id), payl_call.trace_call);
-    assert_eq!(Some(payload_origin.expansion_id), payl_call.trace_expansion);
-    assert_eq!(payload_origin.parent_expansion_id, next_call.trace_expansion);
+    assert_eq!(Some(payload_trace_call), payl_call.trace_call);
+    assert_eq!(Some(payload_trace_expansion), payl_call.trace_expansion);
+    assert_eq!(payload_parent_trace_expansion, next_call.trace_expansion);
     assert_eq!(payl_expansion.emitted_token_range.start, payload.id);
     assert_eq!(payl_expansion.emitted_token_range.len, 1);
 

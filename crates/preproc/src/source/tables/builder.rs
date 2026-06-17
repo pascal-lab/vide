@@ -22,6 +22,7 @@ pub(in crate::source) struct SourcePreprocModelBuilder {
 mod definitions;
 mod emitted;
 mod emitted_helpers;
+mod emitted_origins;
 mod expansion_helpers;
 mod expansions;
 mod references;

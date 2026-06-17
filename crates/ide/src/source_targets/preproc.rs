@@ -180,29 +180,27 @@ fn syntax_token_origin_matches(
     match (token_origin, expected) {
         (TokenOrigin::Source { .. }, Origin::File { .. }) => false,
         (
-            TokenOrigin::MacroBody { origin, body_token_range, .. },
+            TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. },
             Origin::MacroBody { call, def, body_range },
         ) => {
-            macro_call_matches(db, *call, origin.call_id)
-                && *def == origin.definition_id
+            macro_call_matches(db, *call, call_id)
+                && *def == definition_id
                 && source_buffer_text_range(&body_token_range) == Some(*body_range)
         }
         (
-            TokenOrigin::MacroArgument { origin, argument_token_range, .. },
+            TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. },
             Origin::MacroArg { call, arg_index, arg_range },
         ) => {
-            macro_call_matches(db, *call, origin.call_id)
-                && usize::try_from(origin.argument_index).ok() == Some(*arg_index)
+            macro_call_matches(db, *call, call_id)
+                && usize::try_from(argument_index).ok() == Some(*arg_index)
                 && source_buffer_text_range(&argument_token_range) == Some(*arg_range)
         }
-        (TokenOrigin::TokenPaste { origin }, Origin::TokenPaste { call })
-        | (TokenOrigin::Stringify { origin }, Origin::Stringify { call }) => {
-            macro_call_matches(db, *call, origin.call_id)
+        (TokenOrigin::TokenPaste { call_id, .. }, Origin::TokenPaste { call })
+        | (TokenOrigin::Stringify { call_id, .. }, Origin::Stringify { call }) => {
+            macro_call_matches(db, *call, call_id)
         }
-        (TokenOrigin::Builtin { name, origin }, Origin::Builtin { call, name: expected }) => {
-            !name.is_empty()
-                && macro_call_matches(db, *call, origin.call_id)
-                && name == expected.as_str()
+        (TokenOrigin::Builtin { name, call_id, .. }, Origin::Builtin { call, name: expected }) => {
+            !name.is_empty() && macro_call_matches(db, *call, call_id) && name == expected.as_str()
         }
         _ => false,
     }
@@ -220,24 +218,28 @@ pub(super) fn origin_from_syntax_token_origin(
 ) -> Option<Origin> {
     match origin {
         TokenOrigin::Source { .. } => None,
-        TokenOrigin::MacroBody { origin, body_token_range, .. } => Some(Origin::MacroBody {
-            call: macro_call_id(db, model_file, origin.call_id),
-            def: origin.definition_id,
-            body_range: source_buffer_text_range(&body_token_range)?,
-        }),
-        TokenOrigin::MacroArgument { origin, argument_token_range, .. } => Some(Origin::MacroArg {
-            call: macro_call_id(db, model_file, origin.call_id),
-            arg_index: usize::try_from(origin.argument_index).ok()?,
-            arg_range: source_buffer_text_range(&argument_token_range)?,
-        }),
-        TokenOrigin::TokenPaste { origin } => {
-            Some(Origin::TokenPaste { call: macro_call_id(db, model_file, origin.call_id) })
+        TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
+            Some(Origin::MacroBody {
+                call: macro_call_id(db, model_file, call_id),
+                def: definition_id,
+                body_range: source_buffer_text_range(&body_token_range)?,
+            })
         }
-        TokenOrigin::Stringify { origin } => {
-            Some(Origin::Stringify { call: macro_call_id(db, model_file, origin.call_id) })
+        TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
+            Some(Origin::MacroArg {
+                call: macro_call_id(db, model_file, call_id),
+                arg_index: usize::try_from(argument_index).ok()?,
+                arg_range: source_buffer_text_range(&argument_token_range)?,
+            })
         }
-        TokenOrigin::Builtin { name, origin } if !name.is_empty() => Some(Origin::Builtin {
-            call: macro_call_id(db, model_file, origin.call_id),
+        TokenOrigin::TokenPaste { call_id, .. } => {
+            Some(Origin::TokenPaste { call: macro_call_id(db, model_file, call_id) })
+        }
+        TokenOrigin::Stringify { call_id, .. } => {
+            Some(Origin::Stringify { call: macro_call_id(db, model_file, call_id) })
+        }
+        TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => Some(Origin::Builtin {
+            call: macro_call_id(db, model_file, call_id),
             name: name.to_smolstr(),
         }),
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,

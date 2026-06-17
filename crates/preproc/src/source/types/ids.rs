@@ -1,8 +1,5 @@
 use smol_str::SmolStr;
-pub use syntax::preproc::{
-    MacroArgumentOrigin, MacroBodyOrigin, MacroBuiltinOrigin, MacroCallId, MacroDefinitionId,
-    MacroExpansionId, MacroOperationOrigin,
-};
+pub use syntax::preproc::{MacroCallId, MacroDefinitionId, MacroExpansionId};
 use utils::line_index::{TextRange, TextSize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

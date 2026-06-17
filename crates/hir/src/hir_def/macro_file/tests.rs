@@ -5,10 +5,7 @@ use rustc_hash::FxHashSet;
 use syntax::{
     SourceBufferRange,
     ast::{AstNode, CompilationUnit, Member},
-    preproc::{
-        MacroArgumentOrigin, MacroBodyOrigin, MacroCallId as TraceMacroCallId, MacroDefinitionId,
-        MacroExpansionId, MacroOperationOrigin, TokenOrigin,
-    },
+    preproc::{MacroCallId as TraceMacroCallId, MacroDefinitionId, MacroExpansionId, TokenOrigin},
 };
 use triomphe::Arc;
 use utils::{
@@ -113,40 +110,6 @@ fn text_range(start: u32, end: u32) -> TextRange {
     TextRange::new(TextSize::from(start), TextSize::from(end))
 }
 
-fn body_origin() -> MacroBodyOrigin {
-    MacroBodyOrigin {
-        call_id: TraceMacroCallId(11),
-        definition_id: MacroDefinitionId(12),
-        expansion_id: MacroExpansionId(13),
-        parent_expansion_id: None,
-        body_token_index: 0,
-    }
-}
-
-fn arg_origin() -> MacroArgumentOrigin {
-    MacroArgumentOrigin {
-        call_id: TraceMacroCallId(21),
-        definition_id: MacroDefinitionId(22),
-        expansion_id: MacroExpansionId(23),
-        parent_expansion_id: None,
-        body_token_index: 0,
-        argument_index: 2,
-        argument_token_index: 0,
-    }
-}
-
-fn operation_origin() -> MacroOperationOrigin {
-    MacroOperationOrigin {
-        call_id: TraceMacroCallId(31),
-        definition_id: MacroDefinitionId(32),
-        expansion_id: MacroExpansionId(33),
-        parent_expansion_id: None,
-        body_token_index: 0,
-        argument_index: None,
-        argument_token_index: None,
-    }
-}
-
 fn test_macro_call(db: &TestDb, trace_call: TraceMacroCallId) -> MacroCallId {
     db.intern_macro_call(MacroCallLoc { model_file: TOP, trace_call })
 }
@@ -163,18 +126,36 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
         TokenOrigin::Source { token_range: range(7, 1..4) },
         TokenOrigin::MacroBody {
             macro_name: "BODY".to_owned(),
-            origin: body_origin(),
+            call_id: TraceMacroCallId(11),
+            definition_id: MacroDefinitionId(12),
+            expansion_id: MacroExpansionId(13),
+            parent_expansion_id: None,
+            body_token_index: 0,
             call_range: range(7, 10..15),
             body_token_range: range(7, 20..24),
         },
         TokenOrigin::MacroArgument {
             macro_name: "ARG".to_owned(),
-            origin: arg_origin(),
+            call_id: TraceMacroCallId(21),
+            definition_id: MacroDefinitionId(22),
+            expansion_id: MacroExpansionId(23),
+            parent_expansion_id: None,
+            body_token_index: 0,
+            argument_index: 2,
+            argument_token_index: 0,
             call_range: range(7, 30..35),
             body_token_range: range(7, 40..44),
             argument_token_range: range(7, 50..54),
         },
-        TokenOrigin::TokenPaste { origin: operation_origin() },
+        TokenOrigin::TokenPaste {
+            call_id: TraceMacroCallId(31),
+            definition_id: MacroDefinitionId(32),
+            expansion_id: MacroExpansionId(33),
+            parent_expansion_id: None,
+            body_token_index: 0,
+            argument_index: None,
+            argument_token_index: None,
+        },
         TokenOrigin::Unavailable,
     ];
 
