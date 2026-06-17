@@ -2,7 +2,7 @@ use super::*;
 
 pub(in crate::preproc) fn map_macro_param_reference(
     mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinitionFact,
+    definition: &SourceMacroDefinition,
     param_index: usize,
     token_index: usize,
     token_range: SourceRange,
@@ -34,7 +34,7 @@ pub(in crate::preproc) fn map_macro_param_reference(
 
 pub(in crate::preproc) fn map_definition_provenance_from_definition(
     mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinitionFact,
+    definition: &SourceMacroDefinition,
 ) -> PreprocResult<MacroDefinitionProvenance> {
     let definition = map_macro_definition(mapped, definition)?;
     Ok(MacroDefinitionProvenance {
@@ -49,7 +49,7 @@ pub(in crate::preproc) fn map_definition_provenance_from_definition(
 
 pub(in crate::preproc) fn map_macro_reference(
     mapped: &MappedSourcePreprocModel,
-    reference: &SourceMacroReferenceFact,
+    reference: &SourceMacroReference,
 ) -> PreprocResult<MacroReference> {
     let (source, directive_range, name_range) = map_reference_ranges(mapped, reference)?;
     let file_id = require_file_backed_source(&source)?;
@@ -66,7 +66,7 @@ pub(in crate::preproc) fn map_macro_reference(
 
 pub(in crate::preproc) fn map_macro_call(
     mapped: &MappedSourcePreprocModel,
-    call: &SourceMacroCallFact,
+    call: &SourceMacroCall,
 ) -> PreprocResult<MacroCall> {
     let (source, range) = map_mapped_source_range(mapped, call.call_range)?;
     let arguments = call
@@ -90,7 +90,7 @@ pub(in crate::preproc) fn map_macro_call(
 
 pub(in crate::preproc) fn map_macro_argument(
     mapped: &MappedSourcePreprocModel,
-    argument: &SourceMacroArgumentFact,
+    argument: &SourceMacroArgument,
 ) -> PreprocResult<MacroArgument> {
     let (source, range) = argument
         .argument_range
@@ -123,31 +123,29 @@ fn map_macro_argument_token(
 
 pub(in crate::preproc) fn map_macro_resolution(
     mapped: &MappedSourcePreprocModel,
-    resolution: &SourceMacroResolutionFact,
+    resolution: &SourceMacroResolution,
 ) -> PreprocResult<MacroResolution> {
     Ok(match resolution {
-        SourceMacroResolutionFact::Resolved { definition, reason, include_chain } => {
+        SourceMacroResolution::Resolved { definition, reason, include_chain } => {
             MacroResolution::Resolved {
                 definition_id: (*definition).into(),
                 reason: map_macro_resolution_reason(*reason),
                 include_chain: map_include_chain(mapped, include_chain)?,
             }
         }
-        SourceMacroResolutionFact::Undefined => MacroResolution::Undefined,
-        SourceMacroResolutionFact::Unavailable(reason) => {
+        SourceMacroResolution::Undefined => MacroResolution::Undefined,
+        SourceMacroResolution::Unavailable(reason) => {
             MacroResolution::Unavailable(PreprocUnavailable::Source(reason.clone()))
         }
     })
 }
 
 pub(in crate::preproc) fn map_macro_resolution_reason(
-    reason: SourceMacroResolutionReasonFact,
+    reason: SourceMacroResolutionReason,
 ) -> MacroResolutionReason {
     match reason {
-        SourceMacroResolutionReasonFact::VisibleDefinition => {
-            MacroResolutionReason::VisibleDefinition
-        }
-        SourceMacroResolutionReasonFact::IncludeGuardIfNDef => {
+        SourceMacroResolutionReason::VisibleDefinition => MacroResolutionReason::VisibleDefinition,
+        SourceMacroResolutionReason::IncludeGuardIfNDef => {
             MacroResolutionReason::IncludeGuardIfNDef
         }
     }
@@ -155,7 +153,7 @@ pub(in crate::preproc) fn map_macro_resolution_reason(
 
 pub(in crate::preproc) fn map_reference_ranges(
     mapped: &MappedSourcePreprocModel,
-    reference: &SourceMacroReferenceFact,
+    reference: &SourceMacroReference,
 ) -> PreprocResult<(MappedPreprocSource, TextRange, TextRange)> {
     let (directive_source, directive_range) =
         map_mapped_source_range(mapped, reference.directive_range)?;

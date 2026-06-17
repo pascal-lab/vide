@@ -2,10 +2,10 @@ use super::*;
 
 pub(in crate::preproc) fn diagnostic_provenance_for_call(
     mapped: &MappedSourcePreprocModel,
-    call_fact: &SourceMacroCallFact,
+    call_fact: &SourceMacroCall,
 ) -> PreprocResult<DiagnosticProvenance> {
     match mapped.model.immediate_macro_expansion(call_fact.id) {
-        SourceMacroExpansionQueryFact::Available(expansion_id) => {
+        SourceMacroExpansionQuery::Available(expansion_id) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
                 return Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
                     SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
@@ -13,7 +13,7 @@ pub(in crate::preproc) fn diagnostic_provenance_for_call(
             };
             diagnostic_target_for_source_expansion(mapped, expansion)
         }
-        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+        SourceMacroExpansionQuery::Unavailable(reason) => {
             Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(reason)))
         }
     }
@@ -92,7 +92,7 @@ pub(in crate::preproc) fn mapped_macro_call(
 
 pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     mapped: &MappedSourcePreprocModel,
-    expansion: &SourceMacroExpansionFact,
+    expansion: &SourceMacroExpansion,
 ) -> PreprocResult<DiagnosticProvenance> {
     let mut saw_unavailable = None;
     for token_id in emitted_token_ids(expansion.emitted_token_range) {
