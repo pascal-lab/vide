@@ -12,8 +12,8 @@ use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use super::{
-    PreprocSourceTarget, PreprocTokenHit, PreprocTokenProvenance, SourceTarget, SourceTargetBlock,
-    SourceTargetProviderResult, SourceTargetRequestCache, SourceTargetResolution, covering_range,
+    PreprocTokenHit, SourceTarget, SourceTargetBlock, SourceTargetProviderResult,
+    SourceTargetRequestCache, SourceTargetResolution, covering_range,
     macro_gate::source_macro_invocation_may_cover_offset, normal_syntax_source_target_at_offset,
 };
 use crate::db::root_db::RootDb;
@@ -101,8 +101,7 @@ fn preproc_hit_for_source_hit(
         emitted_token: source_hit.expanded_token_index,
         display_range: source_hit.range,
         source_range: source_hit.range,
-        provenance: PreprocTokenProvenance::Origin(source_hit.origin.clone()),
-        target: PreprocSourceTarget::Origin(source_hit.origin),
+        origin: source_hit.origin,
     })
 }
 
@@ -119,7 +118,7 @@ fn origin_call(origin: &Origin) -> Option<usize> {
 }
 
 pub(super) fn push_unique_preproc_hit(hits: &mut Vec<PreprocTokenHit>, hit: PreprocTokenHit) {
-    if hits.iter().any(|existing| existing.target == hit.target) {
+    if hits.iter().any(|existing| existing.origin == hit.origin) {
         return;
     }
     hits.push(hit);
@@ -143,8 +142,7 @@ pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
 }
 
 fn macro_origin_for_hit(hit: &PreprocTokenHit) -> Option<&Origin> {
-    let PreprocTokenProvenance::Origin(origin) = &hit.provenance;
-    (!matches!(origin, Origin::File { .. })).then_some(origin)
+    (!matches!(hit.origin, Origin::File { .. })).then_some(&hit.origin)
 }
 
 fn syntax_tokens_for_macro_origins<'tree>(

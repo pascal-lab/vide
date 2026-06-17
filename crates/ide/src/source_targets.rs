@@ -148,18 +148,7 @@ pub(crate) struct PreprocTokenHit {
     pub emitted_token: usize,
     pub display_range: TextRange,
     pub source_range: TextRange,
-    pub provenance: PreprocTokenProvenance,
-    target: PreprocSourceTarget,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PreprocTokenProvenance {
-    Origin(Origin),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PreprocSourceTarget {
-    Origin(Origin),
+    pub origin: Origin,
 }
 
 pub(crate) fn source_target_at_offset<'tree, F>(
