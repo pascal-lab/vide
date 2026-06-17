@@ -8,7 +8,7 @@ use crate::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
-        macro_file::{self, ExpansionInfo, MacroFileId, MacroFileLoc},
+        macro_file::{self, ExpansionInfo, MacroCallId, MacroCallLoc, MacroFileId, MacroFileLoc},
         module::{
             self, Module, ModuleId, ModuleSourceMap,
             generate::{
@@ -41,6 +41,9 @@ pub trait InternDb: SourceRootDb {
     fn intern_generate_block(&self, generate_block: GenerateBlockLoc) -> GenerateBlockId;
 
     #[salsa::interned]
+    fn intern_macro_call(&self, macro_call: MacroCallLoc) -> MacroCallId;
+
+    #[salsa::interned]
     fn intern_macro_file(&self, macro_file: MacroFileLoc) -> MacroFileId;
 }
 
@@ -53,6 +56,7 @@ impl_intern!(
     intern_generate_block,
     lookup_intern_generate_block
 );
+impl_intern!(MacroCallId, MacroCallLoc, intern_macro_call, lookup_intern_macro_call);
 impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_file);
 
 #[salsa::query_group(HirDbStorage)]

@@ -4,7 +4,7 @@ use ::preproc::source::{
     SourcePreprocModel,
 };
 use smol_str::SmolStr;
-use syntax::{SyntaxTree, preproc::MacroCallId};
+use syntax::{SyntaxTree, preproc::MacroCallId as TraceMacroCallId};
 use triomphe::Arc;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -18,12 +18,20 @@ mod tests;
 pub use source_map::{ExpansionSourceHit, ExpansionSourceMap, Origin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct MacroCallId(pub salsa::InternId);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct MacroCallLoc {
+    pub model_file: FileId,
+    pub trace_call: TraceMacroCallId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct MacroFileId(pub salsa::InternId);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct MacroFileLoc {
-    pub model_file: FileId,
-    pub trace_call: MacroCallId,
+    pub call: MacroCallId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,10 +96,10 @@ pub fn macro_files_at_offset(
             let Some(source_call) = mapped.model.macro_calls().get(call) else {
                 continue;
             };
-            let Some(trace_call) = source_call.trace_call else {
+            let Some(macro_call) = macro_call_for_source_call(db, model_file, source_call) else {
                 continue;
             };
-            let macro_file = db.intern_macro_file(MacroFileLoc { model_file, trace_call });
+            let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
             if !macro_files.contains(&macro_file) {
                 macro_files.push(macro_file);
             }
@@ -102,9 +110,10 @@ pub fn macro_files_at_offset(
 
 pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<MacroFileExpansion> {
     let loc = db.lookup_intern_macro_file(macro_file);
-    let mapped = db.source_preproc_model(loc.model_file);
+    let call_loc = db.lookup_intern_macro_call(loc.call);
+    let mapped = db.source_preproc_model(call_loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
-    let call = source_call_for_trace_call(&mapped.model, loc.trace_call)?;
+    let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
     let expansion = source_expansion_for_call(&mapped.model, call.id)?;
     Some(MacroFileExpansion {
         call: MacroFileCall {
@@ -117,9 +126,10 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
 
 pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> Arc<ExpansionInfo> {
     let loc = db.lookup_intern_macro_file(macro_file);
-    let mapped = db.source_preproc_model(loc.model_file);
+    let call_loc = db.lookup_intern_macro_call(loc.call);
+    let mapped = db.source_preproc_model(call_loc.model_file);
     let expansion = mapped.as_ref().as_ref().ok().and_then(|mapped| {
-        source_call_for_trace_call(&mapped.model, loc.trace_call)
+        source_call_for_trace_call(&mapped.model, call_loc.trace_call)
             .and_then(|call| emitted_range_for_call(&mapped.model, call.id))
             .map(|range| (mapped, range))
     });
@@ -127,7 +137,7 @@ pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> 
         .map(|(mapped, emitted_range)| {
             let text = expansion_text_for_range(&mapped.model, emitted_range).unwrap_or_default();
             let source_map = db
-                .parsed_compilation_unit(loc.model_file)
+                .parsed_compilation_unit(call_loc.model_file)
                 .preprocessor_trace
                 .as_ref()
                 .map(|trace| {
@@ -139,6 +149,15 @@ pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> 
         .unwrap_or_else(|| (String::new(), ExpansionSourceMap::empty()));
     let parse = SyntaxTree::from_text(&text, "macro-expansion", "");
     Arc::new(ExpansionInfo { text, parse, source_map })
+}
+
+fn macro_call_for_source_call(
+    db: &dyn HirDb,
+    model_file: FileId,
+    call: &SourceMacroCall,
+) -> Option<MacroCallId> {
+    let trace_call = call.trace_call?;
+    Some(db.intern_macro_call(MacroCallLoc { model_file, trace_call }))
 }
 
 fn macro_file_expansion_definition(
@@ -182,7 +201,7 @@ fn emitted_range_for_call(
 
 fn source_call_for_trace_call(
     model: &SourcePreprocModel,
-    trace_call: MacroCallId,
+    trace_call: TraceMacroCallId,
 ) -> Option<&SourceMacroCall> {
     model.macro_calls().iter().find(|call| call.trace_call == Some(trace_call))
 }
