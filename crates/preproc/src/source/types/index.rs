@@ -1,5 +1,5 @@
 use super::*;
-use crate::source::provenance::{
+use crate::source::tables::{
     SourceEmittedTokenTable, SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable,
     SourceMacroExpansionTable, SourceMacroReferenceTable, SourceMacroStateTimeline,
     SourcePreprocIssue, SourceTokenOriginTable,

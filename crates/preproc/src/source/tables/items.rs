@@ -51,8 +51,8 @@ pub enum SourceMacroResolutionReason {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceIncludeGraph {
-    pub(in crate::source::provenance) directives: Vec<SourceIncludeDirective>,
-    pub(in crate::source::provenance) edges: Vec<SourceIncludeEdge>,
+    pub(in crate::source::tables) directives: Vec<SourceIncludeDirective>,
+    pub(in crate::source::tables) edges: Vec<SourceIncludeEdge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,13 +75,13 @@ pub enum SourceIncludeStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceMacroStateTimeline {
-    pub(in crate::source::provenance) states: Vec<SourceMacroState>,
-    pub(in crate::source::provenance) checkpoints: Vec<SourceMacroStateCheckpoint>,
-    pub(in crate::source::provenance) source_order_scopes:
+    pub(in crate::source::tables) states: Vec<SourceMacroState>,
+    pub(in crate::source::tables) checkpoints: Vec<SourceMacroStateCheckpoint>,
+    pub(in crate::source::tables) source_order_scopes:
         BTreeMap<PreprocSourceId, SourceMacroStateSourceScope>,
-    pub(in crate::source::provenance) source_order_boundaries:
+    pub(in crate::source::tables) source_order_boundaries:
         BTreeMap<PreprocSourceId, Vec<SourceMacroStatePositionBoundary>>,
-    pub(in crate::source::provenance) final_source_order: usize,
+    pub(in crate::source::tables) final_source_order: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,14 +98,14 @@ pub struct SourceMacroStateCheckpoint {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::source::provenance) struct SourceMacroStatePositionBoundary {
-    pub(in crate::source::provenance) source_order: usize,
-    pub(in crate::source::provenance) boundary: SourcePosition,
+pub(in crate::source::tables) struct SourceMacroStatePositionBoundary {
+    pub(in crate::source::tables) source_order: usize,
+    pub(in crate::source::tables) boundary: SourcePosition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::source::provenance) struct SourceMacroStateSourceScope {
-    pub(in crate::source::provenance) end_order: usize,
+pub(in crate::source::tables) struct SourceMacroStateSourceScope {
+    pub(in crate::source::tables) end_order: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,12 +229,12 @@ pub enum SourceTokenOrigin {
     },
 }
 
-pub(in crate::source::provenance) struct EmittedTokenMacroCall {
-    pub(in crate::source::provenance) token_id: SourceEmittedTokenId,
-    pub(in crate::source::provenance) macro_name: SmolStr,
-    pub(in crate::source::provenance) trace_call: MacroCallId,
-    pub(in crate::source::provenance) definition: SourceMacroDefinitionId,
-    pub(in crate::source::provenance) call_range: SourceRange,
-    pub(in crate::source::provenance) trace_expansion: MacroExpansionId,
-    pub(in crate::source::provenance) parent_trace_expansion: Option<MacroExpansionId>,
+pub(in crate::source::tables) struct EmittedTokenMacroCall {
+    pub(in crate::source::tables) token_id: SourceEmittedTokenId,
+    pub(in crate::source::tables) macro_name: SmolStr,
+    pub(in crate::source::tables) trace_call: MacroCallId,
+    pub(in crate::source::tables) definition: SourceMacroDefinitionId,
+    pub(in crate::source::tables) call_range: SourceRange,
+    pub(in crate::source::tables) trace_expansion: MacroExpansionId,
+    pub(in crate::source::tables) parent_trace_expansion: Option<MacroExpansionId>,
 }

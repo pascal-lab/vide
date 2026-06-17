@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn build_macro_expansion_graph(&mut self) {
+    pub(in crate::source::tables::builder) fn build_macro_expansion_graph(&mut self) {
         if self.model.macro_calls.is_empty() {
             return;
         }
@@ -69,9 +69,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn record_macro_body_references_for_calls(
-        &mut self,
-    ) {
+    pub(in crate::source::tables::builder) fn record_macro_body_references_for_calls(&mut self) {
         let calls = self.model.macro_calls.iter().cloned().collect::<Vec<_>>();
         for call in calls {
             let SourceMacroResolution::Resolved { definition, .. } = call.callee else {

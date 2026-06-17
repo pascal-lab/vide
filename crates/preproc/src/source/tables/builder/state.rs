@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn record_position_boundaries(&mut self) {
+    pub(in crate::source::tables::builder) fn record_position_boundaries(&mut self) {
         self.model.state_timeline.final_source_order = self.model.index.event_records.len();
         self.record_source_order_scopes();
         for (source_order, directive) in self.model.index.event_records.iter().enumerate() {
@@ -21,7 +21,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn record_source_order_scopes(&mut self) {
+    pub(in crate::source::tables::builder) fn record_source_order_scopes(&mut self) {
         let event_orders_by_id = self
             .model
             .index
@@ -52,7 +52,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn source_parents_by_include(
+    pub(in crate::source::tables::builder) fn source_parents_by_include(
         &self,
     ) -> BTreeMap<PreprocSourceId, PreprocSourceId> {
         let include_sources_by_event = self
@@ -79,7 +79,7 @@ impl SourcePreprocModelBuilder {
             .collect()
     }
 
-    pub(in crate::source::provenance::builder) fn included_source_end_order(
+    pub(in crate::source::tables::builder) fn included_source_end_order(
         &self,
         source: PreprocSourceId,
         include_order: usize,
@@ -98,7 +98,7 @@ impl SourcePreprocModelBuilder {
             .unwrap_or(self.model.index.event_records.len())
     }
 
-    pub(in crate::source::provenance::builder) fn build_include_graph(&mut self) {
+    pub(in crate::source::tables::builder) fn build_include_graph(&mut self) {
         self.model.inactive_ranges = self.model.index.inactive_ranges.clone();
         let mut resolved_sources_by_event = BTreeMap::new();
 
@@ -134,7 +134,7 @@ impl SourcePreprocModelBuilder {
     }
 }
 
-pub(in crate::source::provenance::builder) fn source_is_descendant_or_same(
+pub(in crate::source::tables::builder) fn source_is_descendant_or_same(
     mut source: PreprocSourceId,
     ancestor: PreprocSourceId,
     source_parents: &BTreeMap<PreprocSourceId, PreprocSourceId>,

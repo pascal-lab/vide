@@ -45,7 +45,7 @@ macro_rules! source_table {
                 self.$field.is_empty()
             }
 
-            pub(in crate::source::provenance) fn push(&mut self, item: $item) {
+            pub(in crate::source::tables) fn push(&mut self, item: $item) {
                 self.$field.push(item);
             }
         }
@@ -55,7 +55,7 @@ macro_rules! source_table {
         source_table!($table, $field, $id, $item);
 
         impl $table {
-            pub(in crate::source::provenance) fn get_mut(&mut self, id: $id) -> Option<&mut $item> {
+            pub(in crate::source::tables) fn get_mut(&mut self, id: $id) -> Option<&mut $item> {
                 self.$field.get_mut(id.raw())
             }
         }
@@ -105,8 +105,8 @@ pub use unavailable::*;
 mod items;
 pub use items::*;
 
-mod tables;
-pub use tables::*;
+mod storage;
+pub use storage::*;
 
 impl_source_ranges!(SourceMacroDefinition, directive = directive_range, name = name_range);
 impl_source_ranges!(SourceMacroReference, directive = directive_range, name = name_range);

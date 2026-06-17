@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn scan_references_and_state(&mut self) {
+    pub(in crate::source::tables::builder) fn scan_references_and_state(&mut self) {
         let event_records = self.model.index.event_records.clone();
         for (source_order, directive) in event_records.iter().enumerate() {
             match directive.kind {
@@ -14,7 +14,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn apply_define(
+    pub(in crate::source::tables::builder) fn apply_define(
         &mut self,
         source_order: usize,
         directive: &SourcePreprocEventRecord,
@@ -30,7 +30,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn apply_undef(
+    pub(in crate::source::tables::builder) fn apply_undef(
         &mut self,
         source_order: usize,
         directive: &SourcePreprocEventRecord,
@@ -44,7 +44,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn record_usage_reference(
+    pub(in crate::source::tables::builder) fn record_usage_reference(
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
@@ -87,7 +87,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn record_conditional_references(
+    pub(in crate::source::tables::builder) fn record_conditional_references(
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
@@ -140,7 +140,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn push_reference(
+    pub(in crate::source::tables::builder) fn push_reference(
         &mut self,
         event_id: SourcePreprocEventId,
         site: SourceMacroReferenceSite,
@@ -162,7 +162,7 @@ impl SourcePreprocModelBuilder {
         id
     }
 
-    pub(in crate::source::provenance::builder) fn push_call(
+    pub(in crate::source::tables::builder) fn push_call(
         &mut self,
         reference: SourceMacroReferenceId,
         call_range: SourceRange,

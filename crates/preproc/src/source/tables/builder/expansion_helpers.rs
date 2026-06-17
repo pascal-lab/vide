@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn macro_reference_exists(
+    pub(in crate::source::tables::builder) fn macro_reference_exists(
         &self,
         name: &str,
         name_range: SourceRange,
@@ -16,7 +16,7 @@ impl SourcePreprocModelBuilder {
         })
     }
 
-    pub(in crate::source::provenance::builder) fn direct_owned_emitted_tokens_by_call(
+    pub(in crate::source::tables::builder) fn direct_owned_emitted_tokens_by_call(
         &self,
     ) -> BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>> {
         let mut tokens_by_call = BTreeMap::<SourceMacroCallId, Vec<SourceEmittedTokenId>>::new();
@@ -26,7 +26,7 @@ impl SourcePreprocModelBuilder {
         tokens_by_call
     }
 
-    pub(in crate::source::provenance::builder) fn expansion_definition_for_call(
+    pub(in crate::source::tables::builder) fn expansion_definition_for_call(
         &self,
         call: SourceMacroCallId,
         direct_tokens_by_call: &BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>>,
@@ -51,7 +51,7 @@ impl SourcePreprocModelBuilder {
         builtin_name.map(|name| SourceMacroExpansionDefinition::Builtin { name })
     }
 
-    pub(in crate::source::provenance::builder) fn child_calls_by_parent(
+    pub(in crate::source::tables::builder) fn child_calls_by_parent(
         &mut self,
     ) -> BTreeMap<SourceMacroCallId, Vec<SourceMacroCallId>> {
         let call_ids = self.model.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
@@ -80,7 +80,7 @@ impl SourcePreprocModelBuilder {
         children
     }
 
-    pub(in crate::source::provenance::builder) fn recursive_emitted_tokens_for_call(
+    pub(in crate::source::tables::builder) fn recursive_emitted_tokens_for_call(
         &mut self,
         call: SourceMacroCallId,
         direct_tokens_by_call: &BTreeMap<SourceMacroCallId, Vec<SourceEmittedTokenId>>,
@@ -116,7 +116,7 @@ impl SourcePreprocModelBuilder {
         tokens
     }
 
-    pub(in crate::source::provenance::builder) fn mark_call_unavailable(
+    pub(in crate::source::tables::builder) fn mark_call_unavailable(
         &mut self,
         call: SourceMacroCallId,
         reason: SourcePreprocUnavailable,
@@ -128,7 +128,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn record_emitted_token_owner(
+    pub(in crate::source::tables::builder) fn record_emitted_token_owner(
         &mut self,
         token: SourceEmittedTokenId,
         call: SourceMacroCallId,
@@ -136,7 +136,7 @@ impl SourcePreprocModelBuilder {
         self.emitted_token_owners.insert(token, call);
     }
 
-    pub(in crate::source::provenance::builder) fn source_is_predefine(
+    pub(in crate::source::tables::builder) fn source_is_predefine(
         &self,
         source: PreprocSourceId,
     ) -> bool {

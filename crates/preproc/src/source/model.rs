@@ -1,6 +1,6 @@
 use syntax::preproc::Trace;
 
-use super::{provenance::*, types::*};
+use super::{tables::*, types::*};
 
 impl SourcePreprocModel {
     pub fn new(index: SourcePreprocIndex) -> Self {
