@@ -33,13 +33,13 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
 ) -> PreprocResult<Option<DiagnosticProvenance>> {
     Ok(match provenance {
         SourceTokenProvenance::Source { token_range } => {
-            let (source, range) = map_mapped_source_range(mapped, *token_range)?;
+            let (source, range) = map_source_mapping_range(mapped, *token_range)?;
             let file_id = require_file_backed_source(&source)?;
             Some(DiagnosticProvenance::SourceToken { file_id, range })
         }
         SourceTokenProvenance::MacroBody { definition, body_token_range, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
-            let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
+            let (source, range) = map_source_mapping_range(mapped, *body_token_range)?;
             let file_id = require_file_backed_source(&source)?;
             Some(DiagnosticProvenance::MacroBody {
                 call,
@@ -52,7 +52,8 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
             call, argument_index, argument_token_range, ..
         } => {
             let call = mapped_macro_call(mapped, *call)?;
-            let Ok((source, range)) = map_mapped_source_range(mapped, *argument_token_range) else {
+            let Ok((source, range)) = map_source_mapping_range(mapped, *argument_token_range)
+            else {
                 return Ok(Some(expansion_authority_unavailable()));
             };
             let file_id = require_file_backed_source(&source)?;
@@ -72,7 +73,7 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
             Some(expansion_authority_unavailable())
         }
         SourceTokenProvenance::Predefine { source } => {
-            let _source = map_mapped_source_id(mapped, *source)?;
+            let _source = map_source_mapping_id(mapped, *source)?;
             None
         }
         SourceTokenProvenance::Builtin { name, call, .. } => Some(DiagnosticProvenance::Builtin {

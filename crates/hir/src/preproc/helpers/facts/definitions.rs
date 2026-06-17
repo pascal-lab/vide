@@ -27,7 +27,9 @@ pub(in crate::preproc) fn map_macro_definition(
                 .map(|(param_index, param)| {
                     let range = param
                         .name_range
-                        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+                        .map(|range| {
+                            map_source_mapping_range(mapped, range).map(|(_, range)| range)
+                        })
                         .transpose()?;
                     Ok(MacroDefinitionParam { param_index, name: param.name.clone(), range })
                 })
@@ -61,7 +63,7 @@ pub(in crate::preproc) fn map_macro_param_definition(
         return Ok(None);
     };
     let macro_definition = map_macro_definition(mapped, definition)?;
-    let (source, range) = map_mapped_source_range(mapped, name_source_range)?;
+    let (source, range) = map_source_mapping_range(mapped, name_source_range)?;
     let name_file_id = require_file_backed_source(&source)?;
     if name_file_id != macro_definition.file_id {
         return Err(PreprocError::MismatchedDefinitionRangeFiles {
@@ -72,7 +74,7 @@ pub(in crate::preproc) fn map_macro_param_definition(
     }
     let param_range = param
         .range
-        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+        .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
         .transpose()?;
 
     Ok(Some(MacroParamDefinition {
@@ -107,8 +109,8 @@ pub(in crate::preproc) fn map_definition_ranges(
     name_source_range: SourceRange,
 ) -> PreprocResult<(PreprocSourceMapping, TextRange, TextRange)> {
     let (directive_source, directive_range) =
-        map_mapped_source_range(mapped, directive_source_range)?;
-    let (name_source, name_range) = map_mapped_source_range(mapped, name_source_range)?;
+        map_source_mapping_range(mapped, directive_source_range)?;
+    let (name_source, name_range) = map_source_mapping_range(mapped, name_source_range)?;
     if directive_source != name_source {
         let directive_file_id = require_file_backed_source(&directive_source)?;
         let name_file_id = require_file_backed_source(&name_source)?;

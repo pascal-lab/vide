@@ -185,7 +185,7 @@ pub fn macro_param_reference_definitions_at(
                     continue;
                 };
                 let (_, range) =
-                    match mapped_source_range_at_offset(mapped, token_range, file_id, offset) {
+                    match source_mapping_range_at_offset(mapped, token_range, file_id, offset) {
                         Ok(Some(hit)) => hit,
                         Ok(None) => continue,
                         Err(error) => {
