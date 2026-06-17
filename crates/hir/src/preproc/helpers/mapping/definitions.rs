@@ -64,7 +64,8 @@ pub(in crate::preproc) fn map_macro_param_definition(
     let (source, range) = map_source_mapping_range(mapped, name_source_range)?;
     let name_file_id = require_file_backed_source(&source)?;
     if name_file_id != macro_definition.file_id {
-        return Err(PreprocError::MismatchedDefinitionRangeFiles {
+        return Err(PreprocError::MismatchedRangeFiles {
+            kind: RangeFilesKind::Definition,
             event_id: definition.event_id.raw(),
             directive_file_id: macro_definition.file_id,
             name_file_id,
@@ -96,7 +97,8 @@ pub(in crate::preproc) fn map_definition_ranges(
     if directive_source != name_source {
         let directive_file_id = require_file_backed_source(&directive_source)?;
         let name_file_id = require_file_backed_source(&name_source)?;
-        return Err(PreprocError::MismatchedDefinitionRangeFiles {
+        return Err(PreprocError::MismatchedRangeFiles {
+            kind: RangeFilesKind::Definition,
             event_id,
             directive_file_id,
             name_file_id,

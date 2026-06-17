@@ -6,7 +6,10 @@ pub fn macro_usage_resolution_at(
     offset: TextSize,
 ) -> PreprocResult<Option<MacroUsageResolution>> {
     macro_usage_resolutions_at(db, file_id, offset)?
-        .into_single_or_none(|contexts| PreprocError::AmbiguousMacroReferenceContexts { contexts })
+        .into_single_or_none(|contexts| PreprocError::Ambiguous {
+            kind: AmbiguousKind::MacroReference,
+            count: contexts,
+        })
 }
 
 pub fn macro_usage_resolutions_at(
@@ -69,8 +72,9 @@ pub fn macro_usage_resolutions_at(
         return Ok(resolutions.into_vec());
     }
     if unavailable_contexts > 1 {
-        return Err(PreprocError::AmbiguousMacroReferenceContexts {
-            contexts: unavailable_contexts,
+        return Err(PreprocError::Ambiguous {
+            kind: AmbiguousKind::MacroReference,
+            count: unavailable_contexts,
         });
     }
     finish_empty_single_query(&contexts, first_error)?;
@@ -88,7 +92,7 @@ pub fn macro_reference_at(
     };
     Ok(Some(
         contexts.references.into_exactly_one(|contexts| {
-            PreprocError::AmbiguousMacroReferenceContexts { contexts }
+            PreprocError::Ambiguous { kind: AmbiguousKind::MacroReference, count: contexts }
         })?,
     ))
 }
