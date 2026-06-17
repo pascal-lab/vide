@@ -146,34 +146,37 @@ impl SourcePreprocModel {
         result
     }
 
-    pub fn provenance(&self, entity: SourcePreprocEntity) -> Option<SourcePreprocProvenance> {
-        let (event_id, name, range, name_range) = match entity {
-            SourcePreprocEntity::Define(index) => {
+    pub fn event_location(
+        &self,
+        anchor: SourcePreprocEventAnchor,
+    ) -> Option<SourcePreprocEventLocation> {
+        let (event_id, name, range, name_range) = match anchor {
+            SourcePreprocEventAnchor::Define(index) => {
                 let define = self.index.defines.get(index)?;
                 (define.event_id, define.name.clone(), define.range, define.name_range)
             }
-            SourcePreprocEntity::Undef(index) => {
+            SourcePreprocEventAnchor::Undef(index) => {
                 let undef = self.index.undefs.get(index)?;
                 (undef.event_id, undef.name.clone(), undef.range, undef.name_range)
             }
-            SourcePreprocEntity::Usage(index) => {
+            SourcePreprocEventAnchor::Usage(index) => {
                 let usage = self.index.usages.get(index)?;
                 (usage.event_id, usage.name.clone(), usage.range, usage.name_range)
             }
-            SourcePreprocEntity::Include(index) => {
+            SourcePreprocEventAnchor::Include(index) => {
                 let include = self.index.includes.get(index)?;
                 (include.event_id, None, include.range, include.target_range)
             }
-            SourcePreprocEntity::Conditional(index) => {
+            SourcePreprocEventAnchor::Conditional(index) => {
                 let conditional = self.index.conditionals.get(index)?;
                 (conditional.event_id, None, conditional.range, None)
             }
         };
-        Some(SourcePreprocProvenance { event_id, entity, name, range, name_range })
+        Some(SourcePreprocEventLocation { event_id, anchor, name, range, name_range })
     }
 
-    pub fn source_range(&self, entity: SourcePreprocEntity) -> Option<SourceRange> {
-        self.provenance(entity).map(|provenance| provenance.range)
+    pub fn event_range(&self, anchor: SourcePreprocEventAnchor) -> Option<SourceRange> {
+        self.event_location(anchor).map(|location| location.range)
     }
 
     pub fn define(&self, index: usize) -> Option<&SourceMacroDefine> {
