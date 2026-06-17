@@ -12,7 +12,7 @@ localparam int ENABLED = `HEADER_FLAG;
     let definition =
         macro_definition_at(&db, HEADER, offset_after(header_text, "`define ")).unwrap().unwrap();
 
-    assert_eq!(definition.source.file_id(), Some(HEADER));
+    assert_eq!(definition.file_id, HEADER);
 
     let refs = macro_references(&db, HEADER, &definition).unwrap().references;
 

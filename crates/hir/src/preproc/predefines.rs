@@ -101,7 +101,6 @@ fn configured_predefine_definition(
     let file_id = file_id_for_predefine_source_path(db, &source.path)?;
     Some(MacroDefinition {
         id: MacroDefinitionId::ConfiguredPredefine { file_id, range: source.range },
-        source: MappedPreprocSource::RealFile { file_id },
         file_id,
         name: predefine_name,
         params: None,

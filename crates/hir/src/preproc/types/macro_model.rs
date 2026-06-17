@@ -20,7 +20,6 @@ pub enum MacroResolutionReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinition {
     pub id: MacroDefinitionId,
-    pub source: MappedPreprocSource,
     pub file_id: FileId,
     pub name: SmolStr,
     pub params: Option<Vec<MacroDefinitionParam>>,
