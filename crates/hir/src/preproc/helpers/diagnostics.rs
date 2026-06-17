@@ -85,7 +85,7 @@ fn diagnostic_target_for_token(
             let _call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Blocked
         }
-        SourceTokenOrigin::Stringification { call, .. } => {
+        SourceTokenOrigin::Stringify { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Blocked
         }

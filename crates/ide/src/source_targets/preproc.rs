@@ -179,7 +179,7 @@ pub(super) fn origin_from_syntax_token_origin(origin: TokenOrigin) -> Option<Ori
             arg_range: source_buffer_text_range(&argument_token_range)?,
         }),
         TokenOrigin::TokenPaste { origin } => Some(Origin::TokenPaste { call: origin.call_id }),
-        TokenOrigin::Stringification { origin } => Some(Origin::Stringify { call: origin.call_id }),
+        TokenOrigin::Stringify { origin } => Some(Origin::Stringify { call: origin.call_id }),
         TokenOrigin::Builtin { name, origin } if !name.is_empty() => {
             Some(Origin::Builtin { call: origin.call_id, name: name.to_smolstr() })
         }

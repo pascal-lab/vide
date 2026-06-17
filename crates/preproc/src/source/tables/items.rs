@@ -215,7 +215,7 @@ pub enum SourceTokenOrigin {
         origin: MacroOperationOrigin,
         call: SourceMacroCallId,
     },
-    Stringification {
+    Stringify {
         origin: MacroOperationOrigin,
         call: SourceMacroCallId,
     },

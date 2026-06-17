@@ -3,7 +3,7 @@ use super::{token_origin::*, *};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::source::tables::builder) enum MacroOperationOriginKind {
     TokenPaste,
-    Stringification,
+    Stringify,
 }
 
 impl SourcePreprocModelBuilder {
@@ -79,11 +79,11 @@ impl SourcePreprocModelBuilder {
                     *trace_origin,
                     MacroOperationOriginKind::TokenPaste,
                 ),
-            TokenOrigin::Stringification { origin: trace_origin } => self
+            TokenOrigin::Stringify { origin: trace_origin } => self
                 .resolve_macro_operation_token_origin(
                     token_id,
                     *trace_origin,
-                    MacroOperationOriginKind::Stringification,
+                    MacroOperationOriginKind::Stringify,
                 ),
             TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
         }
@@ -189,8 +189,8 @@ impl SourcePreprocModelBuilder {
             MacroOperationOriginKind::TokenPaste => {
                 Some(SourceTokenOrigin::TokenPaste { origin, call })
             }
-            MacroOperationOriginKind::Stringification => {
-                Some(SourceTokenOrigin::Stringification { origin, call })
+            MacroOperationOriginKind::Stringify => {
+                Some(SourceTokenOrigin::Stringify { origin, call })
             }
         }
     }

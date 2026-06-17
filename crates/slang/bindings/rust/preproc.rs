@@ -80,7 +80,7 @@ pub enum TokenOrigin {
     TokenPaste {
         origin: MacroOperationOrigin,
     },
-    Stringification {
+    Stringify {
         origin: MacroOperationOrigin,
     },
     Unavailable,
@@ -364,7 +364,7 @@ impl TokenOrigin {
                 let Some(origin) = MacroOperationOrigin::from_raw(&raw.origin) else {
                     return Self::Unavailable;
                 };
-                Self::Stringification { origin }
+                Self::Stringify { origin }
             }
             Self::UNAVAILABLE => Self::Unavailable,
             _ => Self::Unavailable,

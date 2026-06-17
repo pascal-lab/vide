@@ -644,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn preproc_display_only_virtual_expansion_diagnostic_is_not_published() {
+    fn preproc_display_only_generated_diagnostic_is_not_published() {
         let top = "module top;\n  `MAKE\nendmodule\n";
         let mut db = db_with_predefines(
             &[
