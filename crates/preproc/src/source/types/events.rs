@@ -3,7 +3,7 @@ use smol_str::SmolStr;
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourcePreprocEntity {
+pub enum SourcePreprocEventAnchor {
     Define(usize),
     Undef(usize),
     Usage(usize),
@@ -12,9 +12,9 @@ pub enum SourcePreprocEntity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourcePreprocProvenance {
+pub struct SourcePreprocEventLocation {
     pub event_id: SourcePreprocEventId,
-    pub entity: SourcePreprocEntity,
+    pub anchor: SourcePreprocEventAnchor,
     pub name: Option<SmolStr>,
     pub range: SourceRange,
     pub name_range: Option<SourceRange>,
@@ -101,14 +101,16 @@ impl SourcePreprocEvent<'_> {
         }
     }
 
-    pub fn entity(&self) -> SourcePreprocEntity {
+    pub fn anchor(&self) -> SourcePreprocEventAnchor {
         match self {
-            SourcePreprocEvent::Define { index, .. } => SourcePreprocEntity::Define(*index),
-            SourcePreprocEvent::Undef { index, .. } => SourcePreprocEntity::Undef(*index),
-            SourcePreprocEvent::Include { index, .. } => SourcePreprocEntity::Include(*index),
+            SourcePreprocEvent::Define { index, .. } => SourcePreprocEventAnchor::Define(*index),
+            SourcePreprocEvent::Undef { index, .. } => SourcePreprocEventAnchor::Undef(*index),
+            SourcePreprocEvent::Include { index, .. } => SourcePreprocEventAnchor::Include(*index),
             SourcePreprocEvent::Conditional { index, .. }
-            | SourcePreprocEvent::Branch { index, .. } => SourcePreprocEntity::Conditional(*index),
-            SourcePreprocEvent::Usage { index, .. } => SourcePreprocEntity::Usage(*index),
+            | SourcePreprocEvent::Branch { index, .. } => {
+                SourcePreprocEventAnchor::Conditional(*index)
+            }
+            SourcePreprocEvent::Usage { index, .. } => SourcePreprocEventAnchor::Usage(*index),
         }
     }
 
