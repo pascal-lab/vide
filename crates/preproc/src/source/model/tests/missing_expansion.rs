@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn source_model_does_not_create_expansion_without_emitted_token_authority() {
+fn source_model_does_not_create_expansion_without_emitted_tokens() {
     let root_text = "`define A 1\nmodule m; localparam int W = `A; endmodule\n";
     let define_start = root_text.find("`define").unwrap();
     let define_end = root_text.find('\n').unwrap();

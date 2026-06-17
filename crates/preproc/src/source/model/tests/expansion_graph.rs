@@ -70,7 +70,7 @@ logic [`HEADER_WIDTH-1:0] data;
         .emitted_tokens()
         .iter()
         .find(|token| token.text.as_str() == "8")
-        .expect("macro body token should be emitted by adapter authority");
+        .expect("macro body token should be present in trace-emitted tokens");
     assert_eq!(expansion.emitted_token_range.start, emitted.id);
     assert_eq!(expansion.emitted_token_range.len, 1);
     let provenance = model.token_provenance().get(emitted.provenance.unwrap()).unwrap();
