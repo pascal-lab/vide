@@ -1,4 +1,4 @@
-use super::*;
+use super::{token_origin::*, *};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::source::provenance::builder) enum MacroOperationProvenanceKind {
@@ -32,48 +32,66 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         token: &SourceEmittedTokenFact,
     ) -> SourceTokenProvenance {
         match &token.provenance {
-            SourceTokenProvenanceFact::Source { token_range } => {
-                SourceTokenProvenance::Source { token_range: *token_range }
+            TokenOrigin::Source { token_range } => source_range_from_origin(token_range)
+                .map(|token_range| SourceTokenProvenance::Source { token_range })
+                .unwrap_or_else(|| self.unavailable_token_provenance()),
+            TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } => {
+                let Some(call_range) = source_range_from_origin(call_range) else {
+                    return self.unavailable_token_provenance();
+                };
+                let Some(body_token_range) = source_range_from_origin(body_token_range) else {
+                    return self.unavailable_token_provenance();
+                };
+                self.resolve_macro_body_token_provenance(
+                    token_id,
+                    SmolStr::new(macro_name),
+                    macro_body_identity(identity),
+                    call_range,
+                    body_token_range,
+                )
             }
-            SourceTokenProvenanceFact::MacroBody {
-                macro_name,
+            TokenOrigin::MacroArgument {
                 identity,
                 call_range,
                 body_token_range,
-            } => self.resolve_macro_body_token_provenance(
-                token_id,
-                macro_name.clone(),
-                *identity,
-                *call_range,
-                *body_token_range,
-            ),
-            SourceTokenProvenanceFact::MacroArgument {
-                identity,
-                body_token_range,
                 argument_token_range,
                 ..
-            } => self.resolve_macro_argument_token_provenance(
-                token_id,
-                *identity,
-                *body_token_range,
-                *argument_token_range,
-            ),
-            SourceTokenProvenanceFact::Builtin { name, identity } if !name.is_empty() => {
-                self.resolve_builtin_token_provenance(token_id, name.clone(), *identity)
+            } => {
+                if source_range_from_origin(call_range).is_none() {
+                    return self.unavailable_token_provenance();
+                }
+                let Some(body_token_range) = source_range_from_origin(body_token_range) else {
+                    return self.unavailable_token_provenance();
+                };
+                let Some(argument_token_range) = source_range_from_origin(argument_token_range)
+                else {
+                    return self.unavailable_token_provenance();
+                };
+                self.resolve_macro_argument_token_provenance(
+                    token_id,
+                    macro_argument_identity(identity),
+                    body_token_range,
+                    argument_token_range,
+                )
             }
-            SourceTokenProvenanceFact::TokenPaste { identity } => self
-                .resolve_macro_operation_token_provenance(
+            TokenOrigin::Builtin { name, identity } if !name.is_empty() => self
+                .resolve_builtin_token_provenance(
                     token_id,
-                    *identity,
-                    MacroOperationProvenanceKind::TokenPaste,
+                    SmolStr::new(name),
+                    macro_builtin_identity(identity),
                 ),
-            SourceTokenProvenanceFact::Stringification { identity } => self
+            TokenOrigin::TokenPaste { identity } => self.resolve_macro_operation_token_provenance(
+                token_id,
+                macro_operation_identity(identity),
+                MacroOperationProvenanceKind::TokenPaste,
+            ),
+            TokenOrigin::Stringification { identity } => self
                 .resolve_macro_operation_token_provenance(
                     token_id,
-                    *identity,
+                    macro_operation_identity(identity),
                     MacroOperationProvenanceKind::Stringification,
                 ),
-            SourceTokenProvenanceFact::Builtin { .. } | SourceTokenProvenanceFact::Unavailable => {
+            TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => {
                 self.unavailable_token_provenance()
             }
         }
@@ -83,13 +101,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &mut self,
         token_id: SourceEmittedTokenId,
         macro_name: SmolStr,
-        identity: Option<SourceMacroBodyIdentity>,
+        identity: SourceMacroBodyIdentity,
         call_range: SourceRange,
         body_token_range: SourceRange,
     ) -> SourceTokenProvenance {
-        let Some(identity) = identity else {
-            return self.unavailable_token_provenance();
-        };
         let Ok(definition) = self.definition_for_identity(identity.definition) else {
             return self.unavailable_token_provenance();
         };
@@ -119,13 +134,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn resolve_macro_argument_token_provenance(
         &mut self,
         token_id: SourceEmittedTokenId,
-        identity: Option<SourceMacroArgumentIdentity>,
+        identity: SourceMacroArgumentIdentity,
         body_token_range: SourceRange,
         argument_token_range: SourceRange,
     ) -> SourceTokenProvenance {
-        let Some(identity) = identity else {
-            return self.unavailable_token_provenance();
-        };
         let Ok(definition) = self.definition_for_identity(identity.definition) else {
             return self.unavailable_token_provenance();
         };
@@ -154,11 +166,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &mut self,
         token_id: SourceEmittedTokenId,
         name: SmolStr,
-        identity: Option<SourceMacroBuiltinIdentity>,
+        identity: SourceMacroBuiltinIdentity,
     ) -> SourceTokenProvenance {
-        let Some(identity) = identity else {
-            return self.unavailable_token_provenance();
-        };
         let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
             return self.unavailable_token_provenance();
         };
@@ -173,12 +182,9 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn resolve_macro_operation_token_provenance(
         &mut self,
         token_id: SourceEmittedTokenId,
-        identity: Option<SourceMacroOperationIdentity>,
+        identity: SourceMacroOperationIdentity,
         kind: MacroOperationProvenanceKind,
     ) -> SourceTokenProvenance {
-        let Some(identity) = identity else {
-            return self.unavailable_token_provenance();
-        };
         if self.definition_for_identity(identity.definition).is_err() {
             return self.unavailable_token_provenance();
         };

@@ -30,6 +30,7 @@ mod expansions;
 mod references;
 mod resolution;
 mod state;
+mod token_origin;
 
 impl<'a> SourcePreprocModelBuilder<'a> {
     pub fn new(index: &'a SourcePreprocIndex) -> Self {

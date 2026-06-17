@@ -33,11 +33,17 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
             value: SmolStr::new("1"),
             display: SmolStr::new("1"),
             kind: SourceTokenKind::Syntax(TokenKind::INTEGER_LITERAL),
-            provenance: SourceTokenProvenanceFact::MacroBody {
-                macro_name: SmolStr::new("A"),
-                identity: None,
-                call_range: usage_range,
-                body_token_range: body_range,
+            provenance: TokenOrigin::MacroBody {
+                macro_name: "A".to_owned(),
+                identity: MacroBodyOrigin {
+                    call_id: MacroCallId(20),
+                    definition_id: MacroDefinitionId(99),
+                    expansion_id: MacroExpansionId(30),
+                    parent_expansion_id: None,
+                    body_token_index: 0,
+                },
+                call_range: source_buffer_range(usage_range),
+                body_token_range: source_buffer_range(body_range),
             },
         }],
         defines: vec![SourceMacroDefine {
@@ -73,4 +79,11 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
         model.token_provenance().get(emitted.provenance).unwrap(),
         SourceTokenProvenance::Unavailable(())
     ));
+}
+
+fn source_buffer_range(range: SourceRange) -> SourceBufferRange {
+    SourceBufferRange {
+        buffer_id: range.source.raw(),
+        range: usize::from(range.range.start())..usize::from(range.range.end()),
+    }
 }
