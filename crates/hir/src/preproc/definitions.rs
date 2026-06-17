@@ -85,7 +85,7 @@ pub fn macro_definition_at(
     }
 
     if let Some(definition) = configured_predefine_definitions_at(db, file_id, offset)?
-        .into_single_or_none(|contexts| PreprocUnavailable::AmbiguousMacroDefinitionContexts {
+        .into_single_or_none(|contexts| PreprocError::AmbiguousMacroDefinitionContexts {
             contexts,
         })?
     {
@@ -102,9 +102,8 @@ pub fn macro_param_definition_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroParamDefinition>> {
-    macro_param_definitions_at(db, file_id, offset)?.into_single_or_none(|contexts| {
-        PreprocUnavailable::AmbiguousMacroParamContexts { contexts }
-    })
+    macro_param_definitions_at(db, file_id, offset)?
+        .into_single_or_none(|contexts| PreprocError::AmbiguousMacroParamContexts { contexts })
 }
 
 pub fn macro_param_definitions_at(

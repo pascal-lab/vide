@@ -12,9 +12,7 @@ pub(in crate::preproc) fn require_file_backed_source(
                 origin: origin.clone(),
             }))
         }
-        PreprocSourceMapping::Unmapped(reason) => {
-            Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason.clone()) })
-        }
+        PreprocSourceMapping::Unmapped(reason) => Err(PreprocError::SourceModel(reason.clone())),
     }
 }
 

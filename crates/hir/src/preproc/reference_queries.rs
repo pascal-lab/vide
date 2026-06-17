@@ -5,9 +5,8 @@ pub fn macro_usage_resolution_at(
     file_id: FileId,
     offset: TextSize,
 ) -> PreprocResult<Option<MacroUsageResolution>> {
-    macro_usage_resolutions_at(db, file_id, offset)?.into_single_or_none(|contexts| {
-        PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts }
-    })
+    macro_usage_resolutions_at(db, file_id, offset)?
+        .into_single_or_none(|contexts| PreprocError::AmbiguousMacroReferenceContexts { contexts })
 }
 
 pub fn macro_usage_resolutions_at(
@@ -43,7 +42,7 @@ pub fn macro_usage_resolutions_at(
             else {
                 if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
                     unavailable_contexts += 1;
-                    record_first_error(&mut first_error, unavailable_error(reason.clone()));
+                    record_first_error(&mut first_error, source_model_error(reason.clone()));
                 }
                 continue;
             };
@@ -80,10 +79,8 @@ pub fn macro_usage_resolutions_at(
         return Ok(resolutions.into_vec());
     }
     if unavailable_contexts > 1 {
-        return Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
-                contexts: unavailable_contexts,
-            },
+        return Err(PreprocError::AmbiguousMacroReferenceContexts {
+            contexts: unavailable_contexts,
         });
     }
     finish_empty_single_query(&contexts, first_error)?;
@@ -99,9 +96,11 @@ pub fn macro_reference_at(
     let Some(contexts) = macro_reference_definitions_at(db, file_id, offset)? else {
         return Ok(None);
     };
-    Ok(Some(contexts.references.into_exactly_one(|contexts| {
-        PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts }
-    })?))
+    Ok(Some(
+        contexts.references.into_exactly_one(|contexts| {
+            PreprocError::AmbiguousMacroReferenceContexts { contexts }
+        })?,
+    ))
 }
 
 pub fn macro_references_in_range(
@@ -155,15 +154,13 @@ pub fn macro_reference_resolution_at(
         return Ok(None);
     };
     if resolution.references.len() != 1 {
-        return Err(PreprocError::Unavailable {
-            reason: PreprocUnavailable::AmbiguousMacroReferenceContexts {
-                contexts: resolution.references.len(),
-            },
+        return Err(PreprocError::AmbiguousMacroReferenceContexts {
+            contexts: resolution.references.len(),
         });
     }
     let reference = resolution.references.pop().unwrap();
     let definition = resolution.definitions.into_single_or_none(|contexts| {
-        PreprocUnavailable::AmbiguousMacroReferenceContexts { contexts }
+        PreprocError::AmbiguousMacroReferenceContexts { contexts }
     })?;
     Ok(definition.map(|definition| MacroReferenceResolution { reference, definition }))
 }
