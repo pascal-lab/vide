@@ -115,24 +115,13 @@ pub(in crate::preproc) fn map_macro_resolution(
         SourceMacroResolution::Resolved { definition, reason, include_chain } => {
             MacroResolution::Resolved {
                 definition_id: (*definition).into(),
-                reason: map_macro_resolution_reason(*reason),
+                reason: *reason,
                 include_chain: map_include_chain(mapped, include_chain)?,
             }
         }
         SourceMacroResolution::Undefined => MacroResolution::Undefined,
         SourceMacroResolution::Unavailable(reason) => MacroResolution::Unavailable(reason.clone()),
     })
-}
-
-pub(in crate::preproc) fn map_macro_resolution_reason(
-    reason: SourceMacroResolutionReason,
-) -> MacroResolutionReason {
-    match reason {
-        SourceMacroResolutionReason::VisibleDefinition => MacroResolutionReason::VisibleDefinition,
-        SourceMacroResolutionReason::IncludeGuardIfNDef => {
-            MacroResolutionReason::IncludeGuardIfNDef
-        }
-    }
 }
 
 pub(in crate::preproc) fn map_reference_ranges(

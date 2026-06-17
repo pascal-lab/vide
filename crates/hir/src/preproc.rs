@@ -3,8 +3,7 @@ use preproc::source::{
     SourceIncludeChainEntry, SourceIncludeStatus, SourceMacroArgument, SourceMacroCall,
     SourceMacroCallId, SourceMacroDefinition, SourceMacroExpansion, SourceMacroExpansionQuery,
     SourceMacroParam, SourceMacroReference, SourceMacroReferenceSite, SourceMacroResolution,
-    SourceMacroResolutionReason, SourcePreprocError, SourcePreprocUnavailable, SourceRange,
-    SourceTokenOrigin,
+    SourcePreprocError, SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
 };
 use smol_str::SmolStr;
 use utils::{
