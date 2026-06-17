@@ -1,7 +1,8 @@
 use super::*;
+use crate::hir_def::macro_file::{MacroFileExpansionDefinition, macro_file_expansion};
 
 #[test]
-fn preproc_macro_expansion_exposes_display_virtual_source() {
+fn preproc_macro_expansion_exposes_macro_file_text() {
     let root_text = r#"`define MAKE_DECL(name) logic name;
 module top;
 `MAKE_DECL(generated)
@@ -9,34 +10,20 @@ endmodule
 "#;
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
 
-    let immediate =
-        immediate_macro_expansion_at(&db, TOP, offset(root_text, "`MAKE_DECL")).unwrap().unwrap();
-    let MacroExpansionQuery::Available(expansion) = immediate else {
-        panic!("MAKE_DECL expansion should be available");
-    };
-    let PreprocSourceMapping::VirtualDisplay { path, origin } = &expansion.display_source else {
-        panic!("macro expansion should expose a display-only virtual expansion source");
-    };
-    assert_eq!(
-        path,
-        &VfsPath::new_virtual_path("/__vide/preproc/profile-0/expansion/0.sv".to_owned())
-    );
-    assert_eq!(
-        origin,
-        &PreprocVirtualOrigin::Expansion { expansion: SourceMacroExpansionId::new(0) }
-    );
+    let macro_file = single_macro_file_at(&db, TOP, offset(root_text, "`MAKE_DECL"));
+    let metadata = macro_file_expansion(&db, macro_file).expect("MAKE_DECL expansion expected");
+    assert!(matches!(
+        &metadata.definition,
+        MacroFileExpansionDefinition::Source(definition)
+            if definition.name.as_str() == "MAKE_DECL"
+    ));
 
-    let mapped = db.source_preproc_model(TOP);
-    let mapped = mapped.as_ref().as_ref().unwrap();
-    let expansion_display =
-        mapped.source_map.expansion_display_text(SourceMacroExpansionId::new(0)).unwrap();
-    assert_eq!(expansion_display, "\nlogic generated;");
-    assert_eq!(expansion.display_text, expansion_display);
-    assert_eq!(expansion.display_range, TextRange::new(1.into(), 17.into()));
+    let expansion = db.macro_expansion(macro_file);
+    assert_eq!(expansion.text, "\nlogic generated;");
 }
 
 #[test]
-fn preproc_macro_expansion_display_keeps_emitted_token_trivia() {
+fn preproc_macro_expansion_text_keeps_emitted_token_trivia() {
     let root_text = r#"`define BLOCK(name) \
   always_ff @(posedge clk) begin \
     name <= 1; \
@@ -47,24 +34,15 @@ endmodule
 "#;
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
 
-    let immediate =
-        immediate_macro_expansion_at(&db, TOP, offset(root_text, "`BLOCK")).unwrap().unwrap();
-    let MacroExpansionQuery::Available(expansion) = immediate else {
-        panic!("BLOCK expansion should be available");
-    };
-    let mapped = db.source_preproc_model(TOP);
-    let mapped = mapped.as_ref().as_ref().unwrap();
-    let display_text = mapped
-        .source_map
-        .expansion_display_text(SourceMacroExpansionId::new(expansion.id.raw()))
-        .unwrap();
+    let macro_file = single_macro_file_at(&db, TOP, offset(root_text, "`BLOCK"));
+    let expansion = db.macro_expansion(macro_file);
 
-    assert_eq!(expansion.display_text, display_text);
     assert!(
-        display_text.contains("\n  always_ff")
-            && display_text.contains("\n    q <= 1;")
-            && display_text.contains("\n  end"),
-        "expansion display text should preserve emitted token trivia: {display_text:?}"
+        expansion.text.contains("\n  always_ff")
+            && expansion.text.contains("\n    q <= 1;")
+            && expansion.text.contains("\n  end"),
+        "expansion text should preserve emitted token trivia: {:?}",
+        expansion.text
     );
 }
 
@@ -88,16 +66,20 @@ endmodule
             .any(|definition| { definition.file_id == TOP && definition.name.as_str() == "PAYL" })
     );
 
-    let next = immediate_macro_expansion_at(&db, TOP, offset(root_text, "`NEXT")).unwrap().unwrap();
-    let MacroExpansionQuery::Available(next) = next else {
-        panic!("NEXT expansion should be available");
-    };
+    let start = offset(root_text, "`NEXT");
+    let end = offset_after(root_text, "`PAYL)");
+    let resolutions = macro_call_resolutions_in_range(&db, TOP, TextRange::new(start, end))
+        .expect("NEXT call should resolve");
+    let next = resolutions
+        .iter()
+        .find(|resolution| resolution.definition.name.as_str() == "NEXT")
+        .expect("NEXT call should expose its written actual argument");
     let argument = next
         .call
         .arguments
         .iter()
         .find(|argument| argument.argument_index == 0)
-        .expect("NEXT call should expose its written actual argument");
+        .expect("NEXT call should expose its first actual argument");
     assert_eq!(text_at_range(root_text, argument.range.unwrap()), "`PAYL");
     assert_eq!(
         argument.tokens.iter().map(|token| token.raw.as_str()).collect::<Vec<_>>(),
@@ -105,29 +87,17 @@ endmodule
     );
 
     let payl_offset = offset(root_text, "`PAYL");
-    let queries = macro_expansion_queries_at(&db, TOP, payl_offset).unwrap();
-    assert!(queries.iter().any(|query| matches!(
-        query,
-        MacroExpansionQuery::Available(expansion)
-            if expansion.definition.name().as_str() == "NEXT"
-    )));
-    assert!(queries.iter().any(|query| matches!(
-        query,
-        MacroExpansionQuery::Available(expansion)
-            if expansion.definition.name().as_str() == "PAYL"
-    )));
-    assert!(!queries.iter().any(|query| matches!(query, MacroExpansionQuery::Unavailable(_))));
-    assert!(matches!(
-        immediate_macro_expansion_at(&db, TOP, payl_offset),
-        Ok(Some(MacroExpansionQuery::Ambiguous(expansions)))
-            if expansions.len() == 2
-                && expansions.iter().any(|expansion| expansion.definition.name().as_str() == "NEXT")
-                && expansions.iter().any(|expansion| expansion.definition.name().as_str() == "PAYL")
-    ));
+    let mut names = hir_macro_files_at_offset(&db, TOP, payl_offset)
+        .into_iter()
+        .filter_map(|macro_file| macro_file_expansion(&db, macro_file))
+        .map(|expansion| expansion_definition_name(&expansion.definition).to_owned())
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(names, vec!["NEXT", "PAYL"]);
 }
 
 #[test]
-fn preproc_numeric_literal_expansion_display_is_not_source_buffer() {
+fn preproc_numeric_literal_expansion_text_is_available() {
     let root_text = r#"`define ONE 12'd1
 module top;
 localparam int W = `ONE;
@@ -135,26 +105,15 @@ endmodule
 "#;
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
 
-    let immediate =
-        immediate_macro_expansion_at(&db, TOP, offset(root_text, "`ONE")).unwrap().unwrap();
-    let MacroExpansionQuery::Available(expansion) = immediate else {
-        panic!("ONE expansion should be available");
-    };
-    let mapped = db.source_preproc_model(TOP);
-    let mapped = mapped.as_ref().as_ref().unwrap();
-    assert_expansion_is_display_only_source_buffer(mapped, &expansion);
-
-    let display_text = mapped
-        .source_map
-        .expansion_display_text(SourceMacroExpansionId::new(expansion.id.raw()))
-        .unwrap();
-    assert!(display_text.contains("12"));
-    assert!(display_text.contains("'d"));
-    assert!(display_text.contains("1"));
+    let macro_file = single_macro_file_at(&db, TOP, offset(root_text, "`ONE"));
+    let expansion = db.macro_expansion(macro_file);
+    assert!(expansion.text.contains("12"));
+    assert!(expansion.text.contains("'d"));
+    assert!(expansion.text.contains("1"));
 }
 
 #[test]
-fn preproc_escaped_identifier_expansion_display_is_not_source_buffer() {
+fn preproc_escaped_identifier_expansion_text_is_available() {
     let root_text = concat!(
         "`define ESCAPED \\escaped.name \n",
         "module top;\n",
@@ -163,18 +122,14 @@ fn preproc_escaped_identifier_expansion_display_is_not_source_buffer() {
     );
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
 
-    let immediate =
-        immediate_macro_expansion_at(&db, TOP, offset(root_text, "`ESCAPED")).unwrap().unwrap();
-    let MacroExpansionQuery::Available(expansion) = immediate else {
-        panic!("ESCAPED expansion should be available");
-    };
-    let mapped = db.source_preproc_model(TOP);
-    let mapped = mapped.as_ref().as_ref().unwrap();
-    assert_expansion_is_display_only_source_buffer(mapped, &expansion);
+    let macro_file = single_macro_file_at(&db, TOP, offset(root_text, "`ESCAPED"));
+    let expansion = db.macro_expansion(macro_file);
+    assert!(expansion.text.contains("\\escaped.name"));
+}
 
-    let display_text = mapped
-        .source_map
-        .expansion_display_text(SourceMacroExpansionId::new(expansion.id.raw()))
-        .unwrap();
-    assert!(display_text.contains("\\escaped.name"));
+fn expansion_definition_name(definition: &MacroFileExpansionDefinition) -> &str {
+    match definition {
+        MacroFileExpansionDefinition::Source(definition) => definition.name.as_str(),
+        MacroFileExpansionDefinition::Builtin { name } => name.as_str(),
+    }
 }

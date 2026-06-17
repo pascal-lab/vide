@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    SourceEmittedTokenRange, SourceIncludeDirectiveId, SourceMacroCallId, SourceMacroDefinitionId,
-    SourceMacroExpansionId, SourceMacroReferenceId, SourcePreprocError, SourcePreprocUnavailable,
+    SourceIncludeDirectiveId, SourceMacroCallId, SourceMacroDefinitionId, SourceMacroExpansionId,
+    SourceMacroReferenceId, SourcePreprocError, SourcePreprocUnavailable,
 };
 use smol_str::SmolStr;
 use utils::{
@@ -12,7 +12,7 @@ use utils::{
 use vfs::FileId;
 
 use crate::{
-    base_db::source_db::{PreprocSourceMapError, PreprocSourceMapping, SourcePreprocQueryError},
+    base_db::source_db::{PreprocSourceMapError, SourcePreprocQueryError},
     hir_def::macro_file::Origin,
 };
 

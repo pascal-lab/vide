@@ -1,4 +1,5 @@
 use super::*;
+use crate::hir_def::macro_file::{MacroFileExpansionDefinition, macro_file_expansion};
 
 #[test]
 fn preproc_include_usage_resolves_to_header_define() {
@@ -39,34 +40,21 @@ endmodule
 "#;
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
 
-    let immediate =
-        immediate_macro_expansion_at(&db, TOP, offset(root_text, "`OBJ")).unwrap().unwrap();
-    let MacroExpansionQuery::Available(immediate) = immediate else {
-        panic!("object-like macro expansion should be available");
-    };
-    assert_eq!(immediate.call.file_id, TOP);
-    assert_eq!(text_at_range(root_text, immediate.call.range), "`OBJ");
-    assert_eq!(immediate.emitted_token_range.len, 1);
+    let obj_file = single_macro_file_at(&db, TOP, offset(root_text, "`OBJ"));
+    let obj = macro_file_expansion(&db, obj_file).expect("object-like macro expansion expected");
+    assert_eq!(obj.call.file_id, TOP);
+    assert_eq!(text_at_range(root_text, obj.call.range), "`OBJ");
+    assert_eq!(db.macro_expansion(obj_file).text.trim(), "8");
 
-    let recursive =
-        recursive_macro_expansion_at(&db, TOP, offset(root_text, "`WRAP")).unwrap().unwrap();
-    assert_eq!(recursive.root_call.file_id, TOP);
-    assert_eq!(text_at_range(root_text, recursive.root_call.range), "`WRAP");
-    assert!(recursive.unavailable.is_empty());
-    assert_eq!(recursive.expansions.len(), 2);
-    let wrap_expansion = recursive
-        .expansions
-        .iter()
-        .find(|expansion| expansion.definition.name().as_str() == "WRAP")
-        .expect("outer expansion should be mapped");
-    let leaf_expansion = recursive
-        .expansions
-        .iter()
-        .find(|expansion| expansion.definition.name().as_str() == "LEAF")
-        .expect("nested expansion should be mapped");
-    assert_eq!(text_at_range(root_text, wrap_expansion.call.range), "`WRAP");
-    assert_eq!(text_at_range(root_text, leaf_expansion.call.range), "`LEAF");
-    assert_eq!(wrap_expansion.child_calls, vec![leaf_expansion.call.id]);
+    let wrap_file = single_macro_file_at(&db, TOP, offset(root_text, "`WRAP"));
+    let wrap = macro_file_expansion(&db, wrap_file).expect("outer macro expansion expected");
+    assert_eq!(wrap.call.file_id, TOP);
+    assert_eq!(text_at_range(root_text, wrap.call.range), "`WRAP");
+    assert!(matches!(
+        &wrap.definition,
+        MacroFileExpansionDefinition::Source(definition) if definition.name.as_str() == "WRAP"
+    ));
+    assert_eq!(db.macro_expansion(wrap_file).text.trim(), "3");
 }
 
 #[test]
@@ -119,28 +107,14 @@ endmodule
     let line_offset = offset(root_text, "`__LINE__");
     let file_offset = offset(root_text, "`__FILE__");
     for (offset, expected_name) in [(line_offset, "__LINE__"), (file_offset, "__FILE__")] {
-        let immediate =
-            immediate_macro_expansion_at(&db, TOP, offset).unwrap().expect("builtin call expected");
-        let MacroExpansionQuery::Available(immediate) = immediate else {
-            panic!("builtin macro expansion should be available");
-        };
-        assert_eq!(immediate.definition.name().as_str(), expected_name);
+        let macro_file = single_macro_file_at(&db, TOP, offset);
+        let expansion = macro_file_expansion(&db, macro_file).expect("builtin call expected");
         assert!(matches!(
-            immediate.definition,
-            MacroExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
+            expansion.definition,
+            MacroFileExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
         ));
 
-        let recursive =
-            recursive_macro_expansion_at(&db, TOP, offset).unwrap().expect("recursive expected");
-        assert!(recursive.unavailable.is_empty());
-        assert!(recursive.expansions.iter().any(|expansion| {
-            matches!(
-                &expansion.definition,
-                MacroExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
-            )
-        }));
-
-        let diagnostic = diagnostic_target_for_range(&db, TOP, immediate.call.range)
+        let diagnostic = diagnostic_target_for_range(&db, TOP, expansion.call.range)
             .unwrap()
             .target
             .expect("diagnostic target expected");
@@ -150,7 +124,7 @@ endmodule
                 if name.as_str() == expected_name
         ));
         assert_eq!(diagnostic.file_id, TOP);
-        assert_eq!(diagnostic.range, immediate.call.range);
+        assert_eq!(diagnostic.range, expansion.call.range);
     }
 }
 
@@ -165,21 +139,10 @@ endmodule
 "#;
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
 
-    for name in ["`EMPTY", "`DROP"] {
-        let immediate =
-            immediate_macro_expansion_at(&db, TOP, offset(root_text, name)).unwrap().unwrap();
-        let MacroExpansionQuery::Available(immediate) = immediate else {
-            panic!("{name} expansion should be available");
-        };
-        assert_eq!(immediate.emitted_token_range.len, 0);
-
-        let mapped = db.source_preproc_model(TOP);
-        let mapped = mapped.as_ref().as_ref().unwrap();
-        let display_text = mapped
-            .source_map
-            .expansion_display_text(SourceMacroExpansionId::new(immediate.id.raw()))
-            .unwrap();
-        assert_eq!(display_text, "");
-        assert_eq!(immediate.display_range, TextRange::empty(TextSize::from(0)));
+    for (name, call_text) in [("`EMPTY", "`EMPTY"), ("`DROP", "`DROP(foo)")] {
+        let macro_file = single_macro_file_at(&db, TOP, offset(root_text, name));
+        let expansion = macro_file_expansion(&db, macro_file).expect("macro expansion expected");
+        assert_eq!(text_at_range(root_text, expansion.call.range), call_text);
+        assert_eq!(db.macro_expansion(macro_file).text, "");
     }
 }

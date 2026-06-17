@@ -19,14 +19,17 @@ use crate::{
         },
         salsa::{self, Durability},
         source_db::{
-            FileLoader, PreprocExpansionSourceBuffer, PreprocVirtualOrigin, SourceDb,
-            SourceDbStorage, SourceFileKind, SourceRootDb, SourceRootDbStorage,
+            FileLoader, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
         },
         source_root::{SourceRoot, SourceRootId},
     },
     container::InFile,
     db::{HirDb, HirDbStorage, InternDbStorage},
-    hir_def::module::ModuleId,
+    hir_def::{
+        macro_file::{MacroFileId, macro_files_at_offset as hir_macro_files_at_offset},
+        module::ModuleId,
+    },
     source_map::IsSrc,
 };
 
@@ -173,18 +176,10 @@ fn text_at_range(text: &str, range: TextRange) -> &str {
     &text[usize::from(range.start())..usize::from(range.end())]
 }
 
-fn assert_expansion_is_display_only_source_buffer(
-    mapped: &MappedSourcePreprocModel,
-    expansion: &MacroExpansion,
-) {
-    let expansion_id = SourceMacroExpansionId::new(expansion.id.raw());
-    let entry =
-        mapped.source_map.expansion(expansion_id).expect("expansion should have a display entry");
-    assert!(matches!(&entry.source_buffer, PreprocExpansionSourceBuffer::DisplayOnly { .. }));
-    assert!(matches!(
-        mapped.source_map.emitted_source_buffer_range(expansion_id, expansion.emitted_token_range),
-        Err(PreprocSourceMapError::DisplayOnlyVirtualSource { .. })
-    ));
+fn single_macro_file_at(db: &TestDb, file_id: FileId, offset: TextSize) -> MacroFileId {
+    let macro_files = hir_macro_files_at_offset(db, file_id, offset);
+    assert_eq!(macro_files.len(), 1);
+    macro_files[0]
 }
 
 mod diagnostics;
