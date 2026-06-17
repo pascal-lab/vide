@@ -123,8 +123,7 @@ impl SourcePreprocModelBuilder {
     ) {
         self.expansions_partial = true;
         if let Some(call) = self.model.macro_calls.get_mut(call) {
-            call.expansion = None;
-            call.status = SourceMacroCallStatus::ExpansionUnavailable(reason);
+            call.expansion = Err(reason);
         }
     }
 
