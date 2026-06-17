@@ -21,7 +21,26 @@ pub enum Origin {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExpansionSourceMap {
-    origins: Vec<Option<Origin>>,
+    origins: Vec<Option<OriginSlot>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OriginSlot {
+    origin: Origin,
+    source: Option<OriginSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OriginSource {
+    file: FileId,
+    range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpansionSourceHit {
+    pub expanded_token_index: usize,
+    pub range: TextRange,
+    pub origin: Origin,
 }
 
 impl ExpansionSourceMap {
@@ -34,14 +53,34 @@ impl ExpansionSourceMap {
     }
 
     pub fn map_up(&self, expanded_token_index: usize) -> Option<Origin> {
-        self.origins.get(expanded_token_index).cloned().flatten()
+        self.origins
+            .get(expanded_token_index)
+            .and_then(|slot| slot.as_ref().map(|slot| slot.origin.clone()))
     }
 
     pub fn map_down(&self, origin: &Origin) -> Vec<usize> {
         self.origins
             .iter()
             .enumerate()
-            .filter_map(|(index, candidate)| (candidate.as_ref() == Some(origin)).then_some(index))
+            .filter_map(|(index, candidate)| {
+                candidate.as_ref().filter(|slot| &slot.origin == origin).map(|_| index)
+            })
+            .collect()
+    }
+
+    pub fn source_hits(&self, file: FileId, offset: TextSize) -> Vec<ExpansionSourceHit> {
+        self.origins
+            .iter()
+            .enumerate()
+            .filter_map(|(expanded_token_index, slot)| {
+                let slot = slot.as_ref()?;
+                let source = slot.source?;
+                (source.file == file && source.range.contains(offset)).then(|| ExpansionSourceHit {
+                    expanded_token_index,
+                    range: source.range,
+                    origin: slot.origin.clone(),
+                })
+            })
             .collect()
     }
 
@@ -58,7 +97,7 @@ impl ExpansionSourceMap {
                 trace
                     .emitted_tokens
                     .get(raw)
-                    .and_then(|token| origin_from_token_origin(&token.provenance, source_map))
+                    .and_then(|token| origin_slot_from_token_origin(&token.provenance, source_map))
             })
             .collect();
         Self { origins }
@@ -72,43 +111,62 @@ impl ExpansionSourceMap {
         Self {
             origins: origins
                 .into_iter()
-                .map(|origin| origin_from_token_origin(origin, source_map))
+                .map(|origin| origin_slot_from_token_origin(origin, source_map))
                 .collect(),
         }
     }
 }
 
-fn origin_from_token_origin(origin: &TokenOrigin, source_map: &PreprocSourceMap) -> Option<Origin> {
+fn origin_slot_from_token_origin(
+    origin: &TokenOrigin,
+    source_map: &PreprocSourceMap,
+) -> Option<OriginSlot> {
     match origin {
-        TokenOrigin::Source { token_range } => file_origin(source_map, token_range),
+        TokenOrigin::Source { token_range } => {
+            let source = source_location(source_map, token_range)?;
+            Some(OriginSlot {
+                origin: Origin::File { file: source.file, range: source.range },
+                source: Some(source),
+            })
+        }
         TokenOrigin::MacroBody { identity, body_token_range, .. } => Some(Origin::MacroBody {
             call: identity.call_id,
             def: identity.definition_id,
-            body_range: text_range(body_token_range)?,
-        }),
-        TokenOrigin::MacroArgument { identity, argument_token_range, .. } => {
-            Some(Origin::MacroArg {
+            body_range: source_location(source_map, body_token_range)
+                .map_or(text_range(body_token_range)?, |source| source.range),
+        })
+        .map(|origin| OriginSlot { origin, source: source_location(source_map, body_token_range) }),
+        TokenOrigin::MacroArgument { identity, argument_token_range, .. } => Some(OriginSlot {
+            origin: Origin::MacroArg {
                 call: identity.call_id,
                 arg_index: usize::try_from(identity.argument_index).ok()?,
-                arg_range: text_range(argument_token_range)?,
-            })
+                arg_range: source_location(source_map, argument_token_range)
+                    .map_or(text_range(argument_token_range)?, |source| source.range),
+            },
+            source: source_location(source_map, argument_token_range),
+        }),
+        TokenOrigin::TokenPaste { identity } => {
+            Some(OriginSlot { origin: Origin::TokenPaste { call: identity.call_id }, source: None })
         }
-        TokenOrigin::TokenPaste { identity } => Some(Origin::TokenPaste { call: identity.call_id }),
         TokenOrigin::Stringification { identity } => {
-            Some(Origin::Stringify { call: identity.call_id })
+            Some(OriginSlot { origin: Origin::Stringify { call: identity.call_id }, source: None })
         }
-        TokenOrigin::Builtin { name, identity } if !name.is_empty() => {
-            Some(Origin::Builtin { call: identity.call_id, name: name.to_smolstr() })
-        }
+        TokenOrigin::Builtin { name, identity } if !name.is_empty() => Some(OriginSlot {
+            origin: Origin::Builtin { call: identity.call_id, name: name.to_smolstr() },
+            source: None,
+        }),
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
     }
 }
 
-fn file_origin(source_map: &PreprocSourceMap, token_range: &SourceBufferRange) -> Option<Origin> {
+fn source_location(
+    source_map: &PreprocSourceMap,
+    token_range: &SourceBufferRange,
+) -> Option<OriginSource> {
     let source_range = source_range_from_trace(token_range)?;
     let range = source_map.map_range(source_range).ok()?;
     let file = source_map.file_id(source_range.source).ok()?;
-    Some(Origin::File { file, range })
+    Some(OriginSource { file, range })
 }
 
 fn source_range_from_trace(range: &SourceBufferRange) -> Option<SourceRange> {

@@ -4,6 +4,7 @@ use ::preproc::source::{
 };
 use syntax::SyntaxTree;
 use triomphe::Arc;
+use utils::line_index::TextSize;
 use vfs::FileId;
 
 use crate::{base_db::salsa, db::HirDb};
@@ -12,7 +13,7 @@ mod source_map;
 #[cfg(test)]
 mod tests;
 
-pub use source_map::{ExpansionSourceMap, Origin};
+pub use source_map::{ExpansionSourceHit, ExpansionSourceMap, Origin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct MacroFileId(pub salsa::InternId);
@@ -28,6 +29,37 @@ pub struct ExpansionInfo {
     pub text: String,
     pub parse: SyntaxTree,
     pub source_map: ExpansionSourceMap,
+}
+
+pub fn macro_files_at_offset(
+    db: &dyn HirDb,
+    file_id: FileId,
+    offset: TextSize,
+) -> Vec<MacroFileId> {
+    let mut model_file_ids = vec![file_id];
+    for model_file_id in &db.source_preproc_contexts_for_file(file_id).model_file_ids {
+        if !model_file_ids.contains(model_file_id) {
+            model_file_ids.push(*model_file_id);
+        }
+    }
+
+    let mut macro_files = Vec::new();
+    for model_file in model_file_ids {
+        let mapped = db.source_preproc_model(model_file);
+        let Ok(mapped) = mapped.as_ref() else {
+            continue;
+        };
+        for call in mapped.macro_call_ids_at(file_id, offset) {
+            if emitted_range_for_call(&mapped.model, call).is_none() {
+                continue;
+            }
+            let macro_file = db.intern_macro_file(MacroFileLoc { model_file, call });
+            if !macro_files.contains(&macro_file) {
+                macro_files.push(macro_file);
+            }
+        }
+    }
+    macro_files
 }
 
 pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> Arc<ExpansionInfo> {
