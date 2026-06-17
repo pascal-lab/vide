@@ -27,19 +27,24 @@ pub(in crate::preproc) fn emitted_token_ids(
     (start..end).map(SourceEmittedTokenId::new)
 }
 
-pub(in crate::preproc) fn map_token_provenance(
+pub(in crate::preproc) fn diagnostic_provenance_for_token(
     mapped: &MappedSourcePreprocModel,
     provenance: &SourceTokenProvenanceFact,
-) -> PreprocResult<TokenProvenance> {
+) -> PreprocResult<Option<DiagnosticProvenance>> {
     Ok(match provenance {
         SourceTokenProvenanceFact::Source { token_range } => {
             let (source, range) = map_mapped_source_range(mapped, *token_range)?;
-            TokenProvenance::SourceToken { source, range }
+            Some(DiagnosticProvenance::SourceToken { source, range })
         }
         SourceTokenProvenanceFact::MacroBody { definition, body_token_range, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
-            TokenProvenance::MacroBody { call, definition_id: (*definition).into(), source, range }
+            Some(DiagnosticProvenance::MacroBody {
+                call,
+                definition_id: (*definition).into(),
+                source,
+                range,
+            })
         }
         SourceTokenProvenanceFact::MacroArgument {
             call,
@@ -49,26 +54,34 @@ pub(in crate::preproc) fn map_token_provenance(
         } => {
             let call = mapped_macro_call(mapped, *call)?;
             let Ok((source, range)) = map_mapped_source_range(mapped, *argument_token_range) else {
-                return Ok(TokenProvenance::Unavailable);
+                return Ok(Some(expansion_authority_unavailable()));
             };
-            TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
+            Some(DiagnosticProvenance::MacroArgument {
+                call,
+                argument_index: *argument_index,
+                source,
+                range,
+            })
         }
         SourceTokenProvenanceFact::TokenPaste { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
-            TokenProvenance::TokenPaste
+            Some(expansion_authority_unavailable())
         }
         SourceTokenProvenanceFact::Stringification { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
-            TokenProvenance::Stringification
+            Some(expansion_authority_unavailable())
         }
         SourceTokenProvenanceFact::Predefine { source } => {
             let _source = map_mapped_source_id(mapped, *source)?;
-            TokenProvenance::Predefine
+            None
         }
         SourceTokenProvenanceFact::Builtin { name, call, .. } => {
-            TokenProvenance::Builtin { name: name.clone(), call: mapped_macro_call(mapped, *call)? }
+            Some(DiagnosticProvenance::Builtin {
+                name: name.clone(),
+                call: mapped_macro_call(mapped, *call)?,
+            })
         }
-        SourceTokenProvenanceFact::Unavailable(_) => TokenProvenance::Unavailable,
+        SourceTokenProvenanceFact::Unavailable(_) => Some(expansion_authority_unavailable()),
     })
 }
 
@@ -96,38 +109,12 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
         let Some(provenance) = mapped.model.token_provenance().get(token.provenance) else {
             return Err(unavailable_error(SourcePreprocUnavailable::ExpansionAuthorityUnavailable));
         };
-        match map_token_provenance(mapped, provenance)? {
-            TokenProvenance::SourceToken { source, range } => {
-                return Ok(DiagnosticProvenance::SourceToken { source, range });
+        match diagnostic_provenance_for_token(mapped, provenance)? {
+            Some(DiagnosticProvenance::Unavailable(reason)) => {
+                saw_unavailable = Some(reason);
             }
-            TokenProvenance::MacroBody { call, definition_id, source, range, .. } => {
-                return Ok(DiagnosticProvenance::MacroBody { call, definition_id, source, range });
-            }
-            TokenProvenance::MacroArgument { call, argument_index, source, range, .. } => {
-                return Ok(DiagnosticProvenance::MacroArgument {
-                    call,
-                    argument_index,
-                    source,
-                    range,
-                });
-            }
-            TokenProvenance::Unavailable => {
-                saw_unavailable = Some(PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-                ));
-            }
-            TokenProvenance::TokenPaste | TokenProvenance::Stringification => {
-                saw_unavailable = Some(PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-                ));
-            }
-            TokenProvenance::Predefine => {}
-            TokenProvenance::Builtin { call, name } => {
-                return Ok(DiagnosticProvenance::Builtin {
-                    call: call.clone(),
-                    name: name.clone(),
-                });
-            }
+            Some(provenance) => return Ok(provenance),
+            None => {}
         }
     }
 
@@ -149,4 +136,10 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
         source: source_buffer_source,
         range: source_buffer_range,
     })
+}
+
+fn expansion_authority_unavailable() -> DiagnosticProvenance {
+    DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
+        SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+    ))
 }
