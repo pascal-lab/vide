@@ -14,7 +14,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn resolve_usage_reference(
         &mut self,
         name: &str,
-        identity: Option<SourceMacroDefinitionKey>,
+        identity: Option<MacroDefinitionId>,
     ) -> SourceMacroResolution {
         let Some(identity) = identity else {
             return self.resolve_visible_reference(name);

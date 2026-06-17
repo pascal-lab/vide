@@ -42,7 +42,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
         }],
         defines: vec![SourceMacroDefine {
             event_id: SourcePreprocEventId(0),
-            identity: Some(SourceMacroDefinitionKey::new(10)),
+            identity: Some(MacroDefinitionId(10)),
             name: Some(SmolStr::new("A")),
             name_range: Some(name_range),
             params: None,
@@ -55,7 +55,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
         }],
         usages: vec![SourceMacroUsage {
             event_id: SourcePreprocEventId(1),
-            identity: Some(SourceMacroCallKey::new(20)),
+            identity: Some(MacroCallId(20)),
             definition_identity: None,
             expansion_identity: None,
             parent_expansion_identity: None,

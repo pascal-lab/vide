@@ -8,9 +8,9 @@ pub struct SourcePreprocModelBuilder<'a> {
     index: &'a SourcePreprocIndex,
     tables: SourcePreprocTables,
     definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
-    definition_ids_by_identity: BTreeMap<SourceMacroDefinitionKey, SourceMacroDefinitionId>,
-    call_ids_by_identity: BTreeMap<SourceMacroCallKey, SourceMacroCallId>,
-    call_ids_by_expansion_identity: BTreeMap<SourceMacroExpansionKey, SourceMacroCallId>,
+    definition_ids_by_identity: BTreeMap<MacroDefinitionId, SourceMacroDefinitionId>,
+    call_ids_by_identity: BTreeMap<MacroCallId, SourceMacroCallId>,
+    call_ids_by_expansion_identity: BTreeMap<MacroExpansionId, SourceMacroCallId>,
     // Expansion ownership comes from trace identities, not from source provenance.
     emitted_token_owners: BTreeMap<SourceEmittedTokenId, SourceMacroCallId>,
     current_state: BTreeMap<SmolStr, SourceMacroDefinitionId>,
