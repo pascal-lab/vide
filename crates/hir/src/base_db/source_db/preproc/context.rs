@@ -97,22 +97,20 @@ fn preproc_context_file_ids(
         collect_context_source_range(mapped, *range, &mut file_ids);
     }
 
-    for provenance in mapped.model.token_provenance().iter() {
-        match provenance {
-            SourceTokenProvenance::Source { token_range }
-            | SourceTokenProvenance::MacroBody { body_token_range: token_range, .. } => {
+    for origin in mapped.model.token_origins().iter() {
+        match origin {
+            SourceTokenOrigin::Source { token_range }
+            | SourceTokenOrigin::MacroBody { body_token_range: token_range, .. } => {
                 collect_context_source_range(mapped, *token_range, &mut file_ids);
             }
-            SourceTokenProvenance::MacroArgument {
-                body_token_range, argument_token_range, ..
-            } => {
+            SourceTokenOrigin::MacroArgument { body_token_range, argument_token_range, .. } => {
                 collect_context_source_range(mapped, *body_token_range, &mut file_ids);
                 collect_context_source_range(mapped, *argument_token_range, &mut file_ids);
             }
-            SourceTokenProvenance::TokenPaste { .. }
-            | SourceTokenProvenance::Stringification { .. }
-            | SourceTokenProvenance::Builtin { .. } => {}
-            SourceTokenProvenance::Predefine { source } => {
+            SourceTokenOrigin::TokenPaste { .. }
+            | SourceTokenOrigin::Stringification { .. }
+            | SourceTokenOrigin::Builtin { .. } => {}
+            SourceTokenOrigin::Predefine { source } => {
                 collect_context_source(mapped, *source, &mut file_ids);
             }
         }

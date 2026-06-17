@@ -1,7 +1,7 @@
 use ::preproc::source::{
     PreprocSourceId, SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCallId,
     SourceMacroExpansionId, SourceMacroReferenceId, SourcePosition, SourcePreprocError,
-    SourcePreprocModel, SourcePreprocUnavailable, SourceRange, SourceTokenProvenance,
+    SourcePreprocModel, SourcePreprocUnavailable, SourceRange, SourceTokenOrigin,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;

@@ -40,7 +40,7 @@ impl SourcePreprocModelBuilder {
                 macro_calls: SourceMacroCallTable::default(),
                 macro_expansions: SourceMacroExpansionTable::default(),
                 emitted_tokens: SourceEmittedTokenTable::default(),
-                token_provenance: SourceTokenProvenanceTable::default(),
+                token_origins: SourceTokenOriginTable::default(),
                 include_graph: SourceIncludeGraph::default(),
                 inactive_ranges: Vec::new(),
                 state_timeline: SourceMacroStateTimeline::default(),
