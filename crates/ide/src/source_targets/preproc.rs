@@ -1,12 +1,15 @@
+#[cfg(test)]
+use hir::hir_def::macro_file::MacroCallLoc;
 use hir::{
     base_db::source_db::SourceDb,
     db::HirDb,
-    hir_def::macro_file::{ExpansionSourceHit, MacroFileId, Origin},
+    hir_def::macro_file::{ExpansionSourceHit, MacroCallId, MacroFileId, Origin},
 };
+#[cfg(test)]
 use smol_str::ToSmolStr;
 use syntax::{
     SourceBufferRange, SyntaxElement, SyntaxNode, SyntaxTokenWithParent, TokenKind, WalkEvent,
-    preproc::TokenOrigin,
+    preproc::{MacroCallId as TraceMacroCallId, TokenOrigin},
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -37,7 +40,7 @@ pub(super) fn preproc_source_target_at_offset<'tree>(
 
     match preproc_hits_at_offset(db, &macro_files, file_id, offset) {
         PreprocHitLookup::Available { range, hits } => {
-            let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &hits)
+            let Some(tokens) = syntax_tokens_for_preproc_hit(db, root, offset, precedence, &hits)
             else {
                 return SourceTargetProviderResult::Blocked(
                     SourceTargetBlock::preproc_unavailable(range),
@@ -70,7 +73,7 @@ fn preproc_hits_at_offset(
     for (expansion_index, macro_file) in macro_files.iter().enumerate() {
         let expansion = db.macro_expansion(*macro_file);
         for source_hit in expansion.source_map.source_hits(file_id, offset) {
-            let Some(hit) = preproc_hit_for_source_hit(expansion_index, source_hit) else {
+            let Some(hit) = preproc_hit_for_source_hit(db, expansion_index, source_hit) else {
                 continue;
             };
             push_unique_preproc_hit(&mut hits, hit);
@@ -91,10 +94,11 @@ fn preproc_hits_at_offset(
 }
 
 fn preproc_hit_for_source_hit(
+    db: &dyn HirDb,
     expansion: usize,
     source_hit: ExpansionSourceHit,
 ) -> Option<PreprocTokenHit> {
-    let call = origin_call(&source_hit.origin).unwrap_or(0);
+    let call = origin_call(db, &source_hit.origin).unwrap_or(0);
     Some(PreprocTokenHit {
         expansion,
         call,
@@ -105,7 +109,7 @@ fn preproc_hit_for_source_hit(
     })
 }
 
-fn origin_call(origin: &Origin) -> Option<usize> {
+fn origin_call(db: &dyn HirDb, origin: &Origin) -> Option<usize> {
     let call = match origin {
         Origin::File { .. } => return None,
         Origin::MacroBody { call, .. }
@@ -114,7 +118,7 @@ fn origin_call(origin: &Origin) -> Option<usize> {
         | Origin::Stringify { call }
         | Origin::Builtin { call, .. } => call,
     };
-    usize::try_from(call.0).ok()
+    usize::try_from(db.lookup_intern_macro_call(*call).trace_call.0).ok()
 }
 
 pub(super) fn push_unique_preproc_hit(hits: &mut Vec<PreprocTokenHit>, hit: PreprocTokenHit) {
@@ -125,6 +129,7 @@ pub(super) fn push_unique_preproc_hit(hits: &mut Vec<PreprocTokenHit>, hit: Prep
 }
 
 pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
+    db: &dyn HirDb,
     root: SyntaxNode<'tree>,
     offset: TextSize,
     precedence: &impl Fn(TokenKind) -> usize,
@@ -132,7 +137,7 @@ pub(super) fn syntax_tokens_for_preproc_hit<'tree>(
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
     let origins = hits.iter().filter_map(macro_origin_for_hit).collect::<Vec<_>>();
     if !origins.is_empty() {
-        return syntax_tokens_for_macro_origins(root, &origins);
+        return syntax_tokens_for_macro_origins(db, root, &origins);
     }
 
     normal_syntax_source_target_at_offset(root, offset, precedence)
@@ -146,6 +151,7 @@ fn macro_origin_for_hit(hit: &PreprocTokenHit) -> Option<&Origin> {
 }
 
 fn syntax_tokens_for_macro_origins<'tree>(
+    db: &dyn HirDb,
     root: SyntaxNode<'tree>,
     origins: &[&Origin],
 ) -> Option<Vec<SyntaxTokenWithParent<'tree>>> {
@@ -154,37 +160,93 @@ fn syntax_tokens_for_macro_origins<'tree>(
         let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
             continue;
         };
-        let Some(origin) = origin_from_syntax_token_origin(token.preprocessor_trace_origin())
-        else {
-            continue;
-        };
-        if origins.contains(&&origin) && !tokens.contains(&token) {
+        let token_origin = token.preprocessor_trace_origin();
+        if origins
+            .iter()
+            .any(|origin| syntax_token_origin_matches(db, token_origin.clone(), origin))
+            && !tokens.contains(&token)
+        {
             tokens.push(token);
         }
     }
     (!tokens.is_empty()).then_some(tokens)
 }
 
-pub(super) fn origin_from_syntax_token_origin(origin: TokenOrigin) -> Option<Origin> {
+fn syntax_token_origin_matches(
+    db: &dyn HirDb,
+    token_origin: TokenOrigin,
+    expected: &Origin,
+) -> bool {
+    match (token_origin, expected) {
+        (TokenOrigin::Source { .. }, Origin::File { .. }) => false,
+        (
+            TokenOrigin::MacroBody { origin, body_token_range, .. },
+            Origin::MacroBody { call, def, body_range },
+        ) => {
+            macro_call_matches(db, *call, origin.call_id)
+                && *def == origin.definition_id
+                && source_buffer_text_range(&body_token_range) == Some(*body_range)
+        }
+        (
+            TokenOrigin::MacroArgument { origin, argument_token_range, .. },
+            Origin::MacroArg { call, arg_index, arg_range },
+        ) => {
+            macro_call_matches(db, *call, origin.call_id)
+                && usize::try_from(origin.argument_index).ok() == Some(*arg_index)
+                && source_buffer_text_range(&argument_token_range) == Some(*arg_range)
+        }
+        (TokenOrigin::TokenPaste { origin }, Origin::TokenPaste { call })
+        | (TokenOrigin::Stringify { origin }, Origin::Stringify { call }) => {
+            macro_call_matches(db, *call, origin.call_id)
+        }
+        (TokenOrigin::Builtin { name, origin }, Origin::Builtin { call, name: expected }) => {
+            !name.is_empty()
+                && macro_call_matches(db, *call, origin.call_id)
+                && name == expected.as_str()
+        }
+        _ => false,
+    }
+}
+
+fn macro_call_matches(db: &dyn HirDb, call: MacroCallId, trace_call: TraceMacroCallId) -> bool {
+    db.lookup_intern_macro_call(call).trace_call == trace_call
+}
+
+#[cfg(test)]
+pub(super) fn origin_from_syntax_token_origin(
+    db: &dyn HirDb,
+    model_file: FileId,
+    origin: TokenOrigin,
+) -> Option<Origin> {
     match origin {
         TokenOrigin::Source { .. } => None,
         TokenOrigin::MacroBody { origin, body_token_range, .. } => Some(Origin::MacroBody {
-            call: origin.call_id,
+            call: macro_call_id(db, model_file, origin.call_id),
             def: origin.definition_id,
             body_range: source_buffer_text_range(&body_token_range)?,
         }),
         TokenOrigin::MacroArgument { origin, argument_token_range, .. } => Some(Origin::MacroArg {
-            call: origin.call_id,
+            call: macro_call_id(db, model_file, origin.call_id),
             arg_index: usize::try_from(origin.argument_index).ok()?,
             arg_range: source_buffer_text_range(&argument_token_range)?,
         }),
-        TokenOrigin::TokenPaste { origin } => Some(Origin::TokenPaste { call: origin.call_id }),
-        TokenOrigin::Stringify { origin } => Some(Origin::Stringify { call: origin.call_id }),
-        TokenOrigin::Builtin { name, origin } if !name.is_empty() => {
-            Some(Origin::Builtin { call: origin.call_id, name: name.to_smolstr() })
+        TokenOrigin::TokenPaste { origin } => {
+            Some(Origin::TokenPaste { call: macro_call_id(db, model_file, origin.call_id) })
         }
+        TokenOrigin::Stringify { origin } => {
+            Some(Origin::Stringify { call: macro_call_id(db, model_file, origin.call_id) })
+        }
+        TokenOrigin::Builtin { name, origin } if !name.is_empty() => Some(Origin::Builtin {
+            call: macro_call_id(db, model_file, origin.call_id),
+            name: name.to_smolstr(),
+        }),
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
     }
+}
+
+#[cfg(test)]
+fn macro_call_id(db: &dyn HirDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
+    db.intern_macro_call(MacroCallLoc { model_file, trace_call })
 }
 
 fn source_buffer_text_range(range: &SourceBufferRange) -> Option<TextRange> {

@@ -147,10 +147,18 @@ fn operation_origin() -> MacroOperationOrigin {
     }
 }
 
+fn test_macro_call(db: &TestDb, trace_call: TraceMacroCallId) -> MacroCallId {
+    db.intern_macro_call(MacroCallLoc { model_file: TOP, trace_call })
+}
+
 #[test]
 fn expansion_source_map_maps_trace_origins_and_missing_slots() {
+    let db = TestDb::default();
     let mut preproc_source_map = PreprocSourceMap::default();
     preproc_source_map.insert_real_file(PreprocSourceId::from(7), TOP, 64);
+    let body_call = test_macro_call(&db, TraceMacroCallId(11));
+    let arg_call = test_macro_call(&db, TraceMacroCallId(21));
+    let operation_call = test_macro_call(&db, TraceMacroCallId(31));
     let origins = vec![
         TokenOrigin::Source { token_range: range(7, 1..4) },
         TokenOrigin::MacroBody {
@@ -170,36 +178,33 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
         TokenOrigin::Unavailable,
     ];
 
-    let source_map = ExpansionSourceMap::from_token_origins(&origins, &preproc_source_map);
+    let source_map =
+        ExpansionSourceMap::from_token_origins(&db, TOP, &origins, &preproc_source_map);
 
     assert_eq!(source_map.map_up(0), Some(Origin::File { file: TOP, range: text_range(1, 4) }));
     assert_eq!(
         source_map.map_up(1),
         Some(Origin::MacroBody {
-            call: TraceMacroCallId(11),
+            call: body_call,
             def: MacroDefinitionId(12),
             body_range: text_range(20, 24),
         })
     );
     assert_eq!(
         source_map.map_up(2),
-        Some(Origin::MacroArg {
-            call: TraceMacroCallId(21),
-            arg_index: 2,
-            arg_range: text_range(50, 54),
-        })
+        Some(Origin::MacroArg { call: arg_call, arg_index: 2, arg_range: text_range(50, 54) })
     );
-    assert_eq!(source_map.map_up(3), Some(Origin::TokenPaste { call: TraceMacroCallId(31) }));
+    assert_eq!(source_map.map_up(3), Some(Origin::TokenPaste { call: operation_call }));
     assert_eq!(source_map.map_up(4), None);
-    assert_eq!(source_map.map_down(&Origin::TokenPaste { call: TraceMacroCallId(31) }), vec![3]);
-    assert!(source_map.map_down(&Origin::Stringify { call: TraceMacroCallId(31) }).is_empty());
+    assert_eq!(source_map.map_down(&Origin::TokenPaste { call: operation_call }), vec![3]);
+    assert!(source_map.map_down(&Origin::Stringify { call: operation_call }).is_empty());
     assert_eq!(
         source_map.source_hits(TOP, TextSize::from(21)),
         vec![ExpansionSourceHit {
             expanded_token_index: 1,
             range: text_range(20, 24),
             origin: Origin::MacroBody {
-                call: TraceMacroCallId(11),
+                call: body_call,
                 def: MacroDefinitionId(12),
                 body_range: text_range(20, 24),
             },
@@ -211,7 +216,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
             expanded_token_index: 2,
             range: text_range(50, 54),
             origin: Origin::MacroArg {
-                call: TraceMacroCallId(21),
+                call: arg_call,
                 arg_index: 2,
                 arg_range: text_range(50, 54),
             },

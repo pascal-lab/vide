@@ -1,7 +1,11 @@
+use syntax::preproc::MacroCallId as TraceMacroCallId;
+
 use super::*;
-use crate::hir_def::macro_file::Origin;
+use crate::hir_def::macro_file::{MacroCallId, MacroCallLoc, Origin};
 
 pub(in crate::preproc) fn diagnostic_target_for_call(
+    db: &dyn HirDb,
+    model_file: FileId,
     mapped: &MappedSourcePreprocModel,
     source_call: &SourceMacroCall,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
@@ -10,7 +14,7 @@ pub(in crate::preproc) fn diagnostic_target_for_call(
             let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
                 return Ok(None);
             };
-            diagnostic_target_for_source_expansion(mapped, expansion)
+            diagnostic_target_for_source_expansion(db, model_file, mapped, expansion)
         }
         Err(_) => Ok(None),
     }
@@ -31,6 +35,8 @@ enum TokenDiagnosticTarget {
 }
 
 fn diagnostic_target_for_token(
+    db: &dyn HirDb,
+    model_file: FileId,
     mapped: &MappedSourcePreprocModel,
     origin: &SourceTokenOrigin,
 ) -> PreprocResult<TokenDiagnosticTarget> {
@@ -50,7 +56,7 @@ fn diagnostic_target_for_token(
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroBody {
-                    call: origin.call_id,
+                    call: hir_macro_call(db, model_file, origin.call_id),
                     def: origin.definition_id,
                     body_range: range,
                 },
@@ -73,7 +79,7 @@ fn diagnostic_target_for_token(
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroArg {
-                    call: origin.call_id,
+                    call: hir_macro_call(db, model_file, origin.call_id),
                     arg_index: *argument_index,
                     arg_range: range,
                 },
@@ -96,7 +102,10 @@ fn diagnostic_target_for_token(
         SourceTokenOrigin::Builtin { name, origin, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
-                origin: Origin::Builtin { call: origin.call_id, name: name.clone() },
+                origin: Origin::Builtin {
+                    call: hir_macro_call(db, model_file, origin.call_id),
+                    name: name.clone(),
+                },
                 file_id: call.file_id,
                 range: call.range,
             })
@@ -115,6 +124,8 @@ pub(in crate::preproc) fn mapped_macro_call(
 }
 
 pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
+    db: &dyn HirDb,
+    model_file: FileId,
     mapped: &MappedSourcePreprocModel,
     expansion: &SourceMacroExpansion,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
@@ -127,7 +138,7 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
         let Some(origin) = token.origin.and_then(|id| mapped.model.token_origins().get(id)) else {
             continue;
         };
-        match diagnostic_target_for_token(mapped, origin)? {
+        match diagnostic_target_for_token(db, model_file, mapped, origin)? {
             TokenDiagnosticTarget::Target(target) => return Ok(Some(target)),
             TokenDiagnosticTarget::Skip => {}
             TokenDiagnosticTarget::Blocked => {}
@@ -135,4 +146,8 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     }
 
     Ok(None)
+}
+
+fn hir_macro_call(db: &dyn HirDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
+    db.intern_macro_call(MacroCallLoc { model_file, trace_call })
 }

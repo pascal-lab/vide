@@ -57,6 +57,8 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
 
 #[test]
 fn source_targets_macro_argument_selects_syntax_token_by_trace_identity() {
+    let db = RootDb::new(None);
+    let model_file = FileId(0);
     let source = r#"`define ID(x) x
 module m;
   assign y = `ID(payload_i);
@@ -85,8 +87,9 @@ endmodule
         })
         .next()
         .expect("expanded source should contain the macro argument token");
-    let expected_origin = origin_from_syntax_token_origin(token.preprocessor_trace_origin())
-        .expect("payload_i should have macro argument origin");
+    let expected_origin =
+        origin_from_syntax_token_origin(&db, model_file, token.preprocessor_trace_origin())
+            .expect("payload_i should have macro argument origin");
     let source_range = source_range(source, "payload_i");
     let hit = PreprocTokenHit {
         expansion: 0,
@@ -98,13 +101,13 @@ endmodule
     };
 
     let tokens =
-        syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &[hit])
+        syntax_tokens_for_preproc_hit(&db, root, source_range.start(), &test_precedence, &[hit])
             .expect("macro argument origin should resolve to a parsed syntax token");
 
     assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].raw_text().as_bytes(), b"payload_i");
     assert_eq!(
-        origin_from_syntax_token_origin(tokens[0].preprocessor_trace_origin()),
+        origin_from_syntax_token_origin(&db, model_file, tokens[0].preprocessor_trace_origin()),
         Some(expected_origin)
     );
 }
@@ -248,7 +251,9 @@ fn preproc_provider_result_from_hits<'tree>(
             unique_hits,
         ));
     }
-    let Some(tokens) = syntax_tokens_for_preproc_hit(root, offset, precedence, &unique_hits) else {
+    let db = RootDb::new(None);
+    let Some(tokens) = syntax_tokens_for_preproc_hit(&db, root, offset, precedence, &unique_hits)
+    else {
         return SourceTargetProviderResult::Blocked(SourceTargetBlock::preproc_unavailable(range));
     };
     SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, unique_hits, tokens))
