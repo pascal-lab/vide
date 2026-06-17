@@ -1598,7 +1598,7 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "\"foo\"")
         .expect("stringification result should stay in emitted stream");
-    let TokenOrigin::Stringification { origin: stringified_identity } = &stringified.origin else {
+    let TokenOrigin::Stringify { origin: stringified_identity } = &stringified.origin else {
         panic!("stringification should carry macro operation origin: {stringified:?}");
     };
     assert!(stringified_identity.call_id.0 != 0);

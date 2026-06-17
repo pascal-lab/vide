@@ -108,7 +108,7 @@ fn preproc_context_file_ids(
                 collect_context_source_range(mapped, *argument_token_range, &mut file_ids);
             }
             SourceTokenOrigin::TokenPaste { .. }
-            | SourceTokenOrigin::Stringification { .. }
+            | SourceTokenOrigin::Stringify { .. }
             | SourceTokenOrigin::Builtin { .. } => {}
             SourceTokenOrigin::Predefine { source } => {
                 collect_context_source(mapped, *source, &mut file_ids);

@@ -171,10 +171,8 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "\"foo\"")
         .expect("stringification result should not be dropped");
-    let SourceTokenOrigin::Stringification {
-        call: stringification_call,
-        origin: stringification_origin,
-    } = model.token_origins().get(stringified.origin.unwrap()).unwrap()
+    let SourceTokenOrigin::Stringify { call: stringification_call, origin: stringification_origin } =
+        model.token_origins().get(stringified.origin.unwrap()).unwrap()
     else {
         panic!("stringification should carry macro operation origin");
     };

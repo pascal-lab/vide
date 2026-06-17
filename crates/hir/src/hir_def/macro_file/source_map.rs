@@ -189,7 +189,7 @@ fn origin_slot_from_token_origin(
             source: operation_sources
                 .and_then(|sources| sources.source_for_operation(origin, source_map)),
         }),
-        TokenOrigin::Stringification { origin } => Some(OriginSlot {
+        TokenOrigin::Stringify { origin } => Some(OriginSlot {
             origin: Origin::Stringify { call: origin.call_id },
             source: operation_sources
                 .and_then(|sources| sources.source_for_operation(origin, source_map)),
