@@ -16,7 +16,7 @@ use macro_gate::source_macro_invocation_may_cover_offset;
 use preproc::preproc_source_target_at_offset;
 #[cfg(test)]
 use preproc::{
-    origin_from_syntax_provenance, push_unique_preproc_hit, syntax_tokens_for_preproc_hit,
+    origin_from_syntax_token_origin, push_unique_preproc_hit, syntax_tokens_for_preproc_hit,
 };
 
 #[derive(Debug, Clone)]

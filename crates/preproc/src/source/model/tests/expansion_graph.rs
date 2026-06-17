@@ -51,7 +51,7 @@ logic [`HEADER_WIDTH-1:0] data;
         .macro_calls()
         .iter()
         .find(|call| call.reference == reference.id)
-        .expect("macro usage should create a call fact");
+        .expect("macro usage should create a call record");
     assert_eq!(call.call_range.source, root_source);
     assert_eq!(call.status, SourceMacroCallStatus::ExpansionAvailable);
     let SourceMacroExpansionQuery::Available(expansion_id) =

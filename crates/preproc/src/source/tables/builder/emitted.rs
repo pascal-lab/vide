@@ -39,7 +39,7 @@ impl SourcePreprocModelBuilder {
                 .map(|token_range| SourceTokenOrigin::Source { token_range }),
             TokenOrigin::MacroBody {
                 macro_name,
-                identity: trace_origin,
+                origin: trace_origin,
                 call_range,
                 body_token_range,
             } => {
@@ -54,7 +54,7 @@ impl SourcePreprocModelBuilder {
                 )
             }
             TokenOrigin::MacroArgument {
-                identity: trace_origin,
+                origin: trace_origin,
                 call_range,
                 body_token_range,
                 argument_token_range,
@@ -70,16 +70,16 @@ impl SourcePreprocModelBuilder {
                     argument_token_range,
                 )
             }
-            TokenOrigin::Builtin { name, identity: trace_origin } if !name.is_empty() => {
+            TokenOrigin::Builtin { name, origin: trace_origin } if !name.is_empty() => {
                 self.resolve_builtin_token_origin(token_id, SmolStr::new(name), *trace_origin)
             }
-            TokenOrigin::TokenPaste { identity: trace_origin } => self
+            TokenOrigin::TokenPaste { origin: trace_origin } => self
                 .resolve_macro_operation_token_origin(
                     token_id,
                     *trace_origin,
                     MacroOperationOriginKind::TokenPaste,
                 ),
-            TokenOrigin::Stringification { identity: trace_origin } => self
+            TokenOrigin::Stringification { origin: trace_origin } => self
                 .resolve_macro_operation_token_origin(
                     token_id,
                     *trace_origin,

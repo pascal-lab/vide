@@ -6,6 +6,6 @@ pub(super) fn emitted_token_from_trace(token: EmittedToken) -> SourceEmittedToke
         value: token.value_text.to_smolstr(),
         display: token.display_text.to_smolstr(),
         kind: SourceTokenKind::Syntax(token.token_kind),
-        origin: token.provenance,
+        origin: token.origin,
     }
 }

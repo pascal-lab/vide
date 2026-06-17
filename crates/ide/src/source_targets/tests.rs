@@ -75,7 +75,7 @@ endmodule
             WalkEvent::Enter(SyntaxElement::Token(token))
                 if token.raw_text().as_bytes() == b"payload_i"
                     && matches!(
-                        token.preprocessor_trace_provenance(),
+                        token.preprocessor_trace_origin(),
                         TokenOrigin::MacroArgument { .. }
                     ) =>
             {
@@ -85,8 +85,8 @@ endmodule
         })
         .next()
         .expect("expanded source should contain the macro argument token");
-    let expected_origin = origin_from_syntax_provenance(token.preprocessor_trace_provenance())
-        .expect("payload_i should have macro argument provenance");
+    let expected_origin = origin_from_syntax_token_origin(token.preprocessor_trace_origin())
+        .expect("payload_i should have macro argument origin");
     let source_range = source_range(source, "payload_i");
     let hit = PreprocTokenHit {
         expansion: 0,
@@ -99,12 +99,12 @@ endmodule
 
     let tokens =
         syntax_tokens_for_preproc_hit(root, source_range.start(), &test_precedence, &[hit])
-            .expect("macro argument identity should resolve to a parsed syntax token");
+            .expect("macro argument origin should resolve to a parsed syntax token");
 
     assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].raw_text().as_bytes(), b"payload_i");
     assert_eq!(
-        origin_from_syntax_provenance(tokens[0].preprocessor_trace_provenance()),
+        origin_from_syntax_token_origin(tokens[0].preprocessor_trace_origin()),
         Some(expected_origin)
     );
 }

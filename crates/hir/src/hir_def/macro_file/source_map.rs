@@ -101,7 +101,7 @@ impl ExpansionSourceMap {
             .map(|raw| {
                 trace.emitted_tokens.get(raw).and_then(|token| {
                     origin_slot_from_token_origin(
-                        &token.provenance,
+                        &token.origin,
                         source_map,
                         Some(&operation_sources),
                     )
@@ -144,12 +144,12 @@ impl<'a> OperationSourceResolver<'a> {
 
     fn source_for_operation(
         &self,
-        identity: &MacroOperationOrigin,
+        origin: &MacroOperationOrigin,
         source_map: &PreprocSourceMap,
     ) -> Option<OriginSource> {
-        let argument_index = usize::try_from(identity.argument_index?).ok()?;
-        let argument_token_index = usize::try_from(identity.argument_token_index?).ok()?;
-        let argument = self.arguments_by_call.get(&identity.call_id)?.get(argument_index)?;
+        let argument_index = usize::try_from(origin.argument_index?).ok()?;
+        let argument_token_index = usize::try_from(origin.argument_token_index?).ok()?;
+        let argument = self.arguments_by_call.get(&origin.call_id)?.get(argument_index)?;
         let token = argument.tokens.get(argument_token_index)?;
         source_location(source_map, token.range.as_ref()?)
     }
@@ -168,34 +168,34 @@ fn origin_slot_from_token_origin(
                 source: Some(source),
             })
         }
-        TokenOrigin::MacroBody { identity, body_token_range, .. } => Some(Origin::MacroBody {
-            call: identity.call_id,
-            def: identity.definition_id,
+        TokenOrigin::MacroBody { origin, body_token_range, .. } => Some(Origin::MacroBody {
+            call: origin.call_id,
+            def: origin.definition_id,
             body_range: source_location(source_map, body_token_range)
                 .map_or(text_range(body_token_range)?, |source| source.range),
         })
         .map(|origin| OriginSlot { origin, source: source_location(source_map, body_token_range) }),
-        TokenOrigin::MacroArgument { identity, argument_token_range, .. } => Some(OriginSlot {
+        TokenOrigin::MacroArgument { origin, argument_token_range, .. } => Some(OriginSlot {
             origin: Origin::MacroArg {
-                call: identity.call_id,
-                arg_index: usize::try_from(identity.argument_index).ok()?,
+                call: origin.call_id,
+                arg_index: usize::try_from(origin.argument_index).ok()?,
                 arg_range: source_location(source_map, argument_token_range)
                     .map_or(text_range(argument_token_range)?, |source| source.range),
             },
             source: source_location(source_map, argument_token_range),
         }),
-        TokenOrigin::TokenPaste { identity } => Some(OriginSlot {
-            origin: Origin::TokenPaste { call: identity.call_id },
+        TokenOrigin::TokenPaste { origin } => Some(OriginSlot {
+            origin: Origin::TokenPaste { call: origin.call_id },
             source: operation_sources
-                .and_then(|sources| sources.source_for_operation(identity, source_map)),
+                .and_then(|sources| sources.source_for_operation(origin, source_map)),
         }),
-        TokenOrigin::Stringification { identity } => Some(OriginSlot {
-            origin: Origin::Stringify { call: identity.call_id },
+        TokenOrigin::Stringification { origin } => Some(OriginSlot {
+            origin: Origin::Stringify { call: origin.call_id },
             source: operation_sources
-                .and_then(|sources| sources.source_for_operation(identity, source_map)),
+                .and_then(|sources| sources.source_for_operation(origin, source_map)),
         }),
-        TokenOrigin::Builtin { name, identity } if !name.is_empty() => Some(OriginSlot {
-            origin: Origin::Builtin { call: identity.call_id, name: name.to_smolstr() },
+        TokenOrigin::Builtin { name, origin } if !name.is_empty() => Some(OriginSlot {
+            origin: Origin::Builtin { call: origin.call_id, name: name.to_smolstr() },
             source: None,
         }),
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,

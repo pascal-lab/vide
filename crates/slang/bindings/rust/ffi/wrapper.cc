@@ -164,13 +164,13 @@ LexedTokenAtOffset lexTokenAtOffset(std::string_view text,
   return result;
 }
 
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_UNAVAILABLE = 0;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_SOURCE = 1;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_BODY = 2;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT = 3;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_BUILTIN = 4;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_TOKEN_PASTE = 5;
-constexpr uint8_t TRACE_TOKEN_PROVENANCE_STRINGIFICATION = 6;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_UNAVAILABLE = 0;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_SOURCE = 1;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_MACRO_BODY = 2;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_MACRO_ARGUMENT = 3;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_BUILTIN = 4;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_TOKEN_PASTE = 5;
+constexpr uint8_t TRACE_TOKEN_ORIGIN_STRINGIFICATION = 6;
 
 ::RawPreprocessorTraceEmittedToken empty_preprocessor_trace_emitted_token() {
   ::RawPreprocessorTraceEmittedToken token;
@@ -178,7 +178,7 @@ constexpr uint8_t TRACE_TOKEN_PROVENANCE_STRINGIFICATION = 6;
   token.value_text = rust::String();
   token.display_text = rust::String();
   token.token_kind = static_cast<uint16_t>(slang::parsing::TokenKind::Unknown);
-  token.provenance_kind = TRACE_TOKEN_PROVENANCE_UNAVAILABLE;
+  token.origin_kind = TRACE_TOKEN_ORIGIN_UNAVAILABLE;
   token.macro_name = rust::String();
   token.macro_call_id = 0;
   token.has_macro_call_id = false;
@@ -309,53 +309,53 @@ std::optional<TraceSourceLocationKey> trace_source_location_key(slang::SourceLoc
   };
 }
 
-bool has_direct_macro_token_provenance(
-    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
-  return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
-         provenance->definitionId != 0;
+bool has_direct_macro_token_origin(
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& origin) {
+  return origin && origin->expansionId != 0 && origin->callId != 0 &&
+         origin->definitionId != 0;
 }
 
-bool has_builtin_macro_token_provenance(
-    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance) {
-  return provenance && provenance->expansionId != 0 && provenance->callId != 0 &&
-         !provenance->builtinName.empty();
+bool has_builtin_macro_token_origin(
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& origin) {
+  return origin && origin->expansionId != 0 && origin->callId != 0 &&
+         !origin->builtinName.empty();
 }
 
-void apply_direct_macro_token_provenance(
+void apply_direct_macro_token_origin(
     ::RawPreprocessorTraceEmittedToken& token,
-    const slang::SourceManager::MacroTokenProvenance& provenance) {
-  token.macro_call_id = provenance.callId;
-  token.has_macro_call_id = provenance.callId != 0;
-  token.macro_definition_id = provenance.definitionId;
-  token.has_macro_definition_id = provenance.definitionId != 0;
-  token.macro_expansion_id = provenance.expansionId;
-  token.has_macro_expansion_id = provenance.expansionId != 0;
-  token.parent_macro_expansion_id = provenance.parentExpansionId;
-  token.has_parent_macro_expansion_id = provenance.parentExpansionId != 0;
-  token.body_token_index = provenance.bodyTokenIndex;
+    const slang::SourceManager::MacroTokenProvenance& origin) {
+  token.macro_call_id = origin.callId;
+  token.has_macro_call_id = origin.callId != 0;
+  token.macro_definition_id = origin.definitionId;
+  token.has_macro_definition_id = origin.definitionId != 0;
+  token.macro_expansion_id = origin.expansionId;
+  token.has_macro_expansion_id = origin.expansionId != 0;
+  token.parent_macro_expansion_id = origin.parentExpansionId;
+  token.has_parent_macro_expansion_id = origin.parentExpansionId != 0;
+  token.body_token_index = origin.bodyTokenIndex;
   token.has_body_token_index =
-      provenance.bodyTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
-  token.argument_index = provenance.argumentIndex;
+      origin.bodyTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+  token.argument_index = origin.argumentIndex;
   token.has_argument_index =
-      provenance.argumentIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
-  token.argument_token_index = provenance.argumentTokenIndex;
+      origin.argumentIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+  token.argument_token_index = origin.argumentTokenIndex;
   token.has_argument_token_index =
-      provenance.argumentTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
+      origin.argumentTokenIndex != slang::SourceManager::MacroTokenProvenance::InvalidIndex;
 }
 
-bool apply_macro_operation_token_provenance(
+bool apply_macro_operation_token_origin(
     ::RawPreprocessorTraceEmittedToken& result,
-    const std::optional<slang::SourceManager::MacroTokenProvenance>& provenance,
-    uint8_t provenanceKind) {
-  if (!has_direct_macro_token_provenance(provenance))
+    const std::optional<slang::SourceManager::MacroTokenProvenance>& origin,
+    uint8_t originKind) {
+  if (!has_direct_macro_token_origin(origin))
     return false;
 
-  apply_direct_macro_token_provenance(result, *provenance);
-  result.provenance_kind = provenanceKind;
+  apply_direct_macro_token_origin(result, *origin);
+  result.origin_kind = originKind;
   return true;
 }
 
-bool apply_original_macro_loc_provenance_for_nested_argument(
+bool apply_original_macro_loc_origin_for_nested_argument(
     ::RawPreprocessorTraceEmittedToken& result,
     slang::parsing::Token token,
     const slang::SourceManager& sourceManager,
@@ -376,8 +376,8 @@ bool apply_original_macro_loc_provenance_for_nested_argument(
       break;
   }
 
-  auto originalProvenance = sourceManager.getMacroTokenProvenance(originalLocation);
-  if (!has_direct_macro_token_provenance(originalProvenance))
+  auto originalOrigin = sourceManager.getMacroTokenProvenance(originalLocation);
+  if (!has_direct_macro_token_origin(originalOrigin))
     return false;
 
   auto originalTokenRange =
@@ -392,16 +392,16 @@ bool apply_original_macro_loc_provenance_for_nested_argument(
     result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
     result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
 
-    if (originalProvenance->bodyTokenIndex !=
+    if (originalOrigin->bodyTokenIndex !=
             slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
-        originalProvenance->argumentIndex !=
+        originalOrigin->argumentIndex !=
             slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
-        originalProvenance->argumentTokenIndex !=
+        originalOrigin->argumentTokenIndex !=
             slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
         result.call_range.has_range && result.body_token_range.has_range &&
         result.argument_token_range.has_range) {
-      apply_direct_macro_token_provenance(result, *originalProvenance);
-      result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT;
+      apply_direct_macro_token_origin(result, *originalOrigin);
+      result.origin_kind = TRACE_TOKEN_ORIGIN_MACRO_ARGUMENT;
       return true;
     }
     return false;
@@ -410,11 +410,11 @@ bool apply_original_macro_loc_provenance_for_nested_argument(
   result.call_range =
       to_rust_macro_callsite_range_from_macro_loc(sourceManager, originalLocation);
   result.body_token_range = to_rust_original_macro_loc_range(sourceManager, originalTokenRange);
-  if (originalProvenance->bodyTokenIndex !=
+  if (originalOrigin->bodyTokenIndex !=
           slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
       result.call_range.has_range && result.body_token_range.has_range) {
-    apply_direct_macro_token_provenance(result, *originalProvenance);
-    result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
+    apply_direct_macro_token_origin(result, *originalOrigin);
+    result.origin_kind = TRACE_TOKEN_ORIGIN_MACRO_BODY;
     return true;
   }
 
@@ -524,14 +524,14 @@ template<typename TTokens>
   if (sourceManager.isMacroLoc(location)) {
     switch (sourceManager.getMacroExpansionKind(location)) {
       case slang::SourceManager::MacroExpansionKind::TokenPaste:
-        apply_macro_operation_token_provenance(
+        apply_macro_operation_token_origin(
             result, sourceManager.getMacroTokenProvenance(location),
-            TRACE_TOKEN_PROVENANCE_TOKEN_PASTE);
+            TRACE_TOKEN_ORIGIN_TOKEN_PASTE);
         return result;
       case slang::SourceManager::MacroExpansionKind::Stringification:
-        apply_macro_operation_token_provenance(
+        apply_macro_operation_token_origin(
             result, sourceManager.getMacroTokenProvenance(location),
-            TRACE_TOKEN_PROVENANCE_STRINGIFICATION);
+            TRACE_TOKEN_ORIGIN_STRINGIFICATION);
         return result;
       case slang::SourceManager::MacroExpansionKind::Body:
       case slang::SourceManager::MacroExpansionKind::Argument:
@@ -540,15 +540,15 @@ template<typename TTokens>
 
     auto macroName = std::string(sourceManager.getMacroName(location));
     result.macro_name = rust::String(macroName);
-    auto directProvenance = sourceManager.getMacroTokenProvenance(location);
-    if (has_builtin_macro_token_provenance(directProvenance)) {
-      result.macro_name = rust::String(directProvenance->builtinName);
-      apply_direct_macro_token_provenance(result, *directProvenance);
-      result.provenance_kind = TRACE_TOKEN_PROVENANCE_BUILTIN;
+    auto directOrigin = sourceManager.getMacroTokenProvenance(location);
+    if (has_builtin_macro_token_origin(directOrigin)) {
+      result.macro_name = rust::String(directOrigin->builtinName);
+      apply_direct_macro_token_origin(result, *directOrigin);
+      result.origin_kind = TRACE_TOKEN_ORIGIN_BUILTIN;
       return result;
     }
 
-    if (apply_original_macro_loc_provenance_for_nested_argument(
+    if (apply_original_macro_loc_origin_for_nested_argument(
             result, token, sourceManager, location))
       return result;
 
@@ -560,36 +560,36 @@ template<typename TTokens>
       result.body_token_range = to_rust_original_macro_loc_range(sourceManager, formalRange);
       result.call_range = to_rust_macro_argument_callsite_range(sourceManager, formalRange);
 
-      if (has_direct_macro_token_provenance(directProvenance) &&
-          directProvenance->bodyTokenIndex !=
+      if (has_direct_macro_token_origin(directOrigin) &&
+          directOrigin->bodyTokenIndex !=
               slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
-          directProvenance->argumentIndex !=
+          directOrigin->argumentIndex !=
               slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
-          directProvenance->argumentTokenIndex !=
+          directOrigin->argumentTokenIndex !=
               slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
           result.call_range.has_range && result.body_token_range.has_range &&
           result.argument_token_range.has_range) {
-        apply_direct_macro_token_provenance(result, *directProvenance);
-        result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_ARGUMENT;
+        apply_direct_macro_token_origin(result, *directOrigin);
+        result.origin_kind = TRACE_TOKEN_ORIGIN_MACRO_ARGUMENT;
       }
       return result;
     }
 
     result.call_range = to_rust_macro_callsite_range_from_macro_loc(sourceManager, location);
     result.body_token_range = to_rust_original_macro_loc_range(sourceManager, token.range());
-    if (has_direct_macro_token_provenance(directProvenance) &&
-        directProvenance->bodyTokenIndex !=
+    if (has_direct_macro_token_origin(directOrigin) &&
+        directOrigin->bodyTokenIndex !=
             slang::SourceManager::MacroTokenProvenance::InvalidIndex &&
         result.call_range.has_range && result.body_token_range.has_range) {
-      apply_direct_macro_token_provenance(result, *directProvenance);
-      result.provenance_kind = TRACE_TOKEN_PROVENANCE_MACRO_BODY;
+      apply_direct_macro_token_origin(result, *directOrigin);
+      result.origin_kind = TRACE_TOKEN_ORIGIN_MACRO_BODY;
     }
     return result;
   }
 
   result.token_range = to_rust_source_buffer_range(token.range());
   if (result.token_range.has_range)
-    result.provenance_kind = TRACE_TOKEN_PROVENANCE_SOURCE;
+    result.origin_kind = TRACE_TOKEN_ORIGIN_SOURCE;
   return result;
 }
 
@@ -1419,7 +1419,7 @@ std::unique_ptr<SourceRange> SyntaxToken_rangeWithContext(
   return mapRawSourceRangeWithContext(token.range(), context);
 }
 
-::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceProvenanceWithContext(
+::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceOriginWithContext(
     const wrapper::parsing::Token& token,
     const SyntaxNode& context) {
   const auto* root = findRoot(context);

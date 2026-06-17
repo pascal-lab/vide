@@ -897,7 +897,7 @@ endmodule
 }
 
 #[test]
-fn preprocessor_trace_expands_include_buffers_with_source_provenance() {
+fn preprocessor_trace_expands_include_buffers_with_source_origin() {
     let dir = TestDir::new("slang-preprocessor-trace");
     let rtl_dir = dir.create_dir_all("rtl");
     let include_dir = dir.create_dir_all("include");
@@ -1108,7 +1108,7 @@ endmodule
 }
 
 #[test]
-fn preprocessor_trace_reports_emitted_macro_body_and_argument_provenance() {
+fn preprocessor_trace_reports_emitted_macro_body_and_argument_origin() {
     let source = r#"`define OBJ 8
 `define ID(x) x
 module m;
@@ -1121,7 +1121,7 @@ endmodule
 
     assert!(
         trace.emitted_tokens.iter().any(|token| {
-            token.raw_text == "module" && matches!(token.provenance, TokenOrigin::Source { .. })
+            token.raw_text == "module" && matches!(token.origin, TokenOrigin::Source { .. })
         }),
         "source tokens should be retained in emitted stream: {:?}",
         trace.emitted_tokens
@@ -1132,10 +1132,9 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "8")
         .expect("object-like macro body token should be emitted");
-    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
-        &obj.provenance
+    let TokenOrigin::MacroBody { macro_name, origin, call_range, body_token_range } = &obj.origin
     else {
-        panic!("expected macro body provenance for `OBJ expansion: {obj:?}");
+        panic!("expected macro body origin for `OBJ expansion: {obj:?}");
     };
     let obj_define_id = trace
         .events
@@ -1145,7 +1144,7 @@ endmodule
                 && event.name.as_ref().is_some_and(|name| name.value_text == "OBJ")
         })
         .and_then(|event| event.macro_definition_id)
-        .expect("OBJ define should carry direct definition identity");
+        .expect("OBJ define should carry direct definition origin");
     let obj_call_id = trace
         .events
         .iter()
@@ -1154,13 +1153,13 @@ endmodule
                 && event.name.as_ref().is_some_and(|name| name.raw_text == "`OBJ")
         })
         .and_then(|event| event.macro_call_id)
-        .expect("OBJ usage should carry direct call identity");
+        .expect("OBJ usage should carry direct call origin");
     assert_eq!(macro_name, "OBJ");
-    assert_eq!(identity.definition_id, obj_define_id);
-    assert_eq!(identity.call_id, obj_call_id);
-    assert!(identity.expansion_id.0 != 0);
-    assert_eq!(identity.parent_expansion_id, None);
-    assert_eq!(identity.body_token_index, 0);
+    assert_eq!(origin.definition_id, obj_define_id);
+    assert_eq!(origin.call_id, obj_call_id);
+    assert!(origin.expansion_id.0 != 0);
+    assert_eq!(origin.parent_expansion_id, None);
+    assert_eq!(origin.body_token_index, 0);
     assert_eq!(&source[call_range.range.clone()], "`OBJ");
     assert_eq!(&source[body_token_range.range.clone()], "8");
 
@@ -1171,13 +1170,13 @@ endmodule
         .expect("function-like argument token should be emitted");
     let TokenOrigin::MacroArgument {
         macro_name,
-        identity,
+        origin,
         call_range,
         body_token_range,
         argument_token_range,
-    } = &arg.provenance
+    } = &arg.origin
     else {
-        panic!("expected macro argument provenance for `ID expansion: {arg:?}");
+        panic!("expected macro argument origin for `ID expansion: {arg:?}");
     };
     let id_define_id = trace
         .events
@@ -1187,7 +1186,7 @@ endmodule
                 && event.name.as_ref().is_some_and(|name| name.value_text == "ID")
         })
         .and_then(|event| event.macro_definition_id)
-        .expect("ID define should carry direct definition identity");
+        .expect("ID define should carry direct definition origin");
     let id_call_id = trace
         .events
         .iter()
@@ -1196,22 +1195,22 @@ endmodule
                 && event.name.as_ref().is_some_and(|name| name.raw_text == "`ID")
         })
         .and_then(|event| event.macro_call_id)
-        .expect("ID usage should carry direct call identity");
+        .expect("ID usage should carry direct call origin");
     assert_eq!(macro_name, "ID");
-    assert_eq!(identity.definition_id, id_define_id);
-    assert_eq!(identity.call_id, id_call_id);
-    assert!(identity.expansion_id.0 != 0);
-    assert!(identity.parent_expansion_id.is_some());
-    assert_eq!(identity.body_token_index, 0);
-    assert_eq!(identity.argument_index, 0);
-    assert_eq!(identity.argument_token_index, 0);
+    assert_eq!(origin.definition_id, id_define_id);
+    assert_eq!(origin.call_id, id_call_id);
+    assert!(origin.expansion_id.0 != 0);
+    assert!(origin.parent_expansion_id.is_some());
+    assert_eq!(origin.body_token_index, 0);
+    assert_eq!(origin.argument_index, 0);
+    assert_eq!(origin.argument_token_index, 0);
     assert_eq!(&source[call_range.range.clone()], "`ID(7)");
     assert_eq!(&source[body_token_range.range.clone()], "x");
     assert_eq!(&source[argument_token_range.range.clone()], "7");
 }
 
 #[test]
-fn syntax_token_reports_direct_macro_provenance_identity() {
+fn syntax_token_reports_direct_macro_origin_identity() {
     let source = r#"`define ID(x) x
 module m;
 localparam int B = `ID(7);
@@ -1239,18 +1238,18 @@ endmodule
     assert_eq!(tokens.len(), 1, "expanded source should contain exactly one parsed 7 token");
     let token = tokens[0];
 
-    let TokenOrigin::MacroArgument { identity: token_identity, .. } =
-        token.preprocessor_trace_provenance()
+    let TokenOrigin::MacroArgument { origin: token_identity, .. } =
+        token.preprocessor_trace_origin()
     else {
-        panic!("parsed 7 token should expose direct macro argument provenance");
+        panic!("parsed 7 token should expose direct macro argument origin");
     };
     let emitted = trace
         .emitted_tokens
         .iter()
         .find(|token| token.raw_text == "7")
         .expect("trace should contain the emitted argument token");
-    let TokenOrigin::MacroArgument { identity: emitted_identity, .. } = &emitted.provenance else {
-        panic!("emitted 7 token should have macro argument provenance: {emitted:?}");
+    let TokenOrigin::MacroArgument { origin: emitted_identity, .. } = &emitted.origin else {
+        panic!("emitted 7 token should have macro argument origin: {emitted:?}");
     };
 
     assert_eq!(token_identity, *emitted_identity);
@@ -1272,18 +1271,17 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "3")
         .expect("nested macro body token should be emitted");
-    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
-        &leaf.provenance
+    let TokenOrigin::MacroBody { macro_name, origin, call_range, body_token_range } = &leaf.origin
     else {
-        panic!("expected macro body provenance for nested `LEAF expansion: {leaf:?}");
+        panic!("expected macro body origin for nested `LEAF expansion: {leaf:?}");
     };
     assert_eq!(macro_name, "LEAF");
-    assert!(identity.expansion_id.0 != 0);
+    assert!(origin.expansion_id.0 != 0);
     assert!(
-        identity.parent_expansion_id.is_some_and(|parent| parent != identity.expansion_id),
-        "nested expansion should carry direct parent expansion identity: {leaf:?}"
+        origin.parent_expansion_id.is_some_and(|parent| parent != origin.expansion_id),
+        "nested expansion should carry direct parent expansion origin: {leaf:?}"
     );
-    assert_eq!(identity.body_token_index, 0);
+    assert_eq!(origin.body_token_index, 0);
     assert_eq!(&source[call_range.range.clone()], "`LEAF");
     assert_eq!(&source[body_token_range.range.clone()], "3");
 }
@@ -1303,18 +1301,18 @@ endmodule
         .iter()
         .find(|token| {
             token.raw_text == "payload_i"
-                && matches!(token.provenance, TokenOrigin::MacroArgument { .. })
+                && matches!(token.origin, TokenOrigin::MacroArgument { .. })
         })
         .expect("macro argument identifier should be emitted");
     let TokenOrigin::MacroArgument {
         macro_name,
-        identity: payload_identity,
+        origin: payload_identity,
         call_range,
         body_token_range,
         argument_token_range,
-    } = &payload.provenance
+    } = &payload.origin
     else {
-        panic!("expected direct argument provenance for NEXT payload token: {payload:?}");
+        panic!("expected direct argument origin for NEXT payload token: {payload:?}");
     };
     assert_eq!(macro_name, "NEXT");
     assert_eq!(payload_identity.body_token_index, 2);
@@ -1328,12 +1326,11 @@ endmodule
         .emitted_tokens
         .iter()
         .find(|token| {
-            token.raw_text == "3" && matches!(token.provenance, TokenOrigin::MacroArgument { .. })
+            token.raw_text == "3" && matches!(token.origin, TokenOrigin::MacroArgument { .. })
         })
         .expect("macro argument slice index should be emitted");
-    let TokenOrigin::MacroArgument { identity: slice_identity, .. } = &slice_index.provenance
-    else {
-        panic!("expected direct argument provenance for NEXT slice token: {slice_index:?}");
+    let TokenOrigin::MacroArgument { origin: slice_identity, .. } = &slice_index.origin else {
+        panic!("expected direct argument origin for NEXT slice token: {slice_index:?}");
     };
     assert_eq!(slice_identity.argument_index, 0);
     assert_eq!(slice_identity.argument_token_index, 2);
@@ -1344,7 +1341,7 @@ endmodule
             .iter()
             .find(|token| {
                 matches!(
-                    &token.provenance,
+                    &token.origin,
                     TokenOrigin::MacroBody {
                         macro_name,
                         body_token_range,
@@ -1354,15 +1351,15 @@ endmodule
                 )
             })
             .unwrap_or_else(|| panic!("macro body literal part should be emitted: {literal_part}"));
-        let TokenOrigin::MacroBody { macro_name, identity, .. } = &increment.provenance else {
-            panic!("expected direct body provenance for NEXT literal part: {increment:?}");
+        let TokenOrigin::MacroBody { macro_name, origin, .. } = &increment.origin else {
+            panic!("expected direct body origin for NEXT literal part: {increment:?}");
         };
         assert_eq!(macro_name, "NEXT");
-        assert_eq!(identity.call_id, payload_identity.call_id);
-        assert_eq!(identity.definition_id, payload_identity.definition_id);
-        assert!(identity.expansion_id.0 != 0);
-        assert_eq!(identity.parent_expansion_id, None);
-        assert_eq!(identity.body_token_index, body_token_index);
+        assert_eq!(origin.call_id, payload_identity.call_id);
+        assert_eq!(origin.definition_id, payload_identity.definition_id);
+        assert!(origin.expansion_id.0 != 0);
+        assert_eq!(origin.parent_expansion_id, None);
+        assert_eq!(origin.body_token_index, body_token_index);
     }
 }
 
@@ -1438,24 +1435,24 @@ endmodule
         .iter()
         .find(|token| {
             matches!(
-                &token.provenance,
+                &token.origin,
                 TokenOrigin::MacroBody { macro_name, .. }
                     if macro_name == "PAYL"
             )
         })
         .expect("nested PAYL expansion should attribute payload_i to PAYL");
     assert_eq!(payload.raw_text, "payload_i");
-    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
-        &payload.provenance
+    let TokenOrigin::MacroBody { macro_name, origin, call_range, body_token_range } =
+        &payload.origin
     else {
-        panic!("expected PAYL macro body provenance for nested argument token: {payload:?}");
+        panic!("expected PAYL macro body origin for nested argument token: {payload:?}");
     };
     assert_eq!(macro_name, "PAYL");
-    assert_eq!(identity.call_id, payl.macro_call_id.unwrap());
-    assert_eq!(identity.definition_id, payl.macro_definition_id.unwrap());
-    assert_eq!(identity.expansion_id, payl.macro_expansion_id.unwrap());
-    assert_eq!(identity.parent_expansion_id, next.macro_expansion_id);
-    assert_eq!(identity.body_token_index, 0);
+    assert_eq!(origin.call_id, payl.macro_call_id.unwrap());
+    assert_eq!(origin.definition_id, payl.macro_definition_id.unwrap());
+    assert_eq!(origin.expansion_id, payl.macro_expansion_id.unwrap());
+    assert_eq!(origin.parent_expansion_id, next.macro_expansion_id);
+    assert_eq!(origin.body_token_index, 0);
     assert_eq!(&source[call_range.range.clone()], "`PAYL");
     assert_eq!(&source[body_token_range.range.clone()], "payload_i");
 }
@@ -1507,18 +1504,18 @@ endmodule
         .find(|token| {
             token.raw_text == "payload_i"
                 && matches!(
-                    &token.provenance,
+                    &token.origin,
                     TokenOrigin::MacroBody { macro_name, .. }
                         if macro_name == "LEAF"
                 )
         })
-        .expect("final payload token should keep LEAF provenance");
-    let TokenOrigin::MacroBody { identity, call_range, .. } = &payload.provenance else {
-        panic!("expected LEAF macro body provenance for payload token: {payload:?}");
+        .expect("final payload token should keep LEAF origin");
+    let TokenOrigin::MacroBody { origin, call_range, .. } = &payload.origin else {
+        panic!("expected LEAF macro body origin for payload token: {payload:?}");
     };
-    assert_eq!(identity.call_id, leaf.macro_call_id.unwrap());
-    assert_eq!(identity.expansion_id, leaf.macro_expansion_id.unwrap());
-    assert_eq!(identity.parent_expansion_id, wrap.macro_expansion_id);
+    assert_eq!(origin.call_id, leaf.macro_call_id.unwrap());
+    assert_eq!(origin.expansion_id, leaf.macro_expansion_id.unwrap());
+    assert_eq!(origin.parent_expansion_id, wrap.macro_expansion_id);
     assert_eq!(&source[call_range.range.clone()], "`LEAF");
 }
 
@@ -1539,22 +1536,22 @@ fn preprocessor_trace_reports_escaped_identifier_macro_body_identity() {
         .iter()
         .find(|token| token.raw_text.starts_with("\\escaped_payload"))
         .expect("escaped identifier macro body token should be emitted");
-    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
-        &escaped.provenance
+    let TokenOrigin::MacroBody { macro_name, origin, call_range, body_token_range } =
+        &escaped.origin
     else {
-        panic!("expected direct body provenance for escaped identifier: {escaped:?}");
+        panic!("expected direct body origin for escaped identifier: {escaped:?}");
     };
     assert_eq!(macro_name, "ESC");
-    assert!(identity.call_id.0 != 0);
-    assert!(identity.definition_id.0 != 0);
-    assert!(identity.expansion_id.0 != 0);
-    assert_eq!(identity.body_token_index, 0);
+    assert!(origin.call_id.0 != 0);
+    assert!(origin.definition_id.0 != 0);
+    assert!(origin.expansion_id.0 != 0);
+    assert_eq!(origin.body_token_index, 0);
     assert_eq!(&source[call_range.range.clone()], "`ESC");
     assert!(source[body_token_range.range.clone()].starts_with("\\escaped_payload"));
 }
 
 #[test]
-fn preprocessor_trace_reports_macro_operation_token_provenance() {
+fn preprocessor_trace_reports_macro_operation_token_origin() {
     let source = r#"`define JOIN(a,b) a``b
 `define STR(x) `"x`"
 module m;
@@ -1572,7 +1569,7 @@ endmodule
                 && event.name.as_ref().is_some_and(|name| name.value_text == "`JOIN")
         })
         .and_then(|event| event.macro_expansion_id)
-        .expect("JOIN usage should carry an expansion identity");
+        .expect("JOIN usage should carry an expansion origin");
     let str_expansion_id = trace
         .events
         .iter()
@@ -1581,15 +1578,15 @@ endmodule
                 && event.name.as_ref().is_some_and(|name| name.value_text == "`STR")
         })
         .and_then(|event| event.macro_expansion_id)
-        .expect("STR usage should carry an expansion identity");
+        .expect("STR usage should carry an expansion origin");
 
     let pasted = trace
         .emitted_tokens
         .iter()
         .find(|token| token.raw_text == "foobar")
         .expect("token paste result should stay in emitted stream");
-    let TokenOrigin::TokenPaste { identity: pasted_identity } = &pasted.provenance else {
-        panic!("token paste should carry macro operation provenance: {pasted:?}");
+    let TokenOrigin::TokenPaste { origin: pasted_identity } = &pasted.origin else {
+        panic!("token paste should carry macro operation origin: {pasted:?}");
     };
     assert!(pasted_identity.call_id.0 != 0);
     assert!(pasted_identity.definition_id.0 != 0);
@@ -1601,9 +1598,8 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "\"foo\"")
         .expect("stringification result should stay in emitted stream");
-    let TokenOrigin::Stringification { identity: stringified_identity } = &stringified.provenance
-    else {
-        panic!("stringification should carry macro operation provenance: {stringified:?}");
+    let TokenOrigin::Stringification { origin: stringified_identity } = &stringified.origin else {
+        panic!("stringification should carry macro operation origin: {stringified:?}");
     };
     assert!(stringified_identity.call_id.0 != 0);
     assert!(stringified_identity.definition_id.0 != 0);
@@ -1650,7 +1646,7 @@ endmodule
         Some(predefine_source.buffer_id)
     );
     let predefine_definition_id =
-        predefine_event.macro_definition_id.expect("predefine should carry definition identity");
+        predefine_event.macro_definition_id.expect("predefine should carry definition origin");
 
     let predefine_usage = trace
         .events
@@ -1667,8 +1663,8 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "11")
         .expect("predefined macro body token should be emitted");
-    assert!(matches!(from_api.provenance, TokenOrigin::MacroBody { .. }));
-    let TokenOrigin::MacroBody { body_token_range, .. } = &from_api.provenance else {
+    assert!(matches!(from_api.origin, TokenOrigin::MacroBody { .. }));
+    let TokenOrigin::MacroBody { body_token_range, .. } = &from_api.origin else {
         unreachable!();
     };
     assert_eq!(body_token_range.buffer_id, predefine_source.buffer_id);
@@ -1679,9 +1675,9 @@ endmodule
         .find(|token| token.raw_text == "3")
         .expect("intrinsic macro token should stay in emitted stream");
     assert!(matches!(
-        &intrinsic.provenance,
-        TokenOrigin::Builtin { name, identity }
-            if name == "__LINE__" && identity.call_id.0 != 0 && identity.expansion_id.0 != 0
+        &intrinsic.origin,
+        TokenOrigin::Builtin { name, origin }
+            if name == "__LINE__" && origin.call_id.0 != 0 && origin.expansion_id.0 != 0
     ));
 }
 

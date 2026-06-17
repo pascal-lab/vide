@@ -94,9 +94,9 @@ fn source_model_uses_direct_trace_definition_when_body_ranges_collide() {
             value_text: "2".to_owned(),
             display_text: "2".to_owned(),
             token_kind: TokenKind::INTEGER_LITERAL,
-            provenance: TokenOrigin::MacroBody {
+            origin: TokenOrigin::MacroBody {
                 macro_name: "B".to_owned(),
-                identity: MacroBodyOrigin {
+                origin: MacroBodyOrigin {
                     call_id: MacroCallId(200),
                     definition_id: MacroDefinitionId(20),
                     expansion_id: MacroExpansionId(300),
