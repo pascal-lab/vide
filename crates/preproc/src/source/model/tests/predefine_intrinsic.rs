@@ -40,8 +40,8 @@ endmodule
         panic!("intrinsic macro token should have builtin provenance");
     };
     assert_eq!(name.as_str(), "__LINE__");
-    assert_ne!(identity.call.raw(), 0);
-    assert_ne!(identity.expansion.raw(), 0);
+    assert_ne!(identity.call.0, 0);
+    assert_ne!(identity.expansion.0, 0);
 
     let call = model.macro_calls().get(*call).expect("builtin provenance should map to a call");
     let SourceMacroExpansionQuery::Available(expansion_id) =

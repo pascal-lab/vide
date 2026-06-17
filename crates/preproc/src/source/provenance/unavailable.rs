@@ -8,7 +8,7 @@ pub enum SourcePreprocUnavailable {
     ExpansionAuthorityUnavailable,
     MissingMacroCall { call: SourceMacroCallId },
     MissingMacroExpansion { call: SourceMacroCallId },
-    UnknownMacroUsageDefinitionIdentity { identity: SourceMacroDefinitionKey },
+    UnknownMacroUsageDefinitionIdentity { identity: MacroDefinitionId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

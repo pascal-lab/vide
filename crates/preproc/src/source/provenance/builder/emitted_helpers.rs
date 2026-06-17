@@ -55,7 +55,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
     pub(in crate::source::provenance::builder) fn definition_for_identity(
         &self,
-        identity: SourceMacroDefinitionKey,
+        identity: MacroDefinitionId,
     ) -> Result<SourceMacroDefinitionId, ()> {
         self.definition_ids_by_identity.get(&identity).copied().ok_or(())
     }
@@ -85,8 +85,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn record_call_expansion_identity(
         &mut self,
         call: SourceMacroCallId,
-        expansion_identity: SourceMacroExpansionKey,
-        parent_expansion_identity: Option<SourceMacroExpansionKey>,
+        expansion_identity: MacroExpansionId,
+        parent_expansion_identity: Option<MacroExpansionId>,
     ) -> Result<(), ()> {
         let Some(call_fact) = self.tables.macro_calls.get_mut(call) else {
             return Err(());

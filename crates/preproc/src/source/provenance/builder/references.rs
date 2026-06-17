@@ -166,9 +166,9 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         reference: SourceMacroReferenceId,
         call_range: SourceRange,
         callee: SourceMacroResolution,
-        identity: Option<SourceMacroCallKey>,
-        expansion_identity: Option<SourceMacroExpansionKey>,
-        parent_expansion_identity: Option<SourceMacroExpansionKey>,
+        identity: Option<MacroCallId>,
+        expansion_identity: Option<MacroExpansionId>,
+        parent_expansion_identity: Option<MacroExpansionId>,
     ) -> SourceMacroCallId {
         let id = SourceMacroCallId::new(self.tables.macro_calls.len());
         self.tables.macro_calls.push(SourceMacroCall {

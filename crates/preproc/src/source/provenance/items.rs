@@ -13,7 +13,7 @@ pub enum SourceMacroReferenceSite {
 pub struct SourceMacroDefinition {
     pub id: SourceMacroDefinitionId,
     pub event_id: SourcePreprocEventId,
-    pub identity: Option<SourceMacroDefinitionKey>,
+    pub identity: Option<MacroDefinitionId>,
     pub name: SmolStr,
     pub name_range: SourceRange,
     pub directive_range: SourceRange,
@@ -111,9 +111,9 @@ pub(in crate::source::provenance) struct SourceMacroStateSourceScope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroCall {
     pub id: SourceMacroCallId,
-    pub identity: Option<SourceMacroCallKey>,
-    pub expansion_identity: Option<SourceMacroExpansionKey>,
-    pub parent_expansion_identity: Option<SourceMacroExpansionKey>,
+    pub identity: Option<MacroCallId>,
+    pub expansion_identity: Option<MacroExpansionId>,
+    pub parent_expansion_identity: Option<MacroExpansionId>,
     pub reference: SourceMacroReferenceId,
     pub call_range: SourceRange,
     pub callee: SourceMacroResolution,
@@ -138,7 +138,7 @@ pub enum SourceMacroCallStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroExpansion {
     pub id: SourceMacroExpansionId,
-    pub identity: Option<SourceMacroExpansionKey>,
+    pub identity: Option<MacroExpansionId>,
     pub call: SourceMacroCallId,
     pub definition: SourceMacroExpansionDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
@@ -233,9 +233,9 @@ pub enum SourceTokenProvenance {
 pub(in crate::source::provenance) struct EmittedTokenMacroCall {
     pub(in crate::source::provenance) token_id: SourceEmittedTokenId,
     pub(in crate::source::provenance) macro_name: SmolStr,
-    pub(in crate::source::provenance) call_identity: SourceMacroCallKey,
+    pub(in crate::source::provenance) call_identity: MacroCallId,
     pub(in crate::source::provenance) definition: SourceMacroDefinitionId,
     pub(in crate::source::provenance) call_range: SourceRange,
-    pub(in crate::source::provenance) expansion_identity: SourceMacroExpansionKey,
-    pub(in crate::source::provenance) parent_expansion_identity: Option<SourceMacroExpansionKey>,
+    pub(in crate::source::provenance) expansion_identity: MacroExpansionId,
+    pub(in crate::source::provenance) parent_expansion_identity: Option<MacroExpansionId>,
 }
