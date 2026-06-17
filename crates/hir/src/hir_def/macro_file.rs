@@ -141,7 +141,13 @@ pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> 
                 .preprocessor_trace
                 .as_ref()
                 .map(|trace| {
-                    ExpansionSourceMap::from_trace_range(trace, &mapped.source_map, emitted_range)
+                    ExpansionSourceMap::from_trace_range(
+                        db,
+                        call_loc.model_file,
+                        trace,
+                        &mapped.source_map,
+                        emitted_range,
+                    )
                 })
                 .unwrap_or_else(ExpansionSourceMap::empty);
             (text, source_map)

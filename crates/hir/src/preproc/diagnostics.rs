@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn diagnostic_target_for_range(
-    db: &dyn SourceRootDb,
+    db: &dyn HirDb,
     file_id: FileId,
     range: TextRange,
 ) -> PreprocResult<DiagnosticTargetResult> {
@@ -25,7 +25,9 @@ pub fn diagnostic_target_for_range(
             [] => continue,
             [source_call] => {
                 covered = true;
-                if let Some(target) = diagnostic_target_for_call(mapped, source_call)? {
+                if let Some(target) =
+                    diagnostic_target_for_call(db, model_file_id, mapped, source_call)?
+                {
                     targets.push_unique_eq(target);
                 }
             }

@@ -12,13 +12,16 @@ use utils::{
 };
 use vfs::FileId;
 
-use crate::base_db::{
-    project::{CompilationProfileId, Predefine},
-    source_db::{
-        MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
-        SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
-        workspace_preproc_model_file_ids,
+use crate::{
+    base_db::{
+        project::{CompilationProfileId, Predefine},
+        source_db::{
+            MappedSourcePreprocModel, PreprocSourceMapError, PreprocSourceMapping, SourceFileKind,
+            SourcePreprocContextStatus, SourcePreprocQueryError, SourceRootDb,
+            workspace_preproc_model_file_ids,
+        },
     },
+    db::HirDb,
 };
 
 mod conditionals;

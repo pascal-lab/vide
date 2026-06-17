@@ -5,13 +5,15 @@ use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
     preproc::{
-        ActualArgument, MacroCallId, MacroDefinitionId, MacroOperationOrigin, TokenOrigin, Trace,
+        ActualArgument, MacroCallId as TraceMacroCallId, MacroDefinitionId, MacroOperationOrigin,
+        TokenOrigin, Trace,
     },
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::base_db::source_db::PreprocSourceMap;
+use super::{MacroCallId, MacroCallLoc};
+use crate::{base_db::source_db::PreprocSourceMap, db::HirDb};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
@@ -89,6 +91,8 @@ impl ExpansionSourceMap {
     }
 
     pub(crate) fn from_trace_range(
+        db: &dyn HirDb,
+        model_file: FileId,
         trace: &Trace,
         source_map: &PreprocSourceMap,
         emitted_range: SourceEmittedTokenRange,
@@ -101,6 +105,8 @@ impl ExpansionSourceMap {
             .map(|raw| {
                 trace.emitted_tokens.get(raw).and_then(|token| {
                     origin_slot_from_token_origin(
+                        db,
+                        model_file,
                         &token.origin,
                         source_map,
                         Some(&operation_sources),
@@ -113,20 +119,24 @@ impl ExpansionSourceMap {
 
     #[cfg(test)]
     pub(crate) fn from_token_origins<'a>(
+        db: &dyn HirDb,
+        model_file: FileId,
         origins: impl IntoIterator<Item = &'a TokenOrigin>,
         source_map: &PreprocSourceMap,
     ) -> Self {
         Self {
             origins: origins
                 .into_iter()
-                .map(|origin| origin_slot_from_token_origin(origin, source_map, None))
+                .map(|origin| {
+                    origin_slot_from_token_origin(db, model_file, origin, source_map, None)
+                })
                 .collect(),
         }
     }
 }
 
 struct OperationSourceResolver<'a> {
-    arguments_by_call: BTreeMap<MacroCallId, &'a [ActualArgument]>,
+    arguments_by_call: BTreeMap<TraceMacroCallId, &'a [ActualArgument]>,
 }
 
 impl<'a> OperationSourceResolver<'a> {
@@ -156,6 +166,8 @@ impl<'a> OperationSourceResolver<'a> {
 }
 
 fn origin_slot_from_token_origin(
+    db: &dyn HirDb,
+    model_file: FileId,
     origin: &TokenOrigin,
     source_map: &PreprocSourceMap,
     operation_sources: Option<&OperationSourceResolver<'_>>,
@@ -169,7 +181,7 @@ fn origin_slot_from_token_origin(
             })
         }
         TokenOrigin::MacroBody { origin, body_token_range, .. } => Some(Origin::MacroBody {
-            call: origin.call_id,
+            call: macro_call_id(db, model_file, origin.call_id),
             def: origin.definition_id,
             body_range: source_location(source_map, body_token_range)
                 .map_or(text_range(body_token_range)?, |source| source.range),
@@ -177,7 +189,7 @@ fn origin_slot_from_token_origin(
         .map(|origin| OriginSlot { origin, source: source_location(source_map, body_token_range) }),
         TokenOrigin::MacroArgument { origin, argument_token_range, .. } => Some(OriginSlot {
             origin: Origin::MacroArg {
-                call: origin.call_id,
+                call: macro_call_id(db, model_file, origin.call_id),
                 arg_index: usize::try_from(origin.argument_index).ok()?,
                 arg_range: source_location(source_map, argument_token_range)
                     .map_or(text_range(argument_token_range)?, |source| source.range),
@@ -185,21 +197,28 @@ fn origin_slot_from_token_origin(
             source: source_location(source_map, argument_token_range),
         }),
         TokenOrigin::TokenPaste { origin } => Some(OriginSlot {
-            origin: Origin::TokenPaste { call: origin.call_id },
+            origin: Origin::TokenPaste { call: macro_call_id(db, model_file, origin.call_id) },
             source: operation_sources
                 .and_then(|sources| sources.source_for_operation(origin, source_map)),
         }),
         TokenOrigin::Stringify { origin } => Some(OriginSlot {
-            origin: Origin::Stringify { call: origin.call_id },
+            origin: Origin::Stringify { call: macro_call_id(db, model_file, origin.call_id) },
             source: operation_sources
                 .and_then(|sources| sources.source_for_operation(origin, source_map)),
         }),
         TokenOrigin::Builtin { name, origin } if !name.is_empty() => Some(OriginSlot {
-            origin: Origin::Builtin { call: origin.call_id, name: name.to_smolstr() },
+            origin: Origin::Builtin {
+                call: macro_call_id(db, model_file, origin.call_id),
+                name: name.to_smolstr(),
+            },
             source: None,
         }),
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
     }
+}
+
+fn macro_call_id(db: &dyn HirDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
+    db.intern_macro_call(MacroCallLoc { model_file, trace_call })
 }
 
 fn source_location(
