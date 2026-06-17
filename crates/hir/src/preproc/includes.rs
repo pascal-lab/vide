@@ -51,7 +51,7 @@ pub fn include_directives_at(
                 MacroIncludeTarget::Token { raw } => IncludeTarget::Token { raw: raw.clone() },
             };
             let directive = IncludeDirective {
-                id: include.id.into(),
+                id: include.id,
                 file_id,
                 include_index: include.id.raw(),
                 range,

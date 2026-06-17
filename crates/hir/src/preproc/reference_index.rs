@@ -125,7 +125,7 @@ fn collect_macro_references_in_model(
             if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
                 index.push_issue(MacroReferenceIndexIssue::UnavailableReference {
                     file_id: model_file_id,
-                    reference_id: reference.id.into(),
+                    reference_id: reference.id,
                     reason: PreprocUnavailable::Source(reason.clone()),
                 });
             }
