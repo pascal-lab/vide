@@ -46,21 +46,20 @@ endmodule
     let leaf_expansion = model.macro_expansions().get(leaf_expansion_id).unwrap();
     assert!(leaf_expansion.child_calls.is_empty());
 
-    let (payload, parent_trace_expansion, body_token_range) = model
+    let (payload, body_token_range) = model
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenOrigin::MacroBody {
-                call, parent_trace_expansion, body_token_range, ..
-            } = model.token_origins().get(token.origin?)?
+            let SourceTokenOrigin::MacroBody { call, body_token_range, .. } =
+                model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
-            (*call == leaf_call.id).then_some((token, *parent_trace_expansion, *body_token_range))
+            (*call == leaf_call.id).then_some((token, *body_token_range))
         })
         .expect("final payload token should keep LEAF body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
-    assert_eq!(parent_trace_expansion, wrap_call.trace_expansion);
+    assert_eq!(leaf_call.parent_trace_expansion, wrap_call.trace_expansion);
     assert_eq!(text_at_range(root_text, body_token_range.range), "payload_i");
 }
 
