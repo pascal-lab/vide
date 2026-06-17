@@ -81,14 +81,12 @@ pub(in crate::preproc) fn map_macro_argument(
     mapped: &MappedSourcePreprocModel,
     argument: &SourceMacroArgument,
 ) -> PreprocResult<MacroArgument> {
-    let (source, range) = argument
+    let range = argument
         .argument_range
-        .map(|range| map_mapped_source_range(mapped, range))
-        .transpose()?
-        .map_or((None, None), |(source, range)| (Some(source), Some(range)));
+        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+        .transpose()?;
     Ok(MacroArgument {
         argument_index: argument.argument_index,
-        source,
         range,
         tokens: argument
             .tokens
@@ -102,12 +100,11 @@ fn map_macro_argument_token(
     mapped: &MappedSourcePreprocModel,
     token: &preproc::source::SourceMacroToken,
 ) -> PreprocResult<MacroArgumentToken> {
-    let (source, range) = token
+    let range = token
         .range
-        .map(|range| map_mapped_source_range(mapped, range))
-        .transpose()?
-        .map_or((None, None), |(source, range)| (Some(source), Some(range)));
-    Ok(MacroArgumentToken { raw: token.raw.clone(), source, range })
+        .map(|range| map_mapped_source_range(mapped, range).map(|(_, range)| range))
+        .transpose()?;
+    Ok(MacroArgumentToken { raw: token.raw.clone(), range })
 }
 
 pub(in crate::preproc) fn map_macro_resolution(
