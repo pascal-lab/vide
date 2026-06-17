@@ -154,7 +154,7 @@ fn syntax_tokens_for_macro_origins<'tree>(
         let WalkEvent::Enter(SyntaxElement::Token(token)) = event else {
             continue;
         };
-        let Some(origin) = origin_from_syntax_provenance(token.preprocessor_trace_provenance())
+        let Some(origin) = origin_from_syntax_token_origin(token.preprocessor_trace_origin())
         else {
             continue;
         };
@@ -165,27 +165,23 @@ fn syntax_tokens_for_macro_origins<'tree>(
     (!tokens.is_empty()).then_some(tokens)
 }
 
-pub(super) fn origin_from_syntax_provenance(origin: TokenOrigin) -> Option<Origin> {
+pub(super) fn origin_from_syntax_token_origin(origin: TokenOrigin) -> Option<Origin> {
     match origin {
         TokenOrigin::Source { .. } => None,
-        TokenOrigin::MacroBody { identity, body_token_range, .. } => Some(Origin::MacroBody {
-            call: identity.call_id,
-            def: identity.definition_id,
+        TokenOrigin::MacroBody { origin, body_token_range, .. } => Some(Origin::MacroBody {
+            call: origin.call_id,
+            def: origin.definition_id,
             body_range: source_buffer_text_range(&body_token_range)?,
         }),
-        TokenOrigin::MacroArgument { identity, argument_token_range, .. } => {
-            Some(Origin::MacroArg {
-                call: identity.call_id,
-                arg_index: usize::try_from(identity.argument_index).ok()?,
-                arg_range: source_buffer_text_range(&argument_token_range)?,
-            })
-        }
-        TokenOrigin::TokenPaste { identity } => Some(Origin::TokenPaste { call: identity.call_id }),
-        TokenOrigin::Stringification { identity } => {
-            Some(Origin::Stringify { call: identity.call_id })
-        }
-        TokenOrigin::Builtin { name, identity } if !name.is_empty() => {
-            Some(Origin::Builtin { call: identity.call_id, name: name.to_smolstr() })
+        TokenOrigin::MacroArgument { origin, argument_token_range, .. } => Some(Origin::MacroArg {
+            call: origin.call_id,
+            arg_index: usize::try_from(origin.argument_index).ok()?,
+            arg_range: source_buffer_text_range(&argument_token_range)?,
+        }),
+        TokenOrigin::TokenPaste { origin } => Some(Origin::TokenPaste { call: origin.call_id }),
+        TokenOrigin::Stringification { origin } => Some(Origin::Stringify { call: origin.call_id }),
+        TokenOrigin::Builtin { name, origin } if !name.is_empty() => {
+            Some(Origin::Builtin { call: origin.call_id, name: name.to_smolstr() })
         }
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
     }

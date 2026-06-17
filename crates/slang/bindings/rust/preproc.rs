@@ -52,7 +52,7 @@ pub struct EmittedToken {
     pub value_text: String,
     pub display_text: String,
     pub token_kind: TokenKind,
-    pub provenance: TokenOrigin,
+    pub origin: TokenOrigin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,26 +62,26 @@ pub enum TokenOrigin {
     },
     MacroBody {
         macro_name: String,
-        identity: MacroBodyOrigin,
+        origin: MacroBodyOrigin,
         call_range: SourceBufferRange,
         body_token_range: SourceBufferRange,
     },
     MacroArgument {
         macro_name: String,
-        identity: MacroArgumentOrigin,
+        origin: MacroArgumentOrigin,
         call_range: SourceBufferRange,
         body_token_range: SourceBufferRange,
         argument_token_range: SourceBufferRange,
     },
     Builtin {
         name: String,
-        identity: MacroBuiltinOrigin,
+        origin: MacroBuiltinOrigin,
     },
     TokenPaste {
-        identity: MacroOperationOrigin,
+        origin: MacroOperationOrigin,
     },
     Stringification {
-        identity: MacroOperationOrigin,
+        origin: MacroOperationOrigin,
     },
     Unavailable,
 }
@@ -215,7 +215,7 @@ impl EmittedToken {
             value_text,
             display_text,
             token_kind,
-            provenance_kind,
+            origin_kind,
             macro_name,
             macro_call_id,
             has_macro_call_id,
@@ -241,10 +241,10 @@ impl EmittedToken {
             value_text,
             display_text,
             token_kind: TokenKind::from_id(token_kind),
-            provenance: TokenOrigin::from_raw(RawTokenOrigin {
-                kind: provenance_kind,
+            origin: TokenOrigin::from_raw(RawTokenOrigin {
+                kind: origin_kind,
                 macro_name,
-                identity: RawMacroOrigin {
+                origin: RawMacroOrigin {
                     call_id: macro_call_id,
                     has_call_id: has_macro_call_id,
                     definition_id: macro_definition_id,
@@ -272,7 +272,7 @@ impl EmittedToken {
 struct RawTokenOrigin {
     kind: u8,
     macro_name: String,
-    identity: RawMacroOrigin,
+    origin: RawMacroOrigin,
     token_range: ffi::RawSourceBufferRange,
     call_range: ffi::RawSourceBufferRange,
     body_token_range: ffi::RawSourceBufferRange,
@@ -319,15 +319,10 @@ impl TokenOrigin {
                 else {
                     return Self::Unavailable;
                 };
-                let Some(identity) = MacroBodyOrigin::from_raw(&raw.identity) else {
+                let Some(origin) = MacroBodyOrigin::from_raw(&raw.origin) else {
                     return Self::Unavailable;
                 };
-                Self::MacroBody {
-                    macro_name: raw.macro_name,
-                    identity,
-                    call_range,
-                    body_token_range,
-                }
+                Self::MacroBody { macro_name: raw.macro_name, origin, call_range, body_token_range }
             }
             Self::MACRO_ARGUMENT => {
                 let Some(call_range) = SourceBufferRange::from_raw(raw.call_range) else {
@@ -342,34 +337,34 @@ impl TokenOrigin {
                 else {
                     return Self::Unavailable;
                 };
-                let Some(identity) = MacroArgumentOrigin::from_raw(&raw.identity) else {
+                let Some(origin) = MacroArgumentOrigin::from_raw(&raw.origin) else {
                     return Self::Unavailable;
                 };
                 Self::MacroArgument {
                     macro_name: raw.macro_name,
-                    identity,
+                    origin,
                     call_range,
                     body_token_range,
                     argument_token_range,
                 }
             }
             Self::BUILTIN if !raw.macro_name.is_empty() => {
-                let Some(identity) = MacroBuiltinOrigin::from_raw(&raw.identity) else {
+                let Some(origin) = MacroBuiltinOrigin::from_raw(&raw.origin) else {
                     return Self::Unavailable;
                 };
-                Self::Builtin { name: raw.macro_name, identity }
+                Self::Builtin { name: raw.macro_name, origin }
             }
             Self::TOKEN_PASTE => {
-                let Some(identity) = MacroOperationOrigin::from_raw(&raw.identity) else {
+                let Some(origin) = MacroOperationOrigin::from_raw(&raw.origin) else {
                     return Self::Unavailable;
                 };
-                Self::TokenPaste { identity }
+                Self::TokenPaste { origin }
             }
             Self::STRINGIFICATION => {
-                let Some(identity) = MacroOperationOrigin::from_raw(&raw.identity) else {
+                let Some(origin) = MacroOperationOrigin::from_raw(&raw.origin) else {
                     return Self::Unavailable;
                 };
-                Self::Stringification { identity }
+                Self::Stringification { origin }
             }
             Self::UNAVAILABLE => Self::Unavailable,
             _ => Self::Unavailable,

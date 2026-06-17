@@ -1530,7 +1530,7 @@ endmodule
             && !info.contains("Arguments")
             && !info.contains("Expansion steps")
             && !info.contains("Virtual expansion source")
-            && !info.contains("Token provenance"),
+            && !info.contains("Token origin"),
         "macro call hover should include the expanded macro text: {info}"
     );
 

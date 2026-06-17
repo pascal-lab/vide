@@ -495,7 +495,7 @@ namespace wrapper {
         const wrapper::parsing::Token& token,
         const SyntaxNode& context);
 
-    ::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceProvenanceWithContext(
+    ::RawPreprocessorTraceEmittedToken SyntaxToken_preprocessorTraceOriginWithContext(
         const wrapper::parsing::Token& token,
         const SyntaxNode& context);
 

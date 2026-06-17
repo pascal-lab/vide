@@ -155,18 +155,18 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
         TokenOrigin::Source { token_range: range(7, 1..4) },
         TokenOrigin::MacroBody {
             macro_name: "BODY".to_owned(),
-            identity: body_origin(),
+            origin: body_origin(),
             call_range: range(7, 10..15),
             body_token_range: range(7, 20..24),
         },
         TokenOrigin::MacroArgument {
             macro_name: "ARG".to_owned(),
-            identity: arg_origin(),
+            origin: arg_origin(),
             call_range: range(7, 30..35),
             body_token_range: range(7, 40..44),
             argument_token_range: range(7, 50..54),
         },
-        TokenOrigin::TokenPaste { identity: operation_origin() },
+        TokenOrigin::TokenPaste { origin: operation_origin() },
         TokenOrigin::Unavailable,
     ];
 

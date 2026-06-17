@@ -35,7 +35,7 @@ fn source_model_marks_missing_direct_trace_partial_without_range_fallback() {
             kind: SourceTokenKind::Syntax(TokenKind::INTEGER_LITERAL),
             origin: TokenOrigin::MacroBody {
                 macro_name: "A".to_owned(),
-                identity: MacroBodyOrigin {
+                origin: MacroBodyOrigin {
                     call_id: MacroCallId(20),
                     definition_id: MacroDefinitionId(99),
                     expansion_id: MacroExpansionId(30),

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn preproc_manifest_predefine_definition_uses_manifest_provenance() {
+fn preproc_manifest_predefine_definition_uses_manifest_origin() {
     let root_text = r#"`ifdef Z_FROM_MANIFEST
 module top;
 localparam int W = `Z_FROM_MANIFEST;
@@ -58,7 +58,7 @@ endmodule
 }
 
 #[test]
-fn preproc_manifest_escaped_predefine_definition_uses_manifest_provenance() {
+fn preproc_manifest_escaped_predefine_definition_uses_manifest_origin() {
     let root_text = r#"`ifdef MSG
 module top;
 localparam string S = `MSG;
