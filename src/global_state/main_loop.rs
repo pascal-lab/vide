@@ -1,59 +1,9 @@
-use lsp_server::{Notification, Response};
+use lsp_server::Response;
 use project_model::project_manifest;
 
+use super::GlobalState;
 pub use super::event_loop::main_loop;
-use super::{
-    GlobalState,
-    dispatcher::NotifDispatcher,
-    handlers,
-    reload::FetchWorkspaceProgress,
-    task::{ResponseTask, Task},
-};
 use crate::global_state::DEFAULT_REQ_HANDLER;
-
-impl Task {
-    pub(crate) fn response(response: lsp_server::Response) -> Self {
-        Task::Response(ResponseTask::new(response))
-    }
-
-    pub(in crate::global_state) fn kind(&self) -> &'static str {
-        match self {
-            Task::Response(_) => "task.response",
-            Task::Retry(_) => "task.retry",
-            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { .. }) => {
-                "task.fetch_workspace.begin"
-            }
-            Task::FetchWorkspace(FetchWorkspaceProgress::End { .. }) => "task.fetch_workspace.end",
-            Task::Diagnostics(_) => "task.diagnostics",
-            Task::Qihe(task) => task.kind(),
-        }
-    }
-
-    pub(in crate::global_state) fn summary(&self) -> String {
-        match self {
-            Task::Response(response) => response.summary(),
-            Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
-            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
-                format!("task fetch workspace begin cause={cause}")
-            }
-            Task::FetchWorkspace(FetchWorkspaceProgress::End { workspaces, errors, .. }) => {
-                format!(
-                    "task fetch workspace end workspaces={} errors={}",
-                    workspaces.len(),
-                    errors.len()
-                )
-            }
-            Task::Diagnostics(tasks) => {
-                let diagnostic_count = tasks.diagnostic_count();
-                format!(
-                    "task diagnostics files={} diagnostics={diagnostic_count}",
-                    tasks.touched_file_count()
-                )
-            }
-            Task::Qihe(task) => task.summary(),
-        }
-    }
-}
 
 impl GlobalState {
     pub(in crate::global_state) fn register_did_save_cap(&mut self) {
@@ -92,25 +42,6 @@ impl GlobalState {
             lsp_types::RegistrationParams { registrations: vec![registration] },
             DEFAULT_REQ_HANDLER,
         );
-    }
-
-    pub(in crate::global_state) fn handle_notification(&mut self, notif: Notification) {
-        use handlers::notification::*;
-        use lsp_types::notification::*;
-
-        let mut dispatcher = NotifDispatcher { notif: Some(notif), global_state: self };
-        dispatcher
-            .on_sync_mut::<Cancel>(handle_cancel)
-            .on_sync_mut::<WorkDoneProgressCancel>(handle_work_done_progress_cancel)
-            .on_sync_mut::<DidOpenTextDocument>(handle_did_open_text_document)
-            .on_sync_mut::<DidChangeTextDocument>(handle_did_change_text_document)
-            .on_sync_mut::<DidCloseTextDocument>(handle_did_close_text_document)
-            .on_sync_mut::<DidSaveTextDocument>(handle_did_save_text_document)
-            .on_sync_mut::<DidChangeConfiguration>(handle_did_change_configuration)
-            .on_sync_mut::<DidChangeWorkspaceFolders>(handle_did_change_workspace_folders)
-            .on_sync_mut::<DidChangeWatchedFiles>(handle_did_change_watched_files)
-            .on_sync_mut::<SetTrace>(handle_set_trace)
-            .finish();
     }
 
     pub(in crate::global_state) fn handle_response(&mut self, res: Response) {
@@ -159,7 +90,9 @@ mod tests {
                 },
             },
             event_loop::Event,
+            reload::FetchWorkspaceProgress,
             response_effect::AcceptedResponseEffect,
+            task::{ResponseTask, Task},
         },
         i18n::I18n,
         lsp_ext::to_proto,
