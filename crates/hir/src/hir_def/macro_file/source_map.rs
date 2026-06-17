@@ -166,6 +166,54 @@ impl<'a> OperationSourceResolver<'a> {
     }
 }
 
+impl Origin {
+    /// Translate a slang `TokenOrigin` into the hir `Origin` model.
+    ///
+    /// `source_map` is consulted for file-backed ranges so that the resulting
+    /// `Origin` carries hir-side `TextRange`s. When `source_map` cannot map a
+    /// range, the raw buffer offsets are used as a fallback.
+    pub fn from_token_origin(
+        db: &dyn HirDb,
+        model_file: FileId,
+        origin: &TokenOrigin,
+        source_map: &PreprocSourceMap,
+    ) -> Option<Self> {
+        Some(match origin {
+            TokenOrigin::Source { token_range } => {
+                let source = source_location(source_map, token_range)?;
+                Origin::File { file: source.file, range: source.range }
+            }
+            TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
+                Origin::MacroBody {
+                    call: macro_call_id(db, model_file, *call_id),
+                    def: *definition_id,
+                    body_range: source_location(source_map, body_token_range)
+                        .map_or(text_range(body_token_range)?, |s| s.range),
+                }
+            }
+            TokenOrigin::MacroArgument {
+                call_id, argument_index, argument_token_range, ..
+            } => Origin::MacroArg {
+                call: macro_call_id(db, model_file, *call_id),
+                arg_index: usize::try_from(*argument_index).ok()?,
+                arg_range: source_location(source_map, argument_token_range)
+                    .map_or(text_range(argument_token_range)?, |s| s.range),
+            },
+            TokenOrigin::TokenPaste { call_id, .. } => {
+                Origin::TokenPaste { call: macro_call_id(db, model_file, *call_id) }
+            }
+            TokenOrigin::Stringify { call_id, .. } => {
+                Origin::Stringify { call: macro_call_id(db, model_file, *call_id) }
+            }
+            TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => Origin::Builtin {
+                call: macro_call_id(db, model_file, *call_id),
+                name: name.to_smolstr(),
+            },
+            TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => return None,
+        })
+    }
+}
+
 fn origin_slot_from_token_origin(
     db: &dyn HirDb,
     model_file: FileId,
@@ -173,69 +221,29 @@ fn origin_slot_from_token_origin(
     source_map: &PreprocSourceMap,
     operation_sources: Option<&OperationSourceResolver<'_>>,
 ) -> Option<OriginSlot> {
-    match origin {
-        TokenOrigin::Source { token_range } => {
-            let source = source_location(source_map, token_range)?;
-            Some(OriginSlot {
-                origin: Origin::File { file: source.file, range: source.range },
-                source: Some(source),
+    let mapped_origin = Origin::from_token_origin(db, model_file, origin, source_map)?;
+    let source = match origin {
+        TokenOrigin::Source { token_range } => source_location(source_map, token_range),
+        TokenOrigin::MacroBody { body_token_range, .. } => {
+            source_location(source_map, body_token_range)
+        }
+        TokenOrigin::MacroArgument { argument_token_range, .. } => {
+            source_location(source_map, argument_token_range)
+        }
+        TokenOrigin::TokenPaste { call_id, argument_index, argument_token_index, .. }
+        | TokenOrigin::Stringify { call_id, argument_index, argument_token_index, .. } => {
+            operation_sources.and_then(|sources| {
+                sources.source_for_operation(
+                    *call_id,
+                    *argument_index,
+                    *argument_token_index,
+                    source_map,
+                )
             })
         }
-        TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
-            Some(Origin::MacroBody {
-                call: macro_call_id(db, model_file, *call_id),
-                def: *definition_id,
-                body_range: source_location(source_map, body_token_range)
-                    .map_or(text_range(body_token_range)?, |source| source.range),
-            })
-        }
-        .map(|origin| OriginSlot { origin, source: source_location(source_map, body_token_range) }),
-        TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
-            Some(OriginSlot {
-                origin: Origin::MacroArg {
-                    call: macro_call_id(db, model_file, *call_id),
-                    arg_index: usize::try_from(*argument_index).ok()?,
-                    arg_range: source_location(source_map, argument_token_range)
-                        .map_or(text_range(argument_token_range)?, |source| source.range),
-                },
-                source: source_location(source_map, argument_token_range),
-            })
-        }
-        TokenOrigin::TokenPaste { call_id, argument_index, argument_token_index, .. } => {
-            Some(OriginSlot {
-                origin: Origin::TokenPaste { call: macro_call_id(db, model_file, *call_id) },
-                source: operation_sources.and_then(|sources| {
-                    sources.source_for_operation(
-                        *call_id,
-                        *argument_index,
-                        *argument_token_index,
-                        source_map,
-                    )
-                }),
-            })
-        }
-        TokenOrigin::Stringify { call_id, argument_index, argument_token_index, .. } => {
-            Some(OriginSlot {
-                origin: Origin::Stringify { call: macro_call_id(db, model_file, *call_id) },
-                source: operation_sources.and_then(|sources| {
-                    sources.source_for_operation(
-                        *call_id,
-                        *argument_index,
-                        *argument_token_index,
-                        source_map,
-                    )
-                }),
-            })
-        }
-        TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => Some(OriginSlot {
-            origin: Origin::Builtin {
-                call: macro_call_id(db, model_file, *call_id),
-                name: name.to_smolstr(),
-            },
-            source: None,
-        }),
         TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
-    }
+    };
+    Some(OriginSlot { origin: mapped_origin, source })
 }
 
 fn macro_call_id(db: &dyn HirDb, model_file: FileId, trace_call: TraceMacroCallId) -> MacroCallId {
