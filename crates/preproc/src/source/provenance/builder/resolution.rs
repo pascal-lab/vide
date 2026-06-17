@@ -14,15 +14,15 @@ impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn resolve_usage_reference(
         &mut self,
         name: &str,
-        identity: Option<MacroDefinitionId>,
+        definition_id: Option<MacroDefinitionId>,
     ) -> SourceMacroResolution {
-        let Some(identity) = identity else {
+        let Some(definition_id) = definition_id else {
             return self.resolve_visible_reference(name);
         };
-        let Some(definition) = self.definition_ids_by_identity.get(&identity).copied() else {
+        let Some(definition) = self.definition_ids_by_identity.get(&definition_id).copied() else {
             self.references_partial = true;
             return SourceMacroResolution::Unavailable(
-                SourcePreprocUnavailable::UnknownMacroUsageDefinitionIdentity { identity },
+                SourcePreprocUnavailable::UnknownMacroUsageDefinition { definition: definition_id },
             );
         };
         self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
