@@ -1,10 +1,10 @@
 use ::preproc::source::{
-    SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCallId, SourceMacroDefinition,
-    SourceMacroExpansion, SourceMacroExpansionDefinition, SourceMacroReferenceId,
+    SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCall, SourceMacroCallId,
+    SourceMacroDefinition, SourceMacroExpansion, SourceMacroExpansionDefinition,
     SourcePreprocModel,
 };
 use smol_str::SmolStr;
-use syntax::SyntaxTree;
+use syntax::{SyntaxTree, preproc::MacroCallId};
 use triomphe::Arc;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -23,7 +23,7 @@ pub struct MacroFileId(pub salsa::InternId);
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct MacroFileLoc {
     pub model_file: FileId,
-    pub call: SourceMacroCallId,
+    pub trace_call: MacroCallId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +41,6 @@ pub struct MacroFileExpansion {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroFileCall {
-    pub reference_id: SourceMacroReferenceId,
     pub file_id: FileId,
     pub range: TextRange,
 }
@@ -86,7 +85,13 @@ pub fn macro_files_at_offset(
             if emitted_range_for_call(&mapped.model, call).is_none() {
                 continue;
             }
-            let macro_file = db.intern_macro_file(MacroFileLoc { model_file, call });
+            let Some(source_call) = mapped.model.macro_calls().get(call) else {
+                continue;
+            };
+            let Some(trace_call) = source_call.trace_call else {
+                continue;
+            };
+            let macro_file = db.intern_macro_file(MacroFileLoc { model_file, trace_call });
             if !macro_files.contains(&macro_file) {
                 macro_files.push(macro_file);
             }
@@ -99,11 +104,10 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
     let loc = db.lookup_intern_macro_file(macro_file);
     let mapped = db.source_preproc_model(loc.model_file);
     let mapped = mapped.as_ref().as_ref().ok()?;
-    let call = mapped.model.macro_calls().get(loc.call)?;
-    let expansion = source_expansion_for_call(&mapped.model, loc.call)?;
+    let call = source_call_for_trace_call(&mapped.model, loc.trace_call)?;
+    let expansion = source_expansion_for_call(&mapped.model, call.id)?;
     Some(MacroFileExpansion {
         call: MacroFileCall {
-            reference_id: call.reference,
             file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
             range: mapped.source_map.map_range(call.call_range).ok()?,
         },
@@ -115,7 +119,9 @@ pub(crate) fn macro_expansion_query(db: &dyn HirDb, macro_file: MacroFileId) -> 
     let loc = db.lookup_intern_macro_file(macro_file);
     let mapped = db.source_preproc_model(loc.model_file);
     let expansion = mapped.as_ref().as_ref().ok().and_then(|mapped| {
-        emitted_range_for_call(&mapped.model, loc.call).map(|range| (mapped, range))
+        source_call_for_trace_call(&mapped.model, loc.trace_call)
+            .and_then(|call| emitted_range_for_call(&mapped.model, call.id))
+            .map(|range| (mapped, range))
     });
     let (text, source_map) = expansion
         .map(|(mapped, emitted_range)| {
@@ -172,6 +178,13 @@ fn emitted_range_for_call(
     call: SourceMacroCallId,
 ) -> Option<SourceEmittedTokenRange> {
     source_expansion_for_call(model, call).map(|expansion| expansion.emitted_token_range)
+}
+
+fn source_call_for_trace_call(
+    model: &SourcePreprocModel,
+    trace_call: MacroCallId,
+) -> Option<&SourceMacroCall> {
+    model.macro_calls().iter().find(|call| call.trace_call == Some(trace_call))
 }
 
 fn source_expansion_for_call(

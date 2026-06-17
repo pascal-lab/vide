@@ -71,7 +71,6 @@ pub struct IncludeChainEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReference {
-    pub id: SourceMacroReferenceId,
     pub file_id: FileId,
     pub name: SmolStr,
     pub range: TextRange,

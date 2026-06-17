@@ -35,18 +35,22 @@ pub(super) fn expanded_macro_hover(
     offset: TextSize,
     reference_definitions: Option<&MacroReferenceDefinitions>,
 ) -> Option<RangeInfo<Markup>> {
-    let reference_ids = if let Some(reference_definitions) = reference_definitions {
-        reference_definitions.references.iter().map(|reference| reference.id).collect::<Vec<_>>()
+    let reference_ranges = if let Some(reference_definitions) = reference_definitions {
+        reference_definitions
+            .references
+            .iter()
+            .map(|reference| (reference.file_id, reference.range))
+            .collect::<Vec<_>>()
     } else {
         macro_reference_definitions_at(db, file_id, offset)
             .ok()
             .flatten()?
             .references
             .into_iter()
-            .map(|reference| reference.id)
+            .map(|reference| (reference.file_id, reference.range))
             .collect::<Vec<_>>()
     };
-    if reference_ids.is_empty() {
+    if reference_ranges.is_empty() {
         return None;
     }
 
@@ -55,7 +59,10 @@ pub(super) fn expanded_macro_hover(
         .into_iter()
         .filter_map(|macro_file| {
             let metadata = macro_file_expansion(db, macro_file)?;
-            if !reference_ids.contains(&metadata.call.reference_id) {
+            if !reference_ranges.iter().any(|&(file_id, range)| {
+                file_id == metadata.call.file_id
+                    && metadata.call.range.intersect(range).is_some_and(|range| !range.is_empty())
+            }) {
                 return None;
             }
             let expansion = db.macro_expansion(macro_file);
