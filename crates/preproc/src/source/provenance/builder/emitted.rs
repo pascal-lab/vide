@@ -29,7 +29,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn resolve_emitted_token_provenance(
         &mut self,
         token_id: SourceEmittedTokenId,
-        token: &SourceEmittedTokenFact,
+        token: &SourceEmittedTokenRecord,
     ) -> SourceTokenProvenance {
         match &token.provenance {
             TokenOrigin::Source { token_range } => source_range_from_origin(token_range)

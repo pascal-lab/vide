@@ -5,14 +5,14 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         for (define_index, define) in self.index.defines.iter().enumerate() {
             let Some(name) = define.name.clone() else {
                 self.definition_ranges_partial = true;
-                self.tables.issues.push(SourcePreprocFactIssue::MissingDefinitionName {
-                    event_id: define.event_id,
-                });
+                self.tables
+                    .issues
+                    .push(SourcePreprocIssue::MissingDefinitionName { event_id: define.event_id });
                 continue;
             };
             let Some(name_range) = define.name_range else {
                 self.definition_ranges_partial = true;
-                self.tables.issues.push(SourcePreprocFactIssue::MissingDefinitionNameRange {
+                self.tables.issues.push(SourcePreprocIssue::MissingDefinitionNameRange {
                     event_id: define.event_id,
                 });
                 continue;
