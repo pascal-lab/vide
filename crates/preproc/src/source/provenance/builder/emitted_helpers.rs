@@ -4,7 +4,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn call_for_emitted_token(
         &mut self,
         request: EmittedTokenMacroCall,
-    ) -> Result<SourceMacroCallId, SourcePreprocUnavailable> {
+    ) -> Result<SourceMacroCallId, ()> {
         if let Some(call) = self.call_ids_by_identity.get(&request.call_identity).copied() {
             self.record_call_expansion_identity(
                 call,
@@ -87,16 +87,14 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         call: SourceMacroCallId,
         expansion_identity: SourceMacroExpansionKey,
         parent_expansion_identity: Option<SourceMacroExpansionKey>,
-    ) -> Result<(), SourcePreprocUnavailable> {
+    ) -> Result<(), ()> {
         let Some(call_fact) = self.tables.macro_calls.get_mut(call) else {
-            return Err(SourcePreprocUnavailable::MissingMacroCall { call });
+            return Err(());
         };
         if let Some(existing) = call_fact.expansion_identity {
             if existing != expansion_identity {
                 self.expansions_partial = true;
-                return Err(SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity {
-                    call,
-                });
+                return Err(());
             }
         } else {
             call_fact.expansion_identity = Some(expansion_identity);
@@ -106,9 +104,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             match call_fact.parent_expansion_identity {
                 Some(existing) if existing != parent_expansion_identity => {
                     self.expansions_partial = true;
-                    return Err(SourcePreprocUnavailable::UnmappedParentMacroExpansionIdentity {
-                        identity: parent_expansion_identity,
-                    });
+                    return Err(());
                 }
                 Some(_) => {}
                 None => call_fact.parent_expansion_identity = Some(parent_expansion_identity),

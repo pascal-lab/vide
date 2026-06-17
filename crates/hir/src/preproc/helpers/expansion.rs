@@ -43,9 +43,7 @@ fn map_macro_expansion_definition(
             let Some(definition) = mapped.model.macro_definitions().get(*definition_id) else {
                 return Err(PreprocError::Unavailable {
                     reason: PreprocUnavailable::Source(
-                        SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition {
-                            call: expansion.call,
-                        },
+                        SourcePreprocUnavailable::MissingMacroExpansion { call: expansion.call },
                     ),
                 });
             };

@@ -227,7 +227,7 @@ pub enum SourceTokenProvenance {
         identity: SourceMacroBuiltinIdentity,
         call: SourceMacroCallId,
     },
-    Unavailable(SourcePreprocUnavailable),
+    Unavailable(()),
 }
 
 pub(in crate::source::provenance) struct EmittedTokenMacroCall {

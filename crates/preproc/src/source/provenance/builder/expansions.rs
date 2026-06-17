@@ -30,7 +30,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             else {
                 self.mark_call_unavailable(
                     call,
-                    SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { call },
+                    SourcePreprocUnavailable::MissingMacroExpansion { call },
                 );
                 continue;
             };
@@ -39,7 +39,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             ) else {
                 self.mark_call_unavailable(
                     call,
-                    SourcePreprocUnavailable::NonContiguousEmittedTokenRange { call },
+                    SourcePreprocUnavailable::MissingMacroExpansion { call },
                 );
                 continue;
             };
@@ -47,7 +47,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             else {
                 self.mark_call_unavailable(
                     call,
-                    SourcePreprocUnavailable::MissingEmittedTokenMacroDefinition { call },
+                    SourcePreprocUnavailable::MissingMacroExpansion { call },
                 );
                 continue;
             };
