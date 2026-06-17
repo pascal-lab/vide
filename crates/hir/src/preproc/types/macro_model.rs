@@ -79,17 +79,7 @@ pub struct MacroUsage {
 pub struct MacroUsageResolution {
     pub usage: MacroUsage,
     pub definition: MacroDefinition,
-    pub definition_origin: MacroDefinitionOrigin,
     pub include_chain: Vec<IncludeChainEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroDefinitionOrigin {
-    pub id: MacroDefinitionId,
-    pub event_id: u32,
-    pub file_id: FileId,
-    pub directive_range: TextRange,
-    pub name_range: TextRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

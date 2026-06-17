@@ -15,7 +15,7 @@ endmodule
         macro_usage_resolution_at(&db, TOP, offset(root_text, "LEAF_WIDTH")).unwrap().unwrap();
 
     assert_eq!(resolution.definition.file_id, LEAF);
-    assert_eq!(resolution.definition_origin.file_id, LEAF);
+    assert_eq!(resolution.definition.file_id, LEAF);
     assert_eq!(resolution.include_chain.len(), 2);
     assert_eq!(resolution.include_chain[0].include_file_id, TOP);
     assert_eq!(resolution.include_chain[0].included_file_id, HEADER);

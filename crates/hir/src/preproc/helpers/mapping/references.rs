@@ -24,20 +24,6 @@ pub(in crate::preproc) fn map_macro_param_reference(
     Ok(MacroParamReference { macro_definition, file_id, param_index, token_index, name, range })
 }
 
-pub(in crate::preproc) fn map_definition_origin_from_source_definition(
-    mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinition,
-) -> PreprocResult<MacroDefinitionOrigin> {
-    let definition = map_macro_definition(mapped, definition)?;
-    Ok(MacroDefinitionOrigin {
-        id: definition.id,
-        event_id: definition.event_id,
-        file_id: definition.file_id,
-        directive_range: definition.directive_range,
-        name_range: definition.name_range,
-    })
-}
-
 pub(in crate::preproc) fn map_macro_reference(
     mapped: &MappedSourcePreprocModel,
     reference: &SourceMacroReference,
