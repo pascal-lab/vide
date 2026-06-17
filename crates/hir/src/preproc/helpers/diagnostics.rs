@@ -3,9 +3,9 @@ use crate::hir_def::macro_file::Origin;
 
 pub(in crate::preproc) fn diagnostic_target_for_call(
     mapped: &MappedSourcePreprocModel,
-    call_fact: &SourceMacroCall,
+    source_call: &SourceMacroCall,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
-    match mapped.model.immediate_macro_expansion(call_fact.id) {
+    match mapped.model.immediate_macro_expansion(source_call.id) {
         SourceMacroExpansionQuery::Available(expansion_id) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
                 return Ok(None);

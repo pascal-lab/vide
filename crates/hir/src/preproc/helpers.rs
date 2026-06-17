@@ -3,7 +3,9 @@ use super::*;
 mod context;
 mod diagnostics;
 mod expansion;
-mod facts;
+mod mapping;
 mod source;
 
-pub(in crate::preproc) use self::{context::*, diagnostics::*, expansion::*, facts::*, source::*};
+pub(in crate::preproc) use self::{
+    context::*, diagnostics::*, expansion::*, mapping::*, source::*,
+};
