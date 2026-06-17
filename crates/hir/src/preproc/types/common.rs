@@ -41,13 +41,6 @@ pub enum PreprocUnavailable {
     DisplayOnlyVirtualExpansion { path: VfsPath, origin: PreprocVirtualOrigin },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreprocAvailability {
-    Complete,
-    Partial,
-    Unavailable(PreprocUnavailable),
-}
-
 macro_rules! mapped_preproc_id {
     ($name:ident, $core:ty) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

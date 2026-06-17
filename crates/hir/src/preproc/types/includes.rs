@@ -4,7 +4,6 @@ use super::*;
 pub struct IncludeDirective {
     pub id: IncludeDirectiveId,
     pub source: MappedPreprocSource,
-    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub include_index: usize,
     pub range: TextRange,
@@ -15,7 +14,6 @@ pub struct IncludeDirective {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InactiveBranch {
     pub source: MappedPreprocSource,
-    pub capability: PreprocAvailability,
     pub file_id: FileId,
     pub range: TextRange,
 }

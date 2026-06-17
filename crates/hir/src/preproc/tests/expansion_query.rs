@@ -47,7 +47,6 @@ endmodule
     assert_eq!(immediate.call.file_id, TOP);
     assert_eq!(text_at_range(root_text, immediate.call.range), "`OBJ");
     assert_eq!(immediate.emitted_token_range.len, 1);
-    assert!(matches!(immediate.capability, PreprocAvailability::Complete));
 
     let recursive =
         recursive_macro_expansion_at(&db, TOP, offset(root_text, "`WRAP")).unwrap().unwrap();

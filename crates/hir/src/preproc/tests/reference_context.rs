@@ -13,7 +13,6 @@ localparam int ENABLED = `HEADER_FLAG;
         macro_definition_at(&db, HEADER, offset_after(header_text, "`define ")).unwrap().unwrap();
 
     assert_eq!(definition.source.file_id(), Some(HEADER));
-    assert!(matches!(definition.capability, PreprocAvailability::Complete));
 
     let refs = macro_references(&db, HEADER, &definition).unwrap().references;
 
@@ -36,7 +35,6 @@ localparam int ENABLED = `HEADER_FLAG;
     assert_eq!(text_at_range(root_text, definitions.range), "`HEADER_FLAG");
     assert!(macro_reference_definitions_at(&db, TOP, definitions.range.end()).unwrap().is_none());
     assert!(macro_usage_resolution_at(&db, TOP, definitions.range.end()).unwrap().is_none());
-    assert!(matches!(definitions.capability, PreprocAvailability::Complete));
     assert!(definitions.definitions.iter().any(|indexed| {
         indexed.file_id == HEADER
             && indexed.name_range == definition.name_range

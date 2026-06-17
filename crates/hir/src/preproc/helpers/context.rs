@@ -23,21 +23,6 @@ impl SourcePreprocQueryContexts {
     }
 }
 
-pub(in crate::preproc) fn context_query_capability(
-    contexts: &SourcePreprocQueryContexts,
-    capability: PreprocAvailability,
-) -> PreprocAvailability {
-    match contexts.status {
-        SourcePreprocContextStatus::Complete => capability,
-        SourcePreprocContextStatus::Partial { .. } => match capability {
-            PreprocAvailability::Unavailable(reason) => PreprocAvailability::Unavailable(reason),
-            PreprocAvailability::Complete | PreprocAvailability::Partial => {
-                PreprocAvailability::Partial
-            }
-        },
-    }
-}
-
 pub(in crate::preproc) fn source_preproc_single_query_contexts(
     db: &dyn SourceRootDb,
     file_id: FileId,
