@@ -1,10 +1,12 @@
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData};
 
 pub(crate) use la_arena::{ArenaMap, Idx};
 use rustc_hash::FxHashMap;
 use syntax::{
-    SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind, ast::AstNode,
+    SyntaxKind, SyntaxNode, SyntaxToken, SyntaxTokenWithParent, TokenKind,
+    ast::AstNode,
     has_text_range::HasTextRange,
+    ptr::{SyntaxNodePtr, SyntaxTokenPtr},
 };
 pub(crate) use utils::get::Get;
 use utils::{get::GetRef, text_edit::TextRange};
@@ -165,392 +167,197 @@ pub(crate) fn root_token_in<'a>(
     Some(token)
 }
 
-#[macro_export]
-macro_rules! define_src {
-    ($name:ident(ast::$ty:ident)) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-        pub struct $name(pub syntax::ptr::SyntaxNodePtr);
-
-        impl $crate::source_map::IsSrc for $name {
-            #[inline]
-            fn kind(&self) -> syntax::SyntaxKind {
-                self.0.kind()
-            }
-
-            #[inline]
-            fn range(&self) -> utils::text_edit::TextRange {
-                self.0.range()
-            }
-        }
-
-        impl<'a> $crate::source_map::ToAstNode<'a, ast::$ty<'a>> for $name {
-            #[inline]
-            fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
-                let mut node = self.0.to_node(tree)?;
-                while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) {
-                    node = node.children().find_map(|elem| elem.as_node())?;
-                }
-                <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
-            }
-        }
-
-        impl From<ast::$ty<'_>> for $name {
-            fn from(node: ast::$ty<'_>) -> Self {
-                Self(syntax::slang_ext::AstNodeExt::to_ptr(&node))
-            }
-        }
-
-        impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
-            fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                Self(syntax::slang_ext::AstNodeExt::to_ptr(&node.into_inner()))
-            }
-        }
-
-        impl From<$name> for syntax::ptr::SyntaxNodePtr {
-            fn from(src: $name) -> Self {
-                src.0
-            }
-        }
-    };
-
-    ($name:ident($(ast::$ty:ident),*)$(,)?) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-        pub enum $name {
-            $(
-                $ty(syntax::ptr::SyntaxNodePtr),
-            )*
-        }
-
-        impl $crate::source_map::IsSrc for $name {
-            #[inline]
-            fn kind(&self) -> syntax::SyntaxKind {
-                match self {
-                    $(
-                        $name::$ty(ptr) => ptr.kind(),
-                    )*
-                }
-            }
-
-            #[inline]
-            fn range(&self) -> utils::text_edit::TextRange {
-                match self {
-                    $(
-                        $name::$ty(ptr) => ptr.range(),
-                    )*
-                }
-            }
-        }
-
-        $(
-            impl<'a> $crate::source_map::ToAstNode<'a, ast::$ty<'a>> for $name {
-                #[inline]
-                fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
-                    match self {
-                        $name::$ty(ptr) => syntax::ast::AstNode::cast(ptr.to_node(tree)?),
-                        _ => None,
-                    }
-                }
-            }
-        )*
-
-        $(
-            impl From<ast::$ty<'_>> for $name {
-                fn from(node: ast::$ty<'_>) -> Self {
-                    Self::$ty(syntax::slang_ext::AstNodeExt::to_ptr(&node))
-                }
-            }
-
-            impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
-                fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                    Self::$ty(syntax::slang_ext::AstNodeExt::to_ptr(&node.into_inner()))
-                }
-            }
-        )*
-    };
+pub(crate) fn ast_node_from_ptr<'a, Ast>(
+    ptr: SyntaxNodePtr,
+    tree: &'a syntax::SyntaxTree,
+) -> Option<Ast>
+where
+    Ast: AstNode<'a>,
+{
+    let mut node = ptr.to_node(tree)?;
+    while !Ast::can_cast(node.kind()) {
+        node = node.children().find_map(|elem| elem.as_node())?;
+    }
+    Ast::cast(node)
 }
 
-#[macro_export]
-macro_rules! define_src_with_name {
-    ($name:ident(ast::$ty:ident)) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-        pub struct $name {
-            pub node: syntax::ptr::SyntaxNodePtr,
-            pub name: Option<syntax::ptr::SyntaxTokenPtr>,
-        }
-
-        impl $crate::source_map::IsSrc for $name {
-            fn kind(&self) -> syntax::SyntaxKind {
-                self.node.kind()
-            }
-
-            fn range(&self) -> utils::text_edit::TextRange {
-                self.node.range()
-            }
-        }
-
-        impl $crate::source_map::IsNamedSrc for $name {
-            fn name_kind(&self) -> Option<syntax::TokenKind> {
-                self.name.map(|name| name.kind())
-            }
-
-            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-                self.name.map(|name| name.range())
-            }
-        }
-
-        impl<'a> $crate::source_map::ToAstNode<'a, ast::$ty<'a>> for $name {
-            fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
-                let mut node = self.node.to_node(tree)?;
-                while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) {
-                    node = node.children().find_map(|elem| elem.as_node())?;
-                }
-                <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
-            }
-        }
-
-        impl From<ast::$ty<'_>> for $name {
-            fn from(node: ast::$ty<'_>) -> Self {
-                let syntax = syntax::ast::AstNode::syntax(&node);
-                Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                    name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
-                        .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
-                }
-            }
-        }
-
-        impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
-            fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                let node = node.into_inner();
-                let syntax = syntax::ast::AstNode::syntax(&node);
-                Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                    name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node)
-                        .and_then(|name| {
-                            $crate::source_map::root_token_in(syntax, name)
-                                .map(syntax::ptr::SyntaxTokenPtr::from_token)
-                        }),
-                }
-            }
-        }
-
-        impl From<$name> for syntax::ptr::SyntaxNodePtr {
-            fn from(src: $name) -> Self {
-                src.node
-            }
-        }
-
-        impl From<$name> for Option<syntax::ptr::SyntaxTokenPtr> {
-            fn from(src: $name) -> Self {
-                src.name
-            }
-        }
-    };
-
-    ($name:ident($(ast::$ty:ident),*)$(,)?) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-        pub enum $name {
-            $(
-                $ty {
-                    node: syntax::ptr::SyntaxNodePtr,
-                    name: Option<syntax::ptr::SyntaxTokenPtr>,
-                },
-            )*
-        }
-
-        impl $crate::source_map::IsSrc for $name {
-            fn kind(&self) -> syntax::SyntaxKind {
-                match self {
-                    $(
-                        $name::$ty { node, .. } => node.kind(),
-                    )*
-                }
-            }
-
-            fn range(&self) -> utils::text_edit::TextRange {
-                match self {
-                    $(
-                        $name::$ty { node, .. } => node.range(),
-                    )*
-                }
-            }
-        }
-
-        impl $crate::source_map::IsNamedSrc for $name {
-            fn name_kind(&self) -> Option<syntax::TokenKind> {
-                match self {
-                    $(
-                        $name::$ty { name, .. } => name.map(|name| name.kind()),
-                    )*
-                }
-            }
-
-            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-                match self {
-                    $(
-                        $name::$ty { name, .. } => name.map(|name| name.range()),
-                    )*
-                }
-            }
-        }
-
-        $(
-            impl<'a> $crate::source_map::ToAstNode<'a, ast::$ty<'a>> for $name {
-                fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
-                    match self {
-                        $name::$ty { node, .. } => {
-                            let mut node = node.to_node(tree)?;
-                            while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) && node.child_count() == 1 {
-                                node = node.child_node(0)?;
-                            }
-                            <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
-                        }
-                        _ => None,
-                    }
-                }
-            }
-        )*
-
-        $(
-            impl From<ast::$ty<'_>> for $name {
-                fn from(node: ast::$ty<'_>) -> Self {
-                    let syntax = syntax::ast::AstNode::syntax(&node);
-                    Self::$ty {
-                        node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                        name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
-                            .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
-                    }
-                }
-            }
-
-            impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
-                fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                    let node = node.into_inner();
-                    let syntax = syntax::ast::AstNode::syntax(&node);
-                    Self::$ty {
-                        node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                        name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node)
-                            .and_then(|name| {
-                                $crate::source_map::root_token_in(syntax, name)
-                                    .map(syntax::ptr::SyntaxTokenPtr::from_token)
-                            }),
-                    }
-                }
-            }
-        )*
-
-        impl From<$name> for syntax::ptr::SyntaxNodePtr {
-            fn from(src: $name) -> Self {
-                match src {
-                    $(
-                        $name::$ty { node, .. } => node,
-                    )*
-                }
-            }
-        }
-
-        impl From<$name> for Option<syntax::ptr::SyntaxTokenPtr> {
-            fn from(src: $name) -> Self {
-                match src {
-                    $(
-                        $name::$ty { name, .. } => name,
-                    )*
-                }
-            }
-        }
-    };
+pub(crate) fn exact_ast_node_from_ptr<'a, Ast>(
+    ptr: SyntaxNodePtr,
+    tree: &'a syntax::SyntaxTree,
+) -> Option<Ast>
+where
+    Ast: AstNode<'a>,
+{
+    Ast::cast(ptr.to_node(tree)?)
 }
 
-#[macro_export]
-macro_rules! define_src_with_name_and_token {
-    ($name:ident(ast:: $ty:ident, $token:ident : $token_getter:ident, $range_getter:ident)) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-        pub struct $name {
-            pub node: syntax::ptr::SyntaxNodePtr,
-            pub name: Option<syntax::ptr::SyntaxTokenPtr>,
-            $token: Option<syntax::ptr::SyntaxTokenPtr>,
-        }
+pub(crate) fn wrapped_ast_node_from_ptr<'a, Ast>(
+    ptr: SyntaxNodePtr,
+    tree: &'a syntax::SyntaxTree,
+) -> Option<Ast>
+where
+    Ast: AstNode<'a>,
+{
+    let mut node = ptr.to_node(tree)?;
+    while !Ast::can_cast(node.kind()) && node.child_count() == 1 {
+        node = node.child_node(0)?;
+    }
+    Ast::cast(node)
+}
 
-        impl $name {
-            pub fn $range_getter(&self) -> Option<utils::text_edit::TextRange> {
-                self.$token.map(|token| token.range())
-            }
-        }
+pub trait AstKind: Debug + PartialEq + Eq + Hash + Copy + Clone + 'static {
+    type Node<'a>: AstNode<'a>;
+}
 
-        impl $crate::source_map::IsSrc for $name {
-            fn kind(&self) -> syntax::SyntaxKind {
-                self.node.kind()
-            }
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct AstId<Kind: AstKind>(pub SyntaxNodePtr, PhantomData<fn() -> Kind>);
 
-            fn range(&self) -> utils::text_edit::TextRange {
-                self.node.range()
-            }
-        }
+impl<Kind: AstKind> AstId<Kind> {
+    #[inline]
+    pub fn new(node: SyntaxNodePtr) -> Self {
+        Self(node, PhantomData)
+    }
 
-        impl $crate::source_map::IsNamedSrc for $name {
-            fn name_kind(&self) -> Option<syntax::TokenKind> {
-                self.name.map(|name| name.kind())
-            }
+    #[inline]
+    pub fn from_ast<'a>(node: Kind::Node<'a>) -> Self {
+        Self::new(syntax::slang_ext::AstNodeExt::to_ptr(&node))
+    }
 
-            fn name_range(&self) -> Option<utils::text_edit::TextRange> {
-                self.name.map(|name| name.range())
-            }
-        }
+    #[inline]
+    pub(crate) fn from_source_ast<'a>(node: SourceAst<Kind::Node<'a>>) -> Self {
+        Self::from_ast(node.into_inner())
+    }
 
-        impl<'a> $crate::source_map::ToAstNode<'a, ast::$ty<'a>> for $name {
-            fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::$ty<'a>> {
-                let mut node = self.node.to_node(tree)?;
-                while !<ast::$ty<'a> as syntax::ast::AstNode>::can_cast(node.kind()) {
-                    node = node.children().find_map(|elem| elem.as_node())?;
-                }
-                <ast::$ty<'a> as syntax::ast::AstNode>::cast(node)
-            }
-        }
+    #[inline]
+    pub fn ptr(self) -> SyntaxNodePtr {
+        self.0
+    }
+}
 
-        impl From<ast::$ty<'_>> for $name {
-            fn from(node: ast::$ty<'_>) -> Self {
-                let syntax = syntax::ast::AstNode::syntax(&node);
-                Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                    name: <ast::$ty<'_> as syntax::has_name::HasName<'_>>::name(&node)
-                        .map(|name| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, name)),
-                    $token: node
-                        .$token_getter()
-                        .map(|token| syntax::ptr::SyntaxTokenPtr::from_token_in(syntax, token)),
-                }
-            }
-        }
+impl<Kind: AstKind> IsSrc for AstId<Kind> {
+    #[inline]
+    fn kind(&self) -> SyntaxKind {
+        self.0.kind()
+    }
 
-        impl<'a> $crate::source_map::FromSourceAst<'a, ast::$ty<'a>> for $name {
-            fn from_source_ast(node: $crate::source_map::SourceAst<ast::$ty<'a>>) -> Self {
-                let node = node.into_inner();
-                let syntax = syntax::ast::AstNode::syntax(&node);
-                Self {
-                    node: syntax::slang_ext::AstNodeExt::to_ptr(&node),
-                    name: <ast::$ty<'a> as syntax::has_name::HasName<'a>>::name(&node).and_then(
-                        |name| {
-                            $crate::source_map::root_token_in(syntax, name)
-                                .map(syntax::ptr::SyntaxTokenPtr::from_token)
-                        },
-                    ),
-                    $token: node.$token_getter().and_then(|token| {
-                        $crate::source_map::root_token_in(syntax, token)
-                            .map(syntax::ptr::SyntaxTokenPtr::from_token)
-                    }),
-                }
-            }
-        }
+    #[inline]
+    fn range(&self) -> TextRange {
+        self.0.range()
+    }
+}
 
-        impl From<$name> for syntax::ptr::SyntaxNodePtr {
-            fn from(src: $name) -> Self {
-                src.node
-            }
-        }
+impl<'a, Kind: AstKind> ToAstNode<'a, Kind::Node<'a>> for AstId<Kind> {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<Kind::Node<'a>> {
+        ast_node_from_ptr(self.0, tree)
+    }
+}
 
-        impl From<$name> for Option<syntax::ptr::SyntaxTokenPtr> {
-            fn from(src: $name) -> Self {
-                src.name
-            }
-        }
-    };
+impl<'a, Kind: AstKind> FromSourceAst<'a, Kind::Node<'a>> for AstId<Kind> {
+    fn from_source_ast(node: SourceAst<Kind::Node<'a>>) -> Self {
+        Self::from_source_ast(node)
+    }
+}
+
+impl<Kind: AstKind> From<AstId<Kind>> for SyntaxNodePtr {
+    fn from(src: AstId<Kind>) -> Self {
+        src.ptr()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct NamedAstId<Kind: AstKind> {
+    pub node: SyntaxNodePtr,
+    pub name: Option<SyntaxTokenPtr>,
+    _kind: PhantomData<fn() -> Kind>,
+}
+
+impl<Kind: AstKind> NamedAstId<Kind> {
+    #[inline]
+    pub fn new(node: SyntaxNodePtr, name: Option<SyntaxTokenPtr>) -> Self {
+        Self { node, name, _kind: PhantomData }
+    }
+
+    #[inline]
+    pub fn from_ast<'a>(node: Kind::Node<'a>) -> Self
+    where
+        Kind::Node<'a>: syntax::has_name::HasName<'a>,
+    {
+        let syntax = node.syntax();
+        Self::new(
+            syntax::slang_ext::AstNodeExt::to_ptr(&node),
+            <Kind::Node<'a> as syntax::has_name::HasName<'a>>::name(&node)
+                .map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
+        )
+    }
+
+    #[inline]
+    pub(crate) fn from_source_ast<'a>(node: SourceAst<Kind::Node<'a>>) -> Self
+    where
+        Kind::Node<'a>: syntax::has_name::HasName<'a>,
+    {
+        let node = node.into_inner();
+        let syntax = node.syntax();
+        Self::new(
+            syntax::slang_ext::AstNodeExt::to_ptr(&node),
+            <Kind::Node<'a> as syntax::has_name::HasName<'a>>::name(&node)
+                .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
+        )
+    }
+
+    #[inline]
+    pub fn ast_id(self) -> AstId<Kind> {
+        AstId::new(self.node)
+    }
+}
+
+impl<Kind: AstKind> IsSrc for NamedAstId<Kind> {
+    #[inline]
+    fn kind(&self) -> SyntaxKind {
+        self.node.kind()
+    }
+
+    #[inline]
+    fn range(&self) -> TextRange {
+        self.node.range()
+    }
+}
+
+impl<Kind: AstKind> IsNamedSrc for NamedAstId<Kind> {
+    #[inline]
+    fn name_kind(&self) -> Option<TokenKind> {
+        self.name.map(|name| name.kind())
+    }
+
+    #[inline]
+    fn name_range(&self) -> Option<TextRange> {
+        self.name.map(|name| name.range())
+    }
+}
+
+impl<'a, Kind: AstKind> ToAstNode<'a, Kind::Node<'a>> for NamedAstId<Kind> {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<Kind::Node<'a>> {
+        ast_node_from_ptr(self.node, tree)
+    }
+}
+
+impl<'a, Kind> FromSourceAst<'a, Kind::Node<'a>> for NamedAstId<Kind>
+where
+    Kind: AstKind,
+    Kind::Node<'a>: syntax::has_name::HasName<'a>,
+{
+    fn from_source_ast(node: SourceAst<Kind::Node<'a>>) -> Self {
+        Self::from_source_ast(node)
+    }
+}
+
+impl<Kind: AstKind> From<NamedAstId<Kind>> for SyntaxNodePtr {
+    fn from(src: NamedAstId<Kind>) -> Self {
+        src.node
+    }
+}
+
+impl<Kind: AstKind> From<NamedAstId<Kind>> for Option<SyntaxTokenPtr> {
+    fn from(src: NamedAstId<Kind>) -> Self {
+        src.name
+    }
 }

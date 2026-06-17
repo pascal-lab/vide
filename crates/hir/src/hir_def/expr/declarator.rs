@@ -1,17 +1,19 @@
 use la_arena::{Arena, Idx, IdxRange};
 use smallvec::SmallVec;
-use syntax::ast;
+use syntax::{TokenKind, ast};
 use utils::define_enum_deriving_from;
 
 use super::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr};
 use crate::{
     db::InternDb,
-    define_src_with_name,
     hir_def::{
         HirData, Ident, alloc_idx_and_src, declaration::DeclarationId, lower_ident_opt,
         module::port::PortDeclId, stmt::StmtId,
     },
-    source_map::SourceMap,
+    source_map::{
+        AstKind, FromSourceAst, IsNamedSrc, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
+        wrapped_ast_node_from_ptr,
+    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -35,11 +37,128 @@ define_enum_deriving_from! {
 pub type DeclId = Idx<Declarator>;
 pub type DeclsRange = IdxRange<Declarator>;
 
-define_src_with_name!(DeclaratorSrc(
-    ast::Declarator,
-    ast::IdentifierName,
-    ast::SpecparamDeclarator
-));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct DeclaratorAst;
+
+impl AstKind for DeclaratorAst {
+    type Node<'a> = ast::Declarator<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct IdentifierNameAst;
+
+impl AstKind for IdentifierNameAst {
+    type Node<'a> = ast::IdentifierName<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct SpecparamDeclaratorAst;
+
+impl AstKind for SpecparamDeclaratorAst {
+    type Node<'a> = ast::SpecparamDeclarator<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum DeclaratorSrc {
+    Declarator(NamedAstId<DeclaratorAst>),
+    IdentifierName(NamedAstId<IdentifierNameAst>),
+    SpecparamDeclarator(NamedAstId<SpecparamDeclaratorAst>),
+}
+
+impl DeclaratorSrc {
+    fn node(&self) -> syntax::ptr::SyntaxNodePtr {
+        match self {
+            DeclaratorSrc::Declarator(src) => src.node,
+            DeclaratorSrc::IdentifierName(src) => src.node,
+            DeclaratorSrc::SpecparamDeclarator(src) => src.node,
+        }
+    }
+
+    fn name(&self) -> Option<syntax::ptr::SyntaxTokenPtr> {
+        match self {
+            DeclaratorSrc::Declarator(src) => src.name,
+            DeclaratorSrc::IdentifierName(src) => src.name,
+            DeclaratorSrc::SpecparamDeclarator(src) => src.name,
+        }
+    }
+}
+
+impl IsSrc for DeclaratorSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        self.node().kind()
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        self.node().range()
+    }
+}
+
+impl IsNamedSrc for DeclaratorSrc {
+    fn name_kind(&self) -> Option<TokenKind> {
+        self.name().map(|name| name.kind())
+    }
+
+    fn name_range(&self) -> Option<utils::text_edit::TextRange> {
+        self.name().map(|name| name.range())
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::Declarator<'a>> for DeclaratorSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::Declarator<'a>> {
+        let DeclaratorSrc::Declarator(src) = self else { return None };
+        wrapped_ast_node_from_ptr(src.node, tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::IdentifierName<'a>> for DeclaratorSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::IdentifierName<'a>> {
+        let DeclaratorSrc::IdentifierName(src) = self else { return None };
+        wrapped_ast_node_from_ptr(src.node, tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::SpecparamDeclarator<'a>> {
+        let DeclaratorSrc::SpecparamDeclarator(src) = self else { return None };
+        wrapped_ast_node_from_ptr(src.node, tree)
+    }
+}
+
+impl From<ast::Declarator<'_>> for DeclaratorSrc {
+    fn from(node: ast::Declarator<'_>) -> Self {
+        Self::Declarator(NamedAstId::from_ast(node))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::Declarator<'a>> for DeclaratorSrc {
+    fn from_source_ast(node: SourceAst<ast::Declarator<'a>>) -> Self {
+        Self::Declarator(NamedAstId::from_source_ast(node))
+    }
+}
+
+impl From<ast::IdentifierName<'_>> for DeclaratorSrc {
+    fn from(node: ast::IdentifierName<'_>) -> Self {
+        Self::IdentifierName(NamedAstId::from_ast(node))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::IdentifierName<'a>> for DeclaratorSrc {
+    fn from_source_ast(node: SourceAst<ast::IdentifierName<'a>>) -> Self {
+        Self::IdentifierName(NamedAstId::from_source_ast(node))
+    }
+}
+
+impl From<ast::SpecparamDeclarator<'_>> for DeclaratorSrc {
+    fn from(node: ast::SpecparamDeclarator<'_>) -> Self {
+        Self::SpecparamDeclarator(NamedAstId::from_ast(node))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
+    fn from_source_ast(node: SourceAst<ast::SpecparamDeclarator<'a>>) -> Self {
+        Self::SpecparamDeclarator(NamedAstId::from_source_ast(node))
+    }
+}
 
 pub(crate) struct LowerDeclCtx<'a> {
     pub(crate) db: &'a dyn InternDb,

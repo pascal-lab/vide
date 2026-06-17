@@ -9,11 +9,10 @@ use syntax::{
 use super::literal::{Literal, lower_literal};
 use crate::{
     db::InternDb,
-    define_src,
     hir_def::{
         Ident, alloc_idx_and_src, literal::lower_integer_vector, lower_ident, lower_ident_opt,
     },
-    source_map::SourceMap,
+    source_map::{AstId, AstKind, SourceMap},
 };
 
 pub mod data_ty;
@@ -232,7 +231,20 @@ pub enum Expr {
 
 pub type ExprId = Idx<Expr>;
 
-define_src!(ExprSrc(ast::Expression));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ExpressionAst;
+
+impl AstKind for ExpressionAst {
+    type Node<'a> = ast::Expression<'a>;
+}
+
+pub type ExprSrc = AstId<ExpressionAst>;
+
+impl From<ast::Expression<'_>> for ExprSrc {
+    fn from(expr: ast::Expression<'_>) -> Self {
+        Self::from_ast(expr)
+    }
+}
 
 impl Expr {
     pub fn to_assign(&self) -> Option<Assign> {

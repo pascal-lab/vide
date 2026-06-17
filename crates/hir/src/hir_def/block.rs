@@ -35,10 +35,9 @@ use crate::{
     base_db::intern::Lookup,
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src_with_name,
     file::HirFileId,
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::{IsNamedSrc, IsSrc, SourceMap, ToAstNode},
+    source_map::{AstKind, IsNamedSrc, IsSrc, NamedAstId, SourceMap, ToAstNode},
 };
 
 define_container! {
@@ -105,23 +104,37 @@ pub enum ParBlockKind {
     JoinNone,
 }
 
-define_src_with_name!(BlockSrc(ast::BlockStatement));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct BlockStatementAst;
+
+impl AstKind for BlockStatementAst {
+    type Node<'a> = ast::BlockStatement<'a>;
+}
+
+pub type BlockSrc = NamedAstId<BlockStatementAst>;
+
+impl From<ast::BlockStatement<'_>> for BlockSrc {
+    fn from(block: ast::BlockStatement<'_>) -> Self {
+        Self::from_ast(block)
+    }
+}
 
 impl From<BlockSrc> for StmtSrc {
-    fn from(BlockSrc { node, name }: BlockSrc) -> Self {
-        StmtSrc { node, name }
+    fn from(src: BlockSrc) -> Self {
+        StmtSrc::new(src.node, src.name)
     }
 }
 
 impl TryFrom<StmtSrc> for BlockSrc {
     type Error = ();
 
-    fn try_from(StmtSrc { node, name }: StmtSrc) -> Result<Self, Self::Error> {
+    fn try_from(src: StmtSrc) -> Result<Self, Self::Error> {
+        let node = src.node;
         if !ast::BlockStatement::can_cast(node.kind()) {
             return Err(());
         }
 
-        Ok(BlockSrc { node, name })
+        Ok(BlockSrc::new(node, src.name))
     }
 }
 
