@@ -11,6 +11,8 @@ use syntax::{
 pub(crate) use utils::get::Get;
 use utils::{get::GetRef, text_edit::TextRange};
 
+use crate::file::HirFileId;
+
 pub trait IsSrc: PartialEq + Eq + Hash + Copy + Clone + Debug {
     #[inline]
     fn hir<'a, Hir, HirIdx, Arn, SrcMap>(
@@ -119,6 +121,7 @@ pub trait ToAstNode<'a, Output: AstNode<'a>> {
 /// absent.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SourceAst<Ast> {
+    file_id: HirFileId,
     ast: Ast,
 }
 
@@ -130,9 +133,13 @@ where
     ///
     /// Callers should treat that as "no navigable source location", not as a
     /// lowering failure.
-    pub(crate) fn new(ast: Ast) -> Option<Self> {
+    pub(crate) fn new(file_id: HirFileId, ast: Ast) -> Option<Self> {
         ast.syntax().text_range()?;
-        Some(Self { ast })
+        Some(Self { file_id, ast })
+    }
+
+    pub(crate) fn file_id(&self) -> HirFileId {
+        self.file_id
     }
 
     pub(crate) fn into_inner(self) -> Ast {
@@ -210,27 +217,33 @@ pub trait AstKind: Debug + PartialEq + Eq + Hash + Copy + Clone + 'static {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct AstId<Kind: AstKind>(pub SyntaxNodePtr, PhantomData<fn() -> Kind>);
+pub struct AstId<Kind: AstKind>(pub SyntaxNodePtr, HirFileId, PhantomData<fn() -> Kind>);
 
 impl<Kind: AstKind> AstId<Kind> {
     #[inline]
-    pub fn new(node: SyntaxNodePtr) -> Self {
-        Self(node, PhantomData)
+    pub fn new(file_id: HirFileId, node: SyntaxNodePtr) -> Self {
+        Self(node, file_id, PhantomData)
     }
 
     #[inline]
-    pub fn from_ast<'a>(node: Kind::Node<'a>) -> Self {
-        Self::new(syntax::slang_ext::AstNodeExt::to_ptr(&node))
+    pub fn from_ast<'a>(file_id: HirFileId, node: Kind::Node<'a>) -> Self {
+        Self::new(file_id, syntax::slang_ext::AstNodeExt::to_ptr(&node))
     }
 
     #[inline]
     pub(crate) fn from_source_ast<'a>(node: SourceAst<Kind::Node<'a>>) -> Self {
-        Self::from_ast(node.into_inner())
+        let file_id = node.file_id();
+        Self::from_ast(file_id, node.into_inner())
     }
 
     #[inline]
     pub fn ptr(self) -> SyntaxNodePtr {
         self.0
+    }
+
+    #[inline]
+    pub fn file_id(self) -> HirFileId {
+        self.1
     }
 }
 
@@ -266,6 +279,7 @@ impl<Kind: AstKind> From<AstId<Kind>> for SyntaxNodePtr {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct NamedAstId<Kind: AstKind> {
+    pub file_id: HirFileId,
     pub node: SyntaxNodePtr,
     pub name: Option<SyntaxTokenPtr>,
     _kind: PhantomData<fn() -> Kind>,
@@ -273,17 +287,18 @@ pub struct NamedAstId<Kind: AstKind> {
 
 impl<Kind: AstKind> NamedAstId<Kind> {
     #[inline]
-    pub fn new(node: SyntaxNodePtr, name: Option<SyntaxTokenPtr>) -> Self {
-        Self { node, name, _kind: PhantomData }
+    pub fn new(file_id: HirFileId, node: SyntaxNodePtr, name: Option<SyntaxTokenPtr>) -> Self {
+        Self { file_id, node, name, _kind: PhantomData }
     }
 
     #[inline]
-    pub fn from_ast<'a>(node: Kind::Node<'a>) -> Self
+    pub fn from_ast<'a>(file_id: HirFileId, node: Kind::Node<'a>) -> Self
     where
         Kind::Node<'a>: syntax::has_name::HasName<'a>,
     {
         let syntax = node.syntax();
         Self::new(
+            file_id,
             syntax::slang_ext::AstNodeExt::to_ptr(&node),
             <Kind::Node<'a> as syntax::has_name::HasName<'a>>::name(&node)
                 .map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
@@ -295,9 +310,11 @@ impl<Kind: AstKind> NamedAstId<Kind> {
     where
         Kind::Node<'a>: syntax::has_name::HasName<'a>,
     {
+        let file_id = node.file_id();
         let node = node.into_inner();
         let syntax = node.syntax();
         Self::new(
+            file_id,
             syntax::slang_ext::AstNodeExt::to_ptr(&node),
             <Kind::Node<'a> as syntax::has_name::HasName<'a>>::name(&node)
                 .and_then(|name| root_token_in(syntax, name).map(SyntaxTokenPtr::from_token)),
@@ -306,7 +323,7 @@ impl<Kind: AstKind> NamedAstId<Kind> {
 
     #[inline]
     pub fn ast_id(self) -> AstId<Kind> {
-        AstId::new(self.node)
+        AstId::new(self.file_id, self.node)
     }
 }
 

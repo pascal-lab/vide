@@ -7,7 +7,7 @@ use syntax::{
 
 use super::{
     HirData, Ident,
-    block::{BlockInfo, BlockLoc},
+    block::{BlockInfo, BlockLoc, BlockSrc},
     expr::{
         Expr, ExprId, ExprSrc, LowerExpr,
         data_ty::DataTy,
@@ -83,12 +83,6 @@ impl AstKind for StatementAst {
 }
 
 pub type StmtSrc = NamedAstId<StatementAst>;
-
-impl From<ast::Statement<'_>> for StmtSrc {
-    fn from(stmt: ast::Statement<'_>) -> Self {
-        Self::from_ast(stmt)
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ProcAssignKind {
@@ -213,6 +207,7 @@ impl LowerStmtCtx<'_> {
     pub(crate) fn lower_stmt(&mut self, stmt: ast::Statement) -> StmtId {
         let hir_stmt = self.lower_stmt_inner(stmt);
         alloc_idx_and_src! {
+            self.file_id;
             hir_stmt => self.stmts,
             stmt => self.stmt_srcs,
         }
@@ -470,7 +465,10 @@ impl LowerStmtCtx<'_> {
     }
 
     fn lower_block_stmt(&mut self, stmt: ast::BlockStatement) -> StmtKind {
-        let loc = BlockLoc { cont_id: self.cont_id, src: InFile::new(self.file_id, stmt.into()) };
+        let loc = BlockLoc {
+            cont_id: self.cont_id,
+            src: InFile::new(self.file_id, BlockSrc::from_ast(self.file_id, stmt)),
+        };
         let block_id = self.db.intern_block(loc);
         let name = stmt.block_name().and_then(|name| lower_ident_opt(name.name()));
         StmtKind::Block(BlockInfo { name, block_id })

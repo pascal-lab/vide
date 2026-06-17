@@ -139,12 +139,6 @@ impl AstKind for FunctionDeclarationAst {
 
 pub type SubroutineSrc = NamedAstId<FunctionDeclarationAst>;
 
-impl From<ast::FunctionDeclaration<'_>> for SubroutineSrc {
-    fn from(function: ast::FunctionDeclaration<'_>) -> Self {
-        Self::from_ast(function)
-    }
-}
-
 pub type LocalSubroutineId = Idx<Subroutine>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -295,6 +289,7 @@ impl LowerSubroutineBodyCtx<'_> {
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
+            self.file_id;
             struct_def => self.subroutine.structs,
             struct_ty => self.subroutine_source_map.struct_srcs,
         }
@@ -304,6 +299,7 @@ impl LowerSubroutineBodyCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_idx_and_src! {
+            self.file_id;
             Typedef { name, ty: None } => self.subroutine.typedefs,
             typedef => self.subroutine_source_map.typedef_srcs,
         };
@@ -334,6 +330,7 @@ impl LowerSubroutineBodyCtx<'_> {
         let decls = self.decl_ctx().lower_declarators(local_decl.declarators(), parent);
 
         alloc_idx_and_src! {
+            self.file_id;
             DataDecl { ty, const_kw, var_kw, decls } => self.subroutine.declarations,
             local_decl => self.subroutine_source_map.declaration_srcs,
         }
@@ -350,7 +347,7 @@ impl LowerSubroutineBodyCtx<'_> {
                 ast::Statement[it] => {
                     let stmt_id = self.stmt_ctx().lower_stmt(it);
                     if let Some(block_stmt) = it.as_block_statement() {
-                        let block_src = BlockSrc::from(block_stmt);
+                        let block_src = BlockSrc::from_ast(self.file_id, block_stmt);
                         let local_block_id = LocalBlockId(stmt_id);
                         self.subroutine_source_map.block_srcs.insert(block_src, local_block_id);
                     }

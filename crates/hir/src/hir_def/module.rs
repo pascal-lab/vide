@@ -150,6 +150,7 @@ define_container! {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct ModuleSrc {
+    pub file_id: HirFileId,
     pub node: SyntaxNodePtr,
     pub name: Option<SyntaxTokenPtr>,
     endmodule: Option<SyntaxTokenPtr>,
@@ -187,10 +188,11 @@ impl<'a> ToAstNode<'a, ast::ModuleDeclaration<'a>> for ModuleSrc {
     }
 }
 
-impl From<ast::ModuleDeclaration<'_>> for ModuleSrc {
-    fn from(module: ast::ModuleDeclaration<'_>) -> Self {
+impl ModuleSrc {
+    pub fn from_ast(file_id: HirFileId, module: ast::ModuleDeclaration<'_>) -> Self {
         let syntax = module.syntax();
         Self {
+            file_id,
             node: syntax::slang_ext::AstNodeExt::to_ptr(&module),
             name: module.name().map(|name| SyntaxTokenPtr::from_token_in(syntax, name)),
             endmodule: module.endmodule().map(|token| SyntaxTokenPtr::from_token_in(syntax, token)),
@@ -200,9 +202,11 @@ impl From<ast::ModuleDeclaration<'_>> for ModuleSrc {
 
 impl<'a> FromSourceAst<'a, ast::ModuleDeclaration<'a>> for ModuleSrc {
     fn from_source_ast(module: SourceAst<ast::ModuleDeclaration<'a>>) -> Self {
+        let file_id = module.file_id();
         let module = module.into_inner();
         let syntax = module.syntax();
         Self {
+            file_id,
             node: syntax::slang_ext::AstNodeExt::to_ptr(&module),
             name: module
                 .name()
@@ -356,6 +360,7 @@ impl LowerModuleCtx<'_> {
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
+            self.file_id;
             struct_def => self.module.structs,
             struct_ty => self.module_source_map.struct_srcs,
         }
@@ -365,6 +370,7 @@ impl LowerModuleCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_idx_and_src! {
+            self.file_id;
             Typedef { name, ty: None } => self.module.typedefs,
             typedef => self.module_source_map.typedef_srcs,
         };
@@ -390,11 +396,12 @@ impl LowerModuleCtx<'_> {
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let subroutine_id = alloc_idx_and_src! {
+            self.file_id;
             subroutine => self.module.subroutines,
             func => self.module_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from(func);
+        let src = SubroutineSrc::from_ast(self.file_id, func);
         let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
             cont_id: self.module_id.into(),
             src: InFile::new(self.file_id, src),

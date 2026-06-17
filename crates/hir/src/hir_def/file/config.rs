@@ -21,9 +21,3 @@ impl AstKind for ConfigDeclarationAst {
 }
 
 pub type ConfigDeclSrc = NamedAstId<ConfigDeclarationAst>;
-
-impl From<ast::ConfigDeclaration<'_>> for ConfigDeclSrc {
-    fn from(config: ast::ConfigDeclaration<'_>) -> Self {
-        Self::from_ast(config)
-    }
-}

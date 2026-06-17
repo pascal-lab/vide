@@ -22,12 +22,6 @@ impl AstKind for LibraryDeclarationAst {
 
 pub type LibraryDeclSrc = NamedAstId<LibraryDeclarationAst>;
 
-impl From<ast::LibraryDeclaration<'_>> for LibraryDeclSrc {
-    fn from(library: ast::LibraryDeclaration<'_>) -> Self {
-        Self::from_ast(library)
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LibraryInclude;
 
@@ -41,9 +35,3 @@ impl AstKind for LibraryIncludeStatementAst {
 }
 
 pub type LibraryIncludeSrc = AstId<LibraryIncludeStatementAst>;
-
-impl From<ast::LibraryIncludeStatement<'_>> for LibraryIncludeSrc {
-    fn from(include: ast::LibraryIncludeStatement<'_>) -> Self {
-        Self::from_ast(include)
-    }
-}

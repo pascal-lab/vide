@@ -6,6 +6,7 @@ use utils::define_enum_deriving_from;
 use super::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr};
 use crate::{
     db::InternDb,
+    file::HirFileId,
     hir_def::{
         HirData, Ident, alloc_idx_and_src, declaration::DeclarationId, lower_ident_opt,
         module::port::PortDeclId, stmt::StmtId,
@@ -124,33 +125,15 @@ impl<'a> ToAstNode<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
     }
 }
 
-impl From<ast::Declarator<'_>> for DeclaratorSrc {
-    fn from(node: ast::Declarator<'_>) -> Self {
-        Self::Declarator(NamedAstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::Declarator<'a>> for DeclaratorSrc {
     fn from_source_ast(node: SourceAst<ast::Declarator<'a>>) -> Self {
         Self::Declarator(NamedAstId::from_source_ast(node))
     }
 }
 
-impl From<ast::IdentifierName<'_>> for DeclaratorSrc {
-    fn from(node: ast::IdentifierName<'_>) -> Self {
-        Self::IdentifierName(NamedAstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::IdentifierName<'a>> for DeclaratorSrc {
     fn from_source_ast(node: SourceAst<ast::IdentifierName<'a>>) -> Self {
         Self::IdentifierName(NamedAstId::from_source_ast(node))
-    }
-}
-
-impl From<ast::SpecparamDeclarator<'_>> for DeclaratorSrc {
-    fn from(node: ast::SpecparamDeclarator<'_>) -> Self {
-        Self::SpecparamDeclarator(NamedAstId::from_ast(node))
     }
 }
 
@@ -162,6 +145,7 @@ impl<'a> FromSourceAst<'a, ast::SpecparamDeclarator<'a>> for DeclaratorSrc {
 
 pub(crate) struct LowerDeclCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
     pub(crate) decls: &'a mut Arena<Declarator>,
     pub(crate) decl_srcs: &'a mut SourceMap<DeclaratorSrc, Declarator>,
 
@@ -179,6 +163,7 @@ pub(in crate::hir_def) macro impl_lower_decl {
             fn decl_ctx(&mut self) -> $crate::hir_def::expr::declarator::LowerDeclCtx<'_> {
                 $crate::hir_def::expr::declarator::LowerDeclCtx {
                     db: self.db,
+                    file_id: self.file_id,
                     decls: &mut self.$($data.)?decls,
                     decl_srcs: &mut self.$($src_map.)?decl_srcs,
                     exprs: &mut self.$($data.)?exprs,
@@ -219,6 +204,7 @@ impl LowerDeclCtx<'_> {
         let initializer =
             declarator.initializer().map(|init| self.expr_ctx().lower_expr(init.expr()));
         alloc_idx_and_src! {
+            self.file_id;
             Declarator {
                 name,
                 dimensions,
@@ -250,6 +236,7 @@ impl LowerDeclCtx<'_> {
     ) -> DeclId {
         let name = lower_ident_opt(ident.identifier());
         alloc_idx_and_src! {
+            self.file_id;
             Declarator {
                 name,
                 dimensions: SmallVec::new(),
@@ -284,6 +271,7 @@ impl LowerDeclCtx<'_> {
         let secondary_initializer =
             declarator.value_2().map(|expr| self.expr_ctx().lower_expr(expr));
         alloc_idx_and_src! {
+            self.file_id;
             Declarator {
                 name,
                 dimensions: SmallVec::new(),

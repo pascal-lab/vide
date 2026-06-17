@@ -113,15 +113,9 @@ impl AstKind for BlockStatementAst {
 
 pub type BlockSrc = NamedAstId<BlockStatementAst>;
 
-impl From<ast::BlockStatement<'_>> for BlockSrc {
-    fn from(block: ast::BlockStatement<'_>) -> Self {
-        Self::from_ast(block)
-    }
-}
-
 impl From<BlockSrc> for StmtSrc {
     fn from(src: BlockSrc) -> Self {
-        StmtSrc::new(src.node, src.name)
+        StmtSrc::new(src.file_id, src.node, src.name)
     }
 }
 
@@ -134,7 +128,7 @@ impl TryFrom<StmtSrc> for BlockSrc {
             return Err(());
         }
 
-        Ok(BlockSrc::new(node, src.name))
+        Ok(BlockSrc::new(src.file_id, node, src.name))
     }
 }
 
@@ -246,6 +240,7 @@ impl LowerBlockCtx<'_> {
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
+            self.file_id;
             struct_def => self.block.structs,
             struct_ty => self.block_source_map.struct_srcs,
         }
@@ -255,6 +250,7 @@ impl LowerBlockCtx<'_> {
         let name = lower_ident_opt(typedef.name());
 
         let typedef_id = alloc_idx_and_src! {
+            self.file_id;
             Typedef { name, ty: None } => self.block.typedefs,
             typedef => self.block_source_map.typedef_srcs,
         };
@@ -288,7 +284,7 @@ impl LowerBlockCtx<'_> {
                 ast::Statement[it] => {
                     let stmt_id = self.stmt_ctx().lower_stmt(it);
                     if let Some(block_stmt) = it.as_block_statement() {
-                        let block_src = BlockSrc::from(block_stmt);
+                        let block_src = BlockSrc::from_ast(self.file_id, block_stmt);
                         let local_block_id = LocalBlockId(stmt_id);
                         self.block_source_map.block_srcs.insert(block_src, local_block_id);
                     }

@@ -134,12 +134,12 @@ impl SemanticsImpl<'_> {
         file_id: HirFileId,
         module: ast::ModuleDeclaration,
     ) -> Option<ModuleId> {
-        let module_src = ModuleSrc::from(module);
+        let module_src = ModuleSrc::from_ast(file_id, module);
         self.with_ctx(|ctx| ctx.module_to_def(InFile::new(file_id, module_src)))
     }
 
     pub fn block_to_def(&self, file_id: HirFileId, block: ast::BlockStatement) -> Option<BlockId> {
-        let block_src = BlockSrc::from(block);
+        let block_src = BlockSrc::from_ast(file_id, block);
         self.with_ctx(|ctx| ctx.block_to_def(InFile::new(file_id, block_src)))
     }
 
@@ -148,7 +148,7 @@ impl SemanticsImpl<'_> {
         file_id: HirFileId,
         subroutine: ast::FunctionDeclaration,
     ) -> Option<SubroutineId> {
-        let subroutine_src = SubroutineSrc::from(subroutine);
+        let subroutine_src = SubroutineSrc::from_ast(file_id, subroutine);
         self.with_ctx(|ctx| ctx.subroutine_to_def(InFile::new(file_id, subroutine_src)))
     }
 

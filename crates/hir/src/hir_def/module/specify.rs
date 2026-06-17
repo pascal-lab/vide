@@ -33,12 +33,6 @@ impl AstKind for SpecifyBlockAst {
 
 pub type SpecifyBlockSrc = AstId<SpecifyBlockAst>;
 
-impl From<ast::SpecifyBlock<'_>> for SpecifyBlockSrc {
-    fn from(block: ast::SpecifyBlock<'_>) -> Self {
-        Self::from_ast(block)
-    }
-}
-
 impl IsNamedSrc for SpecifyBlockSrc {
     fn name_kind(&self) -> Option<syntax::TokenKind> {
         None
@@ -157,21 +151,9 @@ impl<'a> ToAstNode<'a, ast::SystemTimingCheck<'a>> for SpecifyItemSrc {
     }
 }
 
-impl From<ast::PathDeclaration<'_>> for SpecifyItemSrc {
-    fn from(path: ast::PathDeclaration<'_>) -> Self {
-        Self::PathDeclaration(AstId::from_ast(path))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::PathDeclaration<'a>> for SpecifyItemSrc {
     fn from_source_ast(path: SourceAst<ast::PathDeclaration<'a>>) -> Self {
         Self::PathDeclaration(AstId::from_source_ast(path))
-    }
-}
-
-impl From<ast::ConditionalPathDeclaration<'_>> for SpecifyItemSrc {
-    fn from(path: ast::ConditionalPathDeclaration<'_>) -> Self {
-        Self::ConditionalPathDeclaration(AstId::from_ast(path))
     }
 }
 
@@ -181,33 +163,15 @@ impl<'a> FromSourceAst<'a, ast::ConditionalPathDeclaration<'a>> for SpecifyItemS
     }
 }
 
-impl From<ast::IfNonePathDeclaration<'_>> for SpecifyItemSrc {
-    fn from(path: ast::IfNonePathDeclaration<'_>) -> Self {
-        Self::IfNonePathDeclaration(AstId::from_ast(path))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::IfNonePathDeclaration<'a>> for SpecifyItemSrc {
     fn from_source_ast(path: SourceAst<ast::IfNonePathDeclaration<'a>>) -> Self {
         Self::IfNonePathDeclaration(AstId::from_source_ast(path))
     }
 }
 
-impl From<ast::PulseStyleDeclaration<'_>> for SpecifyItemSrc {
-    fn from(pulse: ast::PulseStyleDeclaration<'_>) -> Self {
-        Self::PulseStyleDeclaration(AstId::from_ast(pulse))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::PulseStyleDeclaration<'a>> for SpecifyItemSrc {
     fn from_source_ast(pulse: SourceAst<ast::PulseStyleDeclaration<'a>>) -> Self {
         Self::PulseStyleDeclaration(AstId::from_source_ast(pulse))
-    }
-}
-
-impl From<ast::SystemTimingCheck<'_>> for SpecifyItemSrc {
-    fn from(timing: ast::SystemTimingCheck<'_>) -> Self {
-        Self::SystemTimingCheck(AstId::from_ast(timing))
     }
 }
 
@@ -273,6 +237,7 @@ impl LowerModuleCtx<'_> {
             .collect();
 
         alloc_idx_and_src! {
+            self.file_id;
             SpecifyBlock { items } => self.module.specify_blocks,
             block => self.module_source_map.specify_block_srcs,
         }
@@ -281,6 +246,7 @@ impl LowerModuleCtx<'_> {
     pub(crate) fn lower_specify_path_item(&mut self, path: ast::PathDeclaration) -> SpecifyItemId {
         let item = SpecifyItem::Path(self.lower_specify_path(path));
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,
         }
@@ -295,6 +261,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::ConditionalPath { predicate, path: path_data };
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,
         }
@@ -307,6 +274,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::IfNonePath(self.lower_specify_path(path.path()));
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             path => self.module_source_map.specify_item_srcs,
         }
@@ -320,6 +288,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::PulseStyle { controls };
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             pulse => self.module_source_map.specify_item_srcs,
         }
@@ -334,6 +303,7 @@ impl LowerModuleCtx<'_> {
         let item = SpecifyItem::TimingCheck { name, args };
 
         alloc_idx_and_src! {
+            self.file_id;
             item => self.module.specify_items,
             timing => self.module_source_map.specify_item_srcs,
         }

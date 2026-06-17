@@ -9,6 +9,7 @@ use super::expr::{
 };
 use crate::{
     db::InternDb,
+    file::HirFileId,
     hir_def::{
         HirData, alloc_idx_and_src,
         expr::{
@@ -189,21 +190,9 @@ impl<'a> ToAstNode<'a, ast::SpecparamDeclaration<'a>> for DeclarationSrc {
     }
 }
 
-impl From<ast::DataDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::DataDeclaration<'_>) -> Self {
-        Self::DataDeclaration(AstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::DataDeclaration<'a>> for DeclarationSrc {
     fn from_source_ast(node: SourceAst<ast::DataDeclaration<'a>>) -> Self {
         Self::DataDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl From<ast::NetDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::NetDeclaration<'_>) -> Self {
-        Self::NetDeclaration(AstId::from_ast(node))
     }
 }
 
@@ -213,21 +202,9 @@ impl<'a> FromSourceAst<'a, ast::NetDeclaration<'a>> for DeclarationSrc {
     }
 }
 
-impl From<ast::PortDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::PortDeclaration<'_>) -> Self {
-        Self::PortDeclaration(AstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::PortDeclaration<'a>> for DeclarationSrc {
     fn from_source_ast(node: SourceAst<ast::PortDeclaration<'a>>) -> Self {
         Self::PortDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl From<ast::ParameterDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::ParameterDeclaration<'_>) -> Self {
-        Self::ParameterDeclaration(AstId::from_ast(node))
     }
 }
 
@@ -237,21 +214,9 @@ impl<'a> FromSourceAst<'a, ast::ParameterDeclaration<'a>> for DeclarationSrc {
     }
 }
 
-impl From<ast::TypeParameterDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::TypeParameterDeclaration<'_>) -> Self {
-        Self::TypeParameterDeclaration(AstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::TypeParameterDeclaration<'a>> for DeclarationSrc {
     fn from_source_ast(node: SourceAst<ast::TypeParameterDeclaration<'a>>) -> Self {
         Self::TypeParameterDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl From<ast::LocalVariableDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::LocalVariableDeclaration<'_>) -> Self {
-        Self::LocalVariableDeclaration(AstId::from_ast(node))
     }
 }
 
@@ -261,21 +226,9 @@ impl<'a> FromSourceAst<'a, ast::LocalVariableDeclaration<'a>> for DeclarationSrc
     }
 }
 
-impl From<ast::GenvarDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::GenvarDeclaration<'_>) -> Self {
-        Self::GenvarDeclaration(AstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::GenvarDeclaration<'a>> for DeclarationSrc {
     fn from_source_ast(node: SourceAst<ast::GenvarDeclaration<'a>>) -> Self {
         Self::GenvarDeclaration(AstId::from_source_ast(node))
-    }
-}
-
-impl From<ast::SpecparamDeclaration<'_>> for DeclarationSrc {
-    fn from(node: ast::SpecparamDeclaration<'_>) -> Self {
-        Self::SpecparamDeclaration(AstId::from_ast(node))
     }
 }
 
@@ -372,6 +325,7 @@ pub struct SpecparamDecl {
 
 pub(crate) struct LowerDeclarationCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
     pub(crate) declarations: &'a mut Arena<Declaration>,
     pub(crate) declaration_srcs: &'a mut SourceMap<DeclarationSrc, Declaration>,
 
@@ -394,6 +348,7 @@ pub(in crate::hir_def) macro impl_lower_declaration($ctx:ty, $data:ident, $src_m
         fn declaration_ctx(&mut self) -> $crate::hir_def::declaration::LowerDeclarationCtx<'_> {
             $crate::hir_def::declaration::LowerDeclarationCtx {
                 db: self.db,
+                file_id: self.file_id,
                 declarations: &mut self.$data.declarations,
                 declaration_srcs: &mut self.$src_map.declaration_srcs,
                 decls: &mut self.$data.decls,
@@ -428,6 +383,7 @@ impl LowerDeclarationCtx<'_> {
         let decls = self.decl_ctx().lower_declarators(data_decl.declarators(), parent);
 
         alloc_idx_and_src! {
+            self.file_id;
             DataDecl { ty, const_kw, var_kw, decls } => self.declarations,
             data_decl => self.declaration_srcs,
         }
@@ -461,6 +417,7 @@ impl LowerDeclarationCtx<'_> {
         });
 
         alloc_idx_and_src! {
+            self.file_id;
             NetDecl { ty, net_kind, delay, strength, decls } => self.declarations,
             net_decl => self.declaration_srcs,
         }
@@ -481,6 +438,7 @@ impl LowerDeclarationCtx<'_> {
         let decls = self.decl_ctx().lower_declarators(port_decl.declarators(), parent);
 
         Some(alloc_idx_and_src! {
+            self.file_id;
             DataDecl { ty, const_kw: false, var_kw: false, decls } => self.declarations,
             port_decl => self.declaration_srcs,
         })
@@ -530,6 +488,7 @@ impl LowerDeclarationCtx<'_> {
         let decls = DeclsRange::new(start..self.decls.nxt_idx());
 
         alloc_idx_and_src! {
+            self.file_id;
             ParamDecl { ty, kind, is_port, decls } => self.declarations,
             type_param_decl => self.declaration_srcs,
         }
@@ -553,6 +512,7 @@ impl LowerDeclarationCtx<'_> {
         let decls = self.decl_ctx().lower_declarators(param_decl.declarators(), parent);
 
         alloc_idx_and_src! {
+            self.file_id;
             ParamDecl { ty, kind, is_port, decls } => self.declarations,
             param_decl => self.declaration_srcs,
         }
@@ -569,6 +529,7 @@ impl LowerDeclarationCtx<'_> {
         let decls = self.decl_ctx().lower_identifier_names(genvar_decl.identifiers(), parent);
 
         alloc_idx_and_src! {
+            self.file_id;
             GenvarDecl { ty, decls } => self.declarations,
             genvar_decl => self.declaration_srcs,
         }
@@ -584,6 +545,7 @@ impl LowerDeclarationCtx<'_> {
             self.decl_ctx().lower_specparam_declarators(specparam_decl.declarators(), parent);
 
         alloc_idx_and_src! {
+            self.file_id;
             SpecparamDecl { ty, decls } => self.declarations,
             specparam_decl => self.declaration_srcs,
         }

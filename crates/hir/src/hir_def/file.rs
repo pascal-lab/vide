@@ -180,6 +180,7 @@ impl LowerFileCtx<'_> {
             lower_struct_def(struct_ty, container_id, |ty| self.expr_ctx().lower_data_ty(ty));
 
         alloc_idx_and_src! {
+            self.file_id;
             struct_def => self.file.structs,
             struct_ty => self.file_source_map.struct_srcs,
         }
@@ -188,6 +189,7 @@ impl LowerFileCtx<'_> {
     fn lower_typedef(&mut self, typedef: ast::TypedefDeclaration) -> TypedefId {
         let name = lower_ident_opt(typedef.name());
         let typedef_id = alloc_idx_and_src! {
+            self.file_id;
             Typedef { name, ty: None } => self.file.typedefs,
             typedef => self.file_source_map.typedef_srcs,
         };
@@ -213,11 +215,12 @@ impl LowerFileCtx<'_> {
         let subroutine = lower_subroutine(&func, |ty| self.expr_ctx().lower_data_ty(ty))?;
 
         let local_subroutine_id = alloc_idx_and_src! {
+            self.file_id;
             subroutine => self.file.subroutines,
             func => self.file_source_map.subroutine_srcs,
         };
 
-        let src = SubroutineSrc::from(func);
+        let src = SubroutineSrc::from_ast(self.file_id, func);
         let subroutine_def_id = self.db.intern_subroutine(SubroutineLoc {
             cont_id: self.file_id.into(),
             src: InFile::new(self.file_id, src),
@@ -249,6 +252,7 @@ impl LowerFileCtx<'_> {
         let name = lower_ident_opt(config_decl.name());
 
         alloc_idx_and_src! {
+            self.file_id;
             ConfigDecl { name } => self.file.config_decls,
             config_decl => self.file_source_map.config_decl_srcs,
         }
@@ -258,6 +262,7 @@ impl LowerFileCtx<'_> {
         let name = lower_ident_opt(udp_decl.name());
 
         alloc_idx_and_src! {
+            self.file_id;
             UdpDecl { name } => self.file.udp_decls,
             udp_decl => self.file_source_map.udp_decl_srcs,
         }
@@ -267,6 +272,7 @@ impl LowerFileCtx<'_> {
         let name = lower_ident_opt(library_decl.name());
 
         alloc_idx_and_src! {
+            self.file_id;
             LibraryDecl { name } => self.file.library_decls,
             library_decl => self.file_source_map.library_decl_srcs,
         }
@@ -277,6 +283,7 @@ impl LowerFileCtx<'_> {
         library_include: ast::LibraryIncludeStatement,
     ) -> LibraryIncludeId {
         alloc_idx_and_src! {
+            self.file_id;
             LibraryInclude => self.file.library_includes,
             library_include => self.file_source_map.library_include_srcs,
         }
@@ -290,9 +297,10 @@ impl LowerFileCtx<'_> {
                     let name = lower_ident_opt(decl.header().name());
 
                     alloc_idx_and_src! {
-                        ModuleInfo { name } => self.file.modules,
-                        decl => self.file_source_map.module_srcs,
-                    }
+                    self.file_id;
+                                ModuleInfo { name } => self.file.modules,
+                                decl => self.file_source_map.module_srcs,
+                            }
                     .into()
                 }
                 ProceduralBlock(proc) => self.proc_ctx().lower_proc(proc).into(),
