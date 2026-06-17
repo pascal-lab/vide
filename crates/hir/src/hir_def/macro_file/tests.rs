@@ -1,0 +1,226 @@
+use std::{fmt, ops::Range};
+
+use ::preproc::source::PreprocSourceId;
+use rustc_hash::FxHashSet;
+use syntax::{
+    SourceBufferRange,
+    ast::{AstNode, CompilationUnit, Member},
+    preproc::{
+        MacroArgumentOrigin, MacroBodyOrigin, MacroCallId, MacroDefinitionId, MacroExpansionId,
+        MacroOperationOrigin, TokenOrigin,
+    },
+};
+use triomphe::Arc;
+use utils::{
+    line_index::{TextRange, TextSize},
+    paths::{AbsPathBuf, Utf8PathBuf},
+};
+use vfs::{FileId, FileSet, VfsPath, anchored_path::AnchoredPath};
+
+use super::*;
+use crate::{
+    base_db::{
+        diagnostics_config::DiagnosticsConfig,
+        project::{CompilationProfile, CompilationProfileId, PreprocessConfig, ProjectConfig},
+        salsa::{self, Durability},
+        source_db::{
+            FileLoader, PreprocSourceMap, SourceDb, SourceDbStorage, SourceFileKind, SourceRootDb,
+            SourceRootDbStorage,
+        },
+        source_root::{SourceRoot, SourceRootId},
+    },
+    db::{HirDb, HirDbStorage, InternDb, InternDbStorage},
+    file::HirFileId,
+};
+
+const TOP: FileId = FileId(0);
+const ROOT: SourceRootId = SourceRootId(0);
+const PROFILE: CompilationProfileId = CompilationProfileId(0);
+
+#[salsa::database(SourceDbStorage, SourceRootDbStorage, InternDbStorage, HirDbStorage)]
+#[derive(Default)]
+struct TestDb {
+    storage: salsa::Storage<Self>,
+}
+
+impl salsa::Database for TestDb {}
+
+impl fmt::Debug for TestDb {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TestDb").finish()
+    }
+}
+
+impl FileLoader for TestDb {
+    fn resolve_path(&self, path: AnchoredPath<'_>) -> Option<FileId> {
+        let source_root_id = SourceRootDb::source_root_id(self, path.anchor_id);
+        SourceRootDb::source_root(self, source_root_id).resolve_path(path)
+    }
+}
+
+fn db_with_root_text(root_text: &str) -> TestDb {
+    let top_path = abs_path("rtl/top.v");
+    let mut file_set = FileSet::default();
+    file_set.insert(TOP, VfsPath::from(top_path.clone()));
+    let root = SourceRoot::new_local_with_source_files(file_set, vec![TOP]);
+    let mut files = FxHashSet::default();
+    files.insert(TOP);
+
+    let preprocess = PreprocessConfig::default();
+    let project_config = ProjectConfig::new(
+        vec![Some(PROFILE)],
+        vec![CompilationProfile {
+            source_roots: vec![ROOT],
+            top_modules: Vec::new(),
+            preprocess: preprocess.clone(),
+        }],
+    );
+
+    let mut db = TestDb::default();
+    db.set_files_with_durability(Box::new(files), Durability::HIGH);
+    db.set_project_config_with_durability(Arc::new(project_config), Durability::HIGH);
+    db.set_diagnostics_config_with_durability(
+        Arc::new(DiagnosticsConfig::default()),
+        Durability::HIGH,
+    );
+    db.set_source_root_with_durability(ROOT, Arc::new(root), Durability::LOW);
+    db.set_source_root_id_with_durability(TOP, ROOT, Durability::LOW);
+    db.set_file_path_with_durability(TOP, Some(top_path), Durability::LOW);
+    db.set_file_kind_with_durability(TOP, SourceFileKind::SystemVerilog, Durability::LOW);
+    db.set_file_text_with_durability(TOP, Arc::from(root_text), Durability::LOW);
+    db.set_file_preprocess_config_with_durability(TOP, Arc::new(preprocess), Durability::LOW);
+    db
+}
+
+fn abs_path(path: &str) -> AbsPathBuf {
+    let prefix = if cfg!(windows) { "C:/repo" } else { "/repo" };
+    AbsPathBuf::assert(Utf8PathBuf::from(format!("{prefix}/{path}")))
+}
+
+fn text_at_range(text: &str, range: TextRange) -> &str {
+    &text[usize::from(range.start())..usize::from(range.end())]
+}
+
+fn range(buffer_id: u32, range: Range<usize>) -> SourceBufferRange {
+    SourceBufferRange { buffer_id, range }
+}
+
+fn text_range(start: u32, end: u32) -> TextRange {
+    TextRange::new(TextSize::from(start), TextSize::from(end))
+}
+
+fn body_origin() -> MacroBodyOrigin {
+    MacroBodyOrigin {
+        call_id: MacroCallId(11),
+        definition_id: MacroDefinitionId(12),
+        expansion_id: MacroExpansionId(13),
+        parent_expansion_id: None,
+        body_token_index: 0,
+    }
+}
+
+fn arg_origin() -> MacroArgumentOrigin {
+    MacroArgumentOrigin {
+        call_id: MacroCallId(21),
+        definition_id: MacroDefinitionId(22),
+        expansion_id: MacroExpansionId(23),
+        parent_expansion_id: None,
+        body_token_index: 0,
+        argument_index: 2,
+        argument_token_index: 0,
+    }
+}
+
+fn operation_origin() -> MacroOperationOrigin {
+    MacroOperationOrigin {
+        call_id: MacroCallId(31),
+        definition_id: MacroDefinitionId(32),
+        expansion_id: MacroExpansionId(33),
+        parent_expansion_id: None,
+        body_token_index: 0,
+        argument_index: None,
+        argument_token_index: None,
+    }
+}
+
+#[test]
+fn expansion_source_map_maps_trace_origins_and_missing_slots() {
+    let mut preproc_source_map = PreprocSourceMap::default();
+    preproc_source_map.insert_real_file(PreprocSourceId::from(7), TOP, 64);
+    let origins = vec![
+        TokenOrigin::Source { token_range: range(7, 1..4) },
+        TokenOrigin::MacroBody {
+            macro_name: "BODY".to_owned(),
+            identity: body_origin(),
+            call_range: range(7, 10..15),
+            body_token_range: range(7, 20..24),
+        },
+        TokenOrigin::MacroArgument {
+            macro_name: "ARG".to_owned(),
+            identity: arg_origin(),
+            call_range: range(7, 30..35),
+            body_token_range: range(7, 40..44),
+            argument_token_range: range(7, 50..54),
+        },
+        TokenOrigin::TokenPaste { identity: operation_origin() },
+        TokenOrigin::Unavailable,
+    ];
+
+    let source_map = ExpansionSourceMap::from_token_origins(&origins, &preproc_source_map);
+
+    assert_eq!(source_map.map_up(0), Some(Origin::File { file: TOP, range: text_range(1, 4) }));
+    assert_eq!(
+        source_map.map_up(1),
+        Some(Origin::MacroBody {
+            call: MacroCallId(11),
+            def: MacroDefinitionId(12),
+            body_range: text_range(20, 24),
+        })
+    );
+    assert_eq!(
+        source_map.map_up(2),
+        Some(Origin::MacroArg {
+            call: MacroCallId(21),
+            arg_index: 2,
+            arg_range: text_range(50, 54),
+        })
+    );
+    assert_eq!(source_map.map_up(3), Some(Origin::TokenPaste { call: MacroCallId(31) }));
+    assert_eq!(source_map.map_up(4), None);
+    assert_eq!(source_map.map_down(&Origin::TokenPaste { call: MacroCallId(31) }), vec![3]);
+    assert!(source_map.map_down(&Origin::Stringify { call: MacroCallId(31) }).is_empty());
+}
+
+#[test]
+fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
+    let root_text = "`define DECL module from_macro; endmodule\n`DECL\n";
+    let db = db_with_root_text(root_text);
+    let mapped = db.source_preproc_model(TOP);
+    let mapped = mapped.as_ref().as_ref().expect("preproc model should be available");
+    let call = mapped
+        .model
+        .macro_calls()
+        .iter()
+        .find(|call| {
+            mapped
+                .source_map
+                .map_range(call.call_range)
+                .is_ok_and(|range| text_at_range(root_text, range) == "`DECL")
+        })
+        .expect("macro call should be recorded");
+
+    let macro_file = db.intern_macro_file(MacroFileLoc { model_file: TOP, call: call.id });
+    let expansion = db.macro_expansion(macro_file);
+
+    assert!(expansion.text.contains("module"));
+    assert!(expansion.text.contains("from_macro"));
+    assert!(matches!(expansion.source_map.map_up(0), Some(Origin::MacroBody { .. })));
+    let parse = db.parse(HirFileId::Macro(macro_file));
+    let root = parse.root().expect("macro expansion should parse to a syntax root");
+    let unit =
+        CompilationUnit::cast(root).expect("macro expansion root should be a compilation unit");
+    let mut modules = unit.members().children().filter_map(Member::as_module_declaration);
+    let module = modules.next().expect("macro expansion should contain a module");
+    assert!(modules.next().is_none());
+    assert_eq!(module.header().name().unwrap().value_text().to_string(), "from_macro");
+}
