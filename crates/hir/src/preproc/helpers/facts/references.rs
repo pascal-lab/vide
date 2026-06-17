@@ -140,7 +140,7 @@ pub(in crate::preproc) fn map_macro_resolution_reason(
 pub(in crate::preproc) fn map_reference_ranges(
     mapped: &MappedSourcePreprocModel,
     reference: &SourceMacroReference,
-) -> PreprocResult<(MappedPreprocSource, TextRange, TextRange)> {
+) -> PreprocResult<(PreprocSourceMapping, TextRange, TextRange)> {
     let (directive_source, directive_range) =
         map_mapped_source_range(mapped, reference.directive_range)?;
     let (name_source, name_range) = map_mapped_source_range(mapped, reference.name_range)?;

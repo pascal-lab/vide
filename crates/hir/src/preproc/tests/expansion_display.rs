@@ -14,7 +14,7 @@ endmodule
     let MacroExpansionQuery::Available(expansion) = immediate else {
         panic!("MAKE_DECL expansion should be available");
     };
-    let MappedPreprocSource::VirtualDisplay { path, origin } = &expansion.display_source else {
+    let PreprocSourceMapping::VirtualDisplay { path, origin } = &expansion.display_source else {
         panic!("macro expansion should expose a display-only virtual expansion source");
     };
     assert_eq!(

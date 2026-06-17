@@ -123,7 +123,7 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     }
 
     let source_buffer_source = map_expansion_source_buffer(mapped, expansion.id)?;
-    let MappedPreprocSource::VirtualFile { file_id, .. } = &source_buffer_source else {
+    let PreprocSourceMapping::VirtualFile { file_id, .. } = &source_buffer_source else {
         return Ok(DiagnosticProvenance::Unavailable(display_only_virtual_expansion_unavailable(
             &source_buffer_source,
         )));

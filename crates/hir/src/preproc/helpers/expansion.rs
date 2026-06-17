@@ -61,50 +61,30 @@ fn map_macro_expansion_definition(
 pub(in crate::preproc) fn map_expansion_display_source(
     mapped: &MappedSourcePreprocModel,
     expansion: SourceMacroExpansionId,
-) -> PreprocResult<MappedPreprocSource> {
-    match mapped.source_map.expansion_display_source(expansion).map_err(PreprocError::SourceMap)? {
-        PreprocSourceMapping::VirtualFile { file_id, path, origin } => {
-            Ok(MappedPreprocSource::VirtualFile { file_id, path, origin })
-        }
-        PreprocSourceMapping::VirtualDisplay { path, origin } => {
-            Ok(MappedPreprocSource::VirtualDisplay { path, origin })
-        }
-        PreprocSourceMapping::RealFile(file_id) => Ok(MappedPreprocSource::RealFile { file_id }),
-        PreprocSourceMapping::Unmapped(reason) => {
-            Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) })
-        }
-    }
+) -> PreprocResult<PreprocSourceMapping> {
+    mapped.source_map.expansion_display_source(expansion).map_err(PreprocError::SourceMap)
 }
 
 pub(in crate::preproc) fn map_expansion_source_buffer(
     mapped: &MappedSourcePreprocModel,
     expansion: SourceMacroExpansionId,
-) -> PreprocResult<MappedPreprocSource> {
-    match mapped.source_map.expansion_source_buffer(expansion).map_err(PreprocError::SourceMap)? {
-        PreprocSourceMapping::VirtualFile { file_id, path, origin } => {
-            Ok(MappedPreprocSource::VirtualFile { file_id, path, origin })
-        }
-        PreprocSourceMapping::VirtualDisplay { path, origin } => {
-            Ok(MappedPreprocSource::VirtualDisplay { path, origin })
-        }
-        PreprocSourceMapping::RealFile(file_id) => Ok(MappedPreprocSource::RealFile { file_id }),
-        PreprocSourceMapping::Unmapped(reason) => {
-            Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) })
-        }
-    }
+) -> PreprocResult<PreprocSourceMapping> {
+    mapped.source_map.expansion_source_buffer(expansion).map_err(PreprocError::SourceMap)
 }
 
 pub(in crate::preproc) fn display_only_virtual_expansion_unavailable(
-    source: &MappedPreprocSource,
+    source: &PreprocSourceMapping,
 ) -> PreprocUnavailable {
     match source {
-        MappedPreprocSource::VirtualDisplay { path, origin } => {
+        PreprocSourceMapping::VirtualDisplay { path, origin } => {
             PreprocUnavailable::DisplayOnlyVirtualExpansion {
                 path: path.clone(),
                 origin: origin.clone(),
             }
         }
-        MappedPreprocSource::RealFile { .. } | MappedPreprocSource::VirtualFile { .. } => {
+        PreprocSourceMapping::RealFile(_)
+        | PreprocSourceMapping::VirtualFile { .. }
+        | PreprocSourceMapping::Unmapped(_) => {
             PreprocUnavailable::Source(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
         }
     }
