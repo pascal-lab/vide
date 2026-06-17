@@ -118,7 +118,6 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     mapped: &MappedSourcePreprocModel,
     expansion: &SourceMacroExpansion,
 ) -> PreprocResult<Option<DiagnosticTarget>> {
-    let mut saw_unavailable = false;
     for token_id in emitted_token_ids(expansion.emitted_token_range) {
         let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
             return Err(PreprocError::SourceMap(PreprocSourceMapError::MissingEmittedToken {
@@ -126,33 +125,14 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
             }));
         };
         let Some(origin) = token.origin.and_then(|id| mapped.model.token_origins().get(id)) else {
-            saw_unavailable = true;
             continue;
         };
         match diagnostic_target_for_token(mapped, origin)? {
             TokenDiagnosticTarget::Target(target) => return Ok(Some(target)),
             TokenDiagnosticTarget::Skip => {}
-            TokenDiagnosticTarget::Blocked => {
-                saw_unavailable = true;
-            }
+            TokenDiagnosticTarget::Blocked => {}
         }
     }
 
-    if saw_unavailable {
-        return Ok(None);
-    }
-
-    let source_buffer_source = map_expansion_source_buffer(mapped, expansion.id)?;
-    let PreprocSourceMapping::VirtualFile { file_id, .. } = &source_buffer_source else {
-        return Ok(None);
-    };
-    let source_buffer_range = mapped
-        .source_map
-        .emitted_source_buffer_range(expansion.id, expansion.emitted_token_range)
-        .map_err(PreprocError::SourceMap)?;
-    Ok(Some(DiagnosticTarget {
-        origin: Origin::File { file: *file_id, range: source_buffer_range },
-        file_id: *file_id,
-        range: source_buffer_range,
-    }))
+    Ok(None)
 }

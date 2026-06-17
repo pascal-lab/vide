@@ -18,12 +18,11 @@ mod preproc;
 
 pub(crate) use self::preproc::workspace_preproc_model_file_ids;
 pub use self::preproc::{
-    MappedSourcePreprocModel, PreprocExpansionDisplay, PreprocExpansionMapping,
-    PreprocExpansionSourceBuffer, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
+    MappedSourcePreprocModel, PreprocManifestSource, PreprocSourceMap, PreprocSourceMapError,
     PreprocSourceMapping, PreprocSpeculativeUniverseId, PreprocVirtualOrigin,
     SourcePreprocContextIndex, SourcePreprocContextStatus, SourcePreprocQueryError,
-    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_expansion_path,
-    preproc_virtual_predefines_path, preproc_virtual_speculative_path,
+    SourcePreprocRelevantContexts, preproc_virtual_builtin_path, preproc_virtual_predefines_path,
+    preproc_virtual_speculative_path,
 };
 #[cfg(test)]
 use self::preproc::{materialized_predefine_text, source_preproc_file_ids};
@@ -661,9 +660,7 @@ fn source_root_semantic_diagnostics(
 mod tests {
     use std::fmt;
 
-    use ::preproc::source::{
-        PreprocSourceId, SourceMacroExpansionId, SourcePreprocUnavailable, SourceRange,
-    };
+    use ::preproc::source::{PreprocSourceId, SourcePreprocUnavailable, SourceRange};
     use rustc_hash::FxHashSet;
     use syntax::{SourceBufferId, SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
     use utils::{
@@ -1246,13 +1243,6 @@ mod tests {
         assert_eq!(
             preproc_virtual_builtin_path(Some(CompilationProfileId(3)), "bad/name"),
             VfsPath::new_virtual_path("/__vide/preproc/profile-3/builtin/bad_name.sv".to_owned())
-        );
-        assert_eq!(
-            preproc_virtual_expansion_path(
-                Some(CompilationProfileId(3)),
-                SourceMacroExpansionId::new(9),
-            ),
-            VfsPath::new_virtual_path("/__vide/preproc/profile-3/expansion/9.sv".to_owned())
         );
         assert_eq!(
             preproc_virtual_speculative_path(
