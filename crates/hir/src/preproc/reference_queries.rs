@@ -54,8 +54,6 @@ pub fn macro_usage_resolutions_at(
                     ))
                 })?;
             let definition = map_macro_definition(mapped, source_definition)?;
-            let definition_origin =
-                map_definition_origin_from_source_definition(mapped, source_definition)?;
             let include_chain = map_include_chain(mapped, include_chain)?;
 
             resolutions.push_unique_eq(MacroUsageResolution {
@@ -69,7 +67,6 @@ pub fn macro_usage_resolutions_at(
                     resolution: mapped_reference.resolution,
                 },
                 definition,
-                definition_origin,
                 include_chain,
             });
         }
