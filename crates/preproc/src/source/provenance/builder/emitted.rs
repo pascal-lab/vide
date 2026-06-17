@@ -36,15 +36,10 @@ impl SourcePreprocModelBuilder {
     ) -> Option<SourceTokenProvenance> {
         match &token.provenance {
             TokenOrigin::Source { token_range } => source_range_from_origin(token_range)
-                .map(|token_range| SourceTokenProvenance::Source { token_range })
-                .or_else(|| self.unavailable_token_provenance()),
+                .map(|token_range| SourceTokenProvenance::Source { token_range }),
             TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } => {
-                let Some(call_range) = source_range_from_origin(call_range) else {
-                    return self.unavailable_token_provenance();
-                };
-                let Some(body_token_range) = source_range_from_origin(body_token_range) else {
-                    return self.unavailable_token_provenance();
-                };
+                let call_range = source_range_from_origin(call_range)?;
+                let body_token_range = source_range_from_origin(body_token_range)?;
                 self.resolve_macro_body_token_provenance(
                     token_id,
                     SmolStr::new(macro_name),
@@ -60,16 +55,9 @@ impl SourcePreprocModelBuilder {
                 argument_token_range,
                 ..
             } => {
-                if source_range_from_origin(call_range).is_none() {
-                    return self.unavailable_token_provenance();
-                }
-                let Some(body_token_range) = source_range_from_origin(body_token_range) else {
-                    return self.unavailable_token_provenance();
-                };
-                let Some(argument_token_range) = source_range_from_origin(argument_token_range)
-                else {
-                    return self.unavailable_token_provenance();
-                };
+                source_range_from_origin(call_range)?;
+                let body_token_range = source_range_from_origin(body_token_range)?;
+                let argument_token_range = source_range_from_origin(argument_token_range)?;
                 self.resolve_macro_argument_token_provenance(
                     token_id,
                     macro_argument_identity(identity),
@@ -94,9 +82,7 @@ impl SourcePreprocModelBuilder {
                     macro_operation_identity(identity),
                     MacroOperationProvenanceKind::Stringification,
                 ),
-            TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => {
-                self.unavailable_token_provenance()
-            }
+            TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
         }
     }
 
@@ -109,7 +95,7 @@ impl SourcePreprocModelBuilder {
         body_token_range: SourceRange,
     ) -> Option<SourceTokenProvenance> {
         let Ok(definition) = self.definition_for_identity(identity.definition) else {
-            return self.unavailable_token_provenance();
+            return None;
         };
         let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
             token_id,
@@ -120,11 +106,11 @@ impl SourcePreprocModelBuilder {
             expansion_identity: identity.expansion,
             parent_expansion_identity: identity.parent_expansion,
         }) else {
-            return self.unavailable_token_provenance();
+            return None;
         };
 
         if !self.definition_body_token_exists(definition, identity.body_token_index) {
-            return self.unavailable_token_provenance();
+            return None;
         }
 
         self.record_emitted_token_owner(token_id, call);
@@ -142,16 +128,14 @@ impl SourcePreprocModelBuilder {
         argument_token_range: SourceRange,
     ) -> Option<SourceTokenProvenance> {
         let Ok(definition) = self.definition_for_identity(identity.definition) else {
-            return self.unavailable_token_provenance();
+            return None;
         };
-        let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
-            return self.unavailable_token_provenance();
-        };
+        let call = self.call_ids_by_identity.get(&identity.call).copied()?;
         if !self.definition_body_token_exists(definition, identity.body_token_index) {
-            return self.unavailable_token_provenance();
+            return None;
         }
         if !self.definition_parameter_exists(definition, identity.argument_index) {
-            return self.unavailable_token_provenance();
+            return None;
         };
         self.record_macro_argument(call, identity.argument_index, argument_token_range);
         self.record_emitted_token_owner(token_id, call);
@@ -171,12 +155,10 @@ impl SourcePreprocModelBuilder {
         name: SmolStr,
         identity: SourceMacroBuiltinIdentity,
     ) -> Option<SourceTokenProvenance> {
-        let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
-            return self.unavailable_token_provenance();
-        };
+        let call = self.call_ids_by_identity.get(&identity.call).copied()?;
         let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
         if self.record_call_expansion_identity(call, call_expansion_identity, None).is_err() {
-            return self.unavailable_token_provenance();
+            return None;
         }
         self.record_emitted_token_owner(token_id, call);
         Some(SourceTokenProvenance::Builtin { name, identity, call })
@@ -189,14 +171,12 @@ impl SourcePreprocModelBuilder {
         kind: MacroOperationProvenanceKind,
     ) -> Option<SourceTokenProvenance> {
         if self.definition_for_identity(identity.definition).is_err() {
-            return self.unavailable_token_provenance();
+            return None;
         };
-        let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
-            return self.unavailable_token_provenance();
-        };
+        let call = self.call_ids_by_identity.get(&identity.call).copied()?;
         let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
         if self.record_call_expansion_identity(call, call_expansion_identity, None).is_err() {
-            return self.unavailable_token_provenance();
+            return None;
         }
         self.record_emitted_token_owner(token_id, call);
         match kind {

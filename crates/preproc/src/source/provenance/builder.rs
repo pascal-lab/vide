@@ -17,7 +17,6 @@ pub(in crate::source) struct SourcePreprocModelBuilder {
     include_edges_partial: bool,
     references_partial: bool,
     macro_calls_partial: bool,
-    token_provenance_partial: bool,
     expansions_partial: bool,
 }
 
@@ -57,7 +56,6 @@ impl SourcePreprocModelBuilder {
             include_edges_partial: false,
             references_partial: false,
             macro_calls_partial: false,
-            token_provenance_partial: false,
             expansions_partial: false,
         }
     }

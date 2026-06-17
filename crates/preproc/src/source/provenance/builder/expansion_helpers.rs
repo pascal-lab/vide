@@ -144,11 +144,4 @@ impl SourcePreprocModelBuilder {
             candidate.id == source && candidate.origin == PreprocSourceOrigin::Predefine
         })
     }
-
-    pub(in crate::source::provenance::builder) fn unavailable_token_provenance(
-        &mut self,
-    ) -> Option<SourceTokenProvenance> {
-        self.token_provenance_partial = true;
-        None
-    }
 }
