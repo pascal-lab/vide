@@ -9,21 +9,21 @@ mod cache;
 mod macro_gate;
 
 #[test]
-fn source_targets_provenance_source_range_hit_test_is_half_open() {
+fn source_targets_origin_source_range_hit_test_is_half_open() {
     let file_id = FileId(0);
     let range = TextRange::new(5.into(), 10.into());
-    let provenance = Origin::File { file: file_id, range };
+    let origin = Origin::File { file: file_id, range };
 
     assert!(
-        preproc_hit_for_raw_provenance(&provenance, file_id, 5.into()).is_some(),
+        preproc_hit_for_raw_origin(&origin, file_id, 5.into()).is_some(),
         "range start should hit"
     );
     assert!(
-        preproc_hit_for_raw_provenance(&provenance, file_id, 9.into()).is_some(),
+        preproc_hit_for_raw_origin(&origin, file_id, 9.into()).is_some(),
         "offset before range end should hit"
     );
     assert!(
-        preproc_hit_for_raw_provenance(&provenance, file_id, 10.into()).is_none(),
+        preproc_hit_for_raw_origin(&origin, file_id, 10.into()).is_none(),
         "range end should not hit"
     );
 }
@@ -33,30 +33,26 @@ fn source_targets_source_token_range_mismatch_uses_original_syntax_hit() {
     let (root, offset, parser_range) =
         root_and_offset("module m; wire payload_i; endmodule\n", "payload_i", 2);
     let file_id = FileId(0);
-    let provenance_range = TextRange::new(
+    let origin_range = TextRange::new(
         parser_range.start() + TextSize::from(1),
         parser_range.end() - TextSize::from(1),
     );
-    let hit = test_source_hit(file_id, provenance_range, 0);
+    let hit = test_source_hit(file_id, origin_range, 0);
 
-    let SourceTargetProviderResult::Resolved(selection) = preproc_provider_result_from_hits(
-        root,
-        offset,
-        &test_precedence,
-        vec![hit],
-        provenance_range,
-    ) else {
+    let SourceTargetProviderResult::Resolved(selection) =
+        preproc_provider_result_from_hits(root, offset, &test_precedence, vec![hit], origin_range)
+    else {
         panic!("source-token hit should select by the original syntax token at the offset");
     };
 
-    assert_eq!(selection.range, provenance_range);
+    assert_eq!(selection.range, origin_range);
     let SourceTargetOrigin::Preproc { hits } = &selection.origin else {
         panic!("preproc provider should produce a preproc-origin selection");
     };
     assert_eq!(hits.len(), 1);
     assert_eq!(selection.tokens.len(), 1);
     assert_eq!(selection.tokens[0].text_range(), Some(parser_range));
-    assert_ne!(selection.tokens[0].text_range(), Some(provenance_range));
+    assert_ne!(selection.tokens[0].text_range(), Some(origin_range));
 }
 
 #[test]
@@ -98,8 +94,7 @@ endmodule
         emitted_token: 0,
         display_range: source_range,
         source_range,
-        provenance: PreprocTokenProvenance::Origin(expected_origin.clone()),
-        target: PreprocSourceTarget::Origin(expected_origin.clone()),
+        origin: expected_origin.clone(),
     };
 
     let tokens =
@@ -223,8 +218,7 @@ fn test_source_hit(file_id: FileId, range: TextRange, emitted_token: usize) -> P
         emitted_token,
         display_range: range,
         source_range: range,
-        provenance: PreprocTokenProvenance::Origin(origin.clone()),
-        target: PreprocSourceTarget::Origin(origin),
+        origin,
     }
 }
 
@@ -260,12 +254,12 @@ fn preproc_provider_result_from_hits<'tree>(
     SourceTargetProviderResult::Resolved(SourceTarget::preproc(range, unique_hits, tokens))
 }
 
-fn preproc_hit_for_raw_provenance(
-    provenance: &Origin,
+fn preproc_hit_for_raw_origin(
+    origin: &Origin,
     file_id: FileId,
     offset: TextSize,
 ) -> Option<TextRange> {
-    let (source_file, range) = match provenance {
+    let (source_file, range) = match origin {
         Origin::File { file, range } => (*file, *range),
         _ => return None,
     };
