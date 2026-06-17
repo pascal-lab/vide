@@ -85,9 +85,6 @@ logic [`HEADER_WIDTH-1:0] data;
             && body_token_range.source == header_source
             && *body_call == call.id
     ));
-    let recursive = model.recursive_macro_expansion(call.id);
-    assert_eq!(recursive.expansions, vec![expansion_id]);
-    assert!(recursive.unavailable.is_empty());
 }
 
 #[test]
@@ -164,10 +161,11 @@ endmodule
         .find(|call| call.reference == next_reference.id)
         .expect("outer macro usage should create a call");
     assert_eq!(next_call.arguments[0].argument_range, Some(next_argument_range));
-    assert!(matches!(
-        model.immediate_macro_expansion(next_call.id),
-        SourceMacroExpansionQuery::Available(_)
-    ));
+    let SourceMacroExpansionQuery::Available(next_expansion_id) =
+        model.immediate_macro_expansion(next_call.id)
+    else {
+        panic!("outer macro usage should have an immediate expansion");
+    };
 
     let payl_usage_index = model
         .usages()
@@ -217,7 +215,7 @@ endmodule
     assert_eq!(payl_expansion.emitted_token_range.start, payload.id);
     assert_eq!(payl_expansion.emitted_token_range.len, 1);
 
-    let recursive = model.recursive_macro_expansion(next_call.id);
-    assert!(recursive.expansions.contains(&payl_expansion_id));
-    assert!(recursive.unavailable.is_empty());
+    let next_expansion = model.macro_expansions().get(next_expansion_id).unwrap();
+    assert!(next_expansion.child_calls.contains(&payl_call.id));
+    assert!(payl_expansion.child_calls.is_empty());
 }

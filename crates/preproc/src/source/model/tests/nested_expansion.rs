@@ -43,10 +43,13 @@ endmodule
     let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
     assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
 
-    let recursive = model.recursive_macro_expansion(wrap_call.id);
-    assert_eq!(recursive.expansions.len(), 2);
-    assert!(recursive.expansions.contains(&wrap_expansion_id));
-    assert!(recursive.unavailable.is_empty());
+    let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
+        model.immediate_macro_expansion(leaf_call.id)
+    else {
+        panic!("nested macro should have its own immediate expansion");
+    };
+    let leaf_expansion = model.macro_expansions().get(leaf_expansion_id).unwrap();
+    assert!(leaf_expansion.child_calls.is_empty());
 }
 
 #[test]
@@ -96,9 +99,9 @@ endmodule
         model.macro_definitions().get(*definition).unwrap().trace_definition
     );
 
-    let recursive = model.recursive_macro_expansion(leaf_call.id);
-    assert_eq!(recursive.expansions, vec![leaf_expansion_id]);
-    assert!(recursive.unavailable.is_empty());
+    let leaf_expansion = model.macro_expansions().get(leaf_expansion_id).unwrap();
+    assert_eq!(leaf_expansion.call, leaf_call.id);
+    assert!(leaf_expansion.child_calls.is_empty());
 }
 
 #[test]
@@ -233,8 +236,10 @@ endmodule
         panic!("pasted macro usage should have an immediate expansion");
     };
 
-    let recursive = model.recursive_macro_expansion(parent_call.id);
-    assert!(recursive.unavailable.is_empty());
-    assert_eq!(recursive.expansions, vec![parent_expansion, child_expansion]);
+    let parent_expansion = model.macro_expansions().get(parent_expansion).unwrap();
+    assert_eq!(parent_expansion.child_calls, vec![child_call.id]);
+    let child_expansion = model.macro_expansions().get(child_expansion).unwrap();
+    assert_eq!(child_expansion.call, child_call.id);
+    assert!(child_expansion.child_calls.is_empty());
     assert!(model.emitted_tokens().iter().any(|token| token.text.as_str() == "9"));
 }

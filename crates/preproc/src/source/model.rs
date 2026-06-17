@@ -133,19 +133,6 @@ impl SourcePreprocModel {
         }
     }
 
-    pub fn recursive_macro_expansion(
-        &self,
-        call: SourceMacroCallId,
-    ) -> SourceRecursiveMacroExpansion {
-        let mut result = SourceRecursiveMacroExpansion {
-            root_call: call,
-            expansions: Vec::new(),
-            unavailable: Vec::new(),
-        };
-        self.collect_recursive_macro_expansion(call, &mut result, &mut Vec::new());
-        result
-    }
-
     pub fn event_location(
         &self,
         anchor: SourcePreprocEventAnchor,
@@ -205,45 +192,6 @@ impl SourcePreprocModel {
             .values()
             .filter_map(|definition_id| self.macro_definitions.get(*definition_id))
             .collect()
-    }
-
-    fn collect_recursive_macro_expansion(
-        &self,
-        call: SourceMacroCallId,
-        result: &mut SourceRecursiveMacroExpansion,
-        visiting: &mut Vec<SourceMacroCallId>,
-    ) {
-        if visiting.contains(&call) {
-            result.unavailable.push(SourceMacroExpansionUnavailable {
-                call,
-                reason: SourcePreprocUnavailable::MissingMacroExpansion { call },
-            });
-            return;
-        }
-
-        match self.immediate_macro_expansion(call) {
-            SourceMacroExpansionQuery::Available(expansion_id) => {
-                if result.expansions.contains(&expansion_id) {
-                    return;
-                }
-                result.expansions.push(expansion_id);
-                let Some(expansion) = self.macro_expansions.get(expansion_id) else {
-                    result.unavailable.push(SourceMacroExpansionUnavailable {
-                        call,
-                        reason: SourcePreprocUnavailable::MissingMacroExpansion { call },
-                    });
-                    return;
-                };
-                visiting.push(call);
-                for child in &expansion.child_calls {
-                    self.collect_recursive_macro_expansion(*child, result, visiting);
-                }
-                visiting.pop();
-            }
-            SourceMacroExpansionQuery::Unavailable(reason) => {
-                result.unavailable.push(SourceMacroExpansionUnavailable { call, reason });
-            }
-        }
     }
 }
 

@@ -45,11 +45,12 @@ endmodule
         panic!("LEAF should have an immediate expansion");
     };
 
-    let next_recursive = model.recursive_macro_expansion(next_call.id);
-    assert!(next_recursive.expansions.contains(&next_expansion_id));
-    assert!(next_recursive.expansions.contains(&wrap_expansion_id));
-    assert!(next_recursive.expansions.contains(&leaf_expansion_id));
-    assert!(next_recursive.unavailable.is_empty());
+    let next_expansion = model.macro_expansions().get(next_expansion_id).unwrap();
+    assert_eq!(next_expansion.child_calls, vec![wrap_call.id]);
+    let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
+    assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
+    let leaf_expansion = model.macro_expansions().get(leaf_expansion_id).unwrap();
+    assert!(leaf_expansion.child_calls.is_empty());
 
     let (payload, origin, body_token_range) = model
         .emitted_tokens()

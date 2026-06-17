@@ -164,19 +164,6 @@ pub enum SourceMacroExpansionQuery {
     Unavailable(SourcePreprocUnavailable),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceRecursiveMacroExpansion {
-    pub root_call: SourceMacroCallId,
-    pub expansions: Vec<SourceMacroExpansionId>,
-    pub unavailable: Vec<SourceMacroExpansionUnavailable>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceMacroExpansionUnavailable {
-    pub call: SourceMacroCallId,
-    pub reason: SourcePreprocUnavailable,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceEmittedTokenRange {
     pub start: SourceEmittedTokenId,
