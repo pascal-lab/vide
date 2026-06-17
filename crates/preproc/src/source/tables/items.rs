@@ -143,19 +143,12 @@ pub struct SourceMacroExpansion {
     pub definition: SourceMacroExpansionDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
     pub child_calls: Vec<SourceMacroCallId>,
-    pub status: SourceMacroExpansionStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceMacroExpansionDefinition {
     Source(SourceMacroDefinitionId),
     Builtin { name: SmolStr },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceMacroExpansionStatus {
-    Complete,
-    Unavailable(SourcePreprocUnavailable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

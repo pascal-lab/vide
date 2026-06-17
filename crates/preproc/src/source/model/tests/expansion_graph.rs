@@ -64,7 +64,6 @@ logic [`HEADER_WIDTH-1:0] data;
     assert_eq!(expansion.call, call.id);
     assert_eq!(expansion.definition, SourceMacroExpansionDefinition::Source(*resolved_definition));
     assert!(expansion.child_calls.is_empty());
-    assert_eq!(expansion.status, SourceMacroExpansionStatus::Complete);
 
     let emitted = model
         .emitted_tokens()

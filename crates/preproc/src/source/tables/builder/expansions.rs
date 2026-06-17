@@ -60,7 +60,6 @@ impl SourcePreprocModelBuilder {
                 definition,
                 emitted_token_range,
                 child_calls: child_calls_by_parent.get(&call).cloned().unwrap_or_default(),
-                status: SourceMacroExpansionStatus::Complete,
             });
             if let Some(call) = self.model.macro_calls.get_mut(call) {
                 call.expansion = Some(expansion);
