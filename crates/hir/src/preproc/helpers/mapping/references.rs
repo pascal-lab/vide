@@ -30,12 +30,7 @@ pub(in crate::preproc) fn map_macro_reference(
 ) -> PreprocResult<MacroReference> {
     let (source, name_range) = map_reference_ranges(mapped, reference)?;
     let file_id = require_file_backed_source(&source)?;
-    Ok(MacroReference {
-        id: reference.id,
-        file_id,
-        name: reference.name.clone(),
-        range: name_range,
-    })
+    Ok(MacroReference { file_id, name: reference.name.clone(), range: name_range })
 }
 
 pub(in crate::preproc) fn map_macro_call(

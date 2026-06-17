@@ -238,7 +238,10 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
         })
         .expect("macro call should be recorded");
 
-    let macro_file = db.intern_macro_file(MacroFileLoc { model_file: TOP, call: call.id });
+    let macro_file = db.intern_macro_file(MacroFileLoc {
+        model_file: TOP,
+        trace_call: call.trace_call.expect("macro call should carry slang trace identity"),
+    });
     let expansion = db.macro_expansion(macro_file);
 
     assert!(expansion.text.contains("module"));
