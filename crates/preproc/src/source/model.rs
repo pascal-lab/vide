@@ -4,8 +4,7 @@ use super::{provenance::*, types::*};
 
 impl SourcePreprocModel {
     pub fn new(index: SourcePreprocIndex) -> Self {
-        let tables = SourcePreprocTables::from_index(&index);
-        Self { index, tables }
+        SourcePreprocModelBuilder::new(index).build()
     }
 
     pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
@@ -21,40 +20,36 @@ impl SourcePreprocModel {
         self.index
     }
 
-    pub fn provenance_tables(&self) -> &SourcePreprocTables {
-        &self.tables
-    }
-
     pub fn macro_definitions(&self) -> &SourceMacroDefinitionTable {
-        &self.tables.macro_definitions
+        &self.macro_definitions
     }
 
     pub fn macro_references(&self) -> &SourceMacroReferenceTable {
-        &self.tables.macro_references
+        &self.macro_references
     }
 
     pub fn macro_calls(&self) -> &SourceMacroCallTable {
-        &self.tables.macro_calls
+        &self.macro_calls
     }
 
     pub fn macro_expansions(&self) -> &SourceMacroExpansionTable {
-        &self.tables.macro_expansions
+        &self.macro_expansions
     }
 
     pub fn emitted_tokens(&self) -> &SourceEmittedTokenTable {
-        &self.tables.emitted_tokens
+        &self.emitted_tokens
     }
 
     pub fn token_provenance(&self) -> &SourceTokenProvenanceTable {
-        &self.tables.token_provenance
+        &self.token_provenance
     }
 
     pub fn include_graph(&self) -> &SourceIncludeGraph {
-        &self.tables.include_graph
+        &self.include_graph
     }
 
     pub fn state_timeline(&self) -> &SourceMacroStateTimeline {
-        &self.tables.state_timeline
+        &self.state_timeline
     }
 
     pub fn root_source(&self) -> Option<PreprocSourceId> {
@@ -86,7 +81,7 @@ impl SourcePreprocModel {
     }
 
     pub fn inactive_ranges(&self) -> &[SourceRange] {
-        &self.tables.inactive_ranges
+        &self.inactive_ranges
     }
 
     pub fn events(&self) -> impl Iterator<Item = SourcePreprocEvent<'_>> + '_ {
@@ -98,22 +93,21 @@ impl SourcePreprocModel {
     }
 
     pub fn visible_macros_at(&self, position: SourcePosition) -> Vec<&SourceMacroDefinition> {
-        self.tables
-            .state_timeline
+        self.state_timeline
             .state_at_position(position)
             .map(|state| self.definitions_for_state(state))
             .unwrap_or_default()
     }
 
     pub fn immediate_macro_expansion(&self, call: SourceMacroCallId) -> SourceMacroExpansionQuery {
-        let Some(call_fact) = self.tables.macro_calls.get(call) else {
+        let Some(call_fact) = self.macro_calls.get(call) else {
             return SourceMacroExpansionQuery::Unavailable(
                 SourcePreprocUnavailable::MissingMacroCall { call },
             );
         };
         match (call_fact.expansion, &call_fact.status) {
             (Some(expansion), SourceMacroCallStatus::ExpansionAvailable)
-                if self.tables.macro_expansions.get(expansion).is_some() =>
+                if self.macro_expansions.get(expansion).is_some() =>
             {
                 SourceMacroExpansionQuery::Available(expansion)
             }
@@ -121,7 +115,6 @@ impl SourcePreprocModel {
                 SourceMacroExpansionQuery::Unavailable(
                     SourcePreprocUnavailable::MissingMacroExpansion {
                         call: self
-                            .tables
                             .macro_expansions
                             .get(expansion)
                             .map(|expansion| expansion.call)
@@ -207,7 +200,7 @@ impl SourcePreprocModel {
         state
             .definitions
             .values()
-            .filter_map(|definition_id| self.tables.macro_definitions.get(*definition_id))
+            .filter_map(|definition_id| self.macro_definitions.get(*definition_id))
             .collect()
     }
 
@@ -231,7 +224,7 @@ impl SourcePreprocModel {
                     return;
                 }
                 result.expansions.push(expansion_id);
-                let Some(expansion) = self.tables.macro_expansions.get(expansion_id) else {
+                let Some(expansion) = self.macro_expansions.get(expansion_id) else {
                     result.unavailable.push(SourceMacroExpansionUnavailable {
                         call,
                         reason: SourcePreprocUnavailable::MissingMacroExpansion { call },

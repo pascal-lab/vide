@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn macro_reference_exists(
         &self,
         name: &str,
@@ -8,7 +8,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         site: &SourceMacroReferenceSite,
         resolution: &SourceMacroResolution,
     ) -> bool {
-        self.tables.macro_references.iter().any(|reference| {
+        self.model.macro_references.iter().any(|reference| {
             reference.name.as_str() == name
                 && reference.name_range == name_range
                 && &reference.site == site
@@ -37,9 +37,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
         let mut builtin_name = None;
         for token_id in direct_tokens_by_call.get(&call)? {
-            let token = self.tables.emitted_tokens.get(*token_id)?;
-            let provenance =
-                token.provenance.and_then(|id| self.tables.token_provenance.get(id))?;
+            let token = self.model.emitted_tokens.get(*token_id)?;
+            let provenance = token.provenance.and_then(|id| self.model.token_provenance.get(id))?;
             let SourceTokenProvenance::Builtin { name, .. } = provenance else {
                 continue;
             };
@@ -55,10 +54,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn child_calls_by_parent(
         &mut self,
     ) -> BTreeMap<SourceMacroCallId, Vec<SourceMacroCallId>> {
-        let call_ids = self.tables.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
+        let call_ids = self.model.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
         let mut children = BTreeMap::<SourceMacroCallId, Vec<SourceMacroCallId>>::new();
         for child in &call_ids {
-            let Some(child_call) = self.tables.macro_calls.get(*child) else {
+            let Some(child_call) = self.model.macro_calls.get(*child) else {
                 self.expansions_partial = true;
                 continue;
             };
@@ -123,7 +122,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         reason: SourcePreprocUnavailable,
     ) {
         self.expansions_partial = true;
-        if let Some(call) = self.tables.macro_calls.get_mut(call) {
+        if let Some(call) = self.model.macro_calls.get_mut(call) {
             call.expansion = None;
             call.status = SourceMacroCallStatus::ExpansionUnavailable(reason);
         }
@@ -141,7 +140,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &self,
         source: PreprocSourceId,
     ) -> bool {
-        self.index.sources.iter().any(|candidate| {
+        self.model.index.sources.iter().any(|candidate| {
             candidate.id == source && candidate.origin == PreprocSourceOrigin::Predefine
         })
     }

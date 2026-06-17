@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn call_for_emitted_token(
         &mut self,
         request: EmittedTokenMacroCall,
@@ -15,7 +15,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         }
 
         let event_id = self
-            .tables
+            .model
             .macro_definitions
             .get(request.definition)
             .expect("definition id should point at inserted definition")
@@ -44,7 +44,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &self,
         call: SourceMacroCallId,
     ) -> Result<SourceMacroDefinitionId, ()> {
-        let Some(call) = self.tables.macro_calls.get(call) else {
+        let Some(call) = self.model.macro_calls.get(call) else {
             return Err(());
         };
         match &call.callee {
@@ -65,7 +65,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         definition: SourceMacroDefinitionId,
         body_token_index: usize,
     ) -> bool {
-        let Some(definition) = self.tables.macro_definitions.get(definition) else {
+        let Some(definition) = self.model.macro_definitions.get(definition) else {
             return false;
         };
         definition.body_tokens.get(body_token_index).is_some()
@@ -76,7 +76,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         definition: SourceMacroDefinitionId,
         argument_index: usize,
     ) -> bool {
-        let Some(definition) = self.tables.macro_definitions.get(definition) else {
+        let Some(definition) = self.model.macro_definitions.get(definition) else {
             return false;
         };
         definition.params.as_ref().is_some_and(|params| params.get(argument_index).is_some())
@@ -88,7 +88,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         expansion_identity: MacroExpansionId,
         parent_expansion_identity: Option<MacroExpansionId>,
     ) -> Result<(), ()> {
-        let Some(call_fact) = self.tables.macro_calls.get_mut(call) else {
+        let Some(call_fact) = self.model.macro_calls.get_mut(call) else {
             return Err(());
         };
         if let Some(existing) = call_fact.expansion_identity {
@@ -119,7 +119,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         argument_index: usize,
         argument_token_range: SourceRange,
     ) {
-        let Some(call) = self.tables.macro_calls.get_mut(call) else {
+        let Some(call) = self.model.macro_calls.get_mut(call) else {
             return;
         };
         if let Some(argument) =
@@ -142,7 +142,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         call: SourceMacroCallId,
         argument: SourceMacroActualArgument,
     ) {
-        let Some(call) = self.tables.macro_calls.get_mut(call) else {
+        let Some(call) = self.model.macro_calls.get_mut(call) else {
             return;
         };
         if let Some(existing) = call

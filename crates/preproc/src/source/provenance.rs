@@ -113,10 +113,4 @@ impl_source_ranges!(SourceMacroReference, directive = directive_range, name = na
 impl_source_ranges!(SourceIncludeDirective, directive = directive_range);
 
 mod builder;
-pub use builder::SourcePreprocModelBuilder;
-
-impl SourcePreprocTables {
-    pub fn from_index(index: &SourcePreprocIndex) -> Self {
-        SourcePreprocModelBuilder::new(index).build()
-    }
-}
+pub(in crate::source) use builder::SourcePreprocModelBuilder;

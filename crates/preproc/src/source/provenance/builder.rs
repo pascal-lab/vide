@@ -4,9 +4,8 @@ use smol_str::SmolStr;
 
 use super::*;
 
-pub struct SourcePreprocModelBuilder<'a> {
-    index: &'a SourcePreprocIndex,
-    tables: SourcePreprocTables,
+pub(in crate::source) struct SourcePreprocModelBuilder {
+    model: SourcePreprocModel,
     definition_ids_by_define_index: BTreeMap<usize, SourceMacroDefinitionId>,
     definition_ids_by_identity: BTreeMap<MacroDefinitionId, SourceMacroDefinitionId>,
     call_ids_by_identity: BTreeMap<MacroCallId, SourceMacroCallId>,
@@ -32,11 +31,22 @@ mod resolution;
 mod state;
 mod token_origin;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
-    pub fn new(index: &'a SourcePreprocIndex) -> Self {
+impl SourcePreprocModelBuilder {
+    pub(in crate::source) fn new(index: SourcePreprocIndex) -> Self {
         Self {
-            index,
-            tables: SourcePreprocTables::default(),
+            model: SourcePreprocModel {
+                index,
+                macro_definitions: SourceMacroDefinitionTable::default(),
+                macro_references: SourceMacroReferenceTable::default(),
+                macro_calls: SourceMacroCallTable::default(),
+                macro_expansions: SourceMacroExpansionTable::default(),
+                emitted_tokens: SourceEmittedTokenTable::default(),
+                token_provenance: SourceTokenProvenanceTable::default(),
+                include_graph: SourceIncludeGraph::default(),
+                inactive_ranges: Vec::new(),
+                state_timeline: SourceMacroStateTimeline::default(),
+                issues: Vec::new(),
+            },
             definition_ids_by_define_index: BTreeMap::new(),
             definition_ids_by_identity: BTreeMap::new(),
             call_ids_by_identity: BTreeMap::new(),
@@ -52,16 +62,16 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         }
     }
 
-    pub fn build(mut self) -> SourcePreprocTables {
+    pub(in crate::source) fn build(mut self) -> SourcePreprocModel {
         self.build_tables();
-        self.tables
+        self.model
     }
 
     fn build_tables(&mut self) {
         self.build_definition_table();
         self.build_include_graph();
         self.record_position_boundaries();
-        self.record_state_checkpoint(0, SourcePosition::from_first_event(self.index));
+        self.record_state_checkpoint(0, SourcePosition::from_first_event(&self.model.index));
         self.scan_references_and_state();
         self.build_emitted_token_tables();
         self.build_macro_expansion_graph();
