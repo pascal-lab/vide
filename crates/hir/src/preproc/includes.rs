@@ -30,7 +30,7 @@ pub fn include_directives_at(
             let Some(target_range) = include.target_range else {
                 continue;
             };
-            let (source, range) =
+            let (_, range) =
                 match mapped_source_range_at_offset(mapped, target_range, file_id, offset) {
                     Ok(Some(hit)) => hit,
                     Ok(None) => continue,
@@ -41,7 +41,7 @@ pub fn include_directives_at(
                 };
             let status = map_include_status(mapped, &include.status)?;
             let resolved_file = match &status {
-                IncludeDirectiveStatus::Resolved { source } => source.file_id(),
+                IncludeDirectiveStatus::Resolved { file_id } => Some(*file_id),
                 IncludeDirectiveStatus::Unresolved | IncludeDirectiveStatus::Unavailable(_) => None,
             };
             let target = match &include.target {
@@ -52,7 +52,6 @@ pub fn include_directives_at(
             };
             let directive = IncludeDirective {
                 id: include.id.into(),
-                source,
                 file_id,
                 include_index: include.id.raw(),
                 range,
