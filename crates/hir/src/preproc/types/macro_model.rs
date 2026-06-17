@@ -1,17 +1,6 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacroResolution {
-    Resolved {
-        definition_id: MacroDefinitionId,
-        reason: SourceMacroResolutionReason,
-        include_chain: Vec<IncludeChainEntry>,
-    },
-    Undefined,
-    Unavailable(SourcePreprocUnavailable),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinition {
     pub id: MacroDefinitionId,
     pub file_id: FileId,
@@ -75,7 +64,6 @@ pub struct MacroUsageResolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncludeChainEntry {
-    pub include_event_id: u32,
     pub include_file_id: FileId,
     pub include_range: TextRange,
     pub included_file_id: FileId,
@@ -87,7 +75,6 @@ pub struct MacroReference {
     pub file_id: FileId,
     pub name: SmolStr,
     pub range: TextRange,
-    pub resolution: MacroResolution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

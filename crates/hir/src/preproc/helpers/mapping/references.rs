@@ -35,7 +35,6 @@ pub(in crate::preproc) fn map_macro_reference(
         file_id,
         name: reference.name.clone(),
         range: name_range,
-        resolution: map_macro_resolution(mapped, &reference.resolution)?,
     })
 }
 
@@ -62,23 +61,6 @@ pub(in crate::preproc) fn map_macro_argument(
         .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
         .transpose()?;
     Ok(MacroArgument { argument_index: argument.argument_index, range })
-}
-
-pub(in crate::preproc) fn map_macro_resolution(
-    mapped: &MappedSourcePreprocModel,
-    resolution: &SourceMacroResolution,
-) -> PreprocResult<MacroResolution> {
-    Ok(match resolution {
-        SourceMacroResolution::Resolved { definition, reason, include_chain } => {
-            MacroResolution::Resolved {
-                definition_id: (*definition).into(),
-                reason: *reason,
-                include_chain: map_include_chain(mapped, include_chain)?,
-            }
-        }
-        SourceMacroResolution::Undefined => MacroResolution::Undefined,
-        SourceMacroResolution::Unavailable(reason) => MacroResolution::Unavailable(reason.clone()),
-    })
 }
 
 pub(in crate::preproc) fn map_reference_ranges(

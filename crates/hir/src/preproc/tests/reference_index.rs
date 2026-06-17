@@ -115,14 +115,18 @@ endmodule
         .find(|reference| reference.name.as_str() == "UNKNOWN")
         .expect("undefined conditional macro reference should be present");
     assert_eq!(text_at_range(root_text, unknown.range), "UNKNOWN");
-    assert!(matches!(unknown.resolution, MacroResolution::Undefined));
+    let unknown_definitions =
+        macro_reference_definitions_at(&db, TOP, unknown.range.start()).unwrap().unwrap();
+    assert!(unknown_definitions.definitions.is_empty());
 
     let known = references
         .iter()
         .find(|reference| reference.name.as_str() == "KNOWN")
         .expect("resolved conditional macro reference should be present");
     assert_eq!(text_at_range(root_text, known.range), "KNOWN");
-    assert!(matches!(known.resolution, MacroResolution::Resolved { .. }));
+    let known_definitions =
+        macro_reference_definitions_at(&db, TOP, known.range.start()).unwrap().unwrap();
+    assert!(!known_definitions.definitions.is_empty());
 }
 
 #[test]
