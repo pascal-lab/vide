@@ -39,7 +39,7 @@ pub enum CodeLensKind {
 }
 
 pub(crate) fn code_lens(db: &RootDb, config: CodeLensConfig, file_id: FileId) -> Vec<CodeLens> {
-    let file_id = HirFileId(file_id);
+    let file_id = HirFileId::File(file_id);
     let (hir_file, src_map) = db.hir_file_with_source_map(file_id);
     let (hir_file, src_map) = (hir_file.as_ref(), src_map.as_ref());
 
@@ -77,7 +77,7 @@ pub(crate) fn code_lens_resolve(db: &RootDb, mut kind: CodeLensKind) -> CodeLens
 
     match kind {
         CodeLensKind::ModuleInstance { pos: FilePosition { file_id, offset }, ref mut data } => {
-            let hir_file_id = HirFileId(file_id);
+            let hir_file_id = HirFileId::File(file_id);
             let (_, src_map) = sema.db.hir_file_with_source_map(hir_file_id);
             let Some((local_module_id, _)) =
                 src_map.module_srcs.iter().find(|(_, src)| src.range().start() == offset)

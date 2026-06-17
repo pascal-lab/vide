@@ -224,7 +224,7 @@ impl UnitScope {
         let mut scope = UnitScope::default();
 
         for file_id in db.files().iter() {
-            let file_id = HirFileId(*file_id);
+            let file_id = HirFileId::File(*file_id);
             let file_scope = db.file_scope(file_id);
             for (ident, entry) in file_scope.iter() {
                 scope.insert(ident, entry);
@@ -270,7 +270,7 @@ impl ModuleScope {
     pub fn module_scope_query(db: &dyn HirDb, module_id: ModuleId) -> Arc<ModuleScope> {
         let mut scope = Scope::default();
         let (module, module_src_map) = db.module_with_source_map(module_id);
-        let file_id = HirFileId(module_id.file_id());
+        let file_id = HirFileId::File(module_id.file_id());
 
         // handle labels of non-ansi ports
         if let Ports::NonAnsi { ports, .. } = &module.ports {
@@ -381,7 +381,7 @@ impl GenerateBlockScope {
     ) -> Arc<Self> {
         let mut scope = Scope::default();
         let (generate_block, source_map) = db.generate_block_with_source_map(generate_block_id);
-        let file_id = HirFileId(generate_block_id.file_id(db));
+        let file_id = HirFileId::File(generate_block_id.file_id(db));
 
         scope.insert_opt(&generate_block.name, generate_block_id.into());
 

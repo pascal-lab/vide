@@ -136,7 +136,7 @@ pub(crate) fn semantic_tokens(
     let Some(root) = parsed_file.root() else {
         return Vec::new();
     };
-    let file_id = HirFileId(file_id);
+    let file_id = HirFileId::File(file_id);
     let range = match range {
         Some(range) => range,
         None => {
