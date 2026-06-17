@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourcePreprocTables {
     pub macro_definitions: SourceMacroDefinitionTable,
     pub macro_references: SourceMacroReferenceTable,
@@ -11,7 +11,6 @@ pub struct SourcePreprocTables {
     pub include_graph: SourceIncludeGraph,
     pub inactive_ranges: Vec<SourceRange>,
     pub state_timeline: SourceMacroStateTimeline,
-    pub capabilities: SourcePreprocCapabilities,
     pub issues: Vec<SourcePreprocFactIssue>,
 }
 
@@ -31,50 +30,6 @@ source_table!(
     SourceTokenProvenanceId,
     SourceTokenProvenance
 );
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourcePreprocCapabilities {
-    pub source_events: CapabilityStatus,
-    pub definition_name_ranges: CapabilityStatus,
-    pub include_edges: CapabilityStatus,
-    pub inactive_ranges: CapabilityStatus,
-    pub macro_reference_resolution: CapabilityStatus,
-    pub macro_calls: CapabilityStatus,
-    pub macro_expansions: CapabilityStatus,
-    pub emitted_tokens: CapabilityStatus,
-    pub emitted_token_provenance: CapabilityStatus,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CapabilityStatus {
-    Complete,
-    Partial,
-    Unavailable(SourcePreprocUnavailable),
-}
-
-impl SourcePreprocTables {
-    pub fn capabilities(&self) -> &SourcePreprocCapabilities {
-        &self.capabilities
-    }
-}
-
-impl Default for SourcePreprocTables {
-    fn default() -> Self {
-        Self {
-            macro_definitions: SourceMacroDefinitionTable::default(),
-            macro_references: SourceMacroReferenceTable::default(),
-            macro_calls: SourceMacroCallTable::default(),
-            macro_expansions: SourceMacroExpansionTable::default(),
-            emitted_tokens: SourceEmittedTokenTable::default(),
-            token_provenance: SourceTokenProvenanceTable::default(),
-            include_graph: SourceIncludeGraph::default(),
-            inactive_ranges: Vec::new(),
-            state_timeline: SourceMacroStateTimeline::default(),
-            capabilities: SourcePreprocCapabilities::unavailable(),
-            issues: Vec::new(),
-        }
-    }
-}
 
 impl SourceIncludeGraph {
     pub fn directives(&self) -> &[SourceIncludeDirective] {
@@ -124,39 +79,5 @@ impl SourceMacroStateTimeline {
         }
         let checkpoint = &self.checkpoints[index - 1];
         self.states.get(checkpoint.state.raw())
-    }
-}
-
-impl SourcePreprocCapabilities {
-    pub fn unavailable() -> Self {
-        Self {
-            source_events: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-            ),
-            definition_name_ranges: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-            ),
-            include_edges: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-            ),
-            inactive_ranges: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-            ),
-            macro_reference_resolution: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-            ),
-            macro_calls: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::MacroCallAuthorityUnavailable,
-            ),
-            macro_expansions: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-            ),
-            emitted_tokens: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::EmittedTokenAuthorityUnavailable,
-            ),
-            emitted_token_provenance: CapabilityStatus::Unavailable(
-                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
-            ),
-        }
     }
 }

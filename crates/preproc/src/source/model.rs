@@ -57,10 +57,6 @@ impl SourcePreprocModel {
         &self.tables.state_timeline
     }
 
-    pub fn capabilities(&self) -> &SourcePreprocCapabilities {
-        &self.tables.capabilities
-    }
-
     pub fn root_source(&self) -> Option<PreprocSourceId> {
         self.index.root_source
     }

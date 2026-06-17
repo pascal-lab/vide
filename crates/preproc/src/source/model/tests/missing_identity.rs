@@ -75,6 +75,4 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
             SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity
         )
     ));
-    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Partial);
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Partial);
 }

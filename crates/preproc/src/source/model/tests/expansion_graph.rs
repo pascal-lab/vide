@@ -88,10 +88,6 @@ logic [`HEADER_WIDTH-1:0] data;
     let recursive = model.recursive_macro_expansion(call.id);
     assert_eq!(recursive.expansions, vec![expansion_id]);
     assert!(recursive.unavailable.is_empty());
-    assert_eq!(model.capabilities().macro_calls, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
 }
 
 #[test]
