@@ -1,12 +1,14 @@
-use hir::preproc::{
-    MacroExpansionDefinition, MacroReferenceDefinitions, RecursiveMacroExpansion,
-    macro_reference_definitions_at, recursive_macro_expansions_at,
+use hir::{
+    db::HirDb,
+    hir_def::macro_file::{MacroFileExpansion, macro_file_expansion, macro_files_at_offset},
+    preproc::{MacroReferenceDefinitions, macro_reference_definitions_at},
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
 use super::markup::{
-    render_macro_expansion_header, render_macro_expansion_separator, render_macro_source_link,
+    render_macro_expansion_header, render_macro_expansion_separator,
+    render_macro_expansion_source_link,
 };
 use crate::{RangeInfo, db::root_db::RootDb, markup::Markup};
 
@@ -48,55 +50,60 @@ pub(super) fn expanded_macro_hover(
         return None;
     }
 
-    let expansions = recursive_macro_expansions_at(db, file_id, offset).ok().unwrap_or_default();
-    let expansions = expansions
+    let macro_files = macro_files_at_offset(db, file_id, offset);
+    let expansions = macro_files
         .into_iter()
-        .filter(|expansion| {
-            reference_ids.contains(&expansion.root_call.reference_id)
-                && !expansion.expansions.is_empty()
+        .filter_map(|macro_file| {
+            let metadata = macro_file_expansion(db, macro_file)?;
+            if !reference_ids.contains(&metadata.call.reference_id) {
+                return None;
+            }
+            let expansion = db.macro_expansion(macro_file);
+            Some(ExpandedMacro { metadata, text: expansion.text.clone() })
         })
         .collect::<Vec<_>>();
     if expansions.is_empty() {
         return None;
     }
 
-    let ranges = expansions.iter().map(|expansion| expansion.root_call.range).collect::<Vec<_>>();
+    let ranges =
+        expansions.iter().map(|expansion| expansion.metadata.call.range).collect::<Vec<_>>();
     let range = covering_range(&ranges).unwrap_or_else(|| TextRange::empty(offset));
     let markup = expanded_macro_markup(db, &expansions);
     Some(RangeInfo::new(range, markup))
 }
 
-fn expanded_macro_markup(db: &RootDb, expansions: &[RecursiveMacroExpansion]) -> Markup {
+struct ExpandedMacro {
+    metadata: MacroFileExpansion,
+    text: String,
+}
+
+fn expanded_macro_markup(db: &RootDb, expansions: &[ExpandedMacro]) -> Markup {
     let mut markup = Markup::new();
 
     for expansion in expansions {
-        render_recursive_expansion(db, &mut markup, expansion);
+        render_expanded_macro(db, &mut markup, expansion);
     }
 
     markup
 }
 
-fn render_recursive_expansion(
-    db: &RootDb,
-    markup: &mut Markup,
-    expansion: &RecursiveMacroExpansion,
-) {
-    let Some(root) = expansion.expansions.first() else {
-        return;
-    };
-
+fn render_expanded_macro(db: &RootDb, markup: &mut Markup, expansion: &ExpandedMacro) {
     if !markup.is_empty() {
         markup.newline();
     }
-    render_macro_expansion_header(markup, &root.definition);
+    render_macro_expansion_header(markup, &expansion.metadata.definition);
     render_macro_expansion_separator(markup);
     markup.print("Expands to");
     markup.newline();
-    markup.push_with_code_fence(&macro_expansion_hover_text(root.display_text.as_str()));
+    markup.push_with_code_fence(&macro_expansion_hover_text(expansion.text.as_str()));
     render_macro_expansion_separator(markup);
-    if let MacroExpansionDefinition::Source(definition) = &root.definition {
-        render_macro_source_link(db, markup, definition, root.call.file_id);
-    }
+    render_macro_expansion_source_link(
+        db,
+        markup,
+        &expansion.metadata.definition,
+        expansion.metadata.call.file_id,
+    );
 }
 
 pub(in crate::hover) fn macro_expansion_hover_text(text: &str) -> String {
