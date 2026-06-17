@@ -99,36 +99,31 @@ impl SourcePreprocModel {
             .unwrap_or_default()
     }
 
-    pub fn immediate_macro_expansion(&self, call: SourceMacroCallId) -> SourceMacroExpansionQuery {
+    pub fn immediate_macro_expansion(
+        &self,
+        call: SourceMacroCallId,
+    ) -> Result<SourceMacroExpansionId, SourcePreprocUnavailable> {
         let Some(call_fact) = self.macro_calls.get(call) else {
-            return SourceMacroExpansionQuery::Unavailable(
-                SourcePreprocUnavailable::MissingMacroCall { call },
-            );
+            return Err(SourcePreprocUnavailable::MissingMacroCall { call });
         };
         match (call_fact.expansion, &call_fact.status) {
             (Some(expansion), SourceMacroCallStatus::ExpansionAvailable)
                 if self.macro_expansions.get(expansion).is_some() =>
             {
-                SourceMacroExpansionQuery::Available(expansion)
+                Ok(expansion)
             }
             (Some(expansion), SourceMacroCallStatus::ExpansionAvailable) => {
-                SourceMacroExpansionQuery::Unavailable(
-                    SourcePreprocUnavailable::MissingMacroExpansion {
-                        call: self
-                            .macro_expansions
-                            .get(expansion)
-                            .map(|expansion| expansion.call)
-                            .unwrap_or(call),
-                    },
-                )
+                Err(SourcePreprocUnavailable::MissingMacroExpansion {
+                    call: self
+                        .macro_expansions
+                        .get(expansion)
+                        .map(|expansion| expansion.call)
+                        .unwrap_or(call),
+                })
             }
-            (_, SourceMacroCallStatus::ExpansionUnavailable(reason)) => {
-                SourceMacroExpansionQuery::Unavailable(reason.clone())
-            }
+            (_, SourceMacroCallStatus::ExpansionUnavailable(reason)) => Err(reason.clone()),
             (None, SourceMacroCallStatus::ExpansionAvailable) => {
-                SourceMacroExpansionQuery::Unavailable(
-                    SourcePreprocUnavailable::MissingMacroExpansion { call },
-                )
+                Err(SourcePreprocUnavailable::MissingMacroExpansion { call })
             }
         }
     }

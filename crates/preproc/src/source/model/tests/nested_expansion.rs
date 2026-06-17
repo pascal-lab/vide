@@ -35,17 +35,13 @@ endmodule
     assert_eq!(text_at_range(root_text, leaf_reference.name_range.range), "`LEAF");
     assert_eq!(leaf_call.parent_trace_expansion, wrap_call.trace_expansion);
 
-    let SourceMacroExpansionQuery::Available(wrap_expansion_id) =
-        model.immediate_macro_expansion(wrap_call.id)
-    else {
+    let Ok(wrap_expansion_id) = model.immediate_macro_expansion(wrap_call.id) else {
         panic!("outer macro should have an expansion trace id from the runtime usage record");
     };
     let wrap_expansion = model.macro_expansions().get(wrap_expansion_id).unwrap();
     assert_eq!(wrap_expansion.child_calls, vec![leaf_call.id]);
 
-    let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
-        model.immediate_macro_expansion(leaf_call.id)
-    else {
+    let Ok(leaf_expansion_id) = model.immediate_macro_expansion(leaf_call.id) else {
         panic!("nested macro should have its own immediate expansion");
     };
     let leaf_expansion = model.macro_expansions().get(leaf_expansion_id).unwrap();
@@ -75,9 +71,7 @@ endmodule
     assert!(leaf_call.trace_expansion.is_some());
     assert!(leaf_call.parent_trace_expansion.is_some());
 
-    let SourceMacroExpansionQuery::Available(leaf_expansion_id) =
-        model.immediate_macro_expansion(leaf_call.id)
-    else {
+    let Ok(leaf_expansion_id) = model.immediate_macro_expansion(leaf_call.id) else {
         panic!("nested macro should have its own immediate expansion");
     };
     let emitted = model
@@ -185,8 +179,7 @@ endmodule
     );
     assert_ne!(paste_call, stringification_call);
     for call in [*paste_call, *stringification_call] {
-        let SourceMacroExpansionQuery::Available(expansion) = model.immediate_macro_expansion(call)
-        else {
+        let Ok(expansion) = model.immediate_macro_expansion(call) else {
             panic!("macro operation call should have an available expansion");
         };
         assert_ne!(model.macro_expansions().get(expansion).unwrap().emitted_token_range.len, 0);
@@ -225,14 +218,10 @@ endmodule
         .expect("pasted macro usage should be expanded as a child call");
     assert_eq!(child_call.parent_trace_expansion, parent_call.trace_expansion);
 
-    let SourceMacroExpansionQuery::Available(parent_expansion) =
-        model.immediate_macro_expansion(parent_call.id)
-    else {
+    let Ok(parent_expansion) = model.immediate_macro_expansion(parent_call.id) else {
         panic!("CALL invocation should have an immediate expansion");
     };
-    let SourceMacroExpansionQuery::Available(child_expansion) =
-        model.immediate_macro_expansion(child_call.id)
-    else {
+    let Ok(child_expansion) = model.immediate_macro_expansion(child_call.id) else {
         panic!("pasted macro usage should have an immediate expansion");
     };
 

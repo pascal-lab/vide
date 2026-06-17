@@ -44,9 +44,7 @@ endmodule
     assert_ne!(origin.expansion_id.0, 0);
 
     let call = model.macro_calls().get(*call).expect("builtin origin should map to a call");
-    let SourceMacroExpansionQuery::Available(expansion_id) =
-        model.immediate_macro_expansion(call.id)
-    else {
+    let Ok(expansion_id) = model.immediate_macro_expansion(call.id) else {
         panic!("builtin macro call should have an immediate expansion");
     };
     let expansion = model.macro_expansions().get(expansion_id).unwrap();
@@ -83,9 +81,7 @@ endmodule
         .expect("DECL_PIPE call should be traced");
     assert_eq!(decl_call.status, SourceMacroCallStatus::ExpansionAvailable);
 
-    let SourceMacroExpansionQuery::Available(expansion_id) =
-        model.immediate_macro_expansion(decl_call.id)
-    else {
+    let Ok(expansion_id) = model.immediate_macro_expansion(decl_call.id) else {
         panic!("DECL_PIPE call should have a complete expansion");
     };
     let expansion = model.macro_expansions().get(expansion_id).unwrap();
@@ -137,9 +133,7 @@ endmodule
         .expect("PIPE_ASSIGN call should be traced");
     assert_eq!(pipe_call.status, SourceMacroCallStatus::ExpansionAvailable);
 
-    let SourceMacroExpansionQuery::Available(expansion_id) =
-        model.immediate_macro_expansion(pipe_call.id)
-    else {
+    let Ok(expansion_id) = model.immediate_macro_expansion(pipe_call.id) else {
         panic!("PIPE_ASSIGN call should have a complete expansion");
     };
     let expansion = model.macro_expansions().get(expansion_id).unwrap();

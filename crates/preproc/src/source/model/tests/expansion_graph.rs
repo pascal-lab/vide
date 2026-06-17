@@ -54,9 +54,7 @@ logic [`HEADER_WIDTH-1:0] data;
         .expect("macro usage should create a call record");
     assert_eq!(call.call_range.source, root_source);
     assert_eq!(call.status, SourceMacroCallStatus::ExpansionAvailable);
-    let SourceMacroExpansionQuery::Available(expansion_id) =
-        model.immediate_macro_expansion(call.id)
-    else {
+    let Ok(expansion_id) = model.immediate_macro_expansion(call.id) else {
         panic!("object-like macro call should have an immediate expansion");
     };
     assert_eq!(call.expansion, Some(expansion_id));
@@ -116,9 +114,7 @@ endmodule
     assert_eq!(call.arguments[0].argument_index, 0);
     assert_eq!(call.arguments[0].argument_range, Some(*argument_token_range));
 
-    let SourceMacroExpansionQuery::Available(expansion_id) =
-        model.immediate_macro_expansion(call.id)
-    else {
+    let Ok(expansion_id) = model.immediate_macro_expansion(call.id) else {
         panic!("function-like macro call should have an immediate expansion");
     };
     let expansion = model.macro_expansions().get(expansion_id).unwrap();
@@ -160,9 +156,7 @@ endmodule
         .find(|call| call.reference == next_reference.id)
         .expect("outer macro usage should create a call");
     assert_eq!(next_call.arguments[0].argument_range, Some(next_argument_range));
-    let SourceMacroExpansionQuery::Available(next_expansion_id) =
-        model.immediate_macro_expansion(next_call.id)
-    else {
+    let Ok(next_expansion_id) = model.immediate_macro_expansion(next_call.id) else {
         panic!("outer macro usage should have an immediate expansion");
     };
 
@@ -186,9 +180,7 @@ endmodule
         .expect("nested PAYL usage should create a call");
     assert_eq!(payl_call.parent_trace_expansion, next_call.trace_expansion);
 
-    let SourceMacroExpansionQuery::Available(payl_expansion_id) =
-        model.immediate_macro_expansion(payl_call.id)
-    else {
+    let Ok(payl_expansion_id) = model.immediate_macro_expansion(payl_call.id) else {
         panic!("nested PAYL usage should have its own immediate expansion");
     };
     let payl_expansion = model.macro_expansions().get(payl_expansion_id).unwrap();

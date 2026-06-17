@@ -1,7 +1,7 @@
 use ::preproc::source::{
     SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCallId, SourceMacroDefinition,
-    SourceMacroExpansion, SourceMacroExpansionDefinition, SourceMacroExpansionQuery,
-    SourceMacroReferenceId, SourcePreprocModel,
+    SourceMacroExpansion, SourceMacroExpansionDefinition, SourceMacroReferenceId,
+    SourcePreprocModel,
 };
 use smol_str::SmolStr;
 use syntax::SyntaxTree;
@@ -179,10 +179,8 @@ fn source_expansion_for_call(
     call: SourceMacroCallId,
 ) -> Option<&SourceMacroExpansion> {
     let expansion = match model.immediate_macro_expansion(call) {
-        SourceMacroExpansionQuery::Available(expansion) => {
-            model.macro_expansions().get(expansion)?
-        }
-        SourceMacroExpansionQuery::Unavailable(_) => return None,
+        Ok(expansion) => model.macro_expansions().get(expansion)?,
+        Err(_) => return None,
     };
     Some(expansion)
 }

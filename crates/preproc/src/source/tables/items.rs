@@ -151,12 +151,6 @@ pub enum SourceMacroExpansionDefinition {
     Builtin { name: SmolStr },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceMacroExpansionQuery {
-    Available(SourceMacroExpansionId),
-    Unavailable(SourcePreprocUnavailable),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceEmittedTokenRange {
     pub start: SourceEmittedTokenId,
