@@ -4,10 +4,9 @@ use cxx::{SharedPtr, UniquePtr};
 use itertools::Either;
 
 use crate::{
-    CxxSV, LexedTokenAtOffset, LiteralBase, ParserExpectedSyntax, PreprocessorTrace,
-    PreprocessorTraceEmittedToken, PreprocessorTraceTokenProvenance, SVInt, SVLogic,
-    SourceLocation, SourceRange, SyntaxDiagnostic, SyntaxTreeBuffer, SyntaxTreeBufferIds, TimeUnit,
-    ffi,
+    CxxSV, LexedTokenAtOffset, LiteralBase, ParserExpectedSyntax, SVInt, SVLogic, SourceLocation,
+    SourceRange, SyntaxDiagnostic, SyntaxTreeBuffer, SyntaxTreeBufferIds, TimeUnit, ffi,
+    preproc::{EmittedToken, TokenOrigin, Trace},
     syntax::{
         SyntaxKind, TokenKind, TriviaKind,
         cursor::SyntaxCursor,
@@ -38,9 +37,9 @@ pub struct SyntaxTree {
 }
 
 #[derive(Debug, Clone)]
-pub struct SyntaxTreeWithPreprocessorTrace {
+pub struct SyntaxTreeWithTrace {
     pub tree: SyntaxTree,
-    pub preprocessor_trace: Option<PreprocessorTrace>,
+    pub preprocessor_trace: Option<Trace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -477,7 +476,7 @@ impl SyntaxTree {
         name: &str,
         path: &str,
         options: &SyntaxTreeOptions,
-    ) -> SyntaxTreeWithPreprocessorTrace {
+    ) -> SyntaxTreeWithTrace {
         let tree = SyntaxTree {
             _ptr: ffi::SyntaxTree::fromTextWithOptionsAndTrace(
                 CxxSV::new(text),
@@ -489,9 +488,8 @@ impl SyntaxTree {
                 options.expand_includes,
             ),
         };
-        let preprocessor_trace =
-            PreprocessorTrace::from_raw(tree._ptr.preprocessorTraceFromParsed());
-        SyntaxTreeWithPreprocessorTrace { tree, preprocessor_trace }
+        let preprocessor_trace = Trace::from_raw(tree._ptr.preprocessorTraceFromParsed());
+        SyntaxTreeWithTrace { tree, preprocessor_trace }
     }
 
     #[inline]
@@ -645,12 +643,12 @@ impl SyntaxTokenWithParent<'_> {
     }
 
     #[inline]
-    pub fn preprocessor_trace_provenance(&self) -> PreprocessorTraceTokenProvenance {
+    pub fn preprocessor_trace_provenance(&self) -> TokenOrigin {
         let token = self.tok._ptr.as_ref().get_ref();
         let context = self.parent._ptr.as_ref().get_ref();
-        PreprocessorTraceEmittedToken::from_raw(
-            ffi::SyntaxToken::preprocessorTraceProvenanceWithContext(token, context),
-        )
+        EmittedToken::from_raw(ffi::SyntaxToken::preprocessorTraceProvenanceWithContext(
+            token, context,
+        ))
         .provenance
     }
 }

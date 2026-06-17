@@ -19,12 +19,7 @@ fn get_multi_module_tree() -> SyntaxTree {
     SyntaxTree::from_text("module A; endmodule; module B; endmodule;", "source", "")
 }
 
-fn preprocessor_trace(
-    source: &str,
-    name: &str,
-    path: &str,
-    options: &SyntaxTreeOptions,
-) -> PreprocessorTrace {
+fn preprocessor_trace(source: &str, name: &str, path: &str, options: &SyntaxTreeOptions) -> Trace {
     SyntaxTree::from_text_with_options_and_trace(source, name, path, options)
         .preprocessor_trace
         .expect("parse-derived trace should be present when requested")
@@ -1126,8 +1121,7 @@ endmodule
 
     assert!(
         trace.emitted_tokens.iter().any(|token| {
-            token.raw_text == "module"
-                && matches!(token.provenance, PreprocessorTraceTokenProvenance::Source { .. })
+            token.raw_text == "module" && matches!(token.provenance, TokenOrigin::Source { .. })
         }),
         "source tokens should be retained in emitted stream: {:?}",
         trace.emitted_tokens
@@ -1138,12 +1132,8 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "8")
         .expect("object-like macro body token should be emitted");
-    let PreprocessorTraceTokenProvenance::MacroBody {
-        macro_name,
-        identity,
-        call_range,
-        body_token_range,
-    } = &obj.provenance
+    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
+        &obj.provenance
     else {
         panic!("expected macro body provenance for `OBJ expansion: {obj:?}");
     };
@@ -1179,7 +1169,7 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "7")
         .expect("function-like argument token should be emitted");
-    let PreprocessorTraceTokenProvenance::MacroArgument {
+    let TokenOrigin::MacroArgument {
         macro_name,
         identity,
         call_range,
@@ -1249,7 +1239,7 @@ endmodule
     assert_eq!(tokens.len(), 1, "expanded source should contain exactly one parsed 7 token");
     let token = tokens[0];
 
-    let PreprocessorTraceTokenProvenance::MacroArgument { identity: token_identity, .. } =
+    let TokenOrigin::MacroArgument { identity: token_identity, .. } =
         token.preprocessor_trace_provenance()
     else {
         panic!("parsed 7 token should expose direct macro argument provenance");
@@ -1259,9 +1249,7 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "7")
         .expect("trace should contain the emitted argument token");
-    let PreprocessorTraceTokenProvenance::MacroArgument { identity: emitted_identity, .. } =
-        &emitted.provenance
-    else {
+    let TokenOrigin::MacroArgument { identity: emitted_identity, .. } = &emitted.provenance else {
         panic!("emitted 7 token should have macro argument provenance: {emitted:?}");
     };
 
@@ -1284,12 +1272,8 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "3")
         .expect("nested macro body token should be emitted");
-    let PreprocessorTraceTokenProvenance::MacroBody {
-        macro_name,
-        identity,
-        call_range,
-        body_token_range,
-    } = &leaf.provenance
+    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
+        &leaf.provenance
     else {
         panic!("expected macro body provenance for nested `LEAF expansion: {leaf:?}");
     };
@@ -1319,13 +1303,10 @@ endmodule
         .iter()
         .find(|token| {
             token.raw_text == "payload_i"
-                && matches!(
-                    token.provenance,
-                    PreprocessorTraceTokenProvenance::MacroArgument { .. }
-                )
+                && matches!(token.provenance, TokenOrigin::MacroArgument { .. })
         })
         .expect("macro argument identifier should be emitted");
-    let PreprocessorTraceTokenProvenance::MacroArgument {
+    let TokenOrigin::MacroArgument {
         macro_name,
         identity: payload_identity,
         call_range,
@@ -1347,15 +1328,10 @@ endmodule
         .emitted_tokens
         .iter()
         .find(|token| {
-            token.raw_text == "3"
-                && matches!(
-                    token.provenance,
-                    PreprocessorTraceTokenProvenance::MacroArgument { .. }
-                )
+            token.raw_text == "3" && matches!(token.provenance, TokenOrigin::MacroArgument { .. })
         })
         .expect("macro argument slice index should be emitted");
-    let PreprocessorTraceTokenProvenance::MacroArgument { identity: slice_identity, .. } =
-        &slice_index.provenance
+    let TokenOrigin::MacroArgument { identity: slice_identity, .. } = &slice_index.provenance
     else {
         panic!("expected direct argument provenance for NEXT slice token: {slice_index:?}");
     };
@@ -1369,7 +1345,7 @@ endmodule
             .find(|token| {
                 matches!(
                     &token.provenance,
-                    PreprocessorTraceTokenProvenance::MacroBody {
+                    TokenOrigin::MacroBody {
                         macro_name,
                         body_token_range,
                         ..
@@ -1378,9 +1354,7 @@ endmodule
                 )
             })
             .unwrap_or_else(|| panic!("macro body literal part should be emitted: {literal_part}"));
-        let PreprocessorTraceTokenProvenance::MacroBody { macro_name, identity, .. } =
-            &increment.provenance
-        else {
+        let TokenOrigin::MacroBody { macro_name, identity, .. } = &increment.provenance else {
             panic!("expected direct body provenance for NEXT literal part: {increment:?}");
         };
         assert_eq!(macro_name, "NEXT");
@@ -1465,18 +1439,14 @@ endmodule
         .find(|token| {
             matches!(
                 &token.provenance,
-                PreprocessorTraceTokenProvenance::MacroBody { macro_name, .. }
+                TokenOrigin::MacroBody { macro_name, .. }
                     if macro_name == "PAYL"
             )
         })
         .expect("nested PAYL expansion should attribute payload_i to PAYL");
     assert_eq!(payload.raw_text, "payload_i");
-    let PreprocessorTraceTokenProvenance::MacroBody {
-        macro_name,
-        identity,
-        call_range,
-        body_token_range,
-    } = &payload.provenance
+    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
+        &payload.provenance
     else {
         panic!("expected PAYL macro body provenance for nested argument token: {payload:?}");
     };
@@ -1538,14 +1508,12 @@ endmodule
             token.raw_text == "payload_i"
                 && matches!(
                     &token.provenance,
-                    PreprocessorTraceTokenProvenance::MacroBody { macro_name, .. }
+                    TokenOrigin::MacroBody { macro_name, .. }
                         if macro_name == "LEAF"
                 )
         })
         .expect("final payload token should keep LEAF provenance");
-    let PreprocessorTraceTokenProvenance::MacroBody { identity, call_range, .. } =
-        &payload.provenance
-    else {
+    let TokenOrigin::MacroBody { identity, call_range, .. } = &payload.provenance else {
         panic!("expected LEAF macro body provenance for payload token: {payload:?}");
     };
     assert_eq!(identity.call_id, leaf.macro_call_id.unwrap());
@@ -1571,12 +1539,8 @@ fn preprocessor_trace_reports_escaped_identifier_macro_body_identity() {
         .iter()
         .find(|token| token.raw_text.starts_with("\\escaped_payload"))
         .expect("escaped identifier macro body token should be emitted");
-    let PreprocessorTraceTokenProvenance::MacroBody {
-        macro_name,
-        identity,
-        call_range,
-        body_token_range,
-    } = &escaped.provenance
+    let TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } =
+        &escaped.provenance
     else {
         panic!("expected direct body provenance for escaped identifier: {escaped:?}");
     };
@@ -1624,9 +1588,7 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "foobar")
         .expect("token paste result should stay in emitted stream");
-    let PreprocessorTraceTokenProvenance::TokenPaste { identity: pasted_identity } =
-        &pasted.provenance
-    else {
+    let TokenOrigin::TokenPaste { identity: pasted_identity } = &pasted.provenance else {
         panic!("token paste should carry macro operation provenance: {pasted:?}");
     };
     assert!(pasted_identity.call_id.0 != 0);
@@ -1639,8 +1601,7 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "\"foo\"")
         .expect("stringification result should stay in emitted stream");
-    let PreprocessorTraceTokenProvenance::Stringification { identity: stringified_identity } =
-        &stringified.provenance
+    let TokenOrigin::Stringification { identity: stringified_identity } = &stringified.provenance
     else {
         panic!("stringification should carry macro operation provenance: {stringified:?}");
     };
@@ -1706,9 +1667,8 @@ endmodule
         .iter()
         .find(|token| token.raw_text == "11")
         .expect("predefined macro body token should be emitted");
-    assert!(matches!(from_api.provenance, PreprocessorTraceTokenProvenance::MacroBody { .. }));
-    let PreprocessorTraceTokenProvenance::MacroBody { body_token_range, .. } = &from_api.provenance
-    else {
+    assert!(matches!(from_api.provenance, TokenOrigin::MacroBody { .. }));
+    let TokenOrigin::MacroBody { body_token_range, .. } = &from_api.provenance else {
         unreachable!();
     };
     assert_eq!(body_token_range.buffer_id, predefine_source.buffer_id);
@@ -1720,7 +1680,7 @@ endmodule
         .expect("intrinsic macro token should stay in emitted stream");
     assert!(matches!(
         &intrinsic.provenance,
-        PreprocessorTraceTokenProvenance::Builtin { name, identity }
+        TokenOrigin::Builtin { name, identity }
             if name == "__LINE__" && identity.call_id.0 != 0 && identity.expansion_id.0 != 0
     ));
 }

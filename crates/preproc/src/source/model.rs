@@ -1,4 +1,4 @@
-use syntax::PreprocessorTrace;
+use syntax::preproc::Trace;
 
 use super::{provenance::*, types::*};
 
@@ -8,7 +8,7 @@ impl SourcePreprocModel {
         Self { index, tables }
     }
 
-    pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
+    pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
         let index = SourcePreprocIndex::from_trace(trace)?;
         Ok(Self::new(index))
     }

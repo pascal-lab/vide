@@ -5,7 +5,7 @@ pub(in crate::base_db::source_db) fn source_preproc_file_ids(
     db: &dyn SourceRootDb,
     file_id: FileId,
     profile_id: Option<CompilationProfileId>,
-    trace: &PreprocessorTrace,
+    trace: &Trace,
     options: &SyntaxTreeOptions,
     preprocess: &PreprocessConfig,
 ) -> Result<PreprocSourceMap, SourcePreprocQueryError> {

@@ -5,7 +5,7 @@ use ::preproc::source::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
-use syntax::{PreprocessorTrace, SourceBufferOrigin, SyntaxTreeOptions};
+use syntax::{SourceBufferOrigin, SyntaxTreeOptions, preproc::Trace};
 use triomphe::Arc;
 use utils::{
     line_index::{TextRange, TextSize},

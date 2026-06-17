@@ -599,9 +599,7 @@ fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
 
 #[cfg(test)]
 mod tests {
-    use syntax::{
-        PreprocessorTraceTokenProvenance, SyntaxTree, SyntaxTreeOptions, token::TokenKindExt,
-    };
+    use syntax::{SyntaxTree, SyntaxTreeOptions, preproc::TokenOrigin, token::TokenKindExt};
 
     use super::*;
 
@@ -680,7 +678,7 @@ endmodule
                     if token.raw_text().as_bytes() == b"payload_i"
                         && matches!(
                             token.preprocessor_trace_provenance(),
-                            PreprocessorTraceTokenProvenance::MacroArgument { .. }
+                            TokenOrigin::MacroArgument { .. }
                         ) =>
                 {
                     Some(token)
@@ -689,8 +687,7 @@ endmodule
             })
             .next()
             .expect("expanded source should contain the macro argument token");
-        let PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } =
-            token.preprocessor_trace_provenance()
+        let TokenOrigin::MacroArgument { identity, .. } = token.preprocessor_trace_provenance()
         else {
             panic!("payload_i should have macro argument provenance");
         };
