@@ -6,8 +6,8 @@ use syntax::{
     SourceBufferRange,
     ast::{AstNode, CompilationUnit, Member},
     preproc::{
-        MacroArgumentOrigin, MacroBodyOrigin, MacroCallId, MacroDefinitionId, MacroExpansionId,
-        MacroOperationOrigin, TokenOrigin,
+        MacroArgumentOrigin, MacroBodyOrigin, MacroCallId as TraceMacroCallId, MacroDefinitionId,
+        MacroExpansionId, MacroOperationOrigin, TokenOrigin,
     },
 };
 use triomphe::Arc;
@@ -115,7 +115,7 @@ fn text_range(start: u32, end: u32) -> TextRange {
 
 fn body_origin() -> MacroBodyOrigin {
     MacroBodyOrigin {
-        call_id: MacroCallId(11),
+        call_id: TraceMacroCallId(11),
         definition_id: MacroDefinitionId(12),
         expansion_id: MacroExpansionId(13),
         parent_expansion_id: None,
@@ -125,7 +125,7 @@ fn body_origin() -> MacroBodyOrigin {
 
 fn arg_origin() -> MacroArgumentOrigin {
     MacroArgumentOrigin {
-        call_id: MacroCallId(21),
+        call_id: TraceMacroCallId(21),
         definition_id: MacroDefinitionId(22),
         expansion_id: MacroExpansionId(23),
         parent_expansion_id: None,
@@ -137,7 +137,7 @@ fn arg_origin() -> MacroArgumentOrigin {
 
 fn operation_origin() -> MacroOperationOrigin {
     MacroOperationOrigin {
-        call_id: MacroCallId(31),
+        call_id: TraceMacroCallId(31),
         definition_id: MacroDefinitionId(32),
         expansion_id: MacroExpansionId(33),
         parent_expansion_id: None,
@@ -176,7 +176,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
     assert_eq!(
         source_map.map_up(1),
         Some(Origin::MacroBody {
-            call: MacroCallId(11),
+            call: TraceMacroCallId(11),
             def: MacroDefinitionId(12),
             body_range: text_range(20, 24),
         })
@@ -184,22 +184,22 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
     assert_eq!(
         source_map.map_up(2),
         Some(Origin::MacroArg {
-            call: MacroCallId(21),
+            call: TraceMacroCallId(21),
             arg_index: 2,
             arg_range: text_range(50, 54),
         })
     );
-    assert_eq!(source_map.map_up(3), Some(Origin::TokenPaste { call: MacroCallId(31) }));
+    assert_eq!(source_map.map_up(3), Some(Origin::TokenPaste { call: TraceMacroCallId(31) }));
     assert_eq!(source_map.map_up(4), None);
-    assert_eq!(source_map.map_down(&Origin::TokenPaste { call: MacroCallId(31) }), vec![3]);
-    assert!(source_map.map_down(&Origin::Stringify { call: MacroCallId(31) }).is_empty());
+    assert_eq!(source_map.map_down(&Origin::TokenPaste { call: TraceMacroCallId(31) }), vec![3]);
+    assert!(source_map.map_down(&Origin::Stringify { call: TraceMacroCallId(31) }).is_empty());
     assert_eq!(
         source_map.source_hits(TOP, TextSize::from(21)),
         vec![ExpansionSourceHit {
             expanded_token_index: 1,
             range: text_range(20, 24),
             origin: Origin::MacroBody {
-                call: MacroCallId(11),
+                call: TraceMacroCallId(11),
                 def: MacroDefinitionId(12),
                 body_range: text_range(20, 24),
             },
@@ -211,7 +211,7 @@ fn expansion_source_map_maps_trace_origins_and_missing_slots() {
             expanded_token_index: 2,
             range: text_range(50, 54),
             origin: Origin::MacroArg {
-                call: MacroCallId(21),
+                call: TraceMacroCallId(21),
                 arg_index: 2,
                 arg_range: text_range(50, 54),
             },
@@ -238,10 +238,11 @@ fn macro_file_expansion_parses_emitted_tokens_and_maps_origins() {
         })
         .expect("macro call should be recorded");
 
-    let macro_file = db.intern_macro_file(MacroFileLoc {
+    let macro_call = db.intern_macro_call(MacroCallLoc {
         model_file: TOP,
         trace_call: call.trace_call.expect("macro call should carry slang trace identity"),
     });
+    let macro_file = db.intern_macro_file(MacroFileLoc { call: macro_call });
     let expansion = db.macro_expansion(macro_file);
 
     assert!(expansion.text.contains("module"));
@@ -265,6 +266,9 @@ fn macro_files_at_offset_returns_available_expansions() {
     let macro_files = macro_files_at_offset(&db, TOP, offset(root_text, "`DECL"));
 
     assert_eq!(macro_files.len(), 1);
+    let macro_file_loc = db.lookup_intern_macro_file(macro_files[0]);
+    let macro_call_loc = db.lookup_intern_macro_call(macro_file_loc.call);
+    assert_eq!(macro_call_loc.model_file, TOP);
     let expansion = db.macro_expansion(macro_files[0]);
     assert!(expansion.text.contains("from_macro"));
 }
