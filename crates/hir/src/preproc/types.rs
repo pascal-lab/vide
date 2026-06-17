@@ -406,8 +406,8 @@ impl From<SourceMacroCallKey> for MacroCallIdentity {
     }
 }
 
-impl From<syntax::PreprocessorTraceMacroCallId> for MacroCallIdentity {
-    fn from(value: syntax::PreprocessorTraceMacroCallId) -> Self {
+impl From<syntax::preproc::MacroCallId> for MacroCallIdentity {
+    fn from(value: syntax::preproc::MacroCallId) -> Self {
         Self(value.0)
     }
 }
@@ -427,8 +427,8 @@ impl From<SourceMacroDefinitionKey> for MacroDefinitionIdentity {
     }
 }
 
-impl From<syntax::PreprocessorTraceMacroDefinitionId> for MacroDefinitionIdentity {
-    fn from(value: syntax::PreprocessorTraceMacroDefinitionId) -> Self {
+impl From<syntax::preproc::MacroDefinitionId> for MacroDefinitionIdentity {
+    fn from(value: syntax::preproc::MacroDefinitionId) -> Self {
         Self(value.0)
     }
 }
@@ -448,8 +448,8 @@ impl From<SourceMacroExpansionKey> for MacroExpansionIdentity {
     }
 }
 
-impl From<syntax::PreprocessorTraceMacroExpansionId> for MacroExpansionIdentity {
-    fn from(value: syntax::PreprocessorTraceMacroExpansionId) -> Self {
+impl From<syntax::preproc::MacroExpansionId> for MacroExpansionIdentity {
+    fn from(value: syntax::preproc::MacroExpansionId) -> Self {
         Self(value.0)
     }
 }
@@ -475,8 +475,8 @@ impl From<SourceMacroBodyIdentity> for MacroBodyTokenIdentity {
     }
 }
 
-impl From<syntax::PreprocessorTraceMacroBodyIdentity> for MacroBodyTokenIdentity {
-    fn from(value: syntax::PreprocessorTraceMacroBodyIdentity) -> Self {
+impl From<syntax::preproc::MacroBodyOrigin> for MacroBodyTokenIdentity {
+    fn from(value: syntax::preproc::MacroBodyOrigin) -> Self {
         Self {
             call: value.call_id.into(),
             definition: value.definition_id.into(),
@@ -512,8 +512,8 @@ impl From<SourceMacroArgumentIdentity> for MacroArgumentTokenIdentity {
     }
 }
 
-impl From<syntax::PreprocessorTraceMacroArgumentIdentity> for MacroArgumentTokenIdentity {
-    fn from(value: syntax::PreprocessorTraceMacroArgumentIdentity) -> Self {
+impl From<syntax::preproc::MacroArgumentOrigin> for MacroArgumentTokenIdentity {
+    fn from(value: syntax::preproc::MacroArgumentOrigin) -> Self {
         Self {
             call: value.call_id.into(),
             definition: value.definition_id.into(),
@@ -551,8 +551,8 @@ impl From<SourceMacroOperationIdentity> for MacroOperationTokenIdentity {
     }
 }
 
-impl From<syntax::PreprocessorTraceMacroOperationIdentity> for MacroOperationTokenIdentity {
-    fn from(value: syntax::PreprocessorTraceMacroOperationIdentity) -> Self {
+impl From<syntax::preproc::MacroOperationOrigin> for MacroOperationTokenIdentity {
+    fn from(value: syntax::preproc::MacroOperationOrigin) -> Self {
         Self {
             call: value.call_id.into(),
             definition: value.definition_id.into(),
@@ -573,23 +573,21 @@ pub enum MacroTokenIdentity {
 }
 
 impl MacroTokenIdentity {
-    pub fn from_syntax_provenance(
-        provenance: syntax::PreprocessorTraceTokenProvenance,
-    ) -> Option<Self> {
+    pub fn from_syntax_provenance(provenance: syntax::preproc::TokenOrigin) -> Option<Self> {
         match provenance {
-            syntax::PreprocessorTraceTokenProvenance::MacroBody { identity, .. } => {
+            syntax::preproc::TokenOrigin::MacroBody { identity, .. } => {
                 Some(Self::Body(identity.into()))
             }
-            syntax::PreprocessorTraceTokenProvenance::MacroArgument { identity, .. } => {
+            syntax::preproc::TokenOrigin::MacroArgument { identity, .. } => {
                 Some(Self::Argument(identity.into()))
             }
-            syntax::PreprocessorTraceTokenProvenance::TokenPaste { identity }
-            | syntax::PreprocessorTraceTokenProvenance::Stringification { identity } => {
+            syntax::preproc::TokenOrigin::TokenPaste { identity }
+            | syntax::preproc::TokenOrigin::Stringification { identity } => {
                 Some(Self::Operation(identity.into()))
             }
-            syntax::PreprocessorTraceTokenProvenance::Source { .. }
-            | syntax::PreprocessorTraceTokenProvenance::Builtin { .. }
-            | syntax::PreprocessorTraceTokenProvenance::Unavailable => None,
+            syntax::preproc::TokenOrigin::Source { .. }
+            | syntax::preproc::TokenOrigin::Builtin { .. }
+            | syntax::preproc::TokenOrigin::Unavailable => None,
         }
     }
 }

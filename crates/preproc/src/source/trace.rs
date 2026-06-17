@@ -2,44 +2,43 @@ use std::collections::BTreeMap;
 
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
-    PreprocessorTrace, PreprocessorTraceActualArgument, PreprocessorTraceEmittedToken,
-    PreprocessorTraceEvent, PreprocessorTraceEventId, PreprocessorTraceMacroArgumentIdentity,
-    PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroBuiltinIdentity,
-    PreprocessorTraceMacroCallId, PreprocessorTraceMacroDefinitionId,
-    PreprocessorTraceMacroExpansionId, PreprocessorTraceMacroOperationIdentity,
-    PreprocessorTraceMacroParam, PreprocessorTraceToken, PreprocessorTraceTokenProvenance,
     SourceBufferOrigin, SourceBufferRange, SyntaxKind,
+    preproc::{
+        ActualArgument, EmittedToken, Event, EventId, MacroArgumentOrigin, MacroBodyOrigin,
+        MacroBuiltinOrigin, MacroCallId, MacroDefinitionId, MacroExpansionId, MacroOperationOrigin,
+        MacroParam, Token, TokenOrigin, Trace,
+    },
 };
 use utils::line_index::{TextRange, TextSize};
 
 use super::*;
 
-impl From<PreprocessorTraceEventId> for SourcePreprocEventId {
-    fn from(value: PreprocessorTraceEventId) -> Self {
+impl From<EventId> for SourcePreprocEventId {
+    fn from(value: EventId) -> Self {
         Self(value.0)
     }
 }
 
-impl From<PreprocessorTraceMacroDefinitionId> for SourceMacroDefinitionKey {
-    fn from(value: PreprocessorTraceMacroDefinitionId) -> Self {
+impl From<MacroDefinitionId> for SourceMacroDefinitionKey {
+    fn from(value: MacroDefinitionId) -> Self {
         Self::new(value.0)
     }
 }
 
-impl From<PreprocessorTraceMacroCallId> for SourceMacroCallKey {
-    fn from(value: PreprocessorTraceMacroCallId) -> Self {
+impl From<MacroCallId> for SourceMacroCallKey {
+    fn from(value: MacroCallId) -> Self {
         Self::new(value.0)
     }
 }
 
-impl From<PreprocessorTraceMacroExpansionId> for SourceMacroExpansionKey {
-    fn from(value: PreprocessorTraceMacroExpansionId) -> Self {
+impl From<MacroExpansionId> for SourceMacroExpansionKey {
+    fn from(value: MacroExpansionId) -> Self {
         Self::new(value.0)
     }
 }
 
-impl From<PreprocessorTraceMacroBodyIdentity> for SourceMacroBodyIdentity {
-    fn from(value: PreprocessorTraceMacroBodyIdentity) -> Self {
+impl From<MacroBodyOrigin> for SourceMacroBodyIdentity {
+    fn from(value: MacroBodyOrigin) -> Self {
         Self {
             call: SourceMacroCallKey::from(value.call_id),
             definition: SourceMacroDefinitionKey::from(value.definition_id),
@@ -50,8 +49,8 @@ impl From<PreprocessorTraceMacroBodyIdentity> for SourceMacroBodyIdentity {
     }
 }
 
-impl From<PreprocessorTraceMacroArgumentIdentity> for SourceMacroArgumentIdentity {
-    fn from(value: PreprocessorTraceMacroArgumentIdentity) -> Self {
+impl From<MacroArgumentOrigin> for SourceMacroArgumentIdentity {
+    fn from(value: MacroArgumentOrigin) -> Self {
         Self {
             call: SourceMacroCallKey::from(value.call_id),
             definition: SourceMacroDefinitionKey::from(value.definition_id),
@@ -64,8 +63,8 @@ impl From<PreprocessorTraceMacroArgumentIdentity> for SourceMacroArgumentIdentit
     }
 }
 
-impl From<PreprocessorTraceMacroBuiltinIdentity> for SourceMacroBuiltinIdentity {
-    fn from(value: PreprocessorTraceMacroBuiltinIdentity) -> Self {
+impl From<MacroBuiltinOrigin> for SourceMacroBuiltinIdentity {
+    fn from(value: MacroBuiltinOrigin) -> Self {
         Self {
             call: SourceMacroCallKey::from(value.call_id),
             expansion: SourceMacroExpansionKey::from(value.expansion_id),
@@ -74,8 +73,8 @@ impl From<PreprocessorTraceMacroBuiltinIdentity> for SourceMacroBuiltinIdentity 
     }
 }
 
-impl From<PreprocessorTraceMacroOperationIdentity> for SourceMacroOperationIdentity {
-    fn from(value: PreprocessorTraceMacroOperationIdentity) -> Self {
+impl From<MacroOperationOrigin> for SourceMacroOperationIdentity {
+    fn from(value: MacroOperationOrigin) -> Self {
         Self {
             call: SourceMacroCallKey::from(value.call_id),
             definition: SourceMacroDefinitionKey::from(value.definition_id),
@@ -89,7 +88,7 @@ impl From<PreprocessorTraceMacroOperationIdentity> for SourceMacroOperationIdent
 }
 
 impl SourcePreprocIndex {
-    pub fn from_trace(trace: PreprocessorTrace) -> Result<Self, SourcePreprocError> {
+    pub fn from_trace(trace: Trace) -> Result<Self, SourcePreprocError> {
         let root_source = PreprocSourceId::from(trace.root_buffer_id);
         let include_edges = trace
             .include_edges
@@ -161,7 +160,7 @@ fn source_origin(
 fn collect_trace_event(
     index: &mut SourcePreprocIndex,
     source_order: usize,
-    directive: PreprocessorTraceEvent,
+    directive: Event,
 ) -> Result<(), SourcePreprocError> {
     index.inactive_ranges.extend(
         directive
@@ -245,7 +244,7 @@ fn collect_trace_event(
 }
 
 fn collect_trace_define(
-    directive: PreprocessorTraceEvent,
+    directive: Event,
     event_id: SourcePreprocEventId,
     range: SourceRange,
 ) -> SourceMacroDefine {
@@ -261,7 +260,7 @@ fn collect_trace_define(
     }
 }
 
-fn macro_param_from_trace(param: PreprocessorTraceMacroParam) -> SourceMacroParam {
+fn macro_param_from_trace(param: MacroParam) -> SourceMacroParam {
     SourceMacroParam {
         name: param.name.value(),
         name_range: param.name.source_range(),
@@ -273,7 +272,7 @@ fn macro_param_from_trace(param: PreprocessorTraceMacroParam) -> SourceMacroPara
 }
 
 fn macro_actual_argument_from_trace(
-    (argument_index, argument): (usize, PreprocessorTraceActualArgument),
+    (argument_index, argument): (usize, ActualArgument),
 ) -> SourceMacroActualArgument {
     SourceMacroActualArgument {
         argument_index,
@@ -282,7 +281,7 @@ fn macro_actual_argument_from_trace(
     }
 }
 
-fn macro_token_from_trace(token: PreprocessorTraceToken) -> SourceMacroToken {
+fn macro_token_from_trace(token: Token) -> SourceMacroToken {
     SourceMacroToken {
         raw: token.raw_text.to_smolstr(),
         value: token.value_text.to_smolstr(),
@@ -290,7 +289,7 @@ fn macro_token_from_trace(token: PreprocessorTraceToken) -> SourceMacroToken {
     }
 }
 
-fn emitted_token_from_trace(token: PreprocessorTraceEmittedToken) -> SourceEmittedTokenFact {
+fn emitted_token_from_trace(token: EmittedToken) -> SourceEmittedTokenFact {
     SourceEmittedTokenFact {
         raw: token.raw_text.to_smolstr(),
         value: token.value_text.to_smolstr(),
@@ -300,21 +299,12 @@ fn emitted_token_from_trace(token: PreprocessorTraceEmittedToken) -> SourceEmitt
     }
 }
 
-fn emitted_token_provenance_from_trace(
-    provenance: PreprocessorTraceTokenProvenance,
-) -> SourceTokenProvenanceFact {
+fn emitted_token_provenance_from_trace(provenance: TokenOrigin) -> SourceTokenProvenanceFact {
     match provenance {
-        PreprocessorTraceTokenProvenance::Source { token_range } => {
-            source_range_from_trace(&token_range)
-                .map(|token_range| SourceTokenProvenanceFact::Source { token_range })
-                .unwrap_or(SourceTokenProvenanceFact::Unavailable)
-        }
-        PreprocessorTraceTokenProvenance::MacroBody {
-            macro_name,
-            identity,
-            call_range,
-            body_token_range,
-        } => {
+        TokenOrigin::Source { token_range } => source_range_from_trace(&token_range)
+            .map(|token_range| SourceTokenProvenanceFact::Source { token_range })
+            .unwrap_or(SourceTokenProvenanceFact::Unavailable),
+        TokenOrigin::MacroBody { macro_name, identity, call_range, body_token_range } => {
             let Some(call_range) = source_range_from_trace(&call_range) else {
                 return SourceTokenProvenanceFact::Unavailable;
             };
@@ -328,7 +318,7 @@ fn emitted_token_provenance_from_trace(
                 body_token_range,
             }
         }
-        PreprocessorTraceTokenProvenance::MacroArgument {
+        TokenOrigin::MacroArgument {
             macro_name,
             identity,
             call_range,
@@ -352,31 +342,27 @@ fn emitted_token_provenance_from_trace(
                 argument_token_range,
             }
         }
-        PreprocessorTraceTokenProvenance::Builtin { name, identity } if !name.is_empty() => {
+        TokenOrigin::Builtin { name, identity } if !name.is_empty() => {
             SourceTokenProvenanceFact::Builtin {
                 name: name.to_smolstr(),
                 identity: Some(SourceMacroBuiltinIdentity::from(identity)),
             }
         }
-        PreprocessorTraceTokenProvenance::TokenPaste { identity } => {
-            SourceTokenProvenanceFact::TokenPaste {
-                identity: Some(SourceMacroOperationIdentity::from(identity)),
-            }
-        }
-        PreprocessorTraceTokenProvenance::Stringification { identity } => {
-            SourceTokenProvenanceFact::Stringification {
-                identity: Some(SourceMacroOperationIdentity::from(identity)),
-            }
-        }
-        PreprocessorTraceTokenProvenance::Builtin { .. } => SourceTokenProvenanceFact::Unavailable,
-        PreprocessorTraceTokenProvenance::Unavailable => SourceTokenProvenanceFact::Unavailable,
+        TokenOrigin::TokenPaste { identity } => SourceTokenProvenanceFact::TokenPaste {
+            identity: Some(SourceMacroOperationIdentity::from(identity)),
+        },
+        TokenOrigin::Stringification { identity } => SourceTokenProvenanceFact::Stringification {
+            identity: Some(SourceMacroOperationIdentity::from(identity)),
+        },
+        TokenOrigin::Builtin { .. } => SourceTokenProvenanceFact::Unavailable,
+        TokenOrigin::Unavailable => SourceTokenProvenanceFact::Unavailable,
     }
 }
 
 fn required_event_range(
     source_order: usize,
     kind: MacroEventKind,
-    directive: &PreprocessorTraceEvent,
+    directive: &Event,
 ) -> Result<SourceRange, SourcePreprocError> {
     trace_range(&directive.range)
         .ok_or(SourcePreprocError::MissingEventRange { source_order, kind })
@@ -389,7 +375,7 @@ trait TraceTokenOptionExt {
     fn include_target(&self) -> MacroIncludeTarget;
 }
 
-impl TraceTokenOptionExt for Option<PreprocessorTraceToken> {
+impl TraceTokenOptionExt for Option<Token> {
     fn value(&self) -> Option<SmolStr> {
         self.as_ref().map(|token| token.value_text.to_smolstr())
     }

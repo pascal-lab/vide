@@ -1,10 +1,11 @@
 use smol_str::SmolStr;
 use syntax::{
-    PreprocessorTrace, PreprocessorTraceEvent, PreprocessorTraceEventId,
-    PreprocessorTraceMacroBodyIdentity, PreprocessorTraceMacroCallId,
-    PreprocessorTraceMacroDefinitionId, PreprocessorTraceMacroExpansionId, PreprocessorTraceToken,
-    PreprocessorTraceTokenProvenance, SourceBufferId, SourceBufferOrigin, SourceBufferRange,
-    SyntaxKind, SyntaxTree, SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
+    SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind, SyntaxTree,
+    SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
+    preproc::{
+        Event, EventId, MacroBodyOrigin, MacroCallId, MacroDefinitionId, MacroExpansionId, Token,
+        TokenOrigin, Trace,
+    },
 };
 use utils::line_index::{TextRange, TextSize};
 
@@ -19,7 +20,7 @@ fn preprocessor_trace(
     name: &str,
     path: &str,
     options: &SyntaxTreeOptions,
-) -> PreprocessorTrace {
+) -> Trace {
     SyntaxTree::from_text_with_options_and_trace(root_text, name, path, options)
         .preprocessor_trace
         .expect("parse-derived trace should be present when requested")
@@ -665,7 +666,7 @@ endmodule
 
 #[test]
 fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
-    let trace = PreprocessorTrace {
+    let trace = Trace {
         root_buffer_id: 1,
         source_buffers: vec![SourceBufferId {
             path: ROOT_PATH.to_owned(),
@@ -674,16 +675,16 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
             origin: SourceBufferOrigin::Source,
         }],
         events: vec![
-            PreprocessorTraceEvent {
-                event_id: PreprocessorTraceEventId(0),
+            Event {
+                event_id: EventId(0),
                 kind: SyntaxKind::DEFINE_DIRECTIVE,
                 range: Some(SourceBufferRange { buffer_id: 1, range: 0..12 }),
-                macro_definition_id: Some(PreprocessorTraceMacroDefinitionId(10)),
+                macro_definition_id: Some(MacroDefinitionId(10)),
                 macro_call_id: None,
                 macro_expansion_id: None,
                 parent_macro_expansion_id: None,
                 directive: None,
-                name: Some(PreprocessorTraceToken {
+                name: Some(Token {
                     raw_text: "A".to_owned(),
                     value_text: "A".to_owned(),
                     token_kind: TokenKind::IDENTIFIER,
@@ -692,7 +693,7 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
                 include_file_name: None,
                 params: Vec::new(),
                 arguments: Vec::new(),
-                body_tokens: vec![PreprocessorTraceToken {
+                body_tokens: vec![Token {
                     raw_text: "1".to_owned(),
                     value_text: "1".to_owned(),
                     token_kind: TokenKind::INTEGER_LITERAL,
@@ -701,16 +702,16 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
                 expr_tokens: Vec::new(),
                 disabled_ranges: Vec::new(),
             },
-            PreprocessorTraceEvent {
-                event_id: PreprocessorTraceEventId(1),
+            Event {
+                event_id: EventId(1),
                 kind: SyntaxKind::DEFINE_DIRECTIVE,
                 range: Some(SourceBufferRange { buffer_id: 1, range: 13..25 }),
-                macro_definition_id: Some(PreprocessorTraceMacroDefinitionId(20)),
+                macro_definition_id: Some(MacroDefinitionId(20)),
                 macro_call_id: None,
                 macro_expansion_id: None,
                 parent_macro_expansion_id: None,
                 directive: None,
-                name: Some(PreprocessorTraceToken {
+                name: Some(Token {
                     raw_text: "B".to_owned(),
                     value_text: "B".to_owned(),
                     token_kind: TokenKind::IDENTIFIER,
@@ -719,7 +720,7 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
                 include_file_name: None,
                 params: Vec::new(),
                 arguments: Vec::new(),
-                body_tokens: vec![PreprocessorTraceToken {
+                body_tokens: vec![Token {
                     raw_text: "2".to_owned(),
                     value_text: "2".to_owned(),
                     token_kind: TokenKind::INTEGER_LITERAL,
@@ -728,16 +729,16 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
                 expr_tokens: Vec::new(),
                 disabled_ranges: Vec::new(),
             },
-            PreprocessorTraceEvent {
-                event_id: PreprocessorTraceEventId(2),
+            Event {
+                event_id: EventId(2),
                 kind: SyntaxKind::MACRO_USAGE,
                 range: Some(SourceBufferRange { buffer_id: 1, range: 40..42 }),
                 macro_definition_id: None,
-                macro_call_id: Some(PreprocessorTraceMacroCallId(200)),
+                macro_call_id: Some(MacroCallId(200)),
                 macro_expansion_id: None,
                 parent_macro_expansion_id: None,
                 directive: None,
-                name: Some(PreprocessorTraceToken {
+                name: Some(Token {
                     raw_text: "`B".to_owned(),
                     value_text: "`B".to_owned(),
                     token_kind: TokenKind::DIRECTIVE,
@@ -752,17 +753,17 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
             },
         ],
         include_edges: Vec::new(),
-        emitted_tokens: vec![syntax::PreprocessorTraceEmittedToken {
+        emitted_tokens: vec![syntax::EmittedToken {
             raw_text: "2".to_owned(),
             value_text: "2".to_owned(),
             display_text: "2".to_owned(),
             token_kind: TokenKind::INTEGER_LITERAL,
-            provenance: PreprocessorTraceTokenProvenance::MacroBody {
+            provenance: TokenOrigin::MacroBody {
                 macro_name: "B".to_owned(),
-                identity: PreprocessorTraceMacroBodyIdentity {
-                    call_id: PreprocessorTraceMacroCallId(200),
-                    definition_id: PreprocessorTraceMacroDefinitionId(20),
-                    expansion_id: PreprocessorTraceMacroExpansionId(300),
+                identity: MacroBodyOrigin {
+                    call_id: MacroCallId(200),
+                    definition_id: MacroDefinitionId(20),
+                    expansion_id: MacroExpansionId(300),
                     parent_expansion_id: None,
                     body_token_index: 0,
                 },
@@ -1187,7 +1188,7 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
     let define_start = root_text.find("`define").unwrap();
     let define_end = root_text.find('\n').unwrap();
     let usage_start = root_text.find("`A").unwrap();
-    let trace = PreprocessorTrace {
+    let trace = Trace {
         root_buffer_id: 1,
         source_buffers: vec![SourceBufferId {
             path: ROOT_PATH.to_owned(),
@@ -1196,8 +1197,8 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
             origin: SourceBufferOrigin::Source,
         }],
         events: vec![
-            PreprocessorTraceEvent {
-                event_id: PreprocessorTraceEventId(0),
+            Event {
+                event_id: EventId(0),
                 kind: SyntaxKind::DEFINE_DIRECTIVE,
                 range: Some(SourceBufferRange { buffer_id: 1, range: define_start..define_end }),
                 macro_definition_id: None,
@@ -1205,7 +1206,7 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
                 macro_expansion_id: None,
                 parent_macro_expansion_id: None,
                 directive: None,
-                name: Some(PreprocessorTraceToken {
+                name: Some(Token {
                     raw_text: "A".to_owned(),
                     value_text: "A".to_owned(),
                     token_kind: TokenKind::IDENTIFIER,
@@ -1214,7 +1215,7 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
                 include_file_name: None,
                 params: Vec::new(),
                 arguments: Vec::new(),
-                body_tokens: vec![PreprocessorTraceToken {
+                body_tokens: vec![Token {
                     raw_text: "1".to_owned(),
                     value_text: "1".to_owned(),
                     token_kind: TokenKind::INTEGER_LITERAL,
@@ -1223,8 +1224,8 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
                 expr_tokens: Vec::new(),
                 disabled_ranges: Vec::new(),
             },
-            PreprocessorTraceEvent {
-                event_id: PreprocessorTraceEventId(1),
+            Event {
+                event_id: EventId(1),
                 kind: SyntaxKind::MACRO_USAGE,
                 range: Some(SourceBufferRange {
                     buffer_id: 1,
@@ -1235,7 +1236,7 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
                 macro_expansion_id: None,
                 parent_macro_expansion_id: None,
                 directive: None,
-                name: Some(PreprocessorTraceToken {
+                name: Some(Token {
                     raw_text: "`A".to_owned(),
                     value_text: "`A".to_owned(),
                     token_kind: TokenKind::DIRECTIVE,
@@ -1581,7 +1582,7 @@ logic [`LEAF_WIDTH-1:0] data;
 
 #[test]
 fn source_model_fails_closed_when_directive_event_range_is_missing() {
-    let trace = PreprocessorTrace {
+    let trace = Trace {
         root_buffer_id: 1,
         source_buffers: vec![SourceBufferId {
             path: ROOT_PATH.to_owned(),
@@ -1589,8 +1590,8 @@ fn source_model_fails_closed_when_directive_event_range_is_missing() {
             buffer_id: 1,
             origin: SourceBufferOrigin::Source,
         }],
-        events: vec![PreprocessorTraceEvent {
-            event_id: PreprocessorTraceEventId(0),
+        events: vec![Event {
+            event_id: EventId(0),
             kind: SyntaxKind::DEFINE_DIRECTIVE,
             range: None,
             macro_definition_id: None,
@@ -1598,7 +1599,7 @@ fn source_model_fails_closed_when_directive_event_range_is_missing() {
             macro_expansion_id: None,
             parent_macro_expansion_id: None,
             directive: None,
-            name: Some(PreprocessorTraceToken {
+            name: Some(Token {
                 raw_text: "WIDTH".to_owned(),
                 value_text: "WIDTH".to_owned(),
                 token_kind: TokenKind::IDENTIFIER,
