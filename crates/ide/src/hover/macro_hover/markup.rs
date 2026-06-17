@@ -65,13 +65,7 @@ fn macro_definition_source_link(
     definition: &MacroDefinition,
     anchor_file_id: FileId,
 ) -> Option<MacroSourceLink> {
-    match &definition.source {
-        hir::preproc::MappedPreprocSource::RealFile { file_id } => {
-            macro_file_source_link(db, *file_id, anchor_file_id)
-        }
-        hir::preproc::MappedPreprocSource::VirtualFile { .. }
-        | hir::preproc::MappedPreprocSource::VirtualDisplay { .. } => None,
-    }
+    macro_file_source_link(db, definition.file_id, anchor_file_id)
 }
 
 fn macro_file_source_link(

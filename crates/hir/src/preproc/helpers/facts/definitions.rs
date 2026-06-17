@@ -38,7 +38,6 @@ pub(in crate::preproc) fn map_macro_definition(
     Ok(MacroDefinition {
         id: definition.id.into(),
         file_id,
-        source,
         name: definition.name.clone(),
         params,
         body_tokens: definition.body_tokens.iter().map(|token| token.raw.clone()).collect(),
