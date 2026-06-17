@@ -17,9 +17,7 @@ impl SourcePreprocQueryContexts {
         let SourcePreprocContextStatus::Partial { skipped_models } = self.status else {
             return None;
         };
-        Some(PreprocError::Unavailable {
-            reason: PreprocUnavailable::PartialPreprocContextIndex { skipped_models },
-        })
+        Some(PreprocError::PartialPreprocContextIndex { skipped_models })
     }
 }
 
@@ -73,32 +71,32 @@ pub(in crate::preproc) fn record_first_error(
 pub(in crate::preproc) trait PreprocSingleExt<T> {
     fn into_single_or_none<F>(self, ambiguous: F) -> PreprocResult<Option<T>>
     where
-        F: FnOnce(usize) -> PreprocUnavailable;
+        F: FnOnce(usize) -> PreprocError;
 
     fn into_exactly_one<F>(self, ambiguous: F) -> PreprocResult<T>
     where
-        F: FnOnce(usize) -> PreprocUnavailable;
+        F: FnOnce(usize) -> PreprocError;
 }
 
 impl<T> PreprocSingleExt<T> for Vec<T> {
     fn into_single_or_none<F>(mut self, ambiguous: F) -> PreprocResult<Option<T>>
     where
-        F: FnOnce(usize) -> PreprocUnavailable,
+        F: FnOnce(usize) -> PreprocError,
     {
         match self.len() {
             0 => Ok(None),
             1 => Ok(self.pop()),
-            contexts => Err(PreprocError::Unavailable { reason: ambiguous(contexts) }),
+            contexts => Err(ambiguous(contexts)),
         }
     }
 
     fn into_exactly_one<F>(mut self, ambiguous: F) -> PreprocResult<T>
     where
-        F: FnOnce(usize) -> PreprocUnavailable,
+        F: FnOnce(usize) -> PreprocError,
     {
         match self.len() {
             1 => Ok(self.pop().unwrap()),
-            contexts => Err(PreprocError::Unavailable { reason: ambiguous(contexts) }),
+            contexts => Err(ambiguous(contexts)),
         }
     }
 }

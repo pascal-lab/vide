@@ -8,7 +8,7 @@ pub enum MacroResolution {
         include_chain: Vec<IncludeChainEntry>,
     },
     Undefined,
-    Unavailable(PreprocUnavailable),
+    Unavailable(SourcePreprocUnavailable),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

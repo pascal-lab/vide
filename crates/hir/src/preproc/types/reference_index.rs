@@ -129,7 +129,7 @@ pub enum MacroReferenceIndexIssue {
     UnavailableReference {
         file_id: FileId,
         reference_id: MacroReferenceId,
-        reason: PreprocUnavailable,
+        reason: SourcePreprocUnavailable,
     },
 }
 

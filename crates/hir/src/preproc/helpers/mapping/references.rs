@@ -120,9 +120,7 @@ pub(in crate::preproc) fn map_macro_resolution(
             }
         }
         SourceMacroResolution::Undefined => MacroResolution::Undefined,
-        SourceMacroResolution::Unavailable(reason) => {
-            MacroResolution::Unavailable(PreprocUnavailable::Source(reason.clone()))
-        }
+        SourceMacroResolution::Unavailable(reason) => MacroResolution::Unavailable(reason.clone()),
     })
 }
 

@@ -23,20 +23,25 @@ pub enum PreprocError {
         event_id: u32,
     },
     SourceMap(PreprocSourceMapError),
-    Unavailable {
-        reason: PreprocUnavailable,
+    SourceModel(SourcePreprocUnavailable),
+    AmbiguousMacroReferenceContexts {
+        contexts: usize,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreprocUnavailable {
-    Source(SourcePreprocUnavailable),
-    AmbiguousMacroReferenceContexts { contexts: usize },
-    AmbiguousMacroExpansionContexts { contexts: usize },
-    AmbiguousMacroParamContexts { contexts: usize },
-    AmbiguousMacroDefinitionContexts { contexts: usize },
-    AmbiguousIncludeTargets { targets: usize },
-    PartialPreprocContextIndex { skipped_models: usize },
+    AmbiguousMacroExpansionContexts {
+        contexts: usize,
+    },
+    AmbiguousMacroParamContexts {
+        contexts: usize,
+    },
+    AmbiguousMacroDefinitionContexts {
+        contexts: usize,
+    },
+    AmbiguousIncludeTargets {
+        targets: usize,
+    },
+    PartialPreprocContextIndex {
+        skipped_models: usize,
+    },
 }
 
 pub type MacroReferenceId = SourceMacroReferenceId;

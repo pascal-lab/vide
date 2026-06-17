@@ -109,7 +109,7 @@ pub(in crate::preproc) fn mapped_macro_call(
     call: SourceMacroCallId,
 ) -> PreprocResult<MacroCall> {
     let Some(call) = mapped.model.macro_calls().get(call) else {
-        return Err(unavailable_error(SourcePreprocUnavailable::MissingMacroCall { call }));
+        return Err(source_model_error(SourcePreprocUnavailable::MissingMacroCall { call }));
     };
     map_macro_call(mapped, call)
 }

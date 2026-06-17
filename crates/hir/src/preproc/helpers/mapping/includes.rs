@@ -10,13 +10,13 @@ pub(in crate::preproc) fn map_include_status(
         }
         SourceIncludeStatus::Unresolved => IncludeDirectiveStatus::Unresolved,
         SourceIncludeStatus::Unavailable(reason) => {
-            IncludeDirectiveStatus::Unavailable(PreprocUnavailable::Source(reason.clone()))
+            IncludeDirectiveStatus::Unavailable(reason.clone())
         }
     })
 }
 
-pub(in crate::preproc) fn unavailable_error(reason: SourcePreprocUnavailable) -> PreprocError {
-    PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason) }
+pub(in crate::preproc) fn source_model_error(reason: SourcePreprocUnavailable) -> PreprocError {
+    PreprocError::SourceModel(reason)
 }
 
 pub(in crate::preproc) fn map_include_chain(

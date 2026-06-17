@@ -126,7 +126,7 @@ fn collect_macro_references_in_model(
                 index.push_issue(MacroReferenceIndexIssue::UnavailableReference {
                     file_id: model_file_id,
                     reference_id: reference.id,
-                    reason: PreprocUnavailable::Source(reason.clone()),
+                    reason: reason.clone(),
                 });
             }
             continue;

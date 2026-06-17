@@ -177,10 +177,5 @@ fn preproc_partial_context_index_is_structured_unavailable() {
 
     let error = finish_empty_single_query(&contexts, None).unwrap_err();
 
-    assert!(matches!(
-        error,
-        PreprocError::Unavailable {
-            reason: PreprocUnavailable::PartialPreprocContextIndex { skipped_models: 2 }
-        }
-    ));
+    assert!(matches!(error, PreprocError::PartialPreprocContextIndex { skipped_models: 2 }));
 }

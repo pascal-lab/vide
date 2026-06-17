@@ -26,5 +26,5 @@ pub enum IncludeTarget {
 pub enum IncludeDirectiveStatus {
     Resolved { file_id: FileId },
     Unresolved,
-    Unavailable(PreprocUnavailable),
+    Unavailable(SourcePreprocUnavailable),
 }
