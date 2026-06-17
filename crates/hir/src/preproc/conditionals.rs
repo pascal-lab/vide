@@ -26,11 +26,15 @@ pub fn inactive_branches(
                     continue;
                 }
             };
-            let Some(branch_file_id) = source.file_id() else {
-                continue;
+            let branch_file_id = match require_file_backed_source(&source) {
+                Ok(file_id) => file_id,
+                Err(error) => {
+                    record_first_error(&mut first_error, error);
+                    continue;
+                }
             };
             if branch_file_id == file_id {
-                let branch = InactiveBranch { source, file_id: branch_file_id, range };
+                let branch = InactiveBranch { file_id: branch_file_id, range };
                 branches.push_keyed(branch, InactiveBranchKey::from_branch);
             }
         }

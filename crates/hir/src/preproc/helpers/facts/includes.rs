@@ -6,7 +6,7 @@ pub(in crate::preproc) fn map_include_status(
 ) -> PreprocResult<IncludeDirectiveStatus> {
     Ok(match status {
         SourceIncludeStatus::Resolved { source } => {
-            IncludeDirectiveStatus::Resolved { source: map_mapped_source_id(mapped, *source)? }
+            IncludeDirectiveStatus::Resolved { file_id: map_source_id(mapped, *source)? }
         }
         SourceIncludeStatus::Unresolved => IncludeDirectiveStatus::Unresolved,
         SourceIncludeStatus::Unavailable(reason) => {

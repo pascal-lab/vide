@@ -43,9 +43,10 @@ pub(in crate::preproc) fn mapped_source_range_at_offset(
     source_range: SourceRange,
     file_id: FileId,
     offset: TextSize,
-) -> PreprocResult<Option<(MappedPreprocSource, TextRange)>> {
+) -> PreprocResult<Option<(FileId, TextRange)>> {
     let (source, range) = map_mapped_source_range(mapped, source_range)?;
-    Ok((source.file_id() == Some(file_id) && range.contains(offset)).then_some((source, range)))
+    let source_file_id = require_file_backed_source(&source)?;
+    Ok((source_file_id == file_id && range.contains(offset)).then_some((source_file_id, range)))
 }
 
 pub(in crate::preproc) fn map_mapped_source_id(
