@@ -2,7 +2,7 @@ use super::*;
 
 pub(in crate::preproc) fn map_macro_expansion(
     mapped: &MappedSourcePreprocModel,
-    expansion: &SourceMacroExpansionFact,
+    expansion: &SourceMacroExpansion,
 ) -> PreprocResult<MacroExpansion> {
     let Some(call) = mapped.model.macro_calls().get(expansion.call) else {
         return Err(PreprocError::Unavailable {
@@ -36,10 +36,10 @@ pub(in crate::preproc) fn map_macro_expansion(
 
 fn map_macro_expansion_definition(
     mapped: &MappedSourcePreprocModel,
-    expansion: &SourceMacroExpansionFact,
+    expansion: &SourceMacroExpansion,
 ) -> PreprocResult<(Option<MacroDefinitionId>, MacroExpansionDefinition)> {
     match &expansion.definition {
-        SourceMacroExpansionDefinitionFact::Source(definition_id) => {
+        SourceMacroExpansionDefinition::Source(definition_id) => {
             let Some(definition) = mapped.model.macro_definitions().get(*definition_id) else {
                 return Err(PreprocError::Unavailable {
                     reason: PreprocUnavailable::Source(
@@ -52,7 +52,7 @@ fn map_macro_expansion_definition(
                 MacroExpansionDefinition::Source(map_macro_definition(mapped, definition)?),
             ))
         }
-        SourceMacroExpansionDefinitionFact::Builtin { name } => {
+        SourceMacroExpansionDefinition::Builtin { name } => {
             Ok((None, MacroExpansionDefinition::Builtin { name: name.clone() }))
         }
     }
@@ -114,7 +114,7 @@ pub(in crate::preproc) fn source_macro_calls_at(
     mapped: &MappedSourcePreprocModel,
     file_id: FileId,
     offset: TextSize,
-) -> Vec<&SourceMacroCallFact> {
+) -> Vec<&SourceMacroCall> {
     mapped
         .macro_call_ids_at(file_id, offset)
         .into_iter()
@@ -126,7 +126,7 @@ pub(in crate::preproc) fn source_macro_calls_intersecting_range(
     mapped: &MappedSourcePreprocModel,
     file_id: FileId,
     source_range: TextRange,
-) -> Vec<&SourceMacroCallFact> {
+) -> Vec<&SourceMacroCall> {
     mapped
         .macro_call_ids_intersecting_range(file_id, source_range)
         .into_iter()
@@ -136,11 +136,11 @@ pub(in crate::preproc) fn source_macro_calls_intersecting_range(
 
 pub(in crate::preproc) fn immediate_macro_expansion_for_call(
     mapped: &MappedSourcePreprocModel,
-    call_fact: &SourceMacroCallFact,
+    call_fact: &SourceMacroCall,
 ) -> PreprocResult<MacroExpansionQuery> {
     let call = map_macro_call(mapped, call_fact)?;
     Ok(match mapped.model.immediate_macro_expansion(call_fact.id) {
-        SourceMacroExpansionQueryFact::Available(expansion) => {
+        SourceMacroExpansionQuery::Available(expansion) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion) else {
                 return Ok(MacroExpansionQuery::Unavailable(Box::new(MacroExpansionUnavailable {
                     call,
@@ -151,7 +151,7 @@ pub(in crate::preproc) fn immediate_macro_expansion_for_call(
             };
             MacroExpansionQuery::Available(Box::new(map_macro_expansion(mapped, expansion)?))
         }
-        SourceMacroExpansionQueryFact::Unavailable(reason) => {
+        SourceMacroExpansionQuery::Unavailable(reason) => {
             MacroExpansionQuery::Unavailable(Box::new(MacroExpansionUnavailable {
                 call,
                 reason: PreprocUnavailable::Source(reason),
@@ -162,7 +162,7 @@ pub(in crate::preproc) fn immediate_macro_expansion_for_call(
 
 pub(in crate::preproc) fn recursive_macro_expansion_for_call(
     mapped: &MappedSourcePreprocModel,
-    call_fact: &SourceMacroCallFact,
+    call_fact: &SourceMacroCall,
 ) -> PreprocResult<RecursiveMacroExpansion> {
     let root_call = map_macro_call(mapped, call_fact)?;
     let recursive = mapped.model.recursive_macro_expansion(call_fact.id);

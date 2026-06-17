@@ -79,8 +79,8 @@ pub fn macro_call_resolutions_in_range(
         };
 
         for call_fact in source_macro_calls_intersecting_range(mapped, file_id, range) {
-            let SourceMacroResolutionFact::Resolved { definition, .. } = &call_fact.callee else {
-                if let SourceMacroResolutionFact::Unavailable(reason) = &call_fact.callee {
+            let SourceMacroResolution::Resolved { definition, .. } = &call_fact.callee else {
+                if let SourceMacroResolution::Unavailable(reason) = &call_fact.callee {
                     record_first_error(&mut first_error, unavailable_error(reason.clone()));
                 }
                 continue;

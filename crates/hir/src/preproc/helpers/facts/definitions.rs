@@ -2,7 +2,7 @@ use super::*;
 
 pub(in crate::preproc) fn map_macro_definition(
     mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinitionFact,
+    definition: &SourceMacroDefinition,
 ) -> PreprocResult<MacroDefinition> {
     let (mut source, mut directive_range, mut name_range) = map_definition_ranges(
         mapped,
@@ -51,9 +51,9 @@ pub(in crate::preproc) fn map_macro_definition(
 
 pub(in crate::preproc) fn map_macro_param_definition(
     mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinitionFact,
+    definition: &SourceMacroDefinition,
     param_index: usize,
-    param: &SourceMacroParamFact,
+    param: &SourceMacroParam,
 ) -> PreprocResult<Option<MacroParamDefinition>> {
     let Some(name) = &param.name else {
         return Ok(None);
@@ -87,7 +87,7 @@ pub(in crate::preproc) fn map_macro_param_definition(
 
 pub(in crate::preproc) fn define_index_for_definition(
     mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinitionFact,
+    definition: &SourceMacroDefinition,
 ) -> PreprocResult<usize> {
     mapped
         .model

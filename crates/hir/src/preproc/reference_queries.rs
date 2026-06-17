@@ -38,10 +38,10 @@ pub fn macro_usage_resolutions_at(
                 continue;
             };
 
-            let SourceMacroResolutionFact::Resolved { definition, include_chain, .. } =
+            let SourceMacroResolution::Resolved { definition, include_chain, .. } =
                 &reference.resolution
             else {
-                if let SourceMacroResolutionFact::Unavailable(reason) = &reference.resolution {
+                if let SourceMacroResolution::Unavailable(reason) = &reference.resolution {
                     unavailable_contexts += 1;
                     record_first_error(&mut first_error, unavailable_error(reason.clone()));
                 }
@@ -219,7 +219,7 @@ pub fn macro_reference_definitions_at(
             references.push_unique_eq(mapped_reference.clone());
 
             match &reference.resolution {
-                SourceMacroResolutionFact::Resolved { definition, .. } => {
+                SourceMacroResolution::Resolved { definition, .. } => {
                     let Some(definition) = mapped.model.macro_definitions().get(*definition) else {
                         record_first_error(
                             &mut first_error,
@@ -241,7 +241,7 @@ pub fn macro_reference_definitions_at(
 
                     definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
                 }
-                SourceMacroResolutionFact::Undefined => {
+                SourceMacroResolution::Undefined => {
                     for definition in configured_predefine_definitions_for_name(
                         db,
                         model_file_id,
@@ -250,7 +250,7 @@ pub fn macro_reference_definitions_at(
                         definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
                     }
                 }
-                SourceMacroResolutionFact::Unavailable(_) => {}
+                SourceMacroResolution::Unavailable(_) => {}
             }
         }
     }
