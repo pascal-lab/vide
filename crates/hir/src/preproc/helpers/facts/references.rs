@@ -45,7 +45,7 @@ pub(in crate::preproc) fn map_macro_reference(
     let (source, directive_range, name_range) = map_reference_ranges(mapped, reference)?;
     let file_id = require_file_backed_source(&source)?;
     Ok(MacroReference {
-        id: reference.id.into(),
+        id: reference.id,
         file_id,
         name: reference.name.clone(),
         directive_range,
@@ -66,14 +66,14 @@ pub(in crate::preproc) fn map_macro_call(
         .collect::<PreprocResult<Vec<_>>>()?;
     let file_id = require_file_backed_source(&source)?;
     Ok(MacroCall {
-        id: call.id.into(),
-        reference_id: call.reference.into(),
+        id: call.id,
+        reference_id: call.reference,
         file_id,
         arguments,
         directive_range: range,
         range,
         callee: map_macro_resolution(mapped, &call.callee)?,
-        expansion: call.expansion.map(Into::into),
+        expansion: call.expansion,
     })
 }
 

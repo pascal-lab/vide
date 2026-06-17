@@ -39,29 +39,10 @@ pub enum PreprocUnavailable {
     PartialPreprocContextIndex { skipped_models: usize },
 }
 
-macro_rules! mapped_preproc_id {
-    ($name:ident, $core:ty) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name($core);
-
-        impl $name {
-            pub fn raw(self) -> usize {
-                self.0.raw()
-            }
-        }
-
-        impl From<$core> for $name {
-            fn from(value: $core) -> Self {
-                Self(value)
-            }
-        }
-    };
-}
-
-mapped_preproc_id!(MacroReferenceId, SourceMacroReferenceId);
-mapped_preproc_id!(IncludeDirectiveId, SourceIncludeDirectiveId);
-mapped_preproc_id!(MacroCallId, SourceMacroCallId);
-mapped_preproc_id!(MacroExpansionId, SourceMacroExpansionId);
+pub type MacroReferenceId = SourceMacroReferenceId;
+pub type IncludeDirectiveId = SourceIncludeDirectiveId;
+pub type MacroCallId = SourceMacroCallId;
+pub type MacroExpansionId = SourceMacroExpansionId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MacroDefinitionId {

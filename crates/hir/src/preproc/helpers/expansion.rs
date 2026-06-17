@@ -13,7 +13,7 @@ pub(in crate::preproc) fn map_macro_expansion(
     };
     let (definition_id, definition) = map_macro_expansion_definition(mapped, expansion)?;
     Ok(MacroExpansion {
-        id: expansion.id.into(),
+        id: expansion.id,
         call: map_macro_call(mapped, call)?,
         definition_id,
         definition,
@@ -30,7 +30,7 @@ pub(in crate::preproc) fn map_macro_expansion(
             .source_map
             .emitted_display_range(expansion.id, expansion.emitted_token_range)
             .map_err(PreprocError::SourceMap)?,
-        child_calls: expansion.child_calls.iter().copied().map(Into::into).collect(),
+        child_calls: expansion.child_calls.clone(),
     })
 }
 
