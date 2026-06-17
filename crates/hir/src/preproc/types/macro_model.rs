@@ -50,7 +50,6 @@ pub struct MacroParamDefinition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroParamReference {
     pub macro_definition: MacroDefinition,
-    pub source: MappedPreprocSource,
     pub file_id: FileId,
     pub param_index: usize,
     pub token_index: usize,
@@ -73,7 +72,6 @@ pub struct MacroParamReferences {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroUsage {
     pub reference_id: MacroReferenceId,
-    pub source: MappedPreprocSource,
     pub file_id: FileId,
     pub name: SmolStr,
     pub usage_index: usize,
@@ -93,7 +91,6 @@ pub struct MacroUsageResolution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinitionProvenance {
     pub id: MacroDefinitionId,
-    pub source: MappedPreprocSource,
     pub event_id: u32,
     pub file_id: FileId,
     pub directive_range: TextRange,
@@ -111,7 +108,6 @@ pub struct IncludeChainEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReference {
     pub id: MacroReferenceId,
-    pub source: MappedPreprocSource,
     pub file_id: FileId,
     pub name: SmolStr,
     pub directive_range: TextRange,
@@ -136,7 +132,6 @@ pub struct MacroReferenceDefinitions {
 pub struct MacroCall {
     pub id: MacroCallId,
     pub reference_id: MacroReferenceId,
-    pub source: MappedPreprocSource,
     pub file_id: FileId,
     pub arguments: Vec<MacroArgument>,
     pub directive_range: TextRange,

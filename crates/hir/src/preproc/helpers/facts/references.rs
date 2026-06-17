@@ -21,15 +21,7 @@ pub(in crate::preproc) fn map_macro_param_reference(
             ))
         })?;
 
-    Ok(MacroParamReference {
-        macro_definition,
-        source,
-        file_id,
-        param_index,
-        token_index,
-        name,
-        range,
-    })
+    Ok(MacroParamReference { macro_definition, file_id, param_index, token_index, name, range })
 }
 
 pub(in crate::preproc) fn map_definition_provenance_from_definition(
@@ -39,7 +31,6 @@ pub(in crate::preproc) fn map_definition_provenance_from_definition(
     let definition = map_macro_definition(mapped, definition)?;
     Ok(MacroDefinitionProvenance {
         id: definition.id,
-        source: definition.source,
         event_id: definition.event_id,
         file_id: definition.file_id,
         directive_range: definition.directive_range,
@@ -56,7 +47,6 @@ pub(in crate::preproc) fn map_macro_reference(
     Ok(MacroReference {
         id: reference.id.into(),
         file_id,
-        source,
         name: reference.name.clone(),
         directive_range,
         range: name_range,
@@ -79,7 +69,6 @@ pub(in crate::preproc) fn map_macro_call(
         id: call.id.into(),
         reference_id: call.reference.into(),
         file_id,
-        source,
         arguments,
         directive_range: range,
         range,
