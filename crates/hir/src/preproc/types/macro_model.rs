@@ -1,0 +1,238 @@
+use super::*;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroResolution {
+    Resolved {
+        definition_id: MacroDefinitionId,
+        reason: MacroResolutionReason,
+        include_chain: Vec<IncludeChainEntry>,
+    },
+    Undefined,
+    Unavailable(PreprocUnavailable),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroResolutionReason {
+    VisibleDefinition,
+    IncludeGuardIfNDef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroDefinition {
+    pub id: MacroDefinitionId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub name: SmolStr,
+    pub params: Option<Vec<MacroDefinitionParam>>,
+    pub body_tokens: Vec<SmolStr>,
+    pub define_index: usize,
+    pub event_id: u32,
+    pub directive_range: TextRange,
+    pub name_range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroDefinitionParam {
+    pub param_index: usize,
+    pub name: Option<SmolStr>,
+    pub range: Option<TextRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamDefinition {
+    pub macro_definition: MacroDefinition,
+    pub param_index: usize,
+    pub name: SmolStr,
+    pub range: TextRange,
+    pub param_range: Option<TextRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamReference {
+    pub macro_definition: MacroDefinition,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub param_index: usize,
+    pub token_index: usize,
+    pub name: SmolStr,
+    pub range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamReferenceDefinitions {
+    pub references: Vec<MacroParamReference>,
+    pub range: TextRange,
+    pub definitions: Vec<MacroParamDefinition>,
+    pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParamReferences {
+    pub references: Vec<MacroParamReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroUsage {
+    pub reference_id: MacroReferenceId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub name: SmolStr,
+    pub usage_index: usize,
+    pub directive_range: TextRange,
+    pub range: TextRange,
+    pub resolution: MacroResolution,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroUsageResolution {
+    pub capability: PreprocAvailability,
+    pub usage: MacroUsage,
+    pub definition: MacroDefinition,
+    pub definition_provenance: MacroDefinitionProvenance,
+    pub include_chain: Vec<IncludeChainEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroDefinitionProvenance {
+    pub id: MacroDefinitionId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub event_id: u32,
+    pub file_id: FileId,
+    pub directive_range: TextRange,
+    pub name_range: TextRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeChainEntry {
+    pub include_event_id: u32,
+    pub include_file_id: FileId,
+    pub include_range: TextRange,
+    pub included_file_id: FileId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReference {
+    pub id: MacroReferenceId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub name: SmolStr,
+    pub directive_range: TextRange,
+    pub range: TextRange,
+    pub resolution: MacroResolution,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReferenceResolution {
+    pub reference: MacroReference,
+    pub definition: MacroDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroReferenceDefinitions {
+    pub references: Vec<MacroReference>,
+    pub range: TextRange,
+    pub definitions: Vec<MacroDefinition>,
+    pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroCall {
+    pub id: MacroCallId,
+    pub reference_id: MacroReferenceId,
+    pub source: MappedPreprocSource,
+    pub capability: PreprocAvailability,
+    pub file_id: FileId,
+    pub arguments: Vec<MacroArgument>,
+    pub directive_range: TextRange,
+    pub range: TextRange,
+    pub callee: MacroResolution,
+    pub expansion: Option<MacroExpansionId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroCallResolution {
+    pub call: MacroCall,
+    pub definition: MacroDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroArgument {
+    pub argument_index: usize,
+    pub source: Option<MappedPreprocSource>,
+    pub range: Option<TextRange>,
+    pub tokens: Vec<MacroArgumentToken>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroArgumentToken {
+    pub raw: SmolStr,
+    pub source: Option<MappedPreprocSource>,
+    pub range: Option<TextRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansion {
+    pub id: MacroExpansionId,
+    pub call: MacroCall,
+    pub definition_id: Option<MacroDefinitionId>,
+    pub definition: MacroExpansionDefinition,
+    pub emitted_token_range: SourceEmittedTokenRange,
+    pub display_text: String,
+    pub display_source: MappedPreprocSource,
+    pub display_range: TextRange,
+    pub child_calls: Vec<MacroCallId>,
+    pub capability: PreprocAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroExpansionDefinition {
+    Source(MacroDefinition),
+    Builtin { name: SmolStr, capability: PreprocAvailability },
+}
+
+impl MacroExpansionDefinition {
+    pub fn name(&self) -> &SmolStr {
+        match self {
+            Self::Source(definition) => &definition.name,
+            Self::Builtin { name, .. } => name,
+        }
+    }
+
+    pub fn capability(&self) -> &PreprocAvailability {
+        match self {
+            Self::Source(definition) => &definition.capability,
+            Self::Builtin { capability, .. } => capability,
+        }
+    }
+
+    pub fn capability_mut(&mut self) -> &mut PreprocAvailability {
+        match self {
+            Self::Source(definition) => &mut definition.capability,
+            Self::Builtin { capability, .. } => capability,
+        }
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroExpansionQuery {
+    Available(Box<MacroExpansion>),
+    Ambiguous(Vec<MacroExpansion>),
+    Unavailable(Box<MacroExpansionUnavailable>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroExpansionUnavailable {
+    pub call: MacroCall,
+    pub reason: PreprocUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecursiveMacroExpansion {
+    pub root_call: MacroCall,
+    pub expansions: Vec<MacroExpansion>,
+    pub unavailable: Vec<MacroExpansionUnavailable>,
+}

@@ -1,0 +1,149 @@
+use hir::preproc::{
+    MacroExpansionDefinition, MacroReferenceDefinitions, RecursiveMacroExpansion,
+    macro_reference_definitions_at, recursive_macro_expansions_at,
+};
+use utils::line_index::{TextRange, TextSize};
+use vfs::FileId;
+
+use super::markup::{
+    render_macro_expansion_header, render_macro_expansion_separator, render_macro_source_link,
+};
+use crate::{RangeInfo, db::root_db::RootDb, markup::Markup};
+
+pub(in crate::hover) fn with_expanded_macro_hover(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    mut hover: RangeInfo<Markup>,
+) -> RangeInfo<Markup> {
+    let Some(expanded) = expanded_macro_hover(db, file_id, offset, None) else {
+        return hover;
+    };
+    if let Some(range) = covering_range(&[hover.range, expanded.range]) {
+        hover.range = range;
+    }
+    hover.info.horizontal_line();
+    hover.info.merge(expanded.info);
+    hover
+}
+
+pub(super) fn expanded_macro_hover(
+    db: &RootDb,
+    file_id: FileId,
+    offset: TextSize,
+    reference_definitions: Option<&MacroReferenceDefinitions>,
+) -> Option<RangeInfo<Markup>> {
+    let reference_ids = if let Some(reference_definitions) = reference_definitions {
+        reference_definitions.references.iter().map(|reference| reference.id).collect::<Vec<_>>()
+    } else {
+        macro_reference_definitions_at(db, file_id, offset)
+            .ok()
+            .flatten()?
+            .references
+            .into_iter()
+            .map(|reference| reference.id)
+            .collect::<Vec<_>>()
+    };
+    if reference_ids.is_empty() {
+        return None;
+    }
+
+    let expansions = recursive_macro_expansions_at(db, file_id, offset).ok().unwrap_or_default();
+    let expansions = expansions
+        .into_iter()
+        .filter(|expansion| {
+            reference_ids.contains(&expansion.root_call.reference_id)
+                && !expansion.expansions.is_empty()
+        })
+        .collect::<Vec<_>>();
+    if expansions.is_empty() {
+        return None;
+    }
+
+    let ranges = expansions.iter().map(|expansion| expansion.root_call.range).collect::<Vec<_>>();
+    let range = covering_range(&ranges).unwrap_or_else(|| TextRange::empty(offset));
+    let markup = expanded_macro_markup(db, &expansions);
+    Some(RangeInfo::new(range, markup))
+}
+
+fn expanded_macro_markup(db: &RootDb, expansions: &[RecursiveMacroExpansion]) -> Markup {
+    let mut markup = Markup::new();
+
+    for expansion in expansions {
+        render_recursive_expansion(db, &mut markup, expansion);
+    }
+
+    markup
+}
+
+fn render_recursive_expansion(
+    db: &RootDb,
+    markup: &mut Markup,
+    expansion: &RecursiveMacroExpansion,
+) {
+    let Some(root) = expansion.expansions.first() else {
+        return;
+    };
+
+    if !markup.is_empty() {
+        markup.newline();
+    }
+    render_macro_expansion_header(markup, &root.definition);
+    render_macro_expansion_separator(markup);
+    markup.print("Expands to");
+    markup.newline();
+    markup.push_with_code_fence(&macro_expansion_hover_text(root.display_text.as_str()));
+    render_macro_expansion_separator(markup);
+    if let MacroExpansionDefinition::Source(definition) = &root.definition {
+        render_macro_source_link(db, markup, definition, root.call.file_id);
+    }
+}
+
+pub(in crate::hover) fn macro_expansion_hover_text(text: &str) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    let start = lines.iter().position(|line| !line.trim().is_empty()).unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|line| !line.trim().is_empty())
+        .map(|index| index + 1)
+        .unwrap_or(start);
+    let lines = &lines[start..end];
+
+    let common_indent = lines
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| leading_indent(line))
+        .reduce(common_whitespace_prefix)
+        .unwrap_or_default();
+
+    lines
+        .iter()
+        .map(|line| {
+            if line.trim().is_empty() {
+                ""
+            } else {
+                line.strip_prefix(common_indent).unwrap_or(line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn leading_indent(line: &str) -> &str {
+    let end = line
+        .char_indices()
+        .find_map(|(index, ch)| (!matches!(ch, ' ' | '\t')).then_some(index))
+        .unwrap_or(line.len());
+    &line[..end]
+}
+
+fn common_whitespace_prefix<'a>(left: &'a str, right: &'a str) -> &'a str {
+    let end = left.bytes().zip(right.bytes()).take_while(|(left, right)| left == right).count();
+    &left[..end]
+}
+
+fn covering_range(ranges: &[TextRange]) -> Option<TextRange> {
+    let start = ranges.iter().map(|range| range.start()).min()?;
+    let end = ranges.iter().map(|range| range.end()).max()?;
+    Some(TextRange::new(start, end))
+}

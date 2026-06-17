@@ -31,6 +31,7 @@ use crate::base_db::{
 
 mod conditionals;
 mod definitions;
+mod diagnostics;
 mod expansion;
 mod helpers;
 mod includes;
@@ -41,7 +42,7 @@ mod types;
 
 use self::helpers::*;
 pub use self::{
-    conditionals::*, definitions::*, expansion::*, includes::*, reference_index::*,
+    conditionals::*, definitions::*, diagnostics::*, expansion::*, includes::*, reference_index::*,
     reference_queries::*, types::*,
 };
 
