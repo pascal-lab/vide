@@ -1,5 +1,8 @@
 use smol_str::SmolStr;
-pub use syntax::preproc::{MacroCallId, MacroDefinitionId, MacroExpansionId};
+pub use syntax::preproc::{
+    MacroArgumentOrigin, MacroBodyOrigin, MacroBuiltinOrigin, MacroCallId, MacroDefinitionId,
+    MacroExpansionId, MacroOperationOrigin,
+};
 use utils::line_index::{TextRange, TextSize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -44,44 +47,6 @@ pub struct SourceRange {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourcePreprocEventId(pub(in crate::source) u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceMacroBodyIdentity {
-    pub call: MacroCallId,
-    pub definition: MacroDefinitionId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
-    pub body_token_index: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceMacroArgumentIdentity {
-    pub call: MacroCallId,
-    pub definition: MacroDefinitionId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
-    pub body_token_index: usize,
-    pub argument_index: usize,
-    pub argument_token_index: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceMacroBuiltinIdentity {
-    pub call: MacroCallId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceMacroOperationIdentity {
-    pub call: MacroCallId,
-    pub definition: MacroDefinitionId,
-    pub expansion: MacroExpansionId,
-    pub parent_expansion: Option<MacroExpansionId>,
-    pub body_token_index: usize,
-    pub argument_index: Option<usize>,
-    pub argument_token_index: Option<usize>,
-}
 
 impl PreprocSourceId {
     pub fn new(raw: u32) -> Self {

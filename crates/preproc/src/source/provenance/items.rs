@@ -199,24 +199,24 @@ pub enum SourceTokenOrigin {
         token_range: SourceRange,
     },
     MacroBody {
-        identity: SourceMacroBodyIdentity,
+        origin: MacroBodyOrigin,
         definition: SourceMacroDefinitionId,
         body_token_range: SourceRange,
         call: SourceMacroCallId,
     },
     MacroArgument {
-        identity: SourceMacroArgumentIdentity,
+        origin: MacroArgumentOrigin,
         call: SourceMacroCallId,
         argument_index: usize,
         body_token_range: SourceRange,
         argument_token_range: SourceRange,
     },
     TokenPaste {
-        identity: SourceMacroOperationIdentity,
+        origin: MacroOperationOrigin,
         call: SourceMacroCallId,
     },
     Stringification {
-        identity: SourceMacroOperationIdentity,
+        origin: MacroOperationOrigin,
         call: SourceMacroCallId,
     },
     Predefine {
@@ -224,7 +224,7 @@ pub enum SourceTokenOrigin {
     },
     Builtin {
         name: SmolStr,
-        identity: SourceMacroBuiltinIdentity,
+        origin: MacroBuiltinOrigin,
         call: SourceMacroCallId,
     },
 }

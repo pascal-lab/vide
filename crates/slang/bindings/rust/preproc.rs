@@ -86,7 +86,7 @@ pub enum TokenOrigin {
     Unavailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MacroBodyOrigin {
     pub call_id: MacroCallId,
     pub definition_id: MacroDefinitionId,
@@ -95,7 +95,7 @@ pub struct MacroBodyOrigin {
     pub body_token_index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MacroArgumentOrigin {
     pub call_id: MacroCallId,
     pub definition_id: MacroDefinitionId,
@@ -106,14 +106,14 @@ pub struct MacroArgumentOrigin {
     pub argument_token_index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MacroBuiltinOrigin {
     pub call_id: MacroCallId,
     pub expansion_id: MacroExpansionId,
     pub parent_expansion_id: Option<MacroExpansionId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MacroOperationOrigin {
     pub call_id: MacroCallId,
     pub definition_id: MacroDefinitionId,

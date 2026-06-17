@@ -197,23 +197,23 @@ endmodule
     let payl_expansion = model.macro_expansions().get(payl_expansion_id).unwrap();
     assert_eq!(payl_expansion.call, payl_call.id);
 
-    let (payload, payload_identity, payload_body_range) = model
+    let (payload, payload_origin, payload_body_range) = model
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenOrigin::MacroBody { identity, call, body_token_range, .. } =
+            let SourceTokenOrigin::MacroBody { origin, call, body_token_range, .. } =
                 model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
-            (*call == payl_call.id).then_some((token, *identity, *body_token_range))
+            (*call == payl_call.id).then_some((token, *origin, *body_token_range))
         })
         .expect("PAYL emitted token should keep direct macro body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
     assert_eq!(text_at_range(root_text, payload_body_range.range), "payload_i");
-    assert_eq!(Some(payload_identity.call), payl_call.identity);
-    assert_eq!(Some(payload_identity.expansion), payl_call.expansion_identity);
-    assert_eq!(payload_identity.parent_expansion, next_call.expansion_identity);
+    assert_eq!(Some(payload_origin.call_id), payl_call.identity);
+    assert_eq!(Some(payload_origin.expansion_id), payl_call.expansion_identity);
+    assert_eq!(payload_origin.parent_expansion_id, next_call.expansion_identity);
     assert_eq!(payl_expansion.emitted_token_range.start, payload.id);
     assert_eq!(payl_expansion.emitted_token_range.len, 1);
 
