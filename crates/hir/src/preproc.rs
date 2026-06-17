@@ -9,7 +9,7 @@ use preproc::source::{
     SourceMacroParam as SourceMacroParamFact, SourceMacroReference as SourceMacroReferenceFact,
     SourceMacroReferenceSite, SourceMacroResolution as SourceMacroResolutionFact,
     SourceMacroResolutionReason as SourceMacroResolutionReasonFact, SourcePreprocError,
-    SourcePreprocUnavailable, SourceRange, SourceTokenProvenance as SourceTokenProvenanceFact,
+    SourcePreprocUnavailable, SourceRange, SourceTokenProvenance,
 };
 use smol_str::SmolStr;
 use utils::{

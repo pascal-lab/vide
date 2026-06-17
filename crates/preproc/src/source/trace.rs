@@ -7,9 +7,7 @@ use std::collections::BTreeMap;
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferOrigin, SourceBufferRange, SyntaxKind,
-    preproc::{
-        ActualArgument, EmittedToken, Event, EventId, MacroParam, Token, TokenOrigin, Trace,
-    },
+    preproc::{ActualArgument, EmittedToken, Event, EventId, MacroParam, Token, Trace},
 };
 use utils::line_index::{TextRange, TextSize};
 

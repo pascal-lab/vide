@@ -29,14 +29,14 @@ pub(in crate::preproc) fn emitted_token_ids(
 
 pub(in crate::preproc) fn diagnostic_provenance_for_token(
     mapped: &MappedSourcePreprocModel,
-    provenance: &SourceTokenProvenanceFact,
+    provenance: &SourceTokenProvenance,
 ) -> PreprocResult<Option<DiagnosticProvenance>> {
     Ok(match provenance {
-        SourceTokenProvenanceFact::Source { token_range } => {
+        SourceTokenProvenance::Source { token_range } => {
             let (source, range) = map_mapped_source_range(mapped, *token_range)?;
             Some(DiagnosticProvenance::SourceToken { source, range })
         }
-        SourceTokenProvenanceFact::MacroBody { definition, body_token_range, call, .. } => {
+        SourceTokenProvenance::MacroBody { definition, body_token_range, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
             Some(DiagnosticProvenance::MacroBody {
@@ -46,11 +46,8 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
                 range,
             })
         }
-        SourceTokenProvenanceFact::MacroArgument {
-            call,
-            argument_index,
-            argument_token_range,
-            ..
+        SourceTokenProvenance::MacroArgument {
+            call, argument_index, argument_token_range, ..
         } => {
             let call = mapped_macro_call(mapped, *call)?;
             let Ok((source, range)) = map_mapped_source_range(mapped, *argument_token_range) else {
@@ -63,25 +60,23 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
                 range,
             })
         }
-        SourceTokenProvenanceFact::TokenPaste { call, .. } => {
+        SourceTokenProvenance::TokenPaste { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
             Some(expansion_authority_unavailable())
         }
-        SourceTokenProvenanceFact::Stringification { call, .. } => {
+        SourceTokenProvenance::Stringification { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
             Some(expansion_authority_unavailable())
         }
-        SourceTokenProvenanceFact::Predefine { source } => {
+        SourceTokenProvenance::Predefine { source } => {
             let _source = map_mapped_source_id(mapped, *source)?;
             None
         }
-        SourceTokenProvenanceFact::Builtin { name, call, .. } => {
-            Some(DiagnosticProvenance::Builtin {
-                name: name.clone(),
-                call: mapped_macro_call(mapped, *call)?,
-            })
-        }
-        SourceTokenProvenanceFact::Unavailable(_) => Some(expansion_authority_unavailable()),
+        SourceTokenProvenance::Builtin { name, call, .. } => Some(DiagnosticProvenance::Builtin {
+            name: name.clone(),
+            call: mapped_macro_call(mapped, *call)?,
+        }),
+        SourceTokenProvenance::Unavailable(_) => Some(expansion_authority_unavailable()),
     })
 }
 
