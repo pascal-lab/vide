@@ -28,13 +28,12 @@ pub(in crate::preproc) fn map_macro_reference(
     mapped: &MappedSourcePreprocModel,
     reference: &SourceMacroReference,
 ) -> PreprocResult<MacroReference> {
-    let (source, directive_range, name_range) = map_reference_ranges(mapped, reference)?;
+    let (source, name_range) = map_reference_ranges(mapped, reference)?;
     let file_id = require_file_backed_source(&source)?;
     Ok(MacroReference {
         id: reference.id,
         file_id,
         name: reference.name.clone(),
-        directive_range,
         range: name_range,
         resolution: map_macro_resolution(mapped, &reference.resolution)?,
     })
@@ -51,16 +50,7 @@ pub(in crate::preproc) fn map_macro_call(
         .map(|argument| map_macro_argument(mapped, argument))
         .collect::<PreprocResult<Vec<_>>>()?;
     let file_id = require_file_backed_source(&source)?;
-    Ok(MacroCall {
-        id: call.id,
-        reference_id: call.reference,
-        file_id,
-        arguments,
-        directive_range: range,
-        range,
-        callee: map_macro_resolution(mapped, &call.callee)?,
-        expansion: call.expansion,
-    })
+    Ok(MacroCall { file_id, arguments, range })
 }
 
 pub(in crate::preproc) fn map_macro_argument(
@@ -71,26 +61,7 @@ pub(in crate::preproc) fn map_macro_argument(
         .argument_range
         .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
         .transpose()?;
-    Ok(MacroArgument {
-        argument_index: argument.argument_index,
-        range,
-        tokens: argument
-            .tokens
-            .iter()
-            .map(|token| map_macro_argument_token(mapped, token))
-            .collect::<PreprocResult<Vec<_>>>()?,
-    })
-}
-
-fn map_macro_argument_token(
-    mapped: &MappedSourcePreprocModel,
-    token: &preproc::source::SourceMacroToken,
-) -> PreprocResult<MacroArgumentToken> {
-    let range = token
-        .range
-        .map(|range| map_source_mapping_range(mapped, range).map(|(_, range)| range))
-        .transpose()?;
-    Ok(MacroArgumentToken { raw: token.raw.clone(), range })
+    Ok(MacroArgument { argument_index: argument.argument_index, range })
 }
 
 pub(in crate::preproc) fn map_macro_resolution(
@@ -113,9 +84,8 @@ pub(in crate::preproc) fn map_macro_resolution(
 pub(in crate::preproc) fn map_reference_ranges(
     mapped: &MappedSourcePreprocModel,
     reference: &SourceMacroReference,
-) -> PreprocResult<(PreprocSourceMapping, TextRange, TextRange)> {
-    let (directive_source, directive_range) =
-        map_source_mapping_range(mapped, reference.directive_range)?;
+) -> PreprocResult<(PreprocSourceMapping, TextRange)> {
+    let (directive_source, _) = map_source_mapping_range(mapped, reference.directive_range)?;
     let (name_source, name_range) = map_source_mapping_range(mapped, reference.name_range)?;
     if directive_source != name_source {
         let directive_file_id = require_file_backed_source(&directive_source)?;
@@ -126,5 +96,5 @@ pub(in crate::preproc) fn map_reference_ranges(
             name_file_id,
         });
     }
-    Ok((directive_source, directive_range, name_range))
+    Ok((directive_source, name_range))
 }

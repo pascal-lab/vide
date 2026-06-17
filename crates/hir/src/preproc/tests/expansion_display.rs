@@ -81,10 +81,6 @@ endmodule
         .find(|argument| argument.argument_index == 0)
         .expect("NEXT call should expose its first actual argument");
     assert_eq!(text_at_range(root_text, argument.range.unwrap()), "`PAYL");
-    assert_eq!(
-        argument.tokens.iter().map(|token| token.raw.as_str()).collect::<Vec<_>>(),
-        vec!["`PAYL"]
-    );
 
     let payl_offset = offset(root_text, "`PAYL");
     let mut names = hir_macro_files_at_offset(&db, TOP, payl_offset)

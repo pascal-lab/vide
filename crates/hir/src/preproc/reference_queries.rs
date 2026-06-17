@@ -33,7 +33,7 @@ pub fn macro_usage_resolutions_at(
             let Some(reference) = mapped.model.macro_references().get(reference_id) else {
                 continue;
             };
-            let SourceMacroReferenceSite::Usage { usage_index } = reference.site else {
+            let SourceMacroReferenceSite::Usage { .. } = reference.site else {
                 continue;
             };
 
@@ -46,7 +46,8 @@ pub fn macro_usage_resolutions_at(
                 }
                 continue;
             };
-            let mapped_reference = map_macro_reference(mapped, reference)?;
+            let (source, range) = map_reference_ranges(mapped, reference)?;
+            let usage_file_id = require_file_backed_source(&source)?;
             let source_definition =
                 mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
                     PreprocError::SourceQuery(SourcePreprocQueryError::Model(
@@ -57,15 +58,7 @@ pub fn macro_usage_resolutions_at(
             let include_chain = map_include_chain(mapped, include_chain)?;
 
             resolutions.push_unique_eq(MacroUsageResolution {
-                usage: MacroUsage {
-                    reference_id: mapped_reference.id,
-                    file_id: mapped_reference.file_id,
-                    name: mapped_reference.name,
-                    usage_index,
-                    directive_range: mapped_reference.directive_range,
-                    range: mapped_reference.range,
-                    resolution: mapped_reference.resolution,
-                },
+                usage: MacroUsage { file_id: usage_file_id, range },
                 definition,
                 include_chain,
             });
