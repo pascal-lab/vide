@@ -19,7 +19,7 @@ impl SourcePreprocModelBuilder {
         let Some(definition_id) = definition_id else {
             return self.resolve_visible_reference(name);
         };
-        let Some(definition) = self.definition_ids_by_identity.get(&definition_id).copied() else {
+        let Some(definition) = self.definitions_by_trace_id.get(&definition_id).copied() else {
             self.references_partial = true;
             return SourceMacroResolution::Unavailable(
                 SourcePreprocUnavailable::UnknownMacroUsageDefinition { definition: definition_id },

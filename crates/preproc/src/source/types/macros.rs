@@ -13,7 +13,7 @@ pub struct SourcePreprocEventRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroDefine {
     pub event_id: SourcePreprocEventId,
-    pub identity: Option<MacroDefinitionId>,
+    pub trace_definition: Option<MacroDefinitionId>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub params: Option<Vec<SourceMacroParam>>,
@@ -56,10 +56,10 @@ pub struct SourceMacroConditional {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceMacroUsage {
     pub event_id: SourcePreprocEventId,
-    pub identity: Option<MacroCallId>,
-    pub definition_identity: Option<MacroDefinitionId>,
-    pub expansion_identity: Option<MacroExpansionId>,
-    pub parent_expansion_identity: Option<MacroExpansionId>,
+    pub trace_call: Option<MacroCallId>,
+    pub trace_definition: Option<MacroDefinitionId>,
+    pub trace_expansion: Option<MacroExpansionId>,
+    pub parent_trace_expansion: Option<MacroExpansionId>,
     pub name: Option<SmolStr>,
     pub name_range: Option<SourceRange>,
     pub arguments: Vec<SourceMacroActualArgument>,

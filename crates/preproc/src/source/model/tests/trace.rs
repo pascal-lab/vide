@@ -26,8 +26,8 @@ endmodule
     let next_call = call_by_name("NEXT");
     let wrap_call = call_by_name("WRAP");
     let leaf_call = call_by_name("LEAF");
-    assert_eq!(wrap_call.parent_expansion_identity, next_call.expansion_identity);
-    assert_eq!(leaf_call.parent_expansion_identity, wrap_call.expansion_identity);
+    assert_eq!(wrap_call.parent_trace_expansion, next_call.trace_expansion);
+    assert_eq!(leaf_call.parent_trace_expansion, wrap_call.trace_expansion);
 
     let SourceMacroExpansionQuery::Available(next_expansion_id) =
         model.immediate_macro_expansion(next_call.id)
@@ -64,12 +64,12 @@ endmodule
         })
         .expect("final payload token should keep LEAF body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
-    assert_eq!(origin.parent_expansion_id, wrap_call.expansion_identity);
+    assert_eq!(origin.parent_expansion_id, wrap_call.trace_expansion);
     assert_eq!(text_at_range(root_text, body_token_range.range), "payload_i");
 }
 
 #[test]
-fn source_model_preserves_multi_token_argument_direct_identity() {
+fn source_model_preserves_multi_token_argument_direct_trace() {
     let root_text = r#"`define NEXT(x) ((x) + 12'd1)
 module m(input logic [3:0] payload_i, output logic [3:0] y);
 assign y = `NEXT(payload_i[3:0]);

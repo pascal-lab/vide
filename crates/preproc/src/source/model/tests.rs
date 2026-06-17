@@ -147,12 +147,12 @@ fn reference_for_conditional_token(
         .expect("conditional token reference should be in resolved reference table")
 }
 
-mod definition_identity;
+mod definition_trace;
 mod expansion_graph;
-mod identity;
 mod include_resolution;
 mod macro_state;
 mod missing_expansion;
-mod missing_identity;
+mod missing_trace;
 mod nested_expansion;
 mod predefine_intrinsic;
+mod trace;
