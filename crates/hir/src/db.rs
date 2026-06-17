@@ -8,7 +8,7 @@ use crate::{
         block::{self, Block, BlockId, BlockLoc, BlockSourceMap},
         expr::data_ty::{BuiltinDataTy, BuiltinDataTyId},
         file::{self, FileSourceMap, HirFile},
-        macro_file::{MacroFileId, MacroFileLoc},
+        macro_file::{self, ExpansionInfo, MacroFileId, MacroFileLoc},
         module::{
             self, Module, ModuleId, ModuleSourceMap,
             generate::{
@@ -59,6 +59,9 @@ impl_intern!(MacroFileId, MacroFileLoc, intern_macro_file, lookup_intern_macro_f
 pub trait HirDb: InternDb {
     #[salsa::transparent]
     fn parse(&self, file_id: HirFileId) -> SyntaxTree;
+
+    #[salsa::invoke(macro_file::macro_expansion_query)]
+    fn macro_expansion(&self, macro_file: MacroFileId) -> Arc<ExpansionInfo>;
 
     #[salsa::invoke(file::hir_file_with_source_map_query)]
     fn hir_file_with_source_map(&self, file_id: HirFileId) -> (Arc<HirFile>, Arc<FileSourceMap>);
@@ -111,7 +114,10 @@ pub trait HirDb: InternDb {
 }
 
 fn parse(db: &dyn HirDb, file_id: HirFileId) -> SyntaxTree {
-    db.parse_src_for_compilation(file_id.file_id())
+    match file_id {
+        HirFileId::File(file_id) => db.parse_src_for_compilation(file_id),
+        HirFileId::Macro(macro_file) => db.macro_expansion(macro_file).parse.clone(),
+    }
 }
 
 fn hir_file(db: &dyn HirDb, file_id: HirFileId) -> Arc<HirFile> {
