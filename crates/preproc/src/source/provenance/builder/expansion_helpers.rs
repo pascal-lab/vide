@@ -147,9 +147,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
     pub(in crate::source::provenance::builder) fn unavailable_token_provenance(
         &mut self,
-        reason: SourcePreprocUnavailable,
     ) -> SourceTokenProvenance {
         self.token_provenance_partial = true;
-        SourceTokenProvenance::Unavailable(reason)
+        SourceTokenProvenance::Unavailable(())
     }
 }

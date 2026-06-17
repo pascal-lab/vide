@@ -81,7 +81,7 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
     assert!(matches!(
         model.immediate_macro_expansion(call.id),
         SourceMacroExpansionQuery::Unavailable(
-            SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
+            SourcePreprocUnavailable::MissingMacroExpansion { .. }
         )
     ));
 }

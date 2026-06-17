@@ -24,7 +24,7 @@ pub(in crate::preproc) enum TokenProvenance {
     },
     TokenPaste,
     Stringification,
-    Unavailable(PreprocUnavailable),
+    Unavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

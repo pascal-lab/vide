@@ -74,9 +74,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                     MacroOperationProvenanceKind::Stringification,
                 ),
             SourceTokenProvenanceFact::Builtin { .. } | SourceTokenProvenanceFact::Unavailable => {
-                self.unavailable_token_provenance(
-                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
-                )
+                self.unavailable_token_provenance()
             }
         }
     }
@@ -90,16 +88,10 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         body_token_range: SourceRange,
     ) -> SourceTokenProvenance {
         let Some(identity) = identity else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
-            );
+            return self.unavailable_token_provenance();
         };
         let Ok(definition) = self.definition_for_identity(identity.definition) else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroDefinitionIdentity {
-                    identity: identity.definition,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
         let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
             token_id,
@@ -110,17 +102,11 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             expansion_identity: identity.expansion,
             parent_expansion_identity: identity.parent_expansion,
         }) else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
-                    identity: identity.call,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
 
         if !self.definition_body_token_exists(definition, identity.body_token_index) {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroBody { call },
-            );
+            return self.unavailable_token_provenance();
         }
 
         self.record_emitted_token_owner(token_id, call);
@@ -138,33 +124,19 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         argument_token_range: SourceRange,
     ) -> SourceTokenProvenance {
         let Some(identity) = identity else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
-            );
+            return self.unavailable_token_provenance();
         };
         let Ok(definition) = self.definition_for_identity(identity.definition) else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroDefinitionIdentity {
-                    identity: identity.definition,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
         let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
-                    identity: identity.call,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
         if !self.definition_body_token_exists(definition, identity.body_token_index) {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroBody { call },
-            );
+            return self.unavailable_token_provenance();
         }
         if !self.definition_parameter_exists(definition, identity.argument_index) {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroArgument { call },
-            );
+            return self.unavailable_token_provenance();
         };
         self.record_macro_argument(call, identity.argument_index, argument_token_range);
         self.record_emitted_token_owner(token_id, call);
@@ -185,22 +157,14 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         identity: Option<SourceMacroBuiltinIdentity>,
     ) -> SourceTokenProvenance {
         let Some(identity) = identity else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
-            );
+            return self.unavailable_token_provenance();
         };
         let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
-                    identity: identity.call,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
         let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
-        if let Err(reason) =
-            self.record_call_expansion_identity(call, call_expansion_identity, None)
-        {
-            return self.unavailable_token_provenance(reason);
+        if self.record_call_expansion_identity(call, call_expansion_identity, None).is_err() {
+            return self.unavailable_token_provenance();
         }
         self.record_emitted_token_owner(token_id, call);
         SourceTokenProvenance::Builtin { name, identity, call }
@@ -213,29 +177,17 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         kind: MacroOperationProvenanceKind,
     ) -> SourceTokenProvenance {
         let Some(identity) = identity else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::MissingEmittedTokenMacroCallIdentity,
-            );
+            return self.unavailable_token_provenance();
         };
         if self.definition_for_identity(identity.definition).is_err() {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroDefinitionIdentity {
-                    identity: identity.definition,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
         let Some(call) = self.call_ids_by_identity.get(&identity.call).copied() else {
-            return self.unavailable_token_provenance(
-                SourcePreprocUnavailable::UnknownEmittedTokenMacroCallIdentity {
-                    identity: identity.call,
-                },
-            );
+            return self.unavailable_token_provenance();
         };
         let call_expansion_identity = identity.parent_expansion.unwrap_or(identity.expansion);
-        if let Err(reason) =
-            self.record_call_expansion_identity(call, call_expansion_identity, None)
-        {
-            return self.unavailable_token_provenance(reason);
+        if self.record_call_expansion_identity(call, call_expansion_identity, None).is_err() {
+            return self.unavailable_token_provenance();
         }
         self.record_emitted_token_owner(token_id, call);
         match kind {

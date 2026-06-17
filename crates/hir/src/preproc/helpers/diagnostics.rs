@@ -49,9 +49,7 @@ pub(in crate::preproc) fn map_token_provenance(
         } => {
             let call = mapped_macro_call(mapped, *call)?;
             let Ok((source, range)) = map_mapped_source_range(mapped, *argument_token_range) else {
-                return Ok(TokenProvenance::Unavailable(PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
-                )));
+                return Ok(TokenProvenance::Unavailable);
             };
             TokenProvenance::MacroArgument { call, argument_index: *argument_index, source, range }
         }
@@ -70,9 +68,7 @@ pub(in crate::preproc) fn map_token_provenance(
         SourceTokenProvenanceFact::Builtin { name, call, .. } => {
             TokenProvenance::Builtin { name: name.clone(), call: mapped_macro_call(mapped, *call)? }
         }
-        SourceTokenProvenanceFact::Unavailable(reason) => {
-            TokenProvenance::Unavailable(PreprocUnavailable::Source(reason.clone()))
-        }
+        SourceTokenProvenanceFact::Unavailable(_) => TokenProvenance::Unavailable,
     })
 }
 
@@ -98,9 +94,7 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
             }));
         };
         let Some(provenance) = mapped.model.token_provenance().get(token.provenance) else {
-            return Err(unavailable_error(
-                SourcePreprocUnavailable::TokenProvenanceAuthorityUnavailable,
-            ));
+            return Err(unavailable_error(SourcePreprocUnavailable::ExpansionAuthorityUnavailable));
         };
         match map_token_provenance(mapped, provenance)? {
             TokenProvenance::SourceToken { source, range } => {
@@ -117,12 +111,14 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
                     range,
                 });
             }
-            TokenProvenance::Unavailable(reason) => {
-                saw_unavailable = Some(reason);
+            TokenProvenance::Unavailable => {
+                saw_unavailable = Some(PreprocUnavailable::Source(
+                    SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+                ));
             }
             TokenProvenance::TokenPaste | TokenProvenance::Stringification => {
                 saw_unavailable = Some(PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::UnsupportedEmittedTokenProvenance,
+                    SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
                 ));
             }
             TokenProvenance::Predefine => {}
