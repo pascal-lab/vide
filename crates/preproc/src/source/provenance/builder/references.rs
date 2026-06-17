@@ -183,7 +183,7 @@ impl SourcePreprocModelBuilder {
             arguments: Vec::new(),
             expansion: None,
             status: SourceMacroCallStatus::ExpansionUnavailable(
-                SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
+                SourcePreprocUnavailable::MissingExpansionTokens,
             ),
         });
         if let Some(identity) = identity {

@@ -459,7 +459,7 @@ fn expansion_display_text_and_ranges(
     let mut token_ranges = FxHashMap::default();
 
     // This is intentionally a readable display form. It is not a
-    // parse-stable SystemVerilog source buffer or source-map authority.
+    // parse-stable SystemVerilog source buffer or source-map backing.
     for raw in
         emitted_range.start.raw()..emitted_range.start.raw().checked_add(emitted_range.len)?
     {

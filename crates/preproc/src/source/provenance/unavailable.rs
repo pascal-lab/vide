@@ -5,7 +5,7 @@ pub enum SourcePreprocUnavailable {
     DetachedSource { source: PreprocSourceId },
     MissingPredefineSourceText { source: PreprocSourceId },
     UnverifiedPredefineSource { source: PreprocSourceId },
-    ExpansionAuthorityUnavailable,
+    MissingExpansionTokens,
     MissingMacroCall { call: SourceMacroCallId },
     MissingMacroExpansion { call: SourceMacroCallId },
     UnknownMacroUsageDefinitionIdentity { identity: MacroDefinitionId },
