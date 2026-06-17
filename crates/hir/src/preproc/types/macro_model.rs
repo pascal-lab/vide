@@ -166,7 +166,7 @@ pub struct MacroExpansion {
     pub definition: MacroExpansionDefinition,
     pub emitted_token_range: SourceEmittedTokenRange,
     pub display_text: String,
-    pub display_source: MappedPreprocSource,
+    pub display_source: PreprocSourceMapping,
     pub display_range: TextRange,
     pub child_calls: Vec<MacroCallId>,
 }

@@ -80,21 +80,6 @@ impl From<SourceMacroDefinitionId> for MacroDefinitionId {
 pub(crate) const CONFIGURED_PREDEFINE_DEFINE_INDEX: usize = usize::MAX;
 pub(crate) const CONFIGURED_PREDEFINE_EVENT_ID: u32 = u32::MAX;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MappedPreprocSource {
-    RealFile { file_id: FileId },
-    VirtualFile { file_id: FileId, path: vfs::VfsPath, origin: PreprocVirtualOrigin },
-    VirtualDisplay { path: vfs::VfsPath, origin: PreprocVirtualOrigin },
-}
-
-impl MappedPreprocSource {
-    pub fn file_id(&self) -> Option<FileId> {
-        match self {
-            Self::RealFile { file_id } | Self::VirtualFile { file_id, .. } => Some(*file_id),
-            Self::VirtualDisplay { .. } => None,
-        }
-    }
-}
 impl From<SourcePreprocQueryError> for PreprocError {
     fn from(value: SourcePreprocQueryError) -> Self {
         Self::SourceQuery(value)

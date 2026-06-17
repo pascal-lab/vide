@@ -1,17 +1,21 @@
 use super::*;
 
 pub(in crate::preproc) fn require_file_backed_source(
-    source: &MappedPreprocSource,
+    source: &PreprocSourceMapping,
 ) -> PreprocResult<FileId> {
-    source.file_id().ok_or_else(|| {
-        let MappedPreprocSource::VirtualDisplay { path, origin } = source else {
-            unreachable!("file-backed source should have a FileId");
-        };
-        PreprocError::SourceMap(PreprocSourceMapError::DisplayOnlyVirtualSource {
-            path: path.clone(),
-            origin: origin.clone(),
-        })
-    })
+    match source {
+        PreprocSourceMapping::RealFile(file_id)
+        | PreprocSourceMapping::VirtualFile { file_id, .. } => Ok(*file_id),
+        PreprocSourceMapping::VirtualDisplay { path, origin } => {
+            Err(PreprocError::SourceMap(PreprocSourceMapError::DisplayOnlyVirtualSource {
+                path: path.clone(),
+                origin: origin.clone(),
+            }))
+        }
+        PreprocSourceMapping::Unmapped(reason) => {
+            Err(PreprocError::Unavailable { reason: PreprocUnavailable::Source(reason.clone()) })
+        }
+    }
 }
 
 pub(in crate::preproc) fn map_source_range(
@@ -32,7 +36,7 @@ pub(in crate::preproc) fn map_source_id(
 pub(in crate::preproc) fn map_mapped_source_range(
     mapped: &MappedSourcePreprocModel,
     source_range: SourceRange,
-) -> PreprocResult<(MappedPreprocSource, TextRange)> {
+) -> PreprocResult<(PreprocSourceMapping, TextRange)> {
     let range = mapped.source_map.map_range(source_range).map_err(PreprocError::SourceMap)?;
     let source = map_mapped_source_id(mapped, source_range.source)?;
     Ok((source, range))
@@ -52,20 +56,20 @@ pub(in crate::preproc) fn mapped_source_range_at_offset(
 pub(in crate::preproc) fn map_mapped_source_id(
     mapped: &MappedSourcePreprocModel,
     source: PreprocSourceId,
-) -> PreprocResult<MappedPreprocSource> {
+) -> PreprocResult<PreprocSourceMapping> {
     match mapped.source_map.get(source) {
         Some(PreprocSourceMapping::RealFile(file_id)) => {
-            Ok(MappedPreprocSource::RealFile { file_id: *file_id })
+            Ok(PreprocSourceMapping::RealFile(*file_id))
         }
         Some(PreprocSourceMapping::VirtualFile { file_id, path, origin }) => {
-            Ok(MappedPreprocSource::VirtualFile {
+            Ok(PreprocSourceMapping::VirtualFile {
                 file_id: *file_id,
                 path: path.clone(),
                 origin: origin.clone(),
             })
         }
         Some(PreprocSourceMapping::VirtualDisplay { path, origin }) => {
-            Ok(MappedPreprocSource::VirtualDisplay { path: path.clone(), origin: origin.clone() })
+            Ok(PreprocSourceMapping::VirtualDisplay { path: path.clone(), origin: origin.clone() })
         }
         Some(PreprocSourceMapping::Unmapped(reason)) => {
             Err(PreprocError::SourceMap(PreprocSourceMapError::UnmappedSource {

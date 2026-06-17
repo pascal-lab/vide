@@ -12,7 +12,7 @@ use utils::{
 use vfs::{FileId, VfsPath};
 
 use crate::base_db::source_db::{
-    PreprocSourceMapError, PreprocVirtualOrigin, SourcePreprocQueryError,
+    PreprocSourceMapError, PreprocSourceMapping, PreprocVirtualOrigin, SourcePreprocQueryError,
 };
 
 mod common;

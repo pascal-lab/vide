@@ -13,7 +13,7 @@ pub(in crate::preproc) fn map_macro_definition(
     if let Some(manifest_source) =
         mapped.source_map.predefine_manifest_source(definition.name_range.source)
     {
-        source = MappedPreprocSource::RealFile { file_id: manifest_source.file_id };
+        source = PreprocSourceMapping::RealFile(manifest_source.file_id);
         directive_range = manifest_source.range;
         name_range = manifest_source.range;
     }
@@ -105,7 +105,7 @@ pub(in crate::preproc) fn map_definition_ranges(
     event_id: u32,
     directive_source_range: SourceRange,
     name_source_range: SourceRange,
-) -> PreprocResult<(MappedPreprocSource, TextRange, TextRange)> {
+) -> PreprocResult<(PreprocSourceMapping, TextRange, TextRange)> {
     let (directive_source, directive_range) =
         map_mapped_source_range(mapped, directive_source_range)?;
     let (name_source, name_range) = map_mapped_source_range(mapped, name_source_range)?;
