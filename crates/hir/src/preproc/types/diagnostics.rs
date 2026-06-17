@@ -3,23 +3,23 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticProvenance {
     SourceToken {
-        source: MappedPreprocSource,
+        file_id: FileId,
         range: TextRange,
     },
     MacroBody {
         call: MacroCall,
         definition_id: MacroDefinitionId,
-        source: MappedPreprocSource,
+        file_id: FileId,
         range: TextRange,
     },
     MacroArgument {
         call: MacroCall,
         argument_index: usize,
-        source: MappedPreprocSource,
+        file_id: FileId,
         range: TextRange,
     },
     VirtualExpansion {
-        source: MappedPreprocSource,
+        file_id: FileId,
         range: TextRange,
     },
     Builtin {

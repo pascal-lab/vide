@@ -34,15 +34,17 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
     Ok(match provenance {
         SourceTokenProvenance::Source { token_range } => {
             let (source, range) = map_mapped_source_range(mapped, *token_range)?;
-            Some(DiagnosticProvenance::SourceToken { source, range })
+            let file_id = require_file_backed_source(&source)?;
+            Some(DiagnosticProvenance::SourceToken { file_id, range })
         }
         SourceTokenProvenance::MacroBody { definition, body_token_range, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_mapped_source_range(mapped, *body_token_range)?;
+            let file_id = require_file_backed_source(&source)?;
             Some(DiagnosticProvenance::MacroBody {
                 call,
                 definition_id: (*definition).into(),
-                source,
+                file_id,
                 range,
             })
         }
@@ -53,10 +55,11 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
             let Ok((source, range)) = map_mapped_source_range(mapped, *argument_token_range) else {
                 return Ok(Some(expansion_authority_unavailable()));
             };
+            let file_id = require_file_backed_source(&source)?;
             Some(DiagnosticProvenance::MacroArgument {
                 call,
                 argument_index: *argument_index,
-                source,
+                file_id,
                 range,
             })
         }
@@ -120,7 +123,7 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     }
 
     let source_buffer_source = map_expansion_source_buffer(mapped, expansion.id)?;
-    let MappedPreprocSource::VirtualFile { .. } = &source_buffer_source else {
+    let MappedPreprocSource::VirtualFile { file_id, .. } = &source_buffer_source else {
         return Ok(DiagnosticProvenance::Unavailable(display_only_virtual_expansion_unavailable(
             &source_buffer_source,
         )));
@@ -129,10 +132,7 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
         .source_map
         .emitted_source_buffer_range(expansion.id, expansion.emitted_token_range)
         .map_err(PreprocError::SourceMap)?;
-    Ok(DiagnosticProvenance::VirtualExpansion {
-        source: source_buffer_source,
-        range: source_buffer_range,
-    })
+    Ok(DiagnosticProvenance::VirtualExpansion { file_id: *file_id, range: source_buffer_range })
 }
 
 fn expansion_authority_unavailable() -> DiagnosticProvenance {

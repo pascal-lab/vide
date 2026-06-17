@@ -57,13 +57,13 @@ endmodule
 
     let provenance = diagnostic_provenance_for_range(&db, TOP, two_range).unwrap().unwrap();
 
-    let DiagnosticProvenance::MacroArgument { call, argument_index, source, range } = provenance
+    let DiagnosticProvenance::MacroArgument { call, argument_index, file_id, range } = provenance
     else {
         panic!("adjacent single-call range should resolve precisely: {provenance:?}");
     };
     assert_eq!(text_at_range(root_text, call.range), "`ID(2)");
     assert_eq!(argument_index, 0);
-    assert_eq!(source.file_id(), Some(TOP));
+    assert_eq!(file_id, TOP);
     assert_eq!(text_at_range(root_text, range), "2");
 }
 
@@ -80,11 +80,11 @@ endmodule
 
     let provenance = diagnostic_provenance_for_range(&db, TOP, leaf_range).unwrap().unwrap();
 
-    let DiagnosticProvenance::MacroBody { call, source, range, .. } = provenance else {
+    let DiagnosticProvenance::MacroBody { call, file_id, range, .. } = provenance else {
         panic!("nested macro call range should resolve precisely");
     };
     assert_eq!(text_at_range(root_text, call.range), "`LEAF");
-    assert_eq!(source.file_id(), Some(TOP));
+    assert_eq!(file_id, TOP);
     assert_eq!(text_at_range(root_text, range), "3");
 }
 
