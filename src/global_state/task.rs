@@ -25,6 +25,50 @@ pub(crate) enum Task {
     Qihe(QiheTask),
 }
 
+impl Task {
+    pub(crate) fn response(response: lsp_server::Response) -> Self {
+        Task::Response(ResponseTask::new(response))
+    }
+
+    pub(in crate::global_state) fn kind(&self) -> &'static str {
+        match self {
+            Task::Response(_) => "task.response",
+            Task::Retry(_) => "task.retry",
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { .. }) => {
+                "task.fetch_workspace.begin"
+            }
+            Task::FetchWorkspace(FetchWorkspaceProgress::End { .. }) => "task.fetch_workspace.end",
+            Task::Diagnostics(_) => "task.diagnostics",
+            Task::Qihe(task) => task.kind(),
+        }
+    }
+
+    pub(in crate::global_state) fn summary(&self) -> String {
+        match self {
+            Task::Response(response) => response.summary(),
+            Task::Retry(req) => format!("task retry method={} id={:?}", req.method, req.id),
+            Task::FetchWorkspace(FetchWorkspaceProgress::Begin { cause, .. }) => {
+                format!("task fetch workspace begin cause={cause}")
+            }
+            Task::FetchWorkspace(FetchWorkspaceProgress::End { workspaces, errors, .. }) => {
+                format!(
+                    "task fetch workspace end workspaces={} errors={}",
+                    workspaces.len(),
+                    errors.len()
+                )
+            }
+            Task::Diagnostics(tasks) => {
+                let diagnostic_count = tasks.diagnostic_count();
+                format!(
+                    "task diagnostics files={} diagnostics={diagnostic_count}",
+                    tasks.touched_file_count()
+                )
+            }
+            Task::Qihe(task) => task.summary(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ResponseTask {
     pub(super) response: lsp_server::Response,
