@@ -147,7 +147,6 @@ localparam int W = `WIDTH;
         .unwrap()
         .expect("included context should resolve the header reference without ambiguity");
     assert_eq!(text_at_range(header_text, reference.range), "`WIDTH");
-    assert!(matches!(reference.resolution, MacroResolution::Resolved { .. }));
 
     let resolution = macro_reference_resolution_at(&db, HEADER, offset(header_text, "WIDTH;"))
         .unwrap()

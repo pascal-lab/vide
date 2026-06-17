@@ -23,12 +23,7 @@ pub(in crate::preproc) fn map_include_chain(
         .map(|entry| {
             let (include_file_id, include_range) = map_source_range(mapped, entry.include_range)?;
             let included_file_id = map_source_id(mapped, entry.included_source)?;
-            Ok(IncludeChainEntry {
-                include_event_id: entry.include_event_id.raw(),
-                include_file_id,
-                include_range,
-                included_file_id,
-            })
+            Ok(IncludeChainEntry { include_file_id, include_range, included_file_id })
         })
         .collect()
 }

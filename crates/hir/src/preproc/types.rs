@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use preproc::source::{
-    SourceIncludeDirectiveId, SourceMacroDefinitionId, SourceMacroReferenceId,
-    SourceMacroResolutionReason, SourcePreprocError, SourcePreprocUnavailable,
+    SourceIncludeDirectiveId, SourceMacroDefinitionId, SourceMacroReferenceId, SourcePreprocError,
+    SourcePreprocUnavailable,
 };
 use smol_str::SmolStr;
 use utils::{

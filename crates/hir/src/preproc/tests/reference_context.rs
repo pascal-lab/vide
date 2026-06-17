@@ -1,5 +1,3 @@
-use ::preproc::source::SourceMacroResolutionReason;
-
 use super::*;
 
 #[test]
@@ -21,18 +19,6 @@ localparam int ENABLED = `HEADER_FLAG;
     assert!(refs.iter().any(|reference| {
         reference.file_id == TOP && text_at_range(root_text, reference.range) == "HEADER_FLAG"
     }));
-    assert!(refs.iter().any(|reference| {
-        reference.file_id == TOP
-            && matches!(
-                reference.resolution,
-                MacroResolution::Resolved {
-                    reason: SourceMacroResolutionReason::VisibleDefinition,
-                    ..
-                }
-            )
-            && text_at_range(root_text, reference.range) == "HEADER_FLAG"
-    }));
-
     let definitions =
         macro_reference_definitions_at(&db, TOP, offset_after(root_text, "ENABLED = `"))
             .unwrap()

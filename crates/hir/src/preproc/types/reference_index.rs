@@ -117,11 +117,11 @@ pub struct MacroReferences {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MacroReferenceIndexStatus {
     Complete,
-    Partial { issues: Vec<MacroReferenceIndexIssue> },
+    Partial { issue_count: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacroReferenceIndexIssue {
+pub(crate) enum MacroReferenceIndexIssue {
     SkippedModel {
         file_id: FileId,
         error: PreprocError,
@@ -154,7 +154,7 @@ impl MacroReferenceIndex {
         if self.issues.is_empty() {
             MacroReferenceIndexStatus::Complete
         } else {
-            MacroReferenceIndexStatus::Partial { issues: self.issues.clone() }
+            MacroReferenceIndexStatus::Partial { issue_count: self.issues.len() }
         }
     }
 
