@@ -39,30 +39,18 @@ pub fn include_directives_at(
                         continue;
                     }
                 };
-            let status = map_include_status(mapped, &include.status)?;
-            let resolved_file = match &status {
-                IncludeDirectiveStatus::Resolved { file_id } => Some(*file_id),
-                IncludeDirectiveStatus::Unresolved | IncludeDirectiveStatus::Unavailable(_) => None,
-            };
+            let resolved_file = map_include_resolved_file(mapped, &include.status)?;
             let target = match &include.target {
                 MacroIncludeTarget::Literal { path, .. } => {
                     IncludeTarget::Literal { path: path.clone(), resolved_file }
                 }
                 MacroIncludeTarget::Token { raw } => IncludeTarget::Token { raw: raw.clone() },
             };
-            let directive = IncludeDirective {
-                id: include.id,
-                file_id,
-                include_index: include.id.raw(),
-                range,
-                target,
-                status,
-            };
+            let directive = IncludeDirective { id: include.id, file_id, range, target };
             directives.push_unique_by(directive, |existing, directive| {
                 existing.file_id == directive.file_id
                     && existing.range == directive.range
                     && existing.target == directive.target
-                    && existing.status == directive.status
             });
         }
     }

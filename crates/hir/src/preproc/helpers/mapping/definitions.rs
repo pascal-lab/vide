@@ -43,8 +43,6 @@ pub(in crate::preproc) fn map_macro_definition(
         name: definition.name.clone(),
         params,
         body_tokens: definition.body_tokens.iter().map(|token| token.raw.clone()).collect(),
-        define_index: define_index_for_definition(mapped, definition)?,
-        event_id: definition.event_id.raw(),
         directive_range,
         name_range,
     })
@@ -84,22 +82,6 @@ pub(in crate::preproc) fn map_macro_param_definition(
         range,
         param_range,
     }))
-}
-
-pub(in crate::preproc) fn define_index_for_definition(
-    mapped: &MappedSourcePreprocModel,
-    definition: &SourceMacroDefinition,
-) -> PreprocResult<usize> {
-    mapped
-        .model
-        .defines()
-        .iter()
-        .position(|define| define.event_id == definition.event_id)
-        .ok_or_else(|| {
-            PreprocError::SourceQuery(SourcePreprocQueryError::Model(
-                SourcePreprocError::MissingEvent { event_id: definition.event_id.raw() },
-            ))
-        })
 }
 
 pub(in crate::preproc) fn map_definition_ranges(

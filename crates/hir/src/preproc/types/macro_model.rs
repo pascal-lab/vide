@@ -4,14 +4,12 @@ use super::*;
 pub enum MacroResolution {
     Resolved {
         definition_id: MacroDefinitionId,
-        reason: MacroResolutionReason,
+        reason: SourceMacroResolutionReason,
         include_chain: Vec<IncludeChainEntry>,
     },
     Undefined,
     Unavailable(SourcePreprocUnavailable),
 }
-
-pub type MacroResolutionReason = SourceMacroResolutionReason;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroDefinition {
@@ -20,8 +18,6 @@ pub struct MacroDefinition {
     pub name: SmolStr,
     pub params: Option<Vec<MacroDefinitionParam>>,
     pub body_tokens: Vec<SmolStr>,
-    pub define_index: usize,
-    pub event_id: u32,
     pub directive_range: TextRange,
     pub name_range: TextRange,
 }
@@ -66,13 +62,8 @@ pub struct MacroParamReferences {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroUsage {
-    pub reference_id: MacroReferenceId,
     pub file_id: FileId,
-    pub name: SmolStr,
-    pub usage_index: usize,
-    pub directive_range: TextRange,
     pub range: TextRange,
-    pub resolution: MacroResolution,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,10 +83,9 @@ pub struct IncludeChainEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReference {
-    pub id: MacroReferenceId,
+    pub id: SourceMacroReferenceId,
     pub file_id: FileId,
     pub name: SmolStr,
-    pub directive_range: TextRange,
     pub range: TextRange,
     pub resolution: MacroResolution,
 }
@@ -115,14 +105,9 @@ pub struct MacroReferenceDefinitions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroCall {
-    pub id: MacroCallId,
-    pub reference_id: MacroReferenceId,
     pub file_id: FileId,
     pub arguments: Vec<MacroArgument>,
-    pub directive_range: TextRange,
     pub range: TextRange,
-    pub callee: MacroResolution,
-    pub expansion: Option<MacroExpansionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,12 +119,5 @@ pub struct MacroCallResolution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroArgument {
     pub argument_index: usize,
-    pub range: Option<TextRange>,
-    pub tokens: Vec<MacroArgumentToken>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroArgumentToken {
-    pub raw: SmolStr,
     pub range: Option<TextRange>,
 }

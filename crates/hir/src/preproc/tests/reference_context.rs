@@ -1,3 +1,5 @@
+use ::preproc::source::SourceMacroResolutionReason;
+
 use super::*;
 
 #[test]
@@ -23,7 +25,10 @@ localparam int ENABLED = `HEADER_FLAG;
         reference.file_id == TOP
             && matches!(
                 reference.resolution,
-                MacroResolution::Resolved { reason: MacroResolutionReason::VisibleDefinition, .. }
+                MacroResolution::Resolved {
+                    reason: SourceMacroResolutionReason::VisibleDefinition,
+                    ..
+                }
             )
             && text_at_range(root_text, reference.range) == "HEADER_FLAG"
     }));

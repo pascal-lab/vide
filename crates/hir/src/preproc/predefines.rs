@@ -105,8 +105,6 @@ fn configured_predefine_definition(
         name: predefine_name,
         params: None,
         body_tokens: Vec::new(),
-        define_index: CONFIGURED_PREDEFINE_DEFINE_INDEX,
-        event_id: CONFIGURED_PREDEFINE_EVENT_ID,
         directive_range: source.range,
         name_range: source.range,
     })

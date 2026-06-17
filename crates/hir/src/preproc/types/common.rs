@@ -44,11 +44,6 @@ pub enum PreprocError {
     },
 }
 
-pub type MacroReferenceId = SourceMacroReferenceId;
-pub type IncludeDirectiveId = SourceIncludeDirectiveId;
-pub type MacroCallId = SourceMacroCallId;
-pub type MacroExpansionId = SourceMacroExpansionId;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MacroDefinitionId {
     Source(SourceMacroDefinitionId),
@@ -60,9 +55,6 @@ impl From<SourceMacroDefinitionId> for MacroDefinitionId {
         Self::Source(value)
     }
 }
-
-pub(crate) const CONFIGURED_PREDEFINE_DEFINE_INDEX: usize = usize::MAX;
-pub(crate) const CONFIGURED_PREDEFINE_EVENT_ID: u32 = u32::MAX;
 
 impl From<SourcePreprocQueryError> for PreprocError {
     fn from(value: SourcePreprocQueryError) -> Self {
