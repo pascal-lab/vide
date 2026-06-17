@@ -4,6 +4,7 @@ use syntax::ast;
 
 use crate::{
     db::InternDb,
+    file::HirFileId,
     hir_def::{
         HirData, Ident, alloc_idx_and_src,
         expr::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr},
@@ -68,21 +69,9 @@ impl<'a> ToAstNode<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc {
     }
 }
 
-impl From<ast::HierarchyInstantiation<'_>> for InstantiationSrc {
-    fn from(node: ast::HierarchyInstantiation<'_>) -> Self {
-        Self::HierarchyInstantiation(AstId::from_ast(node))
-    }
-}
-
 impl<'a> FromSourceAst<'a, ast::HierarchyInstantiation<'a>> for InstantiationSrc {
     fn from_source_ast(node: SourceAst<ast::HierarchyInstantiation<'a>>) -> Self {
         Self::HierarchyInstantiation(AstId::from_source_ast(node))
-    }
-}
-
-impl From<ast::PrimitiveInstantiation<'_>> for InstantiationSrc {
-    fn from(node: ast::PrimitiveInstantiation<'_>) -> Self {
-        Self::PrimitiveInstantiation(AstId::from_ast(node))
     }
 }
 
@@ -120,12 +109,6 @@ impl AstKind for HierarchicalInstanceAst {
 
 pub type InstanceSrc = NamedAstId<HierarchicalInstanceAst>;
 
-impl From<ast::HierarchicalInstance<'_>> for InstanceSrc {
-    fn from(instance: ast::HierarchicalInstance<'_>) -> Self {
-        Self::from_ast(instance)
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParamAssign {
     Ordered(ExprId),
@@ -142,12 +125,6 @@ impl AstKind for ParamAssignmentAst {
 }
 
 pub type ParamAssignSrc = NamedAstId<ParamAssignmentAst>;
-
-impl From<ast::ParamAssignment<'_>> for ParamAssignSrc {
-    fn from(assign: ast::ParamAssignment<'_>) -> Self {
-        Self::from_ast(assign)
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortConn {
@@ -168,14 +145,9 @@ impl AstKind for PortConnectionAst {
 
 pub type PortConnSrc = NamedAstId<PortConnectionAst>;
 
-impl From<ast::PortConnection<'_>> for PortConnSrc {
-    fn from(conn: ast::PortConnection<'_>) -> Self {
-        Self::from_ast(conn)
-    }
-}
-
 pub(crate) struct LowerInstantiationCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
 
     pub(crate) instantiations: &'a mut Arena<Instantiation>,
     pub(crate) instantiation_srcs: &'a mut SourceMap<InstantiationSrc, Instantiation>,
@@ -204,6 +176,7 @@ pub(in crate::hir_def) macro impl_lower_instantiation($ctx:ty, $data:ident, $src
         ) -> $crate::hir_def::module::instantiation::LowerInstantiationCtx<'_> {
             $crate::hir_def::module::instantiation::LowerInstantiationCtx {
                 db: self.db,
+                file_id: self.file_id,
                 instantiations: &mut self.$data.instantiations,
                 instantiation_srcs: &mut self.$src_map.instantiation_srcs,
                 inst_param_assigns: &mut self.$data.inst_param_assigns,
@@ -236,6 +209,7 @@ impl LowerInstantiationCtx<'_> {
             .map(|inst| self.lower_instance(inst, next_instantiation_id))
             .collect();
         alloc_idx_and_src! {
+            self.file_id;
             Instantiation { module_name, param_assigns, instances } => self.instantiations,
             instance => self.instantiation_srcs,
         }
@@ -256,6 +230,7 @@ impl LowerInstantiationCtx<'_> {
             .collect();
 
         alloc_idx_and_src! {
+            self.file_id;
             Instantiation { module_name, param_assigns, instances } => self.instantiations,
             inst => self.instantiation_srcs,
         }
@@ -285,9 +260,10 @@ impl LowerInstantiationCtx<'_> {
                 };
 
                 alloc_idx_and_src! {
-                    hir_assign => self.inst_param_assigns,
-                    assign => self.inst_param_assign_srcs,
-                }
+                self.file_id;
+                        hir_assign => self.inst_param_assigns,
+                        assign => self.inst_param_assign_srcs,
+                    }
             })
             .collect()
     }
@@ -317,9 +293,10 @@ impl LowerInstantiationCtx<'_> {
                     WildcardPortConnection(_) => PortConn::Wildcard,
                 };
                 alloc_idx_and_src! {
-                    hir_conn => self.inst_port_conns,
-                    conn => self.inst_port_conn_srcs,
-                }
+                self.file_id;
+                        hir_conn => self.inst_port_conns,
+                        conn => self.inst_port_conn_srcs,
+                    }
             })
             .collect();
 
@@ -337,6 +314,7 @@ impl LowerInstantiationCtx<'_> {
             .unwrap_or_default();
 
         alloc_idx_and_src! {
+            self.file_id;
             Instance { name, dimensions, connections, parent } => self.instances,
             instance => self.instance_srcs,
         }

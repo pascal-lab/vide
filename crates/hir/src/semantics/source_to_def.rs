@@ -109,11 +109,11 @@ impl Source2DefCtx<'_, '_> {
     fn container_to_def(&mut self, file_id: HirFileId, node: SyntaxNode) -> Option<ContainerId> {
         let cont_id = match_ast! { node,
            ast::ModuleDeclaration[module] => {
-               let src = module.into();
+               let src = ModuleSrc::from_ast(file_id, module);
                self.module_to_def(InFile::new(file_id, src))?.into()
            },
            ast::BlockStatement[block] => {
-               let block_src = BlockSrc::from(block);
+               let block_src = BlockSrc::from_ast(file_id, block);
                self.block_to_def_inner(file_id, block, block_src)?.into()
            },
            ast::GenerateBlock[block] => {
@@ -133,7 +133,7 @@ impl Source2DefCtx<'_, '_> {
                }).into()
            },
            ast::FunctionDeclaration[func] => {
-               let src = SubroutineSrc::from(func);
+               let src = SubroutineSrc::from_ast(file_id, func);
                self.subroutine_to_def_inner(file_id, func, src)?.into()
            },
            ast::CompilationUnit => file_id.into(),

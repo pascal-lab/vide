@@ -21,9 +21,3 @@ impl AstKind for UdpDeclarationAst {
 }
 
 pub type UdpDeclSrc = NamedAstId<UdpDeclarationAst>;
-
-impl From<ast::UdpDeclaration<'_>> for UdpDeclSrc {
-    fn from(udp: ast::UdpDeclaration<'_>) -> Self {
-        Self::from_ast(udp)
-    }
-}

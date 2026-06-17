@@ -5,6 +5,7 @@ use syntax::{TokenKind, ast};
 use super::{Expr, ExprId, ExprSrc, LowerExpr, impl_lower_expr};
 use crate::{
     db::InternDb,
+    file::HirFileId,
     hir_def::alloc_idx_and_src,
     source_map::{AstId, AstKind, SourceMap},
 };
@@ -44,12 +45,6 @@ impl AstKind for EventExpressionAst {
 
 pub type EventExprSrc = AstId<EventExpressionAst>;
 
-impl From<ast::EventExpression<'_>> for EventExprSrc {
-    fn from(expr: ast::EventExpression<'_>) -> Self {
-        Self::from_ast(expr)
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EventExpr {
     Missing,
@@ -68,6 +63,7 @@ pub enum Sensitivity {
 
 pub(crate) struct LowerEventExprCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
     pub(crate) event_exprs: &'a mut Arena<EventExpr>,
     pub(crate) event_expr_srcs: &'a mut SourceMap<EventExprSrc, EventExpr>,
 
@@ -85,6 +81,7 @@ pub(in crate::hir_def) macro impl_lower_event_expr {
             fn event_expr_ctx(&mut self) -> $crate::hir_def::expr::timing_control::LowerEventExprCtx<'_> {
                 $crate::hir_def::expr::timing_control::LowerEventExprCtx {
                     db: self.db,
+                    file_id: self.file_id,
                     event_exprs: &mut self.$($data.)?event_exprs,
                     event_expr_srcs: &mut self.$($src_map.)?event_expr_srcs,
                     exprs: &mut self.$($data.)?exprs,
@@ -101,6 +98,7 @@ impl LowerEventExprCtx<'_> {
     pub(crate) fn lower_event_expr(&mut self, event_expr: ast::EventExpression) -> EventExprId {
         let hir_event_expr = self.lower_event_expr_inner(event_expr);
         alloc_idx_and_src! {
+            self.file_id;
             hir_event_expr => self.event_exprs,
             event_expr => self.event_expr_srcs,
         }

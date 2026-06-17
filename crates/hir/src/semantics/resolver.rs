@@ -8,9 +8,11 @@ use crate::{
     hir_def::{
         expr::{ExprId, ExprSrc},
         module::instantiation::{
-            InstanceId, InstanceSrc, InstantiationId, InstantiationSrc, PortConnId, PortConnSrc,
+            HierarchyInstantiationAst, InstanceId, InstanceSrc, InstantiationId, InstantiationSrc,
+            PortConnId, PortConnSrc,
         },
     },
+    source_map::AstId,
 };
 
 impl SemanticsImpl<'_> {
@@ -26,7 +28,7 @@ impl SemanticsImpl<'_> {
             return None;
         };
 
-        let src = InstanceSrc::from(instance);
+        let src = InstanceSrc::from_ast(file_id, instance);
         let (_, module_src_map) = db.module_with_source_map(module_id);
         let instance_id = module_src_map.get(src)?;
         Some(InModule::new(module_id, instance_id))
@@ -44,7 +46,9 @@ impl SemanticsImpl<'_> {
             return None;
         };
 
-        let src = InstantiationSrc::from(instantiation);
+        let src = InstantiationSrc::HierarchyInstantiation(
+            AstId::<HierarchyInstantiationAst>::from_ast(file_id, instantiation),
+        );
         let (_, module_src_map) = db.module_with_source_map(module_id);
         let instantiation_id = module_src_map.get(src)?;
         Some(InModule::new(module_id, instantiation_id))
@@ -62,7 +66,7 @@ impl SemanticsImpl<'_> {
             return None;
         };
 
-        let src = PortConnSrc::from(conn);
+        let src = PortConnSrc::from_ast(file_id, conn);
         let (_, module_src_map) = db.module_with_source_map(module_id);
         let conn_id = module_src_map.get(src)?;
         Some(InModule::new(module_id, conn_id))
@@ -77,7 +81,7 @@ impl SemanticsImpl<'_> {
         let container_id = self.find_container(InFile::new(file_id, expr.syntax()));
         let src_map = container_id.to_container_src_map(db);
 
-        let expr_src = ExprSrc::from(expr);
+        let expr_src = ExprSrc::from_ast(file_id, expr);
         let expr_id = src_map.get(expr_src)?;
         Some(InContainer::new(container_id, expr_id))
     }

@@ -55,12 +55,6 @@ impl AstKind for ProceduralBlockAst {
 
 pub type ProcSrc = AstId<ProceduralBlockAst>;
 
-impl From<ast::ProceduralBlock<'_>> for ProcSrc {
-    fn from(proc: ast::ProceduralBlock<'_>) -> Self {
-        Self::from_ast(proc)
-    }
-}
-
 pub(crate) trait LowerProc: LowerStmt {
     fn proc_ctx(&mut self) -> LowerProcCtx<'_>;
 }
@@ -106,6 +100,7 @@ impl LowerProcCtx<'_> {
         let stmt = self.stmt_ctx().lower_stmt(proc.statement());
 
         alloc_idx_and_src! {
+            self.file_id;
             Proc { proc_ty, stmt } => self.procs,
             proc => self.proc_srcs,
         }

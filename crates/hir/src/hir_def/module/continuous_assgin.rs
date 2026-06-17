@@ -4,6 +4,7 @@ use syntax::ast;
 
 use crate::{
     db::InternDb,
+    file::HirFileId,
     hir_def::{
         alloc_idx_and_src,
         expr::{
@@ -36,14 +37,9 @@ impl AstKind for ContinuousAssignAst {
 
 pub type ContAssignSrc = AstId<ContinuousAssignAst>;
 
-impl From<ast::ContinuousAssign<'_>> for ContAssignSrc {
-    fn from(assign: ast::ContinuousAssign<'_>) -> Self {
-        Self::from_ast(assign)
-    }
-}
-
 pub(crate) struct LowerContAssignCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
+    pub(crate) file_id: HirFileId,
 
     pub(crate) cont_assigns: &'a mut Arena<ContAssign>,
     pub(crate) assign_srcs: &'a mut SourceMap<ContAssignSrc, ContAssign>,
@@ -66,6 +62,7 @@ pub(in crate::hir_def) macro impl_lower_cont_assign($ctx:ty, $data:ident, $src_m
         ) -> $crate::hir_def::module::continuous_assgin::LowerContAssignCtx<'_> {
             $crate::hir_def::module::continuous_assgin::LowerContAssignCtx {
                 db: self.db,
+                file_id: self.file_id,
                 cont_assigns: &mut self.$data.cont_assigns,
                 assign_srcs: &mut self.$src_map.assign_srcs,
                 exprs: &mut self.$data.exprs,
@@ -101,6 +98,7 @@ impl LowerContAssignCtx<'_> {
 
         let continuous_assign = ContAssign { strength, delay, assigns };
         alloc_idx_and_src! {
+            self.file_id;
             continuous_assign => self.cont_assigns,
             assign => self.assign_srcs,
         }
