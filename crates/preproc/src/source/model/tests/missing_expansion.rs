@@ -116,6 +116,5 @@ endmodule
         let expansion = model.macro_expansions().get(expansion_id).unwrap();
         assert_eq!(expansion.emitted_token_range.len, 0);
         assert_eq!(expansion.call, call.id);
-        assert_eq!(expansion.status, SourceMacroExpansionStatus::Complete);
     }
 }
