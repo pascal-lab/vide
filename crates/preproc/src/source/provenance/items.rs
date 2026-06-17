@@ -190,7 +190,7 @@ pub struct SourceEmittedToken {
     pub display: SmolStr,
     pub kind: SourceTokenKind,
     pub emitted_range: SourceEmittedTokenRange,
-    pub provenance: SourceTokenProvenanceId,
+    pub provenance: Option<SourceTokenProvenanceId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,7 +227,6 @@ pub enum SourceTokenProvenance {
         identity: SourceMacroBuiltinIdentity,
         call: SourceMacroCallId,
     },
-    Unavailable(()),
 }
 
 pub(in crate::source::provenance) struct EmittedTokenMacroCall {

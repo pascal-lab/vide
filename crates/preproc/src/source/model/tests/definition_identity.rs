@@ -111,7 +111,7 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
     let model = SourcePreprocModel::from_trace(trace).unwrap();
     let emitted = model.emitted_tokens().iter().find(|token| token.text == "2").unwrap();
     let SourceTokenProvenance::MacroBody { definition, call, identity, .. } =
-        model.token_provenance().get(emitted.provenance).unwrap()
+        model.token_provenance().get(emitted.provenance.unwrap()).unwrap()
     else {
         panic!("colliding range token should still resolve through direct body identity");
     };

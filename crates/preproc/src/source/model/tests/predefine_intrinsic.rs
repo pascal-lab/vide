@@ -21,7 +21,7 @@ endmodule
         .find(|token| token.text.as_str() == "11")
         .expect("predefine expansion token should be emitted");
     let SourceTokenProvenance::Predefine { source } =
-        model.token_provenance().get(predefine.provenance).unwrap()
+        model.token_provenance().get(predefine.provenance.unwrap()).unwrap()
     else {
         panic!("configured predefine token should map to Predefine provenance");
     };
@@ -35,7 +35,7 @@ endmodule
         .find(|token| token.text.as_str() == "3")
         .expect("intrinsic macro token should stay in emitted stream");
     let SourceTokenProvenance::Builtin { name, call, identity } =
-        model.token_provenance().get(intrinsic.provenance).unwrap()
+        model.token_provenance().get(intrinsic.provenance.unwrap()).unwrap()
     else {
         panic!("intrinsic macro token should have builtin provenance");
     };

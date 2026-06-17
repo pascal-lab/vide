@@ -75,10 +75,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
 
     let model = SourcePreprocModel::new(index);
     let emitted = model.emitted_tokens().iter().next().unwrap();
-    assert!(matches!(
-        model.token_provenance().get(emitted.provenance).unwrap(),
-        SourceTokenProvenance::Unavailable(())
-    ));
+    assert_eq!(emitted.provenance, None);
 }
 
 fn source_buffer_range(range: SourceRange) -> SourceBufferRange {

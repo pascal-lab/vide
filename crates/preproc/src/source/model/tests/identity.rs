@@ -56,7 +56,7 @@ endmodule
         .iter()
         .find_map(|token| {
             let SourceTokenProvenance::MacroBody { call, identity, body_token_range, .. } =
-                model.token_provenance().get(token.provenance)?
+                model.token_provenance().get(token.provenance?)?
             else {
                 return None;
             };
@@ -87,7 +87,7 @@ endmodule
                 argument_index,
                 body_token_range,
                 argument_token_range,
-            } = model.token_provenance().get(token.provenance)?
+            } = model.token_provenance().get(token.provenance?)?
             else {
                 return None;
             };
@@ -110,7 +110,7 @@ endmodule
                 argument_index,
                 body_token_range,
                 argument_token_range,
-            } = model.token_provenance().get(token.provenance)?
+            } = model.token_provenance().get(token.provenance?)?
             else {
                 return None;
             };
