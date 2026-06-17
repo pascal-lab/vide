@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn resolve_visible_reference(
         &mut self,
         name: &str,
@@ -34,7 +34,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         position: SourcePosition,
     ) -> SourceMacroResolution {
         let Some(definition) = self
-            .tables
+            .model
             .state_timeline
             .state_at_position(position)
             .and_then(|state| state.definitions.get(name).copied())
@@ -50,7 +50,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         reason: SourceMacroResolutionReason,
     ) -> SourceMacroResolution {
         let definition_source = self
-            .tables
+            .model
             .macro_definitions
             .get(definition)
             .expect("definition id should point at inserted definition")
@@ -62,7 +62,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             }
             Err(source) => {
                 self.references_partial = true;
-                self.tables.issues.push(SourcePreprocIssue::DetachedSource { source });
+                self.model.issues.push(SourcePreprocIssue::DetachedSource { source });
                 SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
                     source,
                 })
@@ -79,6 +79,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
         loop {
             let source = self
+                .model
                 .index
                 .sources
                 .iter()
@@ -92,7 +93,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 }
                 PreprocSourceOrigin::Included { include_event_id } => {
                     let directive = self
-                        .tables
+                        .model
                         .include_graph
                         .directives()
                         .iter()
@@ -117,24 +118,24 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         conditional_index: usize,
         name: &str,
     ) -> Option<SourceMacroDefinitionId> {
-        let conditional = self.index.conditionals.get(conditional_index)?;
+        let conditional = self.model.index.conditionals.get(conditional_index)?;
         if conditional.kind != MacroConditionalKind::IfNDef {
             return None;
         }
 
         let source = conditional.range.source;
         let (conditional_order, _) =
-            self.index.event_records.iter().enumerate().find(|(_, directive)| {
+            self.model.index.event_records.iter().enumerate().find(|(_, directive)| {
                 directive.kind == MacroEventKind::Conditional
                     && directive.index == conditional_index
             })?;
-        for directive in self.index.event_records.iter().skip(conditional_order + 1) {
+        for directive in self.model.index.event_records.iter().skip(conditional_order + 1) {
             if directive.range.source != source {
                 continue;
             }
             match directive.kind {
                 MacroEventKind::Define => {
-                    let define = self.index.defines.get(directive.index)?;
+                    let define = self.model.index.defines.get(directive.index)?;
                     if define.name.as_deref() == Some(name) {
                         return self.definition_ids_by_define_index.get(&directive.index).copied();
                     }
@@ -154,7 +155,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         event_id: SourcePreprocEventId,
     ) {
         self.references_partial = true;
-        self.tables.issues.push(SourcePreprocIssue::MissingReferenceName { event_id });
+        self.model.issues.push(SourcePreprocIssue::MissingReferenceName { event_id });
     }
 
     pub(in crate::source::provenance::builder) fn record_missing_reference_name_range(
@@ -162,7 +163,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         event_id: SourcePreprocEventId,
     ) {
         self.references_partial = true;
-        self.tables.issues.push(SourcePreprocIssue::MissingReferenceNameRange { event_id });
+        self.model.issues.push(SourcePreprocIssue::MissingReferenceNameRange { event_id });
     }
 
     pub(in crate::source::provenance::builder) fn record_state_checkpoint(
@@ -170,12 +171,12 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         source_order: usize,
         boundary: SourcePosition,
     ) {
-        let id = SourceMacroStateId::new(self.tables.state_timeline.states.len());
-        self.tables
+        let id = SourceMacroStateId::new(self.model.state_timeline.states.len());
+        self.model
             .state_timeline
             .states
             .push(SourceMacroState { id, definitions: self.current_state.clone() });
-        self.tables.state_timeline.checkpoints.push(SourceMacroStateCheckpoint {
+        self.model.state_timeline.checkpoints.push(SourceMacroStateCheckpoint {
             source_order,
             boundary,
             state: id,

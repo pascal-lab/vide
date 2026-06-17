@@ -1,8 +1,9 @@
 use super::*;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn scan_references_and_state(&mut self) {
-        for (source_order, directive) in self.index.event_records.iter().enumerate() {
+        let event_records = self.model.index.event_records.clone();
+        for (source_order, directive) in event_records.iter().enumerate() {
             match directive.kind {
                 MacroEventKind::Define => self.apply_define(source_order, directive),
                 MacroEventKind::Undef => self.apply_undef(source_order, directive),
@@ -20,7 +21,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     ) {
         if let Some(definition_id) = self.definition_ids_by_define_index.get(&directive.index) {
             let definition = self
-                .tables
+                .model
                 .macro_definitions
                 .get(*definition_id)
                 .expect("definition id should point at inserted definition");
@@ -34,7 +35,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         source_order: usize,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(undef) = self.index.undefs.get(directive.index) else {
+        let Some(undef) = self.model.index.undefs.get(directive.index) else {
             return;
         };
         if let Some(name) = undef.name.as_ref() {
@@ -47,7 +48,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(usage) = self.index.usages.get(directive.index) else {
+        let Some(usage) = self.model.index.usages.get(directive.index).cloned() else {
             return;
         };
         let Some(name) = usage.name.clone() else {
@@ -90,7 +91,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         &mut self,
         directive: &SourcePreprocEventRecord,
     ) {
-        let Some(conditional) = self.index.conditionals.get(directive.index) else {
+        let Some(conditional) = self.model.index.conditionals.get(directive.index).cloned() else {
             return;
         };
         let event_id = conditional.event_id;
@@ -148,8 +149,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         directive_range: SourceRange,
         resolution: SourceMacroResolution,
     ) -> SourceMacroReferenceId {
-        let id = SourceMacroReferenceId::new(self.tables.macro_references.len());
-        self.tables.macro_references.push(SourceMacroReference {
+        let id = SourceMacroReferenceId::new(self.model.macro_references.len());
+        self.model.macro_references.push(SourceMacroReference {
             id,
             event_id,
             site,
@@ -170,8 +171,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         expansion_identity: Option<MacroExpansionId>,
         parent_expansion_identity: Option<MacroExpansionId>,
     ) -> SourceMacroCallId {
-        let id = SourceMacroCallId::new(self.tables.macro_calls.len());
-        self.tables.macro_calls.push(SourceMacroCall {
+        let id = SourceMacroCallId::new(self.model.macro_calls.len());
+        self.model.macro_calls.push(SourceMacroCall {
             id,
             identity,
             expansion_identity,

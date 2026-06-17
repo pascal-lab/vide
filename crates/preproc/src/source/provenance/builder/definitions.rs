@@ -1,25 +1,25 @@
 use super::*;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn build_definition_table(&mut self) {
-        for (define_index, define) in self.index.defines.iter().enumerate() {
+        for (define_index, define) in self.model.index.defines.iter().enumerate() {
             let Some(name) = define.name.clone() else {
                 self.definition_ranges_partial = true;
-                self.tables
+                self.model
                     .issues
                     .push(SourcePreprocIssue::MissingDefinitionName { event_id: define.event_id });
                 continue;
             };
             let Some(name_range) = define.name_range else {
                 self.definition_ranges_partial = true;
-                self.tables.issues.push(SourcePreprocIssue::MissingDefinitionNameRange {
+                self.model.issues.push(SourcePreprocIssue::MissingDefinitionNameRange {
                     event_id: define.event_id,
                 });
                 continue;
             };
 
-            let id = SourceMacroDefinitionId::new(self.tables.macro_definitions.len());
-            self.tables.macro_definitions.push(SourceMacroDefinition {
+            let id = SourceMacroDefinitionId::new(self.model.macro_definitions.len());
+            self.model.macro_definitions.push(SourceMacroDefinition {
                 id,
                 event_id: define.event_id,
                 identity: define.identity,

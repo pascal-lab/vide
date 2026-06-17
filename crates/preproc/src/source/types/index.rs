@@ -1,5 +1,9 @@
 use super::*;
-use crate::source::provenance::SourcePreprocTables;
+use crate::source::provenance::{
+    SourceEmittedTokenTable, SourceIncludeGraph, SourceMacroCallTable, SourceMacroDefinitionTable,
+    SourceMacroExpansionTable, SourceMacroReferenceTable, SourceMacroStateTimeline,
+    SourcePreprocIssue, SourceTokenProvenanceTable,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourcePreprocIndex {
@@ -19,5 +23,14 @@ pub struct SourcePreprocIndex {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePreprocModel {
     pub(in crate::source) index: SourcePreprocIndex,
-    pub(in crate::source) tables: SourcePreprocTables,
+    pub(in crate::source) macro_definitions: SourceMacroDefinitionTable,
+    pub(in crate::source) macro_references: SourceMacroReferenceTable,
+    pub(in crate::source) macro_calls: SourceMacroCallTable,
+    pub(in crate::source) macro_expansions: SourceMacroExpansionTable,
+    pub(in crate::source) emitted_tokens: SourceEmittedTokenTable,
+    pub(in crate::source) token_provenance: SourceTokenProvenanceTable,
+    pub(in crate::source) include_graph: SourceIncludeGraph,
+    pub(in crate::source) inactive_ranges: Vec<SourceRange>,
+    pub(in crate::source) state_timeline: SourceMacroStateTimeline,
+    pub(in crate::source) issues: Vec<SourcePreprocIssue>,
 }

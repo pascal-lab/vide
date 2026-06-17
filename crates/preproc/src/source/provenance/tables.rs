@@ -1,19 +1,5 @@
 use super::*;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SourcePreprocTables {
-    pub macro_definitions: SourceMacroDefinitionTable,
-    pub macro_references: SourceMacroReferenceTable,
-    pub macro_calls: SourceMacroCallTable,
-    pub macro_expansions: SourceMacroExpansionTable,
-    pub emitted_tokens: SourceEmittedTokenTable,
-    pub token_provenance: SourceTokenProvenanceTable,
-    pub include_graph: SourceIncludeGraph,
-    pub inactive_ranges: Vec<SourceRange>,
-    pub state_timeline: SourceMacroStateTimeline,
-    pub issues: Vec<SourcePreprocIssue>,
-}
-
 source_table!(
     SourceMacroDefinitionTable,
     definitions,

@@ -6,20 +6,19 @@ pub(in crate::source::provenance::builder) enum MacroOperationProvenanceKind {
     Stringification,
 }
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn build_emitted_token_tables(&mut self) {
-        for index in 0..self.index.emitted_tokens.len() {
-            let token = self.index.emitted_tokens[index].clone();
-            let token_id = SourceEmittedTokenId::new(self.tables.emitted_tokens.len());
+        for index in 0..self.model.index.emitted_tokens.len() {
+            let token = self.model.index.emitted_tokens[index].clone();
+            let token_id = SourceEmittedTokenId::new(self.model.emitted_tokens.len());
             let provenance = self.resolve_emitted_token_provenance(token_id, &token);
             let provenance_id = provenance.map(|provenance| {
-                let provenance_id =
-                    SourceTokenProvenanceId::new(self.tables.token_provenance.len());
-                self.tables.token_provenance.push(provenance);
+                let provenance_id = SourceTokenProvenanceId::new(self.model.token_provenance.len());
+                self.model.token_provenance.push(provenance);
                 provenance_id
             });
 
-            self.tables.emitted_tokens.push(SourceEmittedToken {
+            self.model.emitted_tokens.push(SourceEmittedToken {
                 id: token_id,
                 text: token.raw,
                 display: token.display,

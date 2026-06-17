@@ -1,14 +1,14 @@
 use super::*;
 
-impl<'a> SourcePreprocModelBuilder<'a> {
+impl SourcePreprocModelBuilder {
     pub(in crate::source::provenance::builder) fn build_macro_expansion_graph(&mut self) {
-        if self.tables.macro_calls.is_empty() {
+        if self.model.macro_calls.is_empty() {
             return;
         }
 
         let direct_tokens_by_call = self.direct_owned_emitted_tokens_by_call();
         let child_calls_by_parent = self.child_calls_by_parent();
-        let call_ids = self.tables.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
+        let call_ids = self.model.macro_calls.iter().map(|call| call.id).collect::<Vec<_>>();
         let mut expansion_tokens_by_call = BTreeMap::new();
         let mut recursive_tokens_by_call = BTreeMap::new();
         for call in &call_ids {
@@ -26,7 +26,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         for call in call_ids {
             let tokens = expansion_tokens_by_call.remove(&call).unwrap_or_default();
             let Some(expansion_identity) =
-                self.tables.macro_calls.get(call).and_then(|call| call.expansion_identity)
+                self.model.macro_calls.get(call).and_then(|call| call.expansion_identity)
             else {
                 self.mark_call_unavailable(
                     call,
@@ -35,7 +35,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 continue;
             };
             let Some(emitted_token_range) = tokens.contiguous_emitted_range(
-                SourceEmittedTokenId::new(self.tables.emitted_tokens.len()),
+                SourceEmittedTokenId::new(self.model.emitted_tokens.len()),
             ) else {
                 self.mark_call_unavailable(
                     call,
@@ -52,8 +52,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 continue;
             };
 
-            let expansion = SourceMacroExpansionId::new(self.tables.macro_expansions.len());
-            self.tables.macro_expansions.push(SourceMacroExpansion {
+            let expansion = SourceMacroExpansionId::new(self.model.macro_expansions.len());
+            self.model.macro_expansions.push(SourceMacroExpansion {
                 id: expansion,
                 identity: Some(expansion_identity),
                 call,
@@ -62,7 +62,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
                 child_calls: child_calls_by_parent.get(&call).cloned().unwrap_or_default(),
                 status: SourceMacroExpansionStatus::Complete,
             });
-            if let Some(call) = self.tables.macro_calls.get_mut(call) {
+            if let Some(call) = self.model.macro_calls.get_mut(call) {
                 call.expansion = Some(expansion);
                 call.status = SourceMacroCallStatus::ExpansionAvailable;
             }
@@ -72,12 +72,12 @@ impl<'a> SourcePreprocModelBuilder<'a> {
     pub(in crate::source::provenance::builder) fn record_macro_body_references_for_calls(
         &mut self,
     ) {
-        let calls = self.tables.macro_calls.iter().cloned().collect::<Vec<_>>();
+        let calls = self.model.macro_calls.iter().cloned().collect::<Vec<_>>();
         for call in calls {
             let SourceMacroResolution::Resolved { definition, .. } = call.callee else {
                 continue;
             };
-            let Some(definition) = self.tables.macro_definitions.get(definition).cloned() else {
+            let Some(definition) = self.model.macro_definitions.get(definition).cloned() else {
                 continue;
             };
             let call_position = SourcePosition {
