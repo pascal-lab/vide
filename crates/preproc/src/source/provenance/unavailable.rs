@@ -12,7 +12,7 @@ pub enum SourcePreprocUnavailable {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourcePreprocFactIssue {
+pub enum SourcePreprocIssue {
     MissingDefinitionName { event_id: SourcePreprocEventId },
     MissingDefinitionNameRange { event_id: SourcePreprocEventId },
     MissingReferenceName { event_id: SourcePreprocEventId },

@@ -105,9 +105,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         for source in &self.index.sources {
             if source.origin == PreprocSourceOrigin::Detached {
                 self.include_edges_partial = true;
-                self.tables
-                    .issues
-                    .push(SourcePreprocFactIssue::DetachedSource { source: source.id });
+                self.tables.issues.push(SourcePreprocIssue::DetachedSource { source: source.id });
             }
         }
 

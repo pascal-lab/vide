@@ -9,7 +9,7 @@ pub enum SourceTokenKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceEmittedTokenFact {
+pub struct SourceEmittedTokenRecord {
     pub raw: SmolStr,
     pub value: SmolStr,
     pub display: SmolStr,

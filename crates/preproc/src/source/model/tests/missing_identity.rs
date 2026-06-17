@@ -28,7 +28,7 @@ fn source_model_marks_missing_direct_identity_partial_without_range_fallback() {
                 index: 0,
             },
         ],
-        emitted_tokens: vec![SourceEmittedTokenFact {
+        emitted_tokens: vec![SourceEmittedTokenRecord {
             raw: SmolStr::new("1"),
             value: SmolStr::new("1"),
             display: SmolStr::new("1"),

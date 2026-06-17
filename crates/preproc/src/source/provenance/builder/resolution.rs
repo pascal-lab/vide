@@ -62,7 +62,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
             }
             Err(source) => {
                 self.references_partial = true;
-                self.tables.issues.push(SourcePreprocFactIssue::DetachedSource { source });
+                self.tables.issues.push(SourcePreprocIssue::DetachedSource { source });
                 SourceMacroResolution::Unavailable(SourcePreprocUnavailable::DetachedSource {
                     source,
                 })
@@ -154,7 +154,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         event_id: SourcePreprocEventId,
     ) {
         self.references_partial = true;
-        self.tables.issues.push(SourcePreprocFactIssue::MissingReferenceName { event_id });
+        self.tables.issues.push(SourcePreprocIssue::MissingReferenceName { event_id });
     }
 
     pub(in crate::source::provenance::builder) fn record_missing_reference_name_range(
@@ -162,7 +162,7 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         event_id: SourcePreprocEventId,
     ) {
         self.references_partial = true;
-        self.tables.issues.push(SourcePreprocFactIssue::MissingReferenceNameRange { event_id });
+        self.tables.issues.push(SourcePreprocIssue::MissingReferenceNameRange { event_id });
     }
 
     pub(in crate::source::provenance::builder) fn record_state_checkpoint(

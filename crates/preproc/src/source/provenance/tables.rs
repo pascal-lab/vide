@@ -11,7 +11,7 @@ pub struct SourcePreprocTables {
     pub include_graph: SourceIncludeGraph,
     pub inactive_ranges: Vec<SourceRange>,
     pub state_timeline: SourceMacroStateTimeline,
-    pub issues: Vec<SourcePreprocFactIssue>,
+    pub issues: Vec<SourcePreprocIssue>,
 }
 
 source_table!(

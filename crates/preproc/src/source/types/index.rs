@@ -7,7 +7,7 @@ pub struct SourcePreprocIndex {
     pub sources: Vec<PreprocSource>,
     pub include_edges: Vec<SourceIncludeEdge>,
     pub event_records: Vec<SourcePreprocEventRecord>,
-    pub emitted_tokens: Vec<SourceEmittedTokenFact>,
+    pub emitted_tokens: Vec<SourceEmittedTokenRecord>,
     pub defines: Vec<SourceMacroDefine>,
     pub undefs: Vec<SourceMacroUndef>,
     pub includes: Vec<SourceMacroInclude>,
