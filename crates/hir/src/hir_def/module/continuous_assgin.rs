@@ -4,7 +4,6 @@ use syntax::ast;
 
 use crate::{
     db::InternDb,
-    define_src,
     hir_def::{
         alloc_idx_and_src,
         expr::{
@@ -16,7 +15,7 @@ use crate::{
         },
         ty::{DriveStrength, lower_drive_strength},
     },
-    source_map::SourceMap,
+    source_map::{AstId, AstKind, SourceMap},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -27,7 +26,21 @@ pub struct ContAssign {
 }
 
 pub type ContAssignId = Idx<ContAssign>;
-define_src!(ContAssignSrc(ast::ContinuousAssign));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ContinuousAssignAst;
+
+impl AstKind for ContinuousAssignAst {
+    type Node<'a> = ast::ContinuousAssign<'a>;
+}
+
+pub type ContAssignSrc = AstId<ContinuousAssignAst>;
+
+impl From<ast::ContinuousAssign<'_>> for ContAssignSrc {
+    fn from(assign: ast::ContinuousAssign<'_>) -> Self {
+        Self::from_ast(assign)
+    }
+}
 
 pub(crate) struct LowerContAssignCtx<'a> {
     pub(crate) db: &'a dyn InternDb,

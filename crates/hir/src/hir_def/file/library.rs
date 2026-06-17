@@ -1,7 +1,10 @@
 use la_arena::Idx;
 use syntax::ast;
 
-use crate::{define_src, define_src_with_name, hir_def::Ident};
+use crate::{
+    hir_def::Ident,
+    source_map::{AstId, AstKind, NamedAstId},
+};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LibraryDecl {
@@ -9,10 +12,38 @@ pub struct LibraryDecl {
 }
 
 pub type LibraryDeclId = Idx<LibraryDecl>;
-define_src_with_name!(LibraryDeclSrc(ast::LibraryDeclaration));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct LibraryDeclarationAst;
+
+impl AstKind for LibraryDeclarationAst {
+    type Node<'a> = ast::LibraryDeclaration<'a>;
+}
+
+pub type LibraryDeclSrc = NamedAstId<LibraryDeclarationAst>;
+
+impl From<ast::LibraryDeclaration<'_>> for LibraryDeclSrc {
+    fn from(library: ast::LibraryDeclaration<'_>) -> Self {
+        Self::from_ast(library)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct LibraryInclude;
 
 pub type LibraryIncludeId = Idx<LibraryInclude>;
-define_src!(LibraryIncludeSrc(ast::LibraryIncludeStatement));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct LibraryIncludeStatementAst;
+
+impl AstKind for LibraryIncludeStatementAst {
+    type Node<'a> = ast::LibraryIncludeStatement<'a>;
+}
+
+pub type LibraryIncludeSrc = AstId<LibraryIncludeStatementAst>;
+
+impl From<ast::LibraryIncludeStatement<'_>> for LibraryIncludeSrc {
+    fn from(include: ast::LibraryIncludeStatement<'_>) -> Self {
+        Self::from_ast(include)
+    }
+}

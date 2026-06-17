@@ -4,12 +4,11 @@ use syntax::ast::{self, AstNode};
 
 use crate::{
     db::InternDb,
-    define_src,
     hir_def::{
         alloc_idx_and_src,
         expr::{Expr, ExprId, ExprSrc, LowerExpr, impl_lower_expr},
     },
-    source_map::SourceMap,
+    source_map::{AstId, AstKind, SourceMap},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -24,7 +23,21 @@ pub struct DefParamAssignment {
 }
 
 pub type DefParamId = Idx<DefParam>;
-define_src!(DefParamSrc(ast::DefParam));
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct DefParamAst;
+
+impl AstKind for DefParamAst {
+    type Node<'a> = ast::DefParam<'a>;
+}
+
+pub type DefParamSrc = AstId<DefParamAst>;
+
+impl From<ast::DefParam<'_>> for DefParamSrc {
+    fn from(defparam: ast::DefParam<'_>) -> Self {
+        Self::from_ast(defparam)
+    }
+}
 
 pub(crate) struct LowerDefParamCtx<'a> {
     pub(crate) db: &'a dyn InternDb,

@@ -8,7 +8,6 @@ use syntax::{
 use utils::get::{Get, GetRef};
 
 use crate::{
-    define_src, define_src_with_name,
     hir_def::{
         HirData, Ident, alloc_idx_and_src,
         expr::{
@@ -20,7 +19,10 @@ use crate::{
         module::LowerModuleCtx,
         ty::{NetType, lower_net_kind},
     },
-    source_map::SourceMap,
+    source_map::{
+        AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
+        exact_ast_node_from_ptr,
+    },
 };
 
 // structure:
@@ -45,15 +47,108 @@ pub struct PortDecl {
 
 pub type PortDeclId = Idx<PortDecl>;
 
-define_src!(PortDeclSrc(ast::ImplicitAnsiPort, ast::ExplicitAnsiPort, ast::PortDeclaration));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ImplicitAnsiPortAst;
+
+impl AstKind for ImplicitAnsiPortAst {
+    type Node<'a> = ast::ImplicitAnsiPort<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ExplicitAnsiPortAst;
+
+impl AstKind for ExplicitAnsiPortAst {
+    type Node<'a> = ast::ExplicitAnsiPort<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PortDeclarationAst;
+
+impl AstKind for PortDeclarationAst {
+    type Node<'a> = ast::PortDeclaration<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum PortDeclSrc {
+    ImplicitAnsiPort(AstId<ImplicitAnsiPortAst>),
+    ExplicitAnsiPort(AstId<ExplicitAnsiPortAst>),
+    PortDeclaration(AstId<PortDeclarationAst>),
+}
 
 impl PortDeclSrc {
     pub fn ptr(&self) -> SyntaxNodePtr {
         match self {
-            PortDeclSrc::ImplicitAnsiPort(ptr)
-            | PortDeclSrc::ExplicitAnsiPort(ptr)
-            | PortDeclSrc::PortDeclaration(ptr) => *ptr,
+            PortDeclSrc::ImplicitAnsiPort(src) => src.ptr(),
+            PortDeclSrc::ExplicitAnsiPort(src) => src.ptr(),
+            PortDeclSrc::PortDeclaration(src) => src.ptr(),
         }
+    }
+}
+
+impl IsSrc for PortDeclSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        self.ptr().kind()
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        self.ptr().range()
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::ImplicitAnsiPort<'a>> for PortDeclSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ImplicitAnsiPort<'a>> {
+        let PortDeclSrc::ImplicitAnsiPort(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::ExplicitAnsiPort<'a>> for PortDeclSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::ExplicitAnsiPort<'a>> {
+        let PortDeclSrc::ExplicitAnsiPort(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::PortDeclaration<'a>> for PortDeclSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PortDeclaration<'a>> {
+        let PortDeclSrc::PortDeclaration(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl From<ast::ImplicitAnsiPort<'_>> for PortDeclSrc {
+    fn from(port: ast::ImplicitAnsiPort<'_>) -> Self {
+        Self::ImplicitAnsiPort(AstId::from_ast(port))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::ImplicitAnsiPort<'a>> for PortDeclSrc {
+    fn from_source_ast(port: SourceAst<ast::ImplicitAnsiPort<'a>>) -> Self {
+        Self::ImplicitAnsiPort(AstId::from_source_ast(port))
+    }
+}
+
+impl From<ast::ExplicitAnsiPort<'_>> for PortDeclSrc {
+    fn from(port: ast::ExplicitAnsiPort<'_>) -> Self {
+        Self::ExplicitAnsiPort(AstId::from_ast(port))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::ExplicitAnsiPort<'a>> for PortDeclSrc {
+    fn from_source_ast(port: SourceAst<ast::ExplicitAnsiPort<'a>>) -> Self {
+        Self::ExplicitAnsiPort(AstId::from_source_ast(port))
+    }
+}
+
+impl From<ast::PortDeclaration<'_>> for PortDeclSrc {
+    fn from(port: ast::PortDeclaration<'_>) -> Self {
+        Self::PortDeclaration(AstId::from_ast(port))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::PortDeclaration<'a>> for PortDeclSrc {
+    fn from_source_ast(port: SourceAst<ast::PortDeclaration<'a>>) -> Self {
+        Self::PortDeclaration(AstId::from_source_ast(port))
     }
 }
 
@@ -155,7 +250,20 @@ pub struct NonAnsiPort {
 
 pub type NonAnsiPortId = Idx<NonAnsiPort>;
 
-define_src_with_name!(NonAnsiPortSrc(ast::NonAnsiPort));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct NonAnsiPortAst;
+
+impl AstKind for NonAnsiPortAst {
+    type Node<'a> = ast::NonAnsiPort<'a>;
+}
+
+pub type NonAnsiPortSrc = NamedAstId<NonAnsiPortAst>;
+
+impl From<ast::NonAnsiPort<'_>> for NonAnsiPortSrc {
+    fn from(port: ast::NonAnsiPort<'_>) -> Self {
+        Self::from_ast(port)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct PortRef {
@@ -165,7 +273,20 @@ pub struct PortRef {
 
 pub type PortRefId = Idx<PortRef>;
 
-define_src_with_name!(PortRefSrc(ast::PortReference));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PortReferenceAst;
+
+impl AstKind for PortReferenceAst {
+    type Node<'a> = ast::PortReference<'a>;
+}
+
+pub type PortRefSrc = NamedAstId<PortReferenceAst>;
+
+impl From<ast::PortReference<'_>> for PortRefSrc {
+    fn from(reference: ast::PortReference<'_>) -> Self {
+        Self::from_ast(reference)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PortSrcs {
@@ -191,7 +312,108 @@ impl PortSrcs {
     }
 }
 
-define_src!(PortListSrc(ast::NonAnsiPortList, ast::AnsiPortList, ast::WildcardPortList));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct NonAnsiPortListAst;
+
+impl AstKind for NonAnsiPortListAst {
+    type Node<'a> = ast::NonAnsiPortList<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct AnsiPortListAst;
+
+impl AstKind for AnsiPortListAst {
+    type Node<'a> = ast::AnsiPortList<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct WildcardPortListAst;
+
+impl AstKind for WildcardPortListAst {
+    type Node<'a> = ast::WildcardPortList<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum PortListSrc {
+    NonAnsiPortList(AstId<NonAnsiPortListAst>),
+    AnsiPortList(AstId<AnsiPortListAst>),
+    WildcardPortList(AstId<WildcardPortListAst>),
+}
+
+impl IsSrc for PortListSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        match self {
+            PortListSrc::NonAnsiPortList(src) => src.ptr().kind(),
+            PortListSrc::AnsiPortList(src) => src.ptr().kind(),
+            PortListSrc::WildcardPortList(src) => src.ptr().kind(),
+        }
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        match self {
+            PortListSrc::NonAnsiPortList(src) => src.ptr().range(),
+            PortListSrc::AnsiPortList(src) => src.ptr().range(),
+            PortListSrc::WildcardPortList(src) => src.ptr().range(),
+        }
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::NonAnsiPortList<'a>> for PortListSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::NonAnsiPortList<'a>> {
+        let PortListSrc::NonAnsiPortList(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::AnsiPortList<'a>> for PortListSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::AnsiPortList<'a>> {
+        let PortListSrc::AnsiPortList(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::WildcardPortList<'a>> for PortListSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::WildcardPortList<'a>> {
+        let PortListSrc::WildcardPortList(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl From<ast::NonAnsiPortList<'_>> for PortListSrc {
+    fn from(list: ast::NonAnsiPortList<'_>) -> Self {
+        Self::NonAnsiPortList(AstId::from_ast(list))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::NonAnsiPortList<'a>> for PortListSrc {
+    fn from_source_ast(list: SourceAst<ast::NonAnsiPortList<'a>>) -> Self {
+        Self::NonAnsiPortList(AstId::from_source_ast(list))
+    }
+}
+
+impl From<ast::AnsiPortList<'_>> for PortListSrc {
+    fn from(list: ast::AnsiPortList<'_>) -> Self {
+        Self::AnsiPortList(AstId::from_ast(list))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::AnsiPortList<'a>> for PortListSrc {
+    fn from_source_ast(list: SourceAst<ast::AnsiPortList<'a>>) -> Self {
+        Self::AnsiPortList(AstId::from_source_ast(list))
+    }
+}
+
+impl From<ast::WildcardPortList<'_>> for PortListSrc {
+    fn from(list: ast::WildcardPortList<'_>) -> Self {
+        Self::WildcardPortList(AstId::from_ast(list))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::WildcardPortList<'a>> for PortListSrc {
+    fn from_source_ast(list: SourceAst<ast::WildcardPortList<'a>>) -> Self {
+        Self::WildcardPortList(AstId::from_source_ast(list))
+    }
+}
 
 impl Default for PortSrcs {
     fn default() -> Self {
@@ -346,7 +568,7 @@ impl LowerModuleCtx<'_> {
     pub(crate) fn lower_nonansi_port(&mut self, port_list: ast::NonAnsiPortList) {
         let mut ports = Arena::default();
         let mut refs = Arena::default();
-        let mut port_srcs = SourceMap::default();
+        let mut port_srcs: SourceMap<NonAnsiPortSrc, NonAnsiPort> = SourceMap::default();
         let mut ref_srcs: SourceMap<PortRefSrc, PortRef> = SourceMap::default();
 
         for port in port_list.ports().children() {
@@ -415,7 +637,7 @@ impl LowerModuleCtx<'_> {
             if src_name.is_some()
                 && let Some(src) = port_srcs.get(port_id)
             {
-                port_srcs.insert(NonAnsiPortSrc { name: src_name, ..src }, port_id);
+                port_srcs.insert(NonAnsiPortSrc::new(src.node, src_name), port_id);
             }
         }
 

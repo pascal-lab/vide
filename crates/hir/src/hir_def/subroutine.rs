@@ -33,7 +33,6 @@ use crate::{
     base_db::intern::Lookup,
     container::{ContainerId, InFile},
     db::{HirDb, InternDb},
-    define_src_with_name,
     file::HirFileId,
     hir_def::{
         HirData,
@@ -41,7 +40,7 @@ use crate::{
         expr::{declarator::LowerDecl, timing_control::impl_lower_event_expr},
     },
     region_tree::{RegionTree, RegionTreeBuilder},
-    source_map::SourceMap,
+    source_map::{AstKind, NamedAstId, SourceMap},
 };
 
 define_container! {
@@ -131,7 +130,20 @@ pub enum SubroutinePortDir {
     Unknown,
 }
 
-define_src_with_name!(SubroutineSrc(ast::FunctionDeclaration));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct FunctionDeclarationAst;
+
+impl AstKind for FunctionDeclarationAst {
+    type Node<'a> = ast::FunctionDeclaration<'a>;
+}
+
+pub type SubroutineSrc = NamedAstId<FunctionDeclarationAst>;
+
+impl From<ast::FunctionDeclaration<'_>> for SubroutineSrc {
+    fn from(function: ast::FunctionDeclaration<'_>) -> Self {
+        Self::from_ast(function)
+    }
+}
 
 pub type LocalSubroutineId = Idx<Subroutine>;
 

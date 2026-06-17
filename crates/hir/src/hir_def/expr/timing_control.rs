@@ -3,7 +3,11 @@ use smallvec::SmallVec;
 use syntax::{TokenKind, ast};
 
 use super::{Expr, ExprId, ExprSrc, LowerExpr, impl_lower_expr};
-use crate::{db::InternDb, define_src, hir_def::alloc_idx_and_src, source_map::SourceMap};
+use crate::{
+    db::InternDb,
+    hir_def::alloc_idx_and_src,
+    source_map::{AstId, AstKind, SourceMap},
+};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum TimingControl {
@@ -31,7 +35,20 @@ pub enum EventControl {
 
 pub type EventExprId = Idx<EventExpr>;
 
-define_src!(EventExprSrc(ast::EventExpression));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct EventExpressionAst;
+
+impl AstKind for EventExpressionAst {
+    type Node<'a> = ast::EventExpression<'a>;
+}
+
+pub type EventExprSrc = AstId<EventExpressionAst>;
+
+impl From<ast::EventExpression<'_>> for EventExprSrc {
+    fn from(expr: ast::EventExpression<'_>) -> Self {
+        Self::from_ast(expr)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum EventExpr {

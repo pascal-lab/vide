@@ -22,10 +22,9 @@ use super::{
 use crate::{
     container::{ContainerId, InFile},
     db::InternDb,
-    define_src_with_name,
     file::HirFileId,
     hir_def::{alloc_idx_and_src, lower_named_label_opt},
-    source_map::SourceMap,
+    source_map::{AstKind, NamedAstId, SourceMap},
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -76,7 +75,20 @@ pub enum StmtKind {
     Disable(DisableKind),
 }
 
-define_src_with_name!(StmtSrc(ast::Statement));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct StatementAst;
+
+impl AstKind for StatementAst {
+    type Node<'a> = ast::Statement<'a>;
+}
+
+pub type StmtSrc = NamedAstId<StatementAst>;
+
+impl From<ast::Statement<'_>> for StmtSrc {
+    fn from(stmt: ast::Statement<'_>) -> Self {
+        Self::from_ast(stmt)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ProcAssignKind {

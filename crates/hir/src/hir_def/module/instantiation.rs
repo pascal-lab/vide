@@ -4,13 +4,15 @@ use syntax::ast;
 
 use crate::{
     db::InternDb,
-    define_src, define_src_with_name,
     hir_def::{
         HirData, Ident, alloc_idx_and_src,
         expr::{Expr, ExprId, ExprSrc, LowerExpr, data_ty::Dimension, impl_lower_expr},
         lower_ident_opt,
     },
-    source_map::SourceMap,
+    source_map::{
+        AstId, AstKind, FromSourceAst, IsSrc, NamedAstId, SourceAst, SourceMap, ToAstNode,
+        exact_ast_node_from_ptr,
+    },
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -22,13 +24,79 @@ pub struct Instantiation {
 
 pub type InstantiationId = Idx<Instantiation>;
 
-define_src!(InstantiationSrc(ast::HierarchyInstantiation, ast::PrimitiveInstantiation));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct HierarchyInstantiationAst;
+
+impl AstKind for HierarchyInstantiationAst {
+    type Node<'a> = ast::HierarchyInstantiation<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PrimitiveInstantiationAst;
+
+impl AstKind for PrimitiveInstantiationAst {
+    type Node<'a> = ast::PrimitiveInstantiation<'a>;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum InstantiationSrc {
+    HierarchyInstantiation(AstId<HierarchyInstantiationAst>),
+    PrimitiveInstantiation(AstId<PrimitiveInstantiationAst>),
+}
+
+impl IsSrc for InstantiationSrc {
+    fn kind(&self) -> syntax::SyntaxKind {
+        syntax::ptr::SyntaxNodePtr::from(*self).kind()
+    }
+
+    fn range(&self) -> utils::text_edit::TextRange {
+        syntax::ptr::SyntaxNodePtr::from(*self).range()
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::HierarchyInstantiation<'a>> for InstantiationSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::HierarchyInstantiation<'a>> {
+        let InstantiationSrc::HierarchyInstantiation(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl<'a> ToAstNode<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc {
+    fn to_node(&self, tree: &'a syntax::SyntaxTree) -> Option<ast::PrimitiveInstantiation<'a>> {
+        let InstantiationSrc::PrimitiveInstantiation(src) = self else { return None };
+        exact_ast_node_from_ptr(src.ptr(), tree)
+    }
+}
+
+impl From<ast::HierarchyInstantiation<'_>> for InstantiationSrc {
+    fn from(node: ast::HierarchyInstantiation<'_>) -> Self {
+        Self::HierarchyInstantiation(AstId::from_ast(node))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::HierarchyInstantiation<'a>> for InstantiationSrc {
+    fn from_source_ast(node: SourceAst<ast::HierarchyInstantiation<'a>>) -> Self {
+        Self::HierarchyInstantiation(AstId::from_source_ast(node))
+    }
+}
+
+impl From<ast::PrimitiveInstantiation<'_>> for InstantiationSrc {
+    fn from(node: ast::PrimitiveInstantiation<'_>) -> Self {
+        Self::PrimitiveInstantiation(AstId::from_ast(node))
+    }
+}
+
+impl<'a> FromSourceAst<'a, ast::PrimitiveInstantiation<'a>> for InstantiationSrc {
+    fn from_source_ast(node: SourceAst<ast::PrimitiveInstantiation<'a>>) -> Self {
+        Self::PrimitiveInstantiation(AstId::from_source_ast(node))
+    }
+}
 
 impl From<InstantiationSrc> for syntax::ptr::SyntaxNodePtr {
     fn from(src: InstantiationSrc) -> Self {
         match src {
-            InstantiationSrc::HierarchyInstantiation(ptr) => ptr,
-            InstantiationSrc::PrimitiveInstantiation(ptr) => ptr,
+            InstantiationSrc::HierarchyInstantiation(src) => src.ptr(),
+            InstantiationSrc::PrimitiveInstantiation(src) => src.ptr(),
         }
     }
 }
@@ -43,7 +111,20 @@ pub struct Instance {
 
 pub type InstanceId = Idx<Instance>;
 
-define_src_with_name!(InstanceSrc(ast::HierarchicalInstance));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct HierarchicalInstanceAst;
+
+impl AstKind for HierarchicalInstanceAst {
+    type Node<'a> = ast::HierarchicalInstance<'a>;
+}
+
+pub type InstanceSrc = NamedAstId<HierarchicalInstanceAst>;
+
+impl From<ast::HierarchicalInstance<'_>> for InstanceSrc {
+    fn from(instance: ast::HierarchicalInstance<'_>) -> Self {
+        Self::from_ast(instance)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParamAssign {
@@ -53,7 +134,20 @@ pub enum ParamAssign {
 
 pub type ParamAssignId = Idx<ParamAssign>;
 
-define_src_with_name!(ParamAssignSrc(ast::ParamAssignment));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct ParamAssignmentAst;
+
+impl AstKind for ParamAssignmentAst {
+    type Node<'a> = ast::ParamAssignment<'a>;
+}
+
+pub type ParamAssignSrc = NamedAstId<ParamAssignmentAst>;
+
+impl From<ast::ParamAssignment<'_>> for ParamAssignSrc {
+    fn from(assign: ast::ParamAssignment<'_>) -> Self {
+        Self::from_ast(assign)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum PortConn {
@@ -65,7 +159,20 @@ pub enum PortConn {
 
 pub type PortConnId = Idx<PortConn>;
 
-define_src_with_name!(PortConnSrc(ast::PortConnection));
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct PortConnectionAst;
+
+impl AstKind for PortConnectionAst {
+    type Node<'a> = ast::PortConnection<'a>;
+}
+
+pub type PortConnSrc = NamedAstId<PortConnectionAst>;
+
+impl From<ast::PortConnection<'_>> for PortConnSrc {
+    fn from(conn: ast::PortConnection<'_>) -> Self {
+        Self::from_ast(conn)
+    }
+}
 
 pub(crate) struct LowerInstantiationCtx<'a> {
     pub(crate) db: &'a dyn InternDb,
