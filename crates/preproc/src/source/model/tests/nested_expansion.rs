@@ -183,9 +183,6 @@ endmodule
         model.macro_calls().get(*stringification_call).and_then(|call| call.identity)
     );
     assert_ne!(paste_call, stringification_call);
-    assert_eq!(model.capabilities().emitted_tokens, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
     for call in [*paste_call, *stringification_call] {
         let SourceMacroExpansionQuery::Available(expansion) = model.immediate_macro_expansion(call)
         else {

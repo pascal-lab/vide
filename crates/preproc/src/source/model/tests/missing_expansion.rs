@@ -84,7 +84,6 @@ fn source_model_does_not_create_expansion_without_emitted_token_authority() {
             SourcePreprocUnavailable::MissingEmittedTokenMacroExpansionIdentity { .. }
         )
     ));
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Partial);
 }
 
 #[test]
@@ -119,5 +118,4 @@ endmodule
         assert_eq!(expansion.call, call.id);
         assert_eq!(expansion.status, SourceMacroExpansionStatus::Complete);
     }
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
 }

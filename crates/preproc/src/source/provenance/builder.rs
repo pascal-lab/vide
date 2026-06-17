@@ -65,22 +65,6 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         self.build_emitted_token_tables();
         self.build_macro_expansion_graph();
         self.record_macro_body_references_for_calls();
-        let macro_expansions = if self.tables.macro_calls.is_empty() {
-            CapabilityStatus::Complete
-        } else {
-            partial_status(self.expansions_partial)
-        };
-        self.tables.capabilities = SourcePreprocCapabilities {
-            source_events: CapabilityStatus::Complete,
-            definition_name_ranges: partial_status(self.definition_ranges_partial),
-            include_edges: partial_status(self.include_edges_partial),
-            inactive_ranges: CapabilityStatus::Complete,
-            macro_reference_resolution: partial_status(self.references_partial),
-            macro_calls: partial_status(self.references_partial || self.macro_calls_partial),
-            macro_expansions,
-            emitted_tokens: CapabilityStatus::Complete,
-            emitted_token_provenance: partial_status(self.token_provenance_partial),
-        };
     }
 }
 
@@ -104,8 +88,4 @@ pub(in crate::source::provenance::builder) fn boundary_after(
     directive_range: SourceRange,
 ) -> SourcePosition {
     SourcePosition { source: directive_range.source, offset: directive_range.range.end() }
-}
-
-fn partial_status(is_partial: bool) -> CapabilityStatus {
-    if is_partial { CapabilityStatus::Partial } else { CapabilityStatus::Complete }
 }

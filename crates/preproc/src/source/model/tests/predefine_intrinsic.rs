@@ -101,8 +101,6 @@ endmodule
         expanded.contains("logic [ ( 12 ) - 1 : 0 ] sample_q"),
         "predefine token should stay inside the parent expansion stream: {expanded}"
     );
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
 }
 
 #[test]
@@ -157,6 +155,4 @@ endmodule
         expanded.contains("trace_q <= ( sample_q ^ { { ( 12 - 1 ) { 1 'b 0 } } , 1 'b 1 } )"),
         "predefine token and following argument tokens should stay inside the parent expansion stream: {expanded}"
     );
-    assert_eq!(model.capabilities().macro_expansions, CapabilityStatus::Complete);
-    assert_eq!(model.capabilities().emitted_token_provenance, CapabilityStatus::Complete);
 }
