@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn macro_generated_declaration_hir_range_resolves_to_diagnostic_provenance() {
+fn macro_generated_declaration_hir_range_resolves_to_diagnostic_target() {
     let root_text = r#"`define MAKE_DECL(name) logic name;
 module top;
 `MAKE_DECL(generated)
@@ -18,14 +18,14 @@ endmodule
         .get(declaration_id)
         .expect("generated declaration should keep a source-map range");
 
-    let provenance =
-        diagnostic_provenance_for_range(&db, TOP, declaration_src.range()).unwrap().unwrap();
+    let target =
+        diagnostic_target_for_range(&db, TOP, declaration_src.range()).unwrap().target.unwrap();
 
-    assert!(matches!(provenance, DiagnosticProvenance::MacroBody { .. }));
+    assert!(matches!(target.origin, crate::hir_def::macro_file::Origin::MacroBody { .. }));
 }
 
 #[test]
-fn diagnostic_provenance_for_range_spanning_two_macro_calls_is_ambiguous() {
+fn diagnostic_target_for_range_spanning_two_macro_calls_fails_closed() {
     let root_text = r#"`define A 1
 `define B 2
 module top;
@@ -35,18 +35,14 @@ endmodule
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
     let range = TextRange::new(offset(root_text, "`A"), offset_after(root_text, "`B"));
 
-    let provenance = diagnostic_provenance_for_range(&db, TOP, range).unwrap().unwrap();
+    let target = diagnostic_target_for_range(&db, TOP, range).unwrap();
 
-    assert!(matches!(
-        provenance,
-        DiagnosticProvenance::Unavailable(PreprocUnavailable::AmbiguousDiagnosticProvenance {
-            targets: 2
-        })
-    ));
+    assert!(target.covered);
+    assert!(target.target.is_none());
 }
 
 #[test]
-fn diagnostic_provenance_for_adjacent_macro_calls_only_hits_intersecting_call() {
+fn diagnostic_target_for_adjacent_macro_calls_only_hits_intersecting_call() {
     let root_text = r#"`define ID(x) x
 module top;
 localparam int W = `ID(1)`ID(2);
@@ -55,20 +51,20 @@ endmodule
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
     let two_range = TextRange::new(offset(root_text, "`ID(2)"), offset_after(root_text, "`ID(2)"));
 
-    let provenance = diagnostic_provenance_for_range(&db, TOP, two_range).unwrap().unwrap();
+    let target = diagnostic_target_for_range(&db, TOP, two_range).unwrap().target.unwrap();
 
-    let DiagnosticProvenance::MacroArgument { call, argument_index, file_id, range } = provenance
+    let crate::hir_def::macro_file::Origin::MacroArg { arg_index, arg_range, .. } = target.origin
     else {
-        panic!("adjacent single-call range should resolve precisely: {provenance:?}");
+        panic!("adjacent single-call range should resolve precisely: {target:?}");
     };
-    assert_eq!(text_at_range(root_text, call.range), "`ID(2)");
-    assert_eq!(argument_index, 0);
-    assert_eq!(file_id, TOP);
-    assert_eq!(text_at_range(root_text, range), "2");
+    assert_eq!(arg_index, 0);
+    assert_eq!(target.file_id, TOP);
+    assert_eq!(text_at_range(root_text, target.range), "2");
+    assert_eq!(arg_range, target.range);
 }
 
 #[test]
-fn diagnostic_provenance_for_nested_macro_call_range_is_precise() {
+fn diagnostic_target_for_nested_macro_call_range_is_precise() {
     let root_text = r#"`define LEAF 3
 `define WRAP `LEAF
 module top;
@@ -78,18 +74,18 @@ endmodule
     let db = db_with_entries(&[(TOP, "rtl/top.v", root_text)]);
     let leaf_range = TextRange::new(offset(root_text, "`LEAF"), offset_after(root_text, "`LEAF"));
 
-    let provenance = diagnostic_provenance_for_range(&db, TOP, leaf_range).unwrap().unwrap();
+    let target = diagnostic_target_for_range(&db, TOP, leaf_range).unwrap().target.unwrap();
 
-    let DiagnosticProvenance::MacroBody { call, file_id, range, .. } = provenance else {
+    let crate::hir_def::macro_file::Origin::MacroBody { body_range, .. } = target.origin else {
         panic!("nested macro call range should resolve precisely");
     };
-    assert_eq!(text_at_range(root_text, call.range), "`LEAF");
-    assert_eq!(file_id, TOP);
-    assert_eq!(text_at_range(root_text, range), "3");
+    assert_eq!(target.file_id, TOP);
+    assert_eq!(text_at_range(root_text, target.range), "3");
+    assert_eq!(body_range, target.range);
 }
 
 #[test]
-fn diagnostic_provenance_returns_unavailable_for_unsupported_expansion_mapping() {
+fn diagnostic_target_returns_none_for_unsupported_expansion_mapping() {
     let root_text = r#"`define JOIN(a,b) a``b
 `define STR(x) `"x`"
 module top;
@@ -101,24 +97,19 @@ endmodule
     let call_range =
         TextRange::new(offset(root_text, "`JOIN"), offset_after(root_text, "`JOIN(foo,bar)"));
 
-    let provenance = diagnostic_provenance_for_range(&db, TOP, call_range).unwrap().unwrap();
-    assert!(
-        matches!(provenance, DiagnosticProvenance::Unavailable(_)),
-        "token paste diagnostic provenance should be unavailable, got {provenance:?}"
-    );
+    let target = diagnostic_target_for_range(&db, TOP, call_range).unwrap();
+    assert!(target.covered);
+    assert!(target.target.is_none(), "token paste diagnostic target should fail closed");
 
     let stringification_range =
         TextRange::new(offset(root_text, "`STR"), offset_after(root_text, "`STR(foo)"));
-    let provenance =
-        diagnostic_provenance_for_range(&db, TOP, stringification_range).unwrap().unwrap();
-    assert!(
-        matches!(provenance, DiagnosticProvenance::Unavailable(_)),
-        "stringification diagnostic provenance should be unavailable, got {provenance:?}"
-    );
+    let target = diagnostic_target_for_range(&db, TOP, stringification_range).unwrap();
+    assert!(target.covered);
+    assert!(target.target.is_none(), "stringification diagnostic target should fail closed");
 }
 
 #[test]
-fn diagnostic_provenance_for_unbacked_predefine_expansion_is_structured_unavailable() {
+fn diagnostic_target_for_unbacked_predefine_expansion_fails_closed() {
     let root_text = r#"module top;
 `MAKE_CHILD
 endmodule
@@ -140,11 +131,8 @@ endmodule
         .get(instantiation_id)
         .expect("generated instantiation should keep a source-map range");
 
-    let provenance =
-        diagnostic_provenance_for_range(&db, TOP, instantiation_src.range()).unwrap().unwrap();
+    let target = diagnostic_target_for_range(&db, TOP, instantiation_src.range()).unwrap();
 
-    assert!(
-        matches!(provenance, DiagnosticProvenance::Unavailable(_)),
-        "unbacked predefine diagnostic provenance should be unavailable, got {provenance:?}"
-    );
+    assert!(target.covered);
+    assert!(target.target.is_none(), "unbacked predefine diagnostic target should fail closed");
 }

@@ -1,21 +1,18 @@
 use super::*;
+use crate::hir_def::macro_file::Origin;
 
-pub(in crate::preproc) fn diagnostic_provenance_for_call(
+pub(in crate::preproc) fn diagnostic_target_for_call(
     mapped: &MappedSourcePreprocModel,
     call_fact: &SourceMacroCall,
-) -> PreprocResult<DiagnosticProvenance> {
+) -> PreprocResult<Option<DiagnosticTarget>> {
     match mapped.model.immediate_macro_expansion(call_fact.id) {
         SourceMacroExpansionQuery::Available(expansion_id) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion_id) else {
-                return Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
-                    SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
-                )));
+                return Ok(None);
             };
             diagnostic_target_for_source_expansion(mapped, expansion)
         }
-        SourceMacroExpansionQuery::Unavailable(reason) => {
-            Ok(DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(reason)))
-        }
+        SourceMacroExpansionQuery::Unavailable(_) => Ok(None),
     }
 }
 
@@ -27,59 +24,83 @@ pub(in crate::preproc) fn emitted_token_ids(
     (start..end).map(SourceEmittedTokenId::new)
 }
 
-pub(in crate::preproc) fn diagnostic_provenance_for_token(
+enum TokenDiagnosticTarget {
+    Target(DiagnosticTarget),
+    Skip,
+    Blocked,
+}
+
+fn diagnostic_target_for_token(
     mapped: &MappedSourcePreprocModel,
     provenance: &SourceTokenProvenance,
-) -> PreprocResult<Option<DiagnosticProvenance>> {
+) -> PreprocResult<TokenDiagnosticTarget> {
     Ok(match provenance {
         SourceTokenProvenance::Source { token_range } => {
             let (source, range) = map_source_mapping_range(mapped, *token_range)?;
             let file_id = require_file_backed_source(&source)?;
-            Some(DiagnosticProvenance::SourceToken { file_id, range })
+            TokenDiagnosticTarget::Target(DiagnosticTarget {
+                origin: Origin::File { file: file_id, range },
+                file_id,
+                range,
+            })
         }
-        SourceTokenProvenance::MacroBody { definition, body_token_range, call, .. } => {
-            let call = mapped_macro_call(mapped, *call)?;
+        SourceTokenProvenance::MacroBody { identity, body_token_range, call, .. } => {
+            let _call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_source_mapping_range(mapped, *body_token_range)?;
             let file_id = require_file_backed_source(&source)?;
-            Some(DiagnosticProvenance::MacroBody {
-                call,
-                definition_id: (*definition).into(),
+            TokenDiagnosticTarget::Target(DiagnosticTarget {
+                origin: Origin::MacroBody {
+                    call: identity.call,
+                    def: identity.definition,
+                    body_range: range,
+                },
                 file_id,
                 range,
             })
         }
         SourceTokenProvenance::MacroArgument {
-            call, argument_index, argument_token_range, ..
+            identity,
+            call,
+            argument_index,
+            argument_token_range,
+            ..
         } => {
-            let call = mapped_macro_call(mapped, *call)?;
+            let _call = mapped_macro_call(mapped, *call)?;
             let Ok((source, range)) = map_source_mapping_range(mapped, *argument_token_range)
             else {
-                return Ok(Some(expansion_authority_unavailable()));
+                return Ok(TokenDiagnosticTarget::Blocked);
             };
             let file_id = require_file_backed_source(&source)?;
-            Some(DiagnosticProvenance::MacroArgument {
-                call,
-                argument_index: *argument_index,
+            TokenDiagnosticTarget::Target(DiagnosticTarget {
+                origin: Origin::MacroArg {
+                    call: identity.call,
+                    arg_index: *argument_index,
+                    arg_range: range,
+                },
                 file_id,
                 range,
             })
         }
         SourceTokenProvenance::TokenPaste { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
-            Some(expansion_authority_unavailable())
+            TokenDiagnosticTarget::Blocked
         }
         SourceTokenProvenance::Stringification { call, .. } => {
             let _call = mapped_macro_call(mapped, *call)?;
-            Some(expansion_authority_unavailable())
+            TokenDiagnosticTarget::Blocked
         }
         SourceTokenProvenance::Predefine { source } => {
             let _source = map_source_mapping_id(mapped, *source)?;
-            None
+            TokenDiagnosticTarget::Skip
         }
-        SourceTokenProvenance::Builtin { name, call, .. } => Some(DiagnosticProvenance::Builtin {
-            name: name.clone(),
-            call: mapped_macro_call(mapped, *call)?,
-        }),
+        SourceTokenProvenance::Builtin { name, identity, call, .. } => {
+            let call = mapped_macro_call(mapped, *call)?;
+            TokenDiagnosticTarget::Target(DiagnosticTarget {
+                origin: Origin::Builtin { call: identity.call, name: name.clone() },
+                file_id: call.file_id,
+                range: call.range,
+            })
+        }
     })
 }
 
@@ -96,8 +117,8 @@ pub(in crate::preproc) fn mapped_macro_call(
 pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
     mapped: &MappedSourcePreprocModel,
     expansion: &SourceMacroExpansion,
-) -> PreprocResult<DiagnosticProvenance> {
-    let mut saw_unavailable = None;
+) -> PreprocResult<Option<DiagnosticTarget>> {
+    let mut saw_unavailable = false;
     for token_id in emitted_token_ids(expansion.emitted_token_range) {
         let Some(token) = mapped.model.emitted_tokens().get(token_id) else {
             return Err(PreprocError::SourceMap(PreprocSourceMapError::MissingEmittedToken {
@@ -107,39 +128,33 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
         let Some(provenance) =
             token.provenance.and_then(|id| mapped.model.token_provenance().get(id))
         else {
-            saw_unavailable = Some(expansion_authority_unavailable_reason());
+            saw_unavailable = true;
             continue;
         };
-        match diagnostic_provenance_for_token(mapped, provenance)? {
-            Some(DiagnosticProvenance::Unavailable(reason)) => {
-                saw_unavailable = Some(reason);
+        match diagnostic_target_for_token(mapped, provenance)? {
+            TokenDiagnosticTarget::Target(target) => return Ok(Some(target)),
+            TokenDiagnosticTarget::Skip => {}
+            TokenDiagnosticTarget::Blocked => {
+                saw_unavailable = true;
             }
-            Some(provenance) => return Ok(provenance),
-            None => {}
         }
     }
 
-    if let Some(reason) = saw_unavailable {
-        return Ok(DiagnosticProvenance::Unavailable(reason));
+    if saw_unavailable {
+        return Ok(None);
     }
 
     let source_buffer_source = map_expansion_source_buffer(mapped, expansion.id)?;
     let PreprocSourceMapping::VirtualFile { file_id, .. } = &source_buffer_source else {
-        return Ok(DiagnosticProvenance::Unavailable(display_only_virtual_expansion_unavailable(
-            &source_buffer_source,
-        )));
+        return Ok(None);
     };
     let source_buffer_range = mapped
         .source_map
         .emitted_source_buffer_range(expansion.id, expansion.emitted_token_range)
         .map_err(PreprocError::SourceMap)?;
-    Ok(DiagnosticProvenance::VirtualExpansion { file_id: *file_id, range: source_buffer_range })
-}
-
-fn expansion_authority_unavailable() -> DiagnosticProvenance {
-    DiagnosticProvenance::Unavailable(expansion_authority_unavailable_reason())
-}
-
-fn expansion_authority_unavailable_reason() -> PreprocUnavailable {
-    PreprocUnavailable::Source(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
+    Ok(Some(DiagnosticTarget {
+        origin: Origin::File { file: *file_id, range: source_buffer_range },
+        file_id: *file_id,
+        range: source_buffer_range,
+    }))
 }

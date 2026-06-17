@@ -9,10 +9,11 @@ use utils::{
     line_index::{TextRange, TextSize},
     uniq_vec::UniqVec,
 };
-use vfs::{FileId, VfsPath};
+use vfs::FileId;
 
-use crate::base_db::source_db::{
-    PreprocSourceMapError, PreprocSourceMapping, PreprocVirtualOrigin, SourcePreprocQueryError,
+use crate::{
+    base_db::source_db::{PreprocSourceMapError, PreprocSourceMapping, SourcePreprocQueryError},
+    hir_def::macro_file::Origin,
 };
 
 mod common;

@@ -35,10 +35,8 @@ pub enum PreprocUnavailable {
     AmbiguousMacroExpansionContexts { contexts: usize },
     AmbiguousMacroParamContexts { contexts: usize },
     AmbiguousMacroDefinitionContexts { contexts: usize },
-    AmbiguousDiagnosticProvenance { targets: usize },
     AmbiguousIncludeTargets { targets: usize },
     PartialPreprocContextIndex { skipped_models: usize },
-    DisplayOnlyVirtualExpansion { path: VfsPath, origin: PreprocVirtualOrigin },
 }
 
 macro_rules! mapped_preproc_id {

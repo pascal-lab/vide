@@ -1,11 +1,12 @@
 use super::*;
 
-pub fn diagnostic_provenance_for_range(
+pub fn diagnostic_target_for_range(
     db: &dyn SourceRootDb,
     file_id: FileId,
     range: TextRange,
-) -> PreprocResult<Option<DiagnosticProvenance>> {
-    let mut provenances = UniqVec::<DiagnosticProvenance, ()>::default();
+) -> PreprocResult<DiagnosticTargetResult> {
+    let mut targets = UniqVec::<DiagnosticTarget, ()>::default();
+    let mut covered = false;
     let mut ambiguous_targets = 0;
     let mut first_error = None;
     let contexts = source_preproc_single_query_contexts(db, file_id);
@@ -23,45 +24,31 @@ pub fn diagnostic_provenance_for_range(
         match call_facts.as_slice() {
             [] => continue,
             [call_fact] => {
-                let provenance = diagnostic_provenance_for_call(mapped, call_fact)?;
-                provenances.push_unique_eq(provenance);
+                covered = true;
+                if let Some(target) = diagnostic_target_for_call(mapped, call_fact)? {
+                    targets.push_unique_eq(target);
+                }
             }
             call_facts => {
+                covered = true;
                 ambiguous_targets += call_facts.len();
             }
         }
     }
 
-    let precise = provenances
-        .as_slice()
-        .iter()
-        .filter(|provenance| !matches!(provenance, DiagnosticProvenance::Unavailable(_)))
-        .cloned()
-        .collect::<Vec<_>>();
     if ambiguous_targets > 0 {
-        return Ok(Some(DiagnosticProvenance::Unavailable(
-            PreprocUnavailable::AmbiguousDiagnosticProvenance {
-                targets: ambiguous_targets + precise.len(),
-            },
-        )));
+        return Ok(DiagnosticTargetResult::covered(None));
     }
-    if precise.len() == 1 {
-        return Ok(Some(precise.into_iter().next().unwrap()));
+    if targets.len() == 1 {
+        return Ok(DiagnosticTargetResult::covered(targets.into_vec().into_iter().next()));
     }
-    if precise.len() > 1 {
-        return Ok(Some(DiagnosticProvenance::Unavailable(
-            PreprocUnavailable::AmbiguousDiagnosticProvenance { targets: precise.len() },
-        )));
+    if targets.len() > 1 {
+        return Ok(DiagnosticTargetResult::covered(None));
     }
-    if provenances.len() == 1 {
-        return Ok(provenances.into_vec().into_iter().next());
-    }
-    if provenances.len() > 1 {
-        return Ok(Some(DiagnosticProvenance::Unavailable(
-            PreprocUnavailable::AmbiguousDiagnosticProvenance { targets: provenances.len() },
-        )));
+    if covered {
+        return Ok(DiagnosticTargetResult::covered(None));
     }
     finish_empty_single_query(&contexts, first_error)?;
 
-    Ok(None)
+    Ok(DiagnosticTargetResult::uncovered())
 }
