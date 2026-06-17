@@ -51,20 +51,20 @@ endmodule
     assert!(next_recursive.expansions.contains(&leaf_expansion_id));
     assert!(next_recursive.unavailable.is_empty());
 
-    let (payload, identity, body_token_range) = model
+    let (payload, origin, body_token_range) = model
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenOrigin::MacroBody { call, identity, body_token_range, .. } =
+            let SourceTokenOrigin::MacroBody { call, origin, body_token_range, .. } =
                 model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
-            (*call == leaf_call.id).then_some((token, *identity, *body_token_range))
+            (*call == leaf_call.id).then_some((token, *origin, *body_token_range))
         })
         .expect("final payload token should keep LEAF body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
-    assert_eq!(identity.parent_expansion, wrap_call.expansion_identity);
+    assert_eq!(origin.parent_expansion_id, wrap_call.expansion_identity);
     assert_eq!(text_at_range(root_text, body_token_range.range), "payload_i");
 }
 
@@ -82,7 +82,7 @@ endmodule
         .iter()
         .find_map(|token| {
             let SourceTokenOrigin::MacroArgument {
-                identity,
+                origin,
                 call,
                 argument_index,
                 body_token_range,
@@ -92,7 +92,7 @@ endmodule
                 return None;
             };
             (token.text.as_str() == "payload_i").then_some((
-                *identity,
+                *origin,
                 *call,
                 *argument_index,
                 *body_token_range,
@@ -105,7 +105,7 @@ endmodule
         .iter()
         .find_map(|token| {
             let SourceTokenOrigin::MacroArgument {
-                identity,
+                origin,
                 call,
                 argument_index,
                 body_token_range,
@@ -115,7 +115,7 @@ endmodule
                 return None;
             };
             (token.text.as_str() == "3").then_some((
-                *identity,
+                *origin,
                 *call,
                 *argument_index,
                 *body_token_range,
@@ -124,7 +124,7 @@ endmodule
         })
         .expect("slice index should be direct macro argument origin");
 
-    assert_eq!(payload.0.call, slice.0.call);
+    assert_eq!(payload.0.call_id, slice.0.call_id);
     assert_eq!(payload.1, slice.1);
     assert_eq!(payload.2, 0);
     assert_eq!(slice.2, 0);

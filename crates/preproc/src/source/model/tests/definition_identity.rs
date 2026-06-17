@@ -110,7 +110,7 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
     };
     let model = SourcePreprocModel::from_trace(trace).unwrap();
     let emitted = model.emitted_tokens().iter().find(|token| token.text == "2").unwrap();
-    let SourceTokenOrigin::MacroBody { definition, call, identity, .. } =
+    let SourceTokenOrigin::MacroBody { definition, call, origin, .. } =
         model.token_origins().get(emitted.origin.unwrap()).unwrap()
     else {
         panic!("colliding range token should still resolve through direct body identity");
@@ -118,6 +118,6 @@ fn source_model_uses_direct_definition_identity_when_body_ranges_collide() {
 
     let definition = model.macro_definitions().get(*definition).unwrap();
     assert_eq!(definition.name.as_str(), "B");
-    assert_eq!(definition.identity, Some(identity.definition));
-    assert_eq!(model.macro_calls().get(*call).unwrap().identity, Some(identity.call));
+    assert_eq!(definition.identity, Some(origin.definition_id));
+    assert_eq!(model.macro_calls().get(*call).unwrap().identity, Some(origin.call_id));
 }
