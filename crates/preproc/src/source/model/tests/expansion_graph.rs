@@ -73,7 +73,7 @@ logic [`HEADER_WIDTH-1:0] data;
         .expect("macro body token should be emitted by adapter authority");
     assert_eq!(expansion.emitted_token_range.start, emitted.id);
     assert_eq!(expansion.emitted_token_range.len, 1);
-    let provenance = model.token_provenance().get(emitted.provenance).unwrap();
+    let provenance = model.token_provenance().get(emitted.provenance.unwrap()).unwrap();
     assert!(matches!(
         provenance,
         SourceTokenProvenance::MacroBody {
@@ -105,7 +105,7 @@ endmodule
         .find(|token| token.text.as_str() == "7")
         .expect("argument replacement token should be emitted");
     let SourceTokenProvenance::MacroArgument { call, argument_index, argument_token_range, .. } =
-        model.token_provenance().get(emitted.provenance).unwrap()
+        model.token_provenance().get(emitted.provenance.unwrap()).unwrap()
     else {
         panic!("argument replacement should map to MacroArgument provenance");
     };
@@ -202,7 +202,7 @@ endmodule
         .iter()
         .find_map(|token| {
             let SourceTokenProvenance::MacroBody { identity, call, body_token_range, .. } =
-                model.token_provenance().get(token.provenance)?
+                model.token_provenance().get(token.provenance?)?
             else {
                 return None;
             };

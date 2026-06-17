@@ -76,7 +76,6 @@ pub(in crate::preproc) fn diagnostic_provenance_for_token(
             name: name.clone(),
             call: mapped_macro_call(mapped, *call)?,
         }),
-        SourceTokenProvenance::Unavailable(_) => Some(expansion_authority_unavailable()),
     })
 }
 
@@ -101,8 +100,11 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
                 token: token_id,
             }));
         };
-        let Some(provenance) = mapped.model.token_provenance().get(token.provenance) else {
-            return Err(unavailable_error(SourcePreprocUnavailable::ExpansionAuthorityUnavailable));
+        let Some(provenance) =
+            token.provenance.and_then(|id| mapped.model.token_provenance().get(id))
+        else {
+            saw_unavailable = Some(expansion_authority_unavailable_reason());
+            continue;
         };
         match diagnostic_provenance_for_token(mapped, provenance)? {
             Some(DiagnosticProvenance::Unavailable(reason)) => {
@@ -134,7 +136,9 @@ pub(in crate::preproc) fn diagnostic_target_for_source_expansion(
 }
 
 fn expansion_authority_unavailable() -> DiagnosticProvenance {
-    DiagnosticProvenance::Unavailable(PreprocUnavailable::Source(
-        SourcePreprocUnavailable::ExpansionAuthorityUnavailable,
-    ))
+    DiagnosticProvenance::Unavailable(expansion_authority_unavailable_reason())
+}
+
+fn expansion_authority_unavailable_reason() -> PreprocUnavailable {
+    PreprocUnavailable::Source(SourcePreprocUnavailable::ExpansionAuthorityUnavailable)
 }

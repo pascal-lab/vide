@@ -38,7 +38,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
         let mut builtin_name = None;
         for token_id in direct_tokens_by_call.get(&call)? {
             let token = self.tables.emitted_tokens.get(*token_id)?;
-            let provenance = self.tables.token_provenance.get(token.provenance)?;
+            let provenance =
+                token.provenance.and_then(|id| self.tables.token_provenance.get(id))?;
             let SourceTokenProvenance::Builtin { name, .. } = provenance else {
                 continue;
             };
@@ -147,8 +148,8 @@ impl<'a> SourcePreprocModelBuilder<'a> {
 
     pub(in crate::source::provenance::builder) fn unavailable_token_provenance(
         &mut self,
-    ) -> SourceTokenProvenance {
+    ) -> Option<SourceTokenProvenance> {
         self.token_provenance_partial = true;
-        SourceTokenProvenance::Unavailable(())
+        None
     }
 }
