@@ -148,11 +148,14 @@ localparam int W = `WIDTH;
         .expect("included context should resolve the header reference without ambiguity");
     assert_eq!(text_at_range(header_text, reference.range), "`WIDTH");
 
-    let resolution = macro_reference_resolution_at(&db, HEADER, offset(header_text, "WIDTH;"))
+    let definitions = macro_reference_definitions_at(&db, HEADER, offset(header_text, "WIDTH;"))
         .unwrap()
         .expect("header macro reference should resolve through the including root");
-    assert_eq!(resolution.definition.file_id, HEADER);
-    assert_eq!(text_at_range(header_text, resolution.definition.name_range), "WIDTH");
+    assert_eq!(definitions.references.len(), 1);
+    assert_eq!(definitions.definitions.len(), 1);
+    let definition = definitions.definitions.into_iter().next().unwrap();
+    assert_eq!(definition.file_id, HEADER);
+    assert_eq!(text_at_range(header_text, definition.name_range), "WIDTH");
 }
 
 #[test]

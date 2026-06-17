@@ -77,12 +77,6 @@ pub struct MacroReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroReferenceResolution {
-    pub reference: MacroReference,
-    pub definition: MacroDefinition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroReferenceDefinitions {
     pub references: Vec<MacroReference>,
     pub range: TextRange,

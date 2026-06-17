@@ -135,26 +135,6 @@ pub fn macro_references_in_range(
     Ok(references.into_vec())
 }
 
-pub fn macro_reference_resolution_at(
-    db: &dyn SourceRootDb,
-    file_id: FileId,
-    offset: TextSize,
-) -> PreprocResult<Option<MacroReferenceResolution>> {
-    let Some(mut resolution) = macro_reference_definitions_at(db, file_id, offset)? else {
-        return Ok(None);
-    };
-    if resolution.references.len() != 1 {
-        return Err(PreprocError::AmbiguousMacroReferenceContexts {
-            contexts: resolution.references.len(),
-        });
-    }
-    let reference = resolution.references.pop().unwrap();
-    let definition = resolution.definitions.into_single_or_none(|contexts| {
-        PreprocError::AmbiguousMacroReferenceContexts { contexts }
-    })?;
-    Ok(definition.map(|definition| MacroReferenceResolution { reference, definition }))
-}
-
 pub fn macro_reference_definitions_at(
     db: &dyn SourceRootDb,
     file_id: FileId,

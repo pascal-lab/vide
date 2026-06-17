@@ -122,15 +122,8 @@ pub enum MacroReferenceIndexStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MacroReferenceIndexIssue {
-    SkippedModel {
-        file_id: FileId,
-        error: PreprocError,
-    },
-    UnavailableReference {
-        file_id: FileId,
-        reference_id: SourceMacroReferenceId,
-        reason: SourcePreprocUnavailable,
-    },
+    SkippedModel { file_id: FileId, error: PreprocError },
+    UnavailableReference { file_id: FileId, reason: SourcePreprocUnavailable },
 }
 
 impl MacroReferenceIndex {
