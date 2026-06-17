@@ -92,7 +92,7 @@ impl SourcePosition {
     }
 }
 
-pub(in crate::source::provenance::builder) fn boundary_after(
+pub(in crate::source::tables::builder) fn boundary_after(
     directive_range: SourceRange,
 ) -> SourcePosition {
     SourcePosition { source: directive_range.source, offset: directive_range.range.end() }

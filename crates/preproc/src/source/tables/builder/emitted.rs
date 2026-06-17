@@ -1,13 +1,13 @@
 use super::{token_origin::*, *};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::source::provenance::builder) enum MacroOperationOriginKind {
+pub(in crate::source::tables::builder) enum MacroOperationOriginKind {
     TokenPaste,
     Stringification,
 }
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn build_emitted_token_tables(&mut self) {
+    pub(in crate::source::tables::builder) fn build_emitted_token_tables(&mut self) {
         for index in 0..self.model.index.emitted_tokens.len() {
             let token = self.model.index.emitted_tokens[index].clone();
             let token_id = SourceEmittedTokenId::new(self.model.emitted_tokens.len());
@@ -29,7 +29,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_emitted_token_origin(
+    pub(in crate::source::tables::builder) fn resolve_emitted_token_origin(
         &mut self,
         token_id: SourceEmittedTokenId,
         token: &SourceEmittedTokenRecord,
@@ -89,7 +89,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_macro_body_token_origin(
+    pub(in crate::source::tables::builder) fn resolve_macro_body_token_origin(
         &mut self,
         token_id: SourceEmittedTokenId,
         macro_name: SmolStr,
@@ -124,7 +124,7 @@ impl SourcePreprocModelBuilder {
         Some(SourceTokenOrigin::MacroBody { origin, definition, body_token_range, call })
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_macro_argument_token_origin(
+    pub(in crate::source::tables::builder) fn resolve_macro_argument_token_origin(
         &mut self,
         token_id: SourceEmittedTokenId,
         origin: MacroArgumentOrigin,
@@ -155,7 +155,7 @@ impl SourcePreprocModelBuilder {
         })
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_builtin_token_origin(
+    pub(in crate::source::tables::builder) fn resolve_builtin_token_origin(
         &mut self,
         token_id: SourceEmittedTokenId,
         name: SmolStr,
@@ -170,7 +170,7 @@ impl SourcePreprocModelBuilder {
         Some(SourceTokenOrigin::Builtin { name, origin, call })
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_macro_operation_token_origin(
+    pub(in crate::source::tables::builder) fn resolve_macro_operation_token_origin(
         &mut self,
         token_id: SourceEmittedTokenId,
         origin: MacroOperationOrigin,

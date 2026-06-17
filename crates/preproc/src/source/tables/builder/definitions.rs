@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn build_definition_table(&mut self) {
+    pub(in crate::source::tables::builder) fn build_definition_table(&mut self) {
         for (define_index, define) in self.model.index.defines.iter().enumerate() {
             let Some(name) = define.name.clone() else {
                 self.definition_ranges_partial = true;

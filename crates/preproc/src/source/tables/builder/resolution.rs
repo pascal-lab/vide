@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn resolve_visible_reference(
+    pub(in crate::source::tables::builder) fn resolve_visible_reference(
         &mut self,
         name: &str,
     ) -> SourceMacroResolution {
@@ -11,7 +11,7 @@ impl SourcePreprocModelBuilder {
         self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_usage_reference(
+    pub(in crate::source::tables::builder) fn resolve_usage_reference(
         &mut self,
         name: &str,
         definition_id: Option<MacroDefinitionId>,
@@ -28,7 +28,7 @@ impl SourcePreprocModelBuilder {
         self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_visible_reference_at_position(
+    pub(in crate::source::tables::builder) fn resolve_visible_reference_at_position(
         &mut self,
         name: &str,
         position: SourcePosition,
@@ -44,7 +44,7 @@ impl SourcePreprocModelBuilder {
         self.resolve_definition(definition, SourceMacroResolutionReason::VisibleDefinition)
     }
 
-    pub(in crate::source::provenance::builder) fn resolve_definition(
+    pub(in crate::source::tables::builder) fn resolve_definition(
         &mut self,
         definition: SourceMacroDefinitionId,
         reason: SourceMacroResolutionReason,
@@ -70,7 +70,7 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn include_chain_for_source(
+    pub(in crate::source::tables::builder) fn include_chain_for_source(
         &self,
         source: PreprocSourceId,
     ) -> Result<Vec<SourceIncludeChainEntry>, PreprocSourceId> {
@@ -113,7 +113,7 @@ impl SourcePreprocModelBuilder {
         Ok(chain)
     }
 
-    pub(in crate::source::provenance::builder) fn include_guard_definition_after_ifndef(
+    pub(in crate::source::tables::builder) fn include_guard_definition_after_ifndef(
         &self,
         conditional_index: usize,
         name: &str,
@@ -150,7 +150,7 @@ impl SourcePreprocModelBuilder {
         None
     }
 
-    pub(in crate::source::provenance::builder) fn record_missing_reference_name(
+    pub(in crate::source::tables::builder) fn record_missing_reference_name(
         &mut self,
         event_id: SourcePreprocEventId,
     ) {
@@ -158,7 +158,7 @@ impl SourcePreprocModelBuilder {
         self.model.issues.push(SourcePreprocIssue::MissingReferenceName { event_id });
     }
 
-    pub(in crate::source::provenance::builder) fn record_missing_reference_name_range(
+    pub(in crate::source::tables::builder) fn record_missing_reference_name_range(
         &mut self,
         event_id: SourcePreprocEventId,
     ) {
@@ -166,7 +166,7 @@ impl SourcePreprocModelBuilder {
         self.model.issues.push(SourcePreprocIssue::MissingReferenceNameRange { event_id });
     }
 
-    pub(in crate::source::provenance::builder) fn record_state_checkpoint(
+    pub(in crate::source::tables::builder) fn record_state_checkpoint(
         &mut self,
         source_order: usize,
         boundary: SourcePosition,

@@ -1,7 +1,7 @@
 use super::*;
 
 impl SourcePreprocModelBuilder {
-    pub(in crate::source::provenance::builder) fn call_for_emitted_token(
+    pub(in crate::source::tables::builder) fn call_for_emitted_token(
         &mut self,
         request: EmittedTokenMacroCall,
     ) -> Result<SourceMacroCallId, ()> {
@@ -40,7 +40,7 @@ impl SourcePreprocModelBuilder {
         ))
     }
 
-    pub(in crate::source::provenance::builder) fn definition_for_call(
+    pub(in crate::source::tables::builder) fn definition_for_call(
         &self,
         call: SourceMacroCallId,
     ) -> Result<SourceMacroDefinitionId, ()> {
@@ -53,14 +53,14 @@ impl SourcePreprocModelBuilder {
         }
     }
 
-    pub(in crate::source::provenance::builder) fn definition_for_trace_id(
+    pub(in crate::source::tables::builder) fn definition_for_trace_id(
         &self,
         trace_definition: MacroDefinitionId,
     ) -> Result<SourceMacroDefinitionId, ()> {
         self.definitions_by_trace_id.get(&trace_definition).copied().ok_or(())
     }
 
-    pub(in crate::source::provenance::builder) fn definition_body_token_exists(
+    pub(in crate::source::tables::builder) fn definition_body_token_exists(
         &self,
         definition: SourceMacroDefinitionId,
         body_token_index: usize,
@@ -71,7 +71,7 @@ impl SourcePreprocModelBuilder {
         definition.body_tokens.get(body_token_index).is_some()
     }
 
-    pub(in crate::source::provenance::builder) fn definition_parameter_exists(
+    pub(in crate::source::tables::builder) fn definition_parameter_exists(
         &self,
         definition: SourceMacroDefinitionId,
         argument_index: usize,
@@ -82,7 +82,7 @@ impl SourcePreprocModelBuilder {
         definition.params.as_ref().is_some_and(|params| params.get(argument_index).is_some())
     }
 
-    pub(in crate::source::provenance::builder) fn record_call_expansion_trace(
+    pub(in crate::source::tables::builder) fn record_call_expansion_trace(
         &mut self,
         call: SourceMacroCallId,
         trace_expansion: MacroExpansionId,
@@ -113,7 +113,7 @@ impl SourcePreprocModelBuilder {
         Ok(())
     }
 
-    pub(in crate::source::provenance::builder) fn record_macro_argument(
+    pub(in crate::source::tables::builder) fn record_macro_argument(
         &mut self,
         call: SourceMacroCallId,
         argument_index: usize,
@@ -137,7 +137,7 @@ impl SourcePreprocModelBuilder {
         call.arguments.sort_by_key(|argument| argument.argument_index);
     }
 
-    pub(in crate::source::provenance::builder) fn record_macro_actual_argument(
+    pub(in crate::source::tables::builder) fn record_macro_actual_argument(
         &mut self,
         call: SourceMacroCallId,
         argument: SourceMacroActualArgument,
