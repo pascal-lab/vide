@@ -1,8 +1,12 @@
+use std::collections::BTreeMap;
+
 use ::preproc::source::{PreprocSourceId, SourceEmittedTokenRange, SourceRange};
 use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
-    preproc::{MacroCallId, MacroDefinitionId, TokenOrigin, Trace},
+    preproc::{
+        ActualArgument, MacroCallId, MacroDefinitionId, MacroOperationOrigin, TokenOrigin, Trace,
+    },
 };
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
@@ -92,12 +96,16 @@ impl ExpansionSourceMap {
         let Some(end) = emitted_range.start.raw().checked_add(emitted_range.len) else {
             return Self::empty();
         };
+        let operation_sources = OperationSourceResolver::new(trace);
         let origins = (emitted_range.start.raw()..end)
             .map(|raw| {
-                trace
-                    .emitted_tokens
-                    .get(raw)
-                    .and_then(|token| origin_slot_from_token_origin(&token.provenance, source_map))
+                trace.emitted_tokens.get(raw).and_then(|token| {
+                    origin_slot_from_token_origin(
+                        &token.provenance,
+                        source_map,
+                        Some(&operation_sources),
+                    )
+                })
             })
             .collect();
         Self { origins }
@@ -111,15 +119,46 @@ impl ExpansionSourceMap {
         Self {
             origins: origins
                 .into_iter()
-                .map(|origin| origin_slot_from_token_origin(origin, source_map))
+                .map(|origin| origin_slot_from_token_origin(origin, source_map, None))
                 .collect(),
         }
+    }
+}
+
+struct OperationSourceResolver<'a> {
+    arguments_by_call: BTreeMap<MacroCallId, &'a [ActualArgument]>,
+}
+
+impl<'a> OperationSourceResolver<'a> {
+    fn new(trace: &'a Trace) -> Self {
+        let arguments_by_call = trace
+            .events
+            .iter()
+            .filter_map(|event| {
+                let call = event.macro_call_id?;
+                (!event.arguments.is_empty()).then_some((call, event.arguments.as_slice()))
+            })
+            .collect();
+        Self { arguments_by_call }
+    }
+
+    fn source_for_operation(
+        &self,
+        identity: &MacroOperationOrigin,
+        source_map: &PreprocSourceMap,
+    ) -> Option<OriginSource> {
+        let argument_index = usize::try_from(identity.argument_index?).ok()?;
+        let argument_token_index = usize::try_from(identity.argument_token_index?).ok()?;
+        let argument = self.arguments_by_call.get(&identity.call_id)?.get(argument_index)?;
+        let token = argument.tokens.get(argument_token_index)?;
+        source_location(source_map, token.range.as_ref()?)
     }
 }
 
 fn origin_slot_from_token_origin(
     origin: &TokenOrigin,
     source_map: &PreprocSourceMap,
+    operation_sources: Option<&OperationSourceResolver<'_>>,
 ) -> Option<OriginSlot> {
     match origin {
         TokenOrigin::Source { token_range } => {
@@ -145,12 +184,16 @@ fn origin_slot_from_token_origin(
             },
             source: source_location(source_map, argument_token_range),
         }),
-        TokenOrigin::TokenPaste { identity } => {
-            Some(OriginSlot { origin: Origin::TokenPaste { call: identity.call_id }, source: None })
-        }
-        TokenOrigin::Stringification { identity } => {
-            Some(OriginSlot { origin: Origin::Stringify { call: identity.call_id }, source: None })
-        }
+        TokenOrigin::TokenPaste { identity } => Some(OriginSlot {
+            origin: Origin::TokenPaste { call: identity.call_id },
+            source: operation_sources
+                .and_then(|sources| sources.source_for_operation(identity, source_map)),
+        }),
+        TokenOrigin::Stringification { identity } => Some(OriginSlot {
+            origin: Origin::Stringify { call: identity.call_id },
+            source: operation_sources
+                .and_then(|sources| sources.source_for_operation(identity, source_map)),
+        }),
         TokenOrigin::Builtin { name, identity } if !name.is_empty() => Some(OriginSlot {
             origin: Origin::Builtin { call: identity.call_id, name: name.to_smolstr() },
             source: None,
