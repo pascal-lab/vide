@@ -53,10 +53,6 @@ pub fn include_directives_at(
             let directive = IncludeDirective {
                 id: include.id.into(),
                 source,
-                capability: context_query_capability(
-                    &contexts,
-                    capability_status(&mapped.model.capabilities().include_edges),
-                ),
                 file_id,
                 include_index: include.id.raw(),
                 range,

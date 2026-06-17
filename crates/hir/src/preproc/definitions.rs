@@ -24,9 +24,7 @@ pub fn visible_macros_at(
         for position in mapped.source_map.source_positions_for_file_offset(file_id, offset) {
             for definition in mapped.model.visible_macros_at(position) {
                 match map_macro_definition(mapped, definition) {
-                    Ok(mut definition) => {
-                        definition.capability =
-                            context_query_capability(&contexts, definition.capability);
+                    Ok(definition) => {
                         definitions.push_keyed(definition, MacroDefinitionKey::from_definition);
                     }
                     Err(error) => record_first_error(&mut first_error, error),
@@ -78,11 +76,9 @@ pub fn macro_definition_at(
         };
 
         for definition in mapped.model.macro_definitions().iter() {
-            let mut mapped_definition = map_macro_definition(mapped, definition)?;
+            let mapped_definition = map_macro_definition(mapped, definition)?;
             if mapped_definition.file_id == file_id && mapped_definition.name_range.contains(offset)
             {
-                mapped_definition.capability =
-                    context_query_capability(&contexts, mapped_definition.capability);
                 return Ok(Some(mapped_definition));
             }
         }
@@ -135,7 +131,7 @@ pub fn macro_param_definitions_at(
                 continue;
             };
             for (param_index, param) in params.iter().enumerate() {
-                let Some(mut param_definition) =
+                let Some(param_definition) =
                     map_macro_param_definition(mapped, definition, param_index, param)?
                 else {
                     continue;
@@ -143,10 +139,6 @@ pub fn macro_param_definitions_at(
                 if param_definition.macro_definition.file_id == file_id
                     && param_definition.range.contains(offset)
                 {
-                    param_definition.macro_definition.capability = context_query_capability(
-                        &contexts,
-                        param_definition.macro_definition.capability,
-                    );
                     definitions
                         .push_keyed(param_definition, MacroParamDefinitionKey::from_definition);
                 }
@@ -206,24 +198,18 @@ pub fn macro_param_reference_definitions_at(
                     if param.name.as_ref() != Some(&token.value) {
                         continue;
                     }
-                    let Some(mut param_definition) =
+                    let Some(param_definition) =
                         map_macro_param_definition(mapped, definition, param_index, param)?
                     else {
                         continue;
                     };
-                    param_definition.macro_definition.capability = context_query_capability(
-                        &contexts,
-                        param_definition.macro_definition.capability,
-                    );
-                    let mut reference = map_macro_param_reference(
+                    let reference = map_macro_param_reference(
                         mapped,
                         definition,
                         param_index,
                         token_index,
                         token_range,
                     )?;
-                    reference.capability =
-                        context_query_capability(&contexts, reference.capability);
                     query_range.get_or_insert(range);
                     definitions
                         .push_keyed(param_definition, MacroParamDefinitionKey::from_definition);
@@ -240,13 +226,5 @@ pub fn macro_param_reference_definitions_at(
 
     let references = references.into_vec();
     let definitions = definitions.into_vec();
-    Ok(Some(MacroParamReferenceDefinitions {
-        capability: context_query_capability(
-            &contexts,
-            macro_param_reference_context_capability(&references),
-        ),
-        references,
-        range,
-        definitions,
-    }))
+    Ok(Some(MacroParamReferenceDefinitions { references, range, definitions }))
 }

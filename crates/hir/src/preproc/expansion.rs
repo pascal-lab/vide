@@ -46,8 +46,7 @@ pub fn macro_expansion_queries_at(
             }
         };
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let mut query = immediate_macro_expansion_for_call(mapped, call_fact)?;
-            apply_context_capability_to_macro_expansion_query(&contexts, &mut query);
+            let query = immediate_macro_expansion_for_call(mapped, call_fact)?;
             queries.push_unique_eq(query);
         }
     }
@@ -102,22 +101,20 @@ pub fn macro_call_resolutions_in_range(
                 continue;
             };
 
-            let mut call = match map_macro_call(mapped, call_fact) {
+            let call = match map_macro_call(mapped, call_fact) {
                 Ok(call) => call,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;
                 }
             };
-            let mut definition = match map_macro_definition(mapped, definition_fact) {
+            let definition = match map_macro_definition(mapped, definition_fact) {
                 Ok(definition) => definition,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;
                 }
             };
-            call.capability = context_query_capability(&contexts, call.capability);
-            definition.capability = context_query_capability(&contexts, definition.capability);
             resolutions.push_unique_eq(MacroCallResolution { call, definition });
         }
     }
@@ -160,8 +157,7 @@ pub fn recursive_macro_expansions_at(
             }
         };
         for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let mut recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
-            apply_context_capability_to_recursive_macro_expansion(&contexts, &mut recursive);
+            let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
             expansions.push_unique_eq(recursive);
         }
     }
@@ -172,61 +168,4 @@ pub fn recursive_macro_expansions_at(
     finish_empty_single_query(&contexts, first_error)?;
 
     Ok(Vec::new())
-}
-
-fn apply_context_capability_to_macro_call(
-    contexts: &SourcePreprocQueryContexts,
-    call: &mut MacroCall,
-) {
-    call.capability = context_query_capability(contexts, call.capability.clone());
-}
-
-fn apply_context_capability_to_macro_expansion(
-    contexts: &SourcePreprocQueryContexts,
-    expansion: &mut MacroExpansion,
-) {
-    apply_context_capability_to_macro_call(contexts, &mut expansion.call);
-    let definition_capability =
-        context_query_capability(contexts, expansion.definition.capability().clone());
-    *expansion.definition.capability_mut() = definition_capability;
-    expansion.capability = context_query_capability(contexts, expansion.capability.clone());
-}
-
-fn apply_context_capability_to_macro_expansion_unavailable(
-    contexts: &SourcePreprocQueryContexts,
-    unavailable: &mut MacroExpansionUnavailable,
-) {
-    apply_context_capability_to_macro_call(contexts, &mut unavailable.call);
-}
-
-fn apply_context_capability_to_macro_expansion_query(
-    contexts: &SourcePreprocQueryContexts,
-    query: &mut MacroExpansionQuery,
-) {
-    match query {
-        MacroExpansionQuery::Available(expansion) => {
-            apply_context_capability_to_macro_expansion(contexts, expansion);
-        }
-        MacroExpansionQuery::Ambiguous(expansions) => {
-            for expansion in expansions {
-                apply_context_capability_to_macro_expansion(contexts, expansion);
-            }
-        }
-        MacroExpansionQuery::Unavailable(unavailable) => {
-            apply_context_capability_to_macro_expansion_unavailable(contexts, unavailable);
-        }
-    }
-}
-
-fn apply_context_capability_to_recursive_macro_expansion(
-    contexts: &SourcePreprocQueryContexts,
-    recursive: &mut RecursiveMacroExpansion,
-) {
-    apply_context_capability_to_macro_call(contexts, &mut recursive.root_call);
-    for expansion in &mut recursive.expansions {
-        apply_context_capability_to_macro_expansion(contexts, expansion);
-    }
-    for unavailable in &mut recursive.unavailable {
-        apply_context_capability_to_macro_expansion_unavailable(contexts, unavailable);
-    }
 }

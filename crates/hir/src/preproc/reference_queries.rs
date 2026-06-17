@@ -58,15 +58,11 @@ pub fn macro_usage_resolutions_at(
             let definition_provenance =
                 map_definition_provenance_from_definition(mapped, definition_fact)?;
             let include_chain = map_include_chain(mapped, include_chain)?;
-            let capability =
-                context_query_capability(&contexts, mapped_reference.capability.clone());
 
             resolutions.push_unique_eq(MacroUsageResolution {
-                capability: capability.clone(),
                 usage: MacroUsage {
                     reference_id: mapped_reference.id,
                     source: mapped_reference.source,
-                    capability,
                     file_id: mapped_reference.file_id,
                     name: mapped_reference.name,
                     usage_index,
@@ -134,9 +130,7 @@ pub fn macro_references_in_range(
             };
 
             match map_macro_reference(mapped, reference) {
-                Ok(mut reference) => {
-                    reference.capability =
-                        context_query_capability(&contexts, reference.capability);
+                Ok(reference) => {
                     references.push_unique_eq(reference);
                 }
                 Err(error) => record_first_error(&mut first_error, error),
@@ -215,15 +209,13 @@ pub fn macro_reference_definitions_at(
             };
             query_range.get_or_insert(range);
 
-            let mut mapped_reference = match map_macro_reference(mapped, reference) {
+            let mapped_reference = match map_macro_reference(mapped, reference) {
                 Ok(reference) => reference,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;
                 }
             };
-            mapped_reference.capability =
-                context_query_capability(&contexts, mapped_reference.capability);
             references.push_unique_eq(mapped_reference.clone());
 
             match &reference.resolution {
@@ -269,10 +261,6 @@ pub fn macro_reference_definitions_at(
     };
 
     Ok(Some(MacroReferenceDefinitions {
-        capability: context_query_capability(
-            &contexts,
-            macro_reference_context_capability(references.as_slice()),
-        ),
         references: references.into_vec(),
         range,
         definitions: definitions.into_vec(),

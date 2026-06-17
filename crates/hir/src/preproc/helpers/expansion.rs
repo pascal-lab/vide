@@ -31,7 +31,6 @@ pub(in crate::preproc) fn map_macro_expansion(
             .emitted_display_range(expansion.id, expansion.emitted_token_range)
             .map_err(PreprocError::SourceMap)?,
         child_calls: expansion.child_calls.iter().copied().map(Into::into).collect(),
-        capability: macro_expansion_availability(&expansion.status),
     })
 }
 
@@ -55,13 +54,9 @@ fn map_macro_expansion_definition(
                 MacroExpansionDefinition::Source(map_macro_definition(mapped, definition)?),
             ))
         }
-        SourceMacroExpansionDefinitionFact::Builtin { name } => Ok((
-            None,
-            MacroExpansionDefinition::Builtin {
-                name: name.clone(),
-                capability: macro_expansion_availability(&expansion.status),
-            },
-        )),
+        SourceMacroExpansionDefinitionFact::Builtin { name } => {
+            Ok((None, MacroExpansionDefinition::Builtin { name: name.clone() }))
+        }
     }
 }
 
