@@ -48,15 +48,15 @@ pub fn macro_usage_resolutions_at(
                 continue;
             };
             let mapped_reference = map_macro_reference(mapped, reference)?;
-            let definition_fact =
+            let source_definition =
                 mapped.model.macro_definitions().get(*definition).ok_or_else(|| {
                     PreprocError::SourceQuery(SourcePreprocQueryError::Model(
                         SourcePreprocError::MissingEvent { event_id: reference.event_id.raw() },
                     ))
                 })?;
-            let definition = map_macro_definition(mapped, definition_fact)?;
+            let definition = map_macro_definition(mapped, source_definition)?;
             let definition_provenance =
-                map_definition_provenance_from_definition(mapped, definition_fact)?;
+                map_definition_provenance_from_definition(mapped, source_definition)?;
             let include_chain = map_include_chain(mapped, include_chain)?;
 
             resolutions.push_unique_eq(MacroUsageResolution {

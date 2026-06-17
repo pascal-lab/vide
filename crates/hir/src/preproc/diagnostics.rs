@@ -20,18 +20,18 @@ pub fn diagnostic_target_for_range(
                 continue;
             }
         };
-        let call_facts = source_macro_calls_intersecting_range(mapped, file_id, range);
-        match call_facts.as_slice() {
+        let source_calls = source_macro_calls_intersecting_range(mapped, file_id, range);
+        match source_calls.as_slice() {
             [] => continue,
-            [call_fact] => {
+            [source_call] => {
                 covered = true;
-                if let Some(target) = diagnostic_target_for_call(mapped, call_fact)? {
+                if let Some(target) = diagnostic_target_for_call(mapped, source_call)? {
                     targets.push_unique_eq(target);
                 }
             }
-            call_facts => {
+            source_calls => {
                 covered = true;
-                ambiguous_targets += call_facts.len();
+                ambiguous_targets += source_calls.len();
             }
         }
     }

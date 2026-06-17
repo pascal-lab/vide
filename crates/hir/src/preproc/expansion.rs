@@ -45,8 +45,8 @@ pub fn macro_expansion_queries_at(
                 continue;
             }
         };
-        for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let query = immediate_macro_expansion_for_call(mapped, call_fact)?;
+        for source_call in source_macro_calls_at(mapped, file_id, offset) {
+            let query = immediate_macro_expansion_for_call(mapped, source_call)?;
             queries.push_unique_eq(query);
         }
     }
@@ -78,18 +78,18 @@ pub fn macro_call_resolutions_in_range(
             }
         };
 
-        for call_fact in source_macro_calls_intersecting_range(mapped, file_id, range) {
-            let SourceMacroResolution::Resolved { definition, .. } = &call_fact.callee else {
-                if let SourceMacroResolution::Unavailable(reason) = &call_fact.callee {
+        for source_call in source_macro_calls_intersecting_range(mapped, file_id, range) {
+            let SourceMacroResolution::Resolved { definition, .. } = &source_call.callee else {
+                if let SourceMacroResolution::Unavailable(reason) = &source_call.callee {
                     record_first_error(&mut first_error, unavailable_error(reason.clone()));
                 }
                 continue;
             };
-            let Some(definition_fact) = mapped.model.macro_definitions().get(*definition) else {
+            let Some(source_definition) = mapped.model.macro_definitions().get(*definition) else {
                 let event_id = mapped
                     .model
                     .macro_references()
-                    .get(call_fact.reference)
+                    .get(source_call.reference)
                     .map(|reference| reference.event_id.raw())
                     .unwrap_or_default();
                 record_first_error(
@@ -101,14 +101,14 @@ pub fn macro_call_resolutions_in_range(
                 continue;
             };
 
-            let call = match map_macro_call(mapped, call_fact) {
+            let call = match map_macro_call(mapped, source_call) {
                 Ok(call) => call,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
                     continue;
                 }
             };
-            let definition = match map_macro_definition(mapped, definition_fact) {
+            let definition = match map_macro_definition(mapped, source_definition) {
                 Ok(definition) => definition,
                 Err(error) => {
                     record_first_error(&mut first_error, error);
@@ -156,8 +156,8 @@ pub fn recursive_macro_expansions_at(
                 continue;
             }
         };
-        for call_fact in source_macro_calls_at(mapped, file_id, offset) {
-            let recursive = recursive_macro_expansion_for_call(mapped, call_fact)?;
+        for source_call in source_macro_calls_at(mapped, file_id, offset) {
+            let recursive = recursive_macro_expansion_for_call(mapped, source_call)?;
             expansions.push_unique_eq(recursive);
         }
     }

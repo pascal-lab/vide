@@ -98,16 +98,16 @@ pub(in crate::preproc) fn source_macro_calls_intersecting_range(
 
 pub(in crate::preproc) fn immediate_macro_expansion_for_call(
     mapped: &MappedSourcePreprocModel,
-    call_fact: &SourceMacroCall,
+    source_call: &SourceMacroCall,
 ) -> PreprocResult<MacroExpansionQuery> {
-    let call = map_macro_call(mapped, call_fact)?;
-    Ok(match mapped.model.immediate_macro_expansion(call_fact.id) {
+    let call = map_macro_call(mapped, source_call)?;
+    Ok(match mapped.model.immediate_macro_expansion(source_call.id) {
         SourceMacroExpansionQuery::Available(expansion) => {
             let Some(expansion) = mapped.model.macro_expansions().get(expansion) else {
                 return Ok(MacroExpansionQuery::Unavailable(Box::new(MacroExpansionUnavailable {
                     call,
                     reason: PreprocUnavailable::Source(
-                        SourcePreprocUnavailable::MissingMacroExpansion { call: call_fact.id },
+                        SourcePreprocUnavailable::MissingMacroExpansion { call: source_call.id },
                     ),
                 })));
             };
@@ -124,10 +124,10 @@ pub(in crate::preproc) fn immediate_macro_expansion_for_call(
 
 pub(in crate::preproc) fn recursive_macro_expansion_for_call(
     mapped: &MappedSourcePreprocModel,
-    call_fact: &SourceMacroCall,
+    source_call: &SourceMacroCall,
 ) -> PreprocResult<RecursiveMacroExpansion> {
-    let root_call = map_macro_call(mapped, call_fact)?;
-    let recursive = mapped.model.recursive_macro_expansion(call_fact.id);
+    let root_call = map_macro_call(mapped, source_call)?;
+    let recursive = mapped.model.recursive_macro_expansion(source_call.id);
     let expansions = recursive
         .expansions
         .into_iter()
