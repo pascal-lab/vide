@@ -1,10 +1,4 @@
-use super::{token_origin::*, *};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::source::tables::builder) enum MacroOperationOriginKind {
-    TokenPaste,
-    Stringify,
-}
+use super::{emitted_origins::*, token_origin::*, *};
 
 impl SourcePreprocModelBuilder {
     pub(in crate::source::tables::builder) fn build_emitted_token_tables(&mut self) {
@@ -39,22 +33,36 @@ impl SourcePreprocModelBuilder {
                 .map(|token_range| SourceTokenOrigin::Source { token_range }),
             TokenOrigin::MacroBody {
                 macro_name,
-                origin: trace_origin,
+                call_id,
+                definition_id,
+                expansion_id,
+                parent_expansion_id,
+                body_token_index,
                 call_range,
                 body_token_range,
             } => {
                 let call_range = source_range_from_origin(call_range)?;
                 let body_token_range = source_range_from_origin(body_token_range)?;
-                self.resolve_macro_body_token_origin(
+                self.resolve_macro_body_token_origin(MacroBodyOriginInput {
                     token_id,
-                    SmolStr::new(macro_name),
-                    *trace_origin,
+                    macro_name: SmolStr::new(macro_name),
+                    trace_call: *call_id,
+                    trace_definition: *definition_id,
+                    trace_expansion: *expansion_id,
+                    parent_trace_expansion: *parent_expansion_id,
+                    body_token_index: *body_token_index,
                     call_range,
                     body_token_range,
-                )
+                })
             }
             TokenOrigin::MacroArgument {
-                origin: trace_origin,
+                call_id,
+                definition_id,
+                expansion_id,
+                parent_expansion_id,
+                body_token_index,
+                argument_index,
+                argument_token_index,
                 call_range,
                 body_token_range,
                 argument_token_range,
@@ -63,135 +71,69 @@ impl SourcePreprocModelBuilder {
                 source_range_from_origin(call_range)?;
                 let body_token_range = source_range_from_origin(body_token_range)?;
                 let argument_token_range = source_range_from_origin(argument_token_range)?;
-                self.resolve_macro_argument_token_origin(
+                self.resolve_macro_argument_token_origin(MacroArgumentOriginInput {
                     token_id,
-                    *trace_origin,
+                    trace_call: *call_id,
+                    trace_definition: *definition_id,
+                    trace_expansion: *expansion_id,
+                    parent_trace_expansion: *parent_expansion_id,
+                    body_token_index: *body_token_index,
+                    trace_argument_index: *argument_index,
+                    argument_token_index: *argument_token_index,
                     body_token_range,
                     argument_token_range,
+                })
+            }
+            TokenOrigin::Builtin { name, call_id, expansion_id, parent_expansion_id }
+                if !name.is_empty() =>
+            {
+                self.resolve_builtin_token_origin(
+                    token_id,
+                    SmolStr::new(name),
+                    *call_id,
+                    *expansion_id,
+                    *parent_expansion_id,
                 )
             }
-            TokenOrigin::Builtin { name, origin: trace_origin } if !name.is_empty() => {
-                self.resolve_builtin_token_origin(token_id, SmolStr::new(name), *trace_origin)
-            }
-            TokenOrigin::TokenPaste { origin: trace_origin } => self
-                .resolve_macro_operation_token_origin(
-                    token_id,
-                    *trace_origin,
-                    MacroOperationOriginKind::TokenPaste,
-                ),
-            TokenOrigin::Stringify { origin: trace_origin } => self
-                .resolve_macro_operation_token_origin(
-                    token_id,
-                    *trace_origin,
-                    MacroOperationOriginKind::Stringify,
-                ),
+            TokenOrigin::TokenPaste {
+                call_id,
+                definition_id,
+                expansion_id,
+                parent_expansion_id,
+                body_token_index,
+                argument_index,
+                argument_token_index,
+            } => self.resolve_macro_operation_token_origin(MacroOperationOriginInput {
+                token_id,
+                trace_call: *call_id,
+                trace_definition: *definition_id,
+                trace_expansion: *expansion_id,
+                parent_trace_expansion: *parent_expansion_id,
+                body_token_index: *body_token_index,
+                argument_index: *argument_index,
+                argument_token_index: *argument_token_index,
+                kind: MacroOperationKind::TokenPaste,
+            }),
+            TokenOrigin::Stringify {
+                call_id,
+                definition_id,
+                expansion_id,
+                parent_expansion_id,
+                body_token_index,
+                argument_index,
+                argument_token_index,
+            } => self.resolve_macro_operation_token_origin(MacroOperationOriginInput {
+                token_id,
+                trace_call: *call_id,
+                trace_definition: *definition_id,
+                trace_expansion: *expansion_id,
+                parent_trace_expansion: *parent_expansion_id,
+                body_token_index: *body_token_index,
+                argument_index: *argument_index,
+                argument_token_index: *argument_token_index,
+                kind: MacroOperationKind::Stringify,
+            }),
             TokenOrigin::Builtin { .. } | TokenOrigin::Unavailable => None,
-        }
-    }
-
-    pub(in crate::source::tables::builder) fn resolve_macro_body_token_origin(
-        &mut self,
-        token_id: SourceEmittedTokenId,
-        macro_name: SmolStr,
-        origin: MacroBodyOrigin,
-        call_range: SourceRange,
-        body_token_range: SourceRange,
-    ) -> Option<SourceTokenOrigin> {
-        let Ok(definition) = self.definition_for_trace_id(origin.definition_id) else {
-            return None;
-        };
-        let body_token_index = origin_index(origin.body_token_index)?;
-        let Ok(call) = self.call_for_emitted_token(EmittedTokenMacroCall {
-            token_id,
-            macro_name,
-            trace_call: origin.call_id,
-            definition,
-            call_range,
-            trace_expansion: origin.expansion_id,
-            parent_trace_expansion: origin.parent_expansion_id,
-        }) else {
-            return None;
-        };
-
-        if !self.definition_body_token_exists(definition, body_token_index) {
-            return None;
-        }
-
-        self.record_emitted_token_owner(token_id, call);
-        if self.source_is_predefine(body_token_range.source) {
-            return Some(SourceTokenOrigin::Predefine { source: body_token_range.source });
-        }
-        Some(SourceTokenOrigin::MacroBody { origin, definition, body_token_range, call })
-    }
-
-    pub(in crate::source::tables::builder) fn resolve_macro_argument_token_origin(
-        &mut self,
-        token_id: SourceEmittedTokenId,
-        origin: MacroArgumentOrigin,
-        body_token_range: SourceRange,
-        argument_token_range: SourceRange,
-    ) -> Option<SourceTokenOrigin> {
-        let Ok(definition) = self.definition_for_trace_id(origin.definition_id) else {
-            return None;
-        };
-        let body_token_index = origin_index(origin.body_token_index)?;
-        let argument_index = origin_index(origin.argument_index)?;
-        let call = self.calls_by_trace_id.get(&origin.call_id).copied()?;
-        if !self.definition_body_token_exists(definition, body_token_index) {
-            return None;
-        }
-        if !self.definition_parameter_exists(definition, argument_index) {
-            return None;
-        };
-        self.record_macro_argument(call, argument_index, argument_token_range);
-        self.record_emitted_token_owner(token_id, call);
-
-        Some(SourceTokenOrigin::MacroArgument {
-            origin,
-            call,
-            argument_index,
-            body_token_range,
-            argument_token_range,
-        })
-    }
-
-    pub(in crate::source::tables::builder) fn resolve_builtin_token_origin(
-        &mut self,
-        token_id: SourceEmittedTokenId,
-        name: SmolStr,
-        origin: MacroBuiltinOrigin,
-    ) -> Option<SourceTokenOrigin> {
-        let call = self.calls_by_trace_id.get(&origin.call_id).copied()?;
-        let call_trace_expansion = origin.parent_expansion_id.unwrap_or(origin.expansion_id);
-        if self.record_call_expansion_trace(call, call_trace_expansion, None).is_err() {
-            return None;
-        }
-        self.record_emitted_token_owner(token_id, call);
-        Some(SourceTokenOrigin::Builtin { name, origin, call })
-    }
-
-    pub(in crate::source::tables::builder) fn resolve_macro_operation_token_origin(
-        &mut self,
-        token_id: SourceEmittedTokenId,
-        origin: MacroOperationOrigin,
-        kind: MacroOperationOriginKind,
-    ) -> Option<SourceTokenOrigin> {
-        if self.definition_for_trace_id(origin.definition_id).is_err() {
-            return None;
-        };
-        let call = self.calls_by_trace_id.get(&origin.call_id).copied()?;
-        let call_trace_expansion = origin.parent_expansion_id.unwrap_or(origin.expansion_id);
-        if self.record_call_expansion_trace(call, call_trace_expansion, None).is_err() {
-            return None;
-        }
-        self.record_emitted_token_owner(token_id, call);
-        match kind {
-            MacroOperationOriginKind::TokenPaste => {
-                Some(SourceTokenOrigin::TokenPaste { origin, call })
-            }
-            MacroOperationOriginKind::Stringify => {
-                Some(SourceTokenOrigin::Stringify { origin, call })
-            }
         }
     }
 }

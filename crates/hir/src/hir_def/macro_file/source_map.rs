@@ -5,8 +5,7 @@ use smol_str::{SmolStr, ToSmolStr};
 use syntax::{
     SourceBufferRange,
     preproc::{
-        ActualArgument, MacroCallId as TraceMacroCallId, MacroDefinitionId, MacroOperationOrigin,
-        TokenOrigin, Trace,
+        ActualArgument, MacroCallId as TraceMacroCallId, MacroDefinitionId, TokenOrigin, Trace,
     },
 };
 use utils::line_index::{TextRange, TextSize};
@@ -154,12 +153,14 @@ impl<'a> OperationSourceResolver<'a> {
 
     fn source_for_operation(
         &self,
-        origin: &MacroOperationOrigin,
+        call_id: TraceMacroCallId,
+        argument_index: Option<u32>,
+        argument_token_index: Option<u32>,
         source_map: &PreprocSourceMap,
     ) -> Option<OriginSource> {
-        let argument_index = usize::try_from(origin.argument_index?).ok()?;
-        let argument_token_index = usize::try_from(origin.argument_token_index?).ok()?;
-        let argument = self.arguments_by_call.get(&origin.call_id)?.get(argument_index)?;
+        let argument_index = usize::try_from(argument_index?).ok()?;
+        let argument_token_index = usize::try_from(argument_token_index?).ok()?;
+        let argument = self.arguments_by_call.get(&call_id)?.get(argument_index)?;
         let token = argument.tokens.get(argument_token_index)?;
         source_location(source_map, token.range.as_ref()?)
     }
@@ -180,35 +181,55 @@ fn origin_slot_from_token_origin(
                 source: Some(source),
             })
         }
-        TokenOrigin::MacroBody { origin, body_token_range, .. } => Some(Origin::MacroBody {
-            call: macro_call_id(db, model_file, origin.call_id),
-            def: origin.definition_id,
-            body_range: source_location(source_map, body_token_range)
-                .map_or(text_range(body_token_range)?, |source| source.range),
-        })
+        TokenOrigin::MacroBody { call_id, definition_id, body_token_range, .. } => {
+            Some(Origin::MacroBody {
+                call: macro_call_id(db, model_file, *call_id),
+                def: *definition_id,
+                body_range: source_location(source_map, body_token_range)
+                    .map_or(text_range(body_token_range)?, |source| source.range),
+            })
+        }
         .map(|origin| OriginSlot { origin, source: source_location(source_map, body_token_range) }),
-        TokenOrigin::MacroArgument { origin, argument_token_range, .. } => Some(OriginSlot {
-            origin: Origin::MacroArg {
-                call: macro_call_id(db, model_file, origin.call_id),
-                arg_index: usize::try_from(origin.argument_index).ok()?,
-                arg_range: source_location(source_map, argument_token_range)
-                    .map_or(text_range(argument_token_range)?, |source| source.range),
-            },
-            source: source_location(source_map, argument_token_range),
-        }),
-        TokenOrigin::TokenPaste { origin } => Some(OriginSlot {
-            origin: Origin::TokenPaste { call: macro_call_id(db, model_file, origin.call_id) },
-            source: operation_sources
-                .and_then(|sources| sources.source_for_operation(origin, source_map)),
-        }),
-        TokenOrigin::Stringify { origin } => Some(OriginSlot {
-            origin: Origin::Stringify { call: macro_call_id(db, model_file, origin.call_id) },
-            source: operation_sources
-                .and_then(|sources| sources.source_for_operation(origin, source_map)),
-        }),
-        TokenOrigin::Builtin { name, origin } if !name.is_empty() => Some(OriginSlot {
+        TokenOrigin::MacroArgument { call_id, argument_index, argument_token_range, .. } => {
+            Some(OriginSlot {
+                origin: Origin::MacroArg {
+                    call: macro_call_id(db, model_file, *call_id),
+                    arg_index: usize::try_from(*argument_index).ok()?,
+                    arg_range: source_location(source_map, argument_token_range)
+                        .map_or(text_range(argument_token_range)?, |source| source.range),
+                },
+                source: source_location(source_map, argument_token_range),
+            })
+        }
+        TokenOrigin::TokenPaste { call_id, argument_index, argument_token_index, .. } => {
+            Some(OriginSlot {
+                origin: Origin::TokenPaste { call: macro_call_id(db, model_file, *call_id) },
+                source: operation_sources.and_then(|sources| {
+                    sources.source_for_operation(
+                        *call_id,
+                        *argument_index,
+                        *argument_token_index,
+                        source_map,
+                    )
+                }),
+            })
+        }
+        TokenOrigin::Stringify { call_id, argument_index, argument_token_index, .. } => {
+            Some(OriginSlot {
+                origin: Origin::Stringify { call: macro_call_id(db, model_file, *call_id) },
+                source: operation_sources.and_then(|sources| {
+                    sources.source_for_operation(
+                        *call_id,
+                        *argument_index,
+                        *argument_token_index,
+                        source_map,
+                    )
+                }),
+            })
+        }
+        TokenOrigin::Builtin { name, call_id, .. } if !name.is_empty() => Some(OriginSlot {
             origin: Origin::Builtin {
-                call: macro_call_id(db, model_file, origin.call_id),
+                call: macro_call_id(db, model_file, *call_id),
                 name: name.to_smolstr(),
             },
             source: None,

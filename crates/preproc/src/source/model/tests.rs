@@ -3,8 +3,7 @@ use syntax::{
     SourceBufferId, SourceBufferOrigin, SourceBufferRange, SyntaxKind, SyntaxTree,
     SyntaxTreeBuffer, SyntaxTreeOptions, TokenKind,
     preproc::{
-        Event, EventId, MacroBodyOrigin, MacroCallId, MacroDefinitionId, MacroExpansionId, Token,
-        TokenOrigin, Trace,
+        Event, EventId, MacroCallId, MacroDefinitionId, MacroExpansionId, Token, TokenOrigin, Trace,
     },
 };
 use utils::line_index::{TextRange, TextSize};

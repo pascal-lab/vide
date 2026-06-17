@@ -46,20 +46,21 @@ endmodule
     let leaf_expansion = model.macro_expansions().get(leaf_expansion_id).unwrap();
     assert!(leaf_expansion.child_calls.is_empty());
 
-    let (payload, origin, body_token_range) = model
+    let (payload, parent_trace_expansion, body_token_range) = model
         .emitted_tokens()
         .iter()
         .find_map(|token| {
-            let SourceTokenOrigin::MacroBody { call, origin, body_token_range, .. } =
-                model.token_origins().get(token.origin?)?
+            let SourceTokenOrigin::MacroBody {
+                call, parent_trace_expansion, body_token_range, ..
+            } = model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
-            (*call == leaf_call.id).then_some((token, *origin, *body_token_range))
+            (*call == leaf_call.id).then_some((token, *parent_trace_expansion, *body_token_range))
         })
         .expect("final payload token should keep LEAF body origin");
     assert_eq!(payload.text.as_str(), "payload_i");
-    assert_eq!(origin.parent_expansion_id, wrap_call.trace_expansion);
+    assert_eq!(parent_trace_expansion, wrap_call.trace_expansion);
     assert_eq!(text_at_range(root_text, body_token_range.range), "payload_i");
 }
 
@@ -77,21 +78,24 @@ endmodule
         .iter()
         .find_map(|token| {
             let SourceTokenOrigin::MacroArgument {
-                origin,
+                trace_call,
                 call,
                 argument_index,
                 body_token_range,
                 argument_token_range,
+                argument_token_index,
+                ..
             } = model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
             (token.text.as_str() == "payload_i").then_some((
-                *origin,
+                *trace_call,
                 *call,
                 *argument_index,
                 *body_token_range,
                 *argument_token_range,
+                *argument_token_index,
             ))
         })
         .expect("payload identifier should be direct macro argument origin");
@@ -100,31 +104,34 @@ endmodule
         .iter()
         .find_map(|token| {
             let SourceTokenOrigin::MacroArgument {
-                origin,
+                trace_call,
                 call,
                 argument_index,
                 body_token_range,
                 argument_token_range,
+                argument_token_index,
+                ..
             } = model.token_origins().get(token.origin?)?
             else {
                 return None;
             };
             (token.text.as_str() == "3").then_some((
-                *origin,
+                *trace_call,
                 *call,
                 *argument_index,
                 *body_token_range,
                 *argument_token_range,
+                *argument_token_index,
             ))
         })
         .expect("slice index should be direct macro argument origin");
 
-    assert_eq!(payload.0.call_id, slice.0.call_id);
+    assert_eq!(payload.0, slice.0);
     assert_eq!(payload.1, slice.1);
     assert_eq!(payload.2, 0);
     assert_eq!(slice.2, 0);
-    assert_eq!(payload.0.argument_token_index, 0);
-    assert_eq!(slice.0.argument_token_index, 2);
+    assert_eq!(payload.5, 0);
+    assert_eq!(slice.5, 2);
     assert_eq!(payload.3, slice.3);
     assert_eq!(payload.4.source, root_source);
     assert_eq!(slice.4.source, root_source);

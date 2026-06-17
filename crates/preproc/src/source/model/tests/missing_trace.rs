@@ -35,13 +35,11 @@ fn source_model_marks_missing_direct_trace_partial_without_range_fallback() {
             kind: SourceTokenKind::Syntax(TokenKind::INTEGER_LITERAL),
             origin: TokenOrigin::MacroBody {
                 macro_name: "A".to_owned(),
-                origin: MacroBodyOrigin {
-                    call_id: MacroCallId(20),
-                    definition_id: MacroDefinitionId(99),
-                    expansion_id: MacroExpansionId(30),
-                    parent_expansion_id: None,
-                    body_token_index: 0,
-                },
+                call_id: MacroCallId(20),
+                definition_id: MacroDefinitionId(99),
+                expansion_id: MacroExpansionId(30),
+                parent_expansion_id: None,
+                body_token_index: 0,
                 call_range: source_buffer_range(usage_range),
                 body_token_range: source_buffer_range(body_range),
             },

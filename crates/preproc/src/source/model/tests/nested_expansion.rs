@@ -79,17 +79,24 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "3")
         .expect("nested macro body token should be emitted");
-    let SourceTokenOrigin::MacroBody { origin, definition, call, .. } =
-        model.token_origins().get(emitted.origin.unwrap()).unwrap()
+    let SourceTokenOrigin::MacroBody {
+        trace_call,
+        trace_expansion,
+        parent_trace_expansion,
+        trace_definition,
+        definition,
+        call,
+        ..
+    } = model.token_origins().get(emitted.origin.unwrap()).unwrap()
     else {
         panic!("nested emitted token should keep macro body origin");
     };
     assert_eq!(*call, leaf_call.id);
-    assert_eq!(Some(origin.call_id), leaf_call.trace_call);
-    assert_eq!(Some(origin.expansion_id), leaf_call.trace_expansion);
-    assert_eq!(origin.parent_expansion_id, leaf_call.parent_trace_expansion);
+    assert_eq!(Some(*trace_call), leaf_call.trace_call);
+    assert_eq!(Some(*trace_expansion), leaf_call.trace_expansion);
+    assert_eq!(*parent_trace_expansion, leaf_call.parent_trace_expansion);
     assert_eq!(
-        Some(origin.definition_id),
+        Some(*trace_definition),
         model.macro_definitions().get(*definition).unwrap().trace_definition
     );
 
@@ -150,7 +157,7 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "foobar")
         .expect("token paste result should not be dropped");
-    let SourceTokenOrigin::TokenPaste { call: paste_call, origin: paste_origin } =
+    let SourceTokenOrigin::TokenPaste { call: paste_call, trace_call: paste_trace_call, .. } =
         model.token_origins().get(pasted.origin.unwrap()).unwrap()
     else {
         panic!(
@@ -159,7 +166,7 @@ endmodule
         );
     };
     assert_eq!(
-        Some(paste_origin.call_id),
+        Some(*paste_trace_call),
         model.macro_calls().get(*paste_call).and_then(|call| call.trace_call)
     );
 
@@ -168,13 +175,16 @@ endmodule
         .iter()
         .find(|token| token.text.as_str() == "\"foo\"")
         .expect("stringification result should not be dropped");
-    let SourceTokenOrigin::Stringify { call: stringification_call, origin: stringification_origin } =
-        model.token_origins().get(stringified.origin.unwrap()).unwrap()
+    let SourceTokenOrigin::Stringify {
+        call: stringification_call,
+        trace_call: stringification_trace_call,
+        ..
+    } = model.token_origins().get(stringified.origin.unwrap()).unwrap()
     else {
         panic!("stringification should carry macro operation origin");
     };
     assert_eq!(
-        Some(stringification_origin.call_id),
+        Some(*stringification_trace_call),
         model.macro_calls().get(*stringification_call).and_then(|call| call.trace_call)
     );
     assert_ne!(paste_call, stringification_call);

@@ -50,14 +50,20 @@ fn diagnostic_target_for_token(
                 range,
             })
         }
-        SourceTokenOrigin::MacroBody { origin, body_token_range, call, .. } => {
+        SourceTokenOrigin::MacroBody {
+            trace_call,
+            trace_definition,
+            body_token_range,
+            call,
+            ..
+        } => {
             let _call = mapped_macro_call(mapped, *call)?;
             let (source, range) = map_source_mapping_range(mapped, *body_token_range)?;
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroBody {
-                    call: hir_macro_call(db, model_file, origin.call_id),
-                    def: origin.definition_id,
+                    call: hir_macro_call(db, model_file, *trace_call),
+                    def: *trace_definition,
                     body_range: range,
                 },
                 file_id,
@@ -65,7 +71,7 @@ fn diagnostic_target_for_token(
             })
         }
         SourceTokenOrigin::MacroArgument {
-            origin,
+            trace_call,
             call,
             argument_index,
             argument_token_range,
@@ -79,7 +85,7 @@ fn diagnostic_target_for_token(
             let file_id = require_file_backed_source(&source)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::MacroArg {
-                    call: hir_macro_call(db, model_file, origin.call_id),
+                    call: hir_macro_call(db, model_file, *trace_call),
                     arg_index: *argument_index,
                     arg_range: range,
                 },
@@ -99,11 +105,11 @@ fn diagnostic_target_for_token(
             let _source = map_source_mapping_id(mapped, *source)?;
             TokenDiagnosticTarget::Skip
         }
-        SourceTokenOrigin::Builtin { name, origin, call, .. } => {
+        SourceTokenOrigin::Builtin { name, trace_call, call, .. } => {
             let call = mapped_macro_call(mapped, *call)?;
             TokenDiagnosticTarget::Target(DiagnosticTarget {
                 origin: Origin::Builtin {
-                    call: hir_macro_call(db, model_file, origin.call_id),
+                    call: hir_macro_call(db, model_file, *trace_call),
                     name: name.clone(),
                 },
                 file_id: call.file_id,
