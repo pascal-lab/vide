@@ -67,7 +67,8 @@ pub(in crate::preproc) fn map_reference_ranges(
     if directive_source != name_source {
         let directive_file_id = require_file_backed_source(&directive_source)?;
         let name_file_id = require_file_backed_source(&name_source)?;
-        return Err(PreprocError::MismatchedReferenceRangeFiles {
+        return Err(PreprocError::MismatchedRangeFiles {
+            kind: RangeFilesKind::Reference,
             event_id: reference.event_id.raw(),
             directive_file_id,
             name_file_id,
