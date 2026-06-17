@@ -149,7 +149,6 @@ pub struct MacroCallResolution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroArgument {
     pub argument_index: usize,
-    pub source: Option<MappedPreprocSource>,
     pub range: Option<TextRange>,
     pub tokens: Vec<MacroArgumentToken>,
 }
@@ -157,7 +156,6 @@ pub struct MacroArgument {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroArgumentToken {
     pub raw: SmolStr,
-    pub source: Option<MappedPreprocSource>,
     pub range: Option<TextRange>,
 }
 
