@@ -14,8 +14,9 @@ use crate::{
     config::{Config, FilesWatcher},
     global_state::{
         DEFAULT_REQ_HANDLER, GlobalState, WorkspaceFetchCause, WorkspaceGeneration,
-        process_changes::DiagnosticInvalidation,
+        process_changes::DiagnosticInvalidation, respond::Progress,
     },
+    i18n::keys,
 };
 
 const CLIENT_FILE_WATCHER_REGISTRATION_ID: &str = "workspace/didChangeWatchedFiles";
@@ -176,12 +177,21 @@ impl GlobalState {
         };
 
         let to_load_len = to_load.len();
-        let vfs_config_version = self.workspace.workspace_vfs.begin_vfs_load(to_load_len);
+        let vfs_load = self.workspace.workspace_vfs.begin_vfs_load(to_load_len);
+        if vfs_load.superseded_client_progress_active {
+            self.report_progress(
+                self.config_state.config.i18n.text(keys::PROGRESS_ROOTS_SCANNING),
+                Progress::End,
+                None,
+                None,
+                None,
+            );
+        }
 
         self.workspace.vfs_loader.handle.set_config(vfs::loader::Config {
             to_load,
             to_watch,
-            version: vfs_config_version,
+            version: vfs_load.config_version,
         });
 
         self.config_state.source_root_config = source_root_config;

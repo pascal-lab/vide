@@ -329,8 +329,10 @@ mod tests {
         let root_path = root.path().to_path_buf();
         let file_path = root_path.join("stale.sv");
         let mut state = test_state(root_path);
-        state.workspace.workspace_vfs.begin_vfs_load(1);
-        state.workspace.workspace_vfs.begin_vfs_load(1);
+        let stale_load = state.workspace.workspace_vfs.begin_vfs_load(1);
+        let current_load = state.workspace.workspace_vfs.begin_vfs_load(1);
+        assert!(!stale_load.superseded_client_progress_active);
+        assert!(!current_load.superseded_client_progress_active);
 
         state.process_vfs_msg(vfs_loader::Message::Loaded {
             files: vec![(
@@ -361,7 +363,7 @@ mod tests {
             },
         );
 
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(0);
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(0).config_version;
         assert!(!state.workspace.workspace_vfs.is_ready());
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
@@ -379,7 +381,7 @@ mod tests {
         let root = TestDir::new("diagnostic-request-readiness-queue");
         let root_path = root.path().to_path_buf();
         let mut state = test_state(root_path);
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1);
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
         let request_id = lsp_server::RequestId::from(7);
         let req = Request::new(
             request_id.clone(),
@@ -484,8 +486,8 @@ mod tests {
                 ..ClientCapabilities::default()
             },
         );
-        let stale_config = state.workspace.workspace_vfs.begin_vfs_load(4);
-        let current_config = state.workspace.workspace_vfs.begin_vfs_load(4);
+        let stale_config = state.workspace.workspace_vfs.begin_vfs_load(4).config_version;
+        let current_config = state.workspace.workspace_vfs.begin_vfs_load(4).config_version;
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 4,
@@ -533,6 +535,40 @@ mod tests {
     }
 
     #[test]
+    fn superseded_vfs_load_ends_reported_progress() {
+        let root = TestDir::new("superseded-vfs-load-progress");
+        let root_path = root.path().to_path_buf();
+        let (mut state, client) = test_state_with_caps(
+            root_path.clone(),
+            ClientCapabilities {
+                window: Some(WindowClientCapabilities {
+                    work_done_progress: Some(true),
+                    ..WindowClientCapabilities::default()
+                }),
+                ..ClientCapabilities::default()
+            },
+        );
+        let stale_config = state.workspace.workspace_vfs.begin_vfs_load(4).config_version;
+        state.process_vfs_msg(vfs_loader::Message::Progress {
+            n_total: 4,
+            n_done: 0,
+            config_version: stale_config,
+        });
+        assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::Begin(_)));
+
+        state.request_workspace_reload("test reload");
+        let request = state.workspace.fetch_workspaces_task.should_start().unwrap();
+        state
+            .workspace
+            .fetch_workspaces_task
+            .complete(Some((Arc::new(workspace_model(root_path)), Vec::new())));
+        state.switch_workspaces("test switch".to_owned(), request.generation);
+
+        assert!(matches!(recv_work_done_progress(&client), WorkDoneProgress::End(_)));
+        assert_eq!(state.workspace.workspace_vfs.current_vfs_config_version(), stale_config + 1);
+    }
+
+    #[test]
     fn out_of_order_vfs_progress_does_not_regress_readiness_or_report() {
         let root = TestDir::new("out-of-order-vfs-progress");
         let root_path = root.path().to_path_buf();
@@ -546,7 +582,7 @@ mod tests {
                 ..ClientCapabilities::default()
             },
         );
-        let config_version = state.workspace.workspace_vfs.begin_vfs_load(2);
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(2).config_version;
 
         state.process_vfs_msg(vfs_loader::Message::Progress {
             n_total: 2,
