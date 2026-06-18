@@ -267,7 +267,13 @@ impl TriggerPolicy {
         match ctx.trigger {
             None => true,
             Some(TriggerChar::Newline) => matches!(self, TriggerPolicy::ManualPrefixOrNewline),
-            Some(_) if ctx.prefix.is_empty() && ctx.replacement.is_empty() => {
+            Some(trigger) if ctx.prefix.is_empty() && ctx.replacement.is_empty() => {
+                // Structural separators like , and ( are typed to compose syntax,
+                // not to ask for suggestions. Suppress on the empty boundary so
+                // the popup does not steal the user's next Enter or keystroke.
+                if matches!(trigger, TriggerChar::Comma | TriggerChar::OpenParen) {
+                    return false;
+                }
                 matches!(self, TriggerPolicy::NonNewline)
             }
             Some(_) => true,
@@ -397,6 +403,30 @@ mod tests {
                     LexContext::Code,
                     Some(TriggerChar::Newline),
                     Some(keyword(SyntaxKeywordContext::ModuleMember)),
+                ),
+            ),
+            (
+                "comma on empty boundary suppresses port connections",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Comma),
+                    Some(ExpectedSyntax::PortConnection),
+                ),
+            ),
+            (
+                "comma on empty boundary suppresses argument expressions",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::Comma),
+                    Some(ExpectedSyntax::ArgumentExpr),
+                ),
+            ),
+            (
+                "open paren on empty boundary suppresses port connections",
+                context(
+                    LexContext::Code,
+                    Some(TriggerChar::OpenParen),
+                    Some(ExpectedSyntax::PortConnection),
                 ),
             ),
         ] {
