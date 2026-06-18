@@ -1,0 +1,41 @@
+---
+title: 1.2.2
+description: Vide 1.2.2 更新日志。
+---
+
+Vide 1.2.2 改进启动和重载期间的 LSP 行为、补全触发边界、来源感知导航，以及编辑器集成发布包。
+
+## 修复
+
+### LSP 启动和重载
+
+- 依赖完整工作区状态的请求现在会等待 workspace ready 后再执行，避免启动或重载期间的局部快照产生空的工作区符号或诊断结果。([#264](https://github.com/pascal-lab/vide/pull/264) by [@hongjr03](https://github.com/hongjr03))
+- 工作区扫描被重载取代时，现在会关闭旧的 progress，客户端不再保留过期进度提示。([#263](https://github.com/pascal-lab/vide/pull/263) by [@hongjr03](https://github.com/hongjr03))
+- `localparam` 不再被建模为可覆写的模块参数。([#218](https://github.com/pascal-lab/vide/pull/218) by [@hongjr03](https://github.com/hongjr03))
+
+### 编辑体验
+
+- 补全不再在换行、逗号或左括号等边界意外重新弹出，避免 Enter 和逗号被错误的补全弹窗吞掉。([#262](https://github.com/pascal-lab/vide/pull/262) by [@hongjr03](https://github.com/hongjr03))
+
+### 来源导航
+
+- 宏操作目标现在通过来源感知 identity 解析，改进宏和预处理生成代码中的导航与编辑动作。([#252](https://github.com/pascal-lab/vide/pull/252) by [@hongjr03](https://github.com/hongjr03))
+- IDE target dispatch 现在会在渲染 LSP 响应前分派 hover、definition、references 等来源目标。([#251](https://github.com/pascal-lab/vide/pull/251) by [@hongjr03](https://github.com/hongjr03))
+
+## 编辑器集成
+
+- 新增 Zed 扩展，注册 Verilog/SystemVerilog 语言支持，并从 GitHub Releases 下载匹配的 `vide` 二进制。([#249](https://github.com/pascal-lab/vide/pull/249) by [@hongjr03](https://github.com/hongjr03))
+
+## 维护
+
+- 预处理展开来源处理被整理为显式的 macro file 和 source identity 模型。([#258](https://github.com/pascal-lab/vide/pull/258), [#259](https://github.com/pascal-lab/vide/pull/259), [#260](https://github.com/pascal-lab/vide/pull/260) by [@hongjr03](https://github.com/hongjr03))
+- Global state、dispatch 和测试组织被拆分为更小的 LSP event loop 职责边界。([#255](https://github.com/pascal-lab/vide/pull/255), [#256](https://github.com/pascal-lab/vide/pull/256), [#257](https://github.com/pascal-lab/vide/pull/257) by [@hongjr03](https://github.com/hongjr03))
+- CI 发布包流程不再发布 Alpine arm64 development package。([#247](https://github.com/pascal-lab/vide/pull/247) by [@hongjr03](https://github.com/hongjr03))
+
+## 贡献者
+
+感谢本次发布的所有贡献者：
+
+- [@hongjr03](https://github.com/hongjr03)
+
+**完整更新列表**: [v1.2.1...v1.2.2](https://github.com/pascal-lab/vide/compare/v1.2.1...v1.2.2)
