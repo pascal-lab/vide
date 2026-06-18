@@ -18,7 +18,7 @@ export const USER_CONFIG_SETTINGS = [
 		docsGroup: "Qihe",
 		descriptionKey: "configuration.qihe.command.description",
 		markdownDescriptionKey: null,
-		defaultValue: "qihe",
+		defaultValue: null,
 	},
 	{
 		path: ["qihe","autoConfigureArgsFromManifest"],

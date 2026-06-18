@@ -651,6 +651,7 @@ fn resolve_qihe_run_plan(
         .clone()
         .or(options_storage_root)
         .unwrap_or_else(|| workspace.join("storage"));
+    fs::create_dir_all(&workspace)?;
     fs::create_dir_all(&storage_root)?;
     Ok(QiheRunPlan {
         ir_path: workspace.join("input.qh"),
@@ -1747,6 +1748,7 @@ mod tests {
             run_plan.options_path,
             Some(PathBuf::from(root.path().join("qihe-options.toml")))
         );
+        assert!(run_plan.ir_path.parent().is_some_and(|path| path.is_dir()));
         assert!(run_plan.append_options_arg);
         assert!(!run_plan.append_storage_root_arg);
     }

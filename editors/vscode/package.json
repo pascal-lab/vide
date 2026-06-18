@@ -135,8 +135,11 @@
           "description": "%configuration.server.additionalArgs.description%"
         },
         "vide.qihe.command": {
-          "type": "string",
-          "default": "qihe",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
           "description": "%configuration.qihe.command.description%"
         },
         "vide.qihe.autoConfigureArgsFromManifest": {
