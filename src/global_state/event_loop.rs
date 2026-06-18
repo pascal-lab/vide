@@ -365,6 +365,8 @@ impl GlobalState {
                     assert_eq!(progress.n_done, progress.n_total);
                     Progress::End
                 };
+                let starts_client_progress = state == Progress::Begin;
+                let finishes_client_progress = state == Progress::End;
 
                 self.report_progress(
                     self.config_state.config.i18n.text(keys::PROGRESS_ROOTS_SCANNING),
@@ -373,6 +375,14 @@ impl GlobalState {
                     Some(Progress::fraction(progress.n_done, progress.n_total)),
                     None,
                 );
+                if self.config_state.config.cli_work_done_progress() {
+                    if starts_client_progress {
+                        self.workspace.workspace_vfs.note_vfs_client_progress_started();
+                    }
+                    if finishes_client_progress {
+                        self.workspace.workspace_vfs.note_vfs_client_progress_finished();
+                    }
+                }
             }
             vfs_loader::Message::Loaded { files, config_version } => {
                 always!(
