@@ -123,6 +123,16 @@ test('does not expose the old videLsp settings namespace', () => {
   assert.deepEqual(oldSettings, []);
 });
 
+test('contributes Qihe command as a platform default marker', () => {
+  const property = readConfigurationProperties()['vide.qihe.command'] as {
+    type?: unknown;
+    default?: unknown;
+  };
+
+  assert.deepEqual(property.type, ['string', 'null']);
+  assert.equal(property.default, null);
+});
+
 test('localizes package contribution strings for English and Simplified Chinese', () => {
   const packageJson = readPackageJson();
   const placeholderKeys = [...collectNlsPlaceholders(packageJson)].sort();

@@ -137,11 +137,11 @@ qihe run <qihe-run-args> [--options ./qihe-options.toml] -i <tmp.qh> [-c storage
 
 如果 `vide.qihe.compileArgs` 已经包含 `--mode`、`--mode=...` 或 `-m ...`，Vide 不会再自动追加 `--mode sv`。
 
-常用默认值如下。在 Windows 上，如果没有显式配置 `vide.qihe.command`，Vide 会使用 `qihe.bat`：
+常用默认值如下。`vide.qihe.command` 的默认值是 `null`，表示使用平台默认命令：Windows 为 `qihe.bat`，其他平台为 `qihe`。
 
 ```json
 {
-  "vide.qihe.command": "qihe",
+  "vide.qihe.command": null,
   "vide.qihe.autoConfigureArgsFromManifest": true,
   "vide.qihe.compileArgs": [],
   "vide.qihe.runArgs": ["-g", "std"]
@@ -201,6 +201,6 @@ qihe run <qihe-run-args> [--options ./qihe-options.toml] -i <tmp.qh> [-c storage
 
 如果报错与 include 路径、宏定义或 top module 有关，先检查并修正 [项目配置](../../project-configuration/)。
 
-如果报错与骑河命令路径有关，优先把 `vide.qihe.command` 设置为 `qihe` 可执行文件的绝对路径。在 Windows 上，如果默认 Shell 解析的是批处理入口，请把它设置为 `qihe.bat` 的绝对路径。
+如果报错与骑河命令路径有关，先确认 `vide.qihe.command` 是否仍为 `null`。需要覆盖平台默认时，把它设置为 Qihe 入口的绝对路径；在 Windows 上，如果默认 Shell 解析的是批处理入口，请使用 `qihe.bat` 的绝对路径。
 
 如果问题来自骑河自身的编译或运行过程，请前往[骑河项目](https://qihe.pascal-lab.net/)提交 issue。

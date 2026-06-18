@@ -1,5 +1,5 @@
 import { USER_CONFIG_SETTINGS } from './generated/configuration';
-import { resolvedQiheCommand, type ConfigurationReader } from './qiheCommand';
+import type { ConfigurationReader } from './qiheCommand';
 
 function setting<T>(config: ConfigurationReader, section: string, fallback: T): T {
   return config.get<T>(section) ?? fallback;
@@ -7,15 +7,11 @@ function setting<T>(config: ConfigurationReader, section: string, fallback: T): 
 
 export function serverInitializationOptions(
   config: ConfigurationReader,
-  platform: NodeJS.Platform = process.platform,
 ): Record<string, unknown> {
   const options: Record<string, unknown> = {};
 
   for (const configSetting of USER_CONFIG_SETTINGS) {
-    const value =
-      configSetting.vscodeSection === 'qihe.command'
-        ? resolvedQiheCommand(config, platform)
-        : setting(config, configSetting.vscodeSection, configSetting.defaultValue);
+    const value = setting(config, configSetting.vscodeSection, configSetting.defaultValue);
 
     assignNestedValue(options, configSetting.path, value);
   }

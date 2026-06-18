@@ -23,6 +23,9 @@ use utils::paths::Utf8PathBuf;
 
 use super::Config;
 
+#[cfg(windows)]
+const DEFAULT_QIHE_COMMAND: &str = "qihe.bat";
+#[cfg(not(windows))]
 const DEFAULT_QIHE_COMMAND: &str = "qihe";
 const DEFAULT_QIHE_RUN_ARGS: &[&str] = &["-g", "std"];
 const DEFAULT_SLANG_WIDTH_WARNINGS: &[&str] =
@@ -577,9 +580,12 @@ pub(crate) struct SignatureHelpParamsUserConfig {
 pub(crate) struct QiheUserConfig {
     #[cfg_attr(
         feature = "user-config-schema",
-        schemars(description = "Command used to invoke Qihe.", default = "default_qihe_command")
+        schemars(
+            description = "Command used to invoke Qihe. Use null to resolve the platform default.",
+            default = "default_qihe_command_setting"
+        )
     )]
-    pub(crate) command: String,
+    pub(crate) command: Option<String>,
     #[serde(rename = "autoConfigureArgsFromManifest")]
     #[cfg_attr(
         feature = "user-config-schema",
@@ -612,7 +618,7 @@ pub(crate) struct QiheUserConfig {
 impl Default for QiheUserConfig {
     fn default() -> Self {
         Self {
-            command: DEFAULT_QIHE_COMMAND.to_owned(),
+            command: None,
             auto_configure_args_from_manifest: true,
             compile_args: Vec::new(),
             run_args: DEFAULT_QIHE_RUN_ARGS.iter().map(|arg| (*arg).to_owned()).collect(),
@@ -656,8 +662,8 @@ fn default_indent_width() -> usize {
 }
 
 #[cfg(feature = "user-config-schema")]
-fn default_qihe_command() -> String {
-    DEFAULT_QIHE_COMMAND.to_owned()
+fn default_qihe_command_setting() -> Option<String> {
+    None
 }
 
 #[cfg(feature = "user-config-schema")]
@@ -712,7 +718,6 @@ enum ConfigSettingDefault {
 #[derive(Clone, Copy)]
 enum ConfigSettingSchema {
     Boolean,
-    String,
     StringOrNull,
     StringArray,
     Integer { minimum: usize },
@@ -770,9 +775,6 @@ impl ConfigSettingMeta {
             ConfigSettingSchema::Boolean => {
                 property.insert("type".to_owned(), serde_json::json!("boolean"));
             }
-            ConfigSettingSchema::String => {
-                property.insert("type".to_owned(), serde_json::json!("string"));
-            }
             ConfigSettingSchema::StringOrNull => {
                 property.insert("type".to_owned(), serde_json::json!(["string", "null"]));
             }
@@ -820,6 +822,17 @@ impl ConfigSettingMeta {
     }
 }
 
+fn default_qihe_command_for_platform() -> &'static str {
+    DEFAULT_QIHE_COMMAND
+}
+
+fn resolve_qihe_command(command: Option<&str>) -> String {
+    match command.map(str::trim).filter(|cmd| !cmd.is_empty()) {
+        Some(command) => command.to_owned(),
+        None => default_qihe_command_for_platform().to_owned(),
+    }
+}
+
 #[cfg(feature = "user-config-schema")]
 const FILES_WATCHER_ENUM_DESCRIPTIONS: &[(&str, &str)] = &[
     ("client", "configuration.files.watcher.enum.client"),
@@ -841,8 +854,8 @@ const USER_CONFIG_SETTINGS: &[ConfigSettingMeta] = &[
         markdown_description_key: None,
         enum_descriptions: &[],
         exposed_in_vscode: true,
-        default: ConfigSettingDefault::String(DEFAULT_QIHE_COMMAND),
-        schema: ConfigSettingSchema::String,
+        default: ConfigSettingDefault::Null,
+        schema: ConfigSettingSchema::StringOrNull,
     },
     ConfigSettingMeta {
         path: &["qihe", "autoConfigureArgsFromManifest"],
@@ -1408,7 +1421,7 @@ fn apply_user_config_fields(
     field!(&["qihe", "autoConfigureArgsFromManifest"], bool, |cfg, value| {
         cfg.qihe.auto_configure_args_from_manifest = value
     });
-    field!(&["qihe", "command"], String, |cfg, value| cfg.qihe.command = value);
+    field!(&["qihe", "command"], Option<String>, |cfg, value| cfg.qihe.command = value);
     field!(&["qihe", "compileArgs"], Vec<String>, |cfg, value| { cfg.qihe.compile_args = value });
     field!(&["qihe", "runArgs"], Vec<String>, |cfg, value| cfg.qihe.run_args = value);
     field!(&["references", "includeDeclaration"], bool, |cfg, value| {
@@ -1466,10 +1479,7 @@ impl UserConfig {
     }
 
     pub(crate) fn qihe(&self) -> QiheConfig {
-        let command = Some(self.qihe.command.trim())
-            .filter(|cmd| !cmd.is_empty())
-            .unwrap_or(DEFAULT_QIHE_COMMAND)
-            .to_string();
+        let command = resolve_qihe_command(self.qihe.command.as_deref());
 
         let run_args =
             Some(&self.qihe.run_args).filter(|args| !args.is_empty()).cloned().unwrap_or_else(
@@ -1604,6 +1614,31 @@ fn check_default() {
         user_cfg.diagnostics_config().slang.warnings,
         ["width-expand", "width-trunc", "port-width-expand", "port-width-trunc"]
     );
+}
+
+#[cfg(test)]
+fn test_expected_qihe_command_for_current_platform() -> &'static str {
+    default_qihe_command_for_platform()
+}
+
+#[test]
+fn qihe_default_command_matches_current_platform() {
+    let mut errors = vec![];
+    let user_cfg = UserConfig::from_json(serde_json::Value::Null, &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    assert_eq!(user_cfg.qihe().command, test_expected_qihe_command_for_current_platform());
+}
+
+#[cfg(feature = "user-config-schema")]
+#[test]
+fn generated_qihe_command_setting_uses_platform_default_marker() {
+    let properties = generated_vscode_package_properties();
+    let setting =
+        properties.get("vide.qihe.command").expect("qihe command setting should be generated");
+
+    assert_eq!(setting.get("type"), Some(&serde_json::json!(["string", "null"])));
+    assert_eq!(setting.get("default"), Some(&serde_json::Value::Null));
 }
 
 #[test]
