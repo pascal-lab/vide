@@ -1,7 +1,6 @@
 use ::preproc::source::{
     SourceEmittedTokenId, SourceEmittedTokenRange, SourceMacroCall, SourceMacroCallId,
-    SourceMacroDefinition, SourceMacroExpansion, SourceMacroExpansionDefinition,
-    SourcePreprocModel,
+    SourceMacroExpansion, SourceMacroExpansionDefinition, SourcePreprocModel,
 };
 use smol_str::SmolStr;
 use syntax::{SyntaxTree, preproc::MacroCallId as TraceMacroCallId};
@@ -9,7 +8,11 @@ use triomphe::Arc;
 use utils::line_index::{TextRange, TextSize};
 use vfs::FileId;
 
-use crate::{base_db::salsa, db::HirDb};
+use crate::{
+    base_db::{salsa, source_db::MappedSourcePreprocModel},
+    db::HirDb,
+    preproc::{MacroDefinition, map_macro_definition},
+};
 
 mod source_map;
 #[cfg(test)]
@@ -41,34 +44,22 @@ pub struct ExpansionInfo {
     pub source_map: ExpansionSourceMap,
 }
 
+/// Information about one macro expansion at the call site, exposed to the IDE.
+///
+/// `call_file_id` and `call_range` are already mapped to the user-facing file
+/// and range. `definition` is `Builtin` for intrinsics and otherwise the
+/// resolved [`MacroDefinition`] reused from the preproc query layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacroFileExpansion {
-    pub call: MacroFileCall,
-    pub definition: MacroFileExpansionDefinition,
+    pub call_file_id: FileId,
+    pub call_range: TextRange,
+    pub definition: MacroExpansionDefinition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroFileCall {
-    pub file_id: FileId,
-    pub range: TextRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MacroFileExpansionDefinition {
-    Source(MacroFileDefinition),
+pub enum MacroExpansionDefinition {
+    Source(MacroDefinition),
     Builtin { name: SmolStr },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroFileDefinition {
-    pub file_id: FileId,
-    pub name: SmolStr,
-    pub params: Option<Vec<MacroFileDefinitionParam>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MacroFileDefinitionParam {
-    pub name: Option<SmolStr>,
 }
 
 pub fn macro_files_at_offset(
@@ -116,11 +107,9 @@ pub fn macro_file_expansion(db: &dyn HirDb, macro_file: MacroFileId) -> Option<M
     let call = source_call_for_trace_call(&mapped.model, call_loc.trace_call)?;
     let expansion = source_expansion_for_call(&mapped.model, call.id)?;
     Some(MacroFileExpansion {
-        call: MacroFileCall {
-            file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
-            range: mapped.source_map.map_range(call.call_range).ok()?,
-        },
-        definition: macro_file_expansion_definition(mapped, expansion)?,
+        call_file_id: mapped.source_map.file_id(call.call_range.source).ok()?,
+        call_range: mapped.source_map.map_range(call.call_range).ok()?,
+        definition: macro_expansion_definition(mapped, expansion)?,
     })
 }
 
@@ -166,36 +155,19 @@ fn macro_call_for_source_call(
     Some(db.intern_macro_call(MacroCallLoc { model_file, trace_call }))
 }
 
-fn macro_file_expansion_definition(
-    mapped: &crate::base_db::source_db::MappedSourcePreprocModel,
+fn macro_expansion_definition(
+    mapped: &MappedSourcePreprocModel,
     expansion: &SourceMacroExpansion,
-) -> Option<MacroFileExpansionDefinition> {
+) -> Option<MacroExpansionDefinition> {
     match &expansion.definition {
-        SourceMacroExpansionDefinition::Source(definition) => mapped
-            .model
-            .macro_definitions()
-            .get(*definition)
-            .and_then(|definition| macro_file_definition(mapped, definition))
-            .map(MacroFileExpansionDefinition::Source),
+        SourceMacroExpansionDefinition::Source(definition) => {
+            let definition = mapped.model.macro_definitions().get(*definition)?;
+            map_macro_definition(mapped, definition).ok().map(MacroExpansionDefinition::Source)
+        }
         SourceMacroExpansionDefinition::Builtin { name } => {
-            Some(MacroFileExpansionDefinition::Builtin { name: name.clone() })
+            Some(MacroExpansionDefinition::Builtin { name: name.clone() })
         }
     }
-}
-
-fn macro_file_definition(
-    mapped: &crate::base_db::source_db::MappedSourcePreprocModel,
-    definition: &SourceMacroDefinition,
-) -> Option<MacroFileDefinition> {
-    let file_id = mapped
-        .source_map
-        .predefine_manifest_source(definition.name_range.source)
-        .map(|source| source.file_id)
-        .or_else(|| mapped.source_map.file_id(definition.name_range.source).ok())?;
-    let params = definition.params.as_ref().map(|params| {
-        params.iter().map(|param| MacroFileDefinitionParam { name: param.name.clone() }).collect()
-    });
-    Some(MacroFileDefinition { file_id, name: definition.name.clone(), params })
 }
 
 fn emitted_range_for_call(

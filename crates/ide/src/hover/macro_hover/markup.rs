@@ -3,7 +3,7 @@ use hir::{
         source_db::{SourceDb, SourceRootDb},
         source_root::SourceRootRole,
     },
-    hir_def::macro_file::{MacroFileDefinition, MacroFileExpansionDefinition},
+    hir_def::macro_file::MacroExpansionDefinition,
     preproc::{MacroDefinition, MacroParamDefinition},
 };
 use vfs::FileId;
@@ -17,13 +17,13 @@ struct MacroSourceLink {
 
 pub(super) fn render_macro_expansion_header(
     markup: &mut Markup,
-    definition: &MacroFileExpansionDefinition,
+    definition: &MacroExpansionDefinition,
 ) {
     match definition {
-        MacroFileExpansionDefinition::Source(definition) => {
-            markup.push_with_code_fence(&macro_file_signature(definition));
+        MacroExpansionDefinition::Source(definition) => {
+            markup.push_with_code_fence(&macro_signature(definition));
         }
-        MacroFileExpansionDefinition::Builtin { name, .. } => {
+        MacroExpansionDefinition::Builtin { name, .. } => {
             markup.push_with_code_fence(&format!("`{name}"));
         }
     }
@@ -36,21 +36,6 @@ pub(super) fn render_macro_expansion_separator(markup: &mut Markup) {
 }
 
 fn macro_signature(definition: &MacroDefinition) -> String {
-    let mut signature = format!("`{}", definition.name);
-    if let Some(params) = &definition.params {
-        signature.push('(');
-        for (index, param) in params.iter().enumerate() {
-            if index > 0 {
-                signature.push_str(", ");
-            }
-            signature.push_str(param.name.as_deref().unwrap_or("<unnamed>"));
-        }
-        signature.push(')');
-    }
-    signature
-}
-
-fn macro_file_signature(definition: &MacroFileDefinition) -> String {
     let mut signature = format!("`{}", definition.name);
     if let Some(params) = &definition.params {
         signature.push('(');
@@ -226,10 +211,10 @@ pub(super) fn render_macro_source_link(
 pub(super) fn render_macro_expansion_source_link(
     db: &RootDb,
     markup: &mut Markup,
-    definition: &MacroFileExpansionDefinition,
+    definition: &MacroExpansionDefinition,
     anchor_file_id: FileId,
 ) {
-    let MacroFileExpansionDefinition::Source(definition) = definition else {
+    let MacroExpansionDefinition::Source(definition) = definition else {
         return;
     };
     render_macro_file_source_link(db, markup, definition.file_id, anchor_file_id);

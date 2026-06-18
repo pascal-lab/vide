@@ -1,5 +1,5 @@
 use super::*;
-use crate::hir_def::macro_file::{MacroFileExpansionDefinition, macro_file_expansion};
+use crate::hir_def::macro_file::{MacroExpansionDefinition, macro_file_expansion};
 
 #[test]
 fn preproc_macro_expansion_exposes_macro_file_text() {
@@ -14,7 +14,7 @@ endmodule
     let metadata = macro_file_expansion(&db, macro_file).expect("MAKE_DECL expansion expected");
     assert!(matches!(
         &metadata.definition,
-        MacroFileExpansionDefinition::Source(definition)
+        MacroExpansionDefinition::Source(definition)
             if definition.name.as_str() == "MAKE_DECL"
     ));
 
@@ -123,9 +123,9 @@ fn preproc_escaped_identifier_expansion_text_is_available() {
     assert!(expansion.text.contains("\\escaped.name"));
 }
 
-fn expansion_definition_name(definition: &MacroFileExpansionDefinition) -> &str {
+fn expansion_definition_name(definition: &MacroExpansionDefinition) -> &str {
     match definition {
-        MacroFileExpansionDefinition::Source(definition) => definition.name.as_str(),
-        MacroFileExpansionDefinition::Builtin { name } => name.as_str(),
+        MacroExpansionDefinition::Source(definition) => definition.name.as_str(),
+        MacroExpansionDefinition::Builtin { name } => name.as_str(),
     }
 }
