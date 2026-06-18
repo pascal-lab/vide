@@ -1,5 +1,5 @@
 use lsp_server::Request;
-use lsp_types::request::Request as _;
+use lsp_types::request::{Request as _, WorkspaceSymbolRequest};
 
 use crate::{
     global_state::{GlobalState, dispatcher::ReqDispatcher, handlers},
@@ -8,10 +8,17 @@ use crate::{
 
 impl GlobalState {
     pub(in crate::global_state) fn handle_request(&mut self, req: Request) {
-        if Self::is_pull_diagnostic_request(&req) && !self.is_workspace_ready() {
-            self.workspace.workspace_vfs.defer_diagnostics_until_ready();
-            self.diagnostics.pending_diagnostic_requests.push(req);
-            return;
+        if !self.is_workspace_ready() {
+            if Self::is_pull_diagnostic_request(&req) {
+                self.workspace.workspace_vfs.defer_diagnostics_until_ready();
+                self.diagnostics.pending_diagnostic_requests.push(req);
+                return;
+            }
+
+            if Self::is_workspace_symbol_request(&req) {
+                self.workspace.pending_workspace_symbol_requests.push(req);
+                return;
+            }
         }
 
         let mut dispatcher = ReqDispatcher { req: Some(req), global_state: self };
@@ -82,5 +89,9 @@ impl GlobalState {
             lsp_types::request::DocumentDiagnosticRequest::METHOD
                 | lsp_types::request::WorkspaceDiagnosticRequest::METHOD
         )
+    }
+
+    fn is_workspace_symbol_request(req: &Request) -> bool {
+        req.method == WorkspaceSymbolRequest::METHOD
     }
 }

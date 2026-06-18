@@ -177,6 +177,8 @@ impl GlobalState {
         }
 
         if self.is_workspace_ready() {
+            self.drain_pending_workspace_symbol_requests();
+
             let client_refresh = !was_workspace_ready || state_changed;
 
             if client_refresh && self.config_state.config.cli_code_lens_refresh_support() {

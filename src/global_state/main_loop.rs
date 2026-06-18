@@ -60,6 +60,16 @@ impl GlobalState {
             }
         }
     }
+
+    pub(in crate::global_state) fn drain_pending_workspace_symbol_requests(&mut self) {
+        let pending_requests =
+            std::mem::take(&mut self.workspace.pending_workspace_symbol_requests);
+        for req in pending_requests {
+            if !self.is_completed(&req) {
+                self.handle_request(req);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -70,7 +80,9 @@ mod tests {
     use lsp_types::{
         ClientCapabilities, Diagnostic, DiagnosticSeverity, Position, ProgressParams,
         ProgressParamsValue, PublishDiagnosticsParams, Range, WindowClientCapabilities,
-        WorkDoneProgress, notification::Notification as _, request::Request as _,
+        WorkDoneProgress, WorkDoneProgressParams, WorkspaceSymbolParams,
+        notification::Notification as _,
+        request::{Request as _, WorkspaceSymbolRequest},
     };
     use project_model::{ProjectModel, project_manifest::ProjectManifest};
     use rustc_hash::FxHashSet;
@@ -412,6 +424,47 @@ mod tests {
         let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         let Task::Response(response) = task else {
             panic!("expected parked diagnostic request to resume as response task, got {task:?}");
+        };
+        assert_eq!(response.response.id, request_id);
+    }
+
+    #[test]
+    fn workspace_symbol_requests_are_parked_until_workspace_ready() {
+        let root = TestDir::new("workspace-symbol-readiness-queue");
+        let root_path = root.path().to_path_buf();
+        let mut state = test_state(root_path);
+        let config_version = state.workspace.workspace_vfs.begin_vfs_load(1).config_version;
+        let request_id = lsp_server::RequestId::from(8);
+        let req = Request::new(
+            request_id.clone(),
+            WorkspaceSymbolRequest::METHOD.to_owned(),
+            WorkspaceSymbolParams {
+                query: "top shared".to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: Default::default(),
+            },
+        );
+
+        state.register_request(Instant::now(), &req);
+        state.handle_request(req);
+
+        assert_eq!(state.workspace.pending_workspace_symbol_requests.len(), 1);
+        assert!(state.tasks.task_pool.receiver.try_recv().is_err());
+
+        state
+            .handle_event(Event::Vfs(vfs_loader::Message::Progress {
+                n_total: 1,
+                n_done: 1,
+                config_version,
+            }))
+            .unwrap();
+
+        assert!(state.workspace.pending_workspace_symbol_requests.is_empty());
+        let task = state.tasks.task_pool.receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let Task::Response(response) = task else {
+            panic!(
+                "expected parked workspace symbol request to resume as response task, got {task:?}"
+            );
         };
         assert_eq!(response.response.id, request_id);
     }
