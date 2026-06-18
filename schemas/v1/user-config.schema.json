@@ -142,7 +142,7 @@
     "qihe": {
       "$ref": "#/$defs/QiheUserConfig",
       "default": {
-        "command": "qihe",
+        "command": null,
         "autoConfigureArgsFromManifest": true,
         "compileArgs": [],
         "runArgs": [
@@ -685,9 +685,12 @@
       "type": "object",
       "properties": {
         "command": {
-          "description": "Command used to invoke Qihe.",
-          "type": "string",
-          "default": "qihe"
+          "description": "Command used to invoke Qihe. Use null to resolve the platform default.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "autoConfigureArgsFromManifest": {
           "description": "Automatically add Qihe compile mode and forwarded slang options from the Vide project manifest.",

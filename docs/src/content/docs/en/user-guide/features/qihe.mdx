@@ -139,11 +139,11 @@ The arguments come from:
 
 If `vide.qihe.compileArgs` already contains `--mode`, `--mode=...`, or `-m ...`, Vide does not add `--mode sv` again.
 
-Common defaults are shown below. On Windows, if `vide.qihe.command` is not explicitly configured, Vide uses `qihe.bat`:
+Common defaults are shown below. `vide.qihe.command` defaults to `null`, which means Vide uses the platform default command: `qihe.bat` on Windows and `qihe` elsewhere.
 
 ```json
 {
-  "vide.qihe.command": "qihe",
+  "vide.qihe.command": null,
   "vide.qihe.autoConfigureArgsFromManifest": true,
   "vide.qihe.compileArgs": [],
   "vide.qihe.runArgs": ["-g", "std"]
@@ -203,6 +203,6 @@ If Qihe analysis fails, open the `Vide Qihe` output channel first and check:
 
 If the error is related to include paths, macro definitions, or top modules, fix [Project Configuration](../../project-configuration/) first.
 
-If the error is related to the Qihe command path, first set `vide.qihe.command` to the absolute path of the `qihe` executable. On Windows, if the default shell resolves the batch entry point, set it to the absolute path of `qihe.bat`.
+If the error is related to the Qihe command path, first confirm whether `vide.qihe.command` is still `null`. When you need to override the platform default, set it to the absolute path of the Qihe entry point. On Windows, if the default shell resolves the batch entry point, use the absolute path of `qihe.bat`.
 
 If the problem comes from Qihe's own compile or run process, file an issue in the [Qihe project](https://qihe.pascal-lab.net/).
