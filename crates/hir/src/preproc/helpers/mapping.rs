@@ -1,6 +1,6 @@
 use super::*;
 
-mod definitions;
+pub(in crate::preproc) mod definitions;
 mod includes;
 mod references;
 

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(in crate::preproc) fn map_macro_definition(
+pub(crate) fn map_macro_definition(
     mapped: &MappedSourcePreprocModel,
     definition: &SourceMacroDefinition,
 ) -> PreprocResult<MacroDefinition> {

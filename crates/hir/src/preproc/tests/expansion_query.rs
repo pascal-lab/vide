@@ -1,5 +1,5 @@
 use super::*;
-use crate::hir_def::macro_file::{MacroFileExpansionDefinition, macro_file_expansion};
+use crate::hir_def::macro_file::{MacroExpansionDefinition, macro_file_expansion};
 
 #[test]
 fn preproc_include_usage_resolves_to_header_define() {
@@ -42,17 +42,17 @@ endmodule
 
     let obj_file = single_macro_file_at(&db, TOP, offset(root_text, "`OBJ"));
     let obj = macro_file_expansion(&db, obj_file).expect("object-like macro expansion expected");
-    assert_eq!(obj.call.file_id, TOP);
-    assert_eq!(text_at_range(root_text, obj.call.range), "`OBJ");
+    assert_eq!(obj.call_file_id, TOP);
+    assert_eq!(text_at_range(root_text, obj.call_range), "`OBJ");
     assert_eq!(db.macro_expansion(obj_file).text.trim(), "8");
 
     let wrap_file = single_macro_file_at(&db, TOP, offset(root_text, "`WRAP"));
     let wrap = macro_file_expansion(&db, wrap_file).expect("outer macro expansion expected");
-    assert_eq!(wrap.call.file_id, TOP);
-    assert_eq!(text_at_range(root_text, wrap.call.range), "`WRAP");
+    assert_eq!(wrap.call_file_id, TOP);
+    assert_eq!(text_at_range(root_text, wrap.call_range), "`WRAP");
     assert!(matches!(
         &wrap.definition,
-        MacroFileExpansionDefinition::Source(definition) if definition.name.as_str() == "WRAP"
+        MacroExpansionDefinition::Source(definition) if definition.name.as_str() == "WRAP"
     ));
     assert_eq!(db.macro_expansion(wrap_file).text.trim(), "3");
 }
@@ -111,10 +111,10 @@ endmodule
         let expansion = macro_file_expansion(&db, macro_file).expect("builtin call expected");
         assert!(matches!(
             expansion.definition,
-            MacroFileExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
+            MacroExpansionDefinition::Builtin { name, .. } if name.as_str() == expected_name
         ));
 
-        let diagnostic = diagnostic_target_for_range(&db, TOP, expansion.call.range)
+        let diagnostic = diagnostic_target_for_range(&db, TOP, expansion.call_range)
             .unwrap()
             .target
             .expect("diagnostic target expected");
@@ -124,7 +124,7 @@ endmodule
                 if name.as_str() == expected_name
         ));
         assert_eq!(diagnostic.file_id, TOP);
-        assert_eq!(diagnostic.range, expansion.call.range);
+        assert_eq!(diagnostic.range, expansion.call_range);
     }
 }
 
@@ -142,7 +142,7 @@ endmodule
     for (name, call_text) in [("`EMPTY", "`EMPTY"), ("`DROP", "`DROP(foo)")] {
         let macro_file = single_macro_file_at(&db, TOP, offset(root_text, name));
         let expansion = macro_file_expansion(&db, macro_file).expect("macro expansion expected");
-        assert_eq!(text_at_range(root_text, expansion.call.range), call_text);
+        assert_eq!(text_at_range(root_text, expansion.call_range), call_text);
         assert_eq!(db.macro_expansion(macro_file).text, "");
     }
 }

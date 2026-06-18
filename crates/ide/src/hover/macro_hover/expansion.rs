@@ -60,8 +60,8 @@ pub(super) fn expanded_macro_hover(
         .filter_map(|macro_file| {
             let metadata = macro_file_expansion(db, macro_file)?;
             if !reference_ranges.iter().any(|&(file_id, range)| {
-                file_id == metadata.call.file_id
-                    && metadata.call.range.intersect(range).is_some_and(|range| !range.is_empty())
+                file_id == metadata.call_file_id
+                    && metadata.call_range.intersect(range).is_some_and(|range| !range.is_empty())
             }) {
                 return None;
             }
@@ -74,7 +74,7 @@ pub(super) fn expanded_macro_hover(
     }
 
     let ranges =
-        expansions.iter().map(|expansion| expansion.metadata.call.range).collect::<Vec<_>>();
+        expansions.iter().map(|expansion| expansion.metadata.call_range).collect::<Vec<_>>();
     let range = covering_range(&ranges).unwrap_or_else(|| TextRange::empty(offset));
     let markup = expanded_macro_markup(db, &expansions);
     Some(RangeInfo::new(range, markup))
@@ -109,7 +109,7 @@ fn render_expanded_macro(db: &RootDb, markup: &mut Markup, expansion: &ExpandedM
         db,
         markup,
         &expansion.metadata.definition,
-        expansion.metadata.call.file_id,
+        expansion.metadata.call_file_id,
     );
 }
 

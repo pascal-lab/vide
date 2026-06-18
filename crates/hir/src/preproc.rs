@@ -36,6 +36,7 @@ mod reference_queries;
 mod types;
 
 use self::helpers::*;
+pub(crate) use self::helpers::mapping::definitions::map_macro_definition;
 pub use self::{
     conditionals::*, definitions::*, diagnostics::*, expansion::*, includes::*, reference_index::*,
     reference_queries::*, types::*,
