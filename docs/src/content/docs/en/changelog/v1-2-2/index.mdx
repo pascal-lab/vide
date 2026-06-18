@@ -1,0 +1,41 @@
+---
+title: 1.2.2
+description: Vide 1.2.2 release notes.
+---
+
+Vide 1.2.2 improves startup and reload behavior, completion trigger handling, source-aware navigation, and editor integration packaging.
+
+## Fixes
+
+### LSP Startup and Reload
+
+- Workspace-scoped requests now wait for workspace readiness before running, preventing partial startup or reload snapshots from producing empty workspace symbol or diagnostic results. ([#264](https://github.com/pascal-lab/vide/pull/264) by [@hongjr03](https://github.com/hongjr03))
+- Workspace scan progress is now closed when superseded by a reload, so clients no longer keep stale progress notifications open. ([#263](https://github.com/pascal-lab/vide/pull/263) by [@hongjr03](https://github.com/hongjr03))
+- Localparams are no longer treated as overridable module parameters. ([#218](https://github.com/pascal-lab/vide/pull/218) by [@hongjr03](https://github.com/hongjr03))
+
+### Editing
+
+- Completion no longer reopens on newline, comma, or open-parenthesis boundaries that should commit a line break or punctuation input. This keeps Enter and comma from being swallowed by unintended completion popups. ([#262](https://github.com/pascal-lab/vide/pull/262) by [@hongjr03](https://github.com/hongjr03))
+
+### Source Navigation
+
+- Macro operation targets now resolve through source-aware identities, improving navigation and edit actions across macro and preprocessor-generated code. ([#252](https://github.com/pascal-lab/vide/pull/252) by [@hongjr03](https://github.com/hongjr03))
+- IDE target dispatch now routes hover, definition, references, and related source targets before rendering LSP responses. ([#251](https://github.com/pascal-lab/vide/pull/251) by [@hongjr03](https://github.com/hongjr03))
+
+## Editor Integrations
+
+- Added a Zed extension that registers Verilog/SystemVerilog language support and downloads the matching `vide` binary from GitHub Releases. ([#249](https://github.com/pascal-lab/vide/pull/249) by [@hongjr03](https://github.com/hongjr03))
+
+## Maintenance
+
+- Preprocessor expansion source handling was reorganized around explicit macro files and source identities. ([#258](https://github.com/pascal-lab/vide/pull/258), [#259](https://github.com/pascal-lab/vide/pull/259), [#260](https://github.com/pascal-lab/vide/pull/260) by [@hongjr03](https://github.com/hongjr03))
+- Global state, dispatch, and test organization were split into smaller responsibilities for the LSP event loop. ([#255](https://github.com/pascal-lab/vide/pull/255), [#256](https://github.com/pascal-lab/vide/pull/256), [#257](https://github.com/pascal-lab/vide/pull/257) by [@hongjr03](https://github.com/hongjr03))
+- CI release packaging no longer publishes the Alpine arm64 development package. ([#247](https://github.com/pascal-lab/vide/pull/247) by [@hongjr03](https://github.com/hongjr03))
+
+## Contributors
+
+Thanks to everyone who contributed to this release:
+
+- [@hongjr03](https://github.com/hongjr03)
+
+**Full Changelog**: [v1.2.1...v1.2.2](https://github.com/pascal-lab/vide/compare/v1.2.1...v1.2.2)
